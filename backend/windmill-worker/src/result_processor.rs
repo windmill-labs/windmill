@@ -1390,8 +1390,28 @@ async fn maybe_post_git_sync_check(
             }
         }
     } else {
-        // Phase 4: dry-run diff preview for a PR.
-        if !success {
+        // Phase 4: dry-run diff preview for a PR. The diff previews the PR's
+        // merge with its base, so an unmergeable PR has no diff to compute;
+        // the pull script reports that as a structured result carrying one of
+        // these sentinels (a thrown error would reach the result as truncated
+        // log tails that can drop the message), matched before the
+        // success/failure split. Resolving conflicts requires pushing to the
+        // branch, which re-runs the check.
+        if result_raw.contains("PR_MERGE_CONFLICTS") {
+            (
+                "failure",
+                "Merge conflicts with the base branch".to_string(),
+                "This PR cannot be merged cleanly, so there is no deploy diff to compute. Resolve the conflicts and push again to re-run this check."
+                    .to_string(),
+            )
+        } else if result_raw.contains("PR_HEAD_REF_UNAVAILABLE") {
+            (
+                "failure",
+                "Could not compute the deploy diff".to_string(),
+                "Windmill could not fetch this PR's current head from GitHub. Push again to re-run this check."
+                    .to_string(),
+            )
+        } else if !success {
             (
                 "failure",
                 "Windmill diff failed".to_string(),
