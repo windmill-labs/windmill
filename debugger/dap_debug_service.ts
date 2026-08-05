@@ -47,6 +47,7 @@ import {
 	type NsjailConfig
 } from './dap_websocket_server_bun'
 import { sessionEnv } from './env_passthrough'
+import { fetchRegistryConfig, type RegistryConfig } from './registry_config'
 
 // ============================================================================
 // Configuration
@@ -650,17 +651,17 @@ class PythonDebugSession extends BaseDebugSession {
 	 * Install the script's imports through `windmill prepare-deps` and return the venv to add to
 	 * the debugged script's sys.path.
 	 *
-	 * This runs here rather than in the Python server because the registry settings the CLI reads
-	 * (`PY_INDEX_URL` and friends) routinely embed private-registry credentials, and the Python
-	 * server executes the submitted script inside its own interpreter: anything in that process is
-	 * recoverable by the script. The service never executes user code, so the credentials stop here.
+	 * This runs here rather than in the Python server because the registry settings the CLI is
+	 * given routinely embed private-registry credentials, and the Python server executes the
+	 * submitted script inside its own interpreter: anything in that process is recoverable by the
+	 * script. The service never executes user code, so the credentials stop here.
 	 *
 	 * It still goes through spawnProcess so nsjail confines it on the same terms as the debuggee:
 	 * `uv pip install` builds source distributions, which executes their build backend's arbitrary
 	 * Python. Those same credentials are what `inheritEnv` is for — the jail config keeps the
 	 * environment across the boundary, so nothing else has to carry them in.
 	 */
-	private async prepareDependencies(code: string): Promise<string | null> {
+	private async prepareDependencies(code: string, registry: RegistryConfig): Promise<string | null> {
 		if (!this.windmillPath) {
 			logger.info('No windmill binary path configured, skipping dependency preparation')
 			return null
@@ -688,7 +689,12 @@ class PythonDebugSession extends BaseDebugSession {
 				// site-packages goes on that interpreter's sys.path, and uv otherwise picks its
 				// own, which silently leaves compiled extensions unimportable.
 				stdin: new Blob([
-					JSON.stringify({ code, language: 'python3', python_path: config.pythonPath }) + '\n'
+					JSON.stringify({
+						code,
+						language: 'python3',
+						python_path: config.pythonPath,
+						registry
+					}) + '\n'
 				]),
 				inheritEnv: true,
 				detached: true
@@ -1042,6 +1048,8 @@ class PythonDebugSession extends BaseDebugSession {
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
+		// Also what authorizes the registry configuration fetch below.
+		const token = args.token as string | undefined
 
 		// Enforce signing on every launch. The token is passed in the launch
 		// arguments and is verified against the inline `code` (see windmill-api-debug).
@@ -1055,7 +1063,6 @@ class PythonDebugSession extends BaseDebugSession {
 				return
 			}
 
-			const token = args.token as string | undefined
 			if (!token) {
 				logger.error('No debug token provided but signed requests are required')
 				this.sendResponse(request, false, {}, 'Debug token required. Ensure the debug session was signed by the backend.')
@@ -1118,7 +1125,19 @@ sys.stdout.flush()
 
 		try {
 			if (code) {
-				this.venvPath = (await this.prepareDependencies(code)) ?? undefined
+				const registry = await fetchRegistryConfig(token, logger)
+				// A round trip of its own, during which the client can give up: the installer runs
+				// a source distribution's build backend, so starting one for a session that is
+				// already gone executes package code nobody is waiting for.
+				if (this.disposed) {
+					logger.info('Session torn down during the registry configuration fetch, not installing')
+					await this.cleanup()
+					return
+				}
+				if (registry.message) {
+					this.sendEvent('output', { category: 'console', output: `${registry.message}\n` })
+				}
+				this.venvPath = (await this.prepareDependencies(code, registry)) ?? undefined
 			}
 
 			// Installing takes long enough for the client to give up meanwhile, and cleanup() has

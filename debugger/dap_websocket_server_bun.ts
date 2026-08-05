@@ -27,6 +27,7 @@ import { mkdtemp, writeFile, unlink, rmdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sessionEnv } from './env_passthrough'
+import { fetchRegistryConfig, type RegistryConfig } from './registry_config'
 
 // Types for V8 Inspector Protocol
 interface V8Message {
@@ -1512,6 +1513,8 @@ export class DebugSession {
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
+		// Also what authorizes the registry configuration fetch below.
+		const token = args.token as string | undefined
 
 		// Enforce signing on every launch. The token is passed in the launch
 		// arguments and is verified against the inline `code` (see windmill-api-debug).
@@ -1525,7 +1528,6 @@ export class DebugSession {
 				return
 			}
 
-			const token = args.token as string | undefined
 			if (!token) {
 				logger.error('No debug token provided but signed requests are required')
 				this.sendResponse(request, false, {}, 'Debug token required. Ensure the debug session was signed by the backend.')
@@ -1557,7 +1559,19 @@ export class DebugSession {
 		// Prepare dependencies using the original code (before any modifications)
 		// This analyzes imports and installs required npm packages
 		if (code) {
-			this.nodeModulesPath = await this.prepareDependencies(code) || undefined
+			const registry = await fetchRegistryConfig(token, logger)
+			// A round trip of its own, during which the client can give up: the installer runs the
+			// packages' postinstall scripts, so starting one for a session that is already gone
+			// executes package code nobody is waiting for.
+			if (this.disposed) {
+				logger.info('Session was torn down during the registry configuration fetch, not installing')
+				this.sendResponse(request, false, {}, 'Session terminated during dependency preparation')
+				return
+			}
+			if (registry.message) {
+				this.sendEvent('output', { category: 'console', output: `${registry.message}\n` })
+			}
+			this.nodeModulesPath = await this.prepareDependencies(code, registry) || undefined
 
 			// Installing takes long enough for the client to give up meanwhile, and cleanup() has
 			// then already run: starting the debuggee now would leak a process nothing owns.
@@ -1653,10 +1667,18 @@ export class DebugSession {
 	 *
 	 * Jailed on the same terms as the debuggee: `bun install` runs the packages' postinstall
 	 * scripts, which is user-supplied code executing next to the other services in the container.
-	 * Its environment is inherited rather than filtered, which is what carries the registry and
-	 * CA settings into the installer (the jail keeps the environment across the boundary).
+	 * Its environment is inherited rather than filtered, which is what carries the CA settings
+	 * into the installer (the jail keeps the environment across the boundary).
+	 *
+	 * The CLI has no database, so `registry` carries the instance's registry settings down to it
+	 * instead. They configure `bun install` and nothing else: the debugged script never gets
+	 * them, since it could read them back out of the process it runs in.
 	 */
-	private async prepareDependencies(code: string, language: string = 'bun'): Promise<string | null> {
+	private async prepareDependencies(
+		code: string,
+		registry: RegistryConfig,
+		language: string = 'bun'
+	): Promise<string | null> {
 		if (!this.windmillPath) {
 			logger.info('No windmill binary path configured, skipping dependency preparation')
 			return null
@@ -1679,7 +1701,7 @@ export class DebugSession {
 		let timedOut = false
 
 		try {
-			const input = JSON.stringify({ code, language }) + '\n'
+			const input = JSON.stringify({ code, language, registry }) + '\n'
 			logger.info(`prepare-deps input length: ${input.length}`)
 
 			// Spawn the windmill binary with prepare-deps command. Its environment is inherited

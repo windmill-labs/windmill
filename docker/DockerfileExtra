@@ -96,6 +96,7 @@ COPY debugger/dap_debug_service.ts .
 COPY debugger/dap_websocket_server_bun.ts .
 COPY debugger/env_passthrough.ts .
 COPY debugger/dap_websocket_server.py .
+COPY debugger/registry_config.ts .
 COPY debugger/nsjail.debug.config.proto .
 
 # Install Python debugger dependencies using uv

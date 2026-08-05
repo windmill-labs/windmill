@@ -48,6 +48,7 @@ COPY dap_debug_service.ts .
 COPY dap_websocket_server_bun.ts .
 COPY env_passthrough.ts .
 COPY dap_websocket_server.py .
+COPY registry_config.ts .
 
 # Expose the default port
 EXPOSE 5679

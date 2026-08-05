@@ -75,36 +75,81 @@ Options:
 | `DAP_NSJAIL_PATH` | nsjail binary path | nsjail |
 | `DAP_NSJAIL_CONFIG` | nsjail config file path | - |
 
-### Python dependency preparation
+### Dependency preparation
 
-Before debugging a Python script, its imports are installed through `windmill prepare-deps`, which
-runs `uv` without a database connection. It cannot read the instance settings, so it takes its
-registry configuration from the environment of the debug service instead, and the Python server is
-handed the resulting venv with `--venv-path`. The install runs in the service rather than in the
-session because a private index URL usually embeds credentials and the Python server executes the
-debugged script inside its own interpreter, where anything it holds is readable by that script.
+Before debugging a script, its imports are installed through `windmill prepare-deps`, which runs
+`uv` (Python) or `bun install` (TypeScript) without a database connection. The install runs in the
+service rather than in the session because the registry configuration usually embeds credentials
+and a debug server executes the submitted script inside a process the script can read; the Python
+server is handed only the resulting venv, with `--venv-path`, and a Bun session only the resulting
+`node_modules`.
 
-Set these on the debug service. Where two names are listed the first wins; a worker reads the
-`PIP_*` / `PY_*` names in the same way, except for the index URLs, whose worker env fallbacks are
-only `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` (the `PY_*` spellings are accepted here for symmetry
-with the other settings):
+`DAP_PREPARE_DEPS_TIMEOUT_MS` bounds the install (default 120000); past it the session starts
+without its dependencies. When the install fails, the CLI answers `success: false` and carries the
+installer's stderr in both `error` and `install_stderr`; the service reports it to the client as an
+`output` event, so the reason (unreachable mirror, untrusted certificate, unknown package) reaches
+the user instead of a bare `ModuleNotFoundError` at the first import.
+
+### Registry configuration
+
+Because `prepare-deps` has no database, the service reads the instance settings for it from
+`GET /api/debug/registry_config` on `WINDMILL_BASE_URL` and passes them down over the CLI's stdin
+request. It is authorized by the launch token of the session being started, and serves only the
+settings that session's own installer runs on, so a TypeScript session's token cannot be used to
+read the Python index credentials.
+
+The token also reaches the browser, so what it can fetch is what a workspace member can fetch.
+Sessions started by an operator are refused outright, since an operator cannot run a preview job
+either; for a member who can, the npm settings are already exposed by a preview (a worker leaves
+the same `.npmrc` / `bunfig.toml` in the directory the previewed script runs in), while the Python
+index URL, which otherwise only appears as uv's argv, becomes readable where it was not before.
+
+These settings are Enterprise-only, exactly as they are for jobs, and a CE instance reports that in
+the session's output rather than applying them:
+
+| Setting | Applies to |
+|---------|------------|
+| `npm_config_registry` | `bun install` registry and its `:_authToken=` |
+| `npmrc` | written verbatim as `.npmrc`, taking precedence over `npm_config_registry` |
+| `bunfig_install_scopes` | `[install.scopes]` in the generated `bunfig.toml` |
+| `pip_index_url` | `uv --index-url` |
+| `pip_extra_index_url` | `uv --extra-index-url`, comma-separated |
+
+`uv_index_strategy` is served on any edition, like it is to a worker. An index URL holding the
+`EPHEMERAL_TOKEN` placeholder is not served at all: only a worker can run the command that
+substitutes it.
+
+The credential-bearing files (`.npmrc`, `bunfig.toml`) are written under
+`/var/tmp/windmill-debug-registry`, not into the directory the install runs in, and are deleted
+when the install ends. That directory is not private to the install: a session resolves its
+`node_modules` symlink back into it, and `nsjail.debug.config.proto` bind-mounts the whole of
+`/tmp` into every session, so credentials left there would be readable by a concurrent session.
+`/var/tmp` is a tmpfs in that same config, one instance per jail, so a session sees an empty one
+and a jailed install's credentials go away with the jail even when it is killed (the service kills
+an install with SIGKILL, which no cleanup in the installer can survive). An install running
+unjailed writes to the host's `/var/tmp` instead, where a directory a kill left behind is removed
+by the next install; a session running unjailed is unconfined anyway and sees the whole filesystem,
+as it already does the rest of the service's state.
+
+The rest of the registry configuration has no instance setting and is read from the environment of
+the debug service. Where two names are listed the first wins; a worker reads the same names:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PY_INDEX_URL` / `PIP_INDEX_URL` | Package index (`--index-url`) | PyPI |
-| `PY_EXTRA_INDEX_URL` / `PIP_EXTRA_INDEX_URL` | Extra indexes, comma-separated (`--extra-index-url`) | - |
 | `PY_TRUSTED_HOST` / `PIP_TRUSTED_HOST` | Hosts to trust, whitespace-separated (`--trusted-host`) | - |
 | `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE`. Falls back to `SSL_CERT_FILE`, then `REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, so a host that configures its CA under any of those names is picked up. Whichever is used **replaces** uv's own roots rather than adding to them, so it has to be a complete bundle: one holding only a private CA leaves every public index untrusted. `bun install` gets the same bundle as `NODE_EXTRA_CA_CERTS`, the only spelling Bun reads | - |
 | `SSL_CERT_DIR` | Directory of certificates, forwarded to uv as-is. Replaces uv's roots the same way the bundle does, so a directory holding only a private CA leaves public indexes untrusted | - |
 | `PY_NATIVE_CERT` / `UV_NATIVE_TLS` | `true` to also trust the platform certificate store (`--native-tls`) | false |
-| `UV_INDEX_STRATEGY` | uv index strategy | unsafe-best-match |
 | `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
-| `DAP_PREPARE_DEPS_TIMEOUT_MS` | How long to wait for the install before starting the session without it | 120000 |
+| `DAP_REGISTRY_CONFIG_TIMEOUT_MS` | How long to wait on the settings fetch before installing without it | 10000 |
 
-When the install fails, the CLI answers `success: false` and carries the installer's stderr in both
-`error` and `install_stderr`; the service reports it to the client as an `output` event, so the
-reason (unreachable mirror, untrusted certificate, unknown package) reaches the user instead of a
-bare `ModuleNotFoundError` at the first import.
+`PY_INDEX_URL` / `PIP_INDEX_URL` and `PY_EXTRA_INDEX_URL` / `PIP_EXTRA_INDEX_URL`, along with
+`UV_INDEX_STRATEGY`, are still read from the same environment whenever the fetch yields no index:
+because the instance has none set, because this is a CE instance, or because the session was not
+allowed the settings. A Python debug service configured that way therefore keeps working, but setting
+them is an instance-wide decision to install Python dependencies from that index, independent of who
+opened the session; leave them unset to let the instance settings alone decide. The npm settings have
+no such fallback: the instance settings are the only source.
 
 Proxy variables (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, in either case) are forwarded from the
 service into each session, since the debugged script needs them for its own outbound calls, exactly
