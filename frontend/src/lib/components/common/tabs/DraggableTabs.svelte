@@ -105,11 +105,15 @@
 	const thumbWidth = $derived(
 		overflowing ? Math.min(viewport, Math.max(MIN_THUMB, (viewport / content) * viewport)) : 0
 	)
-	// `scrollLeft` is fractional on HiDPI while the two widths are rounded, so the
-	// ratio can tip past 1 and poke the thumb out of the track — clamp it.
+	// Clamped at both ends: `scrollLeft` is fractional on HiDPI while the widths
+	// are rounded, so the ratio can tip past 1, and WebKit's elastic overscroll
+	// drives it negative — either way the thumb would leave the track.
 	const thumbLeft = $derived(
 		scrollable > 0
-			? Math.min(viewport - thumbWidth, (scrollLeft / scrollable) * (viewport - thumbWidth))
+			? Math.max(
+					0,
+					Math.min(viewport - thumbWidth, (scrollLeft / scrollable) * (viewport - thumbWidth))
+				)
 			: 0
 	)
 
@@ -136,8 +140,8 @@
 	// Drag the thumb: pointer capture keeps the gesture alive past the strip's
 	// edges, and the ratio maps thumb travel back onto scroll travel. Recomputing
 	// from the anchor each move (rather than accumulating) means clamping at
-	// either end doesn't drift, and reading the travel live keeps the thumb under
-	// the cursor when a tab opens mid-drag.
+	// either end doesn't drift, and reading the travel live keeps a tab opening
+	// mid-drag from scaling every later move against a stale track.
 	function handleThumbPointerDown(e: PointerEvent) {
 		const el = scrollEl
 		// Primary button only: a right-click would open the context menu without
