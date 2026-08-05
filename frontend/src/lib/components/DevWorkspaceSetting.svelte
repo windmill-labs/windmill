@@ -463,30 +463,29 @@
 					clearable
 				/>
 			</div>
+			<div class="text-2xs text-secondary">
+				Label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
+				{#if availableAttachLabels.length === 1}
+					<span>
+						The other label is already taken by a dev workspace in this chain, which would deploy to
+						the same branch.
+					</span>
+				{:else}
+					<button
+						type="button"
+						class="text-secondary hover:text-primary hover:underline"
+						onclick={() => (attachLabel = attachLabel === 'staging' ? 'dev' : 'staging')}
+					>
+						Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
+					</button>
+				{/if}
+			</div>
+			<!-- Left under the label row rather than replacing it: flipping the label is often the fix. -->
 			{#if candidateClash}
 				<p class="text-2xs text-secondary">
-					<b>{candidateClash}</b> comes with the selected workspace and already carries the same environment
-					label as a dev workspace above, so both would deploy to that one branch. Pick another workspace,
-					or relabel that pairing first.
+					<b>{candidateClash}</b> comes with the selected workspace and already deploys to a branch this
+					chain would then use twice. Pick the other label, or another workspace.
 				</p>
-			{:else}
-				<div class="text-2xs text-secondary">
-					Label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
-					{#if availableAttachLabels.length === 1}
-						<span>
-							The other label is already taken by a dev workspace in this chain, which would deploy
-							to the same branch.
-						</span>
-					{:else}
-						<button
-							type="button"
-							class="text-secondary hover:text-primary hover:underline"
-							onclick={() => (attachLabel = attachLabel === 'staging' ? 'dev' : 'staging')}
-						>
-							Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
-						</button>
-					{/if}
-				</div>
 			{/if}
 			<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
 				<div class="flex flex-col gap-0.5">
