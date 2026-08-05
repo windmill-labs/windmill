@@ -1030,7 +1030,13 @@ sys.stdout.flush()
 			})
 		} catch (error) {
 			this.sendEvent('output', { category: 'stderr', output: `Failed to start Python: ${error}\n` })
+			// Claim the terminated event before cleanup kills the process, otherwise the
+			// `exited` handler sends a second one whose empty body erases this error.
+			this.terminatedSent = true
 			this.sendEvent('terminated', { error: String(error) })
+			// A Python server that refused the launch stays in its connection loop, so
+			// nothing else ever reaps it, its websocket or the temp dir.
+			await this.cleanup()
 		}
 	}
 

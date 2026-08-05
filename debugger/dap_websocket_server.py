@@ -312,6 +312,21 @@ def _prepare_error_detail(response: dict) -> str:
     return "\n".join(parts) or "unknown error"
 
 
+def _installer_error_detail(stderr: str) -> str:
+    """
+    Extract an installer's error report from its stderr.
+
+    uv writes routine resolve/install progress to stderr as well, so output alone does not
+    mean the install failed; only an `error:` line does, along with the `Caused by:` lines
+    that follow it. Anything less selective warns on every successful install.
+    """
+    lines = stderr.splitlines()
+    start = next(
+        (i for i, line in enumerate(lines) if line.strip().lower().startswith("error")), None
+    )
+    return "\n".join(lines[start:]).strip() if start is not None else ""
+
+
 def _first_line(detail: str, limit: int = 300) -> str:
     """Condense a multi-line failure into the single line a DAP response message allows."""
     line = next((s.strip() for s in detail.splitlines() if s.strip()), detail.strip())
@@ -423,12 +438,12 @@ class DebugSession:
 
             # `uv pip install` failing for individual packages does not fail the whole
             # response, so a "successful" preparation can still carry the reason an import
-            # is about to fail. Report it rather than let it become a bare ModuleNotFoundError.
-            installer_output = str(response.get("stderr") or "").strip()
-            if installer_output:
-                logger.warning(f"prepare-deps reported installer output: {installer_output}")
+            # is about to fail.
+            installer_error = _installer_error_detail(str(response.get("stderr") or ""))
+            if installer_error:
+                logger.warning(f"prepare-deps reported an installer error: {installer_error}")
 
-            return PrepareResult(venv_path=venv_path, error=installer_output or None)
+            return PrepareResult(venv_path=venv_path, error=installer_error or None)
 
         except subprocess.TimeoutExpired:
             message = f"prepare-deps timed out after {PREPARE_DEPS_TIMEOUT_SECONDS}s"
@@ -612,8 +627,6 @@ class DebugSession:
         if code:
             prepared = await self._prepare_dependencies_with_progress(code)
             if prepared.error:
-                # Reporting the reason is what keeps a failed install from reaching the user
-                # as nothing but a bare ModuleNotFoundError.
                 prefix = (
                     "Failed to prepare dependencies"
                     if prepared.fatal
