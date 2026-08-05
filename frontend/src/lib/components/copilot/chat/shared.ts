@@ -4,6 +4,8 @@ import type {
 	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import type { UserDraftItemKind } from '$lib/gen'
+// Safe under the shallow-import rule below: planMode pulls in only zod and a type.
+import { PLAN_MODE_MESSAGES } from './planMode'
 
 // The tool modules that import this one (workspaceTools, flow/core, global/core, ...)
 // call createToolDef and read SPECIAL_MODULE_IDS at *module scope*, so if a chunk cycle
@@ -600,6 +602,9 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
+	 * error, so the transcript says the mode stopped it and not that the call failed. */
+	blockedByPlanMode?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -791,6 +796,40 @@ export async function processToolCall<T>({
 		const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
 		const workspaceId = workspace ?? get(workspaceStore) ?? ''
 
+		// Fails closed: untagged ⇒ mutating ⇒ blocked, with `readonly` the only exemption —
+		// exit_plan_mode carries it, which is what keeps plan mode escapable. Runs before
+		// anything belonging to the tool itself, so a validator cannot probe while planning.
+		// Re-run after the confirmation wait too: plan mode can be entered while a mutating
+		// tool's card is pending, and that approval must not slip past.
+		const planModeBlock = (): ChatCompletionMessageParam | undefined => {
+			if (!toolCallbacks.isPlanModeActive?.() || !tool || tool.readonly === true) {
+				return undefined
+			}
+			toolCallbacks.onToolBlockedByPlanMode?.()
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: PLAN_MODE_MESSAGES.blockedLabel,
+				parameters: args,
+				isLoading: false,
+				isQueued: false,
+				isStreamingArguments: false,
+				error: PLAN_MODE_MESSAGES.blockedResult,
+				blockedByPlanMode: true,
+				needsConfirmation: false,
+				showDetails: tool?.showDetails,
+				autoCollapseDetails: tool?.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: PLAN_MODE_MESSAGES.blockedResult
+			}
+		}
+
+		const preConfirmationBlock = planModeBlock()
+		if (preConfirmationBlock) {
+			return preConfirmationBlock
+		}
+
 		const validationError = await tool?.validateBeforeConfirmation?.({
 			args,
 			workspace: workspaceId,
@@ -845,7 +884,7 @@ export async function processToolCall<T>({
 
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
-			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id)
+			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id, toolCall.function.name)
 
 			if (!confirmed) {
 				toolCallbacks.setToolStatus(toolCall.id, {
@@ -858,8 +897,13 @@ export async function processToolCall<T>({
 				return {
 					role: 'tool' as const,
 					tool_call_id: toolCall.id,
-					content: 'Tool execution was cancelled by user'
+					content: tool?.cancellationMessage ?? 'Tool execution was cancelled by user'
 				}
+			}
+
+			const postConfirmationBlock = planModeBlock()
+			if (postConfirmationBlock) {
+				return postConfirmationBlock
 			}
 
 			// Update status to executing after confirmation
@@ -972,6 +1016,9 @@ export interface Tool<T> {
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
+	/** Model-facing result returned when the user rejects the confirmation; defaults
+	 * to a generic cancellation. */
+	cancellationMessage?: string
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
@@ -1115,8 +1162,10 @@ export interface ToolCallbacks {
 	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
 	 * no summary text is returned (e.g. OpenAI reasoning models). */
 	onReasoningStart?: () => void
-	requestConfirmation?: (toolId: string) => Promise<boolean>
+	requestConfirmation?: (toolId: string, toolName?: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: () => boolean
+	isPlanModeActive?: () => boolean
+	onToolBlockedByPlanMode?: () => void
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
