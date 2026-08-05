@@ -12,6 +12,7 @@
 	} from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import { PLAN_MODE_MESSAGES, PLAN_MODE_TEXT_COLOR } from './planMode'
 	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
@@ -121,6 +122,15 @@
 		GLOBAL_PLACEHOLDER_SUGGESTIONS[
 			Math.floor(Math.random() * GLOBAL_PLACEHOLDER_SUGGESTIONS.length)
 		]
+
+	// States the constraint in words, at the one spot the user is looking when they
+	// type the request plan mode is about to refuse. Only while the input is empty —
+	// the tinted mode pill carries it from the first keystroke on.
+	const planModeAccent = $derived(
+		aiChatManager.planModeActive
+			? { text: PLAN_MODE_MESSAGES.composerHint, class: PLAN_MODE_TEXT_COLOR }
+			: undefined
+	)
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
@@ -1095,6 +1105,7 @@
 				{availableContext}
 				{selectedContext}
 				placeholder={modePlaceholder}
+				placeholderAccent={planModeAccent}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
 				onRemoveContext={(element) => {
 					selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))

@@ -1,12 +1,37 @@
 <script lang="ts">
-	import { XCircle, Play } from 'lucide-svelte'
+	import {
+		Loader2,
+		ChevronRight,
+		XCircle,
+		Play,
+		ClipboardList,
+		Check,
+		CircleMinus,
+		FileText,
+		PanelRight,
+		Lock
+	} from 'lucide-svelte'
+	import {
+		EXIT_PLAN_MODE_TOOL,
+		isPlanCardTool,
+		PLAN_CARD_COPY,
+		PLAN_MODE_TEXT_COLOR
+	} from './planMode'
 	import { Button } from '$lib/components/common'
+	import { markdownProse } from '$lib/components/markdownProse'
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
 	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import { slide } from 'svelte/transition'
+	import Markdown from 'svelte-exmarkdown'
+	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
+	import CodeDisplay from './script/CodeDisplay.svelte'
+	import LinkRenderer from './LinkRenderer.svelte'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
+	import ToolConfirmationFooter from './ToolConfirmationFooter.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
@@ -18,6 +43,46 @@
 	}
 
 	let { message }: Props = $props()
+
+	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
+	const isPlanCard = $derived(isPlanCardTool(message.toolName))
+	const planCopy = $derived(
+		isPlanCardTool(message.toolName) ? PLAN_CARD_COPY[message.toolName] : undefined
+	)
+	// exit_plan_mode carries the plan, enter_plan_mode the one-line justification.
+	const planBody = $derived(isPlanReview ? message.parameters?.summary : message.parameters?.reason)
+	const planBodyText = $derived(typeof planBody === 'string' ? planBody : '')
+	// isQueued matters: a card waiting its turn has no error and no confirmation
+	// pending yet, so without it a queued call reads as already resolved.
+	const planSettled = $derived(
+		isPlanCard &&
+			!message.needsConfirmation &&
+			!message.error &&
+			!message.isLoading &&
+			!message.isQueued &&
+			!message.isStreamingArguments
+	)
+	// Resolved once so the label and the icon cannot disagree about which state this is.
+	const planState = $derived(planSettled ? 'settled' : message.error ? 'declined' : 'pending')
+	const planLabel = $derived(planCopy?.[planState] ?? '')
+	const planDoc = $derived(
+		message.planArtifactId
+			? aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
+			: undefined
+	)
+	// Keyed by call id: a bare flag would leak this expansion onto the next message
+	// reusing this instance. The plan itself opens in the preview pane, so its card
+	// stays collapsed; enter_plan_mode's reason has nowhere else to be read.
+	let planToggled = $state<{ id: string | undefined; open: boolean } | undefined>(undefined)
+	const planExpanded = $derived(
+		planToggled?.id === message.tool_call_id
+			? planToggled.open
+			: isPlanCard && !isPlanReview && Boolean(message.needsConfirmation)
+	)
+
+	// The same renderers the preview pane gives this plan, so a link the model wrote
+	// opens in a new tab from either surface rather than navigating the session away.
+	const planPlugins = [gfmPlugin(), { renderer: { pre: CodeDisplay, a: LinkRenderer } }]
 
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
@@ -69,6 +134,103 @@
 
 {#if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
+{:else if message.blockedByPlanMode}
+	<!-- Not an error card: the call did what plan mode says it should. One flat row
+	     naming the refused tool, so "why can't it edit" is answered where it is asked. -->
+	<div class="font-mono text-xs flex items-center gap-2 py-0.5 my-0.5 min-w-0">
+		<Lock class={twMerge('w-3.5 h-3.5 shrink-0', PLAN_MODE_TEXT_COLOR)} />
+		<span class={twMerge('font-medium text-2xs shrink-0', PLAN_MODE_TEXT_COLOR)}>
+			{message.content}
+		</span>
+		{#if message.toolName}
+			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
+		{/if}
+	</div>
+{:else if isPlanCard}
+	<!-- Same lean shape as a tool call below: a header row that collapses into the
+	     transcript, with everything else in one box under it. -->
+	<div
+		class={twMerge(
+			'font-mono text-xs',
+			message.isQueued && !message.error ? 'opacity-60 hover:opacity-100 transition-opacity' : ''
+		)}
+	>
+		<div class="flex items-center justify-between gap-2">
+			<button
+				class="min-w-0 py-0.5 my-0.5 rounded-md hover:bg-surface-hover transition-colors inline-flex items-center text-left"
+				onclick={() => (planToggled = { id: message.tool_call_id, open: !planExpanded })}
+				disabled={!planBodyText}
+				aria-expanded={planExpanded}
+			>
+				<div class="flex items-center gap-2 min-w-0">
+					{#if message.isLoading && !message.needsConfirmation}
+						<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
+					{:else if planSettled}
+						<Check class={twMerge('w-3.5 h-3.5 shrink-0', PLAN_MODE_TEXT_COLOR)} />
+					{:else if planState === 'declined'}
+						<!-- Muted and not red: declining a plan is an outcome, not a failure, and
+						     this state also covers a card resolved by leaving plan mode. -->
+						<CircleMinus class="w-3.5 h-3.5 text-tertiary shrink-0" />
+					{:else}
+						<ClipboardList class="w-3.5 h-3.5 text-secondary shrink-0" />
+					{/if}
+					<span class="text-primary font-medium text-2xs">{planLabel}</span>
+					{#if planBodyText}
+						<ChevronRight
+							class={twMerge(
+								'w-3 h-3 text-secondary transition-transform duration-150 shrink-0',
+								planExpanded ? 'rotate-90' : ''
+							)}
+						/>
+					{/if}
+				</div>
+			</button>
+			{#if planDoc}
+				<Button
+					variant="default"
+					unifiedSize="2xs"
+					wrapperClasses="shrink-0"
+					title="Open the plan document: {planDoc.name}"
+					startIcon={{ icon: FileText, classes: PLAN_MODE_TEXT_COLOR }}
+					endIcon={{ icon: PanelRight }}
+					on:click={() => aiChatManager.openArtifact?.(planDoc.id, planDoc.name)}
+				>
+					<span class="font-main">Plan</span>
+				</Button>
+			{/if}
+		</div>
+
+		{#snippet confirmFooter(extraClass: string)}
+			<ToolConfirmationFooter
+				toolCallId={message.tool_call_id}
+				rejectLabel={planCopy?.reject}
+				confirmLabel={planCopy?.confirm ?? ''}
+				confirmIcon={isPlanReview ? undefined : ClipboardList}
+				class={extraClass}
+			/>
+		{/snippet}
+
+		{#if planExpanded && planBodyText}
+			<div
+				transition:slide={{ duration: 150 }}
+				class="border border-border-light rounded-md bg-surface p-3 space-y-3 font-main"
+			>
+				{#if isPlanReview}
+					<div class={markdownProse.sm}>
+						<Markdown md={planBodyText} plugins={planPlugins} />
+					</div>
+				{:else}
+					<div class="text-xs text-secondary leading-snug">{planBodyText}</div>
+				{/if}
+				{#if message.needsConfirmation}
+					{@render confirmFooter('')}
+				{/if}
+			</div>
+			<!-- Collapsed: the buttons stand on their own rather than boxing empty space. -->
+		{:else if message.needsConfirmation}
+			{@render confirmFooter('py-1 font-main')}
+		{/if}
+	</div>
 {:else}
 	<!-- Discrete preview chip for an item a tool created/updated, pinned to the
 	     right of the header row. Rendered inline (not gated on expand) so it stays
@@ -124,31 +286,13 @@
 
 		<!-- Confirmation Footer -->
 		{#if message.needsConfirmation}
-			<div class="flex flex-row items-center justify-end gap-2">
-				<Button
-					variant="default"
-					size="xs"
-					on:click={() => {
-						if (message.tool_call_id) {
-							aiChatManager.handleToolConfirmation(message.tool_call_id, false)
-						}
-					}}
-					startIcon={{ icon: XCircle }}
-					destructive
-				></Button>
-				<Button
-					variant="accent"
-					size="xs"
-					on:click={() => {
-						if (message.tool_call_id) {
-							aiChatManager.handleToolConfirmation(message.tool_call_id, true)
-						}
-					}}
-					startIcon={{ icon: Play }}
-				>
-					Run
-				</Button>
-			</div>
+			<ToolConfirmationFooter
+				toolCallId={message.tool_call_id}
+				rejectIcon={XCircle}
+				rejectDestructive
+				confirmLabel="Run"
+				confirmIcon={Play}
+			/>
 
 			<!-- Logs and Result - hide while streaming -->
 		{:else if !message.isStreamingArguments}

@@ -28,6 +28,10 @@
 		availableContext: ContextElement[]
 		selectedContext: ContextElement[]
 		placeholder: string
+		/** Appended to `placeholder` in its own colour. The native attribute can't be
+		 * part-styled, so supplying this moves the whole placeholder into the highlight
+		 * overlay — which already matches the textarea's padding and metrics. */
+		placeholderAccent?: { text: string; class: string }
 		disabled: boolean
 		onSendRequest: () => void
 		onAddContext: (contextElement: ContextElement) => void
@@ -51,6 +55,7 @@
 		availableContext,
 		selectedContext,
 		placeholder,
+		placeholderAccent,
 		disabled,
 		onSendRequest,
 		onAddContext,
@@ -121,6 +126,8 @@
 	// Mirrors the textarea's vertical scroll so the highlight overlay stays
 	// aligned once the input is capped (max-height) and scrolls internally.
 	let scrollTop = $state(0)
+
+	const showAccentPlaceholder = $derived(Boolean(placeholderAccent) && value.length === 0)
 
 	// Properties to copy for caret position calculation
 	const properties = [
@@ -778,9 +785,15 @@
 			)}
 		>
 			<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
-				<span class="break-words">
-					{@html getHighlightedText(value)}
-				</span>
+				{#if showAccentPlaceholder}
+					<span class="break-words text-hint">
+						{placeholder}<span class={placeholderAccent?.class}>{placeholderAccent?.text}</span>
+					</span>
+				{:else}
+					<span class="break-words">
+						{@html getHighlightedText(value)}
+					</span>
+				{/if}
 			</div>
 		</div>
 		<textarea
@@ -811,7 +824,7 @@
 					showCommandTooltip = false
 				}, 200)
 			}}
-			{placeholder}
+			placeholder={showAccentPlaceholder ? '' : placeholder}
 			class={twMerge(
 				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
 				// The box (border/ring) lives on the wrapper; kill the textarea's own
