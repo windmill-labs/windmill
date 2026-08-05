@@ -6691,7 +6691,8 @@ async fn create_workspace_fork_branch(
         // Reject a bad cosmetic label before any git branch is created (acted on in create_workspace_fork).
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&w_id]).await?;
-        ensure_dev_parent_is_root(&db, &w_id).await?;
+        ensure_dev_parent_can_host_dev(&db, &w_id).await?;
+        reject_dev_label_matching_parent_dev(&db, &w_id, label.as_deref()).await?;
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
         ensure_no_existing_dev_workspace(&db, &w_id).await?;
@@ -7012,6 +7013,7 @@ async fn create_workspace_fork(
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&parent_workspace_id])
             .await?;
+        reject_dev_label_matching_parent_dev(&db, &parent_workspace_id, label.as_deref()).await?;
         label
     } else {
         None
@@ -7078,7 +7080,7 @@ async fn create_workspace_fork(
     }
 
     if nw.is_dev_workspace {
-        ensure_dev_parent_is_root(&db, &parent_workspace_id).await?;
+        ensure_dev_parent_can_host_dev(&db, &parent_workspace_id).await?;
         // Creating the canonical dev consumes the parent's one-dev-per-prod slot (and locking prod
         // mutates its protection rules), so require admin of the parent regardless of the lock flags —
         // mirrors attach/detach, which are prod-admin gated. Without this a non-admin forker could
@@ -7330,6 +7332,7 @@ async fn attach_dev_workspace(
         &[&prod_w_id, &dev_w_id],
     )
     .await?;
+    reject_dev_label_matching_parent_dev(&db, &prod_w_id, dev_workspace_label.as_deref()).await?;
 
     let dev = sqlx::query!(
         r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
@@ -7359,22 +7362,42 @@ async fn attach_dev_workspace(
             dev_w_id
         )));
     }
-    // The candidate can't itself be a prod with its own dev workspace (no nested dev chains).
-    ensure_no_existing_dev_workspace(&db, &dev_w_id).await?;
-
-    // Prod must be a root workspace, otherwise attaching could form a parent<->child cycle (e.g.
-    // attaching A as the dev of B when B is already the dev of A), which breaks hierarchy traversal.
-    let prod_has_parent = sqlx::query_scalar!(
-        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
+    let prod_exists = sqlx::query_scalar!(
+        r#"SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1) AS "exists!""#,
         &prod_w_id
     )
-    .fetch_optional(&db)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("Workspace {} not found", prod_w_id)))?;
-    if prod_has_parent {
-        return Err(Error::BadRequest(format!(
-            "Workspace {} is itself a fork or dev workspace and cannot be a prod workspace",
+    .fetch_one(&db)
+    .await?;
+    if !prod_exists {
+        return Err(Error::NotFound(format!(
+            "Workspace {} not found",
             prod_w_id
+        )));
+    }
+    // Prod may be a root workspace or another dev workspace (a dev of a dev); a throwaway fork
+    // can't host one.
+    ensure_dev_parent_can_host_dev(&db, &prod_w_id).await?;
+    // With a dev workspace allowed as prod, the candidate can sit ABOVE prod in the tree —
+    // reparenting it below prod would close a parent<->child cycle and hang every hierarchy walk.
+    // Prod itself is at depth 0 of the chain, but `dev_w_id == prod_w_id` is already rejected above.
+    let would_cycle = sqlx::query_scalar!(
+        r#"WITH RECURSIVE chain AS (
+               SELECT id, parent_workspace_id, 0 AS depth FROM workspace WHERE id = $1
+               UNION ALL
+               SELECT w.id, w.parent_workspace_id, chain.depth + 1 FROM workspace w
+               JOIN chain ON w.id = chain.parent_workspace_id
+               WHERE chain.depth < 20
+           )
+           SELECT EXISTS(SELECT 1 FROM chain WHERE id = $2) AS "cycle!""#,
+        &prod_w_id,
+        &dev_w_id,
+    )
+    .fetch_one(&db)
+    .await?;
+    if would_cycle {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is an ancestor of {} and cannot become its dev workspace",
+            dev_w_id, prod_w_id
         )));
     }
 
@@ -8901,20 +8924,54 @@ async fn ensure_no_existing_dev_workspace(db: &DB, parent_w_id: &str) -> Result<
     Ok(())
 }
 
-/// A dev workspace pairs with a root prod workspace; nesting dev workspaces (a dev of a dev) isn't
-/// supported and would muddle the prod<->dev relationship.
-async fn ensure_dev_parent_is_root(db: &DB, parent_w_id: &str) -> Result<()> {
-    let parent_is_fork = sqlx::query_scalar!(
-        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!" FROM workspace WHERE id = $1"#,
+/// A dev workspace pairs with a root workspace or — supported, though not the recommended shape —
+/// with another dev workspace, giving a promotion chain (dev of dev -> dev -> prod). A throwaway
+/// fork is never a valid prod: its deploys go to its own `wm-fork/**` branch and it is discarded
+/// with its subtree, so a dev pinned under it has nowhere to promote to.
+async fn ensure_dev_parent_can_host_dev(db: &DB, parent_w_id: &str) -> Result<()> {
+    let parent = sqlx::query!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!", is_dev_workspace
+           FROM workspace WHERE id = $1"#,
         parent_w_id
     )
     .fetch_optional(db)
-    .await?
-    .unwrap_or(false);
-    if parent_is_fork {
+    .await?;
+    if parent
+        .as_ref()
+        .is_some_and(|p| p.is_fork && !p.is_dev_workspace)
+    {
         return Err(Error::BadRequest(format!(
-            "Cannot create a dev workspace of '{}' because it is itself a fork or dev workspace.",
+            "Cannot create a dev workspace of '{}' because it is a throwaway fork.",
             parent_w_id
+        )));
+    }
+    Ok(())
+}
+
+/// A dev workspace deploys to the branch named by its environment label, so a dev nested under
+/// another dev must not reuse the parent's label: both would push to that one branch, and each
+/// deploy would clobber the other environment.
+async fn reject_dev_label_matching_parent_dev(
+    db: &DB,
+    parent_w_id: &str,
+    label: Option<&str>,
+) -> Result<()> {
+    let parent = sqlx::query!(
+        "SELECT is_dev_workspace, dev_workspace_label FROM workspace WHERE id = $1",
+        parent_w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some(parent) = parent.filter(|p| p.is_dev_workspace) else {
+        return Ok(());
+    };
+    let branch = windmill_common::workspaces::dev_workspace_branch(label);
+    if windmill_common::workspaces::dev_workspace_branch(parent.dev_workspace_label.as_deref())
+        == branch
+    {
+        return Err(Error::BadRequest(format!(
+            "'{parent_w_id}' is itself a '{branch}' workspace: a dev workspace nested under it must \
+             use a different environment label, otherwise both deploy to the '{branch}' branch."
         )));
     }
     Ok(())
