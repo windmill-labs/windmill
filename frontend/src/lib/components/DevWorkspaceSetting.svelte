@@ -8,9 +8,19 @@
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$app/navigation'
 	import { base } from '$lib/base'
-	import { findCanonicalDevWorkspace, findWorkspaceAncestors } from '$lib/utils/workspaceHierarchy'
+	import {
+		findCanonicalDevWorkspace,
+		findWorkspaceAncestors,
+		devWorkspacesSharingChain
+	} from '$lib/utils/workspaceHierarchy'
 	import { getUserExt } from '$lib/user'
-	import { devBadgeText, devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
+	import {
+		DEV_WORKSPACE_LABELS,
+		devBadgeText,
+		devLabelKey,
+		devLabelNoun,
+		type DevWorkspaceLabelKey
+	} from '$lib/utils/devWorkspaceLabel'
 	import {
 		loadProtectionRules,
 		isRuleActiveInRulesets,
@@ -61,15 +71,27 @@
 	let selectedDevId = $state<string | undefined>(undefined)
 	let lockProdDeploy = $state(true)
 	let lockProdForking = $state(true)
-	// Cosmetic display label chosen when attaching an existing workspace as dev. Under a dev
-	// workspace the label doubles as the deploy branch of a parent that already owns one, so only the
-	// other value is legal — pin it rather than offer a choice the backend rejects.
-	let forcedAttachLabel = $derived<'dev' | 'staging' | undefined>(
-		isDev ? (currentLabel === 'staging' ? 'dev' : 'staging') : undefined
-	)
-	let attachLabel = $state<'dev' | 'staging'>('dev')
+	// The label is cosmetic on its own, but in a chain it also names the deploy branch, and dev
+	// workspaces in a chain share their git-sync repositories: two carrying the same label deploy to
+	// the same branch. So offer only a label none of the chain's dev workspaces holds — and when the
+	// candidate's own dev workspaces already clash with the ones above, no label makes the pairing
+	// legal. With two labels a chain runs to two dev workspaces.
+	let chainLabels = $derived.by(() => {
+		const taken = new Set<DevWorkspaceLabelKey>()
+		let clashing: string | undefined
+		for (const w of devWorkspacesSharingChain($workspaceStore, $userWorkspaces, selectedDevId)) {
+			const label = devLabelKey(w.dev_workspace_label)
+			if (taken.has(label)) clashing = w.id
+			taken.add(label)
+		}
+		return { clashing, available: DEV_WORKSPACE_LABELS.filter((l) => !taken.has(l)) }
+	})
+	let availableAttachLabels = $derived(chainLabels.available)
+	let attachLabel = $state<DevWorkspaceLabelKey>('dev')
 	$effect(() => {
-		if (forcedAttachLabel) attachLabel = forcedAttachLabel
+		if (availableAttachLabels.length > 0 && !availableAttachLabels.includes(attachLabel)) {
+			attachLabel = availableAttachLabels[0]
+		}
 	})
 	let busy = $state(false)
 
@@ -407,6 +429,13 @@
 				<Button color="red" disabled={busy} onclick={() => detach(pairedDev.id)}>Detach</Button>
 			</div>
 		</div>
+	{:else if availableAttachLabels.length === 0}
+		<p class="text-sm text-secondary max-w-2xl">
+			Every environment label (<span class="font-mono">dev</span>,
+			<span class="font-mono">staging</span>) is already taken by a dev workspace in this chain, and
+			two carrying the same label would deploy to the same branch. Promote through the existing
+			chain instead.
+		</p>
 	{:else}
 		<div class="flex flex-col gap-3 max-w-2xl">
 			<p class="text-sm text-secondary">
@@ -422,23 +451,31 @@
 					clearable
 				/>
 			</div>
-			<div class="text-2xs text-secondary">
-				Label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
-				{#if forcedAttachLabel}
-					<span>
-						This workspace already deploys to the <span class="font-mono">{currentLabel}</span>
-						branch, so a dev workspace under it takes the other label.
-					</span>
-				{:else}
-					<button
-						type="button"
-						class="text-secondary hover:text-primary hover:underline"
-						onclick={() => (attachLabel = attachLabel === 'staging' ? 'dev' : 'staging')}
-					>
-						Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
-					</button>
-				{/if}
-			</div>
+			{#if chainLabels.clashing}
+				<p class="text-2xs text-secondary">
+					<b>{chainLabels.clashing}</b> comes with the selected workspace and already carries the same
+					environment label as a dev workspace above, so both would deploy to that one branch. Pick another
+					workspace, or relabel that pairing first.
+				</p>
+			{:else}
+				<div class="text-2xs text-secondary">
+					Label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
+					{#if availableAttachLabels.length === 1}
+						<span>
+							The other label is already taken by a dev workspace in this chain, which would deploy
+							to the same branch.
+						</span>
+					{:else}
+						<button
+							type="button"
+							class="text-secondary hover:text-primary hover:underline"
+							onclick={() => (attachLabel = attachLabel === 'staging' ? 'dev' : 'staging')}
+						>
+							Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
+						</button>
+					{/if}
+				</div>
+			{/if}
 			<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
 				<div class="flex flex-col gap-0.5">
 					<span class="text-xs font-semibold text-emphasis">Protect this workspace on attach</span>
@@ -487,7 +524,11 @@
 				{/if}
 			</div>
 			<div class="flex gap-2">
-				<Button variant="accent" disabled={busy || !selectedDevId} onclick={attach}>
+				<Button
+					variant="accent"
+					disabled={busy || !selectedDevId || !!chainLabels.clashing}
+					onclick={attach}
+				>
 					Attach dev workspace
 				</Button>
 				<Button

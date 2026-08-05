@@ -6692,7 +6692,7 @@ async fn create_workspace_fork_branch(
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&w_id]).await?;
         ensure_dev_parent_can_host_dev(&db, &w_id).await?;
-        reject_dev_label_matching_parent_dev(&db, &w_id, label.as_deref()).await?;
+        reject_dev_label_taken_in_chain(&db, &w_id, &nw.id, false, label.as_deref()).await?;
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
         ensure_no_existing_dev_workspace(&db, &w_id).await?;
@@ -7013,7 +7013,8 @@ async fn create_workspace_fork(
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&parent_workspace_id])
             .await?;
-        reject_dev_label_matching_parent_dev(&db, &parent_workspace_id, label.as_deref()).await?;
+        reject_dev_label_taken_in_chain(&db, &parent_workspace_id, &nw.id, false, label.as_deref())
+            .await?;
         label
     } else {
         None
@@ -7324,16 +7325,6 @@ async fn attach_dev_workspace(
     // The id is interpolated into a `wm-fork/<branch>/<id>` branch name like any fork.
     validate_dev_workspace_id(&dev_w_id)?;
     let dev_workspace_label = normalize_dev_workspace_label(req.dev_workspace_label.clone())?;
-    // The attached workspace keeps its own sync repos and prod keeps its config;
-    // the label branch must not collide with either side's tracked branch.
-    reject_dev_label_matching_tracked_branch(
-        &db,
-        dev_workspace_label.as_deref(),
-        &[&prod_w_id, &dev_w_id],
-    )
-    .await?;
-    reject_dev_label_matching_parent_dev(&db, &prod_w_id, dev_workspace_label.as_deref()).await?;
-
     let dev = sqlx::query!(
         r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
         &dev_w_id
@@ -7400,6 +7391,27 @@ async fn attach_dev_workspace(
             dev_w_id, prod_w_id
         )));
     }
+
+    // Label checks come after the shape checks: on a cyclic pairing the candidate is its own
+    // ancestor, so the chain below would report a workspace as clashing with itself.
+    // The attached workspace keeps its own sync repos and prod keeps its config; the label branch
+    // must not collide with either side's tracked branch.
+    reject_dev_label_matching_tracked_branch(
+        &db,
+        dev_workspace_label.as_deref(),
+        &[&prod_w_id, &dev_w_id],
+    )
+    .await?;
+    // The candidate keeps its own subtree, so its dev descendants keep their labels and join the
+    // chain alongside it.
+    reject_dev_label_taken_in_chain(
+        &db,
+        &prod_w_id,
+        &dev_w_id,
+        true,
+        dev_workspace_label.as_deref(),
+    )
+    .await?;
 
     // The caller must be admin of the dev workspace too (or a superadmin).
     let is_admin_of_dev = sqlx::query_scalar!(
@@ -7606,6 +7618,29 @@ async fn detach_dev_workspace(
             "{} is not the dev workspace of {}",
             dev_w_id, prod_w_id
         )));
+    }
+
+    // A `wm-fork-` workspace keeps its parent through the detach below, so it returns to being a
+    // throwaway fork — a shape that hosts no pairing. A dev workspace of its own would stay attached
+    // to it with no settings tab left to detach it from, and workspace deletion refuses a workspace
+    // that still has a dev child, so it could not be cleaned up either. A prefix-less workspace
+    // detaches to standalone and goes on hosting its dev, so only the fork case is rejected.
+    if dev_w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+        let has_own_dev = sqlx::query_scalar!(
+            r#"SELECT EXISTS(
+                SELECT 1 FROM workspace
+                WHERE parent_workspace_id = $1 AND is_dev_workspace AND NOT deleted
+            ) AS "exists!""#,
+            &dev_w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        if has_own_dev {
+            return Err(Error::BadRequest(format!(
+                "{dev_w_id} has a dev workspace of its own and would return to being a throwaway \
+                 fork, which cannot host one. Detach its dev workspace first."
+            )));
+        }
     }
 
     let mut tx = db.begin().await?;
@@ -8948,31 +8983,91 @@ async fn ensure_dev_parent_can_host_dev(db: &DB, parent_w_id: &str) -> Result<()
     Ok(())
 }
 
-/// A dev workspace deploys to the branch named by its environment label, so a dev nested under
-/// another dev must not reuse the parent's label: both would push to that one branch, and each
-/// deploy would clobber the other environment.
-async fn reject_dev_label_matching_parent_dev(
+/// A dev workspace deploys to the branch named by its environment label, and every dev workspace in
+/// a chain inherits the same git-sync repositories, so two of them sharing a label push to one
+/// branch: each deploy clobbers the other environment, and the root's auto-pull routes that branch
+/// to whichever dev it matches first. Require every dev workspace in the resulting chain to carry a
+/// distinct label — the dev ancestors `new_dev_id` lands under, `new_dev_id` with `label`, and (when
+/// it already exists and so keeps its own subtree) the dev workspaces it brings with it. Since
+/// `normalize_dev_workspace_label` admits only 'dev' and 'staging', this caps a chain at two dev
+/// workspaces. Dev workspaces only ever hang off a root or another dev (`ensure_dev_parent_can_host_dev`),
+/// so that chain is linear and this is the whole of it.
+async fn reject_dev_label_taken_in_chain(
     db: &DB,
     parent_w_id: &str,
+    new_dev_id: &str,
+    keeps_own_subtree: bool,
     label: Option<&str>,
 ) -> Result<()> {
-    let parent = sqlx::query!(
-        "SELECT is_dev_workspace, dev_workspace_label FROM workspace WHERE id = $1",
+    // Depth bounds are the cycle-safety backstop used by every other hierarchy walk.
+    let mut chain = sqlx::query!(
+        r#"WITH RECURSIVE ancestors AS (
+               SELECT id, parent_workspace_id, is_dev_workspace, dev_workspace_label, deleted,
+                      0 AS depth
+               FROM workspace WHERE id = $1
+               UNION ALL
+               SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, w.dev_workspace_label,
+                      w.deleted, ancestors.depth + 1
+               FROM workspace w JOIN ancestors ON w.id = ancestors.parent_workspace_id
+               WHERE ancestors.depth < 20
+           )
+           SELECT id AS "id!", dev_workspace_label FROM ancestors
+           WHERE is_dev_workspace AND NOT deleted"#,
         parent_w_id
     )
-    .fetch_optional(db)
-    .await?;
-    let Some(parent) = parent.filter(|p| p.is_dev_workspace) else {
-        return Ok(());
-    };
-    let branch = windmill_common::workspaces::dev_workspace_branch(label);
-    if windmill_common::workspaces::dev_workspace_branch(parent.dev_workspace_label.as_deref())
-        == branch
-    {
-        return Err(Error::BadRequest(format!(
-            "'{parent_w_id}' is itself a '{branch}' workspace: a dev workspace nested under it must \
-             use a different environment label, otherwise both deploy to the '{branch}' branch."
-        )));
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(|r| {
+        (
+            r.id,
+            windmill_common::workspaces::dev_workspace_branch(r.dev_workspace_label.as_deref()),
+        )
+    })
+    .collect::<Vec<_>>();
+    chain.push((
+        new_dev_id.to_string(),
+        windmill_common::workspaces::dev_workspace_branch(label),
+    ));
+    if keeps_own_subtree {
+        // `depth > 0`: the candidate itself is already in the list above, carrying its new label.
+        chain.extend(
+            sqlx::query!(
+                r#"WITH RECURSIVE tree AS (
+                       SELECT id, is_dev_workspace, dev_workspace_label, deleted, 0 AS depth
+                       FROM workspace WHERE id = $1
+                       UNION ALL
+                       SELECT w.id, w.is_dev_workspace, w.dev_workspace_label, w.deleted,
+                              tree.depth + 1
+                       FROM workspace w JOIN tree ON w.parent_workspace_id = tree.id
+                       WHERE tree.depth < 20
+                   )
+                   SELECT id AS "id!", dev_workspace_label FROM tree
+                   WHERE depth > 0 AND is_dev_workspace AND NOT deleted"#,
+                new_dev_id
+            )
+            .fetch_all(db)
+            .await?
+            .into_iter()
+            .map(|r| {
+                (
+                    r.id,
+                    windmill_common::workspaces::dev_workspace_branch(
+                        r.dev_workspace_label.as_deref(),
+                    ),
+                )
+            }),
+        );
+    }
+    let mut by_branch: HashMap<String, String> = HashMap::new();
+    for (id, branch) in chain {
+        if let Some(other) = by_branch.insert(branch.clone(), id.clone()) {
+            return Err(Error::BadRequest(format!(
+                "'{other}' and '{id}' would both be '{branch}' workspaces in the same chain: dev \
+                 workspaces in a chain share their git-sync repositories, so both would deploy to \
+                 the '{branch}' branch. Use the other environment label."
+            )));
+        }
     }
     Ok(())
 }

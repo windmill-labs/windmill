@@ -4,6 +4,9 @@
 
 export type DevWorkspaceLabelKey = 'dev' | 'staging'
 
+/** Every label the backend accepts, in offer order. */
+export const DEV_WORKSPACE_LABELS: DevWorkspaceLabelKey[] = ['dev', 'staging']
+
 /** Resolve the stored `dev_workspace_label` to a known key; anything unset/unknown is 'dev'. */
 export function devLabelKey(label: string | null | undefined): DevWorkspaceLabelKey {
 	return label === 'staging' ? 'staging' : 'dev'

@@ -154,6 +154,27 @@ export function findWorkspaceAncestors(
 }
 
 /**
+ * The dev workspaces a new dev placed under `workspaceId` would share a promotion chain with: the dev
+ * workspaces at or above it, plus those inside `broughtSubtreeId` (a candidate being attached keeps
+ * its own subtree). Their environment labels are the ones the new dev cannot reuse — dev workspaces
+ * in a chain inherit the same git-sync repositories, so an equal label means one shared deploy
+ * branch. Ancestors the caller cannot see end the walk, so this can under-report; the backend
+ * rejects on the full tree either way.
+ */
+export function devWorkspacesSharingChain(
+	workspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[],
+	broughtSubtreeId?: string
+): UserWorkspace[] {
+	const self = workspaceId ? allWorkspaces.find((w) => w.id === workspaceId) : undefined
+	return [
+		...(self ? [self] : []),
+		...findWorkspaceAncestors(workspaceId, allWorkspaces),
+		...(broughtSubtreeId ? findWorkspaceDescendants(broughtSubtreeId, allWorkspaces) : [])
+	].filter((w) => w.is_dev_workspace && !w.disabled)
+}
+
+/**
  * Whether a workspace (by id) is a fork or dev workspace. Forks and dev workspaces both set
  * `parent_workspace_id` (a dev workspace has no `wm-fork-` id prefix), but a `wm-fork-` workspace can
  * outlive its parent (the parent FK is `ON DELETE SET NULL`), so treat the prefix as fork-ness too —

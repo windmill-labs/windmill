@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { findDefaultForkBase, findWorkspaceRoot } from './workspaceHierarchy'
+import {
+	devWorkspacesSharingChain,
+	findDefaultForkBase,
+	findWorkspaceAncestors,
+	findWorkspaceRoot
+} from './workspaceHierarchy'
 import type { UserWorkspace } from '../stores'
 
 function ws(id: string, parent?: string, extra: Partial<UserWorkspace> = {}): UserWorkspace {
@@ -30,11 +35,11 @@ describe('findDefaultForkBase', () => {
 	})
 })
 
-describe('findWorkspaceRoot', () => {
-	const nestedDev = ws('stgws', 'devws', { is_dev_workspace: true })
-	const forkOfNestedDev = ws('wm-fork-c', 'stgws')
-	const nestedFamily = [...family, nestedDev, forkOfNestedDev]
+const nestedDev = ws('stgws', 'devws', { is_dev_workspace: true })
+const forkOfNestedDev = ws('wm-fork-c', 'stgws')
+const nestedFamily = [...family, nestedDev, forkOfNestedDev]
 
+describe('findWorkspaceRoot', () => {
 	it('walks to the family root through a single dev workspace', () => {
 		expect(findWorkspaceRoot('devws', family)?.id).toBe('prod')
 		expect(findWorkspaceRoot('wm-fork-a', family)?.id).toBe('prod')
@@ -47,5 +52,33 @@ describe('findWorkspaceRoot', () => {
 
 	it('stops at the highest reachable ancestor', () => {
 		expect(findWorkspaceRoot('devws', [dev, forkOfDev])?.id).toBe('devws')
+	})
+})
+
+describe('findWorkspaceAncestors', () => {
+	// The attach-candidate cycle filter depends on this NOT stopping where findWorkspaceRoot does.
+	it('walks past a dev-of-dev boundary to the true root', () => {
+		expect(findWorkspaceAncestors('wm-fork-c', nestedFamily).map((w) => w.id)).toEqual([
+			'stgws',
+			'devws',
+			'prod'
+		])
+	})
+})
+
+describe('devWorkspacesSharingChain', () => {
+	it('collects the dev workspaces at and above the prod side', () => {
+		expect(devWorkspacesSharingChain('stgws', nestedFamily).map((w) => w.id)).toEqual([
+			'stgws',
+			'devws'
+		])
+		expect(devWorkspacesSharingChain('prod', nestedFamily)).toEqual([])
+	})
+
+	it('includes the dev workspaces an attach candidate brings with it', () => {
+		// Attaching `devws` (which owns `stgws`) elsewhere carries stgws's label into the new chain.
+		expect(devWorkspacesSharingChain('prod', nestedFamily, 'devws').map((w) => w.id)).toEqual([
+			'stgws'
+		])
 	})
 })
