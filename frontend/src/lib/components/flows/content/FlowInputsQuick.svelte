@@ -217,6 +217,13 @@
 		}
 	}
 
+	// Mouse and keyboard share this one index, so rows report hover on mousemove rather than
+	// mouseenter: arrow keys scroll the list, which slides a row under a stationary cursor and
+	// fires mouseenter, which would otherwise hijack the selection mid-navigation.
+	function hover(index: number) {
+		selectedByKeyboard = index
+	}
+
 	onMount(() => {
 		$insertButtonOpen = true
 	})
@@ -247,9 +254,24 @@
 		preFilter
 		untrack(() => onPrefilterChange(preFilter))
 	})
-	let aiLength = $derived(
-		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
+	// Gates the two AI rows and their slots in the index space; both must agree or arrow keys land
+	// on indices that render nothing.
+	let showAiRows = $derived(
+		!disableAi &&
+			funcDesc?.length > 0 &&
+			kind != 'failure' &&
+			kind != 'preprocessor' &&
+			(selectedKind == 'script' || selectedKind == 'trigger') &&
+			preFilter == 'all'
 	)
+	let aiLength = $derived(showAiRows ? 2 : 0)
+
+	// Every result row lives in one keyboard index space, and hovering a row moves that index, so
+	// mouse and keyboard can never highlight two different rows. Offsets follow the render order.
+	let inlineOffset = $derived(topLevelNodes.length)
+	let aiOffset = $derived(inlineOffset + (inlineScripts?.length ?? 0))
+	let workspaceOffset = $derived(aiOffset + aiLength)
+	let hubOffset = $derived(workspaceOffset + (filteredWorkspaceItems?.length ?? 0))
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -281,8 +303,9 @@
 										icon: owner.startsWith('f/') ? Folder : User,
 										props: { width: 14, height: 14 }
 									}}
+									title={owner.slice(2)}
 								>
-									{owner.slice(2)}
+									<span class="truncate">{owner.slice(2)}</span>
 								</Button>
 							</div>
 						{/each}
@@ -355,6 +378,7 @@
 					}}
 					{label}
 					selected={selectedByKeyboard === i}
+					onHover={() => hover(i)}
 				/>
 			{/each}
 		{/if}
@@ -395,7 +419,8 @@
 			{#each inlineScripts as [label, lang], i (lang)}
 				<FlowScriptPickerQuick
 					eeRestricted={!$enterpriseLicense && enterpriseLangs.includes(lang)}
-					selected={selectedByKeyboard === i + topLevelNodes.length}
+					selected={selectedByKeyboard === i + inlineOffset}
+					onHover={() => hover(i + inlineOffset)}
 					{enterpriseLangs}
 					{label}
 					lang={lang == 'docker' ? 'bash' : lang}
@@ -419,13 +444,14 @@
 			{/each}
 		{/if}
 
-		{#if !disableAi && funcDesc?.length > 0 && kind != 'failure' && kind != 'preprocessor' && (selectedKind == 'script' || selectedKind == 'trigger') && preFilter == 'all'}
+		{#if showAiRows}
 			<ul class="transition-all">
 				<li
 					><GenAiQuick
 						{funcDesc}
 						lang="TypeScript"
-						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length}
+						selected={selectedByKeyboard === aiOffset}
+						onHover={() => hover(aiOffset)}
 						on:click={() => {
 							lang = 'bun'
 							onGenerate()
@@ -436,7 +462,8 @@
 					<GenAiQuick
 						{funcDesc}
 						lang="Python"
-						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length + 1}
+						selected={selectedByKeyboard === aiOffset + 1}
+						onHover={() => hover(aiOffset + 1)}
 						on:click={() => {
 							lang = 'python3'
 							onGenerate()
@@ -463,11 +490,12 @@
 					bind:filteredWithOwner={filteredWorkspaceItems}
 					{filter}
 					kind={selectedKind}
-					selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
+					selected={selectedByKeyboard - workspaceOffset}
 					on:pickScript
 					on:pickFlow
 					{displayPath}
 					{refreshCount}
+					onHover={(i) => hover(workspaceOffset + i)}
 				/>
 			{/await}
 			<div class="pb-1"></div>
@@ -511,15 +539,12 @@
 						}
 						appFilter={selected?.name}
 						kind={selectedKind}
-						selected={selectedByKeyboard -
-							inlineScripts?.length -
-							aiLength -
-							filteredWorkspaceItems?.length -
-							topLevelNodes.length}
+						selected={selectedByKeyboard - hubOffset}
 						on:pickScript
 						bind:loading
 						{displayPath}
 						{refreshCount}
+						onHover={(i) => hover(hubOffset + i)}
 					/>
 				{/await}
 			{/if}

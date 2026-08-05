@@ -11,6 +11,7 @@
 		selected?: boolean
 		eeRestricted: boolean
 		enterpriseLangs?: string[]
+		onHover?: () => void
 	}
 
 	let {
@@ -18,7 +19,8 @@
 		lang = undefined,
 		selected = false,
 		eeRestricted,
-		enterpriseLangs = []
+		enterpriseLangs = [],
+		onHover = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -44,12 +46,12 @@
 
 <Button
 	id={`flow-editor-new-${lang}`}
-	{selected}
 	onClick={click}
+	onmousemove={() => onHover?.()}
 	role="menuitem"
 	variant="subtle"
 	unifiedSize="sm"
-	btnClasses="justify-start"
+	btnClasses="justify-start {selected ? 'bg-surface-hover' : onHover ? 'hover:bg-transparent' : ''}"
 >
 	{#if lang}
 		<LanguageIcon {lang} width={13} height={13} />
