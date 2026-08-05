@@ -467,8 +467,7 @@
 	// (or focus, if already shown) the item's preview in the active session's panel —
 	// the visible chat is always the active session, so `owner` is its panel. Read
 	// `owner` lazily inside the handler (not in the effect body) so this registers
-	// once, not on every session switch. A 'focused' open leaves the tab where it is,
-	// so pulse it to make the click visibly land.
+	// once, not on every session switch.
 	$effect(() => {
 		return registerToolDisplayActionHandler('open_item_preview', (action) => {
 			if (action.type !== 'open_item_preview') return
@@ -476,8 +475,7 @@
 			if (!o) return
 			const target = previewTargetForSessionTarget(action.previewKind, action.path)
 			if (!target) return
-			const { status } = o.open(target)
-			if (status === 'focused') o.pulseFocus(o.activeId)
+			o.openAndPulse(target)
 		})
 	})
 

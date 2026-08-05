@@ -212,21 +212,12 @@
 		openDrawer(item.key)
 	}
 
-	// Open (or focus) the item in this session's preview panel. Mirrors
-	// manager.openArtifact: flash the tab only when a 'focused' open changed
-	// nothing else visible — open() also un-collapses the panel and can switch
-	// the active tab, either of which the user already sees.
 	function openInPreview(item: DeployItem) {
 		const owner = runtime?.previewTabs
 		const target = previewTargetFor(item)
 		if (!owner || !target) return
 		editsOpen = false
-		const wasDisplayed = !owner.collapsed
-		const prevActive = owner.activeId
-		const { status } = owner.open(target)
-		if (status === 'focused' && wasDisplayed && owner.activeId === prevActive) {
-			owner.pulseFocus(owner.activeId)
-		}
+		owner.openAndPulse(target)
 	}
 
 	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's

@@ -352,6 +352,20 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	// open(), plus the feedback a click expects: flash the tab only when focusing
+	// it was the sole outcome. Un-collapsing the panel or switching the active tab
+	// is already visible, so a flash there is noise. State is read before open()
+	// mutates it.
+	openAndPulse(target: PreviewTarget): { status: 'opened' | 'focused' } {
+		const wasDisplayed = !this.#collapsed
+		const prevActive = this.#activeId
+		const result = this.open(target)
+		if (result.status === 'focused' && wasDisplayed && this.#activeId === prevActive) {
+			this.pulseFocus(this.#activeId)
+		}
+		return result
+	}
+
 	// Replace the whole tab model and reveal the panel. For re-pointing an
 	// existing draft session at a new destination, where the current tabs
 	// (persisted and/or live) still show the previous one.
