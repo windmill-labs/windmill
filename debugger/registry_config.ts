@@ -26,7 +26,7 @@ const WINDMILL_BASE_URL = process.env.WINDMILL_BASE_URL || process.env.BASE_INTE
 
 /**
  * Bounds how long a launch waits on the backend. The session can still start without the
- * settings — it just installs from the public registries — so an unreachable backend must
+ * settings, it just installs from the public registries, so an unreachable backend must
  * not hold it up for longer than the install itself would take.
  */
 const FETCH_TIMEOUT_MS = Number(process.env.DAP_REGISTRY_CONFIG_TIMEOUT_MS) || 10_000
@@ -53,8 +53,8 @@ export async function fetchRegistryConfig(
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
 		})
 		if (response.status === 401 || response.status === 403) {
-			// The expected answer for a session that may not read the settings — an operator's,
-			// say. It installs from the public registries, and there is nothing to report.
+			// The expected answer for a session that may not read the settings, an operator's for
+			// instance. It installs from the public registries, and there is nothing to report.
 			logger.info(`Registry configuration not served for this session (${response.status})`)
 			return {}
 		}

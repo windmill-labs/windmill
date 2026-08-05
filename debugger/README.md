@@ -116,7 +116,7 @@ substitutes it.
 
 The credential-bearing files (`.npmrc`, `bunfig.toml`) are written to a private directory under
 `/var/tmp/windmill-debug-registry`, not to the directory the install runs in, and are deleted once
-the install is over — including when it is killed for exceeding `DAP_PREPARE_DEPS_TIMEOUT_MS`. The
+the install is over, including when it is killed for exceeding `DAP_PREPARE_DEPS_TIMEOUT_MS`. The
 install directory is not private to the install: a session resolves its `node_modules` symlink back
 into it, and `nsjail.debug.config.proto` bind-mounts the whole of `/tmp` into every session, so
 credentials left there would be readable by a concurrent session. Nothing outside `/tmp` is mounted
@@ -135,12 +135,12 @@ the debug service. Where two names are listed the first wins; a worker reads the
 | `DAP_REGISTRY_CONFIG_TIMEOUT_MS` | How long to wait on the settings fetch before installing without it | 10000 |
 
 `PY_INDEX_URL` / `PIP_INDEX_URL` and `PY_EXTRA_INDEX_URL` / `PIP_EXTRA_INDEX_URL`, along with
-`UV_INDEX_STRATEGY`, are still read from the same environment whenever the fetch yields no index —
+`UV_INDEX_STRATEGY`, are still read from the same environment whenever the fetch yields no index:
 because the instance has none set, because this is a CE instance, or because the session was not
-allowed the settings — so a Python debug service configured that way keeps working. Setting them on
-the service is therefore an instance-wide decision to install Python dependencies from that index,
-independent of who opened the session; leave them unset to let the instance settings alone decide.
-The npm settings have no such fallback: the instance settings are the only source.
+allowed the settings. A Python debug service configured that way therefore keeps working, but setting
+them is an instance-wide decision to install Python dependencies from that index, independent of who
+opened the session; leave them unset to let the instance settings alone decide. The npm settings have
+no such fallback: the instance settings are the only source.
 
 Proxy variables (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, in either case) are forwarded from the
 service into each session, since the debugged script needs them for its own outbound calls, exactly

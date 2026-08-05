@@ -253,7 +253,7 @@ fn resolve_registry_setting(
 /// environment (see `debugger/README.md`).
 ///
 /// Authorized by the launch token the service verified for that session, and only when the
-/// token carries the `registry_config` claim — see [`sign_debug_request`] for what it means.
+/// token carries the `registry_config` claim (see [`sign_debug_request`] for what it means).
 async fn get_registry_config(
     Extension(db): Extension<DB>,
     headers: HeaderMap,
@@ -318,8 +318,8 @@ async fn get_registry_config(
             ));
         }
     } else {
-        // A private registry is an Enterprise feature — `read_ee_registry` drops these same
-        // settings on a CE worker — so a CE debug session installs from the public registries
+        // A private registry is an Enterprise feature, and `read_ee_registry` drops these
+        // same settings on a CE worker, so a CE debug session installs from the public registries
         // and says why, instead of gaining a capability jobs on that instance don't have.
         let configured = config.npm_config_registry.is_some()
             || config.npmrc.is_some()

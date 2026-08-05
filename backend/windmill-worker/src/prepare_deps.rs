@@ -158,7 +158,7 @@ const REGISTRY_CONFIG_ROOT: &str = "/var/tmp/windmill-debug-registry";
 /// Write the registry configuration for one install and return the directory holding it, or
 /// `None` when there is nothing to write.
 ///
-/// Falls back to the install directory if the private root is not writable — an install that
+/// Falls back to the install directory if the private root is not writable: an install that
 /// reaches its registry matters more than the sandbox hardening above, which only holds for
 /// sessions that run under nsjail in the first place.
 fn write_registry_config_dir(
