@@ -11,7 +11,8 @@
 	import {
 		findCanonicalDevWorkspace,
 		findWorkspaceAncestors,
-		devWorkspacesSharingChain
+		findWorkspaceDescendants,
+		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { getUserExt } from '$lib/user'
 	import {
@@ -73,25 +74,36 @@
 	let lockProdForking = $state(true)
 	// The label is cosmetic on its own, but in a chain it also names the deploy branch, and dev
 	// workspaces in a chain share their git-sync repositories: two carrying the same label deploy to
-	// the same branch. So offer only a label none of the chain's dev workspaces holds — and when the
-	// candidate's own dev workspaces already clash with the ones above, no label makes the pairing
-	// legal. With two labels a chain runs to two dev workspaces.
-	let chainLabels = $derived.by(() => {
-		const taken = new Set<DevWorkspaceLabelKey>()
-		let clashing: string | undefined
-		for (const w of devWorkspacesSharingChain($workspaceStore, $userWorkspaces, selectedDevId)) {
-			const label = devLabelKey(w.dev_workspace_label)
-			if (taken.has(label)) clashing = w.id
-			taken.add(label)
-		}
-		return { clashing, available: DEV_WORKSPACE_LABELS.filter((l) => !taken.has(l)) }
-	})
-	let availableAttachLabels = $derived(chainLabels.available)
+	// the same branch. So offer only a label none of the dev workspaces above holds. Computed without
+	// the selected candidate, so picking one can never take the form away mid-selection. With two
+	// labels a chain runs to two dev workspaces.
+	let chainTakenLabels = $derived(
+		new Set(
+			devWorkspacesInChainAbove($workspaceStore, $userWorkspaces).map((w) =>
+				devLabelKey(w.dev_workspace_label)
+			)
+		)
+	)
+	let availableAttachLabels = $derived(DEV_WORKSPACE_LABELS.filter((l) => !chainTakenLabels.has(l)))
 	let attachLabel = $state<DevWorkspaceLabelKey>('dev')
 	$effect(() => {
 		if (availableAttachLabels.length > 0 && !availableAttachLabels.includes(attachLabel)) {
 			attachLabel = availableAttachLabels[0]
 		}
+	})
+	// A candidate keeps its own dev workspaces through the attach, labels included: the first one
+	// whose label is already spoken for further up the resulting chain blocks the pairing, whatever
+	// label the candidate itself is given.
+	let candidateClash = $derived.by(() => {
+		if (!selectedDevId) return undefined
+		const taken = new Set<DevWorkspaceLabelKey>([...chainTakenLabels, attachLabel])
+		for (const w of findWorkspaceDescendants(selectedDevId, $userWorkspaces)) {
+			if (!w.is_dev_workspace) continue
+			const label = devLabelKey(w.dev_workspace_label)
+			if (taken.has(label)) return w.id
+			taken.add(label)
+		}
+		return undefined
 	})
 	let busy = $state(false)
 
@@ -451,11 +463,11 @@
 					clearable
 				/>
 			</div>
-			{#if chainLabels.clashing}
+			{#if candidateClash}
 				<p class="text-2xs text-secondary">
-					<b>{chainLabels.clashing}</b> comes with the selected workspace and already carries the same
-					environment label as a dev workspace above, so both would deploy to that one branch. Pick another
-					workspace, or relabel that pairing first.
+					<b>{candidateClash}</b> comes with the selected workspace and already carries the same environment
+					label as a dev workspace above, so both would deploy to that one branch. Pick another workspace,
+					or relabel that pairing first.
 				</p>
 			{:else}
 				<div class="text-2xs text-secondary">
@@ -526,7 +538,7 @@
 			<div class="flex gap-2">
 				<Button
 					variant="accent"
-					disabled={busy || !selectedDevId || !!chainLabels.clashing}
+					disabled={busy || !selectedDevId || !!candidateClash}
 					onclick={attach}
 				>
 					Attach dev workspace

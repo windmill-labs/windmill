@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-	devWorkspacesSharingChain,
+	devWorkspacesInChainAbove,
 	findDefaultForkBase,
 	findWorkspaceAncestors,
 	findWorkspaceRoot
@@ -66,19 +66,12 @@ describe('findWorkspaceAncestors', () => {
 	})
 })
 
-describe('devWorkspacesSharingChain', () => {
+describe('devWorkspacesInChainAbove', () => {
 	it('collects the dev workspaces at and above the prod side', () => {
-		expect(devWorkspacesSharingChain('stgws', nestedFamily).map((w) => w.id)).toEqual([
+		expect(devWorkspacesInChainAbove('stgws', nestedFamily).map((w) => w.id)).toEqual([
 			'stgws',
 			'devws'
 		])
-		expect(devWorkspacesSharingChain('prod', nestedFamily)).toEqual([])
-	})
-
-	it('includes the dev workspaces an attach candidate brings with it', () => {
-		// Attaching `devws` (which owns `stgws`) elsewhere carries stgws's label into the new chain.
-		expect(devWorkspacesSharingChain('prod', nestedFamily, 'devws').map((w) => w.id)).toEqual([
-			'stgws'
-		])
+		expect(devWorkspacesInChainAbove('prod', nestedFamily)).toEqual([])
 	})
 })

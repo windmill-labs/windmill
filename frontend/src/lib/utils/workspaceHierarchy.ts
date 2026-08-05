@@ -154,25 +154,21 @@ export function findWorkspaceAncestors(
 }
 
 /**
- * The dev workspaces a new dev placed under `workspaceId` would share a promotion chain with: the dev
- * workspaces at or above it, plus those inside `broughtSubtreeId` (a candidate being attached keeps
- * its own subtree). Their environment labels are the ones the new dev cannot reuse — dev workspaces
- * in a chain inherit the same git-sync repositories, so an equal label means one shared deploy
- * branch. `disabled` is not filtered out, unlike elsewhere: it means the caller has no seat in that
+ * The dev workspaces at or above `workspaceId`. A dev workspace placed under it joins their
+ * promotion chain, so their environment labels are the ones it cannot reuse — dev workspaces in a
+ * chain inherit the same git-sync repositories, and an equal label means one shared deploy branch.
+ * `disabled` is not filtered out, unlike elsewhere: it means the caller has no seat in that
  * workspace, which does not free the branch it deploys to. Ancestors the caller cannot see end the
  * walk, so this can under-report; the backend rejects on the full tree either way.
  */
-export function devWorkspacesSharingChain(
+export function devWorkspacesInChainAbove(
 	workspaceId: string | undefined,
-	allWorkspaces: UserWorkspace[],
-	broughtSubtreeId?: string
+	allWorkspaces: UserWorkspace[]
 ): UserWorkspace[] {
 	const self = workspaceId ? allWorkspaces.find((w) => w.id === workspaceId) : undefined
-	return [
-		...(self ? [self] : []),
-		...findWorkspaceAncestors(workspaceId, allWorkspaces),
-		...(broughtSubtreeId ? findWorkspaceDescendants(broughtSubtreeId, allWorkspaces) : [])
-	].filter((w) => w.is_dev_workspace)
+	return [...(self ? [self] : []), ...findWorkspaceAncestors(workspaceId, allWorkspaces)].filter(
+		(w) => w.is_dev_workspace
+	)
 }
 
 /**

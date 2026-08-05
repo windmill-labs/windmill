@@ -26,7 +26,7 @@
 		findWorkspaceRoot,
 		findWorkspaceDescendants,
 		findDefaultForkBase,
-		devWorkspacesSharingChain
+		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import {
@@ -168,7 +168,7 @@
 	// to two dev workspaces, after which no label is free and dev designation is not offered at all.
 	let availableDevLabels = $derived.by(() => {
 		const taken = new Set(
-			devWorkspacesSharingChain(baseWorkspaceId, forkableWorkspaces).map((w) =>
+			devWorkspacesInChainAbove(baseWorkspaceId, forkableWorkspaces).map((w) =>
 				devLabelKey(w.dev_workspace_label)
 			)
 		)
