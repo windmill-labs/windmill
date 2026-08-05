@@ -75,6 +75,27 @@ Options:
 | `DAP_NSJAIL_PATH` | nsjail binary path | nsjail |
 | `DAP_NSJAIL_CONFIG` | nsjail config file path | - |
 
+### Python dependency preparation
+
+Before debugging a Python script, the server installs its imports through `windmill prepare-deps`,
+which runs `uv` without a database connection. It therefore cannot read the instance settings, and
+takes its registry configuration from the environment of the process running the debug service —
+the same variables the worker honors:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PY_INDEX_URL` / `PIP_INDEX_URL` | Package index (`--index-url`) | PyPI |
+| `PY_EXTRA_INDEX_URL` / `PIP_EXTRA_INDEX_URL` | Extra indexes, comma-separated (`--extra-index-url`) | - |
+| `PY_TRUSTED_HOST` / `PIP_TRUSTED_HOST` | Hosts to trust, whitespace-separated (`--trusted-host`) | - |
+| `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE` | - |
+| `PY_NATIVE_CERT` / `UV_NATIVE_TLS` | `true` to also trust the platform certificate store (`--native-tls`) | false |
+| `UV_INDEX_STRATEGY` | uv index strategy | unsafe-best-match |
+| `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
+
+When the install fails, the JSON response carries the installer's stderr in `install_stderr`
+alongside `error`, so the reason (unreachable mirror, untrusted certificate, unknown package)
+reaches the user instead of a bare `ModuleNotFoundError` at debug time.
+
 ### Frontend Integration
 
 ```svelte

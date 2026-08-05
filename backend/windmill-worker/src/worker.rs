@@ -705,6 +705,20 @@ lazy_static::lazy_static! {
 }
 
 lazy_static::lazy_static! {
+    /// Registry TLS/timeout settings for uv. Env-only (they have no instance setting), and read
+    /// both by the job path and by the DB-less `prepare-deps` CLI, which has no other source of
+    /// registry configuration.
+    pub static ref TRUSTED_HOST: Option<String> = std::env::var("PY_TRUSTED_HOST").ok().or(std::env::var("PIP_TRUSTED_HOST").ok());
+    pub static ref INDEX_CERT: Option<String> = std::env::var("PY_INDEX_CERT").ok().or(std::env::var("PIP_INDEX_CERT").ok());
+    pub static ref NATIVE_CERT: bool = std::env::var("PY_NATIVE_CERT").ok().or(std::env::var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
+    /// uv's HTTP request timeout (seconds). The uv invocations use env_clear(), so a
+    /// UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
+    /// Only forwarded when set; otherwise uv keeps its own default. Lets operators
+    /// raise it for slow/contended private registries ("operation timed out").
+    pub static ref UV_HTTP_TIMEOUT: Option<String> = std::env::var("UV_HTTP_TIMEOUT").ok().filter(|v| !v.is_empty());
+}
+
+lazy_static::lazy_static! {
     /// Optional override for the size of the `/tmp` tmpfs mount in nsjail sandboxes (in megabytes).
     /// When `None` (or non-positive), executors fall back to the unified
     /// `DEFAULT_NSJAIL_TMPFS_SIZE_BYTES` (800MB).
