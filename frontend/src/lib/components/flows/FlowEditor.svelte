@@ -223,14 +223,13 @@
 		inModalPanel: () => panelMode === 'modal'
 	})
 
-	// Read by graph step items (VirtualItem) to show a per-step "double click to
-	// explore" hint on hover, since in modal mode a step's editor only opens on
-	// double-click.
+	// Read by graph step items (VirtualItem) to show a per-step "explore" hint on hover,
+	// since in modal mode a step's editor is hidden until a double-click, or a click on the
+	// step that is already selected.
 	setContext<() => boolean>('flowGraphStepExploreHint', () => panelMode === 'modal')
 
-	// The docked "detach into a modal" button lives inline in the panel's card
-	// header (no dedicated row); panels without a card header get FlowEditor's
-	// fallback strip instead, driven by the claim count.
+	// The panel's chrome lives inline in its card header (no dedicated row); panels without
+	// a card header get FlowEditor's fallback strip instead, driven by the claim count.
 	let detachClaims = $state(0)
 	setContext<FlowPanelDetachContext>('flowPanelDetach', {
 		claim: () => {
