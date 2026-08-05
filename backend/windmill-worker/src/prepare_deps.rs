@@ -146,6 +146,78 @@ fn configured(value: &Option<String>) -> Option<String> {
     value.clone().filter(|v| !v.trim().is_empty())
 }
 
+/// Where the registry configuration for one `bun install` is written.
+///
+/// Deliberately not under `/tmp`, and never the install directory itself: the debug session
+/// resolves its `node_modules` symlink into that directory, and the shipped sandbox
+/// (`debugger/nsjail.debug.config.proto`) bind-mounts all of `/tmp` into every session, so a
+/// concurrent session could read the credentials of an install in flight. `bun install` reads
+/// them from here instead, through `--config` and `HOME`.
+const REGISTRY_CONFIG_ROOT: &str = "/var/tmp/windmill-debug-registry";
+
+/// Write the registry configuration for one install and return the directory holding it, or
+/// `None` when there is nothing to write.
+///
+/// Falls back to the install directory if the private root is not writable — an install that
+/// reaches its registry matters more than the sandbox hardening above, which only holds for
+/// sessions that run under nsjail in the first place.
+fn write_registry_config_dir(
+    job_id: &uuid::Uuid,
+    job_dir: &str,
+    registry: &RegistryConfig,
+) -> anyhow::Result<Option<String>> {
+    let npmrc = configured(&registry.npmrc);
+    let npm_config_registry = configured(&registry.npm_config_registry);
+    let bunfig_install_scopes = configured(&registry.bunfig_install_scopes);
+    if npmrc.is_none() && npm_config_registry.is_none() && bunfig_install_scopes.is_none() {
+        return Ok(None);
+    }
+
+    let dir = format!("{}/{}", REGISTRY_CONFIG_ROOT, job_id);
+    let dir = match create_private_dir(&dir) {
+        Ok(()) => dir,
+        Err(e) => {
+            tracing::warn!("Could not create {dir} ({e}), keeping the registry configuration in the install directory");
+            job_dir.to_string()
+        }
+    };
+    write_bun_registry_config(&dir, npmrc, npm_config_registry, bunfig_install_scopes)?;
+    Ok(Some(dir))
+}
+
+fn create_private_dir(dir: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::create_dir_all(REGISTRY_CONFIG_ROOT)?;
+        std::fs::DirBuilder::new().mode(0o700).create(dir)
+    }
+    #[cfg(not(unix))]
+    std::fs::create_dir_all(dir)
+}
+
+/// Delete the registry configuration once the install that needed it is over. A failure to
+/// remove credentials has to be visible.
+fn remove_registry_config_dir(dir: &str) {
+    if dir.starts_with(REGISTRY_CONFIG_ROOT) {
+        if let Err(e) = std::fs::remove_dir_all(dir) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::error!("Failed to remove registry configuration {dir}: {e}");
+            }
+        }
+        return;
+    }
+    // The fallback path above put them in the install directory, which has to survive.
+    for file in [BUN_NPMRC_FILE, BUN_CONFIG_FILE] {
+        let path = format!("{}/{}", dir, file);
+        if let Err(e) = std::fs::remove_file(&path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::error!("Failed to remove registry configuration {path}: {e}");
+            }
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct PrepareResponse {
     /// Path to node_modules for JS/TS scripts
@@ -487,7 +559,7 @@ pub async fn prepare_deps_standalone(
         };
     }
 
-    let common_bun_proc_envs = get_simple_bun_proc_envs();
+    let mut common_bun_proc_envs = get_simple_bun_proc_envs();
 
     // Step 1: Run build.js to generate package.json
     let output = Command::new(&*BUN_PATH)
@@ -581,37 +653,62 @@ pub async fn prepare_deps_standalone(
     }
 
     // Step 2: Run bun install, from the same registry configuration a job installs with.
-    if let Err(e) = write_bun_registry_config(
-        &job_dir,
-        configured(&registry.npmrc),
-        configured(&registry.npm_config_registry),
-        configured(&registry.bunfig_install_scopes),
-    ) {
-        return PrepareResponse {
-            node_modules_path: None,
-            venv_path: None,
-            job_dir: job_dir.clone(),
-            success: false,
-            error: Some(format!("Failed to write registry configuration: {}", e)),
-            install_stderr: None,
-        };
+    let mut args = vec!["install".to_string()];
+    let registry_config_dir = match write_registry_config_dir(&job_id, &job_dir, registry) {
+        Ok(dir) => dir,
+        Err(e) => {
+            return PrepareResponse {
+                node_modules_path: None,
+                venv_path: None,
+                job_dir: job_dir.clone(),
+                success: false,
+                error: Some(format!("Failed to write registry configuration: {}", e)),
+                install_stderr: None,
+            };
+        }
+    };
+    if let Some(dir) = registry_config_dir.as_ref() {
+        // Only one of the two files exists: `.npmrc` is read from the installer's home,
+        // `bunfig.toml` only from the path named here.
+        common_bun_proc_envs.insert("HOME".to_string(), dir.to_string());
+        let bunfig = format!("{}/{}", dir, BUN_CONFIG_FILE);
+        if std::path::Path::new(&bunfig).exists() {
+            args.push(format!("--config={}", bunfig));
+        }
     }
+
+    // The caller kills this process when the install outruns its timeout, which would
+    // otherwise leave the credentials behind: nothing else ever visits this directory.
+    #[cfg(unix)]
+    let interrupted_cleanup = registry_config_dir.clone().map(|dir| {
+        tokio::spawn(async move {
+            let Ok(mut sigterm) =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            else {
+                return;
+            };
+            sigterm.recv().await;
+            remove_registry_config_dir(&dir);
+            std::process::exit(143);
+        })
+    });
 
     let output = Command::new(&*BUN_PATH)
         .current_dir(&job_dir)
         .env_clear()
         .envs(common_bun_proc_envs)
-        .args(vec!["install"])
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
         .await;
 
-    // The caller mounts this directory's `node_modules` into the debug session, which can
-    // resolve the symlink back to here, so the registry credentials must not outlive the
-    // install that needed them.
-    for file in [BUN_NPMRC_FILE, BUN_CONFIG_FILE] {
-        let _ = std::fs::remove_file(format!("{}/{}", job_dir, file));
+    #[cfg(unix)]
+    if let Some(cleanup) = interrupted_cleanup {
+        cleanup.abort();
+    }
+    if let Some(dir) = registry_config_dir.as_ref() {
+        remove_registry_config_dir(dir);
     }
 
     match output {

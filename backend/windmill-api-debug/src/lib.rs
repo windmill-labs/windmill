@@ -20,6 +20,11 @@
 //! - A job entry in v2_job (kind=preview) for traceability
 //! - A completed job entry in v2_job_completed
 //! - An audit log entry identical to script preview runs
+//!
+//! The same signature is what authorizes the debugger's requests back to the API:
+//! /api/debug/registry_config serves the instance's dependency-registry settings, which the
+//! debugger cannot read for itself, to sessions whose token carries the `registry_config`
+//! claim.
 
 use axum::{
     extract::Path,
@@ -203,6 +208,10 @@ pub struct DebugRegistryConfig {
     pub message: Option<String>,
 }
 
+/// Placeholder an EE instance puts in an index URL for a token minted per install by
+/// `EPHEMERAL_TOKEN_CMD` (`windmill-worker`'s `handle_ephemeral_token`).
+const EPHEMERAL_TOKEN_MARKER: &str = "EPHEMERAL_TOKEN";
+
 /// Every `global_settings` key [`get_registry_config`] reads, in one query. A setting
 /// resolved there but missing here reads as unset, whatever the instance has stored.
 const REGISTRY_SETTINGS: [&str; 7] = [
@@ -292,10 +301,26 @@ async fn get_registry_config(
         message: None,
     };
 
-    // A private registry is an Enterprise feature — `read_ee_registry` drops these same
-    // settings on a CE worker — so a CE debug session installs from the public registries
-    // and says why, instead of gaining a capability jobs on that instance don't have.
-    if !cfg!(feature = "enterprise") {
+    if cfg!(feature = "enterprise") {
+        // A worker substitutes this marker with the output of `EPHEMERAL_TOKEN_CMD`
+        // (`handle_ephemeral_token`), a command the debug service has no way to run. Serving
+        // the placeholder would install with a literal token, so the value is withheld and
+        // the service falls back to the index URL in its own environment.
+        let ephemeral = |url: &Option<String>| {
+            url.as_ref()
+                .is_some_and(|u| u.contains(EPHEMERAL_TOKEN_MARKER))
+        };
+        if ephemeral(&config.pip_index_url) || ephemeral(&config.pip_extra_index_url) {
+            config.pip_index_url = None;
+            config.pip_extra_index_url = None;
+            config.message = Some(format!(
+                "Python index configuration ignored: an {EPHEMERAL_TOKEN_MARKER} index URL can only be resolved on a worker"
+            ));
+        }
+    } else {
+        // A private registry is an Enterprise feature — `read_ee_registry` drops these same
+        // settings on a CE worker — so a CE debug session installs from the public registries
+        // and says why, instead of gaining a capability jobs on that instance don't have.
         let configured = config.npm_config_registry.is_some()
             || config.npmrc.is_some()
             || config.bunfig_install_scopes.is_some()
@@ -706,6 +731,59 @@ async fn sign_multiplayer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sign `claims` the way [`sign_debug_request`] does, with a key only this test knows.
+    async fn signed(claims: &DebugTokenClaims) -> String {
+        let key = derive_signing_key_from_jwt_secret("test-secret");
+        *DEBUG_SIGNING_KEY.write().await = Some(key.clone());
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"EdDSA","typ":"JWT"}"#);
+        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_string(claims).unwrap());
+        let message = format!("{header}.{payload}");
+        let signature = URL_SAFE_NO_PAD.encode(key.sign(message.as_bytes()).to_bytes());
+        format!("{message}.{signature}")
+    }
+
+    fn claims(exp_in: i64) -> DebugTokenClaims {
+        DebugTokenClaims {
+            code_hash: "0".repeat(32),
+            language: "bun".to_string(),
+            workspace_id: "test".to_string(),
+            email: "user@windmill.dev".to_string(),
+            iat: Utc::now().timestamp(),
+            exp: Utc::now().timestamp() + exp_in,
+            job_id: Uuid::nil().to_string(),
+            registry_config: true,
+        }
+    }
+
+    /// The registry settings are credentials, and this signature is the only thing standing
+    /// between them and any caller of `/api/debug/registry_config`. Each rejection here is a
+    /// way in if it stops being checked: an edited claim, a session whose author may not read
+    /// them, or a token replayed long after its session.
+    #[tokio::test]
+    async fn only_an_unexpired_token_with_the_claim_verifies() {
+        let token = signed(&claims(60)).await;
+        assert!(verify_debug_token(&token).await.is_ok());
+
+        let no_claim = signed(&DebugTokenClaims { registry_config: false, ..claims(60) }).await;
+        assert!(!verify_debug_token(&no_claim).await.unwrap().registry_config);
+
+        let expired = signed(&claims(-1)).await;
+        assert!(verify_debug_token(&expired).await.is_err());
+
+        // Re-signing is the only way to change a claim: swapping the payload of a valid token
+        // for one that grants itself the claim must not verify.
+        let (header, rest) = token.split_once('.').unwrap();
+        let (_, signature) = rest.split_once('.').unwrap();
+        let forged = URL_SAFE_NO_PAD.encode(
+            serde_json::to_string(&DebugTokenClaims { exp: i64::MAX, ..claims(60) }).unwrap(),
+        );
+        assert!(
+            verify_debug_token(&format!("{header}.{forged}.{signature}"))
+                .await
+                .is_err()
+        );
+    }
 
     /// A debug session must resolve a registry setting to what a job in the same workspace
     /// resolves it to (`read_ee_registry_with_workspace_override`): the workspace override

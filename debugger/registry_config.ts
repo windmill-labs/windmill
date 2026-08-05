@@ -52,6 +52,12 @@ export async function fetchRegistryConfig(
 			headers: { authorization: `Bearer ${token}` },
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
 		})
+		if (response.status === 401 || response.status === 403) {
+			// The expected answer for a session that may not read the settings — an operator's,
+			// say. It installs from the public registries, and there is nothing to report.
+			logger.info(`Registry configuration not served for this session (${response.status})`)
+			return {}
+		}
 		if (!response.ok) {
 			const detail = (await response.text().catch(() => '')).trim()
 			return {
