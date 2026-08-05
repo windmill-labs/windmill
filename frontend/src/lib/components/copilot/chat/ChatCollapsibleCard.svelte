@@ -11,7 +11,8 @@
 		// A card with nothing to reveal keeps the header inert (no chevron, no
 		// hover affordance implying a toggle).
 		toggleable?: boolean
-		icon?: Snippet
+		// Sweeps a highlight across the label while the row is in progress.
+		shimmer?: boolean
 		// Pinned to the right of the header row, outside the toggle button.
 		headerRight?: Snippet
 		// Always-visible content between the header and the expandable body.
@@ -28,7 +29,7 @@
 		expanded,
 		onToggle,
 		toggleable = true,
-		icon,
+		shimmer = false,
 		headerRight,
 		belowHeader,
 		children,
@@ -40,6 +41,12 @@
 </script>
 
 <div class={twMerge('font-mono text-xs', className)}>
+	{#snippet labelText()}
+		<span class={twMerge('text-secondary font-medium text-2xs', labelClass)}>
+			{label}
+		</span>
+	{/snippet}
+
 	{#snippet headerButton()}
 		<button
 			class={twMerge(
@@ -49,10 +56,16 @@
 			onclick={onToggle}
 			disabled={!toggleable}
 		>
-			{@render icon?.()}
-			<span class={twMerge('text-primary font-medium text-2xs', labelClass)}>
-				{label}
-			</span>
+			{#if shimmer}
+				<span class="shimmer inline-flex items-center min-w-0">
+					{@render labelText()}
+					<span class="shimmer-band inline-flex items-center min-w-0" aria-hidden="true">
+						{@render labelText()}
+					</span>
+				</span>
+			{:else}
+				{@render labelText()}
+			{/if}
 			{#if toggleable}
 				<ChevronRight
 					class={twMerge(
@@ -84,3 +97,53 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	/* A white copy of the label sits on top of the coloured one and is revealed
+	   through a travelling band, so the highlight is a colour change rather than
+	   an opacity change and the row keeps its own colour underneath. */
+	.shimmer {
+		position: relative;
+	}
+	.shimmer-band {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		/* Forces the copy white whatever colour the caller gives the label, without
+		   having to out-specify its utility classes. */
+		filter: brightness(0) invert(1);
+		--wm-shimmer-band: linear-gradient(
+			100deg,
+			rgba(0, 0, 0, 0.2) 40%,
+			rgba(0, 0, 0, 1) 50%,
+			rgba(0, 0, 0, 0.2) 60%
+		);
+		-webkit-mask-image: var(--wm-shimmer-band);
+		mask-image: var(--wm-shimmer-band);
+		-webkit-mask-size: 250% 100%;
+		mask-size: 250% 100%;
+		-webkit-mask-repeat: no-repeat;
+		mask-repeat: no-repeat;
+		animation: wm-shimmer-sweep 2.6s linear infinite;
+	}
+	/* The travel itself takes 1.5s — the rest of the period holds the band
+	   off-screen, so sweeps are spaced out instead of running back to back.
+	   250% wide is what puts it off-screen at both ends rather than popping at
+	   the edges; the row rests at the gradient's floor in between. */
+	@keyframes wm-shimmer-sweep {
+		0% {
+			-webkit-mask-position: 100% 0;
+			mask-position: 100% 0;
+		}
+		58%,
+		100% {
+			-webkit-mask-position: 0 0;
+			mask-position: 0 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.shimmer-band {
+			display: none;
+		}
+	}
+</style>

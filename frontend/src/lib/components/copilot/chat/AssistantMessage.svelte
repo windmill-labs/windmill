@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import { Brain, Loader2 } from 'lucide-svelte'
 	import type { DisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
@@ -29,7 +28,7 @@
 	const reasoningDurationMs = $derived(
 		message.role === 'assistant' ? message.reasoningDurationMs : undefined
 	)
-	// Spinner while the reasoning text streams before the answer. Only the live
+	// Shimmer while the reasoning text streams before the answer. Only the live
 	// synthetic message carries `streaming` — a finalized reasoning-only message
 	// (thinking that led straight to a tool call) must not look in-progress.
 	const reasoningStreaming = $derived(
@@ -103,17 +102,11 @@
 		label={reasoningLabel}
 		expanded={reasoningExpanded}
 		onToggle={() => (reasoningToggled = !reasoningExpanded)}
+		shimmer={reasoningStreaming}
 		class="mb-2"
 		labelClass="truncate"
 		contentClass="font-main text-secondary {markdownProse.xs}"
 	>
-		{#snippet icon()}
-			{#if reasoningStreaming}
-				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
-			{:else}
-				<Brain class="w-3 h-3 text-secondary shrink-0" />
-			{/if}
-		{/snippet}
 		<Markdown md={reasoning} plugins={[gfmPlugin()]} />
 	</ChatCollapsibleCard>
 {/if}

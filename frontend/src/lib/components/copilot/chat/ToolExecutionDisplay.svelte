@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Loader2, XCircle, Play } from 'lucide-svelte'
+	import { XCircle, Play } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getAiChatManager } from './aiChatManagerContext'
 
@@ -31,6 +31,10 @@
 			!message.isStreamingArguments
 	)
 	const autoCollapseDetails = $derived(message.autoCollapseDetails !== false)
+
+	// Executing right now, as opposed to queued behind another tool or waiting on
+	// the user — the only state that gets the shimmer.
+	const isRunning = $derived(Boolean(message.isLoading && !message.needsConfirmation))
 
 	// An errored tool must be expandable even if it never opted into details,
 	// otherwise the error set on its status would be invisible.
@@ -75,13 +79,15 @@
 		{/if}
 	{/snippet}
 
-	<!-- Queued calls (waiting their turn behind the executing tool) are faded: the
-	     reduced weight is what says "not started" — no icon, no spinner. -->
+	<!-- The shimmer is the only running indicator, so the states have to read off
+	     weight alone: queued calls (waiting their turn behind the executing tool)
+	     are faded, the running one sweeps, a settled one is plain. -->
 	<ChatCollapsibleCard
 		label={message.content}
 		expanded={isExpanded}
 		onToggle={() => (isExpanded = !isExpanded)}
 		toggleable={detailsAvailable || message.isStreamingArguments === true}
+		shimmer={isRunning}
 		class={message.isQueued && !message.error
 			? 'opacity-60 hover:opacity-100 transition-opacity'
 			: ''}
@@ -90,12 +96,6 @@
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : undefined}
 	>
-		{#snippet icon()}
-			{#if message.isLoading && !message.needsConfirmation}
-				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
-			{/if}
-		{/snippet}
-
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#snippet belowHeader()}
 			{#if message.imageUrl}
