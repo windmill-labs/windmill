@@ -5,6 +5,7 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { copyToClipboard, download } from '$lib/utils'
 	import { ClipboardCopy, Download, Maximize2, Minus, Plus, RotateCcw } from 'lucide-svelte'
+	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import type { PanZoom } from 'panzoom'
 
 	let { code }: { code: string } = $props()
@@ -22,6 +23,34 @@
 
 	let expanded = $state(false)
 
+	// The dialog fills the enclosing pane when there is one (see overlayHost) and the viewport
+	// otherwise, so a viewport-relative canvas height overflows it in any pane shorter than the
+	// window. Size against whichever box it actually fills, less the chrome Modal.svelte wraps
+	// it in: the scroll wrapper's p-4, plus the box's sm:my-8, sm:p-6, title row and mt-4.
+	const DIALOG_CHROME_PX = 188
+	const MIN_CANVAS_PX = 240
+	const overlayHost = getOverlayHost()
+	let windowHeight = $state(0)
+	let hostHeight = $state(0)
+
+	$effect(() => {
+		if (!expanded) return
+		const host = overlayHost?.el()
+		if (!host) return
+		const observer = new ResizeObserver(() => (hostHeight = host.clientHeight))
+		observer.observe(host)
+		return () => {
+			observer.disconnect()
+			hostHeight = 0
+		}
+	})
+
+	// windowHeight covers the un-hosted case: documentElement's box is content-driven on a
+	// scrollable page, so observing it would miss a purely vertical window resize.
+	let canvasHeight = $derived(
+		Math.max(MIN_CANVAS_PX, (hostHeight || windowHeight) - DIALOG_CHROME_PX)
+	)
+
 	async function render(source: string, dark: boolean) {
 		const seq = ++renderSeq
 		if (!source?.trim()) {
@@ -35,9 +64,23 @@
 				startOnLoad: false,
 				theme: dark ? 'dark' : 'default',
 				securityLevel: 'strict',
+				// Mermaid writes this stack into a <style> block inside the SVG, so the app's font
+				// never reaches a diagram: the bundled vector emoji font has to be named here or
+				// emoji fall back to the platform bitmap one, which ignores the zoom transform
+				// (app.css). Inter leads because that font also covers digits, # and * — without a
+				// preceding family that has them, a box lacking the MS core fonts renders those
+				// from the emoji font instead.
+				fontFamily: 'Inter, "trebuchet ms", verdana, arial, "Noto Color Emoji", sans-serif',
 				// Throw on parse errors instead of injecting an orphan error diagram into the DOM.
 				suppressErrorRendering: true
 			})
+			// Mermaid sizes every node by measuring its rendered label, so the emoji font has to be
+			// in memory first: measured against fallback metrics the boxes come out too narrow and
+			// the labels overflow them once the real font swaps in. The catch is load-bearing — a
+			// font failure reaching the outer catch would be read as a parse error and drop the
+			// whole diagram to raw source.
+			await document.fonts.load('16px "Noto Color Emoji"', source).catch(() => {})
+			if (seq !== renderSeq) return
 			// mermaid.render needs a fresh element id per attempt to avoid id collisions.
 			const result = await mermaid.render(`mermaid-${randomUUID()}`, source)
 			if (seq !== renderSeq) return
@@ -111,6 +154,8 @@
 	}
 </script>
 
+<svelte:window bind:innerHeight={windowHeight} />
+
 {#if showSvg}
 	<div class="relative">
 		<div class="absolute top-2 right-2 z-20 flex flex-row gap-1">
@@ -183,7 +228,8 @@
 			</div>
 		{/snippet}
 		<div
-			class="relative w-full h-[78vh] overflow-hidden rounded border cursor-grab bg-surface-secondary"
+			class="relative w-full overflow-hidden rounded border cursor-grab bg-surface-secondary"
+			style="height: {canvasHeight}px"
 		>
 			{#if expanded}
 				<div use:panzoomAction class="w-full h-full flex items-center justify-center">
