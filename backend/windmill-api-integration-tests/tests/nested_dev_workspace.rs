@@ -290,3 +290,69 @@ async fn test_adjacent_attaches_cannot_both_claim_a_label(db: Pool<Postgres>) ->
     }
     Ok(())
 }
+
+/// Attaching `g-mid` under `prod-g` and attaching `g-leaf` under `g-sub` touch no workspace in
+/// common — `g-sub` already sits under `g-mid`, so the two operations are two hops apart. Each sees
+/// a two-workspace chain with a free label; together they make a four-deep one that repeats
+/// `staging`. No per-workspace key covers this pair, which is why the pairing lock is class-wide.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
+async fn test_attaches_two_hops_apart_cannot_both_claim_a_label(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    for round in 0..12 {
+        sqlx::query(
+            "UPDATE workspace SET parent_workspace_id = NULL, is_dev_workspace = false,
+                    dev_workspace_label = NULL WHERE id IN ('g-mid', 'g-leaf')",
+        )
+        .execute(&db)
+        .await?;
+
+        let (upper, lower) = tokio::join!(
+            attach(
+                port,
+                "prod-g",
+                json!({ "dev_workspace_id": "g-mid", "dev_workspace_label": "staging" }),
+            ),
+            attach(
+                port,
+                "g-sub",
+                json!({ "dev_workspace_id": "g-leaf", "dev_workspace_label": "staging" }),
+            ),
+        );
+        assert!(
+            upper.0.is_success() != lower.0.is_success(),
+            "round {round}: exactly one must win, got upper={} lower={}\n{}\n{}",
+            upper.0,
+            lower.0,
+            upper.1,
+            lower.1
+        );
+
+        // No chain may carry one label twice. Walk every dev workspace up to its root and count.
+        let duplicated: Option<String> = sqlx::query_scalar(
+            "WITH RECURSIVE chain AS (
+                 SELECT id AS leaf, id, parent_workspace_id, is_dev_workspace,
+                        COALESCE(dev_workspace_label, 'dev') AS label, 0 AS depth
+                 FROM workspace WHERE is_dev_workspace AND NOT deleted
+                 UNION ALL
+                 SELECT c.leaf, w.id, w.parent_workspace_id, w.is_dev_workspace,
+                        COALESCE(w.dev_workspace_label, 'dev'), c.depth + 1
+                 FROM workspace w JOIN chain c ON w.id = c.parent_workspace_id
+                 WHERE c.depth < 20
+             )
+             SELECT leaf FROM chain WHERE is_dev_workspace
+             GROUP BY leaf, label HAVING count(*) > 1 LIMIT 1",
+        )
+        .fetch_optional(&db)
+        .await?;
+        assert!(
+            duplicated.is_none(),
+            "round {round}: a chain repeats a label, below {duplicated:?}"
+        );
+    }
+    Ok(())
+}

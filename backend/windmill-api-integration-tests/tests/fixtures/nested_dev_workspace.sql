@@ -1,4 +1,4 @@
--- Five families for the nested dev-workspace (dev of a dev) guards.
+-- Six families for the nested dev-workspace (dev of a dev) guards.
 --
 -- Family A is rooted at `test-workspace` (base fixture) and is the one a nested dev is attached to:
 --   test-workspace -> tw-dev ('dev')
@@ -19,6 +19,10 @@
 -- Family F is three standalone workspaces, so "attach f-mid under prod-f" and "attach f-leaf under
 -- f-mid" both pass on their own — adjacent attaches whose labels only collide once both land:
 --   prod-f, f-mid, f-leaf
+--
+-- Family G already nests, so two attaches at opposite ends of it touch no workspace in common —
+-- their labels only collide once both land, three dev workspaces deep:
+--   prod-g (root), g-mid -> g-sub ('dev'), and the standalone `g-leaf`
 
 INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, dev_workspace_label) VALUES
 	('tw-dev', 'dev of test-workspace', 'test@windmill.dev', 'test-workspace', true, 'dev'),
@@ -36,12 +40,16 @@ INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, d
 	('e-cand', 'attach candidate', 'test@windmill.dev', NULL, false, NULL),
 	('prod-f', 'prod f', 'test@windmill.dev', NULL, false, NULL),
 	('f-mid', 'middle attach candidate', 'test@windmill.dev', NULL, false, NULL),
-	('f-leaf', 'leaf attach candidate', 'test@windmill.dev', NULL, false, NULL);
+	('f-leaf', 'leaf attach candidate', 'test@windmill.dev', NULL, false, NULL),
+	('prod-g', 'prod g', 'test@windmill.dev', NULL, false, NULL),
+	('g-mid', 'standalone with a dev of its own', 'test@windmill.dev', NULL, false, NULL),
+	('g-sub', 'dev of g-mid', 'test@windmill.dev', 'g-mid', true, 'dev'),
+	('g-leaf', 'leaf attach candidate', 'test@windmill.dev', NULL, false, NULL);
 
 CREATE TEMP VIEW new_workspaces AS SELECT unnest(ARRAY[
 	'tw-dev', 'standalone', 'standalone-dev', 'spare', 'prod-b', 'wm-fork-redev', 'redev-dev',
 	'prod-c', 'c-dev', 'c-dev-dev', 'prod-e', 'wm-fork-edev', 'e-cand',
-	'prod-f', 'f-mid', 'f-leaf'
+	'prod-f', 'f-mid', 'f-leaf', 'prod-g', 'g-mid', 'g-sub', 'g-leaf'
 ]) AS id;
 
 INSERT INTO workspace_settings (workspace_id)

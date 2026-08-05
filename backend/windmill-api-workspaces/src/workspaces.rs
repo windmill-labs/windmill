@@ -7107,10 +7107,8 @@ async fn create_workspace_fork(
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
-        // labels could have changed under us: re-decide both here, under the lock every other
-        // operation on this parent's pairing must also take. The new workspace's own id is not yet
-        // in use, so nothing can be operating on its side.
-        lock_dev_pairing(&mut tx, &parent_workspace_id).await?;
+        // labels could have changed under us: re-decide both here, under the pairing lock.
+        lock_dev_pairing(&mut tx).await?;
         ensure_dev_parent_can_host_dev(&mut *tx, &parent_workspace_id).await?;
         ensure_no_existing_dev_workspace(&mut *tx, &parent_workspace_id).await?;
         reject_dev_label_taken_in_chain(
@@ -7461,17 +7459,8 @@ async fn attach_dev_workspace(
 
     let mut tx = db.begin().await?;
     // Everything above ran outside a transaction, so prod's eligibility and the chain's labels could
-    // have changed under us. Both sides are locked: prod because a teardown of it would leave the
-    // candidate stranded, and the candidate because attaching it splices its own subtree into this
-    // chain, so a concurrent pairing made *under the candidate* has to contend with this one too.
-    // Lowest id first — two attaches touching the same pair would otherwise deadlock.
-    let (first, second) = if prod_w_id <= dev_w_id {
-        (&prod_w_id, &dev_w_id)
-    } else {
-        (&dev_w_id, &prod_w_id)
-    };
-    lock_dev_pairing(&mut tx, first).await?;
-    lock_dev_pairing(&mut tx, second).await?;
+    // have changed under us: re-decide both here, under the pairing lock.
+    lock_dev_pairing(&mut tx).await?;
     ensure_dev_parent_can_host_dev(&mut *tx, &prod_w_id).await?;
     ensure_no_existing_dev_workspace(&mut *tx, &prod_w_id).await?;
     reject_dev_label_taken_in_chain(
@@ -7655,9 +7644,9 @@ async fn detach_dev_workspace(
     let dev_w_id = req.dev_workspace_id;
 
     let mut tx = db.begin().await?;
-    // Under the lock a concurrent create/attach on this workspace must also take, so a dev workspace
-    // cannot appear beneath it between the check below and the update.
-    lock_dev_pairing(&mut tx, &dev_w_id).await?;
+    // Under the pairing lock, so a dev workspace cannot appear beneath this one between the check
+    // below and the update.
+    lock_dev_pairing(&mut tx).await?;
     let is_dev_of_prod = sqlx::query_scalar!(
         r#"SELECT EXISTS(
             SELECT 1 FROM workspace
@@ -7786,8 +7775,8 @@ pub(crate) async fn archive_workspace_impl(
     let mut tx = db.begin().await?;
     if dev_lock_parent.is_some() {
         // Archiving a dev workspace clears its dev flag, so it must not strand a dev workspace of
-        // its own — decided here, under the lock a concurrent create/attach on it must also take.
-        lock_dev_pairing(&mut tx, w_id).await?;
+        // its own — decided here, under the pairing lock.
+        lock_dev_pairing(&mut tx).await?;
         reject_stranding_nested_dev(&mut *tx, w_id, DevTeardown::Archive).await?;
     }
     let disabled_schedules = sqlx::query_scalar!(
@@ -9037,19 +9026,21 @@ async fn ensure_dev_parent_can_host_dev<'e, E: sqlx::Executor<'e, Database = Pos
     Ok(())
 }
 
-/// Serialize everything that makes or breaks a dev pairing *on* `w_id`: giving it a dev workspace
-/// (create, attach) and clearing its own dev flag (detach, archive). Each side decides on state the
-/// other mutates — "does this one already have a dev", "does it still have one" — so checked outside
-/// a common lock, two concurrent requests both pass and land the stranded shape the guards exist to
-/// prevent. Take it before re-running those checks inside the mutating transaction; it releases on
-/// commit or rollback.
-async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<()> {
-    sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtext('dev_workspace_pairing:' || $1))",
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
+/// Serialize everything that makes or breaks a dev pairing: giving a workspace a dev workspace
+/// (create, attach) and clearing one's dev flag (detach, archive). Each decides on state the others
+/// mutate — whether a workspace already has a dev, still has one, or leaves a label free — so
+/// unserialized they all pass their checks and commit a shape those checks exist to reject. Take it
+/// before re-running them inside the mutating transaction; it releases on commit or rollback.
+///
+/// One key for the whole operation class rather than one per workspace: the label rule spans a chain,
+/// and an attach can splice two chains together, so no per-workspace key covers every pair of
+/// operations that can collide — locking endpoints leaves two operations a couple of hops apart free
+/// to both commit. Contention is irrelevant here: these are workspace-admin actions taken a handful
+/// of times in a workspace's life, and they queue rather than fail.
+async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
+    sqlx::query!("SELECT pg_advisory_xact_lock(hashtext('dev_workspace_pairing'))")
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 
