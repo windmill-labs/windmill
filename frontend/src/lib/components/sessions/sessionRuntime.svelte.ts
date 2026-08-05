@@ -1047,9 +1047,13 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 			// would silently not re-fire — force a load. Hashless targets need no
 			// reload: focusing the already-correct view is enough.
 			const unchanged = href.includes('#') && (existing.loc || existing.url) === href
-			owner.select(existing.id)
-			owner.navigate({ type: 'page', href, label })
-			owner.setCollapsed(false)
+			// One change, not three: switching to a background tab is already visible,
+			// so the navigate that follows must not read as "nothing happened".
+			owner.asOneChange(() => {
+				owner.select(existing.id)
+				owner.navigate({ type: 'page', href, label })
+				owner.setCollapsed(false)
+			})
 			if (unchanged) {
 				owner.pulseReload(existing.id)
 				return `Re-opened the ${label} preview tab on the requested view.`

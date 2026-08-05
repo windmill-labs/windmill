@@ -700,6 +700,39 @@ describe('SessionPreviewTabs.pulseFocus', () => {
 		expect(o.focusPulse.nonce).toBe(3)
 	})
 
+	it('judges a composed select+navigate as one change', () => {
+		const o = owner()
+		o.open(pageTarget)
+		const runs = o.tabs[0].id
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(0)
+		// open_page reusing a *background* page tab: the switch is the visible change.
+		o.asOneChange(() => {
+			o.select(runs)
+			o.navigate(pageTarget)
+		})
+		expect(o.focusPulse.nonce).toBe(0)
+		// Same sequence once that tab is already displayed: nothing changes, so flash.
+		o.asOneChange(() => {
+			o.select(runs)
+			o.navigate(pageTarget)
+		})
+		expect(o.focusPulse).toEqual({ id: runs, nonce: 1 })
+	})
+
+	it('keeps the editor-stamped label when re-pointed at the same item', () => {
+		const o = owner()
+		o.open(scriptTarget)
+		o.setEditorFriendlyLabel({ kind: 'script', path: 'u/me/foo' }, 'My script', 'u/me/staged')
+		// Nothing re-stamps a tab that never changed item, so a wipe here would be
+		// permanent — and would make the "nothing changed" flash a lie.
+		o.navigate(scriptTarget)
+		expect(o.tabs[0].friendlyLabel).toBe('My script')
+		expect(o.tabs[0].friendlyPath).toBe('u/me/staged')
+		o.navigate(flowTarget)
+		expect(o.tabs[0].friendlyLabel).toBeUndefined()
+	})
+
 	it('focuses (and flashes) a run tab whose href carries ?workspace=', () => {
 		const o = owner()
 		const run: PreviewTarget = {

@@ -59,13 +59,17 @@ function targetUrl(target: PreviewTarget): string {
 // Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
 // (bound to the previous editor's item): a new editor re-stamps them, and
 // navigating to a plain page must drop the stale name so the tab falls back
-// to the location label.
+// to the location label. Only on an actual change of destination, though —
+// nothing re-stamps a tab that stays on the item it already hosts, so wiping
+// there would strand its label at the storage path (`…/draft_<uuid>`).
 function retargetTab(tab: SessionPreviewTab, url: string): void {
+	if (tab.url !== url) {
+		tab.friendlyLabel = undefined
+		tab.friendlyPath = undefined
+		tab.editorNamed = undefined
+	}
 	tab.url = url
 	tab.loc = url
-	tab.friendlyLabel = undefined
-	tab.friendlyPath = undefined
-	tab.editorNamed = undefined
 }
 
 // Strip the query params the sessions preview injects into iframe URLs
@@ -166,6 +170,8 @@ export class SessionPreviewTabs {
 	// Ephemeral UI signals — not part of the persisted snapshot.
 	#focusPulse = $state({ id: '', nonce: 0 })
 	#reloadPulse = $state({ id: '', nonce: 0 })
+	// Set while a mutation sequence is being judged as a whole (see asOneChange).
+	#pulsing = false
 	readonly #adapter: PreviewTabsAdapter
 	readonly #flushDelay: number
 	#flushHandle: ReturnType<typeof setTimeout> | undefined
@@ -234,10 +240,30 @@ export class SessionPreviewTabs {
 		return this.#collapsed ? undefined : this.#tabs.find((t) => t.id === this.#activeId)
 	}
 
+	// Run a caller's own multi-call sequence (select + navigate + reveal) as a
+	// single change for the flash decision. Judging each call separately would
+	// flash a tab the sequence had just switched to, since the step that made it
+	// visible is not the step that finds nothing left to change.
+	asOneChange<T>(mutate: () => T): T {
+		return this.#pulsingIfUnchanged(mutate)
+	}
+
 	// Run a tab mutation, flashing the displayed tab's border when it left the
 	// panel showing exactly what it already showed. Re-opening a destination that
 	// is already on screen is otherwise indistinguishable from a dead click.
 	#pulsingIfUnchanged<T>(mutate: () => T): T {
+		// Already inside a sequence: that outer call owns the decision, and an
+		// inner open()/navigate() must not rule on its own slice of it.
+		if (this.#pulsing) return mutate()
+		this.#pulsing = true
+		try {
+			return this.#pulseIfSameDestination(mutate)
+		} finally {
+			this.#pulsing = false
+		}
+	}
+
+	#pulseIfSameDestination<T>(mutate: () => T): T {
 		const before = this.#displayedTab()
 		const shown = before && { id: before.id, url: before.url, loc: before.loc }
 		const result = mutate()
