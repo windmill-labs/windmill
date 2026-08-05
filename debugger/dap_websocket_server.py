@@ -301,15 +301,15 @@ def _prepare_error_detail(response: dict) -> str:
     """
     Build the failure reason from a prepare-deps response.
 
-    `stderr` carries the installer's own output and is only present on newer workers, so
-    fall back to `error` alone when it is missing.
+    `install_stderr` is the installer's raw output and is only present on newer workers;
+    `error` wraps the same text in a sentence, so take whichever is available rather than
+    both, which would print the installer's output twice.
     """
-    parts = [
-        str(response[key]).strip()
-        for key in ("error", "stderr")
-        if response.get(key) and str(response[key]).strip()
-    ]
-    return "\n".join(parts) or "unknown error"
+    for key in ("install_stderr", "error"):
+        detail = str(response.get(key) or "").strip()
+        if detail:
+            return detail
+    return "unknown error"
 
 
 # Prefixes uv uses for routine resolve/install progress, which it writes to stderr on a
@@ -398,7 +398,7 @@ class DebugSession:
             # The debug service installs dependencies itself so that the registry credentials
             # the CLI needs never enter this interpreter, which executes the debugged script.
             logger.info(f"Using dependencies prepared by the debug service: {self._prepared_venv_path}")
-            return self._prepared_venv_path
+            return PrepareResult(venv_path=self._prepared_venv_path)
 
         if not self.windmill_path:
             logger.info("No windmill binary path configured, skipping dependency preparation")
@@ -472,7 +472,7 @@ class DebugSession:
             # `uv pip install` failing for individual packages does not fail the whole
             # response, so a "successful" preparation can still carry the reason an import
             # is about to fail.
-            installer_error = _installer_diagnostics(str(response.get("stderr") or ""))
+            installer_error = _installer_diagnostics(str(response.get("install_stderr") or ""))
             if installer_error:
                 logger.warning(f"prepare-deps reported an installer error: {installer_error}")
 
