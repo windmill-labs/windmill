@@ -439,6 +439,10 @@ pub async fn run_server(
             http::HeaderName::from_static("mcp-method"),
             http::HeaderName::from_static("mcp-name"),
         ])
+        // The 401 challenge is how a client discovers where to authorize (RFC 9728),
+        // and it is not a safelisted response header, so without this a browser
+        // client sees an empty one and has no way to begin the OAuth flow.
+        .expose_headers([http::header::WWW_AUTHENTICATE])
         .allow_origin(Any);
 
     let sp_extension = Arc::new(saml_oss::build_sp_extension().await?);
