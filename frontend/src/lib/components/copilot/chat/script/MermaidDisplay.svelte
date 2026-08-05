@@ -62,10 +62,10 @@
 	// Past this, render with whatever metrics are available rather than sit on the raw source.
 	const FONT_LOAD_TIMEOUT_MS = 2000
 
-	// Variation selectors and the ZWJ carry no glyph but sit in nine of the ten emoji subsets,
-	// so sampling them makes one `❤️` start ~1.3 MB of downloads. The base characters on their
-	// own select the right subset. U+20E3 is deliberately not here: it lives in a single subset
-	// and is what makes a keycap resolve.
+	// Variation selectors and the ZWJ carry no glyph yet repeat across up to nine of the ten
+	// emoji subsets, so sampling them makes one `❤️` start ~1.3 MB of downloads. The base
+	// characters alone select the right subset. Skin-tone modifiers and U+20E3 are deliberately
+	// kept: each is what selects the subset holding its ligature.
 	const EMOJI_FORMAT_CHARS = /[\uFE0E\uFE0F\u200D]/g
 
 	// Mermaid draws `#NNN;` as the character that code names (decimal only — its own test is
