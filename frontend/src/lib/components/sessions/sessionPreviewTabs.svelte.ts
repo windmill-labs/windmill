@@ -114,16 +114,24 @@ export function previewTargetForSessionTarget(
 }
 
 // Adapt a deployable item's layout kind (the session review dock speaks `Kind`,
-// not SessionTarget) to a preview destination: the three live editors, plus
-// legacy drag-and-drop apps, which the panel hosts as an iframe over their edit
-// route. Triggers, schedules, resources and variables have no preview route, so
-// they map to undefined — the caller's test for "can this row be previewed?".
+// not SessionTarget) to a preview destination: the three live editors, data
+// pipelines, plus legacy drag-and-drop apps, which the panel hosts as an iframe
+// over their edit route. Any other kind — triggers, schedules, resources,
+// variables, folders — has no preview route and maps to undefined, which is the
+// caller's test for "can this row be previewed?".
 export function previewTargetForDeployKind(kind: Kind, path: string): PreviewTarget | undefined {
 	if (kind === 'app') {
 		return { type: 'item', item: { kind: 'app', raw_app: false, path, summary: '' } }
 	}
 	if (kind === 'script' || kind === 'flow' || kind === 'raw_app') {
 		return previewTargetForSessionTarget(kind, path)
+	}
+	// A pipeline bundle is stored at `f/<folder>/data_pipeline`; its editor is the
+	// pipeline view of that folder, so route on the folder rather than the key.
+	if (kind === 'data_pipeline') {
+		const segs = path.split('/')
+		const folder = segs[0] === 'f' && segs.length >= 2 ? segs[1] : undefined
+		return folder ? previewTargetForSessionTarget('pipeline', folder) : undefined
 	}
 	return undefined
 }

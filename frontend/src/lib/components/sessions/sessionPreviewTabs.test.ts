@@ -162,10 +162,50 @@ describe('previewTargetForDeployKind', () => {
 			item: { kind: 'app', raw_app: false, path: 'u/me/app', summary: '' }
 		})
 	})
+	it('routes a pipeline bundle on its folder, not its storage key', () => {
+		expect(previewTargetForDeployKind('data_pipeline', 'f/crm/data_pipeline')).toEqual(
+			pipelineTarget
+		)
+	})
 	it('has no destination for kinds the preview panel cannot host', () => {
 		expect(previewTargetForDeployKind('schedule', 'u/me/s')).toBeUndefined()
 		expect(previewTargetForDeployKind('http_trigger', 'u/me/t')).toBeUndefined()
 		expect(previewTargetForDeployKind('variable', 'u/me/v')).toBeUndefined()
+	})
+})
+
+describe('SessionPreviewTabs.openAndPulse', () => {
+	// The flash is the only feedback when focusing changed nothing else, so it
+	// must not fire when revealing the panel or switching tabs already said so.
+	it('flashes a tab that was already the displayed active one', () => {
+		const o = owner()
+		o.open(scriptTarget)
+		const before = o.focusPulse.nonce
+		expect(o.openAndPulse(scriptTarget).status).toBe('focused')
+		expect(o.focusPulse.nonce).toBe(before + 1)
+	})
+
+	it('does not flash when the panel was collapsed, or when another tab was active', () => {
+		const collapsed = owner()
+		collapsed.open(scriptTarget)
+		collapsed.setCollapsed(true)
+		let before = collapsed.focusPulse.nonce
+		collapsed.openAndPulse(scriptTarget)
+		expect(collapsed.focusPulse.nonce).toBe(before)
+
+		const switching = owner()
+		switching.open(scriptTarget)
+		switching.open(dndAppTarget)
+		before = switching.focusPulse.nonce
+		expect(switching.openAndPulse(scriptTarget).status).toBe('focused')
+		expect(switching.focusPulse.nonce).toBe(before)
+	})
+
+	it('does not flash a freshly opened tab', () => {
+		const o = owner()
+		const before = o.focusPulse.nonce
+		expect(o.openAndPulse(scriptTarget).status).toBe('opened')
+		expect(o.focusPulse.nonce).toBe(before)
 	})
 })
 
