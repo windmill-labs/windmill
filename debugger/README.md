@@ -129,6 +129,14 @@ unsandboxed. Isolating sessions from the service takes `--nsjail --nsjail-config
 nsjail.debug.config.proto`: it is that config's PID namespace and `mount_proc` that put the service
 out of reach, not the flag on its own.
 
+The installer is jailed on the same terms, in both languages: `uv pip install` builds source
+distributions and `bun install` runs postinstall scripts, so a package's own code executes there
+too. It keeps the service's environment across that boundary — the config sets `keep_env`, which is
+how the settings above reach it — so replacing that with an allowlist would have to carry the
+registry and CA variables in explicitly. It also runs in its own process group, because `uv` and
+`bun` are grandchildren: signalling only the installer reparents them to init and they keep
+downloading, which would make the timeout and the cancel-on-disconnect half-measures.
+
 ### Frontend Integration
 
 ```svelte

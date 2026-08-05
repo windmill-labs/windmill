@@ -22,6 +22,7 @@
  */
 
 import { spawn, type Subprocess } from 'bun'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, writeFile, unlink, rmdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -558,6 +559,63 @@ export interface NsjailConfig {
 }
 
 /**
+ * Wrap a command so nsjail runs it, or return it unchanged when sandboxing is off.
+ * The environment is not filtered here: the config sets `keep_env`, so the jailed process
+ * receives whatever the spawning call gives it.
+ */
+export function nsjailWrap(cmd: string[], nsjail: NsjailConfig | undefined, cwd?: string): string[] {
+	if (!nsjail?.enabled) {
+		return cmd
+	}
+	const wrapped = [nsjail.binaryPath]
+	if (nsjail.configPath) {
+		wrapped.push('--config', nsjail.configPath)
+	}
+	if (nsjail.extraArgs) {
+		wrapped.push(...nsjail.extraArgs)
+	}
+	if (cwd) {
+		wrapped.push('--cwd', cwd)
+	}
+	wrapped.push('--', ...cmd)
+	return wrapped
+}
+
+/**
+ * SIGKILL a subprocess along with everything it spawned.
+ *
+ * SIGKILL because `windmill prepare-deps` does not act on SIGTERM while uv is running. The
+ * whole group because uv is a grandchild: signalling the child alone reparents uv to init and
+ * it keeps downloading. The group id is read back from /proc instead of assumed, since a group
+ * kill aimed at this service's own group would take down every service in the container; a
+ * child spawned without `detached` therefore only gets the plain kill.
+ */
+export function killProcessTree(proc: Subprocess): void {
+	if (proc.exitCode !== null || proc.signalCode !== null) {
+		// Nothing left to signal, and the pid may already have been handed to someone else
+		return
+	}
+
+	let ownsGroup = false
+	try {
+		const stat = readFileSync(`/proc/${proc.pid}/stat`, 'utf8')
+		// The comm field can hold spaces and parentheses, so read the fields after its closing one
+		ownsGroup = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[2]) === proc.pid
+	} catch {
+		// Already reaped, or not Linux: fall back to killing the process alone
+	}
+	try {
+		if (ownsGroup) {
+			process.kill(-proc.pid, 'SIGKILL')
+		} else {
+			proc.kill('SIGKILL')
+		}
+	} catch (error) {
+		logger.error('Failed to kill process:', error)
+	}
+}
+
+/**
  * VLQ (Variable-Length Quantity) decoder for source maps.
  * Returns array of decoded integers from VLQ string.
  */
@@ -753,6 +811,11 @@ export class DebugSession {
 
 	// Path to installed node_modules (set after prepare-deps runs)
 	private nodeModulesPath?: string
+
+	// Running dependency installer, so a teardown mid-install can stop it
+	private prepareDepsProcess: Subprocess | null = null
+
+	private disposed = false
 
 	constructor(ws: WebSocket, options?: { nsjailConfig?: NsjailConfig; bunPath?: string; windmillPath?: string }) {
 		this.ws = ws
@@ -1438,6 +1501,10 @@ export class DebugSession {
 	 * Handle the 'launch' request.
 	 */
 	async handleLaunch(request: DAPMessage): Promise<void> {
+		// Per launch, not per session: cleanup() also runs when a program finishes normally, and
+		// the flag must only mean "torn down while this launch was still preparing".
+		this.disposed = false
+
 		const args = request.arguments || {}
 		let code = args.code as string | undefined
 		this.scriptPath = args.program as string | undefined
@@ -1491,6 +1558,16 @@ export class DebugSession {
 		// This analyzes imports and installs required npm packages
 		if (code) {
 			this.nodeModulesPath = await this.prepareDependencies(code) || undefined
+
+			// Installing takes long enough for the client to give up meanwhile, and cleanup() has
+			// then already run: starting the debuggee now would leak a process nothing owns.
+			// The response still goes out, since a client that terminated without closing the
+			// socket is otherwise left waiting out its own launch timeout.
+			if (this.disposed) {
+				logger.info('Session was torn down during dependency preparation, not starting Bun')
+				this.sendResponse(request, false, {}, 'Session terminated during dependency preparation')
+				return
+			}
 
 			// Remove version specifiers from imports (e.g., "lodash@4" -> "lodash")
 			// This must happen AFTER prepareDependencies (which needs the versions)
@@ -1573,6 +1650,11 @@ export class DebugSession {
 	 * Prepare dependencies by calling the windmill CLI's prepare-deps command.
 	 * This analyzes imports in the code and installs required npm packages.
 	 * Returns the path to node_modules if any were installed.
+	 *
+	 * Jailed on the same terms as the debuggee: `bun install` runs the packages' postinstall
+	 * scripts, which is user-supplied code executing next to the other services in the container.
+	 * Its environment is inherited rather than filtered, which is what carries the registry and
+	 * CA settings into the installer (the jail keeps the environment across the boundary).
 	 */
 	private async prepareDependencies(code: string, language: string = 'bun'): Promise<string | null> {
 		if (!this.windmillPath) {
@@ -1600,30 +1682,39 @@ export class DebugSession {
 			const input = JSON.stringify({ code, language }) + '\n'
 			logger.info(`prepare-deps input length: ${input.length}`)
 
-			// Spawn the windmill binary with prepare-deps command. This runs in the service
-			// process, so inheriting its environment is what gives prepare-deps the container's
-			// index and certificate settings; the allowlist above is what keeps them from the
-			// debugged script.
+			// Spawn the windmill binary with prepare-deps command. Its environment is inherited
+			// rather than filtered, which is what gives prepare-deps the container's index and
+			// certificate settings; the allowlist above is what keeps them from the debugged
+			// script, and the jail keeps them across its own boundary.
+			const cmd = nsjailWrap([this.windmillPath, 'prepare-deps'], this.nsjailConfig)
+			logger.info(`Spawning${this.nsjailConfig?.enabled ? ' with nsjail' : ''}: ${cmd.join(' ')}`)
 			const proc = spawn({
-				cmd: [this.windmillPath, 'prepare-deps'],
+				cmd,
 				stdin: new Blob([input]),  // Use Blob for complete stdin data
 				stdout: 'pipe',
-				stderr: 'pipe'
+				stderr: 'pipe',
+				// So the installer and the bun it spawns can be killed as one group
+				detached: true
 			})
+			this.prepareDepsProcess = proc
 
 			// Bound the wait: the only other ceiling is the DAP client's launch timeout,
 			// which is minutes, so a wedged installer would hang the session that long.
 			killTimer = setTimeout(() => {
 				timedOut = true
 				logger.error(`prepare-deps timed out after ${PREPARE_DEPS_TIMEOUT_MS}ms`)
-				// SIGKILL, not the default SIGTERM: prepare-deps does not act on SIGTERM while the
-				// package manager is running, so a polite signal leaves it going after the timeout.
-				proc.kill('SIGKILL')
+				killProcessTree(proc)
 			}, PREPARE_DEPS_TIMEOUT_MS)
 
 			// Wait for completion
 			const output = await new Response(proc.stdout).text()
 			const stderr = await new Response(proc.stderr).text()
+
+			// The read also ends when cleanup() kills the installer, which leaves no output to
+			// parse. Reporting that as an install failure blames the user for their own Stop.
+			if (this.disposed) {
+				return null
+			}
 
 			if (timedOut) {
 				const errorMsg = `prepare-deps timed out after ${PREPARE_DEPS_TIMEOUT_MS / 1000}s`
@@ -1682,6 +1773,9 @@ export class DebugSession {
 			logger.info('No external dependencies to install')
 			return null
 		} catch (error) {
+			if (this.disposed) {
+				return null
+			}
 			logger.error(`Failed to prepare dependencies: ${error}`)
 			this.sendEvent('output', {
 				category: 'console',
@@ -1691,6 +1785,7 @@ export class DebugSession {
 		} finally {
 			clearInterval(progress)
 			clearTimeout(killTimer)
+			this.prepareDepsProcess = null
 		}
 	}
 
@@ -1706,24 +1801,13 @@ export class DebugSession {
 		const inspectUrl = `127.0.0.1:${inspectPort}`
 
 		// Build the command - optionally wrapped with nsjail
-		let cmd: string[] = [this.bunPath, `--inspect-wait=${inspectUrl}`, this.scriptPath]
+		const cmd = nsjailWrap(
+			[this.bunPath, `--inspect-wait=${inspectUrl}`, this.scriptPath],
+			this.nsjailConfig,
+			cwd
+		)
 
 		if (this.nsjailConfig?.enabled) {
-			const nsjailCmd = [this.nsjailConfig.binaryPath]
-
-			if (this.nsjailConfig.configPath) {
-				nsjailCmd.push('--config', this.nsjailConfig.configPath)
-			}
-
-			if (this.nsjailConfig.extraArgs) {
-				nsjailCmd.push(...this.nsjailConfig.extraArgs)
-			}
-
-			nsjailCmd.push('--cwd', cwd)
-			nsjailCmd.push('--')
-			nsjailCmd.push(...cmd)
-
-			cmd = nsjailCmd
 			logger.info(`Starting Bun with nsjail: ${cmd.join(' ')}`)
 		} else {
 			logger.info(`Starting Bun with --inspect-wait=${inspectUrl}`)
@@ -2500,13 +2584,21 @@ export class DebugSession {
 	}
 
 	/**
-	 * Clean up resources.
+	 * Clean up resources. Public because both servers call it when a client goes away.
 	 */
-	private async cleanup(): Promise<void> {
+	async cleanup(): Promise<void> {
+		this.disposed = true
+
 		// Close inspector connection
 		if (this.inspectorWs) {
 			this.inspectorWs.close()
 			this.inspectorWs = null
+		}
+
+		// A disconnect during dependency installation must not leave bun install running
+		if (this.prepareDepsProcess) {
+			killProcessTree(this.prepareDepsProcess)
+			this.prepareDepsProcess = null
 		}
 
 		// Kill process
@@ -2648,9 +2740,14 @@ if (import.meta.main) {
 					logger.error('Error handling message:', error)
 				}
 			},
-			close(ws) {
+			async close(ws) {
 				logger.info('Client disconnected')
-				sessions.delete(ws)
+				const session = sessions.get(ws)
+				if (session) {
+					// Dropping the session without this leaves its installer and debuggee running
+					await session.cleanup()
+					sessions.delete(ws)
+				}
 			}
 		}
 	})
