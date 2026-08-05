@@ -25,6 +25,7 @@ import { spawn, type Subprocess } from 'bun'
 import { mkdtemp, writeFile, unlink, rmdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fetchRegistryConfig, type RegistryConfig } from './registry_config'
 
 // Types for V8 Inspector Protocol
 interface V8Message {
@@ -1444,6 +1445,8 @@ export class DebugSession {
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
+		// Also what authorizes the registry configuration fetch below.
+		const token = args.token as string | undefined
 
 		// Enforce signing on every launch. The token is passed in the launch
 		// arguments and is verified against the inline `code` (see windmill-api-debug).
@@ -1457,7 +1460,6 @@ export class DebugSession {
 				return
 			}
 
-			const token = args.token as string | undefined
 			if (!token) {
 				logger.error('No debug token provided but signed requests are required')
 				this.sendResponse(request, false, {}, 'Debug token required. Ensure the debug session was signed by the backend.')
@@ -1489,7 +1491,11 @@ export class DebugSession {
 		// Prepare dependencies using the original code (before any modifications)
 		// This analyzes imports and installs required npm packages
 		if (code) {
-			this.nodeModulesPath = await this.prepareDependencies(code) || undefined
+			const registry = await fetchRegistryConfig(token, logger)
+			if (registry.message) {
+				this.sendEvent('output', { category: 'console', output: `${registry.message}\n` })
+			}
+			this.nodeModulesPath = await this.prepareDependencies(code, registry) || undefined
 
 			// Remove version specifiers from imports (e.g., "lodash@4" -> "lodash")
 			// This must happen AFTER prepareDependencies (which needs the versions)
@@ -1572,8 +1578,16 @@ export class DebugSession {
 	 * Prepare dependencies by calling the windmill CLI's prepare-deps command.
 	 * This analyzes imports in the code and installs required npm packages.
 	 * Returns the path to node_modules if any were installed.
+	 *
+	 * The CLI has no database, so `registry` carries the instance's registry settings down to
+	 * it. They configure `bun install` and nothing else: the debugged script never gets them,
+	 * since it could read them back out of the process it runs in.
 	 */
-	private async prepareDependencies(code: string, language: string = 'bun'): Promise<string | null> {
+	private async prepareDependencies(
+		code: string,
+		registry: RegistryConfig,
+		language: string = 'bun'
+	): Promise<string | null> {
 		if (!this.windmillPath) {
 			logger.info('No windmill binary path configured, skipping dependency preparation')
 			return null
@@ -1596,7 +1610,7 @@ export class DebugSession {
 		let timedOut = false
 
 		try {
-			const input = JSON.stringify({ code, language }) + '\n'
+			const input = JSON.stringify({ code, language, registry }) + '\n'
 			logger.info(`prepare-deps input length: ${input.length}`)
 
 			// Spawn the windmill binary with prepare-deps command

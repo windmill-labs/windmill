@@ -23,12 +23,13 @@
 
 use axum::{
     extract::Path,
+    http::HeaderMap,
     routing::{get, post},
     Extension, Json, Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::Utc;
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::{Signature, Signer, SigningKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::types::Json as SqlxJson;
@@ -37,8 +38,18 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
-    db::UserDB, error::JsonResult, jobs::JobKind, jwt::JWT_SECRET, scripts::ScriptLang,
+    db::UserDB,
+    error::{Error, JsonResult},
+    global_settings::{
+        BUNFIG_INSTALL_SCOPES_SETTING, EXTRA_PIP_INDEX_URL_SETTING, NPMRC_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, PIP_INDEX_URL_SETTING, UV_INDEX_STRATEGY_SETTING,
+        WORKSPACE_REGISTRIES_SETTING,
+    },
+    jobs::JobKind,
+    jwt::JWT_SECRET,
+    scripts::ScriptLang,
     users::username_to_permissioned_as,
+    DB,
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -112,7 +123,9 @@ pub async fn reload_debug_signing_key() {
 }
 
 pub fn global_service() -> Router {
-    Router::new().route("/jwks", get(get_jwks))
+    Router::new()
+        .route("/jwks", get(get_jwks))
+        .route("/registry_config", get(get_registry_config))
 }
 
 pub fn workspaced_service() -> Router {
@@ -168,6 +181,180 @@ async fn get_jwks() -> JsonResult<DebugJwks> {
     }))
 }
 
+/// The instance's dependency-registry configuration, as `windmill prepare-deps` consumes it.
+/// Field names are the `global_settings` keys, so the debug service forwards this object to
+/// the CLI as-is.
+#[derive(Serialize, Default)]
+pub struct DebugRegistryConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub npm_config_registry: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub npmrc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bunfig_install_scopes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pip_index_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pip_extra_index_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uv_index_strategy: Option<String>,
+    /// Why configured settings were withheld, for the debug service to show the user.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Every `global_settings` key [`get_registry_config`] reads, in one query. A setting
+/// resolved there but missing here reads as unset, whatever the instance has stored.
+const REGISTRY_SETTINGS: [&str; 7] = [
+    NPM_CONFIG_REGISTRY_SETTING,
+    NPMRC_SETTING,
+    BUNFIG_INSTALL_SCOPES_SETTING,
+    PIP_INDEX_URL_SETTING,
+    EXTRA_PIP_INDEX_URL_SETTING,
+    UV_INDEX_STRATEGY_SETTING,
+    WORKSPACE_REGISTRIES_SETTING,
+];
+
+/// Resolve one setting the way a worker resolves it: a workspace override wins over the
+/// instance value, which is `FORCE_<env>` > `global_settings` > `<env>` (the server's
+/// `load_option_setting_value`). A blank value means unset from either source, so a
+/// workspace can blank one out.
+fn resolve_registry_setting(
+    stored: &std::collections::HashMap<String, serde_json::Value>,
+    workspace_overrides: Option<&serde_json::Value>,
+    key: &str,
+    env_var: &str,
+) -> Option<String> {
+    let as_str = |v: Option<&serde_json::Value>| v.and_then(|v| v.as_str()).map(|s| s.to_string());
+    let instance_value = std::env::var(format!("FORCE_{env_var}"))
+        .ok()
+        .or_else(|| as_str(stored.get(key)))
+        .or_else(|| std::env::var(env_var).ok());
+    as_str(workspace_overrides.and_then(|w| w.get(key)))
+        .or(instance_value)
+        .filter(|v| !v.trim().is_empty())
+}
+
+/// Serve the dependency-registry settings to the debug service.
+///
+/// `windmill prepare-deps` installs a debug session's imports without a database
+/// connection, so the service fetches the settings here and passes them down over the
+/// CLI's stdin request. They stop there: a private index URL embeds credentials and the
+/// debugged script can read its own process, so nothing served here reaches the session's
+/// environment (see `debugger/README.md`).
+///
+/// Authorized by the launch token the service verified for that session, and only when the
+/// token carries the `registry_config` claim — see [`sign_debug_request`] for what it means.
+async fn get_registry_config(
+    Extension(db): Extension<DB>,
+    headers: HeaderMap,
+) -> JsonResult<DebugRegistryConfig> {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or_else(|| Error::NotAuthorized("Missing debug token".to_string()))?;
+
+    let claims = verify_debug_token(token).await?;
+    if !claims.registry_config {
+        return Err(Error::NotAuthorized(
+            "This debug session is not allowed to read the registry configuration".to_string(),
+        ));
+    }
+
+    let names = REGISTRY_SETTINGS.map(String::from);
+    let stored = sqlx::query!(
+        "SELECT name, value FROM global_settings WHERE name = ANY($1)",
+        &names[..]
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .map(|r| (r.name, r.value))
+    .collect::<std::collections::HashMap<_, _>>();
+
+    let workspace_overrides = stored
+        .get(WORKSPACE_REGISTRIES_SETTING)
+        .and_then(|v| v.get(&claims.workspace_id));
+    let resolve = |key: &str, env_var: &str| {
+        resolve_registry_setting(&stored, workspace_overrides, key, env_var)
+    };
+
+    let mut config = DebugRegistryConfig {
+        npm_config_registry: resolve(NPM_CONFIG_REGISTRY_SETTING, "NPM_CONFIG_REGISTRY"),
+        npmrc: resolve(NPMRC_SETTING, "NPMRC"),
+        bunfig_install_scopes: resolve(BUNFIG_INSTALL_SCOPES_SETTING, "BUNFIG_INSTALL_SCOPES"),
+        pip_index_url: resolve(PIP_INDEX_URL_SETTING, "PIP_INDEX_URL"),
+        pip_extra_index_url: resolve(EXTRA_PIP_INDEX_URL_SETTING, "PIP_EXTRA_INDEX_URL"),
+        // Not a private-registry setting: a worker reads it on any edition, so it is
+        // served below the Enterprise gate too.
+        uv_index_strategy: resolve(UV_INDEX_STRATEGY_SETTING, "UV_INDEX_STRATEGY"),
+        message: None,
+    };
+
+    // A private registry is an Enterprise feature — `read_ee_registry` drops these same
+    // settings on a CE worker — so a CE debug session installs from the public registries
+    // and says why, instead of gaining a capability jobs on that instance don't have.
+    if !cfg!(feature = "enterprise") {
+        let configured = config.npm_config_registry.is_some()
+            || config.npmrc.is_some()
+            || config.bunfig_install_scopes.is_some()
+            || config.pip_index_url.is_some()
+            || config.pip_extra_index_url.is_some();
+        config.npm_config_registry = None;
+        config.npmrc = None;
+        config.bunfig_install_scopes = None;
+        config.pip_index_url = None;
+        config.pip_extra_index_url = None;
+        if configured {
+            config.message = Some(
+                "Private registry configuration ignored: this feature requires Windmill Enterprise Edition"
+                    .to_string(),
+            );
+        }
+    }
+
+    Ok(Json(config))
+}
+
+/// Verify a token minted by [`sign_debug_request`] and return its claims.
+///
+/// The debug service verifies the same token itself against the JWKS public key; this is
+/// the server-side half, for the requests the service makes back on a session's behalf.
+async fn verify_debug_token(token: &str) -> Result<DebugTokenClaims, Error> {
+    let key_guard = DEBUG_SIGNING_KEY.read().await;
+    let signing_key = key_guard
+        .as_ref()
+        .ok_or_else(|| Error::InternalErr("Debug signing key not initialized".to_string()))?;
+
+    let invalid = || Error::NotAuthorized("Invalid debug token".to_string());
+    let mut parts = token.split('.');
+    let (header_b64, claims_b64, signature_b64) =
+        match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some(header), Some(claims), Some(signature), None) => (header, claims, signature),
+            _ => return Err(invalid()),
+        };
+
+    let signature = Signature::from_slice(
+        &URL_SAFE_NO_PAD
+            .decode(signature_b64)
+            .map_err(|_| invalid())?,
+    )
+    .map_err(|_| invalid())?;
+    signing_key
+        .verifying_key()
+        .verify_strict(format!("{header_b64}.{claims_b64}").as_bytes(), &signature)
+        .map_err(|_| invalid())?;
+
+    let claims: DebugTokenClaims =
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(claims_b64).map_err(|_| invalid())?)
+            .map_err(|_| invalid())?;
+    if Utc::now().timestamp() > claims.exp {
+        return Err(Error::NotAuthorized("Debug token expired".to_string()));
+    }
+    Ok(claims)
+}
+
 #[derive(Deserialize)]
 pub struct SignDebugRequest {
     /// The code to be debugged
@@ -193,6 +380,11 @@ pub struct DebugTokenClaims {
     pub exp: i64,
     /// Job ID for traceability
     pub job_id: String,
+    /// Whether this session may be served the instance's dependency-registry settings
+    /// (see [`get_registry_config`]). Defaults to `false` so a token that predates the
+    /// claim is refused rather than silently trusted.
+    #[serde(default)]
+    pub registry_config: bool,
 }
 
 #[derive(Serialize)]
@@ -248,6 +440,12 @@ async fn sign_debug_request(
         iat: now_ts,
         exp,
         job_id: job_id.to_string(),
+        // The registry settings embed credentials, so they are only served to a session
+        // whose author can already reach them by running a preview job: a worker writes
+        // the same `.npmrc` / `bunfig.toml` into the job directory the script runs in.
+        // Operators cannot run previews, so their sessions install from the public
+        // registries instead.
+        registry_config: !authed.is_operator,
     };
 
     // Create JWT manually with Ed25519 signature
@@ -503,4 +701,42 @@ async fn sign_multiplayer(
     let token = format!("{}.{}", message, signature_b64);
 
     Ok(Json(SignedMultiplayerPayload { token }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A debug session must resolve a registry setting to what a job in the same workspace
+    /// resolves it to (`read_ee_registry_with_workspace_override`): the workspace override
+    /// replaces the instance value, and a blank value from either source means unset, which
+    /// is how a workspace opts out of an instance-wide registry.
+    #[test]
+    fn workspace_override_replaces_the_instance_value() {
+        let stored = [(
+            NPM_CONFIG_REGISTRY_SETTING.to_string(),
+            serde_json::json!("https://instance.example/"),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
+        // Never set, so the environment fallback stays out of the comparison.
+        let env_var = "WM_TEST_DEBUG_REGISTRY_UNSET";
+        let resolve = |overrides: Option<&serde_json::Value>| {
+            resolve_registry_setting(&stored, overrides, NPM_CONFIG_REGISTRY_SETTING, env_var)
+        };
+
+        assert_eq!(resolve(None).as_deref(), Some("https://instance.example/"));
+        let workspace = serde_json::json!({ "npm_config_registry": "https://workspace.example/" });
+        assert_eq!(
+            resolve(Some(&workspace)).as_deref(),
+            Some("https://workspace.example/")
+        );
+        let blanked = serde_json::json!({ "npm_config_registry": "  " });
+        assert_eq!(resolve(Some(&blanked)), None);
+        let unrelated = serde_json::json!({ "npmrc": "//other/:_authToken=x" });
+        assert_eq!(
+            resolve(Some(&unrelated)).as_deref(),
+            Some("https://instance.example/")
+        );
+    }
 }

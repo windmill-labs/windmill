@@ -41,6 +41,7 @@ import { join } from 'node:path'
 
 // Import the working Bun debug session from the standalone server
 import { DebugSession as BunDebugSessionWorking, type NsjailConfig } from './dap_websocket_server_bun'
+import { fetchRegistryConfig, type RegistryConfig } from './registry_config'
 
 // ============================================================================
 // Configuration
@@ -682,15 +683,15 @@ class PythonDebugSession extends BaseDebugSession {
 	 * Install the script's imports through `windmill prepare-deps` and return the venv to add to
 	 * the debugged script's sys.path.
 	 *
-	 * This runs here rather than in the Python server because the registry settings the CLI reads
-	 * (`PY_INDEX_URL` and friends) routinely embed private-registry credentials, and the Python
-	 * server executes the submitted script inside its own interpreter: anything in that process is
-	 * recoverable by the script. The service never executes user code, so the credentials stop here.
+	 * This runs here rather than in the Python server because the registry settings the CLI is
+	 * given routinely embed private-registry credentials, and the Python server executes the
+	 * submitted script inside its own interpreter: anything in that process is recoverable by the
+	 * script. The service never executes user code, so the credentials stop here.
 	 *
 	 * The trade-off is that the install itself is not jailed, so a source distribution's build
 	 * backend runs outside nsjail, as it already does for Bun sessions.
 	 */
-	private async prepareDependencies(code: string): Promise<string | null> {
+	private async prepareDependencies(code: string, registry: RegistryConfig): Promise<string | null> {
 		if (!this.windmillPath) {
 			logger.info('No windmill binary path configured, skipping dependency preparation')
 			return null
@@ -708,7 +709,7 @@ class PythonDebugSession extends BaseDebugSession {
 		try {
 			const proc = spawn({
 				cmd: [this.windmillPath, 'prepare-deps'],
-				stdin: new Blob([JSON.stringify({ code, language: 'python3' }) + '\n']),
+				stdin: new Blob([JSON.stringify({ code, language: 'python3', registry }) + '\n']),
 				stdout: 'pipe',
 				stderr: 'pipe'
 			})
@@ -1054,6 +1055,8 @@ class PythonDebugSession extends BaseDebugSession {
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
+		// Also what authorizes the registry configuration fetch below.
+		const token = args.token as string | undefined
 
 		// Enforce signing on every launch. The token is passed in the launch
 		// arguments and is verified against the inline `code` (see windmill-api-debug).
@@ -1067,7 +1070,6 @@ class PythonDebugSession extends BaseDebugSession {
 				return
 			}
 
-			const token = args.token as string | undefined
 			if (!token) {
 				logger.error('No debug token provided but signed requests are required')
 				this.sendResponse(request, false, {}, 'Debug token required. Ensure the debug session was signed by the backend.')
@@ -1130,7 +1132,11 @@ sys.stdout.flush()
 
 		try {
 			if (code) {
-				this.venvPath = (await this.prepareDependencies(code)) ?? undefined
+				const registry = await fetchRegistryConfig(token, logger)
+				if (registry.message) {
+					this.sendEvent('output', { category: 'console', output: `${registry.message}\n` })
+				}
+				this.venvPath = (await this.prepareDependencies(code, registry)) ?? undefined
 			}
 
 			await this.startPythonProcess(cwd)

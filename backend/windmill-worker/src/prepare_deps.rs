@@ -12,6 +12,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+use crate::bun_executor::{write_bun_registry_config, BUN_CONFIG_FILE, BUN_NPMRC_FILE};
 use crate::worker::non_empty_env;
 use crate::{
     BUN_CACHE_DIR, BUN_PATH, HOME_ENV, INDEX_CERT, NATIVE_CERT, PATH_ENV, PROXY_ENVS, TRUSTED_HOST,
@@ -92,9 +93,10 @@ lazy_static::lazy_static! {
     /// UV binary path
     static ref UV_PATH: String = std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
 
-    /// This process has no database, so the `pip_index_url` / `pip_extra_index_url` instance
-    /// settings the job path resolves are unreachable here: their env-var equivalents are the
-    /// only registry configuration the debugger can see.
+    /// Fallbacks for the registry settings, used when the caller sends none: this process has
+    /// no database, so the instance settings only reach it through the request (see
+    /// [`RegistryConfig`]), and a debug service that cannot fetch them still configures the
+    /// installer from its own environment.
     static ref PY_INDEX_URL: Option<String> = non_empty_env("PY_INDEX_URL").or_else(|| non_empty_env("PIP_INDEX_URL"));
     static ref PY_EXTRA_INDEX_URL: Option<String> = non_empty_env("PY_EXTRA_INDEX_URL").or_else(|| non_empty_env("PIP_EXTRA_INDEX_URL"));
     /// uv defaults to `first-index`; the job path overrides it so a package missing from the
@@ -112,10 +114,36 @@ const p = {
 };
 "#;
 
+/// The registry settings resolved from the instance settings by the caller.
+///
+/// This process runs without a database, so `GET /api/debug/registry_config` is where the
+/// debug service reads them and this request field is how they get here. They are consumed
+/// to configure the installer and never handed to the debug session itself: an index URL
+/// embeds credentials and the session executes user-supplied code.
+///
+/// Field names are the `global_settings` keys, so the service forwards the endpoint's
+/// response verbatim.
+#[derive(Deserialize, Default)]
+pub struct RegistryConfig {
+    pub npm_config_registry: Option<String>,
+    pub npmrc: Option<String>,
+    pub bunfig_install_scopes: Option<String>,
+    pub pip_index_url: Option<String>,
+    pub pip_extra_index_url: Option<String>,
+    pub uv_index_strategy: Option<String>,
+}
+
 #[derive(Deserialize)]
 pub struct PrepareRequest {
     pub code: String,
     pub language: String,
+    #[serde(default)]
+    pub registry: RegistryConfig,
+}
+
+/// A blank value means unset, as it does for the same setting on a worker.
+fn configured(value: &Option<String>) -> Option<String> {
+    value.clone().filter(|v| !v.trim().is_empty())
 }
 
 #[derive(Serialize)]
@@ -179,14 +207,18 @@ fn get_proc_envs(cache_env: Option<(&str, &str)>) -> HashMap<String, String> {
 }
 
 /// uv registry arguments, mirroring what the job path passes in `python_executor`.
-fn uv_registry_args() -> Vec<String> {
+fn uv_registry_args(registry: &RegistryConfig) -> Vec<String> {
+    let index_url = configured(&registry.pip_index_url).or_else(|| PY_INDEX_URL.clone());
+    let extra_index_url =
+        configured(&registry.pip_extra_index_url).or_else(|| PY_EXTRA_INDEX_URL.clone());
+
     let mut args: Vec<String> = vec![];
-    if let Some(urls) = PY_EXTRA_INDEX_URL.as_ref() {
+    if let Some(urls) = extra_index_url.as_ref() {
         for url in urls.split(',') {
             args.extend(["--extra-index-url".to_string(), url.to_string()]);
         }
     }
-    if let Some(url) = PY_INDEX_URL.as_ref() {
+    if let Some(url) = index_url.as_ref() {
         args.extend(["--index-url".to_string(), url.to_string()]);
     }
     if let Some(hosts) = TRUSTED_HOST.as_ref() {
@@ -201,7 +233,7 @@ fn uv_registry_args() -> Vec<String> {
 }
 
 /// Prepare Python dependencies using uv
-async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
+async fn prepare_python_deps_standalone(code: &str, registry: &RegistryConfig) -> PrepareResponse {
     // Parse imports from the code
     let packages = parse_python_imports(code);
 
@@ -237,7 +269,7 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
     let mut common_uv_envs = get_proc_envs(Some(("UV_CACHE_DIR", &UV_CACHE_DIR)));
     common_uv_envs.insert(
         "UV_INDEX_STRATEGY".to_string(),
-        PY_INDEX_STRATEGY.to_string(),
+        configured(&registry.uv_index_strategy).unwrap_or_else(|| PY_INDEX_STRATEGY.to_string()),
     );
     if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
         common_uv_envs.insert("UV_HTTP_TIMEOUT".to_string(), timeout.to_string());
@@ -248,7 +280,7 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
         common_uv_envs.insert("SSL_CERT_FILE".to_string(), cert_path.to_string());
     }
 
-    let registry_args = uv_registry_args();
+    let registry_args = uv_registry_args(registry);
 
     // Step 1: Create virtual environment using uv
     // `--seed` resolves pip/setuptools from the index, so the venv also needs the registry
@@ -380,11 +412,15 @@ pub fn get_simple_bun_proc_envs() -> HashMap<String, String> {
 
 /// Prepare dependencies for a script without requiring database access.
 /// This is meant to be called from the CLI.
-pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareResponse {
+pub async fn prepare_deps_standalone(
+    code: &str,
+    language: &str,
+    registry: &RegistryConfig,
+) -> PrepareResponse {
     // Route to the appropriate handler based on language
     match language {
         "python3" | "python" => {
-            return prepare_python_deps_standalone(code).await;
+            return prepare_python_deps_standalone(code, registry).await;
         }
         "bun" | "typescript" | "deno" => {
             // Continue with JS/TS handling below
@@ -544,7 +580,23 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
         };
     }
 
-    // Step 2: Run bun install
+    // Step 2: Run bun install, from the same registry configuration a job installs with.
+    if let Err(e) = write_bun_registry_config(
+        &job_dir,
+        configured(&registry.npmrc),
+        configured(&registry.npm_config_registry),
+        configured(&registry.bunfig_install_scopes),
+    ) {
+        return PrepareResponse {
+            node_modules_path: None,
+            venv_path: None,
+            job_dir: job_dir.clone(),
+            success: false,
+            error: Some(format!("Failed to write registry configuration: {}", e)),
+            install_stderr: None,
+        };
+    }
+
     let output = Command::new(&*BUN_PATH)
         .current_dir(&job_dir)
         .env_clear()
@@ -554,6 +606,13 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
         .stderr(Stdio::piped())
         .output()
         .await;
+
+    // The caller mounts this directory's `node_modules` into the debug session, which can
+    // resolve the symlink back to here, so the registry credentials must not outlive the
+    // install that needed them.
+    for file in [BUN_NPMRC_FILE, BUN_CONFIG_FILE] {
+        let _ = std::fs::remove_file(format!("{}/{}", job_dir, file));
+    }
 
     match output {
         Ok(out) => {
@@ -649,7 +708,8 @@ pub async fn run_prepare_deps_cli() -> anyhow::Result<()> {
         }
     };
 
-    let response = prepare_deps_standalone(&request.code, &request.language).await;
+    let response =
+        prepare_deps_standalone(&request.code, &request.language, &request.registry).await;
     println!("{}", serde_json::to_string(&response)?);
 
     Ok(())
@@ -657,7 +717,27 @@ pub async fn run_prepare_deps_cli() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::PrepareResponse;
+    use super::{PrepareRequest, PrepareResponse};
+
+    /// The debug service and this CLI are deployed as separate images, and the service
+    /// forwards `GET /api/debug/registry_config` verbatim, `message` field included. So a
+    /// request from an older service carries no `registry` at all, and one from a newer
+    /// service carries fields this binary does not know.
+    #[test]
+    fn test_registry_is_optional_and_tolerates_unknown_fields() {
+        let without: PrepareRequest =
+            serde_json::from_str(r#"{"code": "import lodash", "language": "bun"}"#).unwrap();
+        assert!(without.registry.npm_config_registry.is_none());
+
+        let with: PrepareRequest = serde_json::from_str(
+            r#"{"code": "", "language": "bun", "registry": {"npm_config_registry": "https://npm.example", "message": "for the user"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            with.registry.npm_config_registry.as_deref(),
+            Some("https://npm.example")
+        );
+    }
 
     /// The debugger (`debugger/dap_websocket_server.py`) parses this JSON out of the CLI's
     /// stdout, so `install_stderr` has to stay additive: a response without an install failure
