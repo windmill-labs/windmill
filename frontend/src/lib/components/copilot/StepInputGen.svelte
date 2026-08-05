@@ -18,6 +18,7 @@
 	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { Check, Wand2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { useFlowEditorTelemetry } from '../flows/flowEditorTelemetry'
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -41,6 +42,10 @@
 
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { generatedExprs } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	// The trigger only appears on hover, and Tab accepts without it — counting both paths is
+	// what says whether the suggestion is still reachable.
+	const telemetry = useFlowEditorTelemetry()
 
 	function createFlowInput() {
 		if (!newFlowInput) {
@@ -68,6 +73,7 @@
 		}
 		abortController = new AbortController()
 		loading = true
+		telemetry.log('ai_input', 'step_input:generate')
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
@@ -143,6 +149,7 @@ Only return the expression without any wrapper.`
 		if (event.key === 'Tab') {
 			if (!loading && generatedContent) {
 				event.preventDefault()
+				telemetry.log('ai_input', 'step_input:accept_tab')
 				dispatch('setExpr', generatedContent)
 				if (newFlowInput) {
 					openInputsModal = true
@@ -157,6 +164,11 @@ Only return the expression without any wrapper.`
 	const dispatch = createEventDispatcher()
 
 	function cancel() {
+		// Only a suggestion that was there to take counts as discarded; cancelling a call in
+		// flight is the user changing their mind before there was anything to accept.
+		if (!loading && generatedContent) {
+			telemetry.log('ai_input', 'step_input:discard')
+		}
 		abortController.abort()
 		generatedContent = ''
 	}
@@ -189,6 +201,7 @@ Only return the expression without any wrapper.`
 	let ready = $derived(!loading && generatedContent.length > 0)
 
 	function accept() {
+		telemetry.log('ai_input', 'step_input:accept_click')
 		dispatch('setExpr', generatedContent)
 		if (newFlowInput) {
 			openInputsModal = true

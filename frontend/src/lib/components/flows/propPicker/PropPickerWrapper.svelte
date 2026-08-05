@@ -43,6 +43,7 @@
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { useConnect } from './useConnect.svelte'
+	import { useFlowEditorTelemetry } from '../flowEditorTelemetry'
 
 	interface Props {
 		pickableProperties: PickableProperties | undefined
@@ -89,11 +90,13 @@
 	// clicking a step — this pane is the only picker in that mode. See `graphParticipates`.
 	const inModalPanel = $derived(propPickerContext.inModalPanel?.() ?? false)
 
+	const telemetry = useFlowEditorTelemetry()
 	const connect = useConnect({
 		inModalPanel: () => inModalPanel,
 		hasPickableProperties: () => pickableProperties != undefined,
 		flowPropPickerConfig,
-		localConfig: propPickerConfig
+		localConfig: propPickerConfig,
+		onEvent: (event) => telemetry.log('connect', `input:${event}`)
 	})
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {

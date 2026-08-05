@@ -8,6 +8,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import FlowModuleWorkerTagSelect from './FlowModuleWorkerTagSelect.svelte'
+	import { useFlowEditorTelemetry } from '../flowEditorTelemetry'
 
 	interface Props {
 		module: FlowModule
@@ -19,6 +20,14 @@
 
 	const dispatch = createEventDispatcher()
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
+
+	// The menu is counted alongside the action it holds: "Save to workspace" no longer has a
+	// button of its own, so how often it is reached at all is what says whether it still is.
+	const telemetry = useFlowEditorTelemetry()
+	let menuOpen = $state(false)
+	$effect(() => {
+		if (menuOpen) telemetry.log('header_action', 'menu_open')
+	})
 </script>
 
 <div class="flex shrink-0 flex-row gap-2 whitespace-nowrap">
@@ -86,11 +95,15 @@
 		<DropdownV2
 			size="sm"
 			placement="bottom-end"
+			bind:open={menuOpen}
 			items={[
 				{
 					displayName: 'Save to workspace',
 					icon: Save,
-					action: () => dispatch('createScriptFromInlineScript')
+					action: () => {
+						telemetry.log('header_action', 'save_to_workspace')
+						dispatch('createScriptFromInlineScript')
+					}
 				}
 			]}
 		/>

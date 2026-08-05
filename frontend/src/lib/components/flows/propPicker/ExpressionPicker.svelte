@@ -8,6 +8,7 @@
 	import type { PickableProperties } from '../previousResults'
 	import type { PropPickerWrapperContext } from './PropPickerWrapper.svelte'
 	import { useConnect } from './useConnect.svelte'
+	import { useFlowEditorTelemetry } from '../flowEditorTelemetry'
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
@@ -27,10 +28,12 @@
 
 	const inModalPanel = $derived(propPickerContext?.inModalPanel?.() ?? false)
 
+	const telemetry = useFlowEditorTelemetry()
 	const connect = useConnect({
 		inModalPanel: () => inModalPanel,
 		hasPickableProperties: () => pickableProperties != undefined,
-		flowPropPickerConfig: propPickerContext?.flowPropPickerConfig ?? writable(undefined)
+		flowPropPickerConfig: propPickerContext?.flowPropPickerConfig ?? writable(undefined),
+		onEvent: (event) => telemetry.log('connect', `expression:${event}`)
 	})
 
 	// PropPicker reads these to filter and highlight against what is being typed. Only the

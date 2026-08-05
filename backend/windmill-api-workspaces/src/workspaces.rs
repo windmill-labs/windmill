@@ -10977,6 +10977,14 @@ const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
     ("ai_chat", "message"),
     ("ai_chat", "model"),
     ("ai_chat", "tool"),
+    ("flow_editor", "panel_open"),
+    ("flow_editor", "panel_dwell"),
+    ("flow_editor", "placement"),
+    ("flow_editor", "setting"),
+    ("flow_editor", "setting_invalid"),
+    ("flow_editor", "connect"),
+    ("flow_editor", "ai_input"),
+    ("flow_editor", "header_action"),
 ];
 
 fn is_identifier_shaped(s: &str, max_len: usize) -> bool {

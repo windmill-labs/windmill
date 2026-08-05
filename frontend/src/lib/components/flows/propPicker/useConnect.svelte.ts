@@ -17,6 +17,8 @@ export function useConnect(opts: {
 	localConfig?: Writable<
 		{ propName?: string; onSelect: (path: string) => boolean; clearFocus: () => void } | undefined
 	>
+	/** Anonymous counters for how often an armed connect ends in a pick. */
+	onEvent?: (event: 'open' | 'insert' | 'abandon') => void
 }) {
 	let armed = $state<ArmedTarget | undefined>(undefined)
 
@@ -51,8 +53,19 @@ export function useConnect(opts: {
 	}
 
 	function arm(target: ArmedTarget) {
-		armed = nextArmed(armed, target)
+		const next = nextArmed(armed, target)
+		// Arming is exclusive, so anything already armed ends here — and clicking the armed
+		// input again disarms it, ending a target without opening another.
+		if (armed) opts.onEvent?.('abandon')
+		if (next) opts.onEvent?.('open')
+		armed = next
 		sync()
+	}
+
+	function clear() {
+		armed = undefined
+		opts.localConfig?.set(undefined)
+		opts.flowPropPickerConfig.set(undefined)
 	}
 
 	function disarm() {
@@ -60,16 +73,17 @@ export function useConnect(opts: {
 		// that holds nothing must not clear it — otherwise closing any picker cancels whichever
 		// input is actually armed, and the pick that follows has nowhere to land.
 		if (!armed) return
-		armed = undefined
-		opts.localConfig?.set(undefined)
-		opts.flowPropPickerConfig.set(undefined)
+		opts.onEvent?.('abandon')
+		clear()
 	}
 
 	/** Deliver a picked property. Disarms first, so a target can never be written twice. */
 	function resolve(path: string) {
 		const target = armed
-		disarm()
-		target?.onSelect(path)
+		if (!target) return
+		opts.onEvent?.('insert')
+		clear()
+		target.onSelect(path)
 	}
 
 	return {

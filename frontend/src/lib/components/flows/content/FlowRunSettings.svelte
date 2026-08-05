@@ -24,7 +24,12 @@
 	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleCache from './FlowModuleCache.svelte'
-	import { hasInlineConcurrency, stepSettingDefaults } from '../flowStepSettings'
+	import {
+		describeStepSettings,
+		hasInlineConcurrency,
+		stepSettingDefaults
+	} from '../flowStepSettings'
+	import { createSettingsChangeTracker, useFlowEditorTelemetry } from '../flowEditorTelemetry'
 
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
@@ -85,6 +90,13 @@
 	}: Props = $props()
 
 	let rootEl: HTMLDivElement | undefined = $state()
+
+	// Read off the same view the graph badges render, so a setting counts as configured here
+	// exactly when it shows as configured there.
+	const settingsTracker = createSettingsChangeTracker(useFlowEditorTelemetry().log)
+	$effect(() => {
+		settingsTracker.observe(flowModule.id, describeStepSettings(flowModule))
+	})
 
 	/** Scroll one setting into view. `key` is a StepSettingKey, so the AI tool's openTab
 	 *  intent must name settings with those keys. */
