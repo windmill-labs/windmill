@@ -1526,9 +1526,11 @@ pub async fn resolve_fork_branch_target(
         .await?
     } else if branch != expected_base {
         // Environment-label branch (`dev`/`staging`) of a dev-workspace child.
-        // Dev workspaces only exist directly under a root, so no recursion here.
-        // The tracked-branch guard keeps a label that collides with the tracked
-        // branch from double-routing (the parent's own pull already covers it).
+        // Direct children only: a dev nested under another dev is parent-managed
+        // by that dev, which holds no auto-pull config of its own, so no branch
+        // pushed to this repo routes to it. The tracked-branch guard keeps a
+        // label that collides with the tracked branch from double-routing (the
+        // parent's own pull already covers it).
         sqlx::query_scalar!(
             "SELECT id FROM workspace \
              WHERE parent_workspace_id = $1 AND NOT deleted AND is_dev_workspace \
