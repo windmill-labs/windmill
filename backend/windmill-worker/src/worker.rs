@@ -3617,6 +3617,10 @@ pub struct UpdateFlow {
     pub worker_dir: String,
     pub stop_early_override: Option<bool>,
     pub token: String,
+    /// Whether the flow must be resumed as if the previous step's worker had died: no retry,
+    /// straight to the failure module, and nothing pinned to this worker. Only true when the
+    /// flow is handed back from a state no live step can recover from.
+    pub unrecoverable: bool,
 }
 
 async fn do_nativets(
