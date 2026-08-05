@@ -94,11 +94,17 @@ lazy_static::lazy_static! {
     /// This process has no database, so the `pip_index_url` / `pip_extra_index_url` instance
     /// settings the job path resolves are unreachable here: their env-var equivalents are the
     /// only registry configuration the debugger can see.
-    static ref PY_INDEX_URL: Option<String> = std::env::var("PY_INDEX_URL").ok().or(std::env::var("PIP_INDEX_URL").ok()).filter(|v| !v.is_empty());
-    static ref PY_EXTRA_INDEX_URL: Option<String> = std::env::var("PY_EXTRA_INDEX_URL").ok().or(std::env::var("PIP_EXTRA_INDEX_URL").ok()).filter(|v| !v.is_empty());
+    static ref PY_INDEX_URL: Option<String> = non_empty_var("PY_INDEX_URL").or_else(|| non_empty_var("PIP_INDEX_URL"));
+    static ref PY_EXTRA_INDEX_URL: Option<String> = non_empty_var("PY_EXTRA_INDEX_URL").or_else(|| non_empty_var("PIP_EXTRA_INDEX_URL"));
     /// uv defaults to `first-index`; the job path overrides it so a package missing from the
     /// first index is still resolved from the others. Same default here.
-    static ref PY_INDEX_STRATEGY: String = std::env::var("UV_INDEX_STRATEGY").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "unsafe-best-match".to_string());
+    static ref PY_INDEX_STRATEGY: String = non_empty_var("UV_INDEX_STRATEGY").unwrap_or_else(|| "unsafe-best-match".to_string());
+}
+
+/// An env var declared but left empty (a common shape in compose/k8s manifests) must not
+/// shadow the fallback name it is checked against.
+fn non_empty_var(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
 /// Simple loader that doesn't require Windmill API for relative imports

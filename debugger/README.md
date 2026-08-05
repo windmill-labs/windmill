@@ -79,8 +79,12 @@ Options:
 
 Before debugging a Python script, the server installs its imports through `windmill prepare-deps`,
 which runs `uv` without a database connection. It therefore cannot read the instance settings, and
-takes its registry configuration from the environment of the process running the debug service —
-the same variables the worker honors:
+takes its registry configuration from the environment instead. The debug service forwards these
+variables (plus `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`) from its own environment to each Python
+session, so setting them on the service is enough. Where two names are listed the first wins; a
+worker reads the `PIP_*` / `PY_*` names in the same way, except for the index URLs, whose worker
+env fallbacks are only `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` (the `PY_*` spellings are accepted
+here for symmetry with the other settings):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -92,9 +96,10 @@ the same variables the worker honors:
 | `UV_INDEX_STRATEGY` | uv index strategy | unsafe-best-match |
 | `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
 
-When the install fails, the JSON response carries the installer's stderr in `install_stderr`
-alongside `error`, so the reason (unreachable mirror, untrusted certificate, unknown package)
-reaches the user instead of a bare `ModuleNotFoundError` at debug time.
+When the install fails, the response is `success: false` and carries the installer's stderr in
+both `error` and `install_stderr`, so the reason (unreachable mirror, untrusted certificate,
+unknown package) is available to the caller rather than surfacing later as a bare
+`ModuleNotFoundError`.
 
 ### Frontend Integration
 

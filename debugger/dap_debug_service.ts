@@ -353,6 +353,42 @@ interface SpawnOptions {
 }
 
 /**
+ * Registry, TLS and proxy settings that `windmill prepare-deps` reads to install a Python
+ * script's dependencies. spawnProcess intentionally does not inherit this process's
+ * environment, so they have to be forwarded explicitly: without them a private mirror or a
+ * TLS-intercepting proxy is unreachable from a debug session even when the service itself
+ * is configured for it.
+ */
+const PYTHON_REGISTRY_ENV_VARS = [
+	'PY_INDEX_URL',
+	'PIP_INDEX_URL',
+	'PY_EXTRA_INDEX_URL',
+	'PIP_EXTRA_INDEX_URL',
+	'PY_TRUSTED_HOST',
+	'PIP_TRUSTED_HOST',
+	'PY_INDEX_CERT',
+	'PIP_INDEX_CERT',
+	'PY_NATIVE_CERT',
+	'UV_NATIVE_TLS',
+	'UV_INDEX_STRATEGY',
+	'UV_HTTP_TIMEOUT',
+	'HTTP_PROXY',
+	'HTTPS_PROXY',
+	'NO_PROXY'
+]
+
+function pythonRegistryEnv(): Record<string, string> {
+	const env: Record<string, string> = {}
+	for (const key of PYTHON_REGISTRY_ENV_VARS) {
+		const value = process.env[key]
+		if (value) {
+			env[key] = value
+		}
+	}
+	return env
+}
+
+/**
  * Spawn a process, optionally wrapped with nsjail.
  * This is the key function for sandboxed execution.
  */
@@ -662,7 +698,7 @@ class PythonDebugSession extends BaseDebugSession {
 		this.process = spawnProcess({
 			cmd,
 			cwd,
-			env: { PYTHONUNBUFFERED: '1', ...this.envVars }
+			env: { PYTHONUNBUFFERED: '1', ...pythonRegistryEnv(), ...this.envVars }
 		})
 
 		// Read stderr to capture startup messages
