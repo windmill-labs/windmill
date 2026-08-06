@@ -53,6 +53,7 @@ use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
+use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
@@ -369,6 +370,10 @@ pub fn workspaced_service() -> Router {
             "/job_view_token/{id}",
             get(get_job_view_token).layer(cors.clone()),
         )
+        .route(
+            "/job_public_view_token/{id}",
+            get(get_job_public_view_token).layer(cors.clone()),
+        )
         .route("/run/dependencies", post(run_dependencies_job))
         .route("/run/dependencies_async", post(run_dependencies_job_async))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
@@ -502,7 +507,63 @@ async fn get_job_view_token(
     // enforces the caller's `if_jobs:filter_tags` scope, so a tag-scoped token can't
     // mint a transferable link for a job outside its allowed tags.
     require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
-    let hmac = generate_view_token(&w_id, id, &db).await?;
+    let hmac = generate_view_token(&w_id, id, VIEW_TOKEN_DOMAIN, &db).await?;
+    Ok(format!("{id}.{hmac}"))
+}
+
+/// Public flavor of [`get_job_view_token`]: the resulting link additionally grants read of
+/// the job (and its flow subtree) to logged-out visitors, who land on the minimal public
+/// run page. Read access is necessary but not sufficient — exposing workspace data to the
+/// anonymous internet is a privileged action, gated like an app's anonymous execution mode.
+async fn get_job_public_view_token(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<String> {
+    require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
+
+    // Anonymous readers of a public link carry no scope to confine, so the link would
+    // reach out-of-scope descendants of an in-scope job (mixed-tag flow trees). A tag
+    // scope is a hard restriction: refuse rather than silently narrow the link.
+    if get_scope_tags(&authed).is_some() {
+        return Err(Error::PermissionDenied(
+            "A tag-scoped token cannot share a run publicly: the resulting link is read \
+             anonymously and could not carry the tag restriction to the run's steps."
+                .to_string(),
+        ));
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::RestrictPublicRunSharing,
+        &authed.username,
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let hmac = generate_view_token(&w_id, id, PUBLIC_VIEW_TOKEN_DOMAIN, &db).await?;
+
+    // The link is stateless and permanent, so the mint is the only moment this is
+    // observable: audit it unconditionally rather than through the opt-in job-view log.
+    let mut tx = db.begin().await?;
+    audit_log(
+        &mut *tx,
+        &AuditAuthor::from(&authed),
+        "jobs.share_publicly",
+        ActionKind::Create,
+        &w_id,
+        Some(&id.to_string()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
     Ok(format!("{id}.{hmac}"))
 }
 
@@ -1320,7 +1381,7 @@ struct GetJobQuery {
 /// job UUID, even though the same job is hidden from them in `jobs/list`
 /// (RLS-filtered) and the underlying script returns 404. (WIN-2026-jobs-read)
 ///
-/// Unauthenticated callers are still handled by each handler's anonymous-job check;
+/// Unauthenticated callers go through [`require_unauthed_job_read_access`] instead;
 /// this gate applies only when a user is authenticated. Access is granted when:
 /// - the caller created the job (`created_by`) — covers app components, webhooks and
 ///   the caller's own runs, whose `permissioned_as` is the policy identity rather
@@ -1447,9 +1508,13 @@ async fn require_job_read_access(
     }
 
     // Share read link: a valid view token minted by someone with read access grants
-    // this authenticated member read of the shared job and its flow subtree.
+    // this authenticated member read of the shared job and its flow subtree. Either
+    // audience does — the public one is a superset of the member one.
     if let Some(token) = view_token {
-        if validate_view_token(db, w_id, job_id, token).await? {
+        if validate_view_token(db, w_id, job_id, token)
+            .await?
+            .is_some()
+        {
             return Ok(());
         }
     }
@@ -1542,43 +1607,109 @@ async fn job_ancestor_chain_ids(db: &DB, w_id: &str, job_id: &Uuid) -> error::Re
     })
 }
 
+/// Who a share read link was minted for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ViewTokenAudience {
+    /// Read of the job subtree for an authenticated workspace member.
+    Member,
+    /// The same read, additionally granted to logged-out visitors.
+    Public,
+}
+
 /// A share read link token has the form `{shared_job_id}.{hmac}` where `hmac` is
 /// [`windmill_common::variables::generate_view_token`] for `shared_job_id`. It grants
 /// read of that job and its whole flow subtree, so the run page can present a single
-/// link that also renders the flow's steps. Returns true iff the signature is valid
-/// AND `accessed_job_id` is the shared job or one of its descendants.
+/// link that also renders the flow's steps. Returns the token's audience iff the
+/// signature is valid AND `accessed_job_id` is the shared job or one of its descendants.
 async fn validate_view_token(
     db: &DB,
     w_id: &str,
     accessed_job_id: &Uuid,
     token: &str,
-) -> error::Result<bool> {
+) -> error::Result<Option<ViewTokenAudience>> {
     let Some((shared_id_str, provided_hmac)) = token.split_once('.') else {
-        return Ok(false);
+        return Ok(None);
     };
     let Ok(shared_id) = Uuid::parse_str(shared_id_str) else {
-        return Ok(false);
+        return Ok(None);
     };
     let Ok(provided_bytes) = hex::decode(provided_hmac) else {
-        return Ok(false);
+        return Ok(None);
     };
-    // Constant-time verification (same domain as `generate_view_token`, mirroring
+    // Constant-time verification (same domains as `generate_view_token`, mirroring
     // `verify_suspended_secret`); avoids the timing side-channel of comparing the
     // hex strings with `!=`.
     let key = get_workspace_key(w_id, db).await?;
-    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
-    mac.update(shared_id.as_bytes());
-    mac.update(b"view_token");
-    if mac.verify_slice(&provided_bytes).is_err() {
-        return Ok(false);
-    }
+    let verify = |domain: &[u8]| -> error::Result<bool> {
+        let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+        mac.update(shared_id.as_bytes());
+        mac.update(domain);
+        Ok(mac.verify_slice(&provided_bytes).is_ok())
+    };
+    let audience = if verify(VIEW_TOKEN_DOMAIN)? {
+        ViewTokenAudience::Member
+    } else if verify(PUBLIC_VIEW_TOKEN_DOMAIN)? {
+        ViewTokenAudience::Public
+    } else {
+        return Ok(None);
+    };
     if accessed_job_id == &shared_id {
-        return Ok(true);
+        return Ok(Some(audience));
     }
     // The token authorizes the shared job's subtree: accessed must descend from it,
     // i.e. the shared job is among accessed's ancestors.
     let chain = job_ancestor_chain_ids(db, w_id, accessed_job_id).await?;
-    Ok(chain.contains(&shared_id))
+    Ok(chain.contains(&shared_id).then_some(audience))
+}
+
+/// Whether `token` is a *public* share link covering `job_id`. This is the only thing
+/// that lets a logged-out caller read a job that was not itself run anonymously.
+async fn public_view_token_grants(
+    db: &DB,
+    w_id: &str,
+    job_id: &Uuid,
+    token: Option<&str>,
+) -> error::Result<bool> {
+    let Some(token) = token else {
+        return Ok(false);
+    };
+    Ok(validate_view_token(db, w_id, job_id, token).await? == Some(ViewTokenAudience::Public))
+}
+
+/// Read gate for logged-out callers, the counterpart of [`require_job_read_access`]: a job
+/// run anonymously is public by construction, and a public share link publishes any other.
+async fn require_unauthed_job_read_access(
+    db: &DB,
+    w_id: &str,
+    job_id: &Uuid,
+    created_by: &str,
+    view_token: Option<&str>,
+) -> error::Result<()> {
+    if created_by == "anonymous" || public_view_token_grants(db, w_id, job_id, view_token).await? {
+        return Ok(());
+    }
+    Err(Error::BadRequest(
+        "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+    ))
+}
+
+/// The read gate of every handler that serves both audiences (the `jobs_u` router):
+/// [`require_job_read_access`] when logged in, [`require_unauthed_job_read_access`] when not.
+async fn require_opt_authed_job_read_access(
+    db: &DB,
+    user_db: &UserDB,
+    opt_authed: &Option<ApiAuthed>,
+    w_id: &str,
+    job_id: &Uuid,
+    created_by: &str,
+    view_token: Option<&str>,
+) -> error::Result<()> {
+    match opt_authed {
+        Some(authed) => {
+            require_job_read_access(db, user_db, authed, w_id, job_id, created_by, view_token).await
+        }
+        None => require_unauthed_job_read_access(db, w_id, job_id, created_by, view_token).await,
+    }
 }
 
 lazy_static::lazy_static! {
@@ -1747,7 +1878,12 @@ async fn get_job(
         false
     };
 
-    let mut get = GetQuery::new().with_in_tags(tags.as_ref());
+    let public_view_grant = opt_authed.is_none()
+        && public_view_token_grants(&db, &w_id, &id, view_token.as_deref()).await?;
+
+    let mut get = GetQuery::new()
+        .with_in_tags(tags.as_ref())
+        .with_public_view_grant(public_view_grant);
     if !has_valid_approval_token {
         get = get.with_auth(&opt_authed);
     }
@@ -1762,21 +1898,21 @@ async fn get_job(
     let mut job = get.fetch(&db, &id, &w_id).await?;
     job.fetch_outstanding_wait_time(&db).await?;
 
-    // A valid approval token is itself the capability; otherwise an authenticated
-    // caller must pass the same visibility as `jobs/list` (see `require_job_read_access`).
-    if !has_valid_approval_token {
-        if let Some(authed) = opt_authed.as_ref() {
-            require_job_read_access(
-                &db,
-                &user_db,
-                authed,
-                &w_id,
-                &id,
-                job.created_by(),
-                view_token.as_deref(),
-            )
-            .await?;
-        }
+    // A valid approval token is itself the capability; otherwise the caller must pass the
+    // same visibility as `jobs/list` (see `require_job_read_access`), or hold a public
+    // share link when logged out — which `public_view_grant` already established above,
+    // so skip re-deriving it here: this handler is what the public run page polls.
+    if !has_valid_approval_token && !public_view_grant {
+        require_opt_authed_job_read_access(
+            &db,
+            &user_db,
+            &opt_authed,
+            &w_id,
+            &id,
+            job.created_by(),
+            view_token.as_deref(),
+        )
+        .await?;
     }
 
     log_job_view(
@@ -1873,6 +2009,10 @@ struct GetQuery<'a> {
     with_flow: bool,
     with_auth: Option<&'a Option<ApiAuthed>>,
     with_in_tags: Option<&'a Vec<&'a str>>,
+    /// A public share link covering this job was presented: lifts the logged-out
+    /// restriction in [`Self::check_auth`], the way a view token lifts the ACL check
+    /// in `require_job_read_access` for a member.
+    with_public_view_grant: bool,
 }
 
 impl<'a> GetQuery<'a> {
@@ -1883,6 +2023,7 @@ impl<'a> GetQuery<'a> {
             with_flow: true,
             with_auth: None,
             with_in_tags: None,
+            with_public_view_grant: false,
         }
     }
 
@@ -1907,9 +2048,16 @@ impl<'a> GetQuery<'a> {
         Self { with_in_tags: in_tags, ..self }
     }
 
+    fn with_public_view_grant(self, granted: bool) -> Self {
+        Self { with_public_view_grant: granted, ..self }
+    }
+
     fn check_auth(&self, email: Option<&str>) -> error::Result<()> {
         if let Some(email) = email {
-            if self.with_auth.is_some_and(|x| x.is_none()) && email != "anonymous" {
+            if self.with_auth.is_some_and(|x| x.is_none())
+                && email != "anonymous"
+                && !self.with_public_view_grant
+            {
                 return Err(Error::BadRequest(
                     "As a non logged in user, you can only see jobs ran by anonymous users"
                         .to_string(),
@@ -2391,22 +2539,16 @@ async fn get_completed_job_logs_tail(
         .await?;
 
     if let Some(record) = record {
-        if let Some(authed) = opt_authed.as_ref() {
-            require_job_read_access(
-                &db,
-                &user_db,
-                authed,
-                &w_id,
-                &id,
-                &record.created_by,
-                view_token.as_deref(),
-            )
-            .await?;
-        } else if record.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
+        require_opt_authed_job_read_access(
+            &db,
+            &user_db,
+            &opt_authed,
+            &w_id,
+            &id,
+            &record.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
 
         let logs = record.logs.unwrap_or_default();
         Ok(Json(logs))
@@ -2455,22 +2597,16 @@ async fn get_job_logs(
         .await?;
 
     if let Some(record) = record {
-        if let Some(authed) = opt_authed.as_ref() {
-            require_job_read_access(
-                &db,
-                &user_db,
-                authed,
-                &w_id,
-                &id,
-                &record.created_by,
-                view_token.as_deref(),
-            )
-            .await?;
-        } else if record.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
+        require_opt_authed_job_read_access(
+            &db,
+            &user_db,
+            &opt_authed,
+            &w_id,
+            &id,
+            &record.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
         let logs = record.logs.unwrap_or_default();
 
         log_job_view(
@@ -2524,10 +2660,15 @@ async fn get_job_logs(
             .await?;
         let text = not_found_if_none(text, "Job Logs", id.to_string())?;
 
-        if opt_authed.is_none() && text.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
+        if opt_authed.is_none() {
+            require_unauthed_job_read_access(
+                &db,
+                &w_id,
+                &id,
+                &text.created_by,
+                view_token.as_deref(),
+            )
+            .await?;
         }
         let logs = text.logs.unwrap_or_default();
 
@@ -2631,22 +2772,16 @@ async fn authorize_flow_tree_read(
 
     let root_job = not_found_if_none(root_job, "Job", id.to_string())?;
 
-    if let Some(authed) = opt_authed.as_ref() {
-        require_job_read_access(
-            db,
-            user_db,
-            authed,
-            w_id,
-            &id,
-            &root_job.created_by,
-            view_token.as_deref(),
-        )
-        .await?;
-    } else if root_job.created_by != "anonymous" {
-        return Err(Error::BadRequest(
-            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-        ));
-    }
+    require_opt_authed_job_read_access(
+        db,
+        user_db,
+        &opt_authed,
+        w_id,
+        &id,
+        &root_job.created_by,
+        view_token.as_deref(),
+    )
+    .await?;
 
     log_job_view(
         db,
@@ -3627,22 +3762,16 @@ async fn get_args(
         .await?;
 
     if let Some(record) = record {
-        if let Some(authed) = opt_authed.as_ref() {
-            require_job_read_access(
-                &db,
-                &user_db,
-                authed,
-                &w_id,
-                &id,
-                &record.created_by,
-                view_token.as_deref(),
-            )
-            .await?;
-        } else if record.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
+        require_opt_authed_job_read_access(
+            &db,
+            &user_db,
+            &opt_authed,
+            &w_id,
+            &id,
+            &record.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
 
         log_job_view(
             &db,
@@ -3666,22 +3795,16 @@ async fn get_args(
             .fetch_optional(&db)
             .await?;
         let record = not_found_if_none(record, "Job Args", id.to_string())?;
-        if let Some(authed) = opt_authed.as_ref() {
-            require_job_read_access(
-                &db,
-                &user_db,
-                authed,
-                &w_id,
-                &id,
-                &record.created_by,
-                view_token.as_deref(),
-            )
-            .await?;
-        } else if record.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
+        require_opt_authed_job_read_access(
+            &db,
+            &user_db,
+            &opt_authed,
+            &w_id,
+            &id,
+            &record.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
 
         log_job_view(
             &db,
@@ -4235,7 +4358,9 @@ pub async fn resume_suspended_flow_as_owner(
 
 // --- New approval system endpoints ---
 
-use windmill_common::variables::{generate_approval_token, generate_view_token};
+use windmill_common::variables::{
+    generate_approval_token, generate_view_token, PUBLIC_VIEW_TOKEN_DOMAIN, VIEW_TOKEN_DOMAIN,
+};
 
 /// Verify an approval token against the workspace key + job_id.
 async fn validate_approval_token(
@@ -4700,7 +4825,7 @@ async fn get_approval_info(
     // Possession of view rights over this approval is sufficient to mint a
     // share-read-link token for the flow: it only grants read (no resume), and only to
     // an authenticated workspace member, so it never widens what the approver can do.
-    let hmac = generate_view_token(&w_id, row.id, &db).await?;
+    let hmac = generate_view_token(&w_id, row.id, VIEW_TOKEN_DOMAIN, &db).await?;
     let view_token = Some(format!("{}.{hmac}", row.id));
 
     Ok(Json(ApprovalInfo {
@@ -5213,7 +5338,7 @@ pub async fn get_suspended_job_flow(
     // Possession of a valid approval secret is sufficient to mint a share-read-link
     // token for the parent flow: it only grants read (no resume), and only to an
     // authenticated workspace member, so it never widens what the approver can do.
-    let hmac = generate_view_token(&w_id, flow_id, &db).await?;
+    let hmac = generate_view_token(&w_id, flow_id, VIEW_TOKEN_DOMAIN, &db).await?;
     let view_token = Some(format!("{flow_id}.{hmac}"));
 
     Ok(Json(SuspendedJobFlow { job: flow, approvers, view_token }).into_response())
@@ -7632,6 +7757,7 @@ pub async fn stream_job(
         poll_delay_ms,
         early_return,
         has_failure_module,
+        false,
     );
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
@@ -9331,8 +9457,7 @@ async fn get_log_file(
     }
 
     // Authorization: the log file directory is the job id, so gate access the same
-    // way as get_job_logs — the caller must be able to read the job. Non-logged-in
-    // callers may only read logs of jobs created by the anonymous user.
+    // way as get_job_logs — the caller must be able to read the job.
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
@@ -9346,22 +9471,16 @@ async fn get_log_file(
     .fetch_optional(&db)
     .await?
     .ok_or_else(|| error::Error::NotFound(format!("Job {job_id} not found")))?;
-    if let Some(authed) = opt_authed.as_ref() {
-        require_job_read_access(
-            &db,
-            &user_db,
-            authed,
-            &w_id,
-            &job_id,
-            &created_by,
-            view_token.as_deref(),
-        )
-        .await?;
-    } else if created_by != "anonymous" {
-        return Err(error::Error::BadRequest(
-            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-        ));
-    }
+    require_opt_authed_job_read_access(
+        &db,
+        &user_db,
+        &opt_authed,
+        &w_id,
+        &job_id,
+        &created_by,
+        view_token.as_deref(),
+    )
+    .await?;
 
     let local_file = format!("{}/logs/{file_p}", *WINDMILL_DIR);
     // SECURITY (defense in depth): refuse to read through a symlink so a planted
@@ -9455,6 +9574,10 @@ async fn get_job_update(
         )
         .await?;
     }
+    // A public share link authorizes a logged-out read of this job, seeding the latch
+    // that would otherwise confine it to anonymously-run jobs.
+    let mut unauthed_read_authorized = opt_authed.is_none()
+        && public_view_token_grants(&db, &w_id, &job_id, view_token.as_deref()).await?;
     Ok(Json(
         get_job_update_data(
             &opt_authed,
@@ -9475,7 +9598,7 @@ async fn get_job_update(
             None,
             false,
             &mut false,
-            &mut false,
+            &mut unauthed_read_authorized,
         )
         .await?,
     ))
@@ -9501,7 +9624,7 @@ async fn get_job_update_sse(
     }): Query<JobUpdateQuery>,
 ) -> error::Result<Response> {
     // Authorize once at connection time; `created_by` cannot change for a given job,
-    // mirroring the per-stream `anonymous_verified` latch in the streaming loop.
+    // mirroring the per-stream `unauthed_read_authorized` latch in the streaming loop.
     if let Some(authed) = opt_authed.as_ref() {
         require_job_update_read_access(
             &db,
@@ -9513,6 +9636,8 @@ async fn get_job_update_sse(
         )
         .await?;
     }
+    let unauthed_read_authorized = opt_authed.is_none()
+        && public_view_token_grants(&db, &w_id, &job_id, view_token.as_deref()).await?;
 
     let (tx, rx) = tokio::sync::mpsc::channel(32);
 
@@ -9534,6 +9659,7 @@ async fn get_job_update_sse(
         poll_delay_ms,
         None,
         false,
+        unauthed_read_authorized,
     );
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
@@ -9573,6 +9699,9 @@ pub fn start_job_update_sse_stream(
     poll_delay_ms: Option<u64>,
     early_return: Option<String>,
     has_failure_module: bool,
+    // Seeds the per-stream latch below: set when the caller is logged out but presented
+    // a public share link for this job, which authorizes the whole stream up front.
+    unauthed_read_authorized: bool,
 ) -> () {
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
@@ -9582,10 +9711,10 @@ pub fn start_job_update_sse_stream(
         // Latched once the early_return node's failure is observed alongside a
         // failure_module — subsequent polls then skip the redundant per-node lookup.
         let mut early_return_suppressed = false;
-        // Latched once we've verified the job was created by "anonymous" — for
+        // Latched once a logged-out caller's read of this job has been authorized — for
         // unauthenticated SSE streams, this gates access and is checked once per
         // stream rather than once per poll (created_by cannot change).
-        let mut anonymous_verified = false;
+        let mut unauthed_read_authorized = unauthed_read_authorized;
 
         // Send initial update immediately
         let mut running = running;
@@ -9611,7 +9740,7 @@ pub fn start_job_update_sse_stream(
             early_return.as_deref(),
             has_failure_module,
             &mut early_return_suppressed,
-            &mut anonymous_verified,
+            &mut unauthed_read_authorized,
         )
         .await
         {
@@ -9734,7 +9863,7 @@ pub fn start_job_update_sse_stream(
                 early_return.as_deref(),
                 has_failure_module,
                 &mut early_return_suppressed,
-                &mut anonymous_verified,
+                &mut unauthed_read_authorized,
             )
             .await
             {
@@ -9888,7 +10017,9 @@ async fn get_job_update_data(
     early_return: Option<&str>,
     has_failure_module: bool,
     early_return_suppressed: &mut bool,
-    anonymous_verified: &mut bool,
+    // Latched gate for logged-out callers: once true, this job's updates are readable
+    // without a session (job run anonymously, or a public share link presented).
+    unauthed_read_authorized: &mut bool,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(
@@ -9910,14 +10041,13 @@ async fn get_job_update_data(
     let ignore_flow_stream_job_id = is_flow.is_some_and(|x| !x) || flow_stream_job_id.is_some();
 
     if only_result.unwrap_or(false) {
-        // Unauthenticated callers may only read jobs whose creator is "anonymous".
+        // Unauthenticated callers are confined to jobs they may read logged out.
         // The non-only_result branch enforces this via `record.created_by` from its
         // main query, but the only_result branch below fetches solely the result by
-        // (workspace_id, job_id), so we guard here to close the gap. The
-        // `anonymous_verified` flag is preserved across SSE poll iterations so the
-        // lookup only happens once per stream — `created_by` cannot change for a
-        // given job once it has been created.
-        if opt_authed.is_none() && !*anonymous_verified {
+        // (workspace_id, job_id), so we guard here to close the gap. The latch is
+        // preserved across SSE poll iterations so the lookup only happens once per
+        // stream — `created_by` cannot change for a given job once it has been created.
+        if opt_authed.is_none() && !*unauthed_read_authorized {
             let created_by = sqlx::query_scalar!(
                 "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
                 job_id,
@@ -9933,7 +10063,7 @@ async fn get_job_update_data(
                         .to_string(),
                 ));
             }
-            *anonymous_verified = true;
+            *unauthed_read_authorized = true;
         }
 
         let (result, running, mut result_stream, mut new_stream_offset, new_flow_stream_job_id) =
@@ -10174,15 +10304,22 @@ async fn get_job_update_data(
             .await?
             .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
 
-        if opt_authed.is_none() && record.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
+        if opt_authed.is_none() && !*unauthed_read_authorized {
+            if record.created_by != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users"
+                        .to_string(),
+                ));
+            }
+            *unauthed_read_authorized = true;
         }
 
         let job = if record.completed.unwrap_or(false) && get_full_job_on_completion {
             let get = GetQuery::new()
                 .with_auth(&opt_authed)
+                // Already authorized above, latch included — don't re-derive it from
+                // `created_by` here or a public share link would lose the full job.
+                .with_public_view_grant(*unauthed_read_authorized)
                 .without_logs()
                 .without_code();
             Some(get.fetch(&db, job_id, &w_id).await?)
@@ -10308,19 +10445,24 @@ async fn get_completed_job<'a>(
         .map(|authed| get_scope_tags(authed))
         .flatten();
 
+    let public_view_grant = opt_authed.is_none()
+        && public_view_token_grants(&db, &w_id, &id, view_token.as_deref()).await?;
+
     let job_o = GetQuery::new()
         .with_auth(&opt_authed)
         .with_in_tags(tags.as_ref())
+        .with_public_view_grant(public_view_grant)
         .fetch_completed(&db, &id, &w_id)
         .await?;
 
     let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
 
-    if let Some(authed) = opt_authed.as_ref() {
-        require_job_read_access(
+    // `public_view_grant` already settled the logged-out case above — don't re-derive it.
+    if !public_view_grant {
+        require_opt_authed_job_read_access(
             &db,
             &user_db,
-            authed,
+            &opt_authed,
             &w_id,
             &id,
             &cj.created_by,
@@ -10456,22 +10598,16 @@ async fn get_completed_job_result(
     };
 
     if !approval_secret_ok {
-        if let Some(authed) = opt_authed.as_ref() {
-            require_job_read_access(
-                &db,
-                &user_db,
-                authed,
-                &w_id,
-                &id,
-                &created_by,
-                view_token.as_deref(),
-            )
-            .await?;
-        } else if created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
+        require_opt_authed_job_read_access(
+            &db,
+            &user_db,
+            &opt_authed,
+            &w_id,
+            &id,
+            &created_by,
+            view_token.as_deref(),
+        )
+        .await?;
     }
 
     format_result(
@@ -10573,22 +10709,16 @@ async fn get_completed_job_result_maybe(
 
     if let Some(mut res) = result_o {
         format_result(res.result_columns.as_ref(), res.result.as_mut());
-        if let Some(authed) = opt_authed.as_ref() {
-            require_job_read_access(
-                &db,
-                &user_db,
-                authed,
-                &w_id,
-                &id,
-                &res.created_by,
-                view_token.as_deref(),
-            )
-            .await?;
-        } else if res.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
+        require_opt_authed_job_read_access(
+            &db,
+            &user_db,
+            &opt_authed,
+            &w_id,
+            &id,
+            &res.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
 
         log_job_view(
             &db,
@@ -10619,23 +10749,16 @@ async fn get_completed_job_result_maybe(
         .fetch_optional(&db)
         .await?;
         if let Some(created_by) = created_by {
-            if let Some(authed) = opt_authed.as_ref() {
-                require_job_read_access(
-                    &db,
-                    &user_db,
-                    authed,
-                    &w_id,
-                    &id,
-                    &created_by,
-                    view_token.as_deref(),
-                )
-                .await?;
-            } else if created_by != "anonymous" {
-                return Err(Error::BadRequest(
-                    "As a non logged in user, you can only see jobs ran by anonymous users"
-                        .to_string(),
-                ));
-            }
+            require_opt_authed_job_read_access(
+                &db,
+                &user_db,
+                &opt_authed,
+                &w_id,
+                &id,
+                &created_by,
+                view_token.as_deref(),
+            )
+            .await?;
         }
         let started = sqlx::query_scalar!(
             "SELECT running AS \"running!\" FROM v2_job_queue WHERE id = $1 AND workspace_id = $2",
@@ -10709,9 +10832,8 @@ async fn get_dispatch_events(
 
     // Gate on the producer job's visibility, exactly like
     // get_completed_job_timing on the same unauthed router: scope tags
-    // first, then per-job read access for authed users, anonymous-only
-    // jobs otherwise. The dispatch_event FK to v2_job(id) guarantees the
-    // producer row exists for any extant event.
+    // first, then the shared per-audience read gate. The dispatch_event FK
+    // to v2_job(id) guarantees the producer row exists for any extant event.
     let producer = sqlx::query!(
         r#"SELECT created_by AS "created_by!"
            FROM v2_job
@@ -10724,22 +10846,16 @@ async fn get_dispatch_events(
     .await?;
     let producer = not_found_if_none(producer, "Job", id.to_string())?;
 
-    if let Some(authed) = opt_authed.as_ref() {
-        require_job_read_access(
-            &db,
-            &user_db,
-            authed,
-            &w_id,
-            &id,
-            &producer.created_by,
-            view_token.as_deref(),
-        )
-        .await?;
-    } else if producer.created_by != "anonymous" {
-        return Err(Error::BadRequest(
-            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-        ));
-    }
+    require_opt_authed_job_read_access(
+        &db,
+        &user_db,
+        &opt_authed,
+        &w_id,
+        &id,
+        &producer.created_by,
+        view_token.as_deref(),
+    )
+    .await?;
 
     let rows = sqlx::query!(
         r#"SELECT
@@ -10892,22 +11008,16 @@ async fn get_completed_job_timing(
 
     let result = not_found_if_none(result, "Completed Job", id.to_string())?;
 
-    if let Some(authed) = opt_authed.as_ref() {
-        require_job_read_access(
-            &db,
-            &user_db,
-            authed,
-            &w_id,
-            &id,
-            &result.created_by,
-            view_token.as_deref(),
-        )
-        .await?;
-    } else if result.created_by != "anonymous" {
-        return Err(Error::BadRequest(
-            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-        ));
-    }
+    require_opt_authed_job_read_access(
+        &db,
+        &user_db,
+        &opt_authed,
+        &w_id,
+        &id,
+        &result.created_by,
+        view_token.as_deref(),
+    )
+    .await?;
 
     Ok(Json(JobTiming {
         created_at: result.created_at,
@@ -11202,23 +11312,16 @@ async fn get_otel_traces(
 
     match job {
         Some(created_by) => {
-            if let Some(authed) = opt_authed.as_ref() {
-                require_job_read_access(
-                    &db,
-                    &user_db,
-                    authed,
-                    &w_id,
-                    &id,
-                    &created_by,
-                    view_token.as_deref(),
-                )
-                .await?;
-            } else if created_by != "anonymous" {
-                return Err(Error::BadRequest(
-                    "As a non logged in user, you can only see jobs ran by anonymous users"
-                        .to_string(),
-                ));
-            }
+            require_opt_authed_job_read_access(
+                &db,
+                &user_db,
+                &opt_authed,
+                &w_id,
+                &id,
+                &created_by,
+                view_token.as_deref(),
+            )
+            .await?;
         }
         None => {
             return Err(Error::NotFound(format!("Job {} not found", id)));

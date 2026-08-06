@@ -867,6 +867,20 @@ fn parse_git_sync_changes(result_raw: &str) -> Option<(Vec<(String, String)>, bo
     ))
 }
 
+/// The pull script reports an unmergeable PR as a top-level `pr_check_error`
+/// sentinel field. Matched as an exact field, never a substring: a successful
+/// diff lists user-controlled repo paths that could embed the sentinel text.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn parse_pr_check_error(result_raw: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(result_raw)
+        .ok()
+        .and_then(|v| {
+            v.get("pr_check_error")
+                .and_then(|e| e.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
 #[cfg(all(feature = "enterprise", feature = "private"))]
 fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
     let mut lines = Vec::new();
@@ -881,7 +895,19 @@ fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
 
 #[cfg(all(test, feature = "enterprise", feature = "private"))]
 mod git_sync_check_tests {
-    use super::{format_change_list, parse_git_sync_changes};
+    use super::{format_change_list, parse_git_sync_changes, parse_pr_check_error};
+
+    #[test]
+    fn pr_check_error_is_a_field_not_a_substring() {
+        // A diff whose paths embed the sentinel text must not trip the verdict.
+        let diff = r#"{"changes":[{"type":"edited","path":"f/team/PR_MERGE_CONFLICTS.ts"}]}"#;
+        assert_eq!(parse_pr_check_error(diff), None);
+        let sentinel = r#"{"pr_check_error":"PR_MERGE_CONFLICTS","message":"m"}"#;
+        assert_eq!(
+            parse_pr_check_error(sentinel).as_deref(),
+            Some("PR_MERGE_CONFLICTS")
+        );
+    }
 
     #[test]
     fn parse_empty_changes_is_in_sync() {
@@ -1391,8 +1417,37 @@ async fn maybe_post_git_sync_check(
             }
         }
     } else {
-        // Phase 4: dry-run diff preview for a PR.
-        if !success {
+        // Phase 4: dry-run diff preview for a PR. An unmergeable PR has no
+        // diff; the pull script reports which sentinel applies (returned as a
+        // result — thrown bun errors reach the job result as truncated log tails).
+        let pr_check_error = parse_pr_check_error(result_raw);
+        if pr_check_error.as_deref() == Some("PR_MERGE_CONFLICTS") {
+            (
+                "failure",
+                "Merge conflicts with the base branch".to_string(),
+                "This PR cannot be merged cleanly, so there is no deploy diff to compute. Resolve the conflicts and push again to re-run this check."
+                    .to_string(),
+            )
+        } else if pr_check_error.as_deref() == Some("PR_HEAD_REF_UNAVAILABLE") {
+            // Neutral, not failure: a transient fetch problem is Windmill-side
+            // and, unlike conflicts, has no fixing push that would re-run the
+            // check on its own — it must not hard-block the PR.
+            (
+                "neutral",
+                "Could not compute the deploy diff".to_string(),
+                "Windmill could not fetch this PR's head or enough history from GitHub to compute its merge with the base. Push again to re-run this check."
+                    .to_string(),
+            )
+        } else if pr_check_error.is_some() {
+            // Unknown sentinel (script newer than this backend): an explicit
+            // error signal must not degrade into a "diff computed" verdict.
+            (
+                "failure",
+                "Windmill diff failed".to_string(),
+                "The dry-run pull reported an unrecognized error. See the job in Windmill for details."
+                    .to_string(),
+            )
+        } else if !success {
             (
                 "failure",
                 "Windmill diff failed".to_string(),
