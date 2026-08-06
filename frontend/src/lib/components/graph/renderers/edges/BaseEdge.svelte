@@ -8,12 +8,13 @@
 	import { NODE_WITH_WRITE_ASSET_Y_OFFSET } from '../nodes/AssetNode.svelte'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import type { Job } from '$lib/gen'
-	import type { GraphModuleState } from '../../model'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { getGraphContext } from '../../graphContext'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 	import { GROUP_TOP_PADDING } from '$lib/components/graph/compoundLayout'
 
 	const { useDataflow, showAssets, moveManager } = getGraphContext()
+	const flowRunStatus = getFlowRunStatusContext()
 
 	let {
 		id,
@@ -39,10 +40,7 @@
 			enableTrigger: boolean
 			disableAi: boolean
 			disableMoveIds: string[]
-			flowModuleStates: Record<string, GraphModuleState> | undefined
 			isOwner: boolean
-			flowJob: Job | undefined
-			suspendStatus?: Record<string, { job: Job; nb: number }>
 			shouldOffsetInsertBtnDueToAssetNode?: boolean
 		}
 	} = $props()
@@ -75,12 +73,13 @@
 	// TODO: this is a hack to show the waiting for events indicator on the edge a proper way would be to have a edge state
 	// and handle the edge state in the graph builder
 	let waitingForEvents = $derived(
-		data?.flowModuleStates?.[data.targetId]?.type === 'WaitingForEvents' ||
-			data?.flowModuleStates?.[`${data.sourceId}-v`]?.type === 'WaitingForEvents'
+		flowRunStatus?.getModuleState(data.targetId)?.type === 'WaitingForEvents' ||
+			flowRunStatus?.getModuleState(`${data.sourceId}-v`)?.type === 'WaitingForEvents'
 	)
 
+	let flowJob: Job | undefined = $derived(flowRunStatus?.flowJob)
 	let suspendStatus: Record<string, { job: Job; nb: number }> | undefined = $derived(
-		data?.suspendStatus
+		flowRunStatus?.suspendStatus
 	)
 
 	let centerY = $derived(
@@ -132,7 +131,7 @@
 </script>
 
 <EdgeLabel x={sourceX} y={centerY} class="base-edge" style="">
-	{#if waitingForEvents && data.flowJob && data.flowJob.type === 'QueuedJob'}
+	{#if waitingForEvents && flowJob && flowJob.type === 'QueuedJob'}
 		<div
 			class="px-2 py-0.5 rounded-md bg-surface shadow-md text-violet-700 dark:text-violet-400 text-xs flex items-center gap-1"
 		>
@@ -146,10 +145,10 @@
 		<div
 			class={'fixed top-1/2 -translate-y-1/2 left-[170px] h-fit w-fit rounded-md bg-surface flex items-center justify-center p-2 ml-2 shadow-md'}
 		>
-			{#if data?.flowJob && data.flowJob.flow_status?.modules?.[data.flowJob.flow_status?.step]?.type === 'WaitingForEvents'}
+			{#if flowJob && flowJob.flow_status?.modules?.[flowJob.flow_status?.step]?.type === 'WaitingForEvents'}
 				<FlowStatusWaitingForEvents
-					job={data.flowJob}
-					workspaceId={data.flowJob.workspace_id}
+					job={flowJob}
+					workspaceId={flowJob.workspace_id}
 					isOwner={data.isOwner}
 					light
 				/>
