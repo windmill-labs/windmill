@@ -1434,7 +1434,7 @@ async fn maybe_post_git_sync_check(
             (
                 "neutral",
                 "Could not compute the deploy diff".to_string(),
-                "Windmill could not fetch this PR's current head from GitHub. Push again to re-run this check."
+                "Windmill could not fetch this PR's head or enough history from GitHub to compute its merge with the base. Push again to re-run this check."
                     .to_string(),
             )
         } else if pr_check_error.is_some() {
