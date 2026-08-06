@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.781.3](https://github.com/windmill-labs/windmill/compare/v1.781.2...v1.781.3) (2026-08-06)
+
+
+### Bug Fixes
+
+* **frontend:** take the editor's post-edit content, not setCode's argument ([#10562](https://github.com/windmill-labs/windmill/issues/10562)) ([1846bd5](https://github.com/windmill-labs/windmill/commit/1846bd5ce59ee71a4262297513673d662f6a38b6))
+
 ## [1.781.2](https://github.com/windmill-labs/windmill/compare/v1.781.1...v1.781.2) (2026-08-06)
 
 
