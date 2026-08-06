@@ -173,6 +173,9 @@ export class DeployToHubSession {
 	runResult = $state<unknown>(undefined)
 	runError = $state<string | undefined>(undefined)
 	recordings = $state<Record<string, string>>({})
+	// Recent successful runs of the record target: a recording is built from any
+	// completed run, so an existing one can be picked instead of running again.
+	pastRuns = $state<{ id: string; started_at?: string; duration_ms?: number }[]>([])
 
 	// Project-level data-pipeline recording. Unlike script/flow recordings (one
 	// job per item) a pipeline is the whole folder cascade, so it gets a single
@@ -1328,6 +1331,8 @@ export class DeployToHubSession {
 		this.runJobId = undefined
 		this.runResult = undefined
 		this.runError = undefined
+		this.pastRuns = []
+		this.#loadPastRuns(it, tok)
 		try {
 			if (it.kind === 'script') {
 				const s = await ScriptService.getScriptByPath({
@@ -1352,6 +1357,44 @@ export class DeployToHubSession {
 	/** Invalidate any in-flight record run/poll (record drawer closed). */
 	cancelRecordRun = () => {
 		this.#recordRunTok++
+	}
+
+	/** Recent successful runs of the target, so one can be recorded as-is.
+	 * Best-effort — an empty list just means the drawer only offers a fresh run. */
+	async #loadPastRuns(it: DeployItem, tok: number) {
+		if (it.kind !== 'script' && it.kind !== 'flow') return
+		try {
+			const runs = await JobService.listCompletedJobs({
+				workspace: this.workspace,
+				jobKinds: it.kind === 'script' ? 'script' : 'flow',
+				scriptPathExact: it.path,
+				success: true,
+				// Standalone runs only — a script that also runs as a flow step would
+				// otherwise list its child jobs.
+				hasNullParent: true,
+				orderDesc: true,
+				perPage: 5
+			})
+			if (tok !== this.#recordRunTok) return
+			this.pastRuns = runs.map((j) => ({
+				id: j.id,
+				started_at: j.started_at,
+				duration_ms: j.duration_ms
+			}))
+		} catch {
+			// best-effort
+		}
+	}
+
+	/** Adopt an existing successful run as the one to save: recordings are built
+	 * from completed jobs, so it goes through the exact same save path as a
+	 * fresh run. */
+	useExistingRun = (jobId: string) => {
+		++this.#recordRunTok
+		this.runJobId = jobId
+		this.runState = 'success'
+		this.runResult = undefined
+		this.runError = undefined
 	}
 
 	runJob = async () => {
