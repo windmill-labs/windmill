@@ -2097,6 +2097,11 @@ export class AIChatManager {
 	 * stays on the document as a draft, which is what the artifact list labels it.
 	 */
 	private restorePlanDoc = async () => {
+		// The proposal's own save is started, not awaited, by onConfirmationRequested, and it
+		// is what sets `planDocId`. Reading it too early — a decline or a Stop landing while a
+		// reopened session is still looking its plan up on disk — would skip the rollback and
+		// leave the write that overwrites the approved plan unopposed.
+		await this.planSave?.doc
 		const base = this.planRoundBase
 		const id = this.planDocId
 		if (base === undefined || !id) return
@@ -2154,6 +2159,9 @@ export class AIChatManager {
 		// The write outlives the conversation that asked for it: nothing below may be
 		// adopted once the chat has rotated, or the next conversation inherits this plan.
 		const generation = this.planDocGeneration
+		// Read before any await, so the document is stamped with the conversation that
+		// proposed the plan rather than whichever one is current when the write lands.
+		const chatId = this.historyManager.getCurrentChatId()
 		try {
 			const existingId = this.planDocId ?? (await this.findPlanDocForCurrentChat())
 			// The lookup awaits, so re-check before writing: a chat rotated in that window
@@ -2169,18 +2177,23 @@ export class AIChatManager {
 				}
 				if (generation !== this.planDocGeneration) return undefined
 			}
+			const updated = existingId
+				? await this.artifacts.update(existingId, { name, content: summary, approved: false })
+				: undefined
+			// Re-check before the fallback create: a rotation during that update would otherwise
+			// leave a plan for the conversation just left, which the generation check below can
+			// suppress the opening of but not undo — and the next lookup would adopt it.
+			if (generation !== this.planDocGeneration) return undefined
 			// Falls back to a create when the document is gone — the user may have deleted it.
 			const plan =
-				(existingId
-					? await this.artifacts.update(existingId, { name, content: summary, approved: false })
-					: undefined) ??
+				updated ??
 				(await this.artifacts.create(this.sessionId, {
 					name,
 					content: summary,
 					kind: 'md',
 					role: 'plan',
 					approved: false,
-					chatId: this.historyManager.getCurrentChatId()
+					chatId
 				}))
 			if (generation !== this.planDocGeneration) return undefined
 			this.planDocId = plan.id
@@ -2196,11 +2209,12 @@ export class AIChatManager {
 	// Approval is what separates a plan from a proposal, and the artifact list is read long
 	// after the card scrolled away — so it lands on the document rather than being inferred
 	// from the transcript, and survives the reload that drops every in-memory flag.
+	// Unguarded by `planDocGeneration`, unlike the writes above: this document is the plan
+	// the user approved whichever conversation is current by the time the write lands, and
+	// nothing downstream reads the result.
 	private markPlanApproved = async (id: string) => {
-		const generation = this.planDocGeneration
 		try {
-			const approved = await this.artifacts.update(id, { approved: true })
-			if (generation !== this.planDocGeneration || !approved) return
+			await this.artifacts.update(id, { approved: true })
 		} catch (e) {
 			console.error('Failed to mark plan artifact approved', e)
 		}

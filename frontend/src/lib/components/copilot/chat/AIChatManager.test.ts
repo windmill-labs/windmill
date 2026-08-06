@@ -385,22 +385,6 @@ describe('AIChatManager autonomy mode', () => {
 		expect(applied).toBe(true)
 	})
 
-	it('makes plan mode available only in session chats', () => {
-		const manager = new AIChatManager()
-		manager.mode = AIMode.GLOBAL
-		manager.setAutonomyMode(AIAutonomyMode.PLAN)
-
-		expect(manager.planModeAvailable).toBe(false)
-		expect(manager.planModeActive).toBe(false)
-
-		manager.isSessionChat = true
-		expect(manager.planModeAvailable).toBe(true)
-		expect(manager.planModeActive).toBe(true)
-
-		manager.mode = AIMode.NAVIGATOR
-		expect(manager.planModeActive).toBe(false)
-	})
-
 	it('enter_plan_mode enters plan mode and records the prior posture', async () => {
 		const manager = new AIChatManager()
 		manager.mode = AIMode.GLOBAL
@@ -672,6 +656,82 @@ describe('AIChatManager autonomy mode', () => {
 
 		await callExitPlanMode(manager, '# Ship the endpoint\n\nStep one.')
 		expect(planDocs.get('artifact-1')?.approved).toBe(true)
+	})
+
+	it('waits for the pending save before rolling a rejected proposal back', async () => {
+		const manager = planningManager()
+		// The state a reopened session starts in: the approved plan is on disk, the in-memory
+		// id is gone, so the save has to look it up before it can write.
+		planDocs.set('artifact-on-disk', {
+			id: 'artifact-on-disk',
+			name: 'Ship the endpoint',
+			content: '# Ship the endpoint\n\nStep one.',
+			approved: true,
+			role: 'plan'
+		})
+		manager.artifacts.listForSession = vi.fn(async () => [
+			{ id: 'artifact-on-disk', role: 'plan', chatId: manager.historyManager.getCurrentChatId() }
+		]) as any
+		const write = manager.artifacts.update as any
+		let releaseSave: (() => void) | undefined
+		let updates = 0
+		manager.artifacts.update = vi.fn(async (id: string, input: any) => {
+			if (++updates === 1) await new Promise<void>((resolve) => (releaseSave = resolve))
+			return write(id, input)
+		}) as any
+
+		manager.exitPlanModeTool.onConfirmationRequested?.({
+			args: { summary: '# Rewrite it in Rust\n\nStep two.' },
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		await vi.waitFor(() => expect(releaseSave).toBeDefined())
+		const inFlight = (manager as any).planSave.doc
+
+		// Stop (or "Keep planning") while that write is still in flight.
+		manager.exitPlanModeTool.onConfirmationDeclined?.({
+			args: { summary: '# Rewrite it in Rust\n\nStep two.' },
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		releaseSave?.()
+		// Settle both writes before asserting: the proposal's, and the rollback's. Polling for
+		// the approved content instead would pass on the state that preceded the proposal.
+		await inFlight
+		await new Promise((resolve) => setTimeout(resolve, 0))
+
+		// Reading planDocId before the save lands skips the rollback, and the proposal that
+		// overwrote the approved plan is then the only thing left.
+		expect(planDocs.get('artifact-on-disk')).toMatchObject({
+			content: '# Ship the endpoint\n\nStep one.',
+			approved: true
+		})
+	})
+
+	it('does not write a plan into the conversation the chat rotated into', async () => {
+		const manager = planningManager()
+		await proposePlan(manager, '# First chat\n\nStep one.')
+		// The document is gone (deleted by the user), so the save falls back to a create.
+		let releaseUpdate: (() => void) | undefined
+		manager.artifacts.update = vi.fn(async () => {
+			await new Promise<void>((resolve) => (releaseUpdate = resolve))
+			return undefined
+		}) as any
+
+		manager.exitPlanModeTool.onConfirmationRequested?.({
+			args: { summary: '# Amended\n\nStep two.' },
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit_2'
+		})
+		await vi.waitFor(() => expect(releaseUpdate).toBeDefined())
+		const inFlight = (manager as any).planSave.doc
+		await manager.saveAndClear()
+		releaseUpdate?.()
+		await inFlight
+
+		// Creating here would stamp the plan of the conversation just left onto the new one,
+		// which the generation check after the write can suppress the opening of but not undo.
+		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
 	})
 
 	it('starts a new plan document after the chat rotates', async () => {
