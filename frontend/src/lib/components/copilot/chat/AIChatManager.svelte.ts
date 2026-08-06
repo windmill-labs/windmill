@@ -582,10 +582,11 @@ export class AIChatManager {
 		| { toolId: string; doc: Promise<{ id: string; name: string } | undefined> }
 		| undefined
 	private planDocId: string | undefined
-	// The approved plan this round of planning is about to overwrite, kept so an unapproved
-	// proposal can be rolled back. Undefined when there is nothing to lose — no document yet,
-	// or this round has not proposed anything.
-	private planRoundBase: string | undefined
+	// The plan this round of planning is about to overwrite, kept so an unapproved proposal
+	// can be rolled back. Undefined when there is nothing to lose — no document yet, or this
+	// round has not proposed anything. Carries `approved` because a round can just as well
+	// overwrite an earlier draft, which must not come back promoted.
+	private planRoundBase: { content: string; approved: boolean } | undefined
 	// Bumped on every reset so a save still in flight can tell its conversation is gone.
 	private planDocGeneration = 0
 	#automaticScroll = $state<boolean>(true)
@@ -2092,7 +2093,8 @@ export class AIChatManager {
 	 * *proposed*, so an approved plan is gone the moment the model proposes its successor —
 	 * and stopping the turn, or keeping planning, would otherwise leave the user holding an
 	 * unapproved draft with the plan they had agreed to nowhere. No-ops on the first plan of
-	 * a conversation, where there is nothing to restore and the draft is worth keeping.
+	 * a conversation, where there is nothing to restore and the draft is worth keeping — it
+	 * stays on the document as a draft, which is what the artifact list labels it.
 	 */
 	private restorePlanDoc = async () => {
 		const base = this.planRoundBase
@@ -2101,8 +2103,9 @@ export class AIChatManager {
 		const generation = this.planDocGeneration
 		try {
 			const restored = await this.artifacts.update(id, {
-				name: derivePlanTitle(base),
-				content: base
+				name: derivePlanTitle(base.content),
+				content: base.content,
+				approved: base.approved
 			})
 			if (generation !== this.planDocGeneration || !restored) return
 			this.openArtifact?.(restored.id, restored.name)
@@ -2159,19 +2162,24 @@ export class AIChatManager {
 			// Read before overwriting: this round's first proposal is the moment the standing
 			// plan is lost, so that is where the copy to restore has to be taken.
 			if (existingId && this.planRoundBase === undefined) {
-				this.planRoundBase = (await this.artifacts.get(existingId))?.content
+				const previous = await this.artifacts.get(existingId)
+				this.planRoundBase = previous && {
+					content: previous.content,
+					approved: previous.approved === true
+				}
 				if (generation !== this.planDocGeneration) return undefined
 			}
 			// Falls back to a create when the document is gone — the user may have deleted it.
 			const plan =
 				(existingId
-					? await this.artifacts.update(existingId, { name, content: summary })
+					? await this.artifacts.update(existingId, { name, content: summary, approved: false })
 					: undefined) ??
 				(await this.artifacts.create(this.sessionId, {
 					name,
 					content: summary,
 					kind: 'md',
 					role: 'plan',
+					approved: false,
 					chatId: this.historyManager.getCurrentChatId()
 				}))
 			if (generation !== this.planDocGeneration) return undefined
@@ -2182,6 +2190,19 @@ export class AIChatManager {
 		} catch (e) {
 			console.error('Failed to persist plan artifact', e)
 			return undefined
+		}
+	}
+
+	// Approval is what separates a plan from a proposal, and the artifact list is read long
+	// after the card scrolled away — so it lands on the document rather than being inferred
+	// from the transcript, and survives the reload that drops every in-memory flag.
+	private markPlanApproved = async (id: string) => {
+		const generation = this.planDocGeneration
+		try {
+			const approved = await this.artifacts.update(id, { approved: true })
+			if (generation !== this.planDocGeneration || !approved) return
+		} catch (e) {
+			console.error('Failed to mark plan artifact approved', e)
 		}
 	}
 
@@ -2208,6 +2229,9 @@ export class AIChatManager {
 			const saved = await this.ensurePlanDoc({ args, toolCallbacks, toolId })
 			// Approved: this content is the plan now, so there is nothing left to roll back to.
 			this.planRoundBase = undefined
+			if (saved) {
+				await this.markPlanApproved(saved.id)
+			}
 			// No-op if the user already left plan mode while the card was pending.
 			if (this.planModeActive) {
 				this.setAutonomyMode(this.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)

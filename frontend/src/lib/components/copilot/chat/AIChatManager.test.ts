@@ -514,7 +514,7 @@ describe('AIChatManager autonomy mode', () => {
 
 	// Rolling an unapproved proposal back needs the content that was there before it, so the
 	// stubs have to be a store rather than call recorders.
-	let planDocs: Map<string, { id: string; name: string; content: string }>
+	let planDocs: Map<string, { id: string; name: string; content: string; approved?: boolean }>
 
 	const planningManager = () => {
 		const manager = new AIChatManager()
@@ -525,7 +525,12 @@ describe('AIChatManager autonomy mode', () => {
 		planDocs = new Map()
 		let n = 0
 		manager.artifacts.create = vi.fn(async (_s: string, input: any) => {
-			const doc = { id: `artifact-${++n}`, name: input.name, content: input.content }
+			const doc = {
+				id: `artifact-${++n}`,
+				name: input.name,
+				content: input.content,
+				approved: input.approved
+			}
 			planDocs.set(doc.id, doc)
 			return doc
 		}) as any
@@ -572,7 +577,8 @@ describe('AIChatManager autonomy mode', () => {
 		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
 		expect(manager.artifacts.update).toHaveBeenCalledWith('artifact-1', {
 			name: 'Second cut',
-			content: '# Second cut\n\nStep two.'
+			content: '# Second cut\n\nStep two.',
+			approved: false
 		})
 		expect(manager.openArtifact).toHaveBeenLastCalledWith('artifact-1', 'Second cut')
 	})
@@ -589,9 +595,12 @@ describe('AIChatManager autonomy mode', () => {
 		await proposePlan(manager, '# First cut, amended\n\nStep two.', 'call_exit_2')
 
 		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
+		// Overwriting an approved plan drops it back to a draft: this proposal has not
+		// been approved, and the artifact list must not keep calling it the plan.
 		expect(manager.artifacts.update).toHaveBeenCalledWith('artifact-1', {
 			name: 'First cut, amended',
-			content: '# First cut, amended\n\nStep two.'
+			content: '# First cut, amended\n\nStep two.',
+			approved: false
 		})
 	})
 
@@ -615,7 +624,8 @@ describe('AIChatManager autonomy mode', () => {
 		expect(manager.artifacts.create).not.toHaveBeenCalled()
 		expect(manager.artifacts.update).toHaveBeenCalledWith('artifact-on-disk', {
 			name: 'Amended',
-			content: '# Amended\n\nStep two.'
+			content: '# Amended\n\nStep two.',
+			approved: false
 		})
 	})
 
@@ -639,9 +649,29 @@ describe('AIChatManager autonomy mode', () => {
 			expect(planDocs.get('artifact-1')).toEqual({
 				id: 'artifact-1',
 				name: 'Ship the endpoint',
-				content: '# Ship the endpoint\n\nStep one.'
+				content: '# Ship the endpoint\n\nStep one.',
+				approved: true
 			})
 		)
+	})
+
+	it('keeps a declined first plan as a draft, and approval is what promotes it', async () => {
+		const manager = planningManager()
+
+		// Nothing to roll back to, so the proposal stays — but it is not the plan yet, and
+		// the artifact list reads `approved` to say so.
+		await proposePlan(manager, '# Ship the endpoint\n\nStep one.')
+		expect(planDocs.get('artifact-1')?.approved).toBe(false)
+
+		manager.exitPlanModeTool.onConfirmationDeclined?.({
+			args: { summary: '# Ship the endpoint\n\nStep one.' },
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		await vi.waitFor(() => expect(planDocs.get('artifact-1')?.approved).toBe(false))
+
+		await callExitPlanMode(manager, '# Ship the endpoint\n\nStep one.')
+		expect(planDocs.get('artifact-1')?.approved).toBe(true)
 	})
 
 	it('starts a new plan document after the chat rotates', async () => {

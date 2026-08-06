@@ -70,6 +70,10 @@
 			? aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
 			: undefined
 	)
+	// Read off the live document, not this card's outcome: a rejected proposal rolls the
+	// document back, so the card that says "not approved" can be the one whose document is
+	// the approved plan again. The button names what it opens.
+	const planDocIsDraft = $derived(planDoc !== undefined && planDoc.approved !== true)
 	// Keyed by call id: a bare flag would leak this expansion onto the next message
 	// reusing this instance. The plan itself opens in the preview pane, so its card
 	// stays collapsed; enter_plan_mode's reason has nowhere else to be read.
@@ -190,12 +194,12 @@
 					variant="default"
 					unifiedSize="2xs"
 					wrapperClasses="shrink-0"
-					title="Open the plan document: {planDoc.name}"
+					title="Open the {planDocIsDraft ? 'draft' : 'plan'} document: {planDoc.name}"
 					startIcon={{ icon: FileText, classes: PLAN_MODE_TEXT_COLOR }}
 					endIcon={{ icon: PanelRight }}
 					on:click={() => aiChatManager.openArtifact?.(planDoc.id, planDoc.name)}
 				>
-					<span class="font-main">Plan</span>
+					<span class="font-main">{planDocIsDraft ? 'Draft' : 'Plan'}</span>
 				</Button>
 			{/if}
 		</div>

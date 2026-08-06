@@ -13,12 +13,14 @@ export interface CreateArtifactInput {
 	content: string
 	kind?: ArtifactKind
 	role?: PersistedArtifact['role']
+	approved?: boolean
 	chatId?: string
 }
 
 export interface UpdateArtifactInput {
 	name?: string
 	content?: string
+	approved?: boolean
 }
 
 /**
@@ -86,6 +88,7 @@ export class SessionArtifactsStore {
 			chatId: input.chatId,
 			kind: input.kind ?? 'md',
 			role: input.role,
+			approved: input.approved,
 			name: input.name,
 			content: input.content,
 			createdAt: now,
@@ -114,6 +117,7 @@ export class SessionArtifactsStore {
 			...existing,
 			name: input.name ?? existing.name,
 			content: input.content ?? existing.content,
+			approved: input.approved ?? existing.approved,
 			updatedAt: Date.now()
 		}
 		await putArtifact(updated)

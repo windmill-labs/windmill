@@ -23,6 +23,7 @@
 	// Markdown is the only rendered kind in v1; anything else shows source only.
 	const canPreview = $derived(artifact.kind === 'md')
 	const isPlan = $derived(artifact.role === 'plan')
+	const isApprovedPlan = $derived(isPlan && artifact.approved === true)
 	let showSource = $state(false)
 	const source = $derived(!canPreview || showSource)
 
@@ -58,10 +59,10 @@
 				<span
 					class={twMerge(
 						'shrink-0 rounded px-1 pt-px pb-0 text-3xs font-medium uppercase tracking-wide',
-						PLAN_MODE_BADGE_CLASS
+						isApprovedPlan ? PLAN_MODE_BADGE_CLASS : 'bg-surface-secondary text-tertiary'
 					)}
 				>
-					plan
+					{isApprovedPlan ? 'plan' : 'draft'}
 				</span>
 			{/if}
 		</div>

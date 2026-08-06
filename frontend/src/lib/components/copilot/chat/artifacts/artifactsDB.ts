@@ -14,6 +14,10 @@ export interface PersistedArtifact {
 	 * which is its format. Set only by the plan-mode save path; the model's create_artifact
 	 * cannot reach it. Optional, so records written before it read as undefined. */
 	role?: 'plan'
+	/** Plans only. A plan is written when it is *proposed*, so until the user approves it
+	 * the document is a draft — undefined reads as one, which is the safe default for a
+	 * record written before this field existed. */
+	approved?: boolean
 	name: string
 	content: string
 	createdAt: number

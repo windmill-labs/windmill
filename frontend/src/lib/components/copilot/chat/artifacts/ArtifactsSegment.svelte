@@ -46,15 +46,18 @@
 				a.role === 'plan' ? 'font-medium' : 'font-normal'
 			)}>{a.name}</span
 		>
+		<!-- A proposal the user never approved is still worth keeping and reopening, but it
+		     is not the plan: it carries the plan's icon and the neutral badge, so the teal
+		     one means exactly one thing. -->
 		<span
 			class={twMerge(
 				'shrink-0 rounded px-1 py-0.5 text-2xs uppercase',
-				a.role === 'plan'
+				a.role === 'plan' && a.approved
 					? twMerge('font-medium', PLAN_MODE_BADGE_CLASS)
 					: 'bg-surface-secondary font-normal text-tertiary'
 			)}
 		>
-			{a.role === 'plan' ? 'plan' : a.kind}
+			{a.role === 'plan' ? (a.approved ? 'plan' : 'draft') : a.kind}
 		</span>
 		<span
 			class="min-w-[4.5rem] shrink-0 text-right text-2xs font-normal text-hint"
