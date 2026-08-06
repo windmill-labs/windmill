@@ -107,8 +107,8 @@ async fn test_nested_dev_workspace_attach_guards(db: Pool<Postgres>) -> anyhow::
     assert!(is_dev);
     assert_eq!(label.as_deref(), Some("staging"));
 
-    // Distinct labels are the only requirement, so a name outside the two the UI offers extends the
-    // chain past them: `test-workspace` -> `tw-dev` ('dev') -> `spare` ('staging') -> `e-cand` ('uat').
+    // A chain runs as deep as there are distinct labels to give it, not two:
+    // `test-workspace` -> `tw-dev` ('dev') -> `spare` ('staging') -> `e-cand` ('uat').
     let (status, body) = attach(
         port,
         "spare",
@@ -117,7 +117,7 @@ async fn test_nested_dev_workspace_attach_guards(db: Pool<Postgres>) -> anyhow::
     .await;
     assert!(
         status.is_success(),
-        "custom-label attach returned {status}: {body}"
+        "third-label attach returned {status}: {body}"
     );
 
     Ok(())

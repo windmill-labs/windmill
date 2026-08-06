@@ -722,21 +722,20 @@ pub const DEV_WORKSPACE_LABELS: [&str; 8] = [
     "dev", "qa", "test", "uat", "staging", "demo", "sandbox", "preprod",
 ];
 
-/// Normalize/validate the dev-workspace environment label. Unset or empty defaults to 'dev', which
-/// is also what a NULL column reads as.
+/// Normalize/validate the dev-workspace environment label. Unset defaults to 'dev', which is also
+/// what a NULL column reads as; any supplied value must be one of `DEV_WORKSPACE_LABELS` exactly,
+/// so the accepted set is what the OpenAPI enum advertises — no trimming, no empty-string alias.
 fn normalize_dev_workspace_label(label: Option<String>) -> Result<Option<String>> {
-    let label = label.unwrap_or_default();
-    let label = label.trim();
-    if label.is_empty() {
+    let Some(label) = label else {
         return Ok(Some("dev".to_string()));
-    }
-    if !DEV_WORKSPACE_LABELS.contains(&label) {
+    };
+    if !DEV_WORKSPACE_LABELS.contains(&label.as_str()) {
         return Err(Error::BadRequest(format!(
             "invalid dev workspace label '{label}' (expected one of: {})",
             DEV_WORKSPACE_LABELS.join(", ")
         )));
     }
-    Ok(Some(label.to_string()))
+    Ok(Some(label))
 }
 
 #[cfg(test)]
@@ -760,13 +759,11 @@ mod dev_workspace_label_tests {
     }
 
     #[test]
-    fn unset_and_blank_default_to_dev() {
+    fn unset_defaults_to_dev() {
         assert_eq!(
             normalize_dev_workspace_label(None).unwrap().as_deref(),
             Some("dev")
         );
-        assert_eq!(norm("  ").as_deref(), Some("dev"));
-        assert_eq!(norm(" staging ").as_deref(), Some("staging"));
     }
 
     #[test]
@@ -776,8 +773,11 @@ mod dev_workspace_label_tests {
         }
         // Off-list names are refused whether or not they would make a usable branch: the list is
         // what keeps a label off `main`/`master` and out of the `wm-fork/**` and `wm_deploy/**`
-        // namespaces git-sync writes.
+        // namespaces git-sync writes. Padded and empty values are refused too, so the accepted set
+        // is exactly the OpenAPI enum rather than a superset a validating client would reject.
         for label in [
+            " uat ",
+            "",
             "main",
             "master",
             "wm-fork",

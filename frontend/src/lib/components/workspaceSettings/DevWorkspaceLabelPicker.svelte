@@ -1,10 +1,6 @@
 <script lang="ts">
 	import Select from '$lib/components/select/Select.svelte'
-	import {
-		DEV_WORKSPACE_LABELS,
-		devBadgeText,
-		type DevWorkspaceLabelKey
-	} from '$lib/utils/devWorkspaceLabel'
+	import { DEV_WORKSPACE_LABELS, type DevWorkspaceLabelKey } from '$lib/utils/devWorkspaceLabel'
 
 	let {
 		value = $bindable(),
@@ -18,7 +14,9 @@
 	// Dev workspaces in a chain share their git-sync repositories, so two carrying the same label
 	// deploy to the same branch. Offer only what is left rather than a choice the backend rejects.
 	let free = $derived(DEV_WORKSPACE_LABELS.filter((l) => !takenLabels.has(l)))
-	let items = $derived(free.map((l) => ({ label: devBadgeText(l), value: l })))
+	// Named, not badge-abbreviated: the label picked here is the branch that gets created, so
+	// offering `stg` for a `staging` branch would name something that does not exist.
+	let items = $derived(free.map((l) => ({ label: l, value: l })))
 	$effect(() => {
 		if (free.length > 0 && !free.includes(value)) value = free[0]
 	})
