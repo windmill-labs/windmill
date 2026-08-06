@@ -25,8 +25,10 @@
 		 * children — checkbox, buttons, links) toggles selection. Opt-in so
 		 * existing tables that don't want it are unaffected. */
 		selectOnRowClick?: boolean
-		/** Home-style multi-select: the kind icon doubles as the checkbox instead
-		 * of adding a column, so an unused selection costs the row nothing. */
+		/** Home-style multi-select: a leading gutter the row reserves whether or
+		 * not it is in use, revealing its checkbox on hover. Unlike `isSelectable`
+		 * the checkbox is not shown at rest, so an unused selection costs the row
+		 * 16px and no visual noise. */
 		rowSelection?: RowSelection
 		alignWithSelectable?: boolean
 		errorHandlerMuted?: boolean
@@ -167,7 +169,9 @@
 <!-- Tree-view alignment: a folder header's icon sits at px-4 (16px) + its inner
      padding-left of depth*16, i.e. (depth+1)*16. This row's inline padding-left
      overrides px-4, so it must carry the full (depth+1)*16 for a file to line up
-     with its sibling folder at the same depth. -->
+     with its sibling folder at the same depth. The selection gutter below adds a
+     further 16px, which TreeView's folder header mirrors with an empty box of
+     the same width and margins — change one and the other has to follow. -->
 <div
 	bind:this={rowEl}
 	data-row-selection-key={rowSelection?.key}
@@ -201,35 +205,30 @@
 	{/if}
 
 	{#if rowSelection}
-		<!-- The icon slot itself: the kind icon until the row is hovered (or
-		     selection mode is on), the checkbox from then on. Both are stacked in a
-		     fixed 16px box and swapped with visibility so nothing shifts. -->
-		<div class="shrink relative w-4 h-4">
-			<div
-				class={twMerge(
-					'absolute inset-0',
-					rowSelection.active ? 'invisible' : 'group-hover/row:invisible'
-				)}
-			>
-				<RowIcon {kind} {triggerKind} />
-			</div>
-			<Checkbox
-				class={twMerge(
-					'absolute inset-0 w-4 h-4',
-					rowSelection.active ? '' : 'invisible group-hover/row:visible'
-				)}
-				checked={rowSelection.selected}
-				title={rowSelection.selected ? 'Deselect' : 'Select (shift-click to select a range)'}
-				onClick={(e) => {
-					// Left unprevented on purpose: the browser's own toggle already lands
-					// on the value we are about to compute, except on a range re-select,
-					// which Checkbox re-asserts. Preventing it would revert the box AFTER
-					// the update and leave every clicked row visually unticked.
-					e.stopPropagation()
-					rowSelection?.onToggle(e)
-				}}
-			/>
-		</div>
+		<!-- A gutter the row reserves whether or not it is in use: the checkbox is
+		     only visible from hover onwards, but the space it occupies is not
+		     conditional, so the kind icon never moves and starting a selection
+		     doesn't reflow the list. The negative margins halve the 32px the box
+		     would otherwise add, by sitting it inside the row's own left padding
+		     and closing half of `gap-4`. -->
+		<Checkbox
+			class={twMerge(
+				// Exactly 16px wide, which is what TreeView's folder header reserves to
+				// keep a file's icon aligned with a sibling folder's.
+				'w-4 h-4 shrink-0 -ml-2 -mr-2',
+				rowSelection.active ? '' : 'invisible group-hover/row:visible'
+			)}
+			checked={rowSelection.selected}
+			title={rowSelection.selected ? 'Deselect' : 'Select (shift-click to select a range)'}
+			onClick={(e) => {
+				// Left unprevented on purpose: the browser's own toggle already lands
+				// on the value we are about to compute, except on a range re-select,
+				// which Checkbox re-asserts. Preventing it would revert the box AFTER
+				// the update and leave every clicked row visually unticked.
+				e.stopPropagation()
+				rowSelection?.onToggle(e)
+			}}
+		/>
 	{/if}
 
 	{#if href && !inSelectionMode}
@@ -237,10 +236,10 @@
 			{href}
 			class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4"
 		>
-			{@render rowContent(!rowSelection)}
+			{@render rowContent()}
 		</a>
 	{:else}
-		{@render rowContent(!rowSelection)}
+		{@render rowContent()}
 	{/if}
 
 	{#if errorHandlerMuted}
@@ -266,12 +265,10 @@
 	</div>
 </div>
 
-{#snippet rowContent(withIcon: boolean)}
-	{#if withIcon}
-		<div class="shrink">
-			<RowIcon {kind} {triggerKind} />
-		</div>
-	{/if}
+{#snippet rowContent()}
+	<div class="shrink">
+		<RowIcon {kind} {triggerKind} />
+	</div>
 	<div class="grow min-w-0">
 		<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
 			{#if customSummary}

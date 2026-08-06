@@ -16,7 +16,7 @@
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import type { RowSelection } from './rowSelection'
+	import { selectMenuItems, type RowSelection } from './rowSelection'
 	import { sendUserToast } from '$lib/toast'
 	import { capitalize, copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
@@ -266,6 +266,7 @@
 				const canEdit = script.canWrite && showEditButton
 				if (script.draft_only) {
 					return [
+						...selectMenuItems(rowSelection),
 						{
 							displayName: 'View code',
 							icon: Code,
@@ -296,6 +297,7 @@
 					]
 				}
 				return [
+					...selectMenuItems(rowSelection),
 					{
 						displayName: 'View code',
 						icon: Code,

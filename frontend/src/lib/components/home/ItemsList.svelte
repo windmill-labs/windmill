@@ -19,7 +19,6 @@
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
-		CheckSquare,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -1606,7 +1605,7 @@
 			<div class="mt-10"></div>
 		{/if}
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-6">
+			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-7">
 				<Popover floatingConfig={{ placement: 'bottom-end' }}>
 					{#snippet trigger()}
 						<Button
@@ -1615,10 +1614,8 @@
 							}}
 							nonCaptureEvent
 							iconOnly
-							size="xs"
-							color="light"
-							variant="default"
-							spacingSize="xs2"
+							unifiedSize="sm"
+							variant="subtle"
 						/>
 					{/snippet}
 					{#snippet content()}
@@ -1660,10 +1657,8 @@
 							nonCaptureEvent
 							disabled={filter !== ''}
 							iconOnly={short === ''}
-							size="xs"
-							color="light"
-							variant="default"
-							spacingSize="xs2"
+							unifiedSize="sm"
+							variant="subtle"
 							startIcon={{ icon: ArrowDownUp }}
 							title={filter !== ''
 								? 'Sorting is disabled while searching (results are ranked by relevance)'
@@ -1688,21 +1683,6 @@
 							Collapse all
 						{/if}
 					</Button>
-				{/if}
-				{#if homeSelection.available && !homeSelection.active}
-					<!-- Last child of a flex-row-reverse row, so `mr-auto` absorbs the free
-					     space and pins it to the far left, away from the view/sort controls. -->
-					<Button
-						wrapperClasses="mr-auto"
-						startIcon={{ icon: CheckSquare }}
-						iconOnly
-						size="xs"
-						color="light"
-						variant="default"
-						spacingSize="xs2"
-						title="Select items — move, archive, delete or discard several at once"
-						on:click={() => homeSelection.enter()}
-					/>
 				{/if}
 			</div>
 		{/if}

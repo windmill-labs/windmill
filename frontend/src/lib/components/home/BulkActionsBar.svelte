@@ -71,8 +71,8 @@
 
 	function actionTitle(action: BulkAction): string {
 		const n = targets(action).length
-		// Selection mode is entered from the toolbar with nothing picked yet, so this
-		// is the state the primary entry point lands on — it has no blocked reason.
+		// Reachable by unticking the last row without leaving selection mode: there is
+		// nothing to block, so no reason to report.
 		if (items.length === 0) return `Select items to ${ACTION_LABEL[action].toLowerCase()}`
 		if (n === 0) return `Cannot ${ACTION_LABEL[action].toLowerCase()}: ${blockedSummary(action)}`
 		if (n < items.length) return `${ACTION_LABEL[action]} ${n} of the ${items.length} selected`

@@ -54,7 +54,11 @@
 		clicks++
 	}}
 	class={twMerge(
-		'rounded max-w-4 w-full',
+		// `no-default-style` opts out of the global `input` rule in tailwind.config.cjs,
+		// which is written for text inputs: it forces `width: 100%`, `display: block`
+		// and text padding onto a checkbox, inflating the 16px box to 18px and putting
+		// a floor under it that `w-4` can't get past.
+		'no-default-style rounded max-w-4 w-full',
 		// When disabled, grey it and let hover fall through to a wrapping trigger
 		// (e.g. a tooltip explaining why it can't be selected).
 		disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : '',
