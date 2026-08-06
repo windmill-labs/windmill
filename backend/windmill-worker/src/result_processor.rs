@@ -999,7 +999,7 @@ async fn maybe_reconcile_git_sync_auto_pull(
 
 /// Branch a git-sync push job deployed to, mirroring the hub script's
 /// derivation: a dev workspace deploys to its environment-label branch
-/// (`dev`/`staging`), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
+/// (`dev`, `staging`, ...), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
 /// else the promotion `wm_deploy/**` formula (per-folder or per-item form).
 /// A dev workspace in promotion mode is the exception: it takes the promotion
 /// `wm_deploy/**` formula (per-item PRs into the parent) instead of its label

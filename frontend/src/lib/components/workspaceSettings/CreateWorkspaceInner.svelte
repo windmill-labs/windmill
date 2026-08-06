@@ -34,13 +34,14 @@
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
-	import { Badge, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import {
 		DEV_WORKSPACE_LABELS,
 		devBadgeText,
 		devLabelKey,
 		type DevWorkspaceLabelKey
 	} from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceLabelPicker from '$lib/components/workspaceSettings/DevWorkspaceLabelPicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
@@ -162,20 +163,19 @@
 		() => (baseCanHostDev ? baseWorkspaceId : undefined),
 		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)
 	)
-	// Cosmetic display label for the new dev workspace — except in a chain, where it also names the
-	// deploy branch: the dev workspaces the new one would share a chain with already hold theirs, so
-	// offer only what is left rather than a choice the backend rejects. With two labels a chain runs
-	// to two dev workspaces, after which no label is free and dev designation is not offered at all.
-	let availableDevLabels = $derived.by(() => {
-		const taken = new Set(
+	// The label names the deploy branch, and the dev workspaces the new one would share a chain with
+	// hold theirs: the picker steers away from those rather than offering a choice the backend rejects.
+	let chainTakenLabels = $derived(
+		new Set(
 			devWorkspacesInChainAbove(baseWorkspaceId, forkableWorkspaces).map((w) =>
 				devLabelKey(w.dev_workspace_label)
 			)
 		)
-		return DEV_WORKSPACE_LABELS.filter((l) => !taken.has(l))
-	})
+	)
+	let availableDevLabels = $derived(DEV_WORKSPACE_LABELS.filter((l) => !chainTakenLabels.has(l)))
 	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
-	// conservative (no offer) while the check is loading (current is undefined).
+	// conservative (no offer) while the check is loading (current is undefined). With every label
+	// taken the chain is full and there is nothing left to designate.
 	let canDesignateDevWorkspace = $derived(
 		baseCanHostDev && availableDevLabels.length > 0 && devWorkspaceResource.current === null
 	)
@@ -183,9 +183,6 @@
 	let devWorkspaceLabel = $state<DevWorkspaceLabelKey>('dev')
 	$effect(() => {
 		if (!createAsDevWorkspace) devWorkspaceLabel = 'dev'
-		else if (!availableDevLabels.includes(devWorkspaceLabel) && availableDevLabels.length > 0) {
-			devWorkspaceLabel = availableDevLabels[0]
-		}
 	})
 	let currentWorkspaceName = $derived(
 		baseWorkspaceEntry?.name ?? baseWorkspaceId ?? 'the base workspace'
@@ -481,7 +478,7 @@
 		forkCreationLoading = false
 		sendUserToast(
 			createAsDevWorkspace
-				? `Created ${devWorkspaceLabel === 'staging' ? 'staging' : 'dev'} workspace ${effectiveForkId} for ${baseWorkspaceId}`
+				? `Created ${devWorkspaceLabel} workspace ${effectiveForkId} for ${baseWorkspaceId}`
 				: `Successfully forked workspace ${baseWorkspaceId} as: wm-fork-${id}`
 		)
 
@@ -630,15 +627,15 @@
 			id = name.toLowerCase().replace(/\s/gi, '-')
 		}
 	})
-	// When creating a dev workspace, prefill the fork name with `<root>-dev` / `<root>-stg` (the effect
-	// above slugifies it into the id). Only fill an empty field or one still holding a prior suggestion,
-	// so a user-typed name is never overwritten; flipping Dev<->Staging updates the suffix, and turning
-	// the dev toggle back off clears the suggestion.
+	// When creating a dev workspace, prefill the fork name with `<root>-<badge>` (the effect above
+	// slugifies it into the id). Only fill an empty field or one still holding a prior suggestion, so a
+	// user-typed name is never overwritten; changing the label updates the suffix, and turning the dev
+	// toggle back off clears the suggestion.
 	let lastAutoDevName = $state<string | undefined>(undefined)
 	$effect(() => {
 		const target =
 			createAsDevWorkspace && $workspaceStore
-				? `${$workspaceStore}-${devWorkspaceLabel === 'staging' ? 'stg' : 'dev'}`
+				? `${$workspaceStore}-${devBadgeText(devWorkspaceLabel)}`
 				: ''
 		if (name === '' || name === lastAutoDevName) {
 			name = target
@@ -856,24 +853,10 @@
 					<div class="flex flex-col gap-2 pt-1">
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
-							<div class="text-2xs text-secondary">
-								Label: <Badge color="indigo" small>{devBadgeText(devWorkspaceLabel)}</Badge>
-								{#if availableDevLabels.length === 1}
-									<span>
-										The other label is already taken by a dev workspace in this chain, which would
-										deploy to the same branch.
-									</span>
-								{:else}
-									<button
-										type="button"
-										class="text-secondary hover:text-primary hover:underline"
-										onclick={() =>
-											(devWorkspaceLabel = devWorkspaceLabel === 'staging' ? 'dev' : 'staging')}
-									>
-										Change to {devWorkspaceLabel === 'staging' ? 'dev' : 'staging'}
-									</button>
-								{/if}
-							</div>
+							<DevWorkspaceLabelPicker
+								bind:value={devWorkspaceLabel}
+								takenLabels={chainTakenLabels}
+							/>
 							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
 								<div class="flex flex-col gap-0.5">
 									<span class="text-xs font-semibold text-emphasis"

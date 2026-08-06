@@ -17,6 +17,11 @@ import { DEFAULT_HUB_BASE_URL } from './hub'
 import type { DbManagerUriState } from './components/dbManagerDrawerModel.svelte'
 
 export interface UserExt {
+	// Workspace this membership was fetched for. `$workspaceStore` flips
+	// synchronously on a switch while the new `whoami` is still in flight, so a
+	// consumer whose behavior depends on the role must compare this against the
+	// active workspace rather than read a role that still describes the previous one.
+	workspace_id: string
 	email: string
 	name?: string
 	username: string
