@@ -5,6 +5,7 @@
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
 	import { oauthStore } from '$lib/stores'
+	import { hasParkedWizard } from '$lib/components/workspaceSettings/AddDataTableWizard.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -28,7 +29,7 @@
 				$oauthStore = res
 				// The data table wizard parks its state before redirecting; send the user back to
 				// where they started rather than always to /resources.
-				const returnTo = sessionStorage.getItem('datatable_wizard_resume')
+				const returnTo = hasParkedWizard()
 					? '/workspace_settings?tab=windmill_data_tables'
 					: '/resources'
 				goto(`${returnTo}${returnTo.includes('?') ? '&' : '?'}callback=${client_name}`)

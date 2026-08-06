@@ -2035,10 +2035,6 @@ struct DataTableConnectionCheck {
     suggested_search_path: Option<String>,
 }
 
-/// Report what the data table's own database lets its role do. Surfacing this
-/// from the settings page is the difference between finding out here and finding
-/// out on a first schema change, when the failure reads as a Postgres refusal
-/// deep inside a migration.
 #[derive(Deserialize)]
 struct TestDataTableResourceQuery {
     resource_path: String,
@@ -2064,6 +2060,10 @@ async fn test_datatable_resource_connection(
     check_datatable_connection(&db, db_resource).await
 }
 
+/// Report what the data table's own database lets its role do. Surfacing this
+/// from the settings page is the difference between finding out here and finding
+/// out on a first schema change, when the failure reads as a Postgres refusal
+/// deep inside a migration.
 async fn test_datatable_connection(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,

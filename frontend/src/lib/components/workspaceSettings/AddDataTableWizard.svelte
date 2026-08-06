@@ -6,6 +6,11 @@
 	 */
 	const RESUME_KEY = 'datatable_wizard_resume'
 
+	/** True while a wizard run is waiting on the Supabase redirect to come back. */
+	export function hasParkedWizard(): boolean {
+		return sessionStorage.getItem(RESUME_KEY) != null
+	}
+
 	export type WizardResume = { name: string; region: string; projectName: string }
 
 	export function parkWizard(state: WizardResume) {
@@ -41,7 +46,7 @@
 	import SupabaseIcon from '../icons/SupabaseIcon.svelte'
 	import { ResourceService, VariableService, WorkspaceService } from '$lib/gen'
 	import type { TestDataTableConnectionResponse } from '$lib/gen'
-	import { oauthStore, workspaceStore } from '$lib/stores'
+	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
 	import {
@@ -96,6 +101,8 @@
 	let finishing = $state(false)
 	// Set only when a Supabase project was created but its credentials could not be saved.
 	let strandedPassword = $state('')
+	// Which password the saved resource holds, so a retry only re-creates it when it changed.
+	let savedPassword = $state('')
 
 	let token = $derived($oauthStore?.access_token)
 	let authed = $derived(!!token)
@@ -107,6 +114,8 @@
 	function defaultTableName(): string {
 		return existingNames.includes('main') ? `${$workspaceStore ?? 'data'}_datatable` : 'main'
 	}
+
+	let nameTaken = $derived(existingNames.includes(dataTableName.trim()))
 
 	// Reopening after the Supabase redirect: drop the user back on the setup step with what
 	// they had already chosen, so authorizing does not feel like starting over.
@@ -160,7 +169,7 @@
 	 * is then unrecoverable -- so the path is resolved before anything is created.
 	 */
 	async function freePath(name: string): Promise<string> {
-		const base = `u/admin/${name.replace(/[^\w]/g, '_')}`
+		const base = `u/${$userStore?.username ?? 'admin'}/${name.replace(/[^\w]/g, '_')}`
 		for (let i = 0; i < 50; i++) {
 			const candidate = i === 0 ? base : `${base}_${i + 1}`
 			const [varTaken, resTaken] = await Promise.all([
@@ -205,13 +214,15 @@
 		let createdPassword = ''
 		try {
 			const dbPass = generateDbPassword()
+			// Before the call, not after: a throw here can still leave a project behind, and
+			// Supabase will never show its password again.
+			createdPassword = dbPass
 			const created = await createSupabaseProject(token, {
 				name: projectName,
 				organizationSlug: selectedOrg,
 				region,
 				dbPass
 			})
-			createdPassword = dbPass
 			provisioning = 2
 			const healthy = await waitUntilSupabaseHealthy(
 				token,
@@ -230,6 +241,11 @@
 			// The project may already exist on Supabase by now, and its password cannot be read
 			// back from there. Show it rather than let the database become unusable.
 			if (createdPassword) strandedPassword = createdPassword
+			// The project may exist now; refresh so it can be picked up from the other tab
+			// instead of provisioning a second one.
+			listSupabaseProjects(token)
+				.then((p) => (projects = p))
+				.catch(() => {})
 			sendUserToast(String(err), true)
 		}
 	}
@@ -239,7 +255,12 @@
 		checking = true
 		checkError = ''
 		try {
-			resourcePath = await saveSupabaseResource(selectedProject, existingPassword)
+			// Only create the credentials once: a retry after fixing GRANTs re-checks what is
+			// already saved rather than leaving another orphan variable behind each time.
+			if (!resourcePath || savedPassword !== existingPassword) {
+				resourcePath = await saveSupabaseResource(selectedProject, existingPassword)
+				savedPassword = existingPassword
+			}
 			await runCheck()
 			if (canAdvanceFromSetup()) step = 3
 		} catch (err) {
@@ -322,6 +343,7 @@
 		checkReport = undefined
 		checkError = ''
 		strandedPassword = ''
+		savedPassword = ''
 		projectName = ''
 		dataTableName = defaultTableName()
 	}
@@ -360,6 +382,7 @@
 							act: provision
 						}
 					if (provisioning < 4) return { label: 'Setting it up', disabled: true, busy: true }
+					if (!checkPassed()) return { label: 'Try again', disabled: false, act: runCheck }
 					return { label: 'Continue', disabled: false, act: () => (step = 3) }
 				}
 				if (checking) return { label: 'Checking', disabled: true, busy: true }
@@ -376,7 +399,12 @@
 				act: checkAndContinue
 			}
 		}
-		return { label: 'Finish', disabled: !dataTableName.trim(), busy: finishing, act: finish }
+		return {
+			label: 'Finish',
+			disabled: !dataTableName.trim() || nameTaken,
+			busy: finishing,
+			act: finish
+		}
 	})
 
 	const STEPS = ['Choose a database', 'Set it up', 'Name it']
@@ -485,7 +513,7 @@
 								</p>
 							{:else}
 								<div class="flex flex-col gap-1.5">
-									{@render progress(provisioning >= 1, provisioning === 1, 'Created on Supabase')}
+									{@render progress(provisioning >= 2, provisioning === 1, 'Created on Supabase')}
 									{@render progress(provisioning >= 3, provisioning === 2, 'Starting it up')}
 									{@render progress(
 										provisioning >= 4,
@@ -560,8 +588,14 @@
 						<span class="text-xs font-semibold text-primary">Name this data table</span>
 						<TextInput bind:value={dataTableName} inputProps={{ placeholder: 'main' }} />
 						<p class="text-2xs text-secondary mt-1">
-							This is how your scripts will refer to it. <span class="font-mono">main</span> is used
-							by default when a script does not name one.
+							{#if nameTaken}
+								<span class="text-red-500"
+									>A data table called {dataTableName.trim()} already exists in this workspace.</span
+								>
+							{:else}
+								This is how your scripts will refer to it. <span class="font-mono">main</span> is used
+								by default when a script does not name one.
+							{/if}
 						</p>
 					</div>
 					<Alert type="info" size="xs" bgClass="border-0" title="">

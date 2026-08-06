@@ -17,6 +17,16 @@
 	import { oauthStore, workspaceStore } from '$lib/stores'
 	import Password from './Password.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import {
+		DEFAULT_SUPABASE_REGION,
+		SUPABASE_REGIONS,
+		createSupabaseProject,
+		generateDbPassword,
+		listSupabaseOrgs,
+		orgSlug,
+		waitUntilSupabaseHealthy,
+		type SupabaseOrg
+	} from './workspaceSettings/supabaseProvisioning'
 	import HighlightTheme from './HighlightTheme.svelte'
 
 	let drawer: Drawer | undefined = $state()
@@ -51,68 +61,22 @@
 	}
 	let databases: undefined | Database[] = $state(undefined)
 
-	type Organization = { id: string; name: string; slug?: string }
-	let orgs: undefined | Organization[] = $state(undefined)
+	let orgs: undefined | SupabaseOrg[] = $state(undefined)
 	let selectedOrgSlug: string | undefined = $state(undefined)
 	let newProjectName = $state('')
 	let creating = $state(false)
 	let createStatus = $state('')
 
-	// region_selection is { type: 'specific' | 'smartGroup', code: <region> }. Neither the
-	// published docs nor the OpenAPI spec describe it correctly (they give `kind`/`region` and
-	// `primary`), so this shape comes from the API's own validation errors -- do not "correct"
-	// it against the documentation. Only 'specific' has a shape we can rely on.
-	const SUPABASE_REGIONS = [
-		'us-east-1',
-		'us-west-1',
-		'eu-central-1',
-		'eu-west-1',
-		'eu-west-3',
-		'ap-southeast-1',
-		'ap-northeast-1'
-	]
-	let selectedRegion: string = $state('eu-central-1')
+	let selectedRegion: string = $state(DEFAULT_SUPABASE_REGION)
 
 	async function listOrgs() {
 		if (!token) return
-		const res = await fetch('/api/oauth/list_supabase_orgs', {
-			headers: { 'Content-Type': 'application/json', 'X-Supabase-Token': token }
-		})
-		if (!res.ok) {
-			sendUserToast(`Could not list Supabase organizations: ${await res.text()}`, true)
-			return
+		try {
+			orgs = await listSupabaseOrgs(token)
+			if (orgs?.length === 1) selectedOrgSlug = orgSlug(orgs[0])
+		} catch (err) {
+			sendUserToast(String(err), true)
 		}
-		orgs = await res.json()
-		// organization_slug is what create takes; older payloads only carry an id.
-		if (orgs?.length === 1) selectedOrgSlug = orgs[0].slug ?? orgs[0].id
-	}
-
-	// Supabase never lets a password be read back, so the only way to know it is to be the
-	// one who set it: db_pass is an input to project creation.
-	function generatePassword(): string {
-		const charset = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-		const values = new Uint32Array(32)
-		crypto.getRandomValues(values)
-		return Array.from(values, (v) => charset[v % charset.length]).join('')
-	}
-
-	// Creation returns immediately with the project still coming up, so the pooler is not
-	// reachable yet — poll until Supabase reports it healthy before building the resource.
-	async function waitUntilHealthy(id: string): Promise<Database> {
-		for (let i = 0; i < 60; i++) {
-			await new Promise((r) => setTimeout(r, 5000))
-			const res = await fetch('/api/oauth/list_supabase', {
-				headers: { 'Content-Type': 'application/json', 'X-Supabase-Token': token ?? '' }
-			})
-			if (!res.ok) continue
-			const list: Database[] = await res.json()
-			const project = list?.find?.((d) => d.id === id)
-			if (project?.status === 'ACTIVE_HEALTHY') return project
-			createStatus = `Waiting for Supabase to finish provisioning${
-				project?.status ? ` (${project.status})` : ''
-			}...`
-		}
-		throw new Error('Timed out waiting for the project to become healthy')
 	}
 
 	async function createProject() {
@@ -120,30 +84,24 @@
 		creating = true
 		createStatus = 'Creating the project...'
 		try {
-			const db_pass = generatePassword()
-			const res = await fetch('/api/oauth/create_supabase_project', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json', 'X-Supabase-Token': token },
-				body: JSON.stringify({
-					name: newProjectName,
-					organization_slug: selectedOrgSlug,
-					db_pass,
-					// Supabase rejects the request unless exactly one of region / region_selection is set.
-					region_selection: { type: 'specific', code: selectedRegion }
-				})
-			})
-			if (!res.ok) {
-				sendUserToast(`Supabase refused to create the project: ${await res.text()}`, true)
-				return
-			}
-			const created = await res.json()
+			const db_pass = generateDbPassword()
 			// Surface the password before waiting: Supabase never hands it back, so if the poll
 			// below fails the project would otherwise exist with a password nobody holds.
 			password = db_pass
-			selectedDatabase = created
+			const created = await createSupabaseProject(token, {
+				name: newProjectName,
+				organizationSlug: selectedOrgSlug,
+				region: selectedRegion,
+				dbPass: db_pass
+			})
+			selectedDatabase = created as any
 			step = 'resource'
 			try {
-				selectedDatabase = await waitUntilHealthy(created.id ?? created.ref)
+				selectedDatabase = (await waitUntilSupabaseHealthy(
+					token,
+					created.id ?? (created as any).ref,
+					(st) => (createStatus = `Waiting for Supabase to finish provisioning${st ? ` (${st})` : ''}...`)
+				)) as any
 			} catch (err) {
 				sendUserToast(
 					`${created.name} was created but is not reachable yet (${err}). Its password is filled in below - save the resource and retry the connection once Supabase reports it ready.`,

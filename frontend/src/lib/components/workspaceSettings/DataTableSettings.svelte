@@ -519,7 +519,15 @@
 <ConfirmationModal {...confirmationModal.props} />
 
 <AddDataTableWizard
-	bind:opened={wizardOpen}
+	bind:opened={
+		() => wizardOpen,
+		(v) => {
+			wizardOpen = v
+			// Drop the parked run once the wizard closes: leaving it set would force the next
+			// open straight back to the Supabase setup step.
+			if (!v) wizardResume = undefined
+		}
+	}
 	existingNames={tempSettings.dataTables.map((d) => d.name)}
 	resume={wizardResume}
 	onDone={reloadAfterWizard}
