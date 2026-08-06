@@ -182,16 +182,14 @@ export async function finalizePipelineRecording(
 			codeByPath.set(j.script_path, j.script_hash)
 		}
 	}
-	await Promise.all(
-		[...codeByPath].map(async ([path, hash]) => {
-			try {
-				const s = await ScriptService.getScriptByHash({ workspace: ws, hash })
-				store.recordCode(path, { content: s.content, language: s.language })
-			} catch {
-				// best-effort — a step we can't fetch just has no code in the player
-			}
-		})
-	)
+	await forEachWithConcurrency([...codeByPath], JOB_FETCH_CONCURRENCY, async ([path, hash]) => {
+		try {
+			const s = await ScriptService.getScriptByHash({ workspace: ws, hash })
+			store.recordCode(path, { content: s.content, language: s.language })
+		} catch {
+			// best-effort — a step we can't fetch just has no code in the player
+		}
+	})
 	return rec
 }
 

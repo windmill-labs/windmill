@@ -1498,10 +1498,10 @@ export class DeployToHubSession {
 
 	async #buildFlowRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
-		// Pin the whole definition (value, schema, summary) to the version the
-		// run executed — the recorded statuses reference its module ids and the
-		// recorded args its input schema, so the current flow may not match. The
-		// job's script_hash is the flow version id.
+		// Pin the definition (value, schema) to the version the run executed —
+		// the recorded statuses reference its module ids and the recorded args
+		// its input schema, so the current flow may not match. The job's
+		// script_hash is the flow version id.
 		const root = (await JobService.getJob({ workspace, id: jobId })) as any
 		let flow: { value: unknown; schema?: unknown; summary?: string } | undefined
 		if (root.script_hash) {
@@ -1511,10 +1511,14 @@ export class DeployToHubSession {
 			}).catch(() => undefined)
 		}
 		if (!flow && root.raw_flow) {
-			// The API materialized the executed value on the job; only the input
-			// schema and summary have to come from the current flow.
+			// The API materialized the executed value on the job; the input schema
+			// has to come from the current flow, which may have drifted.
 			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
 			flow = { value: root.raw_flow, schema: f.schema, summary: f.summary }
+			sendUserToast(
+				"The run's flow version could not be resolved — the recording uses the executed graph but the current input schema, which may not match the recorded arguments.",
+				true
+			)
 		}
 		if (!flow) {
 			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
