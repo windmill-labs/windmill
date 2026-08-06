@@ -759,7 +759,17 @@ fn normalize_dev_workspace_label(label: Option<String>) -> Result<Option<String>
 
 #[cfg(test)]
 mod dev_workspace_label_tests {
-    use super::normalize_dev_workspace_label;
+    use super::{normalize_dev_workspace_label, tracked_branch_blocks_dev_label};
+
+    #[test]
+    fn tracked_branch_blocks_its_own_name_and_its_namespace() {
+        assert!(tracked_branch_blocks_dev_label("uat", "uat"));
+        // The label would have to be a ref and a ref directory at once.
+        assert!(tracked_branch_blocks_dev_label("release", "release/main"));
+        assert!(!tracked_branch_blocks_dev_label("release", "release-main"));
+        assert!(!tracked_branch_blocks_dev_label("release", "main"));
+        assert!(!tracked_branch_blocks_dev_label("uat", "pre/uat"));
+    }
 
     fn norm(label: &str) -> Option<String> {
         normalize_dev_workspace_label(Some(label.to_string()))
@@ -882,11 +892,23 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.last_pull_status = None;
 }
 
-/// A dev workspace deploys to a branch named after its environment label. If a
-/// git-sync repository's tracked branch carries that same name, dev deploys
-/// would write straight into the branch the workspace (or its prod) syncs
-/// from — the CLI refuses that push, so every deploy job would fail. Reject
-/// the label up front instead.
+/// Whether a git-sync repository tracking `tracked` rules out `label_branch` as a dev workspace's
+/// deploy branch. Two ways it can:
+///
+/// - the same name: dev deploys would write straight into the branch the workspace (or its prod)
+///   syncs from, and the CLI refuses that push;
+/// - `label_branch` is the namespace `tracked` sits under (label `release`, tracked
+///   `release/main`): git stores refs hierarchically, so `refs/heads/release` cannot exist
+///   alongside `refs/heads/release/main`.
+///
+/// Either way every deploy job from that workspace would fail.
+fn tracked_branch_blocks_dev_label(label_branch: &str, tracked: &str) -> bool {
+    tracked == label_branch || tracked.starts_with(&format!("{label_branch}/"))
+}
+
+/// Reject a label whose branch clashes with a tracked branch of any git-sync repository on
+/// `workspace_ids`, before the pairing is created. (`wm-fork` and `wm_deploy`, whose namespaces
+/// exist whatever a repo tracks, are reserved unconditionally in `normalize_dev_workspace_label`.)
 async fn reject_dev_label_matching_tracked_branch(
     db: &DB,
     label: Option<&str>,
@@ -914,14 +936,28 @@ async fn reject_dev_label_matching_tracked_branch(
             .fetch_optional(db)
             .await?
             .flatten();
-            if branch.as_deref() == Some(label_branch.as_str()) {
-                return Err(Error::BadRequest(format!(
+            let Some(branch) = branch.as_deref() else {
+                continue;
+            };
+            if !tracked_branch_blocks_dev_label(&label_branch, branch) {
+                continue;
+            }
+            return Err(Error::BadRequest(if branch == label_branch {
+                format!(
                     "The environment label '{label_branch}' matches the tracked branch of git-sync \
                      repository '{path}' in workspace '{w_id}': deploys from the dev workspace go \
                      to the '{label_branch}' branch and would overwrite the branch that repository \
                      syncs from. Use a different label or change the repository's tracked branch."
-                )));
-            }
+                )
+            } else {
+                format!(
+                    "The environment label '{label_branch}' is the namespace of the tracked branch \
+                     '{branch}' of git-sync repository '{path}' in workspace '{w_id}': git cannot \
+                     hold a branch named '{label_branch}' alongside '{branch}', so every deploy \
+                     from the dev workspace would fail. Use a different label or change the \
+                     repository's tracked branch."
+                )
+            }));
         }
     }
     Ok(())

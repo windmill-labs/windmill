@@ -448,10 +448,13 @@
 								>{f.name}</span
 							>
 							{#if f.is_dev_workspace}
+								<!-- max-w/truncate: a custom environment label can be far longer than `dev`/`stg`
+								     and would otherwise crowd out the workspace name. -->
 								<Badge
 									color="dark-blue"
 									small
-									class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+									title={devBadgeText(f.dev_workspace_label)}
+									class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white max-w-24 truncate"
 									>{devBadgeText(f.dev_workspace_label)}</Badge
 								>
 							{/if}

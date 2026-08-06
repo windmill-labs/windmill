@@ -1239,6 +1239,8 @@ paths:
                   type: boolean
                 dev_workspace_label:
                   type: string
+                  maxLength: 30
+                  pattern: "^[a-z0-9][a-z0-9._-]*$"
                   description: "Environment label, e.g. 'dev' or 'staging'; also names the branch the dev workspace deploys to. Null defaults to 'dev'"
               required:
                 - dev_workspace_id
@@ -31191,6 +31193,8 @@ components:
           description: "Copy the parent's members (users + group memberships) into the fork so the team can work in it"
         dev_workspace_label:
           type: string
+          maxLength: 30
+          pattern: "^[a-z0-9][a-z0-9._-]*$"
           description: "Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the branch it deploys to. Ignored for non-dev forks"
       required:
         - id
