@@ -83,6 +83,18 @@ describe("validateFilesetPointer", () => {
       await expect(findFilesetResourceFile(childPath, null)).rejects.toThrow(
         /No resource metadata file found/,
       );
+      // The suffixed file is the workspace's authoritative metadata: it wins
+      // even when a base metadata file coexists with it.
+      writeFileSync(
+        join(dir, "f/res/data.resource.yaml"),
+        "resource_type: c_files\nvalue: '!inline_fileset f/res/data.fileset'\n",
+      );
+      expect(await findFilesetResourceFile(childPath, "ws_main")).toBe(
+        "f/res/data.ws_main.resource.yaml",
+      );
+      expect(await findFilesetResourceFile(childPath, null)).toBe(
+        "f/res/data.resource.yaml",
+      );
     } finally {
       process.chdir(cwd);
       rmSync(dir, { recursive: true, force: true });

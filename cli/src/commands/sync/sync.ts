@@ -909,8 +909,10 @@ export async function findFilesetResourceFile(
   const candidates = [basePath + ".resource.json", basePath + ".resource.yaml"];
   // A workspace-specific resource keeps its children at the server-canonical
   // `<base>.fileset/` while its metadata file carries the workspace suffix.
+  // The suffixed file is this workspace's authoritative metadata, so it must
+  // win over a base file that coexists with it.
   if (wsName) {
-    candidates.push(
+    candidates.unshift(
       toWorkspaceSpecificPath(basePath + ".resource.json", wsName),
       toWorkspaceSpecificPath(basePath + ".resource.yaml", wsName),
     );
