@@ -22,6 +22,7 @@
 		insertable: boolean
 		moduleAction: ModuleActionInfo | undefined
 		annotation?: string | undefined
+		annotationTitle?: string | undefined
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
@@ -55,6 +56,7 @@
 		insertable,
 		moduleAction = undefined,
 		annotation = undefined,
+		annotationTitle = undefined,
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
@@ -136,6 +138,7 @@
 		{/if}
 		{#if annotation && annotation != ''}
 			<div
+				title={annotationTitle}
 				class={twMerge(
 					'absolute z-10 left-0 -top-5 center-center text-primary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''

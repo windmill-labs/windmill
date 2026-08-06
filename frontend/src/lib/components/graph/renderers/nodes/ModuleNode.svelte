@@ -42,10 +42,12 @@
 	 * absolutely above the node, and so reports the run without moving anything.
 	 */
 	let agentToolSummary = $derived.by(() => {
-		if (!data.insertable || data.module?.value?.type !== 'aiagent') return ''
+		if (!data.insertable || data.module?.value?.type !== 'aiagent') return undefined
 		const actions = flowRunStatus?.getModuleState(data.id)?.agent_actions
-		if (!actions?.length) return ''
+		if (!actions?.length) return undefined
 		const tally = new Map<string, { count: number; pending: number }>()
+		let calls = 0
+		let pending = 0
 		let failed = 0
 		actions.forEach((action, index) => {
 			const entry = tally.get(action.type) ?? { count: 0, pending: 0 }
@@ -56,16 +58,26 @@
 			if (type === 'Failure') failed++
 			else if (type !== 'Success') entry.pending++
 			tally.set(action.type, entry)
+			if (action.type !== 'message') {
+				calls++
+				if (type !== 'Success' && type !== 'Failure') pending++
+			}
 		})
-		const parts: string[] = []
+		const detail: string[] = []
 		for (const kind of AGENT_ACTION_KINDS) {
 			const entry = tally.get(kind.type)
 			if (!entry) continue
-			const noun = entry.count > 1 ? kind.plural : kind.singular
-			parts.push(`${entry.count} ${noun}${entry.pending > 0 ? '…' : ''}`)
+			detail.push(`${entry.count} ${entry.count > 1 ? kind.plural : kind.singular}`)
 		}
-		if (failed > 0) parts.push(`${failed} failed`)
-		return parts.join(' · ')
+		if (failed > 0) detail.push(`${failed} failed`)
+		// The tools and their "+" node sit directly above, ~112px in, so the visible line has to
+		// stay short; the per-kind breakdown rides the tooltip instead of overlapping them.
+		const messages = tally.get('message')?.count ?? 0
+		const short =
+			calls > 0
+				? `${calls} call${calls > 1 ? 's' : ''}${pending > 0 ? '…' : ''}${failed > 0 ? ` · ${failed}✗` : ''}`
+				: `${messages} msg${messages > 1 ? 's' : ''}`
+		return { short, detail: detail.join(' · ') }
 	})
 
 	let flowJobs = $derived(
@@ -160,7 +172,8 @@
 			editMode={data.editMode}
 			moduleAction={data.moduleAction}
 			{menuItems}
-			annotation={agentToolSummary ||
+			annotationTitle={agentToolSummary?.detail}
+			annotation={agentToolSummary?.short ||
 				(flowJobs &&
 				(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
 					? 'Iteration: ' +
