@@ -127,7 +127,7 @@ import {
   NativeServiceName,
   ScriptModule,
 } from "../../../gen/types.gen.ts";
-import { pushResource } from "../resource/resource.ts";
+import { pushResource, validateFilesetPointer } from "../resource/resource.ts";
 import {
   newPathAssigner,
   newRawAppPathAssigner,
@@ -4968,6 +4968,43 @@ export async function push(
     // Cache git branch at the start to avoid repeated execSync calls per change
     const cachedWsNameForPush =
       wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
+
+    // Fail fast on non-canonical fileset pointers: deletes are applied first
+    // below, so a pointer that would be rejected mid-apply must abort the
+    // push before any change reaches the remote.
+    for (const change of changes) {
+      if (change.name !== "added" && change.name !== "edited") {
+        continue;
+      }
+      const normalizedPath = change.path.replaceAll(SEP, "/");
+      if (
+        !normalizedPath.endsWith(".resource.yaml") &&
+        !normalizedPath.endsWith(".resource.json")
+      ) {
+        continue;
+      }
+      const content = change.name === "added" ? change.content : change.after;
+      let parsed: any;
+      try {
+        parsed = parseFromPath(change.path, content);
+      } catch {
+        // Malformed files surface their own error in the apply loop.
+        continue;
+      }
+      if (
+        typeof parsed?.value === "string" &&
+        parsed.value.startsWith("!inline_fileset ")
+      ) {
+        const serverPath =
+          cachedWsNameForPush && isWorkspaceSpecificFile(change.path)
+            ? fromWorkspaceSpecificPath(change.path, cachedWsNameForPush)
+            : change.path;
+        validateFilesetPointer(
+          parsed.value.split(" ")[1],
+          removeType(serverPath, "resource"),
+        );
+      }
+    }
 
     // Datatable migrations are two files (.up.sql/.down.sql) for one record, so
     // dedupe upsert/delete by (datatable, version) across the whole push.

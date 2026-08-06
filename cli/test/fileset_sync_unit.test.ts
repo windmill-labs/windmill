@@ -38,49 +38,35 @@ describe("handleFile routing", () => {
 });
 
 describe("validateFilesetPointer", () => {
-  test("accepts the canonical pointer", () => {
+  test("accepts the server-canonical pointer", () => {
     expect(() =>
-      validateFilesetPointer(
-        "f/resources/data.fileset",
-        "f/resources/data",
-        "f/resources/data.resource.yaml",
-      ),
+      validateFilesetPointer("f/resources/data.fileset", "f/resources/data"),
     ).not.toThrow();
   });
 
-  test("accepts the canonical pointer without a local path", () => {
+  test("normalizes trailing slashes", () => {
     expect(() =>
-      validateFilesetPointer("f/resources/data.fileset", "f/resources/data", undefined),
-    ).not.toThrow();
-  });
-
-  test("normalizes trailing slashes and backslashes", () => {
-    expect(() =>
-      validateFilesetPointer(
-        "f/resources/data.fileset/",
-        "f/resources/data",
-        "f\\resources\\data.resource.yaml",
-      ),
-    ).not.toThrow();
-  });
-
-  test("accepts a pointer canonical for the local (branch-specific) file", () => {
-    expect(() =>
-      validateFilesetPointer(
-        "f/resources/data.ws_main.fileset",
-        "f/resources/data",
-        "f/resources/data.ws_main.resource.yaml",
-      ),
+      validateFilesetPointer("f/resources/data.fileset/", "f/resources/data"),
     ).not.toThrow();
   });
 
   test("rejects a custom pointer with an actionable message", () => {
     expect(() =>
       validateFilesetPointer(
-        "f/zoho-analytics.fileset",
-        "f/resources/zoho_analytics_iac_data",
-        "f/resources/zoho_analytics_iac_data.resource.yaml",
+        "f/queries.fileset",
+        "f/resources/analytics_data",
       ),
-    ).toThrow(/must live next to its resource file, at 'f\/resources\/zoho_analytics_iac_data\.fileset'/);
+    ).toThrow(/must live next to its resource file, at 'f\/resources\/analytics_data\.fileset'/);
+  });
+
+  test("rejects a branch-suffixed directory for a workspace-specific resource", () => {
+    // The remote exporter always renders children at the server-canonical
+    // location, so a `.ws_<branch>.fileset` directory would never round-trip.
+    expect(() =>
+      validateFilesetPointer(
+        "f/resources/data.ws_main.fileset",
+        "f/resources/data",
+      ),
+    ).toThrow(/at 'f\/resources\/data\.fileset'/);
   });
 });

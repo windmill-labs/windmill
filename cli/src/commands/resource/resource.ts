@@ -47,34 +47,22 @@ async function readFilesetDirectory(dirPath: string): Promise<Record<string, str
 }
 
 /**
- * A fileset directory must live next to its resource file at
+ * A fileset directory must live at the server-canonical location
  * `<resource path>.fileset` — that is the only layout the sync diff engine
- * can round-trip. Any other pointer breaks change detection: children are
- * planned as full delete/re-add churn and adds under the custom directory
- * are dropped, which manifests as erased or stale fileset content.
+ * can round-trip (remote state is always rendered there, including for
+ * workspace-specific resources). Any other pointer breaks change detection:
+ * children are planned as full delete/re-add churn and adds under the custom
+ * directory are dropped, which manifests as erased or stale fileset content.
  */
 export function validateFilesetPointer(
   dirPath: string,
   remotePath: string,
-  originalLocalPath: string | undefined,
 ): void {
   const normalize = (p: string) =>
     p.replaceAll("\\", "/").replace(/\/+$/, "");
   const pointer = normalize(dirPath);
-  const canonicalFromRemote =
-    normalize(remotePath.replaceAll(SEP, "/")) + ".fileset";
-  // For branch/workspace-specific metadata files the local file name differs
-  // from the server path, so the directory adjacent to the local file is also
-  // canonical.
-  const canonicalFromLocal = originalLocalPath
-    ? normalize(
-        originalLocalPath
-          .replaceAll(SEP, "/")
-          .replace(/\.resource\.(yaml|json)$/, ""),
-      ) + ".fileset"
-    : undefined;
-  if (pointer !== canonicalFromRemote && pointer !== canonicalFromLocal) {
-    const expected = canonicalFromLocal ?? canonicalFromRemote;
+  const expected = normalize(remotePath.replaceAll(SEP, "/")) + ".fileset";
+  if (pointer !== expected) {
     throw new Error(
       `Resource ${remotePath.replaceAll(SEP, "/")} uses '!inline_fileset ${dirPath}', ` +
         `but a fileset directory must live next to its resource file, at '${expected}'. ` +
@@ -111,7 +99,7 @@ export async function pushResource(
     if (typeof localResource.value === "string" && localResource.value.startsWith("!inline_fileset ")) {
       const dirPath = localResource.value.split(" ")[1];
       if (enforceCanonicalFileset) {
-        validateFilesetPointer(dirPath, remotePath, originalLocalPath);
+        validateFilesetPointer(dirPath, remotePath);
       }
       localResource.value = await readFilesetDirectory(dirPath.replaceAll("/", SEP));
     } else if (localResource.value["content"]?.startsWith("!inline ")) {
