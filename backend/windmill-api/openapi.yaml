@@ -33435,6 +33435,7 @@ components:
         - DisableWorkspaceForking
         - RestrictDeployToDeployers
         - RestrictAnonymousAppDeployment
+        - RestrictPublicRunSharing
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

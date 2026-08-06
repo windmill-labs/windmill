@@ -750,7 +750,7 @@
 							displayName: 'Copy public link',
 							icon: Globe,
 							tooltip:
-								'Read-only link that anyone can open, without logging in. It shows a minimal version of this page: inputs, result, logs and, for flows, the flow graph.',
+								"Read-only link that anyone on the internet can open, without logging in. It shows a minimal version of this page: this run's inputs, result and logs, and for a flow its graph plus every step's inputs, result, logs and code. The link cannot be revoked.",
 							action: () => job && sharePublicLink(job.id)
 						}
 					]}

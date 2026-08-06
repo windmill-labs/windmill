@@ -567,6 +567,36 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         );
     }
 
+    // The public audience is a superset of the member one: it must also satisfy the
+    // authenticated ACL check, so a viewer handed a public link is not worse off.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{DEEP_LEAF_JOB}?view_token={public_token}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "a public view_token must also grant an authenticated member read (got {status}): {body}"
+    );
+
+    // A tag-scoped caller must not mint a public token at all, not even for a job inside
+    // its scope: the anonymous readers of the resulting link carry no scope of their own,
+    // so an in-scope job's out-of-scope descendants (mixed-tag flow trees) would become
+    // readable. SCOPED_DENO_TOKEN *can* mint the member flavor for VICTIM (tag `deno`,
+    // asserted further down), so this pins the public flavor being strictly stricter.
+    let (status, body) = get(
+        &authed_base,
+        &format!("job_public_view_token/{VICTIM}"),
+        Some("SCOPED_DENO_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "a tag-scoped token must NOT mint a public link, even for an in-scope job (got {status}): {body}"
+    );
+
     // Minting the public flavor takes the same read access as the member one.
     let (status, _) = get(
         &authed_base,

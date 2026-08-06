@@ -53,6 +53,7 @@ use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
+use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
@@ -512,7 +513,8 @@ async fn get_job_view_token(
 
 /// Public flavor of [`get_job_view_token`]: the resulting link additionally grants read of
 /// the job (and its flow subtree) to logged-out visitors, who land on the minimal public
-/// run page. Gated identically — whoever can read the job may publish it.
+/// run page. Read access is necessary but not sufficient — exposing workspace data to the
+/// anonymous internet is a privileged action, gated like an app's anonymous execution mode.
 async fn get_job_public_view_token(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -520,7 +522,50 @@ async fn get_job_public_view_token(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<String> {
     require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
+
+    // A tag-scoped token may not mint a public link at all. `require_job_read_access`
+    // confines a *scoped reader* to its allowed tags, but a public link is read by
+    // anonymous callers who carry no scope to confine — so the token would authorize
+    // out-of-scope descendants of an in-scope flow (mixed-tag trees are supported).
+    // The scope is a hard restriction, so refuse rather than silently narrow the link.
+    if get_scope_tags(&authed).is_some() {
+        return Err(Error::PermissionDenied(
+            "A tag-scoped token cannot share a run publicly: the resulting link is read \
+             anonymously and could not carry the tag restriction to the run's steps."
+                .to_string(),
+        ));
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::RestrictPublicRunSharing,
+        &authed.username,
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let hmac = generate_view_token(&w_id, id, PUBLIC_VIEW_TOKEN_DOMAIN, &db).await?;
+
+    // The link is stateless and permanent, so the mint is the only moment this is
+    // observable: audit it unconditionally rather than through the opt-in job-view log.
+    let mut tx = db.begin().await?;
+    audit_log(
+        &mut *tx,
+        &AuditAuthor::from(&authed),
+        "jobs.share_publicly",
+        ActionKind::Create,
+        &w_id,
+        Some(&id.to_string()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
     Ok(format!("{id}.{hmac}"))
 }
 
@@ -1338,7 +1383,7 @@ struct GetJobQuery {
 /// job UUID, even though the same job is hidden from them in `jobs/list`
 /// (RLS-filtered) and the underlying script returns 404. (WIN-2026-jobs-read)
 ///
-/// Unauthenticated callers are still handled by each handler's anonymous-job check;
+/// Unauthenticated callers go through [`require_unauthed_job_read_access`] instead;
 /// this gate applies only when a user is authenticated. Access is granted when:
 /// - the caller created the job (`created_by`) — covers app components, webhooks and
 ///   the caller's own runs, whose `permissioned_as` is the policy identity rather
@@ -1857,8 +1902,9 @@ async fn get_job(
 
     // A valid approval token is itself the capability; otherwise the caller must pass the
     // same visibility as `jobs/list` (see `require_job_read_access`), or hold a public
-    // share link when logged out.
-    if !has_valid_approval_token {
+    // share link when logged out — which `public_view_grant` already established above,
+    // so skip re-deriving it here: this handler is what the public run page polls.
+    if !has_valid_approval_token && !public_view_grant {
         require_opt_authed_job_read_access(
             &db,
             &user_db,
@@ -9413,8 +9459,7 @@ async fn get_log_file(
     }
 
     // Authorization: the log file directory is the job id, so gate access the same
-    // way as get_job_logs — the caller must be able to read the job. Non-logged-in
-    // callers may only read logs of jobs created by the anonymous user.
+    // way as get_job_logs — the caller must be able to read the job.
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
@@ -10414,16 +10459,19 @@ async fn get_completed_job<'a>(
 
     let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
 
-    require_opt_authed_job_read_access(
-        &db,
-        &user_db,
-        &opt_authed,
-        &w_id,
-        &id,
-        &cj.created_by,
-        view_token.as_deref(),
-    )
-    .await?;
+    // `public_view_grant` already settled the logged-out case above — don't re-derive it.
+    if !public_view_grant {
+        require_opt_authed_job_read_access(
+            &db,
+            &user_db,
+            &opt_authed,
+            &w_id,
+            &id,
+            &cj.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
+    }
 
     let response = Json(cj).into_response();
     // let extra_log = query_scalar!(
@@ -10786,9 +10834,8 @@ async fn get_dispatch_events(
 
     // Gate on the producer job's visibility, exactly like
     // get_completed_job_timing on the same unauthed router: scope tags
-    // first, then per-job read access for authed users, anonymous-only
-    // jobs otherwise. The dispatch_event FK to v2_job(id) guarantees the
-    // producer row exists for any extant event.
+    // first, then the shared per-audience read gate. The dispatch_event FK
+    // to v2_job(id) guarantees the producer row exists for any extant event.
     let producer = sqlx::query!(
         r#"SELECT created_by AS "created_by!"
            FROM v2_job

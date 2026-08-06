@@ -70,6 +70,7 @@ bitflags::bitflags! {
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
+        const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
     }
 }
 
@@ -81,6 +82,7 @@ pub enum ProtectionRuleKind {
     DisableWorkspaceForking,
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
+    RestrictPublicRunSharing,
 }
 
 impl ProtectionRuleKind {
@@ -98,6 +100,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 ProtectionRules::RESTRICT_ANONYMOUS_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
+            }
         }
     }
 
@@ -112,6 +117,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 "Making an app publicly accessible without login (anonymous execution mode) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                "Sharing a run publicly (readable without login) is restricted in this workspace"
             }
         }
     }

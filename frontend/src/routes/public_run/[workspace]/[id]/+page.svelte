@@ -17,15 +17,24 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 
-	const workspace = page.params.workspace ?? ''
-	const jobId = page.params.id ?? ''
+	// SvelteKit reuses this component across /public_run/* navigations, so every input
+	// derived from the URL has to stay reactive — a captured-once value would leave the
+	// previous run (and its token) live while the address bar shows another link.
+	let workspace = $derived(page.params.workspace ?? '')
+	let jobId = $derived(page.params.id ?? '')
 
 	// The public share token is the page's only credential: install it before JobLoader
-	// mounts so every read it fires (job, args, logs, SSE, flow steps) carries it.
+	// mounts so every read it fires (job, args, logs, SSE, flow steps) carries it. Set
+	// eagerly at init, then kept in sync for client-side navigation.
 	setViewToken(page.url.searchParams.get('view_token') ?? undefined)
+	$effect(() => {
+		setViewToken(page.url.searchParams.get('view_token') ?? undefined)
+	})
 	onDestroy(() => setViewToken(undefined))
 
-	$workspaceStore = workspace
+	$effect(() => {
+		$workspaceStore = workspace
+	})
 
 	const darkMode =
 		window.localStorage.getItem('dark-mode') ??
@@ -42,15 +51,40 @@
 
 	let isFlow = $derived(job != undefined && !isNotFlow(job?.job_kind))
 
+	// Clear the previous run first: `isFlow` then falls back to false, which remounts the
+	// JobLoader a flow run had unmounted, so the effect below has a loader to watch with.
+	let resetForJobId: string | undefined = undefined
+	$effect(() => {
+		const id = jobId
+		untrack(() => {
+			if (resetForJobId === id) return
+			resetForJobId = id
+			job = undefined
+			notfound = false
+			loadError = undefined
+		})
+	})
+
 	// `watchJob` writes `job`, so it must not run tracked — reading its own output back
 	// would re-enter this effect on every poll.
+	let watchedJobId: string | undefined = undefined
 	$effect(() => {
-		jobLoader && jobId && untrack(() => jobLoader?.watchJob(jobId))
+		const id = jobId
+		const loader = jobLoader
+		untrack(() => {
+			if (!loader || !id || watchedJobId === id) return
+			watchedJobId = id
+			loader.watchJob(id)
+		})
 	})
 </script>
 
 <svelte:head>
 	<title>Run {truncateRev(jobId, 8)} | Windmill</title>
+	<!-- The URL *is* the credential: keep the link out of search indexes, and out of the
+	     Referer header of anything the rendered result or logs may link to. -->
+	<meta name="robots" content="noindex, nofollow" />
+	<meta name="referrer" content="no-referrer" />
 </svelte:head>
 
 <!-- Flow jobs are watched by FlowStatusViewer's own loader, exactly like the run page. -->
