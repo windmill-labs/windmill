@@ -2203,6 +2203,12 @@
 		} else {
 			ed.setValue(next)
 		}
+		// The write above went through `onDidChangeModelContent`, which arms the
+		// keystroke debounce as if the user had typed. Monaco now holds exactly
+		// `code`, so there is nothing to flush — and leaving the timer armed makes
+		// every "is Monaco the newer side?" check (notably the unmount flush) answer
+		// yes on the strength of our own write.
+		cancelPendingChanges()
 	}
 
 	// External `code` prop changes should flow into the Monaco editor. Skip

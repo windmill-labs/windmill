@@ -2762,7 +2762,11 @@
 			awareness={wsProvider?.awareness}
 			on:change={(e) => {
 				if (activeModuleTab === null) {
-					code = editorCode
+					// The payload, not `editorCode`: the editor also fires this while it is
+					// being torn down (the unmount flush), and a destroyed component's
+					// `bind:` writes no longer reach us — re-reading would take the value
+					// from before the change and write it back over `code`.
+					code = e.detail
 					lastSyncedCode = code
 					inferSchema(e.detail)
 				} else {
