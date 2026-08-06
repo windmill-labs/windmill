@@ -1525,7 +1525,7 @@ pub async fn resolve_fork_branch_target(
         .fetch_optional(db)
         .await?
     } else if branch != expected_base {
-        // Environment-label branch (`dev`/`staging`) of a dev-workspace child.
+        // Environment-label branch (`dev`, `staging`, ...) of a dev-workspace child.
         // Direct children only: a dev nested under another dev is parent-managed
         // by that dev, which holds no auto-pull config of its own, so no branch
         // pushed to this repo routes to it. The tracked-branch guard keeps a

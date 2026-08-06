@@ -6071,7 +6071,7 @@ const command = new Command()
   )
   .option(
     "--dev-workspace-label <label:string>",
-    "Environment label of a dev workspace (dev/staging); its deploys go to that branch",
+    "Environment label of a dev workspace (dev, staging, uat, ...); its deploys go to that branch",
   )
   .option(
     "--parent-dev-workspace-label <label:string>",

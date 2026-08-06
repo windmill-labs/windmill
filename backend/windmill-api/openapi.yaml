@@ -1240,7 +1240,7 @@ paths:
                 dev_workspace_label:
                   type: string
                   enum: [dev, qa, test, uat, staging, demo, sandbox, preprod]
-                  description: "Environment label, e.g. 'dev' or 'staging'; also names the branch the dev workspace deploys to. Null defaults to 'dev'"
+                  description: "Environment label; also names the branch the dev workspace deploys to. Omitted defaults to 'dev'"
               required:
                 - dev_workspace_id
       responses:
@@ -31193,7 +31193,7 @@ components:
         dev_workspace_label:
           type: string
           enum: [dev, qa, test, uat, staging, demo, sandbox, preprod]
-          description: "Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the branch it deploys to. Ignored for non-dev forks"
+          description: "Environment label for the dev workspace: its badge text and the branch it deploys to. Ignored for non-dev forks. Omitted defaults to 'dev'"
       required:
         - id
         - name
