@@ -183,7 +183,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28871/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28870/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28890/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -318,7 +318,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitRepositorySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_types_override: Option<Vec<ObjectType>>,
@@ -516,7 +516,7 @@ impl AutoPullSettings {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitSyncSettings {
     pub include_path: Vec<String>,
     pub include_type: Vec<ObjectType>,
