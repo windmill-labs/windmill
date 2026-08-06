@@ -36,14 +36,13 @@
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
 	import { clickOutside } from '$lib/utils'
-	import { createEventDispatcher, getContext, onDestroy, setContext } from 'svelte'
+	import { createEventDispatcher, getContext, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { useConnect } from './useConnect.svelte'
-	import { useFlowEditorTelemetry } from '../flowEditorTelemetry'
 
 	interface Props {
 		pickableProperties: PickableProperties | undefined
@@ -90,19 +89,12 @@
 	// clicking a step — this pane is the only picker in that mode. See `graphParticipates`.
 	const inModalPanel = $derived(propPickerContext.inModalPanel?.() ?? false)
 
-	const telemetry = useFlowEditorTelemetry()
 	const connect = useConnect({
 		inModalPanel: () => inModalPanel,
 		hasPickableProperties: () => pickableProperties != undefined,
 		flowPropPickerConfig,
-		localConfig: propPickerConfig,
-		onEvent: (event) => telemetry.log('connect', `input:${event}`)
+		localConfig: propPickerConfig
 	})
-
-	// An armed target that goes away with the panel is abandoned like any other, and has to
-	// say so or `open` never balances against `insert` + `abandon`. `disarm` no-ops unless
-	// this surface is the one holding the arm.
-	onDestroy(() => connect.disarm())
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,

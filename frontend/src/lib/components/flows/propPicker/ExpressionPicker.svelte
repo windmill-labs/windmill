@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy, setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
@@ -8,7 +8,6 @@
 	import type { PickableProperties } from '../previousResults'
 	import type { PropPickerWrapperContext } from './PropPickerWrapper.svelte'
 	import { useConnect } from './useConnect.svelte'
-	import { useFlowEditorTelemetry } from '../flowEditorTelemetry'
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
@@ -28,16 +27,11 @@
 
 	const inModalPanel = $derived(propPickerContext?.inModalPanel?.() ?? false)
 
-	const telemetry = useFlowEditorTelemetry()
 	const connect = useConnect({
 		inModalPanel: () => inModalPanel,
 		hasPickableProperties: () => pickableProperties != undefined,
-		flowPropPickerConfig: propPickerContext?.flowPropPickerConfig ?? writable(undefined),
-		onEvent: (event) => telemetry.log('connect', `expression:${event}`)
+		flowPropPickerConfig: propPickerContext?.flowPropPickerConfig ?? writable(undefined)
 	})
-
-	// See PropPickerWrapper: an arm that disappears with its component still ends.
-	onDestroy(() => connect.disarm())
 
 	// PropPicker reads these to filter and highlight against what is being typed. Only the
 	// step input form produces that signal, so here they stay empty.

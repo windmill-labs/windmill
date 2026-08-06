@@ -9,8 +9,6 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { setContext } from 'svelte'
-	import { FLOW_EDITOR_VISIBLE_CONTEXT } from '$lib/components/flows/flowEditorTelemetry'
 
 	let {
 		runtime,
@@ -34,12 +32,6 @@
 		 * URL's `selected` param. */
 		initialSelectedId?: string
 	} = $props()
-
-	// Preview tabs stay mounted when hidden, so the editor below has to be told when it is
-	// not the one being looked at — otherwise a background tab measures panel time nobody
-	// spent. A context rather than a prop: FlowBuilder sits in between and has no stake in
-	// this. See `FLOW_EDITOR_VISIBLE_CONTEXT`.
-	setContext<() => boolean>(FLOW_EDITOR_VISIBLE_CONTEXT, () => active)
 
 	// This tab's own flow cell; each open flow editor binds its own store.
 	const cell = $derived(runtime.flowCell(path))

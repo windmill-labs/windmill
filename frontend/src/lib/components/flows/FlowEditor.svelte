@@ -13,10 +13,9 @@
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
 	import { useFlowPanelMode } from './flowPanelMode.svelte'
 	import {
-		createPanelVisitTracker,
-		placementKey,
-		setFlowEditorTelemetry,
-		FLOW_EDITOR_VISIBLE_CONTEXT
+		createBreakpointTracker,
+		forcedPlacementEvent,
+		logPanelPlacement
 	} from './flowEditorTelemetry'
 
 	import { writable } from 'svelte/store'
@@ -135,32 +134,11 @@
 	const panelMode = $derived(panelController.mode)
 	let panelModalOpen = $state(false)
 
-	const telemetry = setFlowEditorTelemetry()
-	const panelVisits = createPanelVisitTracker(telemetry.log)
-	const editorVisible = getContext<(() => boolean) | undefined>(FLOW_EDITOR_VISIBLE_CONTEXT)
-
-	// The step whose panel the user is actually looking at. Docked, the panel is always on
-	// screen, so this follows the selection — meaning a `panel_open` there is "moved to a
-	// step", where in modal mode it is "asked to see a step". The two are not counts of the
-	// same gesture and don't compare directly. Flow-level targets (settings, inputs,
-	// triggers) share the pane but are not what the step panels measure.
-	const openPanelTarget = $derived.by(() => {
-		if (editorVisible?.() === false) return undefined
-		const ids = selectionManager.selectedIds
-		if (ids.length !== 1 || isFlowLevelPanelTarget(ids[0])) return undefined
-		if (panelMode === 'modal' && !panelModalOpen) return undefined
-		return ids[0]
-	})
+	// The width is measured, so `mode` settles many times while a window is dragged; only the
+	// crossing into modal is an activation.
+	const breakpoint = createBreakpointTracker(logPanelPlacement)
 	$effect(() => {
-		panelVisits.visit(openPanelTarget, panelMode)
-	})
-
-	// Svelte tears components down on navigation, not on tab close, so `onDestroy` alone
-	// would drop the last — typically longest — dwell of every session.
-	$effect(() => {
-		const end = () => panelVisits.end()
-		window.addEventListener('pagehide', end)
-		return () => window.removeEventListener('pagehide', end)
+		breakpoint.observe(panelController.preference, panelMode)
 	})
 
 	// Auto can move the panel back into the pane under a modal that is open — leaving it
@@ -283,7 +261,8 @@
 			// screen, so the modal it becomes has to open on arrival. The reverse is handled
 			// by the effect above, which closes a modal that is no longer rendered.
 			const wasVisible = panelMode === 'docked' || panelModalOpen
-			telemetry.log('placement', placementKey(preference, panelMode))
+			const forced = forcedPlacementEvent(preference)
+			if (forced) logPanelPlacement(forced)
 			panelController.preference = preference
 			panelModalOpen = panelController.mode === 'modal' && wasVisible
 		}
@@ -316,7 +295,6 @@
 	})
 
 	onDestroy(() => {
-		panelVisits.end()
 		aiChatManager.flowOptions = undefined
 		if (modalPanel) {
 			selectionManager.setOnSelectIntent(undefined)

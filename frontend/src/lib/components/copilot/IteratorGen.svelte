@@ -11,7 +11,6 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import { stepInputCompletionEnabled } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
-	import { useFlowEditorTelemetry } from '../flows/flowEditorTelemetry'
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -32,17 +31,12 @@
 	let abortController = new AbortController()
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	// This surface has no on-screen trigger at all: it generates on focus and Tab is the only
-	// way to take it. The accept-over-generate ratio is what says whether anyone finds it.
-	const telemetry = useFlowEditorTelemetry()
-
 	async function generateIteratorExpr() {
 		if (generatedContent.length > 0 || loading) {
 			return
 		}
 		abortController = new AbortController()
 		loading = true
-		telemetry.log('ai_input', 'iterator:generate')
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
@@ -93,7 +87,6 @@ Only output the expression, do not explain or discuss.`
 		if (event.key === 'Tab') {
 			if (!loading && generatedContent) {
 				event.preventDefault()
-				telemetry.log('ai_input', 'iterator:accept_tab')
 				dispatch('setExpr', generatedContent)
 				generatedContent = ''
 			}
@@ -135,10 +128,6 @@ Only output the expression, do not explain or discuss.`
 	})
 
 	function cancel() {
-		// A suggestion that was there to take, dropped without Tab.
-		if (!loading && generatedContent) {
-			telemetry.log('ai_input', 'iterator:discard')
-		}
 		abortController.abort()
 		generatedContent = ''
 	}
