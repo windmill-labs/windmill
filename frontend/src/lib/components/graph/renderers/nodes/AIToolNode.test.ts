@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 // full render-time dependency graph.
 vi.mock('./NodeWrapper.svelte', () => ({ default: {} }))
 
-import { computeAIToolNodes } from './AIToolNode.svelte'
+import { computeAIToolNodes, getAgentActionStateId } from './AIToolNode.svelte'
 
 const eventHandlers = {} as any
 
@@ -105,6 +105,31 @@ describe('computeAIToolNodes', () => {
 
 		expect(computeAIToolNodes([node], eventHandlers, false, stateWith(1)).toolNodes.length).toBe(1)
 		expect(computeAIToolNodes([node], eventHandlers, false, stateWith(2)).toolNodes.length).toBe(2)
+	})
+
+	it('keys an action the same way the tool node it produces is keyed', () => {
+		// The editor looks a call's status up by rebuilding this id, so if the two constructions
+		// ever disagree the status silently never resolves.
+		const node = aiAgentNode('agent', [
+			{ id: 'tool_a', summary: 'my_tool', value: { tool_type: 'flowmodule', type: 'script' } }
+		])
+		const actions = [
+			{ type: 'tool_call', function_name: 'my_tool', module_id: 'tool_a', job_id: 'j1' },
+			{ type: 'web_search', job_id: 'j2' },
+			{ type: 'mcp_tool_call', function_name: 'remote', job_id: 'j3' },
+			{ type: 'message', job_id: 'j4' }
+		]
+
+		const { toolNodes } = computeAIToolNodes([node], eventHandlers, false, {
+			agent: { type: 'Success', agent_actions: actions }
+		} as any)
+
+		expect(toolNodes.length).toBe(actions.length)
+		actions.forEach((action, index) => {
+			expect((toolNodes[index].data as any).moduleId).toBe(
+				getAgentActionStateId(index, 'agent', action)
+			)
+		})
 	})
 
 	it('still flags genuinely duplicate tool names in the editor (static tool set)', () => {

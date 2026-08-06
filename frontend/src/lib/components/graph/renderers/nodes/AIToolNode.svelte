@@ -55,6 +55,25 @@
 			: AI_TOOL_MESSAGE_PREFIX + '-' + agentModuleId + '-' + idx
 	}
 
+	/** The id a run keys an agent action's state by. Kept beside the node ids built below, which
+	 * must agree with it, since anything reading a call's state has to rebuild the same key. */
+	export function getAgentActionStateId(
+		idx: number,
+		agentModuleId: string,
+		action: { type?: string; module_id?: string }
+	): string {
+		if (action.type === 'tool_call') {
+			return getToolCallId(idx, agentModuleId, action.module_id)
+		}
+		if (action.type === 'mcp_tool_call') {
+			return AI_MCP_TOOL_CALL_PREFIX + '-' + agentModuleId + '-' + idx
+		}
+		if (action.type === 'web_search') {
+			return AI_WEBSEARCH_PREFIX + '-' + agentModuleId + '-' + idx
+		}
+		return getToolCallId(idx, agentModuleId)
+	}
+
 	function getComparableNode(node: Node & NodeLayout): Node & NodeLayout {
 		if (node.type === 'module' && node.data.module.value.type === 'aiagent') {
 			return {
@@ -210,7 +229,8 @@
 						// misroute agent-node clicks into the graph's manual aiTool selection path.
 						selectTarget: isLinkedAgent && !agentActions ? node.id : undefined,
 						insertable,
-						readOnly: isLinkedAgent
+						readOnly: isLinkedAgent,
+						agentModuleId: node.id
 					},
 					id: `${node.id}-tool-${tool.id}`,
 					width: inputToolWidth,
@@ -310,9 +330,37 @@
 	const { selectionManager } = getGraphContext()
 
 	const flowModuleState = $derived(flowRunStatus?.getModuleState(data.moduleId))
+
+	/**
+	 * The editor draws the agent's declared tools, one node per tool, while a run keys its state
+	 * per call. Roll every call of this tool into the one node it already has, so a run shows up
+	 * here without adding nodes and shifting the graph. A run graph looks its own state up
+	 * directly, so it never gets here.
+	 */
+	const toolCalls = $derived.by(() => {
+		if (flowModuleState) return undefined
+		const actions = flowRunStatus?.getModuleState(data.agentModuleId)?.agent_actions
+		if (!actions) return undefined
+		const types: (GraphModuleState['type'] | undefined)[] = []
+		actions.forEach((action, index) => {
+			if (action.type !== 'tool_call' || action.module_id !== data.moduleId) return
+			types.push(
+				flowRunStatus?.getModuleState(getToolCallId(index, data.agentModuleId, action.module_id))
+					?.type
+			)
+		})
+		if (types.length === 0) return undefined
+		const type = types.some((t) => t !== 'Success' && t !== 'Failure')
+			? 'InProgress'
+			: types.some((t) => t === 'Failure')
+				? 'Failure'
+				: 'Success'
+		return { type, count: types.length } as const
+	})
+
 	let colorClasses = $derived(
 		getNodeColorClasses(
-			data.nameError ? 'Failure' : flowModuleState?.type,
+			data.nameError ? 'Failure' : (flowModuleState?.type ?? toolCalls?.type),
 			selectionManager?.getSelectedId() === (data.selectTarget ?? data.moduleId)
 		)
 	)
@@ -363,6 +411,17 @@
 				<span class={twMerge('text-3xs truncate flex-1', data.nameError && 'text-red-400')}>
 					{data.tool || 'Missing name'}
 				</span>
+
+				<!-- Sits inside the button's fixed width, so the label truncates instead of the node
+				     growing and pushing the graph around. -->
+				{#if toolCalls && toolCalls.count > 1}
+					<span
+						class="text-3xs tabular-nums shrink-0 mr-1 px-1 rounded bg-surface/70 text-secondary"
+						title={`Called ${toolCalls.count} times in this run`}
+					>
+						{toolCalls.count}
+					</span>
+				{/if}
 			</button>
 			{#if data.insertable && !data.readOnly}
 				<button

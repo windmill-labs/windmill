@@ -9,6 +9,7 @@
 	import { getContext } from 'svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
+	import { getAgentActionStateId } from './AIToolNode.svelte'
 
 	interface Props {
 		data: ModuleN['data']
@@ -24,6 +25,28 @@
 		return data.testModuleState
 			? (jobToGraphModuleState(data.testModuleState) ?? flowRunStatus?.getModuleState(data.id))
 			: flowRunStatus?.getModuleState(data.id)
+	})
+
+	/**
+	 * The editor draws an agent's declared tools, not the calls a run makes, so a run would
+	 * otherwise leave no trace on the step. This rides the annotation slot, which is positioned
+	 * absolutely above the node, and so reports the run without moving anything.
+	 */
+	let agentToolSummary = $derived.by(() => {
+		if (!data.insertable || data.module?.value?.type !== 'aiagent') return ''
+		const actions = flowRunStatus?.getModuleState(data.id)?.agent_actions
+		if (!actions?.length) return ''
+		let failed = 0
+		let pending = 0
+		actions.forEach((action, index) => {
+			const type = flowRunStatus?.getModuleState(
+				getAgentActionStateId(index, data.id, action)
+			)?.type
+			if (type === 'Failure') failed++
+			else if (type !== 'Success') pending++
+		})
+		const calls = `${actions.length} tool call${actions.length > 1 ? 's' : ''}`
+		return `${calls}${pending > 0 ? '…' : ''}${failed > 0 ? ` · ${failed} failed` : ''}`
 	})
 
 	let flowJobs = $derived(
@@ -118,15 +141,16 @@
 			editMode={data.editMode}
 			moduleAction={data.moduleAction}
 			{menuItems}
-			annotation={flowJobs &&
-			(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
-				? 'Iteration: ' +
-					((state?.selectedForloopIndex ?? 0) >= 0
-						? (state?.selectedForloopIndex ?? 0) + 1
-						: state?.flow_jobs?.length) +
-					'/' +
-					(state?.iteration_total ?? '?')
-				: ''}
+			annotation={agentToolSummary ||
+				(flowJobs &&
+				(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
+					? 'Iteration: ' +
+						((state?.selectedForloopIndex ?? 0) >= 0
+							? (state?.selectedForloopIndex ?? 0) + 1
+							: state?.flow_jobs?.length) +
+						'/' +
+						(state?.iteration_total ?? '?')
+					: '')}
 			nodeState={state?.skipped ? '_Skipped' : type}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
