@@ -2762,11 +2762,12 @@
 			awareness={wsProvider?.awareness}
 			on:change={(e) => {
 				if (activeModuleTab === null) {
-					// The payload, not `editorCode`: the editor also fires this while it is
-					// being torn down (the unmount flush), and a destroyed component's
-					// `bind:` writes no longer reach us — re-reading would take the value
-					// from before the change and write it back over `code`.
-					code = e.detail
+					// `editorCode`, not the payload: `setCode` dispatches the string it was
+					// handed, but Monaco may have normalized it (EOL) while applying it, and
+					// the re-entrant `updateCode` that runs inside `setCode` has already put
+					// that normalized text here. Taking the payload would leave `code`
+					// disagreeing with the buffer.
+					code = editorCode
 					lastSyncedCode = code
 					inferSchema(e.detail)
 				} else {
