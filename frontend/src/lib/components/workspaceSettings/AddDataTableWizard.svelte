@@ -499,7 +499,7 @@
 											? ` (${provisionStatus})`
 											: ''}
 									</p>
-								{:else}
+								{:else if checkPassed()}
 									<Alert
 										type="success"
 										size="xs"
@@ -638,9 +638,9 @@
 		<Alert type="error" size="xs" bgClass="border-0" title="Save this password">
 			<div class="flex flex-col gap-2">
 				<div>
-					The project was created on Supabase but Windmill could not store its credentials.
-					Supabase cannot show this password again - copy it now, or reset it from the project's
-					database settings.
+					The project was created on Supabase but Windmill could not store its credentials. Supabase
+					cannot show this password again - copy it now, or reset it from the project's database
+					settings.
 				</div>
 				<pre class="whitespace-pre-wrap select-all text-2xs">{strandedPassword}</pre>
 			</div>
