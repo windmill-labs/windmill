@@ -135,9 +135,13 @@
 	let panelModalOpen = $state(false)
 
 	// The width is measured, so `mode` settles many times while a window is dragged; only the
-	// crossing into modal is an activation.
+	// crossing into modal is an activation. Session preview tabs are left out: they stay
+	// mounted and laid out at panel width even while hidden, and that panel is narrower than
+	// the breakpoint by construction, so counting them would bury the crossings this measures
+	// under one event per flow tab ever opened.
 	const breakpoint = createBreakpointTracker(logPanelPlacement)
 	$effect(() => {
+		if (sessionScopedManager) return
 		breakpoint.observe(panelController.preference, panelMode)
 	})
 
@@ -253,9 +257,8 @@
 		enabled: () => modalPanel,
 		preference: () => panelController.preference,
 		setPreference: (preference) => {
-			// Picking the row that is already active is not a move. Counting it would also
-			// make the event ambiguous: `auto:from_docked` would mean both "switched to Auto"
-			// and "clicked Auto while already on Auto".
+			// Picking the row that is already active is not a move, and counting it would
+			// report a placement being forced that the panel was already in.
 			if (preference === panelController.preference) return
 			// Moving the panel must not lose what it was showing: docked, it is always on
 			// screen, so the modal it becomes has to open on arrival. The reverse is handled
