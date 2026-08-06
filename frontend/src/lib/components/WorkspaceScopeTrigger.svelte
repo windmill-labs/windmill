@@ -171,9 +171,6 @@
 			{#if pendingFork}
 				<span class="shrink-0 opacity-70 font-normal">(new)</span>
 			{:else if currentWs?.is_dev_workspace}
-				<!-- The cap goes on a child, not the badge: the badge's own element is a flex container,
-				     where `text-overflow` never applies and a long custom environment label would clip
-				     mid-glyph instead of ellipsizing. -->
 				<Badge
 					color="dark-blue"
 					small

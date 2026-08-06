@@ -13,7 +13,13 @@ export function devLabelKey(label: string | null | undefined): DevWorkspaceLabel
 	return label && label !== '' ? label : 'dev'
 }
 
-/** Short badge text: 'staging' abbreviates to 'stg', anything else shows verbatim. */
+/**
+ * Short badge text: 'staging' abbreviates to 'stg', anything else shows verbatim — so this is only
+ * bounded by the label's own 30-char limit, not by the 3 characters `dev`/`stg` used to take. Where
+ * the badge shares a row with the workspace name, cap it on a child of `<Badge>`: the badge's own
+ * element is a flex container, where `text-overflow` never applies and the text would clip
+ * mid-glyph instead of ellipsizing.
+ */
 export function devBadgeText(label: string | null | undefined): string {
 	const key = devLabelKey(label)
 	return key === 'staging' ? 'stg' : key

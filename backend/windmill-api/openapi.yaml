@@ -1239,9 +1239,7 @@ paths:
                   type: boolean
                 dev_workspace_label:
                   type: string
-                  maxLength: 30
-                  pattern: "^[a-z0-9][a-z0-9._-]*$"
-                  description: "Environment label, e.g. 'dev' or 'staging'; also names the branch the dev workspace deploys to. Null defaults to 'dev'. The value is trimmed, and the server additionally rejects '..', a trailing '.' or '.lock', the reserved 'wm-fork' and 'wm_deploy', and any label colliding with a git-sync repository's tracked branch — so this pattern is necessary but not sufficient"
+                  description: "Environment label, e.g. 'dev' or 'staging'; also names the branch the dev workspace deploys to. Null defaults to 'dev'. The server trims the value, then requires 1-30 characters of lowercase letters, digits, '-', '_' or '.', starting with a letter or digit, with no '..' and no trailing '.' or '.lock'; 'wm-fork' and 'wm_deploy' are reserved, as is any label colliding with a git-sync repository's tracked branch. Not expressed as a schema pattern because the trim happens server-side, so a pattern over the raw value would reject padded values the server accepts"
               required:
                 - dev_workspace_id
       responses:
@@ -31193,9 +31191,7 @@ components:
           description: "Copy the parent's members (users + group memberships) into the fork so the team can work in it"
         dev_workspace_label:
           type: string
-          maxLength: 30
-          pattern: "^[a-z0-9][a-z0-9._-]*$"
-          description: "Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the branch it deploys to. Ignored for non-dev forks. The value is trimmed, and the server additionally rejects '..', a trailing '.' or '.lock', the reserved 'wm-fork' and 'wm_deploy', and any label colliding with a git-sync repository's tracked branch — so this pattern is necessary but not sufficient"
+          description: "Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the branch it deploys to. Ignored for non-dev forks. The server trims the value, then requires 1-30 characters of lowercase letters, digits, '-', '_' or '.', starting with a letter or digit, with no '..' and no trailing '.' or '.lock'; 'wm-fork' and 'wm_deploy' are reserved, as is any label colliding with a git-sync repository's tracked branch. Not expressed as a schema pattern because the trim happens server-side, so a pattern over the raw value would reject padded values the server accepts"
       required:
         - id
         - name
