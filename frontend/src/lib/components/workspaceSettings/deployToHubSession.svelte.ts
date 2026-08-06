@@ -50,6 +50,7 @@ import {
 	DATA_ASSET_KINDS
 } from '$lib/components/assets/AssetGraph/cascadeRun'
 import { capturePipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
+import { buildFlowRecording, buildScriptRecording } from '$lib/components/recording/runRecording'
 import type { PipelineRecording, RawAppRecording } from '$lib/components/recording/types'
 import {
 	TRIGGER_KINDS,
@@ -1429,67 +1430,23 @@ export class DeployToHubSession {
 		const workspace = this.workspace
 		const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
 		const job = await JobService.getCompletedJob({ workspace, id: jobId })
-		const initial_job = { ...(job as any), type: 'CompletedJob' }
-		const events = [{ t: 0, data: { completed: true, job: initial_job } }]
-		const duration = (initial_job.duration_ms as number) ?? 0
-		return {
-			version: 1,
-			type: 'script' as const,
-			recorded_at: new Date().toISOString(),
-			script_path: it.path,
-			total_duration_ms: duration,
+		return await buildScriptRecording(workspace, jobId, {
+			scriptPath: it.path,
 			code: s.content,
 			language: s.language,
 			args: (job.args ?? {}) as Record<string, any>,
-			schema: s.schema,
-			job: { initial_job, events }
-		}
+			schema: s.schema as Record<string, any> | undefined
+		})
 	}
 
 	async #buildFlowRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
 		const f = await FlowService.getFlowByPath({ workspace, path: it.path })
-		const root = (await JobService.getCompletedJob({ workspace, id: jobId })) as any
-		const jobs: Record<string, { initial_job: any; events: any[] }> = {}
-		const collect = async (j: any) => {
-			const stamped = { ...j, type: 'CompletedJob' }
-			jobs[j.id] = {
-				initial_job: stamped,
-				events: [{ t: 0, data: { completed: true, job: stamped } }]
-			}
-			const modules = (j.flow_status?.modules ?? []).filter(
-				(m: any) => m.job && typeof m.job === 'string'
-			)
-			// Sub-jobs at the same level are independent reads.
-			await Promise.all(
-				modules.map(async (m: any) => {
-					try {
-						const sub = (await JobService.getCompletedJob({ workspace, id: m.job })) as any
-						await collect(sub)
-					} catch {
-						/* sub-job missing — skip */
-					}
-				})
-			)
-		}
-		await collect(root)
-		return {
-			version: 1,
-			recorded_at: new Date().toISOString(),
-			flow_path: it.path,
-			total_duration_ms: (root.duration_ms as number) ?? 0,
-			flow: {
-				path: it.path,
-				value: f.value,
-				schema: f.schema ?? { type: 'object', properties: {}, required: [] },
-				summary: f.summary ?? '',
-				archived: false,
-				edited_at: '',
-				edited_by: '',
-				extra_perms: {}
-			},
-			jobs
-		}
+		return await buildFlowRecording(workspace, jobId, it.path, {
+			value: f.value,
+			schema: f.schema ?? { type: 'object', properties: {}, required: [] },
+			summary: f.summary ?? ''
+		})
 	}
 
 	/** Save a recorded raw-app session as that app's Hub recording. */

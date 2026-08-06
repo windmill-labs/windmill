@@ -8,13 +8,8 @@
  * `package.json`'s `./components/recording/rawAppRecordingLoad` export, which the hub
  * imports, so renaming it means changing the hub in the same breath.
  */
-import type {
-	FlowRecording,
-	PipelineRecording,
-	RawAppRecording,
-	RecordedJob,
-	ScriptRecording
-} from './types'
+import type { Job } from '$lib/gen'
+import type { FlowRecording, PipelineRecording, RawAppRecording, ScriptRecording } from './types'
 import {
 	MAX_RECORDED_STEPS,
 	MAX_STEP_TEXT_CHARS,
@@ -32,16 +27,12 @@ export const MAX_RECORDING_BYTES = 100 * 1024 * 1024
  * later is unbounded until someone names it; this one needs no field, which is what
  * makes the set closed. Far above any real capture, far below what a tab survives. */
 export const MAX_RECORDING_NODES = 2_000_000
-/* Caps on the job-stream recordings (flow/script/pipeline). Each recorded job
- * mounts a JobLoader and each of its events costs a `setTimeout` created up front,
- * so the counts — not just the byte size — decide whether the tab survives. */
+/* Cap on the job-based recordings (flow/script/pipeline): each recorded job
+ * mounts a JobLoader whose synthesized replay stream costs `setTimeout`s created
+ * up front (the per-job event count is capped by the synthesis itself, in
+ * `replayStream.ts`), so the job count — not just the byte size — decides
+ * whether the tab survives. */
 export const MAX_RECORDED_JOBS = 2000
-/** `JobLoader.watchJob` schedules every event of a job in one pass, so this is a
- * count of timers created at once; events at `t: 0` all fire in the same frame, each
- * one a reactive update. Generous against reality (a long streaming job records on
- * the order of thousands) and survivable when they all land together. */
-export const MAX_EVENTS_PER_JOB = 5000
-export const MAX_RECORDED_JOB_EVENTS = 20_000
 /** The backstop: structure one recorded value may expand into, where a value is
  * what a component renders eagerly. Deliberately generous — it is not the precise
  * bound but the one that catches keys nobody has named; anything mounting a
@@ -74,7 +65,7 @@ export const MAX_MAP_ROWS = 2000
 /** `PipelineRecordingReplay.startReplay` schedules every frame in one pass, so this
  * counts timers created at once — frames at `t: 0` all land in the same tick, and
  * each reassigns the whole per-node status map and rebuilds the derived id/state maps
- * over its entire key set. Same bound as {@link MAX_EVENTS_PER_JOB}, same reason. */
+ * over its entire key set. */
 export const MAX_TIMELINE_FRAMES = 5000
 export const MAX_FRAME_STATUSES = 5000
 /** Graph elements each become a rendered canvas node or edge. */
@@ -277,33 +268,19 @@ function countRecordingNodes(v: unknown, budget = { n: MAX_RECORDING_NODES + 1 }
  * sample); the *number* of such values is bounded separately. */
 const withinRenderBudget = (v: unknown) => describeValueOverflow(v) === undefined
 
-/** JobLoader replays each `event.data` in a `setTimeout`, where a throw escapes
- * every Svelte boundary, so a malformed event must be refused at load. Each job
- * state is also held to the render budget, which covers everything hanging off it
- * at any depth. */
-function isRecordedJob(j: unknown): j is RecordedJob {
-	return (
-		isObject(j) &&
-		isObject(j.initial_job) &&
-		withinRenderBudget(j.initial_job) &&
-		isBoundedArray(j.events, MAX_EVENTS_PER_JOB) &&
-		j.events.every((e) => isObject(e) && isObject(e.data) && withinRenderBudget(e.data))
-	)
+/** A recorded completed job. The synthesized replay walks its timestamps and
+ * flow status and renders everything hanging off it (args, result, logs), so it
+ * is held to the render budget at any depth; `id` keys it into the replay. */
+function isRecordedJob(j: unknown): j is Job {
+	return isObject(j) && isShortText(j.id, true) && withinRenderBudget(j)
 }
 
-/** The `jobs` map every job-stream recording carries, bounded on both the number
- * of streams and the total number of events across them. */
-function isJobsMap(v: unknown): v is Record<string, RecordedJob> {
+/** The `jobs` map the flow and pipeline recordings carry. */
+function isJobsMap(v: unknown): v is Record<string, Job> {
 	if (!isObject(v)) return false
 	const jobs = Object.values(v)
 	if (jobs.length > MAX_RECORDED_JOBS) return false
-	let events = 0
-	for (const j of jobs) {
-		if (!isRecordedJob(j)) return false
-		events += j.events.length
-		if (events > MAX_RECORDED_JOB_EVENTS) return false
-	}
-	return true
+	return jobs.every(isRecordedJob)
 }
 
 /** The header every recording renders: a title, a `recorded_at` each player parses
@@ -349,7 +326,7 @@ function countFlowModules(modules: unknown, budget: number): number {
 
 /** True when `data` is a well-formed script recording. */
 export function isScriptRecording(data: unknown): data is ScriptRecording {
-	if (!isObject(data) || data.version !== 1 || data.type !== 'script') return false
+	if (!isObject(data) || data.version !== 2 || data.type !== 'script') return false
 	// `code` is highlighted in one pass and `language` selects the grammar.
 	return (
 		hasValidHeader(data, 'script_path') &&
@@ -368,7 +345,7 @@ export function isScriptRecording(data: unknown): data is ScriptRecording {
 
 /** True when `data` is a well-formed pipeline recording. */
 export function isPipelineRecording(data: unknown): data is PipelineRecording {
-	if (!isObject(data) || data.version !== 1 || data.type !== 'pipeline') return false
+	if (!isObject(data) || data.version !== 2 || data.type !== 'pipeline') return false
 	const g = data.graph
 	const validGraph =
 		isObject(g) &&
@@ -427,9 +404,11 @@ export function isPipelineRecording(data: unknown): data is PipelineRecording {
 /** True when `data` is a well-formed flow recording. `type` is absent on
  * recordings taken before the discriminator existed. */
 export function isFlowRecording(data: unknown): data is FlowRecording {
-	if (!isObject(data) || data.version !== 1) return false
+	if (!isObject(data) || data.version !== 2) return false
 	if (data.type !== undefined && data.type !== 'flow') return false
 	if (!hasValidHeader(data, 'flow_path') || !isJobsMap(data.jobs)) return false
+	// The player anchors the whole replay on the root job, so it must exist.
+	if (typeof data.root_job_id !== 'string' || !isObject(data.jobs[data.root_job_id])) return false
 	if (data.flow === undefined) return true
 	// The player hands the whole `flow` to FlowViewer, so `schema` renders (Input
 	// Schema tab, Input node) just like `value` does — budget one level up.
@@ -459,13 +438,6 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 	if (jobs.length > MAX_RECORDED_JOBS) {
 		return `This recording holds ${jobs.length} jobs, more than the ${MAX_RECORDED_JOBS} this player can replay.`
 	}
-	const events = jobs.reduce(
-		(sum: number, j) => sum + (isObject(j) && Array.isArray(j.events) ? j.events.length : 0),
-		0
-	)
-	if (events > MAX_RECORDED_JOB_EVENTS) {
-		return `This recording holds ${events} job events, more than the ${MAX_RECORDED_JOB_EVENTS} this player can replay.`
-	}
 	if (Array.isArray(data.timeline) && data.timeline.length > MAX_TIMELINE_FRAMES) {
 		return `This recording holds ${data.timeline.length} timeline frames, more than the ${MAX_TIMELINE_FRAMES} this player can animate.`
 	}
@@ -475,6 +447,7 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 	const samples = isObject(data.assetSamples) ? Object.values(data.assetSamples) : []
 	for (const [label, value] of [
 		['a recorded job', jobs.find((j) => !withinRenderBudget(j))],
+		['the recorded job', withinRenderBudget(data.job) ? undefined : data.job],
 		['this flow definition', withinRenderBudget(data.flow) ? undefined : data.flow],
 		["this script's inputs", withinRenderBudget(data.schema) ? undefined : data.schema],
 		['a recorded asset sample', samples.find((s) => !withinRenderBudget(s))]
@@ -504,8 +477,21 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 export function parseRecording(
 	data: unknown
 ): { ok: true; loaded: LoadedRecording } | { ok: false; error: string } {
-	if (!isObject(data) || data.version !== 1) {
+	if (!isObject(data) || typeof data.version !== 'number') {
 		return { ok: false, error: 'This file is not a Windmill recording.' }
+	}
+	// v1 flow/script/pipeline recordings captured live event streams; recordings
+	// are now built from the completed run and the players no longer replay the
+	// old shape. App recordings never changed format and stay at version 1.
+	const expectedVersion = data.type === 'app' ? 1 : 2
+	if (data.version !== expectedVersion) {
+		return {
+			ok: false,
+			error:
+				data.version === 1
+					? 'This recording was made by an older version of Windmill and can no longer be replayed — re-record it.'
+					: 'This recording needs a newer version of Windmill to replay.'
+		}
 	}
 	// Before anything looks at what the fields mean: no recording, whatever it holds,
 	// may carry more structure than a tab can render. This is what makes the bound

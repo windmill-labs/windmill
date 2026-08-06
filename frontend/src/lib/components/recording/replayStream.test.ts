@@ -1,0 +1,180 @@
+/**
+ * The synthesis is what makes a run-based recording replayable: these pin the
+ * contract JobLoader's replay path and FlowStatusViewer depend on — event
+ * ordering, log reassembly, module status transitions and timestamp rebasing.
+ */
+import { describe, expect, it } from 'vitest'
+import type { Job } from '$lib/gen'
+import { synthesizeFlowReplay, synthesizeSingleJobReplay } from './replayStream'
+
+const T0 = new Date('2026-08-01T10:00:00.000Z').getTime()
+const iso = (offsetMs: number) => new Date(T0 + offsetMs).toISOString()
+
+const scriptJob = (extra: Record<string, unknown> = {}): Job =>
+	({
+		id: 'sub1',
+		type: 'CompletedJob',
+		success: true,
+		created_at: iso(0),
+		started_at: iso(100),
+		duration_ms: 2000,
+		logs: 'line1\nline2\nline3\n',
+		result: { ok: true },
+		...extra
+	}) as any
+
+describe('synthesizeSingleJobReplay', () => {
+	it('streams from a queued initial job to the completed one, logs in between', () => {
+		const nowMs = 5_000_000
+		const stream = synthesizeSingleJobReplay(scriptJob(), { nowMs })
+
+		expect(stream.initial_job.type).toBe('QueuedJob')
+		expect((stream.initial_job as any).logs).toBe('')
+		expect((stream.initial_job as any).result).toBeUndefined()
+		expect((stream.initial_job as any).success).toBeUndefined()
+
+		const events = stream.events
+		expect(events[0].data).toEqual({ running: true })
+		const completed = events[events.length - 1]
+		expect(completed.data.completed).toBe(true)
+		expect(completed.t).toBe(2000)
+		expect(completed.data.job.result).toEqual({ ok: true })
+
+		// Log chunks sit strictly inside the run window, in order, and reassemble
+		// to the original logs; offsets increase so JobLoader appends.
+		const logEvents = events.filter((e) => e.data.new_logs)
+		expect(logEvents.length).toBeGreaterThan(0)
+		for (const e of logEvents) {
+			expect(e.t).toBeGreaterThan(0)
+			expect(e.t).toBeLessThan(2000)
+		}
+		expect(logEvents.map((e) => e.data.new_logs).join('')).toBe('line1\nline2\nline3\n')
+		const offsets = logEvents.map((e) => e.data.log_offset)
+		expect([...offsets].sort((a, b) => a - b)).toEqual(offsets)
+		expect(offsets[0]).toBeGreaterThan(0)
+
+		// Absolute timestamps are rebased onto the replay clock ("now").
+		expect(new Date(stream.initial_job.started_at!).getTime()).toBe(nowMs)
+		expect(new Date(completed.data.job.started_at).getTime()).toBe(nowMs)
+	})
+
+	it('collapse reveals the completed job at t=0', () => {
+		const stream = synthesizeSingleJobReplay(scriptJob(), { collapse: true, nowMs: 1 })
+		expect(stream.events).toHaveLength(1)
+		expect(stream.events[0]).toMatchObject({ t: 0, data: { completed: true } })
+		expect((stream.initial_job as any).result).toEqual({ ok: true })
+	})
+
+	it('survives hostile timestamps without throwing or scheduling into the far future', () => {
+		const stream = synthesizeSingleJobReplay(
+			scriptJob({ started_at: 'not-a-date', created_at: undefined, duration_ms: 1e18 }),
+			{ nowMs: 1 }
+		)
+		for (const e of stream.events) {
+			expect(Number.isFinite(e.t)).toBe(true)
+			expect(e.t).toBeLessThanOrEqual(6 * 60 * 60 * 1000)
+		}
+	})
+})
+
+describe('synthesizeFlowReplay', () => {
+	const rootJob = (): Job =>
+		({
+			id: 'root',
+			type: 'CompletedJob',
+			job_kind: 'flowpreview',
+			success: true,
+			created_at: iso(0),
+			started_at: iso(0),
+			duration_ms: 6000,
+			flow_status: {
+				step: 2,
+				modules: [
+					{ id: 'a', type: 'Success', job: 'sub1' },
+					{ id: 'b', type: 'Success', job: 'sub2' }
+				]
+			}
+		}) as any
+
+	const jobs = (): Record<string, Job> => ({
+		root: rootJob(),
+		sub1: scriptJob(),
+		sub2: scriptJob({
+			id: 'sub2',
+			started_at: iso(3000),
+			duration_ms: 2500,
+			logs: 'later\n'
+		})
+	})
+
+	it('flips module statuses at the sub-jobs’ recorded start/end times', () => {
+		const replay = synthesizeFlowReplay(jobs(), 'root', 9_000_000)
+		const root = replay.jobs['root']
+
+		// Before anything ran, both modules wait.
+		const initialModules = (root.initial_job as any).flow_status.modules
+		expect(initialModules.map((m: any) => m.type)).toEqual([
+			'WaitingForPriorSteps',
+			'WaitingForPriorSteps'
+		])
+		// A waiting module must not leak its job id — that is what triggers
+		// sub-job discovery in the viewer.
+		expect(initialModules[0].job).toBeUndefined()
+
+		const statusAt = (t: number) => {
+			const snapshots = root.events.filter((e) => e.data.flow_status && e.t <= t)
+			return snapshots[snapshots.length - 1]?.data.flow_status.modules.map((m: any) => m.type)
+		}
+		// sub1 runs 100→2100, sub2 runs 3000→5500.
+		expect(statusAt(150)).toEqual(['InProgress', 'WaitingForPriorSteps'])
+		expect(statusAt(2200)).toEqual(['Success', 'WaitingForPriorSteps'])
+		expect(statusAt(3100)).toEqual(['Success', 'InProgress'])
+
+		// The root completes only after every sub-job event has landed.
+		const rootCompleted = root.events.find((e) => e.data.completed)!
+		const maxSubT = Math.max(
+			...['sub1', 'sub2'].flatMap((id) => replay.jobs[id].events.map((e) => e.t))
+		)
+		expect(rootCompleted.t).toBeGreaterThan(maxSubT)
+
+		// Sub streams are anchored on the root clock, not their own.
+		expect(replay.jobs['sub2'].events[0]).toMatchObject({ t: 3000, data: { running: true } })
+	})
+
+	it('trims a loop’s iterations to those started at each snapshot', () => {
+		const loopRoot = {
+			...rootJob(),
+			flow_status: {
+				step: 1,
+				modules: [
+					{
+						id: 'loop',
+						type: 'Success',
+						flow_jobs: ['it1', 'it2'],
+						flow_jobs_success: [true, true],
+						iterator: { index: 1, itered_len: 2 },
+						flow_jobs_duration: {
+							started_at: [iso(100), iso(2000)],
+							duration_ms: [1500, 1500]
+						}
+					}
+				]
+			}
+		} as any
+		const replay = synthesizeFlowReplay(
+			{
+				root: loopRoot,
+				it1: scriptJob({ id: 'it1', started_at: iso(100), duration_ms: 1500 }),
+				it2: scriptJob({ id: 'it2', started_at: iso(2000), duration_ms: 1500 })
+			},
+			'root',
+			9_000_000
+		)
+		const snapshots = replay.jobs['root'].events.filter((e) => e.data.flow_status)
+		const during = snapshots.find((e) => e.t >= 100 && e.t < 2000)!
+		const mod = during.data.flow_status.modules[0]
+		expect(mod.type).toBe('InProgress')
+		expect(mod.flow_jobs).toEqual(['it1'])
+		expect(mod.iterator.index).toBe(0)
+	})
+})

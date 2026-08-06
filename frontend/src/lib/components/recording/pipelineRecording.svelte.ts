@@ -5,31 +5,28 @@ import type {
 	CascadeNodeState,
 	CascadeRunResult
 } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
-import { truncateUuids } from './flowRecording.svelte'
+import { downloadRecordingJson } from './runRecording'
 import { capturePipelineAssetSample } from './pipelineAssetSample'
 import type {
 	PipelineAssetSample,
 	PipelineRecordedCode,
 	PipelineRecording,
 	PipelineTimelineFrame,
-	RecordedJob,
 	RecordedNodeState
 } from './types'
 
 /**
- * Recorder for a data-pipeline cascade run. Unlike the flow/script recorders
- * there is no single root job streaming sub-jobs over SSE — a pipeline run is a
- * cascade of independent script jobs launched client-side and polled to
- * completion. So this store captures two things:
+ * Recorder for a data-pipeline cascade run. A pipeline run is a cascade of
+ * independent script jobs launched client-side, so unlike the flow/script
+ * recordings there is no root job whose status ties the run together — the
+ * cascade orchestrator's own status snapshots are that record. The store
+ * captures:
  *
- *  1. the resolved asset graph (rendered read-only by the player), and
+ *  1. the resolved asset graph (rendered read-only by the player),
  *  2. a timeline of per-node status snapshots (from the cascade orchestrator's
- *     `onUpdate`), each node mapped to its job id.
- *
- * For each launched node it opens the job's own SSE stream (`watchJob`) to
- * capture incremental logs/result, storing them in the shared `RecordedJob`
- * shape so the player can replay each node's details through the same
- * `JobLoader` replay path the flow/script players use.
+ *     `onUpdate`), each node mapped to its job id, and
+ *  3. each node's completed job, fetched after the run (`finalize`); the
+ *     player synthesizes its replay stream from it.
  */
 export function createPipelineRecording(): PipelineRecordingStore {
 	let active = $state(false)
@@ -37,24 +34,15 @@ export function createPipelineRecording(): PipelineRecordingStore {
 	let folder = ''
 	let graph: AssetGraphResponse | undefined = undefined
 	let timeline: PipelineTimelineFrame[] = []
-	let jobs: Record<string, RecordedJob> = {}
+	let jobs: Record<string, Job> = {}
 	let assetSamples: Record<string, PipelineAssetSample> = {}
 	let codes: Record<string, PipelineRecordedCode> = {}
-	let watchedJobs = new Set<string>()
-	let jobSources: EventSource[] = []
-
-	function closeSources() {
-		jobSources.forEach((es) => es.close())
-		jobSources = []
-		watchedJobs.clear()
-	}
 
 	return {
 		get active() {
 			return active
 		},
 		start(f: string, g: AssetGraphResponse) {
-			closeSources()
 			active = true
 			startTime = Date.now()
 			folder = f
@@ -75,85 +63,10 @@ export function createPipelineRecording(): PipelineRecordingStore {
 			}
 			timeline.push({ t: Date.now() - startTime, statuses: snapshot })
 		},
-		/** Watch a launched node's SSE stream to capture its incremental
-		 * logs/result. Mirrors flowRecording.watchSubJob's log-offset dedup. */
-		watchJob(jobId: string, workspace: string) {
-			if (!active || watchedJobs.has(jobId)) return
-			watchedJobs.add(jobId)
-
-			let logOffset = 0
-			const params = new URLSearchParams({
-				log_offset: '0',
-				running: 'true',
-				fast: 'true'
-			})
-			const url = `/api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?${params}`
-			const es = new EventSource(url)
-			jobSources.push(es)
-
-			es.onmessage = (event) => {
-				try {
-					const data = JSON.parse(event.data)
-					if (data.type === 'ping' || data.type === 'timeout') return
-					if (data.type === 'error' || data.type === 'not_found') {
-						es.close()
-						return
-					}
-					if (!active) {
-						es.close()
-						return
-					}
-
-					// Deduplicate log data: SSE may resend full log dumps on reconnect.
-					if (data.new_logs != null && data.log_offset != null) {
-						if (logOffset > 0 && data.log_offset <= logOffset) {
-							delete data.new_logs
-							delete data.log_offset
-						} else {
-							logOffset = data.log_offset
-						}
-					} else if (data.log_offset != null && data.log_offset > logOffset) {
-						logOffset = data.log_offset
-					}
-
-					if (!jobs[jobId]) {
-						jobs[jobId] = {
-							initial_job: data.job ? (data.job as Job) : ({ id: jobId } as Job),
-							events: []
-						}
-					}
-					jobs[jobId].events.push({
-						t: Date.now() - startTime,
-						data
-					})
-					if (data.completed) {
-						es.close()
-					}
-				} catch {
-					// Ignore parse errors
-				}
-			}
-			es.onerror = () => {
-				es.close()
-			}
-		},
-		/** Fill in a node's completed job (fallback for anything the SSE stream
-		 * missed — e.g. a job that finished before its stream was opened).
-		 * Callable after stop() so late-fetched completed jobs still attach. */
-		addCompletedJob(jobId: string, completedJob: Job) {
-			const snapshotJob = $state.snapshot(completedJob) as Job
-			if (!jobs[jobId]) {
-				jobs[jobId] = { initial_job: snapshotJob, events: [] }
-			} else if (!jobs[jobId].initial_job?.id) {
-				jobs[jobId].initial_job = snapshotJob
-			}
-			const hasCompleted = jobs[jobId].events.some((e) => e.data.completed)
-			if (!hasCompleted) {
-				jobs[jobId].events.push({
-					t: Date.now() - startTime,
-					data: { completed: true, job: snapshotJob }
-				})
-			}
+		/** Attach a node's completed job. Callable after stop() so the
+		 * post-run fetches still attach to the returned recording. */
+		setJob(jobId: string, completedJob: Job) {
+			jobs[jobId] = $state.snapshot(completedJob) as Job
 		},
 		/** Attach a captured asset data-sample (called during finalize, after
 		 * the run, for each ducklake/datatable asset). Keyed by `${kind}:${path}`.
@@ -170,9 +83,8 @@ export function createPipelineRecording(): PipelineRecordingStore {
 		},
 		stop(): PipelineRecording {
 			active = false
-			closeSources()
 			return {
-				version: 1,
+				version: 2,
 				type: 'pipeline',
 				recorded_at: new Date().toISOString(),
 				folder,
@@ -185,15 +97,10 @@ export function createPipelineRecording(): PipelineRecordingStore {
 			}
 		},
 		download(recording: PipelineRecording) {
-			const blob = new Blob([truncateUuids(JSON.stringify(recording, null, 2))], {
-				type: 'application/json'
-			})
-			const url = URL.createObjectURL(blob)
-			const a = document.createElement('a')
-			a.href = url
-			a.download = `pipeline-recording-${(recording.folder || 'untitled').replace(/\//g, '-')}-${Date.now()}.json`
-			a.click()
-			URL.revokeObjectURL(url)
+			downloadRecordingJson(
+				recording,
+				`pipeline-recording-${(recording.folder || 'untitled').replace(/\//g, '-')}`
+			)
 		}
 	}
 }
@@ -202,8 +109,7 @@ export type PipelineRecordingStore = {
 	readonly active: boolean
 	start(folder: string, graph: AssetGraphResponse): void
 	recordStatuses(statuses: Map<string, RecordedNodeState>): void
-	watchJob(jobId: string, workspace: string): void
-	addCompletedJob(jobId: string, completedJob: Job): void
+	setJob(jobId: string, completedJob: Job): void
 	recordAssetSample(sample: PipelineAssetSample): void
 	recordCode(path: string, code: PipelineRecordedCode): void
 	stop(): PipelineRecording
@@ -225,13 +131,12 @@ async function forEachWithConcurrency<T>(
 }
 
 /**
- * Stop the recorder and enrich the recording with data the live SSE streams
- * can't guarantee: each node's completed job (a fast job may finish before its
- * stream opens), a data-sample per ducklake/datatable asset (offline table
- * preview), and each step's source (by the exact hash that ran). Every fetch is
- * best-effort — a step we can't resolve just replays with less detail. Shared by
- * the pipeline editor's recorder and deploy-to-hub so both produce identical
- * recordings.
+ * Stop the recorder and attach everything the run left behind: each node's
+ * completed job (with its logs and result), a data-sample per
+ * ducklake/datatable asset (offline table preview), and each step's source (by
+ * the exact hash that ran). Every fetch is best-effort — a step we can't
+ * resolve just replays with less detail. Shared by the pipeline editor's
+ * recorder and deploy-to-hub so both produce identical recordings.
  */
 export async function finalizePipelineRecording(
 	store: PipelineRecordingStore,
@@ -248,12 +153,11 @@ export async function finalizePipelineRecording(
 	}
 	await Promise.all(
 		[...jobIds].map(async (jobId) => {
-			if (rec.jobs[jobId]?.events.some((e) => e.data.completed)) return
 			try {
 				const j = await JobService.getJob({ workspace: ws, id: jobId })
-				store.addCompletedJob(jobId, j)
+				store.setJob(jobId, j)
 			} catch {
-				// best-effort — a job we can't fetch just replays from its stream
+				// best-effort — a job we can't fetch just isn't inspectable in the player
 			}
 		})
 	)
@@ -268,10 +172,11 @@ export async function finalizePipelineRecording(
 		store.recordAssetSample(sample)
 	})
 	const codeByPath = new Map<string, string>()
-	for (const r of Object.values(rec.jobs)) {
-		const j = r.events.find((e) => e.data.completed)?.data.job as
-			| { job_kind?: string; script_path?: string; script_hash?: string }
-			| undefined
+	for (const j of Object.values(rec.jobs) as {
+		job_kind?: string
+		script_path?: string
+		script_hash?: string
+	}[]) {
 		if (j?.job_kind === 'script' && j.script_path && j.script_hash) {
 			codeByPath.set(j.script_path, j.script_hash)
 		}
@@ -312,12 +217,7 @@ export async function capturePipelineRecording(opts: {
 		result = await runBoundedCascade({
 			graph: opts.graph,
 			scripts: opts.scriptPaths,
-			launch: async (path) => {
-				const jobId = await opts.launch(path)
-				// No-op unless the store is active; captures the node's stream.
-				store.watchJob(jobId, opts.workspace)
-				return jobId
-			},
+			launch: opts.launch,
 			waitTerminal: opts.waitTerminal,
 			onUpdate: (statuses) => {
 				store.recordStatuses(statuses)
@@ -325,8 +225,6 @@ export async function capturePipelineRecording(opts: {
 			}
 		})
 	} catch (e) {
-		// The cascade threw before finalize could `stop()` the store: close the
-		// per-node SSE streams `watchJob` opened so they don't dangle.
 		store.stop()
 		throw e
 	}
