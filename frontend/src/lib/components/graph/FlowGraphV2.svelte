@@ -1044,6 +1044,24 @@
 	// Track groups for re-layout when groups change
 	let currentGroups = $derived(groups ?? [])
 
+	/**
+	 * An agent's tool calls become nodes, and they land one at a time while the step runs.
+	 * Nothing else the graph reads changes as they arrive — the run only appends to an
+	 * existing step's state — so without this the tools all appear at once when the step ends.
+	 */
+	let agentActionsVersion = $derived.by(() => {
+		let version = ''
+		for (const [id, state] of Object.entries(flowModuleStates ?? {})) {
+			const actions = state?.agent_actions
+			if (!actions) continue
+			version += `${id}:${actions.length}:`
+			for (const action of actions) {
+				version += `${action.type}/${(action as { function_name?: string }).function_name ?? ''},`
+			}
+		}
+		return version
+	})
+
 	$effect(() => {
 		;[
 			graph,
@@ -1053,6 +1071,7 @@
 			noteManager.renderCount,
 			currentGroups,
 			groupDisplayState.renderCount,
+			agentActionsVersion,
 			// A linked step's tools resolve asynchronously; recompute tool nodes when they land.
 			linkedAgentToolsVersion()
 		]
