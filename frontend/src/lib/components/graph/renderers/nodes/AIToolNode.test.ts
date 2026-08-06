@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 // full render-time dependency graph.
 vi.mock('./NodeWrapper.svelte', () => ({ default: {} }))
 
-import { computeAIToolNodes } from './AIToolNode.svelte'
+import { agentActionMatchesTool, computeAIToolNodes } from './AIToolNode.svelte'
 
 const eventHandlers = {} as any
 
@@ -120,5 +120,51 @@ describe('computeAIToolNodes', () => {
 		for (const n of toolCallNodes) {
 			expect((n.data as any).nameError).toBe('Duplicate tool name')
 		}
+	})
+
+	// The editor keeps one node per declared tool, so each kind of action has to find its way back
+	// to the right one. Only the flowmodule join is reachable in a local run — web search needs a
+	// provider that emits it server-side, MCP needs a live server — so pin all four here.
+	describe('agentActionMatchesTool', () => {
+		const flowTool = { moduleId: 'tool_a', type: 'script' }
+		const searchTool = { moduleId: 'tool_s', type: 'websearch' }
+		const mcpTool = { moduleId: 'tool_m', type: 'mcp', resourcePath: 'u/admin/mcp' }
+
+		it('binds a flow module call to the tool it names', () => {
+			const call = { type: 'tool_call', module_id: 'tool_a' } as any
+			expect(agentActionMatchesTool(call, flowTool)).toBe(true)
+			expect(agentActionMatchesTool(call, { moduleId: 'tool_b', type: 'script' })).toBe(false)
+			expect(agentActionMatchesTool(call, searchTool)).toBe(false)
+		})
+
+		it('binds a web search to the declared web search tool', () => {
+			const search = { type: 'web_search' } as any
+			expect(agentActionMatchesTool(search, searchTool)).toBe(true)
+			expect(agentActionMatchesTool(search, flowTool)).toBe(false)
+		})
+
+		it('binds an MCP call by server, not by function name', () => {
+			// One MCP node stands for a whole server and many function names.
+			const call = {
+				type: 'mcp_tool_call',
+				function_name: 'anything',
+				resource_path: 'u/admin/mcp'
+			} as any
+			expect(agentActionMatchesTool(call, mcpTool)).toBe(true)
+			expect(
+				agentActionMatchesTool(call, {
+					moduleId: 'tool_m2',
+					type: 'mcp',
+					resourcePath: 'u/admin/other'
+				})
+			).toBe(false)
+		})
+
+		it("binds the agent's own replies to no tool at all", () => {
+			const message = { type: 'message' } as any
+			for (const tool of [flowTool, searchTool, mcpTool]) {
+				expect(agentActionMatchesTool(message, tool)).toBe(false)
+			}
+		})
 	})
 })
