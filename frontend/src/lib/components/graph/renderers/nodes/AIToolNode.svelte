@@ -55,23 +55,26 @@
 			: AI_TOOL_MESSAGE_PREFIX + '-' + agentModuleId + '-' + idx
 	}
 
-	/** The id a run keys an agent action's state by. Kept beside the node ids built below, which
-	 * must agree with it, since anything reading a call's state has to rebuild the same key. */
+	export type AgentAction = NonNullable<GraphModuleState['agent_actions']>[number]
+
+	/** The one id an agent action's state is written and read under. Every writer and reader has
+	 * to rebuild the same key, so they all come here; a switch with no default makes a new action
+	 * kind a compile error rather than a status that silently never resolves. */
 	export function getAgentActionStateId(
 		idx: number,
 		agentModuleId: string,
-		action: { type?: string; module_id?: string }
+		action: AgentAction
 	): string {
-		if (action.type === 'tool_call') {
-			return getToolCallId(idx, agentModuleId, action.module_id)
+		switch (action.type) {
+			case 'tool_call':
+				return getToolCallId(idx, agentModuleId, action.module_id)
+			case 'mcp_tool_call':
+				return AI_MCP_TOOL_CALL_PREFIX + '-' + agentModuleId + '-' + idx
+			case 'web_search':
+				return AI_WEBSEARCH_PREFIX + '-' + agentModuleId + '-' + idx
+			case 'message':
+				return getToolCallId(idx, agentModuleId)
 		}
-		if (action.type === 'mcp_tool_call') {
-			return AI_MCP_TOOL_CALL_PREFIX + '-' + agentModuleId + '-' + idx
-		}
-		if (action.type === 'web_search') {
-			return AI_WEBSEARCH_PREFIX + '-' + agentModuleId + '-' + idx
-		}
-		return getToolCallId(idx, agentModuleId)
 	}
 
 	function getComparableNode(node: Node & NodeLayout): Node & NodeLayout {

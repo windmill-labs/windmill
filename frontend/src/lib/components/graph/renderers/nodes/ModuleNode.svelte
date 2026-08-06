@@ -36,16 +36,21 @@
 		if (!data.insertable || data.module?.value?.type !== 'aiagent') return ''
 		const actions = flowRunStatus?.getModuleState(data.id)?.agent_actions
 		if (!actions?.length) return ''
+		let total = 0
 		let failed = 0
 		let pending = 0
 		actions.forEach((action, index) => {
+			// The run records the agent's own replies here too; they are not tool calls.
+			if (action.type === 'message') return
+			total++
 			const type = flowRunStatus?.getModuleState(
 				getAgentActionStateId(index, data.id, action)
 			)?.type
 			if (type === 'Failure') failed++
 			else if (type !== 'Success') pending++
 		})
-		const calls = `${actions.length} tool call${actions.length > 1 ? 's' : ''}`
+		if (total === 0) return ''
+		const calls = `${total} tool call${total > 1 ? 's' : ''}`
 		return `${calls}${pending > 0 ? '…' : ''}${failed > 0 ? ` · ${failed} failed` : ''}`
 	})
 
