@@ -4911,11 +4911,17 @@ struct SessionWorkspaceStatusRequest {
 
 /// Reconciliation support for client-side AI sessions, which the backend cannot touch
 /// directly. The client posts the workspace ids its sessions reference and uses the
-/// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row /
-/// no access → unresolvable) drops the sessions, `archived` (soft-deleted, still a
-/// member) archives them, `active` restores ones previously archived-by-workspace.
+/// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row, or
+/// no way for this caller to reach it) drops the sessions, `archived` (soft-deleted, still
+/// reachable) archives them, `active` restores ones previously archived-by-workspace.
 /// Archived and hard-deleted workspaces are absent from `user_workspaces`, so this is the
 /// only way the client learns about a change made while it was away or on another device.
+///
+/// Membership alone under-reports reachability: a superadmin is authed into any existing
+/// workspace without a `usr` row, and `admins` has no `usr` rows at all, so answering from
+/// `usr` destroys sessions that still work. It over-reports in one direction — a `usr` row
+/// with `disabled` counts here but not in the extractor — which only leaves a session
+/// lingering, so it is deliberately not treated as unreachable.
 async fn session_workspace_status(
     Extension(db): Extension<DB>,
     ApiAuthed { email, .. }: ApiAuthed,
@@ -4926,10 +4932,15 @@ async fn session_workspace_status(
             "Too many workspace ids (max 1000)".to_string(),
         ));
     }
+    let is_superadmin = windmill_common::auth::is_super_admin_email(&db, &email).await?;
     let rows = sqlx::query!(
+        // A missing workspace row must be caught before the membership arm: for a
+        // superadmin the two arms below both fall through, and a hard-deleted workspace
+        // would report `active` forever.
         "SELECT req.id AS \"id!\",
                 (CASE
-                    WHEN usr.email IS NULL THEN 'deleted'
+                    WHEN workspace.id IS NULL THEN 'deleted'
+                    WHEN usr.email IS NULL AND NOT $3 THEN 'deleted'
                     WHEN workspace.deleted THEN 'archived'
                     ELSE 'active'
                 END) AS \"status!\"
@@ -4938,6 +4949,7 @@ async fn session_workspace_status(
          LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2",
         &req.workspace_ids[..],
         email,
+        is_superadmin,
     )
     .fetch_all(&db)
     .await?;
