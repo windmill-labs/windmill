@@ -76,9 +76,15 @@ describe("validateFilesetPointer", () => {
         "resource_type: c_files\nvalue: '!inline_fileset f/res/data.fileset'\n",
       );
       process.chdir(dir);
+      // findFilesetResourceFile derives the metadata path from the child
+      // path, so both use the platform separator.
       const childPath = ["f", "res", "data.fileset", "q.sql"].join(SEP);
+      const wsMetadataPath = ["f", "res", "data.ws_main.resource.yaml"].join(
+        SEP,
+      );
+      const baseMetadataPath = ["f", "res", "data.resource.yaml"].join(SEP);
       expect(await findFilesetResourceFile(childPath, "ws_main")).toBe(
-        "f/res/data.ws_main.resource.yaml",
+        wsMetadataPath,
       );
       await expect(findFilesetResourceFile(childPath, null)).rejects.toThrow(
         /No resource metadata file found/,
@@ -90,10 +96,10 @@ describe("validateFilesetPointer", () => {
         "resource_type: c_files\nvalue: '!inline_fileset f/res/data.fileset'\n",
       );
       expect(await findFilesetResourceFile(childPath, "ws_main")).toBe(
-        "f/res/data.ws_main.resource.yaml",
+        wsMetadataPath,
       );
       expect(await findFilesetResourceFile(childPath, null)).toBe(
-        "f/res/data.resource.yaml",
+        baseMetadataPath,
       );
     } finally {
       process.chdir(cwd);
