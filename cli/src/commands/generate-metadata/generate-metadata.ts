@@ -3,6 +3,7 @@ import { Confirm } from "@cliffy/prompt/confirm";
 import { colors } from "@cliffy/ansi/colors";
 import { sep as SEP } from "node:path";
 import { GlobalOptions, isDatatableMigrationPath } from "../../types.ts";
+import { isFileResource, isFilesetResource } from "../../utils/utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -56,6 +57,9 @@ async function walkLocalScripts(
       isFolderResourcePathAnyFormat(p) ||
       // Datatable migration `.sql` files aren't Windmill scripts.
       isDatatableMigrationPath(p) ||
+      // Neither are file/fileset resource content files (.sql, .ts, …).
+      isFileResource(p) ||
+      isFilesetResource(p) ||
       (isScriptModulePath(p) && !isModuleEntryPoint(p)),
     false,
     {},
@@ -225,6 +229,9 @@ function categorizeLocalFiles(
       !isFolderResourcePathAnyFormat(p) &&
       // Datatable migration `.sql` files aren't Windmill scripts.
       !isDatatableMigrationPath(p) &&
+      // Neither are file/fileset resource content files (.sql, .ts, …).
+      !isFileResource(p) &&
+      !isFilesetResource(p) &&
       !(isScriptModulePath(p) && !isModuleEntryPoint(p))
     ) {
       scripts.push(p);

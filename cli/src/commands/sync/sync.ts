@@ -5039,6 +5039,77 @@ export async function push(
             }
 
             if (change.name === "edited") {
+              // A file/fileset resource's content file can carry a script
+              // extension (.sql, .ts, …), so it must be routed to its parent
+              // resource before the script handlers get a chance to treat it
+              // as a standalone script.
+              if (isFileResource(change.path)) {
+                const resourceFilePath = await findResourceFile(change.path);
+                if (!alreadySynced.includes(resourceFilePath)) {
+                  alreadySynced.push(resourceFilePath);
+
+                  const newObj = parseFromPath(
+                    resourceFilePath,
+                    await readTextFile(resourceFilePath),
+                  );
+
+                  // For branch-specific resources, push to the base path on the workspace server
+                  // This ensures workspace-specific files are stored with their base names in the workspace
+                  let serverPath = resourceFilePath;
+                  const currentBranch = cachedWsNameForPush;
+                  let isFileResWsSpecific = false;
+
+                  if (
+                    currentBranch &&
+                    isWorkspaceSpecificFile(resourceFilePath)
+                  ) {
+                    serverPath = fromWorkspaceSpecificPath(
+                      resourceFilePath,
+                      currentBranch,
+                    );
+                    isFileResWsSpecific = true;
+                  } else if (
+                    specificItems &&
+                    isSpecificItem(change.path, specificItems)
+                  ) {
+                    isFileResWsSpecific = true;
+                  }
+
+                  await pushResource(
+                    workspace.workspaceId,
+                    serverPath,
+                    undefined,
+                    newObj,
+                    resourceFilePath,
+                    isFileResWsSpecific ? true : undefined,
+                  );
+                }
+                // Already-synced parents got the full content this run.
+                if (stateTarget) {
+                  await writeFile(stateTarget, change.after, "utf-8");
+                }
+                continue;
+              }
+              if (isFilesetResource(change.path)) {
+                const result = await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                  specificItems,
+                );
+                if (result.status === "parent-missing") {
+                  throw new Error(
+                    `No resource metadata file found for fileset resource: ${change.path}`,
+                  );
+                }
+                // Pushed or already-synced: the parent resource carries the
+                // whole fileset, so this child's content is on the remote.
+                if (stateTarget) {
+                  await writeFile(stateTarget, change.after, "utf-8");
+                }
+                continue;
+              }
               if (
                 await handleScriptMetadata(
                   change.path,
@@ -5092,74 +5163,6 @@ export async function push(
                 log.info(
                   `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
-              }
-
-              if (isFileResource(change.path)) {
-                const resourceFilePath = await findResourceFile(change.path);
-                if (!alreadySynced.includes(resourceFilePath)) {
-                  alreadySynced.push(resourceFilePath);
-
-                  const newObj = parseFromPath(
-                    resourceFilePath,
-                    await readTextFile(resourceFilePath),
-                  );
-
-                  // For branch-specific resources, push to the base path on the workspace server
-                  // This ensures workspace-specific files are stored with their base names in the workspace
-                  let serverPath = resourceFilePath;
-                  const currentBranch = cachedWsNameForPush;
-                  let isFileResWsSpecific = false;
-
-                  if (
-                    currentBranch &&
-                    isWorkspaceSpecificFile(resourceFilePath)
-                  ) {
-                    serverPath = fromWorkspaceSpecificPath(
-                      resourceFilePath,
-                      currentBranch,
-                    );
-                    isFileResWsSpecific = true;
-                  } else if (
-                    specificItems &&
-                    isSpecificItem(change.path, specificItems)
-                  ) {
-                    isFileResWsSpecific = true;
-                  }
-
-                  await pushResource(
-                    workspace.workspaceId,
-                    serverPath,
-                    undefined,
-                    newObj,
-                    resourceFilePath,
-                    isFileResWsSpecific ? true : undefined,
-                  );
-                  if (stateTarget) {
-                    await writeFile(stateTarget, change.after, "utf-8");
-                  }
-                  continue;
-                }
-              }
-              if (isFilesetResource(change.path)) {
-                const result = await pushFilesetParentResource(
-                  change.path,
-                  workspace.workspaceId,
-                  alreadySynced,
-                  cachedWsNameForPush,
-                  specificItems,
-                );
-                if (result.status === "parent-missing") {
-                  throw new Error(
-                    `No resource metadata file found for fileset resource: ${change.path}`,
-                  );
-                }
-                if (result.status === "pushed") {
-                  if (stateTarget) {
-                    await writeFile(stateTarget, change.after, "utf-8");
-                  }
-                  continue;
-                }
-                // "already-synced": fall through (pre-existing behavior).
               }
               const oldObj = parseFromPath(change.path, change.before);
               const newObj = parseFromPath(change.path, change.after);
