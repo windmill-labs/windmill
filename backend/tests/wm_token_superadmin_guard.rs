@@ -759,6 +759,32 @@ async fn test_wm_token_cannot_destroy_its_on_behalf_account(
         resp.text().await?
     );
 
+    // Ejecting the identity from a workspace is the same primitive, on both routes
+    // that expose it (one keyed by username, one by email).
+    for route in [
+        "w/test-workspace/users/leave",
+        "w/test-workspace/workspaces/leave",
+    ] {
+        let resp = authed(
+            client().post(format!("http://localhost:{port}/api/{route}")),
+            &user_wm,
+        )
+        .send()
+        .await?;
+        assert_eq!(
+            resp.status(),
+            401,
+            "WM_TOKEN must not leave a workspace as {route}: {}",
+            resp.text().await?
+        );
+    }
+    let membership: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM usr WHERE workspace_id = 'test-workspace' AND email = 'test2@windmill.dev'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(membership, 1, "the workspace membership must survive");
+
     // The account and its credentials are untouched, not merely the response refused.
     let account_rows: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM password WHERE email = 'test2@windmill.dev'")
@@ -770,6 +796,62 @@ async fn test_wm_token_cannot_destroy_its_on_behalf_account(
             .fetch_one(&db)
             .await?;
     assert!(token_rows > 0, "the identity's tokens must survive");
+
+    Ok(())
+}
+
+/// `load_workspace_authed` grants an admin claim in a workspace the caller may have
+/// no relationship with, and carries `job_id` into the result — so deriving it from
+/// the on-behalf email would hand a WM_TOKEN admin over every workspace on the
+/// instance, and with it the cross-workspace diff (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_gets_no_admin_claim_in_a_foreign_workspace(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    // A workspace the superadmin identity is not a member of.
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'Other', 'test-user')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+    let resp = authed(
+        client().get(format!(
+            "{base}/w/test-workspace/workspaces/compare/other-workspace"
+        )),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_ne!(
+        resp.status(),
+        200,
+        "superadmin WM_TOKEN must not diff a workspace it does not belong to"
+    );
+
+    // No false positive: a real superadmin token still holds the claim.
+    let resp = authed(
+        client().get(format!(
+            "{base}/w/test-workspace/workspaces/compare/other-workspace"
+        )),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a real superadmin token must still diff across workspaces: {}",
+        resp.text().await?
+    );
 
     Ok(())
 }

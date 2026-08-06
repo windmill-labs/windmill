@@ -3296,6 +3296,7 @@ async fn leave_workspace(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> Result<String> {
+    forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",

@@ -7822,9 +7822,7 @@ async fn archive_workspace(
         .fetch_optional(&db)
         .await?
         .unwrap_or(false);
-        if !is_prod_admin
-            && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
-        {
+        if !is_prod_admin && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
             return Err(Error::PermissionDenied(format!(
                 "Archiving dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
             )));
@@ -7897,6 +7895,7 @@ async fn leave_workspace(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> Result<String> {
+    windmill_api_auth::forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",
@@ -10107,8 +10106,11 @@ async fn load_workspace_authed(
         .await
         .map_err(|e| Error::internal_err(e.to_string()))?;
 
-    let is_super_admin =
-        windmill_common::auth::is_super_admin_email(db, &base_authed.email).await?;
+    // Job-aware: this grants an admin claim in a workspace the caller may have no
+    // relationship with, and `job_id` is carried into the result — so a `WM_TOKEN`
+    // whose on-behalf identity is a superadmin would hold admin everywhere
+    // (GHSA-hfh4-cx4h-3fcr). It then falls through to its real membership below.
+    let is_super_admin = windmill_api_auth::is_super_admin_authed(db, base_authed).await?;
 
     let user_row = sqlx::query!(
         "SELECT username, is_admin, operator FROM usr
