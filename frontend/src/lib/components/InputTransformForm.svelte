@@ -365,6 +365,18 @@
 		})
 	}
 
+	/** A predicate is usually half-written when you reach for a property, so insert at the
+	 *  cursor and leave the rest of the expression alone. Only a field that isn't an
+	 *  expression yet gets replaced outright. */
+	function pickIntoArg(path: string) {
+		if (propertyType === 'javascript' && monaco) {
+			propPickerWrapperContext?.onPick?.(path)
+		} else {
+			connectProperty(path)
+		}
+		dispatch('change', { argName })
+	}
+
 	function connectProperty(rawValue: string) {
 		// Extract path from variable('x') or resource('x') format
 		const varMatch = variableMatch(rawValue)
@@ -614,24 +626,14 @@
 				{/if}
 
 				{#if propPickerWrapperContext && pickerMode === 'popover'}
-					<!-- Settings rows have no picker pane, so the properties hang off the
-						     button itself, exactly as the other expression inputs do. -->
+					<!-- No pane in this host, so the properties hang off the button itself,
+						     exactly as the other expression inputs do. -->
 					<ExpressionPicker
 						id={argName}
 						pickableProperties={connectableProperties}
 						result={propPickerWrapperContext.result?.()}
 						extraResults={propPickerWrapperContext.extraResults?.()}
-						onSelect={(path) => {
-							// A predicate is usually half-written when you reach for a property, so
-							// insert at the cursor and leave the rest of the expression alone. Only
-							// a field that isn't an expression yet gets replaced outright.
-							if (propertyType === 'javascript' && monaco) {
-								propPickerWrapperContext.onPick?.(path)
-							} else {
-								connectProperty(path)
-							}
-							dispatch('change', { argName })
-						}}
+						onSelect={pickIntoArg}
 					/>
 				{:else if propPickerWrapperContext}
 					<FlowPlugConnect
@@ -646,8 +648,12 @@
 								clearFocus()
 							} else {
 								focusProp?.(argName, (path) => {
-									connectProperty(path)
-									dispatch('change', { argName })
+									if (pickerMode === 'sidePane') {
+										pickIntoArg(path)
+									} else {
+										connectProperty(path)
+										dispatch('change', { argName })
+									}
 									return true
 								})
 							}

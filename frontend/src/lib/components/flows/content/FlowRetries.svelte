@@ -265,11 +265,10 @@
 
 			{#if stepPropPicker}
 				<PropPickerWrapper
-					popover={true}
+					sidePane
 					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
 					{result}
-					displayContext={false}
 					pickableProperties={stepPropPicker.pickableProperties}
 					on:select={({ detail }) => {
 						retryIfEditor?.insertAtCursor(detail)

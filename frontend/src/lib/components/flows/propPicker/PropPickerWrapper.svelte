@@ -13,14 +13,16 @@
 		inputMatches: Writable<{ word: string; value: string }[] | undefined>
 		connectProp: (propName: string, onSelect: SelectCallback) => void
 		clearConnect: () => void
-		/** 'popover' hangs the picker off each input's own connect button instead of
-		 *  taking a pane — for single-argument settings rows, which are not the step's
-		 *  input form. */
-		pickerMode: () => 'pane' | 'popover'
+		/** Where the properties are offered, and therefore what a pick does:
+		 *  - 'pane': the step's input form — a pick replaces the argument outright.
+		 *  - 'sidePane': a settings row — a pick lands at the expression's cursor, since a
+		 *    half-written predicate must survive it.
+		 *  - 'popover': hangs off each input's own connect button, for hosts with no pane. */
+		pickerMode: () => 'pane' | 'sidePane' | 'popover'
 		/** The wrapper owns these; nested inputs receive none of their own. */
 		pickableProperties: () => PickableProperties | undefined
 		/** The step's own result, and anything extra worth offering beside it (a loop's
-		 *  `all_iters`). Only the pane renders them directly — in popover mode the picker
+		 *  `all_iters`). The panes render them directly — in popover mode the picker
 		 *  hangs off each input, so it reads them from here instead. */
 		result: () => any
 		extraResults: () => any
@@ -37,6 +39,7 @@
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
 	import { clickOutside } from '$lib/utils'
 	import { createEventDispatcher, getContext, setContext } from 'svelte'
+	import { fade } from 'svelte/transition'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
@@ -55,8 +58,9 @@
 		noPadding?: boolean
 		paneClass?: string
 		/** Settings rows reuse the step-input form for one argument but are not the input
-		 *  form; their picker belongs in a popover. */
-		popover?: boolean
+		 *  form: their picker is a column beside the row, revealed while the expression is
+		 *  being written, rather than a permanent split of the panel. */
+		sidePane?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -70,7 +74,7 @@
 		notSelectable = false,
 		noPadding = false,
 		paneClass = '',
-		popover = false,
+		sidePane = false,
 		children
 	}: Props = $props()
 
@@ -79,6 +83,7 @@
 	>(undefined)
 
 	const inputMatches = writable<{ word: string; value: string }[] | undefined>(undefined)
+	const exprBeingEdited = writable<string[]>([])
 	const dispatch = createEventDispatcher()
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
@@ -101,12 +106,12 @@
 		inputMatches,
 		connectProp: (propName, onSelect) => connect.arm({ id: propName, onSelect }),
 		clearConnect: connect.disarm,
-		pickerMode: () => (popover ? 'popover' : 'pane'),
+		pickerMode: () => (sidePane ? 'sidePane' : 'pane'),
 		pickableProperties: () => pickableProperties,
 		result: () => result,
 		extraResults: () => extraResults,
 		onPick: (path) => dispatch('select', path),
-		exprBeingEdited: writable<string[]>([])
+		exprBeingEdited
 	})
 
 	async function getPropPickerElements(): Promise<HTMLElement[]> {
@@ -116,9 +121,22 @@
 	}
 
 	let rightPaneHeight: number = $state(0)
+
+	// The side column stays put once the row is being worked on: picking a property blurs
+	// the editor, so closing on blur would take the column away mid-click.
+	let sidePaneOpen = $state(false)
+	$effect(() => {
+		if ($propPickerConfig != undefined || $exprBeingEdited.length > 0) {
+			sidePaneOpen = true
+		}
+	})
 </script>
 
 {#snippet pickerBody()}
+	<!-- An armed input owns the pick; with none, it goes to the form's own handler. Both
+	     paths must not fire, or a cursor insertion would be applied twice. -->
+	{@const deliver = (path: string) =>
+		connect.armed ? connect.resolve(path) : dispatch('select', path)}
 	<div bind:clientHeight={rightPaneHeight} class="min-h-40 h-full !bg-surface">
 		<AnimatedButton
 			animate={$propPickerConfig != undefined}
@@ -134,10 +152,7 @@
 					{extraResults}
 					{flow_input}
 					allowCopy={!notSelectable && !$propPickerConfig}
-					on:select={({ detail }) => {
-						dispatch('select', detail)
-						connect.resolve(detail)
-					}}
+					on:select={({ detail }) => deliver(detail)}
 				/>
 			{:else if pickableProperties}
 				<PropPicker
@@ -148,10 +163,7 @@
 					previousId={pickableProperties?.previousId}
 					{pickableProperties}
 					allowCopy={!notSelectable && !$propPickerConfig}
-					on:select={({ detail }) => {
-						dispatch('select', detail)
-						connect.resolve(detail)
-					}}
+					on:select={({ detail }) => deliver(detail)}
 				/>
 			{/if}
 		</AnimatedButton>
@@ -167,13 +179,27 @@
 		// Through the controller, not the stores: it owns the armed target, and a
 		// target left armed here would make the next click on that same input
 		// read as a toggle-off.
-		onClickOutside: connect.disarm
+		onClickOutside: () => {
+			connect.disarm()
+			sidePaneOpen = false
+		}
 	}}
 >
-	{#if popover}
-		<!-- The picker lives on each input's connect button here, so the row keeps its
-		     full width — and its own spacing, since the setting around it lays that out. -->
-		{@render children?.()}
+	{#if sidePane}
+		<!-- The row keeps its own spacing, since the setting around it lays that out. -->
+		<div class="flex w-full items-start gap-3">
+			<div class="min-w-0 grow">{@render children?.()}</div>
+			{#if sidePaneOpen && (pickableProperties != undefined || result != undefined)}
+				<!-- A set height, not the row's: the picker scrolls its own categories, and an
+				     expression editor is one line tall next to them. -->
+				<div
+					class="shrink-0 w-[38%] min-w-52 max-w-xs h-72 border-l pl-2 {paneClass}"
+					transition:fade={{ duration: 100 }}
+				>
+					{@render pickerBody()}
+				</div>
+			{/if}
+		</div>
 	{:else}
 		<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
 			<Pane minSize={20} size={60} class={'relative !transition-none'}>

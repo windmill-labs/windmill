@@ -256,12 +256,11 @@
 	{#if blocks !== 'all-iters' && !isBranchAll}
 		<div class="w-full flex flex-col gap-2">
 			<PropPickerWrapper
-				popover={true}
+				sidePane
 				flow_input={stepPropPicker.pickableProperties.flow_input}
 				notSelectable
 				result={earlyStopResult}
 				extraResults={isLoop ? { all_iters: result } : undefined}
-				displayContext={false}
 				pickableProperties={stepPropPicker.pickableProperties}
 				on:select={({ detail }) => {
 					stopAfterEditor?.insertAtCursor(detail)
@@ -299,11 +298,10 @@
 	{#if blocks !== 'stop-after' && (isLoop || isBranchAll)}
 		<div class="w-full flex flex-col gap-2">
 			<PropPickerWrapper
-				popover={true}
+				sidePane
 				flow_input={stepPropPicker.pickableProperties.flow_input}
 				notSelectable
 				{result}
-				displayContext={false}
 				pickableProperties={stepPropPicker.pickableProperties}
 				on:select={({ detail }) => {
 					stopAfterAllItersEditor?.insertAtCursor(detail)
