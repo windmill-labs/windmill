@@ -83,6 +83,30 @@ describe('computeAIToolNodes', () => {
 		}
 	})
 
+	it('picks up a tool call that arrives without moving any node', () => {
+		// Run status lives outside node data, so the memo has to key on the agent's actions
+		// itself. Two calls occupy one row, i.e. identical positions, so a memo keyed only on
+		// the nodes would serve the stale single-tool result forever.
+		const node = aiAgentNode('agent', [
+			{ id: 'tool_a', summary: 'my_tool', value: { tool_type: 'flowmodule', type: 'script' } }
+		])
+		const stateWith = (n: number) =>
+			({
+				agent: {
+					type: 'InProgress',
+					agent_actions: Array.from({ length: n }, (_, i) => ({
+						type: 'tool_call',
+						function_name: 'my_tool',
+						module_id: 'tool_a',
+						job_id: `j${i}`
+					}))
+				}
+			}) as any
+
+		expect(computeAIToolNodes([node], eventHandlers, false, stateWith(1)).toolNodes.length).toBe(1)
+		expect(computeAIToolNodes([node], eventHandlers, false, stateWith(2)).toolNodes.length).toBe(2)
+	})
+
 	it('still flags genuinely duplicate tool names in the editor (static tool set)', () => {
 		const node = aiAgentNode('agent2', [
 			{ id: 't1', summary: 'dup', value: { tool_type: 'flowmodule', type: 'script' } },

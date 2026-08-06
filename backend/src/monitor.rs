@@ -119,15 +119,15 @@ use windmill_queue::{
 };
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
-    OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
-    BUN_INSTALL_MIN_RELEASE_AGE, CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR,
-    JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML,
-    NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NSJAIL_TMPFS_SIZE_MB,
-    NSJAIL_TMP_BACKING, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, SANDBOX_IMAGE_CACHE_MAX_MB,
-    SANDBOX_IMAGE_DEFAULT_REGISTRY, SANDBOX_IMAGE_MAX_SIZE_MB, SANDBOX_IMAGE_PULL_POLICY,
-    SANDBOX_REGISTRY_AUTH, UNSHARE_PATH, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY,
-    UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
+    OtelTracingProxySettings, SameWorkerSender, StepFailureKind, WorkspaceRegistryMap,
+    BUNFIG_INSTALL_SCOPES, BUN_INSTALL_MIN_RELEASE_AGE, CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION,
+    JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS,
+    MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE,
+    NSJAIL_TMPFS_SIZE_MB, NSJAIL_TMP_BACKING, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS,
+    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
+    SANDBOX_IMAGE_CACHE_MAX_MB, SANDBOX_IMAGE_DEFAULT_REGISTRY, SANDBOX_IMAGE_MAX_SIZE_MB,
+    SANDBOX_IMAGE_PULL_POLICY, SANDBOX_REGISTRY_AUTH, UNSHARE_PATH, UV_EXCLUDE_NEWER,
+    UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -4700,7 +4700,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 memory_peak,
                 None,
                 error::Error::ExecutionErr(error_message.clone()),
-                matches!(error_kind, ErrorMessage::SameWorker), // unrecoverable if the job is a same worker zombie
+                // a same worker zombie means the worker itself is gone
+                if matches!(error_kind, ErrorMessage::SameWorker) {
+                    StepFailureKind::Unrecoverable
+                } else {
+                    StepFailureKind::Normal
+                },
                 Some(&same_worker_tx_never_used),
                 "",
                 node_name,

@@ -43,7 +43,7 @@
 	let computeAIToolNodesCache:
 		| {
 				nodes: (Node & NodeLayout)[]
-				hasFlowModuleStates: boolean
+				agentActions: Record<string, unknown>
 				linkedAgentTools: Record<string, AgentTool[]> | undefined
 				ret: ReturnType<typeof computeAIToolNodes>
 		  }
@@ -69,6 +69,22 @@
 		}
 	}
 
+	function agentActionsOf(
+		nodes: (Node & NodeLayout)[],
+		flowModuleStates: Record<string, GraphModuleState> | undefined,
+		insertable: boolean
+	): Record<string, unknown> {
+		const actions: Record<string, unknown> = {}
+		// The editor renders the static tool set and ignores the run's actions, so snapshotting
+		// them there would deep-clone a value that changes every poll and never matches.
+		if (insertable) return actions
+		for (const node of nodes) {
+			if (node.type !== 'module' || node.data.module.value.type !== 'aiagent') continue
+			actions[node.id] = $state.snapshot(flowModuleStates?.[node.id]?.agent_actions)
+		}
+		return actions
+	}
+
 	export function computeAIToolNodes(
 		nodes: (Node & NodeLayout)[],
 		eventHandlers: GraphEventHandlers,
@@ -83,7 +99,10 @@
 	} {
 		if (
 			computeAIToolNodesCache &&
-			!!flowModuleStates === computeAIToolNodesCache.hasFlowModuleStates &&
+			deepEqual(
+				agentActionsOf(nodes, flowModuleStates, insertable),
+				computeAIToolNodesCache.agentActions
+			) &&
 			deepEqual(nodes.map(getComparableNode), computeAIToolNodesCache.nodes) &&
 			deepEqual(linkedAgentTools, computeAIToolNodesCache.linkedAgentTools)
 		) {
@@ -191,8 +210,7 @@
 						// misroute agent-node clicks into the graph's manual aiTool selection path.
 						selectTarget: isLinkedAgent && !agentActions ? node.id : undefined,
 						insertable,
-						readOnly: isLinkedAgent,
-						flowModuleStates
+						readOnly: isLinkedAgent
 					},
 					id: `${node.id}-tool-${tool.id}`,
 					width: inputToolWidth,
@@ -253,7 +271,7 @@
 
 		computeAIToolNodesCache = {
 			nodes: nodes.map(getComparableNode),
-			hasFlowModuleStates: !!flowModuleStates,
+			agentActions: agentActionsOf(nodes, flowModuleStates, insertable),
 			linkedAgentTools: $state.snapshot(linkedAgentTools),
 			ret
 		}
@@ -277,6 +295,7 @@
 	import { getNodeColorClasses } from '../../util'
 	import { deepEqual } from 'fast-equals'
 	import { getGraphContext } from '../../graphContext'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 
 	let hover = $state(false)
 
@@ -286,10 +305,11 @@
 	}
 
 	let { data, id }: Props = $props()
+	const flowRunStatus = getFlowRunStatusContext()
 
 	const { selectionManager } = getGraphContext()
 
-	const flowModuleState = $derived(data.flowModuleStates?.[data.moduleId])
+	const flowModuleState = $derived(flowRunStatus?.getModuleState(data.moduleId))
 	let colorClasses = $derived(
 		getNodeColorClasses(
 			data.nameError ? 'Failure' : flowModuleState?.type,
