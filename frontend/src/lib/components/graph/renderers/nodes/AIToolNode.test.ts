@@ -84,9 +84,9 @@ describe('computeAIToolNodes', () => {
 	})
 
 	it('picks up a tool call that arrives without moving any node', () => {
-		// Run status no longer reaches these nodes through their `data`, so the memo has to key
-		// on the agent's actions itself. Two calls occupy one row, i.e. identical positions, so
-		// a memo keyed only on the nodes would serve the stale single-tool result forever.
+		// Run status lives outside node data, so the memo has to key on the agent's actions
+		// itself. Two calls occupy one row, i.e. identical positions, so a memo keyed only on
+		// the nodes would serve the stale single-tool result forever.
 		const node = aiAgentNode('agent', [
 			{ id: 'tool_a', summary: 'my_tool', value: { tool_type: 'flowmodule', type: 'script' } }
 		])

@@ -591,9 +591,9 @@ export function graphBuilder(
 					disableMoveIds: options?.disableMoveIds,
 					enableTrigger: sourceId === 'Input',
 					index,
-					// Only what the edge renderer reads. Spreading all of `extra` here put
-					// per-tick run state on every edge, so one status poll invalidated the whole
-					// edge set and Svelte re-created each one.
+					// Only what the edge renderer reads. Anything listed here lands on every edge,
+					// so a value that changes each poll invalidates the whole edge set and makes
+					// Svelte re-create each one.
 					disableAi: extra.disableAi,
 					isOwner: extra.isOwner,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
