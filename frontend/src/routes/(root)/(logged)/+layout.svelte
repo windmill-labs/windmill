@@ -635,8 +635,15 @@
 			timeout = undefined
 		} else if (!u) {
 			timeout = setTimeout(async () => {
-				if (!$userStore && $workspaceStore) {
-					$userStore = await getUserExt($workspaceStore)
+				const ws = $workspaceStore
+				if (!$userStore && ws) {
+					const user = await getUserExt(ws)
+					// Recovers the workspace that was left without a role. A switch
+					// mid-flight has already started the fetch for the new one, so this
+					// answer describes the workspace we left.
+					if ($workspaceStore === ws) {
+						$userStore = user
+					}
 				}
 			}, 5000)
 		}
