@@ -57,7 +57,9 @@
 			if (document.fonts?.status === 'loading') {
 				await document.fonts.ready
 				if (seq !== renderSeq) return
-				svg = (await mermaid.render(`mermaid-${randomUUID()}`, source)).svg
+				const settled = await mermaid.render(`mermaid-${randomUUID()}`, source)
+				if (seq !== renderSeq) return
+				svg = settled.svg
 			}
 		} catch {
 			// Parse failure (often a partial block still streaming in): fall back to the
