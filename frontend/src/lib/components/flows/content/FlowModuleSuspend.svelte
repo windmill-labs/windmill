@@ -220,6 +220,7 @@
 							</span>
 							<PropPickerWrapper
 								sidePane
+								notSelectable
 								{result}
 								pickableProperties={undefined}
 								on:select={({ detail }) => {

@@ -37,7 +37,6 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
-	import ExpressionPicker from './flows/propPicker/ExpressionPicker.svelte'
 	import { deepEqual } from 'fast-equals'
 	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
@@ -157,10 +156,6 @@
 	const propPickerWrapperContext: PropPickerWrapperContext | undefined =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 	const pickerMode = $derived(propPickerWrapperContext?.pickerMode?.() ?? 'pane')
-	// Settings rows hand their properties to the wrapper, not to this form.
-	const connectableProperties = $derived(
-		pickableProperties ?? propPickerWrapperContext?.pickableProperties?.()
-	)
 	const {
 		inputMatches,
 		connectProp: focusProp,
@@ -477,8 +472,21 @@
 		}
 	}
 
+	// The column beside a settings row delivers here rather than through the host's `select`
+	// handler, which can only reach a mounted expression editor. A collapsed setting has no
+	// field at all, so it gives the target up and the column closes with it.
+	$effect(() => {
+		if (pickerMode !== 'sidePane') return
+		propPickerWrapperContext?.setPickTarget?.(
+			collapsed ? undefined : { id: argName, onSelect: pickIntoArg }
+		)
+	})
+
 	onDestroy(() => {
 		updatePropsBeingEdited(false)
+		if (pickerMode === 'sidePane') {
+			propPickerWrapperContext?.setPickTarget?.(undefined)
+		}
 	})
 
 	let prevArg: any = undefined
@@ -625,17 +633,7 @@
 					/>
 				{/if}
 
-				{#if propPickerWrapperContext && pickerMode === 'popover'}
-					<!-- No pane in this host, so the properties hang off the button itself,
-						     exactly as the other expression inputs do. -->
-					<ExpressionPicker
-						id={argName}
-						pickableProperties={connectableProperties}
-						result={propPickerWrapperContext.result?.()}
-						extraResults={propPickerWrapperContext.extraResults?.()}
-						onSelect={pickIntoArg}
-					/>
-				{:else if propPickerWrapperContext}
+				{#if propPickerWrapperContext}
 					<FlowPlugConnect
 						wrapperClasses={twMerge(
 							'group-hover:opacity-100 transition-opacity',

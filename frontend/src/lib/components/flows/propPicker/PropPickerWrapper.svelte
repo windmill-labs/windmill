@@ -16,16 +16,14 @@
 		/** Where the properties are offered, and therefore what a pick does:
 		 *  - 'pane': the step's input form — a pick replaces the argument outright.
 		 *  - 'sidePane': a settings row — a pick lands at the expression's cursor, since a
-		 *    half-written predicate must survive it.
-		 *  - 'popover': hangs off each input's own connect button, for hosts with no pane. */
-		pickerMode: () => 'pane' | 'sidePane' | 'popover'
-		/** The wrapper owns these; nested inputs receive none of their own. */
-		pickableProperties: () => PickableProperties | undefined
-		/** The step's own result, and anything extra worth offering beside it (a loop's
-		 *  `all_iters`). The panes render them directly — in popover mode the picker
-		 *  hangs off each input, so it reads them from here instead. */
-		result: () => any
-		extraResults: () => any
+		 *    half-written predicate must survive it. */
+		pickerMode: () => 'pane' | 'sidePane'
+		/** The single input a `sidePane` column belongs to. It stays a destination for as
+		 *  long as its field is mounted, so a pick lands whether or not a connect is armed —
+		 *  a static field has no editor for the host's own `select` handler to write into.
+		 *  `undefined` (the setting was switched off) leaves the column with nowhere to
+		 *  deliver, so it closes. */
+		setPickTarget: (target: { id: string; onSelect: (path: string) => void } | undefined) => void
 		/** Deliver a pick the way the pane does — as a `select` event, so each setting's own
 		 *  handler inserts it at the cursor. Replacing the whole value is right for a step
 		 *  input but destroys a half-written predicate. */
@@ -105,11 +103,12 @@
 		propPickerConfig,
 		inputMatches,
 		connectProp: (propName, onSelect) => connect.arm({ id: propName, onSelect }),
-		clearConnect: connect.disarm,
+		clearConnect: closePicker,
 		pickerMode: () => (sidePane ? 'sidePane' : 'pane'),
-		pickableProperties: () => pickableProperties,
-		result: () => result,
-		extraResults: () => extraResults,
+		setPickTarget: (target) => {
+			pickTarget = target
+			if (!target) closePicker()
+		},
 		onPick: (path) => dispatch('select', path),
 		exprBeingEdited
 	})
@@ -122,21 +121,37 @@
 
 	let rightPaneHeight: number = $state(0)
 
+	let pickTarget: { id: string; onSelect: (path: string) => void } | undefined = $state(undefined)
+
 	// The side column stays put once the row is being worked on: picking a property blurs
-	// the editor, so closing on blur would take the column away mid-click.
+	// the editor, so closing on blur would take the column away mid-click. It is dismissed
+	// deliberately instead — by clicking away, by the input's own connect button, or by the
+	// setting being switched off.
 	let sidePaneOpen = $state(false)
 	$effect(() => {
 		if ($propPickerConfig != undefined || $exprBeingEdited.length > 0) {
 			sidePaneOpen = true
 		}
 	})
+
+	function closePicker() {
+		connect.disarm()
+		// A switched-off setting unmounts its editor rather than blurring it, so the focus
+		// claim outlives the field — left standing, it reopens the column on the next tick.
+		exprBeingEdited.set([])
+		sidePaneOpen = false
+	}
 </script>
 
 {#snippet pickerBody()}
-	<!-- An armed input owns the pick; with none, it goes to the form's own handler. Both
-	     paths must not fire, or a cursor insertion would be applied twice. -->
+	<!-- Exactly one destination per pick, or a cursor insertion lands twice: the armed input
+	     if there is one, else the column's own input, else the form's `select` handler. -->
 	{@const deliver = (path: string) =>
-		connect.armed ? connect.resolve(path) : dispatch('select', path)}
+		connect.armed
+			? connect.resolve(path)
+			: pickTarget
+				? pickTarget.onSelect(path)
+				: dispatch('select', path)}
 	<div bind:clientHeight={rightPaneHeight} class="min-h-40 h-full !bg-surface">
 		<AnimatedButton
 			animate={$propPickerConfig != undefined}
@@ -179,10 +194,7 @@
 		// Through the controller, not the stores: it owns the armed target, and a
 		// target left armed here would make the next click on that same input
 		// read as a toggle-off.
-		onClickOutside: () => {
-			connect.disarm()
-			sidePaneOpen = false
-		}
+		onClickOutside: closePicker
 	}}
 >
 	{#if sidePane}
@@ -193,7 +205,7 @@
 				<!-- A set height, not the row's: the picker scrolls its own categories, and an
 				     expression editor is one line tall next to them. -->
 				<div
-					class="shrink-0 w-[38%] min-w-52 max-w-xs h-72 border-l pl-2 {paneClass}"
+					class="shrink-0 w-[38%] min-w-52 max-w-xs h-72 overflow-auto border-l pl-2 {paneClass}"
 					transition:fade={{ duration: 100 }}
 				>
 					{@render pickerBody()}
