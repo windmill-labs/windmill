@@ -21,11 +21,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import { DynamicInput, isScriptPreview } from '$lib/utils'
-	import {
-		getActiveRecording,
-		getActiveReplay,
-		getReplayStartTime
-	} from './recording/flowRecording.svelte'
+	import { getActiveReplay, getReplayStartTime } from './recording/replay.svelte'
 
 	// Will be set to number if job is not a flow
 
@@ -714,7 +710,6 @@
 					)
 
 					callbacks?.change?.(job)
-					getActiveRecording()?.recordInitialJob(id, job)
 				}
 
 				if (!onlyResult) {
@@ -824,7 +819,6 @@
 								throw new Error('Not found')
 							}
 							jobUpdateLastFetch = new Date()
-							getActiveRecording()?.recordEvent(id, previewJobUpdates)
 
 							if (job) {
 								updateJobFromProgress(previewJobUpdates, job, callbacks)

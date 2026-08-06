@@ -8,9 +8,20 @@
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$app/navigation'
 	import { base } from '$lib/base'
-	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import {
+		findCanonicalDevWorkspace,
+		findWorkspaceAncestors,
+		findWorkspaceDescendants,
+		devWorkspacesInChainAbove
+	} from '$lib/utils/workspaceHierarchy'
 	import { getUserExt } from '$lib/user'
-	import { devBadgeText, devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
+	import {
+		DEV_WORKSPACE_LABELS,
+		devBadgeText,
+		devLabelKey,
+		devLabelNoun,
+		type DevWorkspaceLabelKey
+	} from '$lib/utils/devWorkspaceLabel'
 	import {
 		loadProtectionRules,
 		isRuleActiveInRulesets,
@@ -19,18 +30,31 @@
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink, Check, Minus, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
+	import type { Snippet } from 'svelte'
+
+	let {
+		// What this workspace promotes into its parent (deploy target + item filters). Rendered with
+		// the pairing statement it restates, ahead of the parent's protections and of the nested
+		// pairing below — hence handed over rather than placed by the page, which cannot see where
+		// that boundary falls.
+		deployTarget
+	}: { deployTarget?: Snippet } = $props()
 
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let isDev = $derived(currentWs?.is_dev_workspace ?? false)
 	let currentLabel = $derived(devLabelKey(currentWs?.dev_workspace_label))
 	let parentId = $derived(currentWs?.parent_workspace_id ?? undefined)
+	let parentWs = $derived(parentId ? $userWorkspaces.find((w) => w.id === parentId) : undefined)
+	// A throwaway fork sits on neither side of a pairing: it is not its parent's dev workspace, and a
+	// dev of its own would be discarded along with it.
+	let isThrowawayFork = $derived(!!parentId && !isDev)
 	let canonicalDev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
 
 	// A prod admin who isn't a member of the dev can't see it in their workspace list, so ask the
 	// server (only when the client list doesn't already have it) — otherwise the tab would show the
 	// attach form instead of the existing pairing and detach control.
 	const devWorkspaceResource = resource(
-		() => (!isDev && !parentId && !canonicalDev ? $workspaceStore : undefined),
+		() => (!isThrowawayFork && !canonicalDev ? $workspaceStore : undefined),
 		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)
 	)
 	// The paired dev to display: the client entry when we're a member, else the server result (pairing
@@ -57,23 +81,46 @@
 	let selectedDevId = $state<string | undefined>(undefined)
 	let lockProdDeploy = $state(true)
 	let lockProdForking = $state(true)
-	// Cosmetic display label chosen when attaching an existing workspace as dev.
-	let attachLabel = $state<'dev' | 'staging'>('dev')
+	// The label is cosmetic on its own, but in a chain it also names the deploy branch, and dev
+	// workspaces in a chain share their git-sync repositories: two carrying the same label deploy to
+	// the same branch. So offer only a label none of the dev workspaces above holds. Computed without
+	// the selected candidate, so picking one can never take the form away mid-selection. With two
+	// labels a chain runs to two dev workspaces.
+	let chainTakenLabels = $derived(
+		new Set(
+			devWorkspacesInChainAbove($workspaceStore, $userWorkspaces).map((w) =>
+				devLabelKey(w.dev_workspace_label)
+			)
+		)
+	)
+	let availableAttachLabels = $derived(DEV_WORKSPACE_LABELS.filter((l) => !chainTakenLabels.has(l)))
+	let attachLabel = $state<DevWorkspaceLabelKey>('dev')
+	$effect(() => {
+		if (availableAttachLabels.length > 0 && !availableAttachLabels.includes(attachLabel)) {
+			attachLabel = availableAttachLabels[0]
+		}
+	})
+	// A candidate keeps its own dev workspaces through the attach, labels included: the first one
+	// whose label is already spoken for further up the resulting chain blocks the pairing, whatever
+	// label the candidate itself is given.
+	let candidateClash = $derived.by(() => {
+		if (!selectedDevId) return undefined
+		const taken = new Set<DevWorkspaceLabelKey>([...chainTakenLabels, attachLabel])
+		for (const w of findWorkspaceDescendants(selectedDevId, $userWorkspaces)) {
+			if (!w.is_dev_workspace) continue
+			const label = devLabelKey(w.dev_workspace_label)
+			if (taken.has(label)) return w.id
+			taken.add(label)
+		}
+		return undefined
+	})
 	let busy = $state(false)
 
-	// The pairing's locks always sit on the root (prod) workspace: this one when viewed from prod, the
-	// parent's when viewed from inside the dev workspace. A plain fork has no pairing of its own, so it
-	// reads nothing.
-	let lockWorkspace = $derived(parentId ? (isDev ? parentId : undefined) : $workspaceStore)
-
-	// If this workspace already blocks direct deploy / forking through an existing protection rule, keep
-	// the matching lock toggle on but locked: attaching only manages its own reserved dev-workspace rule,
-	// so turning it "off" here couldn't lift a separately-defined block. A failed fetch falls back to the
-	// editable default-on toggle (real rules still enforce). Once paired, the same rules report which
-	// locks are actually in force.
-	const rootProtectionRules = resource(
-		() => lockWorkspace,
-		async (ws, _prev, { signal }) => {
+	// Protection-rule state for one workspace. Instantiated twice because a dev workspace shows two
+	// panels at once: the locks its own prod carries, and the locks it would carry as the prod of a
+	// nested dev.
+	function useProtectionRules(getWs: () => string | undefined) {
+		const rules = resource(getWs, async (ws, _prev, { signal }) => {
 			if (!ws) return undefined
 			// `fetchProtectionRulesForWorkspace` fails open with an empty list, which the toggles below
 			// want but the status panel must not read as "nothing is enforced" — so keep the failure.
@@ -83,69 +130,103 @@
 			} catch (e) {
 				console.error(`Failed to fetch protection rules for workspace ${ws}:`, e)
 			}
-			// The generated client can't take an abort signal, so drop a superseded response here: a late
-			// result for a previously selected workspace must not overwrite the current one's rules.
+			// The generated client can't take an abort signal, so drop a superseded response here: a
+			// late result for a previously selected workspace must not overwrite the current one's.
 			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
 			return { ws, rules: rules ?? [], failed: rules === undefined }
+		})
+		// Only trust a result that belongs to the workspace we're currently reading rules for (guards
+		// the in-flight window and any out-of-order response); undefined means "not known yet" and is
+		// treated as locked below.
+		const result = $derived.by(() => {
+			const current = rules.current
+			return current && current.ws === getWs() ? current : undefined
+		})
+		const list = $derived(result?.rules)
+		// Until the fetch resolves for the current workspace its rules are unknown. Treat each lock as
+		// engaged during that window so the toggle is locked on and the effective value stays true:
+		// otherwise a user could turn a lock off and attach before an existing rule is detected,
+		// sending false and omitting the reserved rule — leaving prod unprotected if that rule is
+		// later removed.
+		const unknown = $derived(rules.loading || list === undefined)
+		// Only a rule with no bypass users/groups matches the empty-bypass reserved lock we would
+		// create; a bypassable rule stays editable, otherwise forcing the lock on would revoke the
+		// bypassed users' direct-deploy / forking access.
+		const alreadyBlocksDeploy = $derived(
+			isRuleUnconditionallyActiveInRulesets(list ?? [], 'DisableDirectDeployment')
+		)
+		const alreadyBlocksForking = $derived(
+			isRuleUnconditionallyActiveInRulesets(list ?? [], 'DisableWorkspaceForking')
+		)
+		// What the paired view reports. Unlike the toggles above, this asks whether the rule is
+		// enforced at all: a ruleset with bypass users still blocks everyone outside that list, so it
+		// is in force here even though the attach form leaves its toggle editable.
+		const enforcesDeployBlock = $derived(
+			isRuleActiveInRulesets(list ?? [], 'DisableDirectDeployment')
+		)
+		const enforcesForkingBlock = $derived(
+			isRuleActiveInRulesets(list ?? [], 'DisableWorkspaceForking')
+		)
+		// The named rulesets actually carrying either lock. Reporting only "blocked / allowed" left no
+		// way to reach the rule that decides it, which is the one thing a reader here wants to change.
+		const enforcingRulesets = $derived(
+			(list ?? []).filter(
+				(r) =>
+					r.rules.includes('DisableDirectDeployment') || r.rules.includes('DisableWorkspaceForking')
+			)
+		)
+		// A failed read is not "nothing is enforced": report it as unknown rather than claiming allowed.
+		const readFailed = $derived(result?.failed ?? false)
+		return {
+			get deployLocked() {
+				return alreadyBlocksDeploy || unknown
+			},
+			get forkingLocked() {
+				return alreadyBlocksForking || unknown
+			},
+			get alreadyBlocksDeploy() {
+				return alreadyBlocksDeploy
+			},
+			get alreadyBlocksForking() {
+				return alreadyBlocksForking
+			},
+			get enforcesDeployBlock() {
+				return enforcesDeployBlock
+			},
+			get enforcesForkingBlock() {
+				return enforcesForkingBlock
+			},
+			get enforcingRulesets() {
+				return enforcingRulesets
+			},
+			get readFailed() {
+				return readFailed
+			},
+			get enforcementUnknown() {
+				return unknown || readFailed
+			},
+			refetch: () => rules.refetch()
 		}
-	)
-	// Only trust a result that belongs to the workspace we're currently reading rules for (guards the
-	// in-flight window and any out-of-order response); undefined means "not known yet" and is treated as
-	// locked below.
-	let rootResult = $derived.by(() => {
-		const current = rootProtectionRules.current
-		return current && current.ws === lockWorkspace ? current : undefined
-	})
-	let rootRules = $derived(rootResult?.rules)
-	// Only a rule with no bypass users/groups matches the empty-bypass reserved lock we would create; a
-	// bypassable rule stays editable, otherwise forcing the lock on would revoke the bypassed users'
-	// direct-deploy / forking access.
-	let alreadyBlocksDeploy = $derived(
-		isRuleUnconditionallyActiveInRulesets(rootRules ?? [], 'DisableDirectDeployment')
-	)
-	let alreadyBlocksForking = $derived(
-		isRuleUnconditionallyActiveInRulesets(rootRules ?? [], 'DisableWorkspaceForking')
-	)
-	// Until the fetch resolves for the current workspace its rules are unknown. Treat each lock as
-	// engaged during that window so the toggle is locked on and the effective value stays true:
-	// otherwise a user could turn a lock off and attach before an existing rule is detected, sending
-	// false and omitting the reserved rule — leaving prod unprotected if that rule is later removed.
-	let rulesUnknown = $derived(rootProtectionRules.loading || rootRules === undefined)
-	let deployLocked = $derived(alreadyBlocksDeploy || rulesUnknown)
-	let forkingLocked = $derived(alreadyBlocksForking || rulesUnknown)
+	}
+
+	// The locks a pairing applies always sit on the prod side, so each panel reads its own workspace:
+	// the parent's rules describe what this dev workspace is promoted into, this workspace's own
+	// describe what its (possibly nested) dev workspace is promoted into.
+	const parentRules = useProtectionRules(() => (isDev ? parentId : undefined))
+	const ownRules = useProtectionRules(() => (isThrowawayFork ? undefined : $workspaceStore))
+
 	// Sent to the backend: a locked restriction (enforced or not-yet-known) stays on regardless of the
 	// toggle's raw state, keeping the request consistent with what the locked toggle shows.
-	let effectiveLockProdDeploy = $derived(deployLocked || lockProdDeploy)
-	let effectiveLockProdForking = $derived(forkingLocked || lockProdForking)
+	let effectiveLockProdDeploy = $derived(ownRules.deployLocked || lockProdDeploy)
+	let effectiveLockProdForking = $derived(ownRules.forkingLocked || lockProdForking)
 
-	// What the paired view reports. Unlike the toggles above, this asks whether the rule is enforced at
-	// all: a ruleset with bypass users still blocks everyone outside that list, so it is in force here
-	// even though the attach form leaves its toggle editable.
-	let enforcesDeployBlock = $derived(
-		isRuleActiveInRulesets(rootRules ?? [], 'DisableDirectDeployment')
-	)
-	let enforcesForkingBlock = $derived(
-		isRuleActiveInRulesets(rootRules ?? [], 'DisableWorkspaceForking')
-	)
-	// A failed read is not "nothing is enforced": report it as unknown rather than claiming allowed.
-	let enforcementReadFailed = $derived(rootResult?.failed ?? false)
-	let enforcementUnknown = $derived(rulesUnknown || enforcementReadFailed)
-
-	// The named rulesets actually carrying either lock. Reporting only "blocked / allowed" left no way
-	// to reach the rule that decides it, which is the one thing a reader here wants to change.
-	let enforcingRulesets = $derived(
-		(rootRules ?? []).filter(
-			(r) =>
-				r.rules.includes('DisableDirectDeployment') || r.rules.includes('DisableWorkspaceForking')
-		)
-	)
-	// Editing prod's rules from the dev side needs admin IN PROD, which membership does not imply and
-	// this workspace's own admin rights say nothing about: the rulesets tab is admin-only, so a link
-	// offered to anyone else lands them on a tab they cannot open. Asked of the parent directly, as
-	// `is_admin` is per-workspace. A superadmin is admin everywhere and has no `usr` row to find.
-	// Tagged with its workspace and guarded against a superseded response, like the rules resource
-	// above: runed keeps the previous `current` while a new source loads, so switching between dev
-	// workspaces would otherwise offer Edit based on the previous parent's role.
+	// Editing the parent's rules from the dev side needs admin IN THE PARENT, which membership does
+	// not imply and this workspace's own admin rights say nothing about: the rulesets tab is
+	// admin-only, so a link offered to anyone else lands them on a tab they cannot open. Asked of the
+	// parent directly, as `is_admin` is per-workspace. A superadmin is admin everywhere and has no
+	// `usr` row to find. Tagged with its workspace and guarded against a superseded response, like the
+	// rules resource above: runed keeps the previous `current` while a new source loads, so switching
+	// between dev workspaces would otherwise offer Edit based on the previous parent's role.
 	const parentUser = resource(
 		() => (isDev && parentId ? parentId : undefined),
 		async (ws, _prev, { signal }) => {
@@ -176,15 +257,22 @@
 		goto(rulesetsHref(name))
 	}
 
-	// A standalone root workspace, or an existing fork of this prod (same family), can be attached.
-	// A fork parented to a different workspace can't (the backend rejects a parent that isn't this
-	// prod), so it's excluded here.
+	// Reparenting an ancestor below this workspace would close a parent<->child cycle, which the
+	// backend rejects: with a dev workspace allowed as prod, the family root is such an ancestor and
+	// would otherwise show up here as a standalone candidate.
+	let ancestorIds = $derived(
+		new Set(findWorkspaceAncestors($workspaceStore, $userWorkspaces).map((w) => w.id))
+	)
+	// A standalone root workspace, or an existing fork of this workspace (same family), can be
+	// attached. A fork parented to a different workspace can't (the backend rejects a parent that
+	// isn't this one), so it's excluded here.
 	let attachCandidates = $derived(
 		$userWorkspaces
 			.filter(
 				(w) =>
 					w.id !== $workspaceStore &&
 					w.id !== 'admins' &&
+					!ancestorIds.has(w.id) &&
 					(!w.parent_workspace_id || w.parent_workspace_id === $workspaceStore)
 			)
 			.map((w) => ({
@@ -203,8 +291,8 @@
 		// member of the dev workspace (the one that reads the pairing from the server rather than
 		// from the workspace list) keeps seeing the pre-attach/detach state until the tab remounts.
 		devWorkspaceResource.refetch()
-		// Attach/detach changes this (root) workspace's protection rules; reload them so the
-		// direct-deploy / forking lock UI reflects the change without a workspace switch or reload.
+		// Attach/detach changes this workspace's protection rules; reload them so the direct-deploy /
+		// forking lock UI reflects the change without a workspace switch or reload.
 		// Refetching duplicates the request `loadProtectionRules` just made, which is the price of it
 		// being the only way to supersede whatever this resource already has in flight: `mutate` just
 		// assigns, so an earlier fetch lands afterwards and puts the pre-attach rules back on screen.
@@ -213,7 +301,7 @@
 		// action is cheaper than a panel that misreports what is enforced.
 		if ($workspaceStore) {
 			await loadProtectionRules($workspaceStore)
-			rootProtectionRules.refetch()
+			ownRules.refetch()
 		}
 	}
 
@@ -265,41 +353,41 @@
      so the button does not switch workspaces without saying so. -->
 {#snippet protectionsPanel(opts: {
 	title: string
+	rules: ReturnType<typeof useProtectionRules>
 	onOpen?: (name?: string) => void
 	editLabel: string
 	manageLabel: string
 })}
 	{@const onOpen = opts.onOpen}
+	{@const rules = opts.rules}
 	<div class="flex flex-col gap-1 rounded-md border bg-surface-secondary p-3">
 		<span class="text-xs font-semibold text-emphasis">{opts.title}</span>
-		{#if enforcementUnknown}
+		{#if rules.enforcementUnknown}
 			<span class="text-2xs text-secondary">
-				{enforcementReadFailed
-					? 'Could not read the protection rules'
-					: 'Checking protection rules…'}
+				{rules.readFailed ? 'Could not read the protection rules' : 'Checking protection rules…'}
 			</span>
 		{:else}
 			<span class="text-2xs text-secondary flex items-center gap-1.5">
-				{#if enforcesDeployBlock}<Check size={12} class="text-green-600" />{:else}<Minus
+				{#if rules.enforcesDeployBlock}<Check size={12} class="text-green-600" />{:else}<Minus
 						size={12}
 					/>{/if}
-				Direct edits {enforcesDeployBlock ? 'are blocked' : 'are allowed'}
+				Direct edits {rules.enforcesDeployBlock ? 'are blocked' : 'are allowed'}
 			</span>
 			<span class="text-2xs text-secondary flex items-center gap-1.5">
-				{#if enforcesForkingBlock}<Check size={12} class="text-green-600" />{:else}<Minus
+				{#if rules.enforcesForkingBlock}<Check size={12} class="text-green-600" />{:else}<Minus
 						size={12}
 					/>{/if}
-				Forking {enforcesForkingBlock ? 'is blocked' : 'is allowed'}
+				Forking {rules.enforcesForkingBlock ? 'is blocked' : 'is allowed'}
 			</span>
-			{#if enforcesDeployBlock || enforcesForkingBlock}
+			{#if rules.enforcesDeployBlock || rules.enforcesForkingBlock}
 				<!-- Only admins reach this tab, and `check_user_against_rule` lets an admin through
 				     every rule, so without this the reader would try what the panel calls blocked. -->
 				<span class="text-2xs text-secondary">Workspace admins always bypass these rules.</span>
 			{/if}
-			{#if enforcingRulesets.length > 0}
+			{#if rules.enforcingRulesets.length > 0}
 				<div class="flex flex-col gap-1 mt-2 pt-2 border-t">
 					<span class="text-2xs text-secondary">Enforced by</span>
-					{#each enforcingRulesets as ruleset (ruleset.name)}
+					{#each rules.enforcingRulesets as ruleset (ruleset.name)}
 						<div class="flex items-center justify-between gap-2">
 							<div class="flex flex-col min-w-0">
 								<span class="text-2xs font-mono text-emphasis truncate">{ruleset.name}</span>
@@ -322,7 +410,7 @@
 				</div>
 			{/if}
 		{/if}
-		{#if onOpen && enforcingRulesets.length === 0}
+		{#if onOpen && rules.enforcingRulesets.length === 0}
 			<div class="self-start mt-1">
 				<Button variant="subtle" unifiedSize="2xs" onclick={() => onOpen()}>
 					{opts.manageLabel}
@@ -332,10 +420,160 @@
 	</div>
 {/snippet}
 
-{#if isDev && parentId}
+<!-- This workspace as the prod side of a pairing: the dev it already has, or the form to give it one.
+     Rendered for a root workspace and, since a dev workspace can host its own dev, for a dev
+     workspace too. -->
+{#snippet ownDevSection()}
+	{#if pairedDev}
+		<div class="flex flex-col gap-3 max-w-2xl">
+			<p class="text-sm">
+				This workspace's {devLabelNoun(pairedDev.label)} is <b>{pairedDev.name}</b>
+				({pairedDev.id}). Edits to this workspace are redirected there.
+			</p>
+			{@render protectionsPanel({
+				title: 'Protections in force on this workspace',
+				rules: ownRules,
+				onOpen: openRulesets,
+				editLabel: 'Edit',
+				manageLabel: 'Manage in Rulesets'
+			})}
+			<div class="flex gap-2">
+				{#if pairedDev.isMember || $superadmin}
+					<Button
+						variant="default"
+						startIcon={{ icon: GitFork }}
+						onclick={() => switchWorkspace(pairedDev.id)}
+					>
+						Go to {devLabelNoun(pairedDev.label)}
+					</Button>
+				{/if}
+				<Button color="red" disabled={busy} onclick={() => detach(pairedDev.id)}>Detach</Button>
+			</div>
+		</div>
+	{:else if availableAttachLabels.length === 0}
+		<p class="text-sm text-secondary max-w-2xl">
+			Every environment label (<span class="font-mono">dev</span>,
+			<span class="font-mono">staging</span>) is already taken by a dev workspace in this chain, and
+			two carrying the same label would deploy to the same branch. Promote through the existing
+			chain instead.
+		</p>
+	{:else}
+		<div class="flex flex-col gap-3 max-w-2xl">
+			<p class="text-sm text-secondary">
+				Pair this workspace with a dev workspace: the same code with a different environment
+				(resource and variable values). Edits are made in the dev workspace and promoted here.
+			</p>
+			<div class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Attach an existing workspace as dev</span>
+				<Select
+					items={attachCandidates}
+					bind:value={selectedDevId}
+					placeholder="Select a workspace"
+					clearable
+				/>
+			</div>
+			<div class="text-2xs text-secondary">
+				Label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
+				{#if availableAttachLabels.length === 1}
+					<span>
+						The other label is already taken by a dev workspace in this chain, which would deploy to
+						the same branch.
+					</span>
+				{:else}
+					<button
+						type="button"
+						class="text-secondary hover:text-primary hover:underline"
+						onclick={() => (attachLabel = attachLabel === 'staging' ? 'dev' : 'staging')}
+					>
+						Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
+					</button>
+				{/if}
+			</div>
+			<!-- Left under the label row rather than replacing it: flipping the label is often the fix. -->
+			{#if candidateClash}
+				<p class="text-2xs text-secondary">
+					<b>{candidateClash}</b> comes with the selected workspace and already deploys to a branch this
+					chain would then use twice. Pick the other label, or another workspace.
+				</p>
+			{/if}
+			<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
+				<div class="flex flex-col gap-0.5">
+					<span class="text-xs font-semibold text-emphasis">Protect this workspace on attach</span>
+					<span class="text-2xs text-secondary">
+						Nothing is enforced until you attach: these add protection rules to this workspace so
+						changes are made in the dev workspace and promoted here.
+					</span>
+				</div>
+				{#if ownRules.deployLocked}
+					<div class="flex flex-col gap-0.5">
+						<Toggle
+							checked
+							disabled
+							options={{
+								right: 'Block direct edits in this workspace (deploy via the dev workspace)'
+							}}
+						/>
+						{#if ownRules.alreadyBlocksDeploy}
+							<span class="text-2xs text-secondary ml-11"
+								>Already enforced by an existing protection rule</span
+							>
+						{/if}
+					</div>
+				{:else}
+					<Toggle
+						bind:checked={lockProdDeploy}
+						options={{
+							right: 'Block direct edits in this workspace (deploy via the dev workspace)'
+						}}
+					/>
+				{/if}
+				{#if ownRules.forkingLocked}
+					<div class="flex flex-col gap-0.5">
+						<Toggle checked disabled options={{ right: 'Prevent forking this workspace' }} />
+						{#if ownRules.alreadyBlocksForking}
+							<span class="text-2xs text-secondary ml-11"
+								>Already enforced by an existing protection rule</span
+							>
+						{/if}
+					</div>
+				{:else}
+					<Toggle
+						bind:checked={lockProdForking}
+						options={{ right: 'Prevent forking this workspace' }}
+					/>
+				{/if}
+			</div>
+			<div class="flex gap-2">
+				<Button
+					variant="accent"
+					disabled={busy || !selectedDevId || !!candidateClash}
+					onclick={attach}
+				>
+					Attach dev workspace
+				</Button>
+				<Button
+					variant="default"
+					startIcon={{ icon: GitFork }}
+					onclick={() => goto(`${base}/user/fork_workspace?dev=true`)}
+				>
+					Create a new dev workspace
+				</Button>
+			</div>
+		</div>
+	{/if}
+{/snippet}
+
+{#if isThrowawayFork}
+	<p class="text-sm text-secondary max-w-2xl">
+		Dev workspace pairing is not available on a throwaway fork. This workspace is a fork of
+		<b>{parentId}</b>.
+	</p>
+	{@render deployTarget?.()}
+{:else if isDev && parentId}
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<p class="text-sm">
-			This is a <b>{devLabelNoun(currentWs?.dev_workspace_label)}</b> paired with root workspace
+			This is a <b>{devLabelNoun(currentWs?.dev_workspace_label)}</b> paired with
+			{parentWs?.is_dev_workspace ? devLabelNoun(parentWs.dev_workspace_label) : 'root workspace'}
 			<b>{parentId}</b>. Promote changes from the home page banner or the Compare &amp; Deploy page.
 		</p>
 		<div class="text-2xs text-secondary">
@@ -345,11 +583,15 @@
 				<span class="font-mono">{currentLabel}</span> branch.
 			</span>
 		</div>
+	</div>
+	{@render deployTarget?.()}
+	<div class="flex flex-col gap-3 max-w-2xl mt-6">
 		<!-- A reader who is not a member of the parent gets a 403 listing its rules, which is expected
-		     here rather than an anomaly worth a permanent error box, so drop the panel instead. -->
-		{#if !enforcementReadFailed}
+			     here rather than an anomaly worth a permanent error box, so drop the panel instead. -->
+		{#if !parentRules.readFailed}
 			{@render protectionsPanel({
 				title: `Protections in force on ${parentId}`,
+				rules: parentRules,
 				onOpen: canEditParentRules ? openRulesetsInParent : undefined,
 				editLabel: `Edit in ${parentId}`,
 				manageLabel: `Manage in ${parentId}`
@@ -361,123 +603,23 @@
 				startIcon={{ icon: ExternalLink }}
 				onclick={() => switchWorkspace(parentId)}
 			>
-				Go to root workspace
+				Go to {parentWs?.is_dev_workspace
+					? devLabelNoun(parentWs.dev_workspace_label)
+					: 'root workspace'}
 			</Button>
 		</div>
 	</div>
-{:else if pairedDev}
-	<div class="flex flex-col gap-3 max-w-2xl">
-		<p class="text-sm">
-			This workspace's {devLabelNoun(pairedDev.label)} is <b>{pairedDev.name}</b> ({pairedDev.id}).
-			Edits to this workspace are redirected there.
-		</p>
-		{@render protectionsPanel({
-			title: 'Protections in force on this workspace',
-			onOpen: openRulesets,
-			editLabel: 'Edit',
-			manageLabel: 'Manage in Rulesets'
-		})}
-		<div class="flex gap-2">
-			{#if pairedDev.isMember || $superadmin}
-				<Button
-					variant="default"
-					startIcon={{ icon: GitFork }}
-					onclick={() => switchWorkspace(pairedDev.id)}
-				>
-					Go to {devLabelNoun(pairedDev.label)}
-				</Button>
-			{/if}
-			<Button color="red" disabled={busy} onclick={() => detach(pairedDev.id)}>Detach</Button>
-		</div>
-	</div>
-{:else if parentId}
-	<p class="text-sm text-secondary max-w-2xl">
-		Dev workspace pairing is only available for root workspaces. This workspace is a fork of
-		<b>{parentId}</b>.
-	</p>
-{:else}
-	<div class="flex flex-col gap-3 max-w-2xl">
-		<p class="text-sm text-secondary">
-			Pair this workspace with a dev workspace: the same code with a different environment (resource
-			and variable values). Edits are made in the dev workspace and promoted here.
-		</p>
+	<div class="flex flex-col gap-3 max-w-2xl mt-8 pt-6 border-t">
 		<div class="flex flex-col gap-1">
-			<span class="text-xs font-semibold text-emphasis">Attach an existing workspace as dev</span>
-			<Select
-				items={attachCandidates}
-				bind:value={selectedDevId}
-				placeholder="Select a workspace"
-				clearable
-			/>
+			<span class="text-xs font-semibold text-emphasis">This workspace's own dev workspace</span>
+			<p class="text-2xs text-secondary">
+				A dev workspace can itself be paired with one, giving a longer promotion chain (for example
+				dev into staging into prod). It is not the recommended shape — each extra level is another
+				promotion to run — but nothing prevents it.
+			</p>
 		</div>
-		<div class="text-2xs text-secondary">
-			Label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
-			<button
-				type="button"
-				class="text-secondary hover:text-primary hover:underline"
-				onclick={() => (attachLabel = attachLabel === 'staging' ? 'dev' : 'staging')}
-			>
-				Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
-			</button>
-		</div>
-		<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
-			<div class="flex flex-col gap-0.5">
-				<span class="text-xs font-semibold text-emphasis">Protect this workspace on attach</span>
-				<span class="text-2xs text-secondary">
-					Nothing is enforced until you attach: these add protection rules to this workspace so
-					changes are made in the dev workspace and promoted here.
-				</span>
-			</div>
-			{#if deployLocked}
-				<div class="flex flex-col gap-0.5">
-					<Toggle
-						checked
-						disabled
-						options={{
-							right: 'Block direct edits in this workspace (deploy via the dev workspace)'
-						}}
-					/>
-					{#if alreadyBlocksDeploy}
-						<span class="text-2xs text-secondary ml-11"
-							>Already enforced by an existing protection rule</span
-						>
-					{/if}
-				</div>
-			{:else}
-				<Toggle
-					bind:checked={lockProdDeploy}
-					options={{
-						right: 'Block direct edits in this workspace (deploy via the dev workspace)'
-					}}
-				/>
-			{/if}
-			{#if forkingLocked}
-				<div class="flex flex-col gap-0.5">
-					<Toggle checked disabled options={{ right: 'Prevent forking this workspace' }} />
-					{#if alreadyBlocksForking}
-						<span class="text-2xs text-secondary ml-11"
-							>Already enforced by an existing protection rule</span
-						>
-					{/if}
-				</div>
-			{:else}
-				<Toggle
-					bind:checked={lockProdForking}
-					options={{ right: 'Prevent forking this workspace' }}
-				/>
-			{/if}
-		</div>
-		<div class="flex gap-2">
-			<Button variant="accent" disabled={busy || !selectedDevId} onclick={attach}>
-				Attach dev workspace
-			</Button>
-			<Button
-				variant="default"
-				startIcon={{ icon: GitFork }}
-				onclick={() => goto(`${base}/user/fork_workspace?dev=true`)}
-			>
-				Create a new dev workspace
-			</Button>
-		</div>
+		{@render ownDevSection()}
 	</div>
+{:else}
+	{@render ownDevSection()}
 {/if}

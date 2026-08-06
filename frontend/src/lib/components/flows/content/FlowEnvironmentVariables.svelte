@@ -234,10 +234,9 @@
 		connectProp: () => {},
 		propPickerConfig: writable(undefined),
 		clearConnect: () => {},
-		pickerMode: () => 'popover' as const,
-		pickableProperties: () => undefined,
-		result: () => undefined,
-		extraResults: () => undefined,
+		openPicker: () => {},
+		pickerMode: () => 'pane' as const,
+		setPickTarget: () => {},
 		onPick: () => {},
 		exprBeingEdited: writable([])
 	})

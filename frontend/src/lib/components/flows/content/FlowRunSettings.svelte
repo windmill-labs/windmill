@@ -107,6 +107,13 @@
 	const s3Snippet = $derived(s3Language ? s3Scripts[s3Language][s3Kind] : undefined)
 	const concurrencyOn = $derived(hasInlineConcurrency(flowModule))
 	const concurrencyOff = $derived(!$enterpriseLicense || !concurrencyOn)
+	// A resolved approval is recorded against the step the gate holds back, not this one, so
+	// `continue_on_error` never sees it — the suspend option is the only way to continue past it.
+	const suspendNeedsItsOwnContinueToggle = $derived(
+		Boolean(flowModule.continue_on_error) &&
+			Boolean(flowModule.suspend) &&
+			!flowModule.suspend?.continue_on_disapprove_timeout
+	)
 </script>
 
 {#snippet sectionHeader(title: string)}
@@ -153,7 +160,7 @@
 					<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule {isAgentTool} />
 				</div>
 
-				<div data-setting="error-handling">
+				<div data-setting="error-handling" class="flex flex-col gap-2">
 					<Toggle
 						size="xs"
 						textClass="text-xs font-normal text-primary"
@@ -164,6 +171,13 @@
 								"The flow continues to the next step even if this step fails (after exhausting retries, if any). The step's error becomes its return, so a following branch can handle it."
 						}}
 					/>
+					{#if suspendNeedsItsOwnContinueToggle}
+						<Alert type="info" title="Does not cover the approval" size="xs">
+							This only applies when the step's own code fails. A disapproval or an approval timeout
+							is not a failure of this step, so it still stops the flow. To continue past those,
+							turn on "Continue on disapproval/timeout" in the approval settings.
+						</Alert>
+					{/if}
 				</div>
 
 				<!-- The error handler runs outside the flow's control graph; only its own

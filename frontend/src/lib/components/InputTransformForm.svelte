@@ -37,7 +37,6 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
-	import ExpressionPicker from './flows/propPicker/ExpressionPicker.svelte'
 	import { deepEqual } from 'fast-equals'
 	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
@@ -157,15 +156,12 @@
 	const propPickerWrapperContext: PropPickerWrapperContext | undefined =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 	const pickerMode = $derived(propPickerWrapperContext?.pickerMode?.() ?? 'pane')
-	// Settings rows hand their properties to the wrapper, not to this form.
-	const connectableProperties = $derived(
-		pickableProperties ?? propPickerWrapperContext?.pickableProperties?.()
-	)
 	const {
 		inputMatches,
 		connectProp: focusProp,
 		propPickerConfig,
 		clearConnect: clearFocus,
+		openPicker,
 		exprBeingEdited
 	} = propPickerWrapperContext ?? {}
 
@@ -365,6 +361,18 @@
 		})
 	}
 
+	/** A predicate is usually half-written when you reach for a property, so insert at the
+	 *  cursor and leave the rest of the expression alone. Only a field that isn't an
+	 *  expression yet gets replaced outright. */
+	function pickIntoArg(path: string) {
+		if (propertyType === 'javascript' && monaco) {
+			propPickerWrapperContext?.onPick?.(path)
+		} else {
+			connectProperty(path)
+		}
+		dispatch('change', { argName })
+	}
+
 	function connectProperty(rawValue: string) {
 		// Extract path from variable('x') or resource('x') format
 		const varMatch = variableMatch(rawValue)
@@ -465,8 +473,21 @@
 		}
 	}
 
+	// The column beside a settings row delivers here rather than through the host's `select`
+	// handler, which can only reach a mounted expression editor. A collapsed setting has no
+	// field at all, so it gives the target up and the column closes with it.
+	$effect(() => {
+		if (pickerMode !== 'sidePane') return
+		propPickerWrapperContext?.setPickTarget?.(
+			collapsed ? undefined : { id: argName, onSelect: pickIntoArg }
+		)
+	})
+
 	onDestroy(() => {
 		updatePropsBeingEdited(false)
+		if (pickerMode === 'sidePane') {
+			propPickerWrapperContext?.setPickTarget?.(undefined)
+		}
 	})
 
 	let prevArg: any = undefined
@@ -555,8 +576,10 @@
 {#if (arg != undefined || collapsed) && !hidden}
 	<div class={twMerge('relative group flex flex-col gap-1', className)}>
 		<!-- `relative` so the absolute button cluster below anchors to this row rather than
-		     to the whole field, letting it share the label's baseline. -->
-		<div class="relative flex flex-row flex-wrap justify-between gap-1">
+		     to the whole field, letting it share the label's baseline. `w-full` so an
+		     `align-items` on the caller's class can't shrink the row to its label and pull
+		     `right-0` onto it. -->
+		<div class="relative w-full flex flex-row flex-wrap justify-between gap-1">
 			<!-- min-h-7 reserves room for the button cluster beside a plain label; a custom
 			     header is a control of its own and sets the row's height itself. -->
 			<div class="flex grow items-end {header ? '' : 'min-h-7'}">
@@ -613,27 +636,7 @@
 					/>
 				{/if}
 
-				{#if propPickerWrapperContext && pickerMode === 'popover'}
-					<!-- Settings rows have no picker pane, so the properties hang off the
-						     button itself, exactly as the other expression inputs do. -->
-					<ExpressionPicker
-						id={argName}
-						pickableProperties={connectableProperties}
-						result={propPickerWrapperContext.result?.()}
-						extraResults={propPickerWrapperContext.extraResults?.()}
-						onSelect={(path) => {
-							// A predicate is usually half-written when you reach for a property, so
-							// insert at the cursor and leave the rest of the expression alone. Only
-							// a field that isn't an expression yet gets replaced outright.
-							if (propertyType === 'javascript' && monaco) {
-								propPickerWrapperContext.onPick?.(path)
-							} else {
-								connectProperty(path)
-							}
-							dispatch('change', { argName })
-						}}
-					/>
-				{:else if propPickerWrapperContext}
+				{#if propPickerWrapperContext}
 					<FlowPlugConnect
 						wrapperClasses={twMerge(
 							'group-hover:opacity-100 transition-opacity',
@@ -646,8 +649,12 @@
 								clearFocus()
 							} else {
 								focusProp?.(argName, (path) => {
-									connectProperty(path)
-									dispatch('change', { argName })
+									if (pickerMode === 'sidePane') {
+										pickIntoArg(path)
+									} else {
+										connectProperty(path)
+										dispatch('change', { argName })
+									}
 									return true
 								})
 							}
@@ -937,7 +944,12 @@
 									{/snippet}
 								</ArgInput>
 							{:else if argKind === 'javascript' && arg.expr != undefined}
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<!-- Reaching for the editor reveals the properties beside it. On pointerdown,
+								     not focus: an editor that was never blurred emits no focus event, so a
+								     column dismissed while it kept the caret could not be brought back. -->
 								<div
+									onpointerdown={() => openPicker?.()}
 									class={`bg-surface-input rounded-md flex flex-col pl-2 overflow-auto ${inputBorderClass({ forceFocus: focused, error: !!error })}`}
 								>
 									<SimpleEditor
@@ -952,6 +964,7 @@
 										on:focus={() => {
 											focused = true
 											updatePropsBeingEdited(true)
+											openPicker?.()
 										}}
 										on:blur={() => {
 											focused = false
