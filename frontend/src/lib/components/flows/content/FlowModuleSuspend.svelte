@@ -219,9 +219,9 @@
 								for any)
 							</span>
 							<PropPickerWrapper
-								popover={true}
+								sidePane
+								notSelectable
 								{result}
-								displayContext={false}
 								pickableProperties={undefined}
 								on:select={({ detail }) => {
 									editor?.insertAtCursor(detail)
