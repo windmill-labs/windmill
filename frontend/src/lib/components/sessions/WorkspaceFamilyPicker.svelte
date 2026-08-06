@@ -448,15 +448,17 @@
 								>{f.name}</span
 							>
 							{#if f.is_dev_workspace}
-								<!-- max-w/truncate: a custom environment label can be far longer than `dev`/`stg`
-								     and would otherwise crowd out the workspace name. -->
+								<!-- The cap goes on a child, not the badge: the badge's own element is a flex
+								     container, where `text-overflow` never applies and a long custom environment
+								     label would clip mid-glyph instead of ellipsizing. -->
 								<Badge
 									color="dark-blue"
 									small
 									title={devBadgeText(f.dev_workspace_label)}
-									class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white max-w-24 truncate"
-									>{devBadgeText(f.dev_workspace_label)}</Badge
+									class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
 								>
+									<span class="truncate max-w-24">{devBadgeText(f.dev_workspace_label)}</span>
+								</Badge>
 							{/if}
 							{#if isSelected(f.id)}
 								<Check size={14} class="shrink-0 ml-auto text-accent" />

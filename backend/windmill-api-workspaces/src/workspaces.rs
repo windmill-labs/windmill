@@ -936,26 +936,43 @@ async fn reject_dev_label_matching_tracked_branch(
             .fetch_optional(db)
             .await?
             .flatten();
-            let Some(branch) = branch.as_deref() else {
+            // A repository that pins no branch tracks the remote's default, which cannot be resolved
+            // without a network call. Check the conventional names instead: that is what a default
+            // branch almost always is, and both became ordinary labels when the vocabulary opened up.
+            // An unconventional default still fails at deploy time, with the CLI's own
+            // deploy-branch-equals-checked-out-branch error.
+            let pinned = branch.as_deref().filter(|b| !b.is_empty());
+            let candidates: &[&str] = match pinned {
+                Some(b) => &[b],
+                None => &["main", "master"],
+            };
+            let Some(tracked) = candidates
+                .iter()
+                .copied()
+                .find(|b| tracked_branch_blocks_dev_label(&label_branch, b))
+            else {
                 continue;
             };
-            if !tracked_branch_blocks_dev_label(&label_branch, branch) {
-                continue;
-            }
-            return Err(Error::BadRequest(if branch == label_branch {
+            let repo_branch = match pinned {
+                Some(_) => format!("tracked branch '{tracked}'"),
+                None => {
+                    format!("default branch (assumed '{tracked}'; the repository pins no branch)")
+                }
+            };
+            return Err(Error::BadRequest(if tracked == label_branch {
                 format!(
-                    "The environment label '{label_branch}' matches the tracked branch of git-sync \
+                    "The environment label '{label_branch}' matches the {repo_branch} of git-sync \
                      repository '{path}' in workspace '{w_id}': deploys from the dev workspace go \
                      to the '{label_branch}' branch and would overwrite the branch that repository \
-                     syncs from. Use a different label or change the repository's tracked branch."
+                     syncs from. Use a different label or change the repository's branch."
                 )
             } else {
                 format!(
-                    "The environment label '{label_branch}' is the namespace of the tracked branch \
-                     '{branch}' of git-sync repository '{path}' in workspace '{w_id}': git cannot \
-                     hold a branch named '{label_branch}' alongside '{branch}', so every deploy \
-                     from the dev workspace would fail. Use a different label or change the \
-                     repository's tracked branch."
+                    "The environment label '{label_branch}' is the namespace of the {repo_branch} \
+                     of git-sync repository '{path}' in workspace '{w_id}': git cannot hold a \
+                     branch named '{label_branch}' alongside '{tracked}', so every deploy from the \
+                     dev workspace would fail. Use a different label or change the repository's \
+                     branch."
                 )
             }));
         }

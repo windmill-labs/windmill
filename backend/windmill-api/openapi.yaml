@@ -1241,7 +1241,7 @@ paths:
                   type: string
                   maxLength: 30
                   pattern: "^[a-z0-9][a-z0-9._-]*$"
-                  description: "Environment label, e.g. 'dev' or 'staging'; also names the branch the dev workspace deploys to. Null defaults to 'dev'"
+                  description: "Environment label, e.g. 'dev' or 'staging'; also names the branch the dev workspace deploys to. Null defaults to 'dev'. The value is trimmed, and the server additionally rejects '..', a trailing '.' or '.lock', the reserved 'wm-fork' and 'wm_deploy', and any label colliding with a git-sync repository's tracked branch — so this pattern is necessary but not sufficient"
               required:
                 - dev_workspace_id
       responses:
@@ -31195,7 +31195,7 @@ components:
           type: string
           maxLength: 30
           pattern: "^[a-z0-9][a-z0-9._-]*$"
-          description: "Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the branch it deploys to. Ignored for non-dev forks"
+          description: "Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the branch it deploys to. Ignored for non-dev forks. The value is trimmed, and the server additionally rejects '..', a trailing '.' or '.lock', the reserved 'wm-fork' and 'wm_deploy', and any label colliding with a git-sync repository's tracked branch — so this pattern is necessary but not sufficient"
       required:
         - id
         - name

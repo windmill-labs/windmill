@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import {
 		DEV_WORKSPACE_LABELS,
@@ -56,32 +56,22 @@
 				/>
 			</div>
 			{#if free.length > 0}
-				<button
-					type="button"
-					class="text-secondary hover:text-primary hover:underline"
-					onclick={() => (custom = false)}
-				>
+				<Button variant="subtle" unifiedSize="2xs" onclick={() => (custom = false)}>
 					Use {free.join(' or ')}
-				</button>
+				</Button>
 			{/if}
 		{:else}
 			<Badge color="indigo" small>{devBadgeText(value)}</Badge>
 			{#if free.length > 1}
-				<button
-					type="button"
-					class="text-secondary hover:text-primary hover:underline"
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
 					onclick={() => (value = free[(free.indexOf(value) + 1) % free.length])}
 				>
 					Change to {free.find((l) => l !== value)}
-				</button>
+				</Button>
 			{/if}
-			<button
-				type="button"
-				class="text-secondary hover:text-primary hover:underline"
-				onclick={() => (custom = true)}
-			>
-				Custom
-			</button>
+			<Button variant="subtle" unifiedSize="2xs" onclick={() => (custom = true)}>Custom</Button>
 		{/if}
 	</div>
 	{#if error}
