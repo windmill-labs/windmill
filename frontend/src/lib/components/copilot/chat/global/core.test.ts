@@ -4544,12 +4544,13 @@ describe('prepareGlobalSystemMessage', () => {
 // Plan mode blocks every tool without `readonly: true`, and an over-blocked
 // read-only tool fails silently — the model just loses it while planning. Pin
 // the set so a new tool has to be classified rather than defaulting into the
-// blocked bucket by omission.
+// blocked bucket by omission. Reading is the bar, not "harmless": open_preview runs
+// a raw app's runnables and close_page discards tabs the user opened themselves, so
+// neither belongs here.
 describe('plan-mode readonly classification', () => {
 	const PLAN_MODE_READONLY_TOOLS = [
 		'askUserQuestion',
 		'call_api_get',
-		'close_page',
 		'diff',
 		'get_app_runtime_logs',
 		'get_datatable_table_schema',
@@ -4567,7 +4568,6 @@ describe('plan-mode readonly classification', () => {
 		'list_runs',
 		'list_workspace_items',
 		'open_page',
-		'open_preview',
 		'read_app_file',
 		'read_artifact',
 		'read_docs_page',

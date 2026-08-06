@@ -3476,7 +3476,6 @@ export const globalTools: Tool<{}>[] = [
 			'open_preview',
 			'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or raw app to let the user see and interact with it. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). Returns an error if there is no active session.'
 		),
-		readonly: true,
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
 			return openSessionPreview(parsed, sessionIdFromCtx(ctx))
@@ -3497,7 +3496,6 @@ export const globalTools: Tool<{}>[] = [
 			'close_page',
 			'Close one or more preview tabs in the side panel of this AI session. Pass `match` to close the tab(s) whose page name or item path contains that text, or `all: true` to clear the panel. Use this when the user asks to close/dismiss a tab they no longer need. Only works inside a session.'
 		),
-		readonly: true,
 		fn: async (ctx) => {
 			const parsed = closePageSchema.parse(ctx.args)
 			return closeSessionPreviewTabs(parsed, sessionIdFromCtx(ctx))
