@@ -27,6 +27,15 @@
 			: flowRunStatus?.getModuleState(data.id)
 	})
 
+	// Only `tool_call` has a node of its own in the editor, so everything else a run does is
+	// visible here or nowhere.
+	const AGENT_ACTION_KINDS = [
+		{ type: 'tool_call', singular: 'tool call', plural: 'tool calls' },
+		{ type: 'mcp_tool_call', singular: 'MCP call', plural: 'MCP calls' },
+		{ type: 'web_search', singular: 'web search', plural: 'web searches' },
+		{ type: 'message', singular: 'message', plural: 'messages' }
+	] as const
+
 	/**
 	 * The editor draws an agent's declared tools, not the calls a run makes, so a run would
 	 * otherwise leave no trace on the step. This rides the annotation slot, which is positioned
@@ -36,27 +45,25 @@
 		if (!data.insertable || data.module?.value?.type !== 'aiagent') return ''
 		const actions = flowRunStatus?.getModuleState(data.id)?.agent_actions
 		if (!actions?.length) return ''
-		let calls = 0
-		let messages = 0
+		const tally = new Map<string, { count: number; pending: number }>()
 		let failed = 0
-		let pending = 0
 		actions.forEach((action, index) => {
-			// The run records the agent's own replies alongside its calls; they are not tool calls,
-			// and a run that only answered still deserves to say so.
-			if (action.type === 'message') {
-				messages++
-				return
-			}
-			calls++
+			const entry = tally.get(action.type) ?? { count: 0, pending: 0 }
+			entry.count++
 			const type = flowRunStatus?.getModuleState(
 				getAgentActionStateId(index, data.id, action)
 			)?.type
 			if (type === 'Failure') failed++
-			else if (type !== 'Success') pending++
+			else if (type !== 'Success') entry.pending++
+			tally.set(action.type, entry)
 		})
 		const parts: string[] = []
-		if (calls > 0) parts.push(`${calls} tool call${calls > 1 ? 's' : ''}${pending > 0 ? '…' : ''}`)
-		if (messages > 0) parts.push(`${messages} message${messages > 1 ? 's' : ''}`)
+		for (const kind of AGENT_ACTION_KINDS) {
+			const entry = tally.get(kind.type)
+			if (!entry) continue
+			const noun = entry.count > 1 ? kind.plural : kind.singular
+			parts.push(`${entry.count} ${noun}${entry.pending > 0 ? '…' : ''}`)
+		}
 		if (failed > 0) parts.push(`${failed} failed`)
 		return parts.join(' · ')
 	})
