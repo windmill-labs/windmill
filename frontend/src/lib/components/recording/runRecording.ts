@@ -58,6 +58,10 @@ function directSubJobIds(flowStatus: Job['flow_status']): string[] {
  * here rather than fetching thousands of jobs. */
 const MAX_RECORDING_FETCH_JOBS = 1000
 
+/** Cap on one job's recorded logs — the replay loader refuses any value past
+ * ~8MB of text, so an unbounded capture would record fine and then never play. */
+const MAX_RECORDED_LOG_CHARS = 2 * 1024 * 1024
+
 /** Fetch a job with its complete logs: `getJob` returns only the tail of the
  * log column (and only the residual chunk once logs are offloaded to object
  * storage), so the full text has to come from the logs endpoint. Best-effort —
@@ -68,7 +72,10 @@ export async function fetchJobWithFullLogs(workspace: string, id: string): Promi
 		JobService.getJobLogs({ workspace, id }).catch(() => undefined)
 	])
 	if (typeof logs === 'string' && logs.length >= ((job as any).logs?.length ?? 0)) {
-		;(job as any).logs = logs
+		;(job as any).logs =
+			logs.length > MAX_RECORDED_LOG_CHARS
+				? '[logs truncated for recording]\n…' + logs.slice(-MAX_RECORDED_LOG_CHARS)
+				: logs
 	}
 	return job
 }
