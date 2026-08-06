@@ -4,13 +4,18 @@
  */
 
 import { expect, test, describe } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, sep as SEP } from "node:path";
 import { handleFile } from "../src/commands/script/script.ts";
 import { validateFilesetPointer } from "../src/commands/resource/resource.ts";
+import { findFilesetResourceFile } from "../src/commands/sync/sync.ts";
 
 describe("handleFile routing", () => {
   test("returns false for fileset children with script extensions", async () => {
-    // A fileset child is part of its parent resource's value; treating it as
-    // a standalone script used to crash the push (`Invalid language: .sql`).
+    // A fileset child belongs to its parent resource's value, never to a
+    // standalone script: bare `.sql` has no script language (only `.pg.sql`
+    // etc. do), so routing it to the script pusher aborts the whole push.
     for (const p of [
       "f/resources/data.fileset/energy/queries/report.sql",
       "f/resources/data.fileset/scripts/main.ts",
@@ -57,6 +62,31 @@ describe("validateFilesetPointer", () => {
         "f/resources/analytics_data",
       ),
     ).toThrow(/must live next to its resource file, at 'f\/resources\/analytics_data\.fileset'/);
+  });
+
+  test("resolves workspace-specific metadata for canonical children", async () => {
+    // The metadata file carries the workspace suffix while children stay at
+    // the server-canonical `<base>.fileset/` directory.
+    const dir = mkdtempSync(join(tmpdir(), "fileset-ws-"));
+    const cwd = process.cwd();
+    try {
+      mkdirSync(join(dir, "f/res"), { recursive: true });
+      writeFileSync(
+        join(dir, "f/res/data.ws_main.resource.yaml"),
+        "resource_type: c_files\nvalue: '!inline_fileset f/res/data.fileset'\n",
+      );
+      process.chdir(dir);
+      const childPath = ["f", "res", "data.fileset", "q.sql"].join(SEP);
+      expect(await findFilesetResourceFile(childPath, "ws_main")).toBe(
+        "f/res/data.ws_main.resource.yaml",
+      );
+      await expect(findFilesetResourceFile(childPath, null)).rejects.toThrow(
+        /No resource metadata file found/,
+      );
+    } finally {
+      process.chdir(cwd);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("rejects a branch-suffixed directory for a workspace-specific resource", () => {

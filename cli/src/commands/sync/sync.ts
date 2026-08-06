@@ -87,6 +87,7 @@ import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { preCheckPermissionedAs } from "../../core/permissioned_as.ts";
 import {
   fromWorkspaceSpecificPath,
+  toWorkspaceSpecificPath,
   getWorkspaceSpecificPath,
   getSpecificItemsForCurrentBranch,
   isWorkspaceSpecificFile,
@@ -895,7 +896,10 @@ function parseFileResourceTypeMap(
   return { formatExtMap, filesetMap };
 }
 
-async function findFilesetResourceFile(changePath: string): Promise<string> {
+export async function findFilesetResourceFile(
+  changePath: string,
+  wsName?: string | null,
+): Promise<string> {
   // Extract the base path before .fileset/
   const filesetIdx = changePath.indexOf(".fileset" + SEP);
   if (filesetIdx === -1) {
@@ -903,6 +907,14 @@ async function findFilesetResourceFile(changePath: string): Promise<string> {
   }
   const basePath = changePath.substring(0, filesetIdx);
   const candidates = [basePath + ".resource.json", basePath + ".resource.yaml"];
+  // A workspace-specific resource keeps its children at the server-canonical
+  // `<base>.fileset/` while its metadata file carries the workspace suffix.
+  if (wsName) {
+    candidates.push(
+      toWorkspaceSpecificPath(basePath + ".resource.json", wsName),
+      toWorkspaceSpecificPath(basePath + ".resource.yaml", wsName),
+    );
+  }
 
   for (const candidate of candidates) {
     try {
@@ -931,7 +943,7 @@ async function pushFilesetParentResource(
 ): Promise<FilesetPushResult> {
   let resourceFilePath: string;
   try {
-    resourceFilePath = await findFilesetResourceFile(childPath);
+    resourceFilePath = await findFilesetResourceFile(childPath, cachedWsName);
   } catch {
     return { status: "parent-missing" };
   }
@@ -4732,6 +4744,56 @@ export async function push(
     }
   }
 
+  // Non-canonical fileset pointers abort here — before the dry-run output and
+  // before any change is applied (deletes run first in the apply loop, so a
+  // mid-apply rejection would leave a partial deploy). All violations are
+  // reported at once.
+  {
+    const wsNameForPointerCheck =
+      wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
+    const pointerErrors: string[] = [];
+    for (const change of changes) {
+      if (change.name !== "added" && change.name !== "edited") {
+        continue;
+      }
+      const normalizedPath = change.path.replaceAll(SEP, "/");
+      if (
+        !normalizedPath.endsWith(".resource.yaml") &&
+        !normalizedPath.endsWith(".resource.json")
+      ) {
+        continue;
+      }
+      const content = change.name === "added" ? change.content : change.after;
+      let parsed: any;
+      try {
+        parsed = parseFromPath(change.path, content);
+      } catch {
+        // Malformed files surface their own error in the apply loop.
+        continue;
+      }
+      if (
+        typeof parsed?.value === "string" &&
+        parsed.value.startsWith("!inline_fileset ")
+      ) {
+        const serverPath =
+          wsNameForPointerCheck && isWorkspaceSpecificFile(change.path)
+            ? fromWorkspaceSpecificPath(change.path, wsNameForPointerCheck)
+            : change.path;
+        try {
+          validateFilesetPointer(
+            parsed.value.split(" ")[1],
+            removeType(serverPath, "resource"),
+          );
+        } catch (e) {
+          pointerErrors.push(e instanceof Error ? e.message : String(e));
+        }
+      }
+    }
+    if (pointerErrors.length > 0) {
+      throw new Error(pointerErrors.join("\n"));
+    }
+  }
+
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
@@ -4969,43 +5031,6 @@ export async function push(
     const cachedWsNameForPush =
       wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
 
-    // Fail fast on non-canonical fileset pointers: deletes are applied first
-    // below, so a pointer that would be rejected mid-apply must abort the
-    // push before any change reaches the remote.
-    for (const change of changes) {
-      if (change.name !== "added" && change.name !== "edited") {
-        continue;
-      }
-      const normalizedPath = change.path.replaceAll(SEP, "/");
-      if (
-        !normalizedPath.endsWith(".resource.yaml") &&
-        !normalizedPath.endsWith(".resource.json")
-      ) {
-        continue;
-      }
-      const content = change.name === "added" ? change.content : change.after;
-      let parsed: any;
-      try {
-        parsed = parseFromPath(change.path, content);
-      } catch {
-        // Malformed files surface their own error in the apply loop.
-        continue;
-      }
-      if (
-        typeof parsed?.value === "string" &&
-        parsed.value.startsWith("!inline_fileset ")
-      ) {
-        const serverPath =
-          cachedWsNameForPush && isWorkspaceSpecificFile(change.path)
-            ? fromWorkspaceSpecificPath(change.path, cachedWsNameForPush)
-            : change.path;
-        validateFilesetPointer(
-          parsed.value.split(" ")[1],
-          removeType(serverPath, "resource"),
-        );
-      }
-    }
-
     // Datatable migrations are two files (.up.sql/.down.sql) for one record, so
     // dedupe upsert/delete by (datatable, version) across the whole push.
     const pushedMigrationKeys = new Set<string>();
@@ -5081,6 +5106,17 @@ export async function push(
               // extension (.sql, .ts, …), so it must be routed to its parent
               // resource before the script handlers get a chance to treat it
               // as a standalone script.
+              if (
+                isFileResource(change.path) ||
+                isFilesetResource(change.path)
+              ) {
+                if (stateTarget) {
+                  await mkdir(path.dirname(stateTarget), { recursive: true });
+                  log.info(
+                    `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
+                  );
+                }
+              }
               if (isFileResource(change.path)) {
                 const resourceFilePath = await findResourceFile(change.path);
                 if (!alreadySynced.includes(resourceFilePath)) {
