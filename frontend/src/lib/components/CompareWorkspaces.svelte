@@ -708,7 +708,7 @@
 		const diff = comparison?.diffs.find((d) => getItemKey(d) === statusKey)
 		const removes = diff ? removesInTarget(diff) : false
 
-		let result: DeployResult
+		let result: DeployResult & { droppedAccess?: string[] }
 		if (removes) {
 			result = await deleteItemInWorkspace(kind, path, workspaceToDeployTo)
 		} else {
@@ -724,6 +724,17 @@
 
 		if (result.success) {
 			deploymentStatus[statusKey] = { status: 'deployed' }
+			// The folder landed with less access than its source, which is not something to discover
+			// later from someone who can no longer open it.
+			if (result.droppedAccess?.length) {
+				sendUserToast(
+					`${statusKey}: dropped access for ${result.droppedAccess.join(', ')} — no account in ${workspaceToDeployTo}`,
+					'warning',
+					undefined,
+					undefined,
+					10000
+				)
+			}
 		} else {
 			deploymentStatus[statusKey] = { status: 'failed', error: result.error }
 			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`, 'error')

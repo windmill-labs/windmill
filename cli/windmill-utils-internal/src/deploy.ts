@@ -62,6 +62,11 @@ export function isTriggerOrScheduleKind(
 export interface DeployResult {
   success: boolean;
   error?: string;
+  /**
+   * Folder owners and ACL entries left behind because their principal has no account in the
+   * target workspace. The deploy still succeeded — see the folder branch of {@link deployItem}.
+   */
+  droppedAccess?: string[];
 }
 
 /**
@@ -162,6 +167,26 @@ export interface DeployProvider {
     requestBody: any;
   }): Promise<any>;
   deleteFolder(p: { workspace: string; name: string }): Promise<any>;
+  // Users and groups — read only to translate a folder's principals into the
+  // target workspace's own naming (see `principalTranslator`).
+  listUsers(p: {
+    workspace: string;
+  }): Promise<{ email: string; username: string }[]>;
+  /**
+   * The workspace's own `group_` rows — the only groups an identity rule resolves against
+   * (`ensure_permissioned_as_exists`). Paginated.
+   */
+  listGroups(p: {
+    workspace: string;
+    page?: number;
+    perPage?: number;
+  }): Promise<{ name: string }[]>;
+  /**
+   * `group_` unioned with `instance_group`, which is what an owner or ACL entry is matched
+   * against — `get_groups_for_user` folds the caller's instance groups into `authed.groups`.
+   * Unpaginated server-side.
+   */
+  listGroupNames(p: { workspace: string }): Promise<string[]>;
   // Datatable migrations. In the diff, an item's `path` is
   // `<datatable>/<timestamp>_<name>` (see `parseDatatableMigrationDeployPath`).
   listDatatableMigrations(p: { workspace: string }): Promise<any>;
@@ -261,6 +286,109 @@ export function stripOperationalStateOnUpdate<T extends Record<string, any>>(
   if (!alreadyExists) return payload;
   const { mode: _mode, enabled: _enabled, ...rest } = payload;
   return rest as T;
+}
+
+/**
+ * Every workspace group, not just the first page.
+ *
+ * A group missed here reads as "has no account in the target", which refuses a folder deploy
+ * outright, so the listing has to be exhaustive. A short page ends it — `list_groups` runs through
+ * `paginate()`, which caps `per_page` at `MAX_PER_PAGE` (10000), so it can never return fewer than
+ * the 1000 asked for while more remain. The size check is the backstop for a server that ignores
+ * `page` and keeps serving the first one.
+ */
+async function workspaceGroupNames(
+  provider: DeployProvider,
+  workspace: string
+): Promise<Set<string>> {
+  const PER_PAGE = 1000;
+  const names = new Set<string>();
+  for (let page = 1; page <= 50; page++) {
+    const batch = await provider.listGroups({
+      workspace,
+      page,
+      perPage: PER_PAGE,
+    });
+    const before = names.size;
+    batch.forEach((g) => names.add(g.name));
+    if (batch.length < PER_PAGE || names.size === before) break;
+  }
+  return names;
+}
+
+/**
+ * Resolve a source-workspace principal into the same person or group as the target names them.
+ *
+ * A `u/<username>` is workspace-local: the same username in the target can be a different account,
+ * so copying one verbatim can hand a folder — or an item's execution identity — to a namesake.
+ * Email is the only identifier stable across workspaces, so users go source username -> email ->
+ * target username, and anyone without an account there resolves to undefined for the caller to
+ * deal with. Groups match by name, but against *different* sets depending on where the principal
+ * sits — see `translateAccess` and `translateRule`.
+ */
+async function principalTranslator(
+  provider: DeployProvider,
+  workspaceFrom: string,
+  workspaceTo: string
+): Promise<{
+  translateAccess: (principal: string) => string | undefined;
+  translateRule: (principal: string) => string | undefined;
+  danglesInSource: (principal: string) => boolean;
+}> {
+  const [fromUsers, toUsers, ruleGroups, accessGroups] = await Promise.all([
+    // `list_users` is unpaginated, unlike the `listGroups` listing above.
+    provider.listUsers({ workspace: workspaceFrom }),
+    provider.listUsers({ workspace: workspaceTo }),
+    workspaceGroupNames(provider, workspaceTo),
+    provider
+      .listGroupNames({ workspace: workspaceTo })
+      .then((names) => new Set(names)),
+  ]);
+  const emailOfSourceUsername = new Map(
+    fromUsers.map((u) => [u.username, u.email])
+  );
+  const targetUsernameOfEmail = new Map(
+    toUsers.map((u) => [u.email, u.username])
+  );
+
+  const resolve = (
+    principal: string,
+    groups: Set<string>
+  ): string | undefined => {
+    if (principal.startsWith("u/")) {
+      const email = emailOfSourceUsername.get(principal.slice(2));
+      const username = email ? targetUsernameOfEmail.get(email) : undefined;
+      return username ? `u/${username}` : undefined;
+    }
+    if (principal.startsWith("g/")) {
+      return groups.has(principal.slice(2)) ? principal : undefined;
+    }
+    // An email is already workspace-independent; it only has to name someone there.
+    return targetUsernameOfEmail.has(principal) ? principal : undefined;
+  };
+
+  return {
+    /**
+     * For an owner or an ACL entry. Instance groups count: they are instance-wide, and
+     * `get_groups_for_user` folds them into the `authed.groups` that `extra_perms` is matched
+     * against, so `g/<instance group>` grants access in the target exactly as it did in the source.
+     */
+    translateAccess: (principal: string) => resolve(principal, accessGroups),
+    /**
+     * For an identity rule, which resolves only against the workspace's own `group_` rows —
+     * `ensure_permissioned_as_exists` rejects an instance group, so accepting one here would
+     * write a folder the server then refuses every item deploy into.
+     */
+    translateRule: (principal: string) => resolve(principal, ruleGroups),
+    /**
+     * The principal names a user the *source* no longer has, so it is untranslatable for want of
+     * an email to match on — adding that username to the target would not resolve it. Only `u/`
+     * can fail this way: a group name and an email are already what the target is searched by.
+     */
+    danglesInSource: (principal: string): boolean =>
+      principal.startsWith("u/") &&
+      !emailOfSourceUsername.has(principal.slice(2)),
+  };
 }
 
 function getSubModules(flowModule: any): any[][] {
@@ -429,6 +557,7 @@ export async function deployItem(
   onBehalfOf?: string
 ): Promise<DeployResult> {
   const preserveOnBehalfOf = onBehalfOf !== undefined;
+  let droppedAccess: string[] = [];
 
   try {
     const alreadyExists = await checkItemExists(
@@ -668,25 +797,73 @@ export async function deployItem(
         workspace: workspaceFrom,
         name,
       });
+      const rules: { path_glob: string; permissioned_as: string }[] =
+        folder.default_permissioned_as ?? [];
+      const owners: string[] = folder.owners ?? [];
+      const acl = Object.entries(
+        (folder.extra_perms ?? {}) as Record<string, boolean>
+      );
+      const { translateAccess, translateRule, danglesInSource } =
+        await principalTranslator(provider, workspaceFrom, workspaceTo);
+
+      // An identity rule naming nobody in the target cannot be carried and cannot be dropped:
+      // dropping it runs items landing in the folder as whoever deployed them, and keeping it
+      // verbatim creates a folder the server then rejects every deploy into — `create_folder`
+      // validates a rule's shape, `ensure_permissioned_as_exists` its principal's existence at
+      // item-create time. So the whole folder deploy stops here instead.
+      const unresolvableRule = rules
+        .map((r) => r.permissioned_as)
+        .find((p) => !translateRule(p));
+      if (unresolvableRule) {
+        return {
+          success: false,
+          error: `f/${name} runs items on behalf of ${unresolvableRule}, ${
+            danglesInSource(unresolvableRule)
+              ? `who no longer has an account in ${workspaceFrom}. Point the folder's rule at someone who does`
+              : `who has no account in ${workspaceTo}. Add them there`
+          }, then deploy the folder again.`,
+        };
+      }
+
+      // An owner or ACL entry naming nobody there is dropped instead: that can only narrow the
+      // folder, never widen it.
+      droppedAccess = [...new Set([...owners, ...acl.map(([p]) => p)])].filter(
+        (p) => !translateAccess(p)
+      );
+      const translatedOwners = owners
+        .map(translateAccess)
+        .filter((p): p is string => !!p);
+      const requestBody = {
+        // Sending `[]` would blank the target's owners, and `update_folder` only force-appends the
+        // caller when they are not an admin — so an admin deploying a folder whose every owner is
+        // untranslatable would leave an owner-less folder behind. Omitting the key keeps whatever
+        // the target had; on create the server appends the caller regardless.
+        owners: translatedOwners.length ? translatedOwners : undefined,
+        extra_perms: Object.fromEntries(
+          acl.flatMap(([p, write]) => {
+            const t = translateAccess(p);
+            return t ? [[t, write] as const] : [];
+          })
+        ),
+        summary: folder.summary ?? undefined,
+        // Both mirror the source rather than preserving the target: a rule or label cleared at the
+        // source has to clear here too, or the copy keeps applying an identity nobody asked for.
+        default_permissioned_as: rules.map((r) => ({
+          ...r,
+          permissioned_as: translateRule(r.permissioned_as)!,
+        })),
+        labels: folder.labels ?? [],
+      };
       if (alreadyExists) {
         await provider.updateFolder({
           workspace: workspaceTo,
           name,
-          requestBody: {
-            owners: folder.owners,
-            extra_perms: folder.extra_perms,
-            summary: folder.summary ?? undefined,
-          },
+          requestBody,
         });
       } else {
         await provider.createFolder({
           workspace: workspaceTo,
-          requestBody: {
-            name,
-            owners: folder.owners,
-            extra_perms: folder.extra_perms,
-            summary: folder.summary ?? undefined,
-          },
+          requestBody: { name, ...requestBody },
         });
       }
     } else if (kind === "schedule") {
@@ -781,7 +958,10 @@ export async function deployItem(
       throw new Error(`Unknown kind: ${kind}`);
     }
 
-    return { success: true };
+    return {
+      success: true,
+      droppedAccess: droppedAccess.length ? droppedAccess : undefined,
+    };
   } catch (e: unknown) {
     return { success: false, error: toError(e) };
   }
@@ -903,6 +1083,8 @@ export async function getItemValue(
         owners: folder.owners,
         extra_perms: folder.extra_perms,
         summary: folder.summary,
+        default_permissioned_as: folder.default_permissioned_as,
+        labels: folder.labels,
       };
     } else if (kind === "schedule") {
       // Mirror the runtime-fields-ignore set used server-side so the diff drawer

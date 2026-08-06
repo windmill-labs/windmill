@@ -326,7 +326,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "label": {
                         "type": "string",
@@ -518,7 +518,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "resource_type": {
                         "type": "string",
@@ -591,7 +591,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "order_desc": {
                         "type": "boolean",
@@ -853,7 +853,7 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "order_desc": {
                         "type": "boolean",
@@ -1089,7 +1089,7 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "path_start": {
                         "type": "string",
@@ -1571,7 +1571,7 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "all_workspaces": {
                         "type": "boolean",
@@ -1705,7 +1705,7 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "trigger_kind": {
                         "type": "string",
@@ -2313,7 +2313,7 @@ You should get the schema of the script or flow before updating the schedule to 
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "args": {
                         "type": "string",
@@ -2378,7 +2378,7 @@ You should get the schema of the script or flow before updating the schedule to 
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "ping_since": {
                         "type": "integer",
