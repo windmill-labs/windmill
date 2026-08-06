@@ -545,9 +545,12 @@ async fn test_wm_token_cannot_mint_a_provenance_free_credential(
     );
 
     // No false positive: a real superadmin API token still refreshes.
-    let resp = authed(client().get(format!("{base}/refresh_token")), "SECRET_TOKEN")
-        .send()
-        .await?;
+    let resp = authed(
+        client().get(format!("{base}/refresh_token")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
     assert_eq!(
         resp.status(),
         200,
@@ -569,6 +572,19 @@ async fn test_wm_token_cannot_mint_a_provenance_free_credential(
         resp.text().await?
     );
 
+    // 3. Choosing the password of the elevated account it runs as would let the
+    //    holder log in for a session that carries no job provenance at all.
+    let resp = authed(client().post(format!("{base}/setpassword")), &devops_wm)
+        .json(&json!({ "password": "hunter2" }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "devops WM_TOKEN must not set its account password: {}",
+        resp.text().await?
+    );
+
     Ok(())
 }
 
@@ -580,7 +596,9 @@ async fn test_wm_token_cannot_mint_a_provenance_free_credential(
 /// client.
 #[cfg(feature = "mcp")]
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
-async fn test_wm_token_cannot_mint_via_mcp_oauth_approval(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_wm_token_cannot_mint_via_mcp_oauth_approval(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     set_jwt_secret().await;
 
@@ -599,9 +617,7 @@ async fn test_wm_token_cannot_mint_via_mcp_oauth_approval(db: Pool<Postgres>) ->
 
     let sa_wm = wm_token("test@windmill.dev", true).await;
     let resp = authed(
-        client().post(format!(
-            "{base}/w/test-workspace/mcp/oauth/server/approve"
-        )),
+        client().post(format!("{base}/w/test-workspace/mcp/oauth/server/approve")),
         &sa_wm,
     )
     .json(&approval)

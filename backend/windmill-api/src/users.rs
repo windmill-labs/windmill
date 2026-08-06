@@ -21,7 +21,9 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::Deserialize;
-use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin};
+use windmill_api_auth::{
+    forbid_elevated_job_token, forbid_superadmin_job_token, require_super_admin,
+};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
@@ -146,7 +148,10 @@ async fn set_password(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    // Choosing the password of the elevated account this job runs as is a credential
+    // mint by another name: logging in with it yields a session with no `job_id`
+    // (GHSA-hfh4-cx4h-3fcr).
+    forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     let email = authed.email.clone();
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
