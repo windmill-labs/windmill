@@ -83,6 +83,32 @@ async fn post(base: &str, path: &str, token: Option<&str>) -> (reqwest::StatusCo
     (status, body)
 }
 
+async fn post_json(
+    url: &str,
+    token: Option<&str>,
+    body: serde_json::Value,
+) -> (reqwest::StatusCode, String) {
+    let mut req = client().post(url).json(&body);
+    if let Some(token) = token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    }
+    let resp = req.send().await.expect("request");
+    let status = resp.status();
+    let body = resp.text().await.expect("body");
+    (status, body)
+}
+
+async fn delete(url: &str, token: Option<&str>) -> (reqwest::StatusCode, String) {
+    let mut req = client().delete(url);
+    if let Some(token) = token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    }
+    let resp = req.send().await.expect("request");
+    let status = resp.status();
+    let body = resp.text().await.expect("body");
+    (status, body)
+}
+
 #[sqlx::test(fixtures("base", "jobs_read_auth"))]
 async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -92,6 +118,8 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     let base = format!("http://localhost:{port}/api/w/test-workspace/jobs_u");
     // result_by_id / get_otel_traces live on the authed `/jobs` service, not `/jobs_u`.
     let authed_base = format!("http://localhost:{port}/api/w/test-workspace/jobs");
+    let rules_url =
+        format!("http://localhost:{port}/api/w/test-workspace/workspaces/protection_rules");
 
     // The endpoints that return the victim job's sensitive data by UUID.
     let endpoints = [
@@ -507,6 +535,161 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         "a non-reader must not be able to mint a share token (got {status})"
     );
 
+    // ---- PUBLIC SHARE READ LINK (public view_token) ----
+    // A member-audience token must never turn into a public one: links already handed
+    // out stay confined to logged-in members.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{VICTIM}?view_token={token}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST,
+        "a member view_token must not grant unauthenticated read (got {status}): {body}"
+    );
+    assert!(
+        !body.contains(RESULT_SECRET),
+        "unauth body must not leak with a member token: {body}"
+    );
+
+    // The owner mints the public flavor for the top flow.
+    let (status, mint_body) = get(
+        &authed_base,
+        &format!("job_public_view_token/{TOP_SECRET_FLOW}"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "owner must be able to mint a public share token (got {status}): {mint_body}"
+    );
+    let public_token = mint_body.trim().trim_matches('"').to_string();
+
+    // It grants a logged-out visitor the shared job and its whole flow subtree.
+    for path in [
+        format!("get/{TOP_SECRET_FLOW}?view_token={public_token}"),
+        format!("get_args/{TOP_SECRET_FLOW}?view_token={public_token}"),
+        format!("getupdate/{TOP_SECRET_FLOW}?view_token={public_token}"),
+        format!("completed/get_result/{DEEP_LEAF_JOB}?view_token={public_token}"),
+        format!("get_logs/{DEEP_LEAF_JOB}?view_token={public_token}"),
+    ] {
+        let (status, body) = get(&base, &path, None).await;
+        assert!(
+            status.is_success(),
+            "a public view_token must grant unauthenticated read of {path} (got {status}): {body}"
+        );
+    }
+
+    // Same scoping as the member flavor: another job, and a tampered signature, are refused.
+    for path in [
+        format!("get/{VICTIM}?view_token={public_token}"),
+        format!("get/{TOP_SECRET_FLOW}?view_token={TOP_SECRET_FLOW}.deadbeef"),
+    ] {
+        let (status, body) = get(&base, &path, None).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::BAD_REQUEST,
+            "an out-of-scope or forged public token must not grant read of {path} (got {status}): {body}"
+        );
+    }
+
+    // The public audience is a superset of the member one: it must also satisfy the
+    // authenticated ACL check, so a viewer handed a public link is not worse off.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{DEEP_LEAF_JOB}?view_token={public_token}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "a public view_token must also grant an authenticated member read (got {status}): {body}"
+    );
+
+    // Tag-scoped caller, job inside its scope: the member flavor is allowed (asserted
+    // further down), the public one must not be — i.e. strictly stricter.
+    let (status, body) = get(
+        &authed_base,
+        &format!("job_public_view_token/{VICTIM}"),
+        Some("SCOPED_DENO_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "a tag-scoped token must NOT mint a public link, even for an in-scope job (got {status}): {body}"
+    );
+
+    // Minting the public flavor takes the same read access as the member one.
+    let (status, _) = get(
+        &authed_base,
+        &format!("job_public_view_token/{TOP_SECRET_FLOW}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "a non-reader must not be able to mint a public share token (got {status})"
+    );
+
+    // Publishing a run is gated by `RestrictPublicRunSharing`, so a wrong bitflag or
+    // rule-kind arm would silently let a restricted member expose one. Admins bypass, and
+    // the member flavor is untouched by the rule.
+    let (status, body) = post_json(
+        &rules_url,
+        Some("SECRET_TOKEN"),
+        serde_json::json!({
+            "name": "no-public-runs",
+            "rules": ["RestrictPublicRunSharing"],
+            "bypass_users": [],
+            "bypass_groups": []
+        }),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "admin should create the protection rule (got {status}): {body}"
+    );
+    let (status, body) = get(
+        &authed_base,
+        &format!("job_public_view_token/{TOP_SECRET_FLOW}"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "the rule must block a non-admin owner from minting a public link (got {status}): {body}"
+    );
+    let (status, body) = get(
+        &authed_base,
+        &format!("job_view_token/{TOP_SECRET_FLOW}"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "the rule must NOT affect the member flavor (got {status}): {body}"
+    );
+    let (status, body) = get(
+        &authed_base,
+        &format!("job_public_view_token/{TOP_SECRET_FLOW}"),
+        Some("SECRET_TOKEN"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "an admin must bypass the rule (got {status}): {body}"
+    );
+
+    // Later assertions in this test mint public tokens; drop the rule so they see the
+    // same workspace state as before.
+    let (status, _) = delete(&format!("{rules_url}/no-public-runs"), Some("SECRET_TOKEN")).await;
+    assert!(status.is_success(), "admin should delete the rule");
+
     // ---- TAG-SCOPED token must not mint a token outside its allowed tags ----
     // SCOPED_DENO_TOKEN (test-user-2, scope `if_jobs:filter_tags:deno`) can read both
     // VICTIM (tag deno) and FLOW_JOB (tag flow) by RLS, but minting must honor the
@@ -618,6 +801,36 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
             "viewer must not cancel another user's job ({path}, got {status}): {body}"
         );
     }
+    // A public share link grants read, never the right to kill the run: cancelling stays
+    // confined to anonymously-created jobs for a logged-out caller.
+    let (status, mint_body) = get(
+        &authed_base,
+        &format!("job_public_view_token/{RUNNING_JOB}"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(status.is_success(), "owner mints for the running job");
+    let running_public = mint_body.trim().trim_matches('"').to_string();
+    let (status, body) = get(
+        &base,
+        &format!("get/{RUNNING_JOB}?view_token={running_public}"),
+        None,
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "the public token must grant the anonymous read it is for (got {status}): {body}"
+    );
+    let (status, body) = post(
+        &base,
+        &format!("queue/cancel/{RUNNING_JOB}?view_token={running_public}"),
+        None,
+    )
+    .await;
+    assert!(
+        !status.is_success(),
+        "a public token must not let an anonymous caller cancel the run (got {status}): {body}"
+    );
     // The owner still cancels their own job (no over-blocking). Keep this last: it
     // takes RUNNING_JOB out of the queue.
     let (status, body) = post(

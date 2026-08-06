@@ -70,6 +70,7 @@ bitflags::bitflags! {
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
+        const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
     }
 }
 
@@ -81,6 +82,7 @@ pub enum ProtectionRuleKind {
     DisableWorkspaceForking,
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
+    RestrictPublicRunSharing,
 }
 
 impl ProtectionRuleKind {
@@ -98,6 +100,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 ProtectionRules::RESTRICT_ANONYMOUS_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
+            }
         }
     }
 
@@ -112,6 +117,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 "Making an app publicly accessible without login (anonymous execution mode) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                "Sharing a run publicly (readable without login) is restricted in this workspace"
             }
         }
     }
@@ -175,7 +183,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28871/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28870/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28890/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -310,7 +318,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitRepositorySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_types_override: Option<Vec<ObjectType>>,
@@ -508,7 +516,7 @@ impl AutoPullSettings {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitSyncSettings {
     pub include_path: Vec<String>,
     pub include_type: Vec<ObjectType>,

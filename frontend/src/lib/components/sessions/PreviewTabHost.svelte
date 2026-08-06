@@ -127,14 +127,16 @@
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
 	)
 
-	// Overlays the editor opens (drawers, modals, popovers) anchor here rather than to the
+	// Overlays a tab opens (drawers, modals, popovers) anchor here rather than to the
 	// document, so they stay within this tab and hide with it when another tab takes over.
+	// Every branch that renders content in-realm must bind this — an unbound host makes the
+	// overlay fall back to viewport-`fixed`, spilling it across the whole app.
 	// The stack is per-tab for the same reason: this host stays mounted while hidden, and a
 	// shared stack would let its overlays arbitrate Escape for the tab the user is looking at.
-	let editorEl: HTMLDivElement | undefined = $state()
+	let overlayHostEl: HTMLDivElement | undefined = $state()
 	let hostDrawers = $state({ val: [] as string[] })
 	setOverlayHost({
-		el: () => editorEl,
+		el: () => overlayHostEl,
 		drawers: hostDrawers,
 		// The panel is resized rather than unmounted, so the active tab of a panel that
 		// is off screen is as invisible as a background tab.
@@ -180,7 +182,7 @@
 
 {#if slot.kind === 'editor' && mounted && runtime}
 	<div
-		bind:this={editorEl}
+		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
 	>
@@ -238,7 +240,11 @@
 		{/if}
 	</div>
 {:else if slot.kind === 'artifact' && mounted}
-	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
+	<div
+		bind:this={overlayHostEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
 		{#if artifact}
 			<ArtifactViewer {artifact} />
 		{:else if !runtime?.manager.artifacts.loading}

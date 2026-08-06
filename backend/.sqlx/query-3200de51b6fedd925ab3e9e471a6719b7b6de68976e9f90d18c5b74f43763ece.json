@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT req.id AS \"id!\",\n                (CASE\n                    WHEN workspace.id IS NULL THEN 'deleted'\n                    WHEN usr.email IS NULL AND NOT $3 THEN 'deleted'\n                    WHEN workspace.deleted THEN 'archived'\n                    ELSE 'active'\n                END) AS \"status!\"\n         FROM unnest($1::text[]) AS req(id)\n         LEFT JOIN workspace ON workspace.id = req.id\n         LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "status!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "3200de51b6fedd925ab3e9e471a6719b7b6de68976e9f90d18c5b74f43763ece"
+}
