@@ -141,9 +141,12 @@ describe('parseRecording', () => {
 	it('upgrades v1 job recordings in place, refusing only what cannot be salvaged', () => {
 		// v1 stored live event streams; published recordings (the hub) collapse to
 		// the completed job each stream carried and keep replaying.
-		const v1Stream = (j: Record<string, unknown>) => ({
+		const v1Stream = (j: Record<string, unknown>, logChunks: string[] = []) => ({
 			initial_job: { id: j.id },
-			events: [{ t: 5, data: { completed: true, job: j } }]
+			events: [
+				...logChunks.map((c, i) => ({ t: i, data: { new_logs: c, log_offset: i + 1 } })),
+				{ t: 5, data: { completed: true, job: j } }
+			]
 		})
 		const v1Flow = {
 			version: 1,
@@ -151,12 +154,14 @@ describe('parseRecording', () => {
 			...header,
 			jobs: {
 				root: v1Stream(job({ id: 'root', job_kind: 'flowpreview' })),
-				sub: v1Stream(job({ id: 'sub', parent_job: 'root' }))
+				// The backfilled completed job carried no logs — only the stream did.
+				sub: v1Stream(job({ id: 'sub', parent_job: 'root' }), ['line 1\n', 'line 2\n'])
 			}
 		}
 		const flow = parseRecording(v1Flow)
 		expect(flow.ok && flow.loaded.kind).toBe('flow')
 		expect(flow.ok && (flow.loaded.recording as any).root_job_id).toBe('root')
+		expect(flow.ok && (flow.loaded.recording as any).jobs.sub.logs).toBe('line 1\nline 2\n')
 		const v1Script = {
 			version: 1,
 			type: 'script',

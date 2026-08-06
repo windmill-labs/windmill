@@ -57,6 +57,8 @@ function directSubJobIds(flowStatus: Job['flow_status']): string[] {
 /** Recording size backstop: a pathological run (huge loops) stops collecting
  * here rather than fetching thousands of jobs. */
 const MAX_RECORDING_FETCH_JOBS = 1000
+/** Concurrent job fetches while collecting a run. */
+const FETCH_CONCURRENCY = 20
 
 /** Cap on one job's recorded logs — the replay loader refuses any value past
  * ~8MB of text, so an unbounded capture would record fine and then never play. */
@@ -90,16 +92,23 @@ async function fetchRunJobs(workspace: string, rootJobId: string): Promise<Recor
 		frontier = [...new Set(frontier)]
 			.filter((id) => !jobs[id])
 			.slice(0, MAX_RECORDING_FETCH_JOBS - Object.keys(jobs).length)
-		const fetched = await Promise.all(
-			frontier.map(async (id) => {
-				try {
-					return await fetchJobWithFullLogs(workspace, id)
-				} catch (e) {
-					console.warn('[recording] failed to fetch job', id, e)
-					return undefined
-				}
-			})
-		)
+		// Bounded fan-out: each job costs two requests, and a wide loop's
+		// frontier would otherwise put hundreds in flight at once.
+		const fetched: (Job | undefined)[] = []
+		for (let i = 0; i < frontier.length; i += FETCH_CONCURRENCY) {
+			fetched.push(
+				...(await Promise.all(
+					frontier.slice(i, i + FETCH_CONCURRENCY).map(async (id) => {
+						try {
+							return await fetchJobWithFullLogs(workspace, id)
+						} catch (e) {
+							console.warn('[recording] failed to fetch job', id, e)
+							return undefined
+						}
+					})
+				))
+			)
+		}
 		const next: string[] = []
 		for (const job of fetched) {
 			if (!job) continue

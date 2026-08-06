@@ -1368,7 +1368,7 @@ export class DeployToHubSession {
 				workspace: this.workspace,
 				jobKinds: it.kind === 'script' ? 'script' : 'flow',
 				scriptPathExact: it.path,
-				success: true,
+				status: 'success',
 				// Standalone runs only — a script that also runs as a flow step would
 				// otherwise list its child jobs.
 				hasNullParent: true,
@@ -1388,9 +1388,10 @@ export class DeployToHubSession {
 
 	/** Adopt an existing successful run as the one to save: recordings are built
 	 * from completed jobs, so it goes through the exact same save path as a
-	 * fresh run. */
+	 * fresh run. No token bump — there is no poll to cancel (the picker is
+	 * hidden while a run is in flight) and bumping would strand `openRecord`'s
+	 * still-loading schema fetch on "Loading schema…" forever. */
 	useExistingRun = (jobId: string) => {
-		++this.#recordRunTok
 		this.runJobId = jobId
 		this.runState = 'success'
 		this.runResult = undefined
@@ -1471,7 +1472,18 @@ export class DeployToHubSession {
 
 	async #buildScriptRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
-		const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+		// Pin the code to the version the run executed — the picker can select a
+		// run older than the currently deployed script, and publishing current
+		// code with an old run's logs/result would misrepresent both.
+		const job = (await JobService.getJob({ workspace, id: jobId })) as any
+		let s
+		try {
+			s = job.script_hash
+				? await ScriptService.getScriptByHash({ workspace, hash: job.script_hash })
+				: await ScriptService.getScriptByPath({ workspace, path: it.path })
+		} catch {
+			s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+		}
 		return await buildScriptRecording(workspace, jobId, {
 			scriptPath: it.path,
 			code: s.content,
@@ -1483,8 +1495,13 @@ export class DeployToHubSession {
 	async #buildFlowRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
 		const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+		// Pin the definition to the version the run executed (it travels on the
+		// job as raw_flow) — the recorded statuses reference its module ids, and
+		// a flow edited since the run would leave the replayed graph and the
+		// statuses unable to line up.
+		const root = (await JobService.getJob({ workspace, id: jobId })) as any
 		return await buildFlowRecording(workspace, jobId, it.path, {
-			value: f.value,
+			value: root.raw_flow ?? f.value,
 			schema: f.schema ?? { type: 'object', properties: {}, required: [] },
 			summary: f.summary ?? ''
 		})

@@ -471,21 +471,42 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 	return undefined
 }
 
+/** A v1 stream's incremental logs may be longer than what its completed job
+ * carried (sub-jobs were often backfilled without logs), but the upgraded job
+ * is one rendered value, so the reassembly is held under the text budget. */
+const MAX_UPGRADED_LOG_CHARS = 2 * 1024 * 1024
+
 /** v1 flow/script/pipeline recordings stored captured live event streams; each
  * stream carried the completed job in its final `completed` event, so they
- * upgrade to the v2 run-based shape by collapsing every stream to that job.
- * Recordings already published (the hub) keep replaying this way. Returns
- * undefined when no completed job can be extracted. */
+ * upgrade to the v2 run-based shape by collapsing every stream to that job —
+ * with the stream's incremental `new_logs` chunks reassembled, since the
+ * completed job was often fetched without them. Recordings already published
+ * (the hub) keep replaying this way. Returns undefined when no completed job
+ * can be extracted. */
 function upgradeV1JobRecording(data: Record<string, unknown>): Record<string, unknown> | undefined {
 	const completedJobOf = (stream: unknown): Record<string, unknown> | undefined => {
 		if (!isObject(stream)) return undefined
 		let job = isObject(stream.initial_job) ? stream.initial_job : undefined
+		let streamedLogs = ''
 		for (const e of Array.isArray(stream.events) ? stream.events : []) {
-			if (isObject(e) && isObject(e.data) && e.data.completed && isObject(e.data.job)) {
+			if (!isObject(e) || !isObject(e.data)) continue
+			if (typeof e.data.new_logs === 'string') streamedLogs += e.data.new_logs
+			if (e.data.completed && isObject(e.data.job)) {
 				job = e.data.job as Record<string, unknown>
 			}
 		}
-		return job && typeof job.id === 'string' ? job : undefined
+		if (!job || typeof job.id !== 'string') return undefined
+		const jobLogs = typeof job.logs === 'string' ? job.logs : ''
+		if (streamedLogs.length > jobLogs.length) {
+			job = {
+				...job,
+				logs:
+					streamedLogs.length > MAX_UPGRADED_LOG_CHARS
+						? streamedLogs.slice(-MAX_UPGRADED_LOG_CHARS)
+						: streamedLogs
+			}
+		}
+		return job
 	}
 	const type = data.type === undefined ? 'flow' : data.type
 	if (type === 'script') {
