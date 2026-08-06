@@ -716,3 +716,60 @@ async fn test_wm_token_cannot_mint_or_widen_an_app_embed_token(
 
     Ok(())
 }
+
+/// Destroying the account or credentials of the identity a job runs as is never the
+/// runnable's work, and a `wm_deployers` member may point `on_behalf_of` at any real
+/// user — so these reject every job token, elevated or not (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_cannot_destroy_its_on_behalf_account(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/users");
+
+    // An ordinary member's identity: the cap here does not depend on elevation.
+    let user_wm = wm_token("test2@windmill.dev", false).await;
+
+    let resp = authed(client().post(format!("{base}/leave_instance")), &user_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "WM_TOKEN must not delete the account it runs as: {}",
+        resp.text().await?
+    );
+
+    // The prefix of that identity's real fixture token, so without the guard the
+    // delete would land rather than silently match nothing.
+    let resp = authed(
+        client().delete(format!("{base}/tokens/delete/SECRET_TOK")),
+        &user_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "WM_TOKEN must not revoke that identity's tokens: {}",
+        resp.text().await?
+    );
+
+    // The account and its credentials are untouched, not merely the response refused.
+    let account_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM password WHERE email = 'test2@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(account_rows, 1, "the password row must survive");
+    let token_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM token WHERE email = 'test2@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert!(token_rows > 0, "the identity's tokens must survive");
+
+    Ok(())
+}

@@ -28,7 +28,8 @@ use axum::{
 };
 use hyper::{header::LOCATION, StatusCode};
 use windmill_api_auth::{
-    forbid_elevated_job_token, forbid_superadmin_job_token, require_super_admin, OptJobAuthed,
+    forbid_elevated_job_token, forbid_job_token_account_destruction, forbid_superadmin_job_token,
+    require_super_admin, OptJobAuthed,
 };
 use windmill_common::usernames::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
@@ -1248,6 +1249,7 @@ async fn join_workspace<'c>(
 }
 
 async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
+    forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
@@ -3116,6 +3118,7 @@ async fn delete_token(
     authed: ApiAuthed,
     Path(token_prefix): Path<String>,
 ) -> Result<String> {
+    forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
 
     let tokens_deleted: Vec<String> = sqlx::query_scalar(

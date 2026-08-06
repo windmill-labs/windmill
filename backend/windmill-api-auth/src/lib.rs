@@ -381,6 +381,26 @@ pub async fn forbid_elevated_job_token(
     Ok(())
 }
 
+/// Forbid an irreversible action against the *account* a job token runs as.
+///
+/// A job token borrows an `on_behalf_of` identity to do the runnable's work, and a
+/// `wm_deployers` member may point that at any real user. Destroying the account or
+/// its credentials is never that work, and unlike the privilege gates the damage
+/// does not depend on the identity being elevated — so this rejects every job
+/// token, not just superadmin/devops ones (GHSA-hfh4-cx4h-3fcr).
+pub fn forbid_job_token_account_destruction(authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN): it would destroy the \
+             account or credentials of the identity the job runs as. If this is genuinely \
+             intended, do it from the User settings drawer, or with a dedicated token created \
+             there and used explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
 where
     F: FnOnce() -> String,
