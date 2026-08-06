@@ -11,9 +11,9 @@ const KIND = 'panel_placement'
 export type FlowPanelPlacementEvent =
 	/** `auto` resolved to modal because the editor is narrower than the breakpoint. */
 	| 'breakpoint_modal'
-	/** The user pinned the panel into the pane, overriding `auto`. */
+	/** The user pinned the panel into the pane while it was in the modal. */
 	| 'force_attach'
-	/** The user pinned the panel out into the modal, overriding `auto`. */
+	/** The user pinned the panel out into the modal while it was in the pane. */
 	| 'force_detach'
 
 export function logPanelPlacement(event: FlowPanelPlacementEvent): void {
