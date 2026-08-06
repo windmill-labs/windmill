@@ -1,3 +1,4 @@
+import { getContext, setContext } from 'svelte'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import type { FlowPanelMode, FlowPanelPreference } from './panelPlacement'
 
@@ -9,40 +10,87 @@ const FEATURE = 'flow_editor'
 const KIND = 'panel_placement'
 
 export type FlowPanelPlacementEvent =
-	/** `auto` resolved to modal because the editor is narrower than the breakpoint. */
+	/** The width moved the panel into the modal, under `auto`. */
 	| 'breakpoint_modal'
 	/** The user pinned the panel into the pane while it was in the modal. */
 	| 'force_attach'
 	/** The user pinned the panel out into the modal while it was in the pane. */
 	| 'force_detach'
 
-export function logPanelPlacement(event: FlowPanelPlacementEvent): void {
-	logFeatureUsage(FEATURE, KIND, { key: event })
-}
+type Log = (event: FlowPanelPlacementEvent) => void
 
-/** Returns nothing for `auto`: going back to automatic is not a placement being forced. */
+const log: Log = (event) => logFeatureUsage(FEATURE, KIND, { key: event })
+
+/**
+ * The event a placement pin should produce, or nothing. `auto` is not a placement being
+ * forced, and a pin that matches where the panel already is moves nothing — the counters
+ * carry no width, so counting that would be indistinguishable from the override that did
+ * move the panel.
+ */
 export function forcedPlacementEvent(
-	preference: FlowPanelPreference
+	preference: FlowPanelPreference,
+	mode: FlowPanelMode
 ): FlowPanelPlacementEvent | undefined {
+	if (preference === mode) return undefined
 	if (preference === 'docked') return 'force_attach'
 	if (preference === 'modal') return 'force_detach'
 	return undefined
 }
 
 /**
- * Counts the breakpoint taking the panel into the modal, once per crossing. Free of runes so
- * the edge can be tested without a component: `mode` is derived from a measured width, so
- * anything reading it per evaluation rather than per transition would count a window drag as
- * hundreds of activations.
+ * Counts the width moving the panel into the modal.
+ *
+ * Tracks where the panel was, not whether the breakpoint was responsible for it being
+ * there: on a narrow editor, pinning `Detached` and returning to `auto` leaves the panel
+ * modal throughout, and re-arming on the preference alone would read that as a second
+ * activation. Free of runes so both edges can be tested without a component — `mode` is
+ * derived from a measured width, so anything counting per evaluation rather than per
+ * transition would read one window drag as hundreds of activations.
  */
-export function createBreakpointTracker(log: (event: FlowPanelPlacementEvent) => void) {
-	let active = false
+export function createBreakpointTracker(log: Log) {
+	let wasModal = false
 
 	return {
 		observe(preference: FlowPanelPreference, mode: FlowPanelMode) {
-			const next = preference === 'auto' && mode === 'modal'
-			if (next && !active) log('breakpoint_modal')
-			active = next
+			if (mode === 'modal' && !wasModal && preference === 'auto') log('breakpoint_modal')
+			wasModal = mode === 'modal'
 		}
 	}
+}
+
+export interface FlowPanelPlacementTelemetry {
+	/** The panel's current placement; emits `breakpoint_modal` on a crossing into the modal. */
+	observe(preference: FlowPanelPreference, mode: FlowPanelMode): void
+	/** A placement the user pinned, against where the panel was when they pinned it. */
+	forced(preference: FlowPanelPreference, mode: FlowPanelMode): void
+}
+
+const CONTEXT_KEY = 'flowPanelPlacementTelemetry'
+
+const NOOP: FlowPanelPlacementTelemetry = { observe: () => {}, forced: () => {} }
+
+/**
+ * Published by `FlowBuilder`, which sits above the `{#key}` that rebuilds the editor on a
+ * reload: crossings belong to the editing session, and a tracker recreated mid-edit would
+ * re-arm and count a still-narrow editor again without the panel having moved.
+ *
+ * `enabled` is false in session preview tabs. Those stay mounted and laid out at panel width
+ * even while hidden, and that panel is narrower than the breakpoint by construction: their
+ * crossings would bury the ones this measures, and their overrides would then be read
+ * against a denominator that no longer contains them.
+ */
+export function setFlowPanelPlacementTelemetry(enabled: boolean): void {
+	const emit: Log = enabled ? log : () => {}
+	const tracker = createBreakpointTracker(emit)
+	setContext<FlowPanelPlacementTelemetry>(CONTEXT_KEY, {
+		observe: tracker.observe,
+		forced: (preference, mode) => {
+			const event = forcedPlacementEvent(preference, mode)
+			if (event) emit(event)
+		}
+	})
+}
+
+export function useFlowPanelPlacementTelemetry(): FlowPanelPlacementTelemetry {
+	return getContext<FlowPanelPlacementTelemetry | undefined>(CONTEXT_KEY) ?? NOOP
 }

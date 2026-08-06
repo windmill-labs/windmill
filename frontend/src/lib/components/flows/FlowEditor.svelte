@@ -12,11 +12,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
 	import { useFlowPanelMode } from './flowPanelMode.svelte'
-	import {
-		createBreakpointTracker,
-		forcedPlacementEvent,
-		logPanelPlacement
-	} from './flowEditorTelemetry'
+	import { useFlowPanelPlacementTelemetry } from './flowEditorTelemetry'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
@@ -134,17 +130,11 @@
 	const panelMode = $derived(panelController.mode)
 	let panelModalOpen = $state(false)
 
-	// Session preview tabs are left out of all three counters. They stay mounted and laid out
-	// at panel width even while hidden, and that panel is narrower than the breakpoint by
-	// construction: their crossings would bury the ones this measures, and their overrides
-	// would then be read against a denominator that no longer contains them.
-	const logPlacement = sessionScopedManager ? () => {} : logPanelPlacement
-
-	// The width is measured, so `mode` settles many times while a window is dragged; only the
-	// crossing into modal is an activation.
-	const breakpoint = createBreakpointTracker(logPlacement)
+	// Owned by FlowBuilder: this component is inside a `{#key}` that rebuilds it on a reload,
+	// and the crossing count belongs to the editing session rather than to one mount.
+	const placementTelemetry = useFlowPanelPlacementTelemetry()
 	$effect(() => {
-		breakpoint.observe(panelController.preference, panelMode)
+		placementTelemetry.observe(panelController.preference, panelMode)
 	})
 
 	// Auto can move the panel back into the pane under a modal that is open — leaving it
@@ -266,11 +256,7 @@
 			// screen, so the modal it becomes has to open on arrival. The reverse is handled
 			// by the effect above, which closes a modal that is no longer rendered.
 			const wasVisible = panelMode === 'docked' || panelModalOpen
-			// Only a pin that moves the panel is an override. Choosing "Detached" where the
-			// width had already produced a modal states a preference without changing
-			// anything, and the counter carries no width to tell the two apart later.
-			const forced = forcedPlacementEvent(preference)
-			if (forced && preference !== panelMode) logPlacement(forced)
+			placementTelemetry.forced(preference, panelMode)
 			panelController.preference = preference
 			panelModalOpen = panelController.mode === 'modal' && wasVisible
 		}
