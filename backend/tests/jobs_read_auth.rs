@@ -30,7 +30,6 @@
 //!     the URL.
 
 use sqlx::{Pool, Postgres};
-use windmill_common::workspaces::invalidate_protection_rules_cache;
 use windmill_test_utils::*;
 
 const VICTIM: &str = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -654,10 +653,6 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         status.is_success(),
         "admin should create the protection rule (got {status}): {body}"
     );
-    // Process-wide cache with a TTL: the earlier mints above populated it with an empty
-    // ruleset list, so drop it rather than wait the TTL out.
-    invalidate_protection_rules_cache("test-workspace");
-
     let (status, body) = get(
         &authed_base,
         &format!("job_public_view_token/{TOP_SECRET_FLOW}"),
@@ -690,11 +685,10 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         "an admin must bypass the rule (got {status}): {body}"
     );
 
-    // Later assertions in this test mint public tokens; drop the rule (and the cache
-    // entry it seeded) so they see the same workspace state as before.
+    // Later assertions in this test mint public tokens; drop the rule so they see the
+    // same workspace state as before.
     let (status, _) = delete(&format!("{rules_url}/no-public-runs"), Some("SECRET_TOKEN")).await;
     assert!(status.is_success(), "admin should delete the rule");
-    invalidate_protection_rules_cache("test-workspace");
 
     // ---- TAG-SCOPED token must not mint a token outside its allowed tags ----
     // SCOPED_DENO_TOKEN (test-user-2, scope `if_jobs:filter_tags:deno`) can read both
@@ -834,7 +828,7 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     )
     .await;
     assert!(
-        !status.is_success() || !body.contains("canceled"),
+        !status.is_success(),
         "a public token must not let an anonymous caller cancel the run (got {status}): {body}"
     );
     // The owner still cancels their own job (no over-blocking). Keep this last: it

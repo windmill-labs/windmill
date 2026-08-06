@@ -22,13 +22,18 @@
 	// previous run (and its token) live while the address bar shows another link.
 	let workspace = $derived(page.params.workspace ?? '')
 	let jobId = $derived(page.params.id ?? '')
+	let viewToken = $derived(page.url.searchParams.get('view_token') ?? undefined)
+	// Identity of what is on screen. The token is part of it: the same run reached with a
+	// different credential is a different view, and a completed job makes no further
+	// request that would reject a now-invalid one.
+	let viewKey = $derived(`${workspace}|${jobId}|${viewToken ?? ''}`)
 
 	// The public share token is the page's only credential: install it before JobLoader
 	// mounts so every read it fires (job, args, logs, SSE, flow steps) carries it. Set
 	// eagerly at init, then kept in sync for client-side navigation.
-	setViewToken(page.url.searchParams.get('view_token') ?? undefined)
+	setViewToken(viewToken)
 	$effect(() => {
-		setViewToken(page.url.searchParams.get('view_token') ?? undefined)
+		setViewToken(viewToken)
 	})
 	onDestroy(() => setViewToken(undefined))
 
@@ -53,12 +58,12 @@
 
 	// Clear the previous run first: `isFlow` then falls back to false, which remounts the
 	// JobLoader a flow run had unmounted, so the effect below has a loader to watch with.
-	let resetForJobId: string | undefined = undefined
+	let resetForViewKey: string | undefined = undefined
 	$effect(() => {
-		const id = jobId
+		const key = viewKey
 		untrack(() => {
-			if (resetForJobId === id) return
-			resetForJobId = id
+			if (resetForViewKey === key) return
+			resetForViewKey = key
 			job = undefined
 			notfound = false
 			loadError = undefined
@@ -67,13 +72,14 @@
 
 	// `watchJob` writes `job`, so it must not run tracked — reading its own output back
 	// would re-enter this effect on every poll.
-	let watchedJobId: string | undefined = undefined
+	let watchedViewKey: string | undefined = undefined
 	$effect(() => {
+		const key = viewKey
 		const id = jobId
 		const loader = jobLoader
 		untrack(() => {
-			if (!loader || !id || watchedJobId === id) return
-			watchedJobId = id
+			if (!loader || !id || watchedViewKey === key) return
+			watchedViewKey = key
 			loader.watchJob(id)
 		})
 	})
