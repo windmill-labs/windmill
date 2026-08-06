@@ -507,6 +507,79 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         "a non-reader must not be able to mint a share token (got {status})"
     );
 
+    // ---- PUBLIC SHARE READ LINK (public view_token) ----
+    // A member-audience token must never turn into a public one: links already handed
+    // out stay confined to logged-in members.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{VICTIM}?view_token={token}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST,
+        "a member view_token must not grant unauthenticated read (got {status}): {body}"
+    );
+    assert!(
+        !body.contains(RESULT_SECRET),
+        "unauth body must not leak with a member token: {body}"
+    );
+
+    // The owner mints the public flavor for the top flow.
+    let (status, mint_body) = get(
+        &authed_base,
+        &format!("job_public_view_token/{TOP_SECRET_FLOW}"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "owner must be able to mint a public share token (got {status}): {mint_body}"
+    );
+    let public_token = mint_body.trim().trim_matches('"').to_string();
+
+    // It grants a logged-out visitor the shared job and its whole flow subtree.
+    for path in [
+        format!("get/{TOP_SECRET_FLOW}?view_token={public_token}"),
+        format!("get_args/{TOP_SECRET_FLOW}?view_token={public_token}"),
+        format!("getupdate/{TOP_SECRET_FLOW}?view_token={public_token}"),
+        format!("completed/get_result/{DEEP_LEAF_JOB}?view_token={public_token}"),
+        format!("get_logs/{DEEP_LEAF_JOB}?view_token={public_token}"),
+    ] {
+        let (status, body) = get(&base, &path, None).await;
+        assert!(
+            status.is_success(),
+            "a public view_token must grant unauthenticated read of {path} (got {status}): {body}"
+        );
+    }
+
+    // Same scoping as the member flavor: another job, and a tampered signature, are refused.
+    for path in [
+        format!("get/{VICTIM}?view_token={public_token}"),
+        format!("get/{TOP_SECRET_FLOW}?view_token={TOP_SECRET_FLOW}.deadbeef"),
+    ] {
+        let (status, body) = get(&base, &path, None).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::BAD_REQUEST,
+            "an out-of-scope or forged public token must not grant read of {path} (got {status}): {body}"
+        );
+    }
+
+    // Minting the public flavor takes the same read access as the member one.
+    let (status, _) = get(
+        &authed_base,
+        &format!("job_public_view_token/{TOP_SECRET_FLOW}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "a non-reader must not be able to mint a public share token (got {status})"
+    );
+
     // ---- TAG-SCOPED token must not mint a token outside its allowed tags ----
     // SCOPED_DENO_TOKEN (test-user-2, scope `if_jobs:filter_tags:deno`) can read both
     // VICTIM (tag deno) and FLOW_JOB (tag flow) by RLS, but minting must honor the

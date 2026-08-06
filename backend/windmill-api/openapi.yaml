@@ -10698,6 +10698,33 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/job_public_view_token/{id}:
+    get:
+      summary: mint a public read-only share token for a job
+      description: >
+        Returns a stateless `{job_id}.{hmac}` token that grants anyone holding it —
+        including logged-out visitors, who land on the minimal public run page — read
+        access to this job (and its flow subtree) via a `view_token` query param or
+        `X-View-Token` header. Only callable by a user who can already read the job.
+      operationId: getJobPublicViewToken
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the public share read token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/flows/list_paths:
     get:
       summary: list all flow paths
