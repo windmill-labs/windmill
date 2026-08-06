@@ -58,6 +58,21 @@ function directSubJobIds(flowStatus: Job['flow_status']): string[] {
  * here rather than fetching thousands of jobs. */
 const MAX_RECORDING_FETCH_JOBS = 1000
 
+/** Fetch a job with its complete logs: `getJob` returns only the tail of the
+ * log column (and only the residual chunk once logs are offloaded to object
+ * storage), so the full text has to come from the logs endpoint. Best-effort —
+ * on failure the job keeps whatever `getJob` returned. */
+export async function fetchJobWithFullLogs(workspace: string, id: string): Promise<Job> {
+	const [job, logs] = await Promise.all([
+		JobService.getJob({ workspace, id }),
+		JobService.getJobLogs({ workspace, id }).catch(() => undefined)
+	])
+	if (typeof logs === 'string' && logs.length >= ((job as any).logs?.length ?? 0)) {
+		;(job as any).logs = logs
+	}
+	return job
+}
+
 /** Fetch `rootJobId` and, recursively, every sub-job its flow status
  * references. Fetch failures are tolerated — a job that can't be fetched
  * simply replays with less detail. */
@@ -71,7 +86,7 @@ async function fetchRunJobs(workspace: string, rootJobId: string): Promise<Recor
 		const fetched = await Promise.all(
 			frontier.map(async (id) => {
 				try {
-					return await JobService.getJob({ workspace, id })
+					return await fetchJobWithFullLogs(workspace, id)
 				} catch (e) {
 					console.warn('[recording] failed to fetch job', id, e)
 					return undefined
@@ -114,9 +129,9 @@ export async function buildFlowRecording(
 	}
 }
 
-/** Build a script recording from a completed test run. Code/args/schema are
- * passed in as they were at run time — a preview job doesn't carry the schema
- * and its code may since have been edited. */
+/** Build a script recording from a completed test run. Code/schema are passed
+ * in as they were at run time — a preview job doesn't carry the schema and its
+ * code may since have been edited. `args` defaults to the job's own. */
 export async function buildScriptRecording(
 	workspace: string,
 	jobId: string,
@@ -124,11 +139,11 @@ export async function buildScriptRecording(
 		scriptPath: string
 		code: string
 		language: string
-		args: Record<string, any>
+		args?: Record<string, any>
 		schema?: Record<string, any>
 	}
 ): Promise<ScriptRecording> {
-	const job = await JobService.getJob({ workspace, id: jobId })
+	const job = await fetchJobWithFullLogs(workspace, jobId)
 	return {
 		version: 2,
 		type: 'script',
@@ -137,7 +152,7 @@ export async function buildScriptRecording(
 		total_duration_ms: (job as any).duration_ms ?? 0,
 		code: meta.code,
 		language: meta.language,
-		args: JSON.parse(JSON.stringify(meta.args ?? {})),
+		args: JSON.parse(JSON.stringify(meta.args ?? job.args ?? {})),
 		schema: meta.schema ? JSON.parse(JSON.stringify(meta.schema)) : undefined,
 		job
 	}

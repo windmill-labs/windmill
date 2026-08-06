@@ -1429,12 +1429,10 @@ export class DeployToHubSession {
 	async #buildScriptRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
 		const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
-		const job = await JobService.getCompletedJob({ workspace, id: jobId })
 		return await buildScriptRecording(workspace, jobId, {
 			scriptPath: it.path,
 			code: s.content,
 			language: s.language,
-			args: (job.args ?? {}) as Record<string, any>,
 			schema: s.schema as Record<string, any> | undefined
 		})
 	}

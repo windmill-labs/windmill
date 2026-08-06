@@ -172,12 +172,15 @@ function moduleStateAt(
 	jobsById: Record<string, Job>,
 	anchorMs: number
 ): FlowStatusModule {
-	const m: any = cloned ?? clone(orig)
 	const span = moduleSpan(orig, jobsById, anchorMs)
-	if (!span || T >= span.end) return m
-	if (T < span.start) {
+	// No timing info (sub-job not recorded): keep the module hidden — its final
+	// state arrives with the flow job's own completed event. Revealing it early
+	// would also leak its `job` id, triggering sub-job discovery in the viewer.
+	if (!span || T < span.start) {
 		return { id: orig.id, type: 'WaitingForPriorSteps' }
 	}
+	const m: any = cloned ?? clone(orig)
+	if (T >= span.end) return m
 	const started = span.iterStarts.filter((s) => s <= T).length
 	m.type = 'InProgress'
 	if (Array.isArray(m.flow_jobs)) {
@@ -391,9 +394,25 @@ export function synthesizeSingleJobReplay(
 	})
 }
 
+/** The sub-job ids a flow job's status references directly. */
+function directSubIds(job: Job | undefined): string[] {
+	const fs: any = job?.flow_status
+	if (!fs) return []
+	const ids: string[] = []
+	for (const mod of [...asArray<any>(fs.modules), fs.failure_module, fs.preprocessor_module]) {
+		if (!mod || typeof mod !== 'object') continue
+		if (typeof mod.job === 'string') ids.push(mod.job)
+		for (const j of asArray<unknown>(mod.flow_jobs)) {
+			if (typeof j === 'string') ids.push(j)
+		}
+	}
+	return ids
+}
+
 /** Build the full replay for a recorded flow run: one stream per job, all on
- * the same clock (zero = root start), with the root's completion guaranteed to
- * land after every sub-job event so the flow never "finishes" mid-animation. */
+ * the same clock (zero = root start), with every flow job's completion pushed
+ * past its descendants' events — recorded durations can tie to the millisecond,
+ * and a parent that "finishes" before its children breaks the animation. */
 export function synthesizeFlowReplay(
 	jobs: Record<string, Job>,
 	rootJobId: string,
@@ -409,17 +428,38 @@ export function synthesizeFlowReplay(
 		0
 	const budget = newBudget()
 	const streams: Record<string, RecordedJob> = {}
-	let maxT = 0
 	// Root first so the graph-driving status snapshots get first claim on the
 	// budget before sub-job log ticks consume it.
 	const ids = [rootJobId, ...Object.keys(jobs).filter((id) => id !== rootJobId)]
 	for (const id of ids) {
 		if (!jobs[id]) continue
-		const stream = synthesizeJobStream(jobs[id], { anchorMs, nowMs, jobsById: jobs, budget })
-		streams[id] = stream
-		if (id !== rootJobId) {
-			for (const e of stream.events) maxT = Math.max(maxT, e.t)
+		streams[id] = synthesizeJobStream(jobs[id], { anchorMs, nowMs, jobsById: jobs, budget })
+	}
+	// Bottom-up: bump each flow job's completed event past its descendants',
+	// then the root's past everything (orphaned streams included).
+	const visited = new Set<string>()
+	const finalizeCompletion = (id: string): number => {
+		const stream = streams[id]
+		if (!stream) return 0
+		const maxOwnT = () => stream.events.reduce((m, e) => Math.max(m, e.t), 0)
+		if (visited.has(id)) return maxOwnT()
+		visited.add(id)
+		let childMax = 0
+		for (const sub of directSubIds(jobs[id])) {
+			if (sub !== id) childMax = Math.max(childMax, finalizeCompletion(sub))
 		}
+		const completedEvent = stream.events.find((e) => e.data.completed)
+		if (completedEvent && childMax > 0 && completedEvent.t <= childMax) {
+			completedEvent.t = clampT(childMax + 50)
+			stream.events.sort((a, b) => a.t - b.t)
+		}
+		return maxOwnT()
+	}
+	finalizeCompletion(rootJobId)
+	let maxT = 0
+	for (const [id, stream] of Object.entries(streams)) {
+		if (id === rootJobId) continue
+		for (const e of stream.events) maxT = Math.max(maxT, e.t)
 	}
 	const rootEvents = streams[rootJobId]?.events
 	const completedEvent = rootEvents?.find((e) => e.data.completed)

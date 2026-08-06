@@ -138,10 +138,38 @@ describe('parseRecording', () => {
 		).toBe('app')
 	})
 
-	it('refuses recordings of another format version with a message naming why', () => {
-		// v1 job recordings held captured event streams the players no longer replay.
-		const v1 = parseRecording({ version: 1, flow_path: 'f', ...header, jobs: {} })
-		expect(v1.ok ? '' : v1.error).toMatch(/older version/)
+	it('upgrades v1 job recordings in place, refusing only what cannot be salvaged', () => {
+		// v1 stored live event streams; published recordings (the hub) collapse to
+		// the completed job each stream carried and keep replaying.
+		const v1Stream = (j: Record<string, unknown>) => ({
+			initial_job: { id: j.id },
+			events: [{ t: 5, data: { completed: true, job: j } }]
+		})
+		const v1Flow = {
+			version: 1,
+			flow_path: 'f',
+			...header,
+			jobs: {
+				root: v1Stream(job({ id: 'root', job_kind: 'flowpreview' })),
+				sub: v1Stream(job({ id: 'sub', parent_job: 'root' }))
+			}
+		}
+		const flow = parseRecording(v1Flow)
+		expect(flow.ok && flow.loaded.kind).toBe('flow')
+		expect(flow.ok && (flow.loaded.recording as any).root_job_id).toBe('root')
+		const v1Script = {
+			version: 1,
+			type: 'script',
+			script_path: 's',
+			...header,
+			code: 'x',
+			language: 'bash',
+			job: v1Stream(job())
+		}
+		expect(kindOf(v1Script)).toBe('script')
+		// A v1 file whose streams carry no completed job has nothing to replay from.
+		const v1Empty = parseRecording({ version: 1, flow_path: 'f', ...header, jobs: {} })
+		expect(v1Empty.ok ? '' : v1Empty.error).toMatch(/older version/)
 		const future = parseRecording(flowRec({ version: 3 }))
 		expect(future.ok ? '' : future.error).toMatch(/newer version/)
 		// App recordings never changed format and stay at version 1.

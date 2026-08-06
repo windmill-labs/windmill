@@ -200,7 +200,9 @@
 			if (recordingMode) {
 				// Any completed run in recording mode becomes downloadable, so pair
 				// the flow as it is for *this* run — not a stale earlier capture.
-				recordedFlow = newFlow
+				// Deep-cloned: extractFlow('whole') returns the live store object,
+				// and edits made before download must not rewrite the run's definition.
+				recordedFlow = JSON.parse(JSON.stringify(newFlow))
 			}
 			args = await processSecretArgs(args, flowStore.val.schema as any, opWs)
 			newJobId = await runFlowPreview(

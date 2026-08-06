@@ -203,6 +203,51 @@ describe('synthesizeFlowReplay', () => {
 		}
 	})
 
+	it('keeps a module without recorded timing hidden until the flow completes', () => {
+		const jobsMap: Record<string, Job> = {
+			root: rootJob(),
+			sub1: scriptJob()
+			// sub2 (module b's job) deliberately not recorded
+		}
+		const replay = synthesizeFlowReplay(jobsMap, 'root', 9_000_000)
+		const root = replay.jobs['root']
+		const states = [
+			(root.initial_job as any).flow_status,
+			...root.events.filter((e) => e.data.flow_status).map((e) => e.data.flow_status)
+		]
+		for (const fs of states) {
+			// Never reveals its final state — or its job id, which would trigger
+			// sub-job discovery for a job the recording doesn't hold.
+			expect(fs.modules[1]).toEqual({ id: 'b', type: 'WaitingForPriorSteps' })
+		}
+		const completed = root.events.find((e) => e.data.completed)!
+		expect(completed.data.job.flow_status.modules[1].type).toBe('Success')
+	})
+
+	it('completes a nested sub-flow only after its own children', () => {
+		// Nested flow and its child share the exact same end instant — the tie the
+		// per-stream synthesis cannot break on its own.
+		const nested = {
+			id: 'nested',
+			type: 'CompletedJob',
+			job_kind: 'flow',
+			parent_job: 'root',
+			started_at: iso(100),
+			duration_ms: 2000,
+			flow_status: { step: 1, modules: [{ id: 'inner', type: 'Success', job: 'leaf' }] }
+		} as any
+		const leaf = scriptJob({ id: 'leaf', started_at: iso(100), duration_ms: 2000 })
+		const outerRoot = {
+			...rootJob(),
+			flow_status: { step: 1, modules: [{ id: 'n', type: 'Success', job: 'nested' }] }
+		} as any
+		const replay = synthesizeFlowReplay({ root: outerRoot, nested, leaf }, 'root', 9_000_000)
+		const completedT = (id: string) => replay.jobs[id].events.find((e) => e.data.completed)!.t
+		const leafMax = replay.jobs['leaf'].events.reduce((m, e) => Math.max(m, e.t), 0)
+		expect(completedT('nested')).toBeGreaterThan(leafMax)
+		expect(completedT('root')).toBeGreaterThan(completedT('nested'))
+	})
+
 	it('survives malformed flow_status shapes without throwing', () => {
 		const malformed = scriptJob({
 			flow_status: {

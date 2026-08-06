@@ -1,11 +1,11 @@
-import { JobService, ScriptService, type Job } from '$lib/gen'
+import { ScriptService, type Job } from '$lib/gen'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
 import { runBoundedCascade } from '$lib/components/assets/AssetGraph/cascadeRun'
 import type {
 	CascadeNodeState,
 	CascadeRunResult
 } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
-import { downloadRecordingJson } from './runRecording'
+import { downloadRecordingJson, fetchJobWithFullLogs } from './runRecording'
 import { capturePipelineAssetSample } from './pipelineAssetSample'
 import type {
 	PipelineAssetSample,
@@ -154,8 +154,7 @@ export async function finalizePipelineRecording(
 	await Promise.all(
 		[...jobIds].map(async (jobId) => {
 			try {
-				const j = await JobService.getJob({ workspace: ws, id: jobId })
-				store.setJob(jobId, j)
+				store.setJob(jobId, await fetchJobWithFullLogs(ws, jobId))
 			} catch {
 				// best-effort — a job we can't fetch just isn't inspectable in the player
 			}

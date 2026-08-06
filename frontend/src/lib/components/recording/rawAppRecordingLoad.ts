@@ -471,35 +471,81 @@ function describeOverflow(data: Record<string, unknown>): string | undefined {
 	return undefined
 }
 
+/** v1 flow/script/pipeline recordings stored captured live event streams; each
+ * stream carried the completed job in its final `completed` event, so they
+ * upgrade to the v2 run-based shape by collapsing every stream to that job.
+ * Recordings already published (the hub) keep replaying this way. Returns
+ * undefined when no completed job can be extracted. */
+function upgradeV1JobRecording(data: Record<string, unknown>): Record<string, unknown> | undefined {
+	const completedJobOf = (stream: unknown): Record<string, unknown> | undefined => {
+		if (!isObject(stream)) return undefined
+		let job = isObject(stream.initial_job) ? stream.initial_job : undefined
+		for (const e of Array.isArray(stream.events) ? stream.events : []) {
+			if (isObject(e) && isObject(e.data) && e.data.completed && isObject(e.data.job)) {
+				job = e.data.job as Record<string, unknown>
+			}
+		}
+		return job && typeof job.id === 'string' ? job : undefined
+	}
+	const type = data.type === undefined ? 'flow' : data.type
+	if (type === 'script') {
+		const job = completedJobOf(data.job)
+		return job ? { ...data, version: 2, job } : undefined
+	}
+	if (type !== 'flow' && type !== 'pipeline') return undefined
+	if (!isObject(data.jobs)) return undefined
+	const jobs: Record<string, Record<string, unknown>> = {}
+	for (const stream of Object.values(data.jobs)) {
+		const job = completedJobOf(stream)
+		if (job) jobs[job.id as string] = job
+	}
+	if (type === 'pipeline') return { ...data, version: 2, jobs }
+	// A flow additionally needs its root: the parentless flow job, mirroring how
+	// the v1 player located it.
+	const all = Object.values(jobs)
+	const rootJob =
+		all.find((j) => (j.job_kind === 'flow' || j.job_kind === 'flowpreview') && !j.parent_job) ??
+		all.find((j) => !j.parent_job) ??
+		all[0]
+	if (!rootJob) return undefined
+	return { ...data, version: 2, type: 'flow', root_job_id: rootJob.id, jobs }
+}
+
 /** Classify a parsed recording and validate it against the player that would
  * mount it. The `type` discriminator picks the validator, so a malformed payload
  * reports the kind it claimed to be instead of falling through to `flow`. */
 export function parseRecording(
-	data: unknown
+	input: unknown
 ): { ok: true; loaded: LoadedRecording } | { ok: false; error: string } {
-	if (!isObject(data) || typeof data.version !== 'number') {
+	if (!isObject(input) || typeof input.version !== 'number') {
 		return { ok: false, error: 'This file is not a Windmill recording.' }
-	}
-	// v1 flow/script/pipeline recordings captured live event streams; recordings
-	// are now built from the completed run and the players no longer replay the
-	// old shape. App recordings never changed format and stay at version 1.
-	const expectedVersion = data.type === 'app' ? 1 : 2
-	if (data.version !== expectedVersion) {
-		return {
-			ok: false,
-			error:
-				data.version === 1
-					? 'This recording was made by an older version of Windmill and can no longer be replayed — re-record it.'
-					: 'This recording needs a newer version of Windmill to replay.'
-		}
 	}
 	// Before anything looks at what the fields mean: no recording, whatever it holds,
 	// may carry more structure than a tab can render. This is what makes the bound
 	// exhaustive rather than a list of the fields someone remembered.
-	if (countRecordingNodes(data) > MAX_RECORDING_NODES) {
+	if (countRecordingNodes(input) > MAX_RECORDING_NODES) {
 		return {
 			ok: false,
 			error: `This recording carries more than ${MAX_RECORDING_NODES} values, more than this player can render.`
+		}
+	}
+	let data = input
+	// App recordings never changed format and stay at version 1.
+	const expectedVersion = data.type === 'app' ? 1 : 2
+	if (data.version === 1 && expectedVersion === 2) {
+		const upgraded = upgradeV1JobRecording(data)
+		if (!upgraded) {
+			return {
+				ok: false,
+				error:
+					'This recording was made by an older version of Windmill and can no longer be replayed — re-record it.'
+			}
+		}
+		data = upgraded
+	} else if (data.version !== expectedVersion) {
+		return {
+			ok: false,
+			error: 'This recording needs a newer version of Windmill to replay.'
 		}
 	}
 	const type = data.type === undefined ? 'flow' : data.type
