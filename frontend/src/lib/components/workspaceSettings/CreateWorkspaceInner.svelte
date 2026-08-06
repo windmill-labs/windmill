@@ -36,8 +36,8 @@
 	import { resource } from 'runed'
 	import { Button } from '$lib/components/common'
 	import {
+		DEV_WORKSPACE_LABELS,
 		devBadgeText,
-		devLabelError,
 		devLabelKey,
 		type DevWorkspaceLabelKey
 	} from '$lib/utils/devWorkspaceLabel'
@@ -172,16 +172,15 @@
 			)
 		)
 	)
+	let availableDevLabels = $derived(DEV_WORKSPACE_LABELS.filter((l) => !chainTakenLabels.has(l)))
 	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
-	// conservative (no offer) while the check is loading (current is undefined).
-	let canDesignateDevWorkspace = $derived(baseCanHostDev && devWorkspaceResource.current === null)
+	// conservative (no offer) while the check is loading (current is undefined). With every label
+	// taken the chain is full and there is nothing left to designate.
+	let canDesignateDevWorkspace = $derived(
+		baseCanHostDev && availableDevLabels.length > 0 && devWorkspaceResource.current === null
+	)
 
 	let devWorkspaceLabel = $state<DevWorkspaceLabelKey>('dev')
-	let devWorkspaceLabelValue = $derived(devWorkspaceLabel.trim())
-	let devWorkspaceLabelInvalid = $derived(
-		createAsDevWorkspace &&
-			(!!devLabelError(devWorkspaceLabel) || chainTakenLabels.has(devWorkspaceLabelValue))
-	)
 	$effect(() => {
 		if (!createAsDevWorkspace) devWorkspaceLabel = 'dev'
 	})
@@ -392,7 +391,7 @@
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 					is_dev_workspace: createAsDevWorkspace,
-					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabelValue : undefined,
+					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
 					// locked-dev request before any branch is created (avoids dangling branches).
 					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
@@ -462,7 +461,7 @@
 					forked_datatables: forkedDatatables,
 					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
-					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabelValue : undefined,
+					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
 					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
@@ -479,7 +478,7 @@
 		forkCreationLoading = false
 		sendUserToast(
 			createAsDevWorkspace
-				? `Created ${devWorkspaceLabelValue} workspace ${effectiveForkId} for ${baseWorkspaceId}`
+				? `Created ${devWorkspaceLabel} workspace ${effectiveForkId} for ${baseWorkspaceId}`
 				: `Successfully forked workspace ${baseWorkspaceId} as: wm-fork-${id}`
 		)
 
@@ -636,7 +635,7 @@
 	$effect(() => {
 		const target =
 			createAsDevWorkspace && $workspaceStore
-				? `${$workspaceStore}-${devBadgeText(devWorkspaceLabelValue)}`
+				? `${$workspaceStore}-${devBadgeText(devWorkspaceLabel)}`
 				: ''
 		if (name === '' || name === lastAutoDevName) {
 			name = target
@@ -1091,8 +1090,7 @@
 					errorId != '' ||
 					!name ||
 					(!automateUsernameCreation && (errorUser != '' || !username)) ||
-					!id ||
-					devWorkspaceLabelInvalid}
+					!id}
 				on:click={createOrForkWorkspace}
 			>
 				{#if isFork}

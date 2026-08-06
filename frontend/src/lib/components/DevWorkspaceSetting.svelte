@@ -16,8 +16,8 @@
 	} from '$lib/utils/workspaceHierarchy'
 	import { getUserExt } from '$lib/user'
 	import {
+		DEV_WORKSPACE_LABELS,
 		devBadgeText,
-		devLabelError,
 		devLabelKey,
 		devLabelNoun,
 		type DevWorkspaceLabelKey
@@ -93,17 +93,14 @@
 			)
 		)
 	)
+	let availableAttachLabels = $derived(DEV_WORKSPACE_LABELS.filter((l) => !chainTakenLabels.has(l)))
 	let attachLabel = $state<DevWorkspaceLabelKey>('dev')
-	let attachLabelValue = $derived(attachLabel.trim())
-	let attachLabelInvalid = $derived(
-		!!devLabelError(attachLabel) || chainTakenLabels.has(attachLabelValue)
-	)
 	// A candidate keeps its own dev workspaces through the attach, labels included: the first one
 	// whose label is already spoken for further up the resulting chain blocks the pairing, whatever
 	// label the candidate itself is given.
 	let candidateClash = $derived.by(() => {
 		if (!selectedDevId) return undefined
-		const taken = new Set<DevWorkspaceLabelKey>([...chainTakenLabels, attachLabelValue])
+		const taken = new Set<string>([...chainTakenLabels, attachLabel])
 		for (const w of findWorkspaceDescendants(selectedDevId, $userWorkspaces)) {
 			if (!w.is_dev_workspace) continue
 			const label = devLabelKey(w.dev_workspace_label)
@@ -313,10 +310,10 @@
 					dev_workspace_id: selectedDevId,
 					lock_prod_deploy: effectiveLockProdDeploy,
 					lock_prod_forking: effectiveLockProdForking,
-					dev_workspace_label: attachLabelValue
+					dev_workspace_label: attachLabel
 				}
 			})
-			sendUserToast(`Attached ${selectedDevId} as ${attachLabelValue} workspace`)
+			sendUserToast(`Attached ${selectedDevId} as ${attachLabel} workspace`)
 			selectedDevId = undefined
 			await refresh()
 		} catch (e: any) {
@@ -448,6 +445,11 @@
 				<Button color="red" disabled={busy} onclick={() => detach(pairedDev.id)}>Detach</Button>
 			</div>
 		</div>
+	{:else if availableAttachLabels.length === 0}
+		<p class="text-sm text-secondary max-w-2xl">
+			Every environment label is already taken by a dev workspace in this chain, and two carrying
+			the same label would deploy to the same branch. Promote through the existing chain instead.
+		</p>
 	{:else}
 		<div class="flex flex-col gap-3 max-w-2xl">
 			<p class="text-sm text-secondary">
@@ -521,7 +523,7 @@
 			<div class="flex gap-2">
 				<Button
 					variant="accent"
-					disabled={busy || !selectedDevId || !!candidateClash || attachLabelInvalid}
+					disabled={busy || !selectedDevId || !!candidateClash}
 					onclick={attach}
 				>
 					Attach dev workspace

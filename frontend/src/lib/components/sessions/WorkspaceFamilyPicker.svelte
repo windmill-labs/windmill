@@ -451,11 +451,9 @@
 								<Badge
 									color="dark-blue"
 									small
-									title={devBadgeText(f.dev_workspace_label)}
 									class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+									>{devBadgeText(f.dev_workspace_label)}</Badge
 								>
-									<span class="truncate max-w-24">{devBadgeText(f.dev_workspace_label)}</span>
-								</Badge>
 							{/if}
 							{#if isSelected(f.id)}
 								<Check size={14} class="shrink-0 ml-auto text-accent" />

@@ -712,46 +712,28 @@ struct DevWorkspaceInfo {
     dev_workspace_label: Option<String>,
 }
 
+/// The environment labels a dev workspace may carry, ordered dev -> prod. Each names the git branch
+/// that workspace deploys to (`dev_workspace_branch`), and every dev workspace in a chain must
+/// carry a distinct one (`reject_dev_label_taken_in_chain`) — so the length of this list is also
+/// the deepest promotion chain. A fixed list rather than free text: the label has to be a usable
+/// single-segment branch name, must not collide with the `wm-fork/**` and `wm_deploy/**` namespaces
+/// git-sync already writes, and must not be a repository's default branch (`main`, `master`).
+pub const DEV_WORKSPACE_LABELS: [&str; 8] = [
+    "dev", "qa", "test", "uat", "staging", "demo", "sandbox", "preprod",
+];
+
 /// Normalize/validate the dev-workspace environment label. Unset or empty defaults to 'dev', which
-/// is also what a NULL column reads as. 'dev' and 'staging' are the labels the UI offers; any other
-/// accepted value is a custom environment name, which is what lets a chain hold more than two dev
-/// workspaces (each must carry a distinct label, see `reject_dev_label_taken_in_chain`).
-///
-/// The label is used verbatim as the git branch the dev workspace deploys to
-/// (`dev_workspace_branch`), so it must be a valid single-segment ref name: no '/', nothing git
-/// refuses (`..`, a trailing '.' or '.lock'), and short enough to read as a badge.
+/// is also what a NULL column reads as.
 fn normalize_dev_workspace_label(label: Option<String>) -> Result<Option<String>> {
     let label = label.unwrap_or_default();
     let label = label.trim();
     if label.is_empty() {
         return Ok(Some("dev".to_string()));
     }
-    // Git stores refs hierarchically, so a branch cannot share its name with a directory of other
-    // branches: `refs/heads/wm-fork` and `refs/heads/wm-fork/main/abc` cannot both exist. These two
-    // roots hold the fork and promotion branches the same repo already carries (see
-    // `git_sync_deploy_pr_head_branch` in the worker), so a label equal to one of them would
-    // create/attach fine and then fail every deploy that has to write the branch.
-    const RESERVED_BRANCH_NAMESPACES: [&str; 2] = ["wm-fork", "wm_deploy"];
-    if RESERVED_BRANCH_NAMESPACES.contains(&label) {
+    if !DEV_WORKSPACE_LABELS.contains(&label) {
         return Err(Error::BadRequest(format!(
-            "dev workspace label '{label}' is reserved: it names the git branch the dev workspace \
-             deploys to, and '{label}/...' branches already hold this repository's fork and \
-             promotion deploys. Use another label."
-        )));
-    }
-    let valid = label.len() <= 30
-        && label.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
-        && label
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'))
-        && !label.contains("..")
-        && !label.ends_with('.')
-        && !label.ends_with(".lock");
-    if !valid {
-        return Err(Error::BadRequest(format!(
-            "invalid dev workspace label '{label}': it names the git branch the dev workspace \
-             deploys to, so it must be 1-30 characters of lowercase letters, digits, '-', '_' or \
-             '.', start with a letter or digit, and not end with '.' or '.lock'"
+            "invalid dev workspace label '{label}' (expected one of: {})",
+            DEV_WORKSPACE_LABELS.join(", ")
         )));
     }
     Ok(Some(label.to_string()))
@@ -788,31 +770,20 @@ mod dev_workspace_label_tests {
     }
 
     #[test]
-    fn accepts_a_custom_environment_name() {
-        for label in ["uat", "pre-prod", "qa_2", "v1.2"] {
+    fn accepts_every_offered_label_and_nothing_else() {
+        for label in super::DEV_WORKSPACE_LABELS {
             assert_eq!(norm(label).as_deref(), Some(label), "rejected '{label}'");
         }
-    }
-
-    #[test]
-    fn rejects_what_git_will_not_take_as_a_branch() {
-        // The label is used verbatim as a branch name, so each of these would either fail the push
-        // or land outside the single top-level ref the chain check reasons about.
+        // Off-list names are refused whether or not they would make a usable branch: the list is
+        // what keeps a label off `main`/`master` and out of the `wm-fork/**` and `wm_deploy/**`
+        // namespaces git-sync writes.
         for label in [
-            "feature/uat",
-            "UAT",
-            "-uat",
-            ".uat",
-            "u..at",
-            "uat.",
-            "uat.lock",
-            "uat env",
-            "uat~1",
-            &"u".repeat(31),
-            // Roots of the `wm-fork/**` and `wm_deploy/**` branch namespaces: git cannot hold a
-            // branch and a directory of branches under one name.
+            "main",
+            "master",
             "wm-fork",
             "wm_deploy",
+            "UAT",
+            "feature/uat",
         ] {
             assert!(
                 normalize_dev_workspace_label(Some(label.to_string())).is_err(),
@@ -936,43 +907,29 @@ async fn reject_dev_label_matching_tracked_branch(
             .fetch_optional(db)
             .await?
             .flatten();
-            // A repository that pins no branch tracks the remote's default, which cannot be resolved
-            // without a network call. Check the conventional names instead: that is what a default
-            // branch almost always is, and both became ordinary labels when the vocabulary opened up.
-            // An unconventional default still fails at deploy time, with the CLI's own
-            // deploy-branch-equals-checked-out-branch error.
-            let pinned = branch.as_deref().filter(|b| !b.is_empty());
-            let candidates: &[&str] = match pinned {
-                Some(b) => &[b],
-                None => &["main", "master"],
-            };
-            let Some(tracked) = candidates
-                .iter()
-                .copied()
-                .find(|b| tracked_branch_blocks_dev_label(&label_branch, b))
-            else {
+            // A repository that pins no branch tracks the remote's default, which cannot be
+            // resolved here without a network call — but no offered label is a plausible default
+            // (`main`/`master` are off the list), so there is nothing to compare against.
+            let Some(tracked) = branch.as_deref().filter(|b| !b.is_empty()) else {
                 continue;
             };
-            let repo_branch = match pinned {
-                Some(_) => format!("tracked branch '{tracked}'"),
-                None => {
-                    format!("default branch (assumed '{tracked}'; the repository pins no branch)")
-                }
-            };
+            if !tracked_branch_blocks_dev_label(&label_branch, tracked) {
+                continue;
+            }
             return Err(Error::BadRequest(if tracked == label_branch {
                 format!(
-                    "The environment label '{label_branch}' matches the {repo_branch} of git-sync \
+                    "The environment label '{label_branch}' matches the tracked branch of git-sync \
                      repository '{path}' in workspace '{w_id}': deploys from the dev workspace go \
                      to the '{label_branch}' branch and would overwrite the branch that repository \
                      syncs from. Use a different label or change the repository's branch."
                 )
             } else {
                 format!(
-                    "The environment label '{label_branch}' is the namespace of the {repo_branch} \
-                     of git-sync repository '{path}' in workspace '{w_id}': git cannot hold a \
-                     branch named '{label_branch}' alongside '{tracked}', so every deploy from the \
-                     dev workspace would fail. Use a different label or change the repository's \
-                     branch."
+                    "The environment label '{label_branch}' is the namespace of the tracked branch \
+                     '{tracked}' of git-sync repository '{path}' in workspace '{w_id}': git cannot \
+                     hold a branch named '{label_branch}' alongside '{tracked}', so every deploy \
+                     from the dev workspace would fail. Use a different label or change the \
+                     repository's branch."
                 )
             }));
         }

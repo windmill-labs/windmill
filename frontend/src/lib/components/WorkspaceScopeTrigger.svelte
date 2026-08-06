@@ -174,11 +174,9 @@
 				<Badge
 					color="dark-blue"
 					small
-					title={devBadgeText(currentWs.dev_workspace_label)}
 					class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+					>{devBadgeText(currentWs.dev_workspace_label)}</Badge
 				>
-					<span class="truncate max-w-24">{devBadgeText(currentWs.dev_workspace_label)}</span>
-				</Badge>
 			{/if}
 		{/if}
 	</Button>
