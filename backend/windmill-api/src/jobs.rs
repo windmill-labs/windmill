@@ -523,11 +523,9 @@ async fn get_job_public_view_token(
 ) -> error::Result<String> {
     require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
 
-    // A tag-scoped token may not mint a public link at all. `require_job_read_access`
-    // confines a *scoped reader* to its allowed tags, but a public link is read by
-    // anonymous callers who carry no scope to confine — so the token would authorize
-    // out-of-scope descendants of an in-scope flow (mixed-tag trees are supported).
-    // The scope is a hard restriction, so refuse rather than silently narrow the link.
+    // Anonymous readers of a public link carry no scope to confine, so the link would
+    // reach out-of-scope descendants of an in-scope job (mixed-tag flow trees). A tag
+    // scope is a hard restriction: refuse rather than silently narrow the link.
     if get_scope_tags(&authed).is_some() {
         return Err(Error::PermissionDenied(
             "A tag-scoped token cannot share a run publicly: the resulting link is read \

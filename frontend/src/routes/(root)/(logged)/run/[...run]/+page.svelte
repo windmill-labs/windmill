@@ -104,7 +104,11 @@
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import { useNestedRestartState } from '$lib/components/useNestedRestartState.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import {
+		canUserBypassRuleKind,
+		isRuleActive,
+		protectionRulesState
+	} from '$lib/workspaceProtectionRules.svelte'
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
@@ -558,6 +562,15 @@
 
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
 
+	// Admins always pass the backend gate. Everyone else fails closed while the rulesets
+	// are still loading, so the item is never briefly offered to a restricted user.
+	let canSharePublicly = $derived(
+		!!$userStore?.is_admin ||
+			!!$userStore?.is_super_admin ||
+			(protectionRulesState.rulesets !== undefined &&
+				canUserBypassRuleKind('RestrictPublicRunSharing', $userStore ?? undefined))
+	)
+
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
 	})
@@ -749,8 +762,10 @@
 						{
 							displayName: 'Copy public link',
 							icon: Globe,
-							tooltip:
-								"Read-only link that anyone on the internet can open, without logging in. It shows a minimal version of this page: this run's inputs, result and logs, and for a flow its graph plus every step's inputs, result, logs and code. The link cannot be revoked.",
+							disabled: !canSharePublicly,
+							tooltip: canSharePublicly
+								? "Read-only link that anyone on the internet can open, without logging in. It shows a minimal version of this page: this run's inputs, result and logs, and for a flow its graph plus every step's inputs, result, logs and code. The link cannot be revoked."
+								: 'Sharing a run publicly is restricted in this workspace. Ask an admin to share it, or to grant you a bypass on the ruleset.',
 							action: () => job && sharePublicLink(job.id)
 						}
 					]}
