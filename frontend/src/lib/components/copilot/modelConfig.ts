@@ -65,9 +65,10 @@ export function requiresMaxCompletionTokens(model: string) {
 // name found in the bare model id wins, so vendor-namespaced and date-suffixed
 // ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
 // Conservative family fallbacks sit below the explicit entries; models not
-// listed at all resolve to undefined, which hides the indicator denominator —
-// trim/compaction consumers go through getModelContextWindow, whose 128K
-// fallback keeps a limit enforced even then.
+// listed at all resolve to undefined. Consumers that need a number regardless
+// (trim/compaction, the usage indicator) go through getModelContextWindow,
+// whose conservative 128K fallback keeps a limit enforced and is surfaced to
+// the user as an assumed window.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
@@ -99,12 +100,11 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['deepseek-chat', 1_000_000],
 	['deepseek-reasoner', 1_000_000],
 	['deepseek', 128_000],
-	// Alibaba — Qwen3-Max is 256K; other Qwen ids fall through to the
-	// conservative family fallback
+	// Alibaba — Qwen3-Max is 256K. No qwen family fallback: variant windows range
+	// from 8K (character models) to 1M, too wide for even a conservative guess
 	['qwen3-max', 256_000],
 	// Others
 	['llama', 128_000],
-	['qwen', 128_000],
 	['codestral', 32_000]
 ]
 
