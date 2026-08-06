@@ -502,7 +502,7 @@ function upgradeV1JobRecording(data: Record<string, unknown>): Record<string, un
 				...job,
 				logs:
 					streamedLogs.length > MAX_UPGRADED_LOG_CHARS
-						? streamedLogs.slice(-MAX_UPGRADED_LOG_CHARS)
+						? '[logs truncated for recording]\n…' + streamedLogs.slice(-MAX_UPGRADED_LOG_CHARS)
 						: streamedLogs
 			}
 		}

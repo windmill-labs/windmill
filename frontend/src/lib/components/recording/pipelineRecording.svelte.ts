@@ -118,6 +118,8 @@ export type PipelineRecordingStore = {
 
 // Max asset samples in flight during finalize — each is several preview jobs.
 const ASSET_SAMPLE_CONCURRENCY = 4
+// Max node-job fetches in flight during finalize (two requests each).
+const JOB_FETCH_CONCURRENCY = 20
 
 /** Run `fn` over `items` at most `limit` at a time (sequential batches). */
 async function forEachWithConcurrency<T>(
@@ -151,15 +153,15 @@ export async function finalizePipelineRecording(
 			if (st.jobId) jobIds.add(st.jobId)
 		}
 	}
-	await Promise.all(
-		[...jobIds].map(async (jobId) => {
-			try {
-				store.setJob(jobId, await fetchJobWithFullLogs(ws, jobId))
-			} catch {
-				// best-effort — a job we can't fetch just isn't inspectable in the player
-			}
-		})
-	)
+	// Each fetch is two requests, and a wide pipeline has a node per script —
+	// bound the fan-out like the asset sampling below.
+	await forEachWithConcurrency([...jobIds], JOB_FETCH_CONCURRENCY, async (jobId) => {
+		try {
+			store.setJob(jobId, await fetchJobWithFullLogs(ws, jobId))
+		} catch {
+			// best-effort — a job we can't fetch just isn't inspectable in the player
+		}
+	})
 	// Each asset sample runs a metadata scan + a SELECT + a COUNT preview job, so a
 	// wide pipeline could fan out hundreds of jobs at once. Bound the concurrency
 	// to keep the recorder from saturating the worker pool.
