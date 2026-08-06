@@ -571,3 +571,65 @@ async fn test_wm_token_cannot_mint_a_provenance_free_credential(
 
     Ok(())
 }
+
+/// The MCP OAuth approval is a third credential mint: the code it stores is
+/// exchanged for a database token holding only an email, so an elevated job token
+/// approving a client would obtain a credential with no `job_id` and re-enter the
+/// API through the gateway uncapped (GHSA-hfh4-cx4h-3fcr). The guard sits in the
+/// shared inner fn, ahead of client validation, so it fires without a registered
+/// client.
+#[cfg(feature = "mcp")]
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_cannot_mint_via_mcp_oauth_approval(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    let approval = json!({
+        "client_id": "wm2082-client",
+        "redirect_uri": "http://localhost/callback",
+        "scope": "mcp:all",
+        "state": "s",
+        "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        "code_challenge_method": "S256",
+    });
+
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+    let resp = authed(
+        client().post(format!(
+            "{base}/w/test-workspace/mcp/oauth/server/approve"
+        )),
+        &sa_wm,
+    )
+    .json(&approval)
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not approve an MCP OAuth client: {}",
+        resp.text().await?
+    );
+
+    // The gateway route reaches the same mint and must be capped identically.
+    let mut gateway_approval = approval.clone();
+    gateway_approval["workspace_id"] = json!("test-workspace");
+    let resp = authed(
+        client().post(format!("{base}/mcp/gateway/oauth/server/approve")),
+        &sa_wm,
+    )
+    .json(&gateway_approval)
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not approve through the MCP gateway: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}

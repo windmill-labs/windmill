@@ -18,6 +18,7 @@ use windmill_common::{
 };
 
 use crate::db::ApiAuthed;
+use windmill_api_auth::forbid_elevated_job_token;
 use windmill_mcp::parse_mcp_scopes;
 
 /// Token expiration for MCP OAuth tokens (1 week in seconds)
@@ -763,6 +764,13 @@ async fn oauth_approve_inner(
     workspace_id: &str,
     form: ApprovalForm,
 ) -> Result<Json<ApprovalResponse>> {
+    // The code approved here is exchanged for a database token carrying only this
+    // email, so an elevated job token would launder its identity into a credential
+    // with no `job_id` — and the MCP gateway would then re-enter the API uncapped
+    // (GHSA-hfh4-cx4h-3fcr). Guarded at the shared inner fn: both the workspaced and
+    // the gateway approve route reach the exchange through here.
+    forbid_elevated_job_token(db, &authed.email, authed.job_id).await?;
+
     // Verify user is a member of the workspace
     let is_member = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
