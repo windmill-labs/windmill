@@ -20,6 +20,14 @@ export type RowSelection = {
 }
 
 /**
+ * Width and margins of the selection gutter, for rows that sit in the same list
+ * but offer no checkbox — legacy raw-app rows, pipeline rows, tree-view folder
+ * headers. Without it their kind icon lands 16px left of every neighbour that
+ * does reserve one. Must stay in step with the checkbox in `Row.svelte`.
+ */
+export const SELECTION_GUTTER_CLASS = 'w-4 shrink-0 -ml-2 -mr-2'
+
+/**
  * The row menu's way into a selection, for the rows that offer one. The gutter
  * checkbox is the fast path but only appears on hover; this is the one a user
  * can find by looking.

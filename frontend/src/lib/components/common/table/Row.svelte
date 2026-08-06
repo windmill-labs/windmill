@@ -8,7 +8,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Tooltip from '../../meltComponents/Tooltip.svelte'
 	import Checkbox from '../checkbox/Checkbox.svelte'
-	import type { RowSelection } from './rowSelection'
+	import { SELECTION_GUTTER_CLASS, type RowSelection } from './rowSelection'
 
 	interface Props {
 		marked: string | undefined
@@ -30,6 +30,9 @@
 		 * the checkbox is not shown at rest, so an unused selection costs the row
 		 * 16px and no visual noise. */
 		rowSelection?: RowSelection
+		/** Hold the gutter open without offering a checkbox, for a row that can't
+		 * join the selection but shares a list with rows that can. */
+		reserveSelectionGutter?: boolean
 		alignWithSelectable?: boolean
 		errorHandlerMuted?: boolean
 		aiId?: string | undefined
@@ -87,6 +90,7 @@
 		selectDisabledReason = undefined,
 		selectOnRowClick = false,
 		rowSelection = undefined,
+		reserveSelectionGutter = false,
 		alignWithSelectable = false,
 		errorHandlerMuted = false,
 		aiId = undefined,
@@ -213,9 +217,11 @@
 		     and closing half of `gap-4`. -->
 		<Checkbox
 			class={twMerge(
-				// Exactly 16px wide, which is what TreeView's folder header reserves to
-				// keep a file's icon aligned with a sibling folder's.
-				'w-4 h-4 shrink-0 -ml-2 -mr-2',
+				// Exactly 16px, which is what every gutter reserved elsewhere assumes.
+				// `!p-0` is load-bearing: the global input rule pads this for text entry,
+				// and that padding sets a min-content floor a flex item cannot shrink
+				// under, so the box would otherwise measure 18px.
+				'w-4 h-4 !p-0 shrink-0 -ml-2 -mr-2',
 				rowSelection.active ? '' : 'invisible group-hover/row:visible'
 			)}
 			checked={rowSelection.selected}
@@ -229,6 +235,8 @@
 				rowSelection?.onToggle(e)
 			}}
 		/>
+	{:else if reserveSelectionGutter}
+		<div class={SELECTION_GUTTER_CLASS}></div>
 	{/if}
 
 	{#if href && !inSelectionMode}

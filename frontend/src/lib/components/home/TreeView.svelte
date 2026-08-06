@@ -10,6 +10,7 @@
 	import { base } from '$lib/base'
 	import { Button } from '$lib/components/common'
 	import { getHomeSelection } from './homeSelection.svelte'
+	import { SELECTION_GUTTER_CLASS } from '../common/table/rowSelection'
 
 	interface Props {
 		item: ItemType | FolderItem | UserItem
@@ -264,8 +265,7 @@
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
 			>
 				{#if homeSelection?.available}
-					<!-- Mirrors the leaf row's checkbox box and its margins exactly. -->
-					<div class="w-4 shrink-0 -ml-2 -mr-2"></div>
+					<div class={SELECTION_GUTTER_CLASS}></div>
 				{/if}
 				<div class="flex justify-center items-center">
 					{#if isUser(item)}
@@ -318,6 +318,9 @@
 						class="flex items-center gap-4 px-4 py-3 border-b text-sm hover:bg-surface-hover transition-colors"
 						style="padding-left: {(depth + 1) * 16}px;"
 					>
+						{#if homeSelection?.available}
+							<div class={SELECTION_GUTTER_CLASS}></div>
+						{/if}
 						<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
 						<span class="text-xs font-medium text-emphasis">Pipeline</span>
 					</a>
