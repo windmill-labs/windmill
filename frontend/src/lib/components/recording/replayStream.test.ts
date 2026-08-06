@@ -141,6 +141,81 @@ describe('synthesizeFlowReplay', () => {
 		expect(replay.jobs['sub2'].events[0]).toMatchObject({ t: 3000, data: { running: true } })
 	})
 
+	it('never mutates the input jobs, so a second Play replays identically', () => {
+		const input = {
+			root: {
+				...rootJob(),
+				flow_status: {
+					step: 1,
+					modules: [
+						{
+							id: 'loop',
+							type: 'Success',
+							flow_jobs: ['it1'],
+							flow_jobs_duration: { started_at: [iso(100)], duration_ms: [1500] }
+						}
+					]
+				}
+			} as any,
+			it1: scriptJob({ id: 'it1', started_at: iso(100), duration_ms: 1500 })
+		}
+		const before = JSON.stringify(input)
+		const first = synthesizeFlowReplay(input, 'root', 9_000_000)
+		// The input survives synthesis untouched — snapshots taken at/after a
+		// module's end must not alias (and later rebase) its original objects.
+		expect(JSON.stringify(input)).toBe(before)
+
+		// A snapshot after the loop ended still shows it completed, with its
+		// recorded (now rebased) iteration timing intact.
+		const snapshots = first.jobs['root'].events.filter((e) => e.data.flow_status)
+		const after = snapshots[snapshots.length - 1].data.flow_status.modules[0]
+		expect(after.type).toBe('Success')
+		expect(new Date(after.flow_jobs_duration.started_at[0]).getTime()).toBe(9_000_000 + 100)
+
+		const second = synthesizeFlowReplay(input, 'root', 9_000_000)
+		expect(JSON.stringify(second)).toBe(JSON.stringify(first))
+	})
+
+	it('bounds the aggregate synthesized events across a many-job replay', () => {
+		const jobsMap: Record<string, Job> = { root: rootJob() }
+		// 200 sub-jobs, each with logs that would individually chunk into 300
+		// ticks — unbudgeted that is 60k log events.
+		for (let i = 0; i < 200; i++) {
+			jobsMap[`s${i}`] = scriptJob({
+				id: `s${i}`,
+				started_at: iso(100),
+				duration_ms: 300_000,
+				logs: Array.from({ length: 1000 }, (_, l) => `line ${l}`).join('\n')
+			})
+		}
+		const replay = synthesizeFlowReplay(jobsMap, 'root', 9_000_000)
+		const total = Object.values(replay.jobs).reduce((sum, s) => sum + s.events.length, 0)
+		// 20k budgeted events plus the per-job running/completed pair and the
+		// budget-exempt single log chunk each job is always allowed.
+		expect(total).toBeLessThanOrEqual(20_000 + 3 * Object.keys(jobsMap).length)
+		// Logs still fully replay even where the budget pinched to one chunk.
+		for (const [id, stream] of Object.entries(replay.jobs)) {
+			const logs = stream.events
+				.filter((e) => e.data.new_logs)
+				.map((e) => e.data.new_logs)
+				.join('')
+			expect(logs).toBe((jobsMap[id] as any).logs ?? '')
+		}
+	})
+
+	it('survives malformed flow_status shapes without throwing', () => {
+		const malformed = scriptJob({
+			flow_status: {
+				step: 'x',
+				modules: {},
+				failure_module: { flow_jobs_duration: { started_at: 'nope' } }
+			}
+		})
+		expect(() => synthesizeSingleJobReplay(malformed, { nowMs: 1 })).not.toThrow()
+		expect(() => synthesizeSingleJobReplay(malformed, { nowMs: 1, collapse: true })).not.toThrow()
+		expect(() => synthesizeFlowReplay({ root: malformed }, 'root', 9_000_000)).not.toThrow()
+	})
+
 	it('trims a loop’s iterations to those started at each snapshot', () => {
 		const loopRoot = {
 			...rootJob(),

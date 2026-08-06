@@ -197,6 +197,11 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
+			if (recordingMode) {
+				// Any completed run in recording mode becomes downloadable, so pair
+				// the flow as it is for *this* run — not a stale earlier capture.
+				recordedFlow = newFlow
+			}
 			args = await processSecretArgs(args, flowStore.val.schema as any, opWs)
 			newJobId = await runFlowPreview(
 				args,
@@ -267,8 +272,6 @@
 
 	async function recordAndTest() {
 		lastRecordingJobId = undefined
-		// The flow as it was when the run started — it may be edited before download.
-		recordedFlow = extractFlow(previewMode)
 		await runPreview(previewArgs.val, undefined)
 	}
 
@@ -276,8 +279,8 @@
 		if (!lastRecordingJobId || downloadingRecording) return
 		downloadingRecording = true
 		try {
-			// A run kicked off without recordAndTest (keyboard shortcut) captured no
-			// flow — fall back to the flow as it is now.
+			// A run started before recording mode was enabled captured no flow —
+			// fall back to the flow as it is now.
 			const recording = await buildFlowRecording(
 				opWs!,
 				lastRecordingJobId,

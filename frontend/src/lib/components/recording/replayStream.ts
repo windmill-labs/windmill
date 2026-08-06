@@ -12,6 +12,14 @@
  * All `t` values are on the recording clock: zero = the root job's start.
  * Absolute timestamps inside the emitted jobs are rebased to "now" because
  * components like TimelineCompute measure elapsed time against `Date.now()`.
+ *
+ * Two hard rules, because recordings are caller-controlled (uploaded files,
+ * `?src=` URLs on the public replay page) and this runs before any timer fires:
+ *  - the input jobs are never mutated — every emitted job/status is a clone, so
+ *    replaying twice from the same recording animates identically;
+ *  - synthesis is budgeted across the whole replay (event count and cloned
+ *    structure), so a file well inside the load-time render budgets still
+ *    cannot make this loop materialize an unbounded amount of work.
  */
 import type { FlowStatus, FlowStatusModule, Job } from '$lib/gen'
 import type { ActiveReplayData, RecordedEvent, RecordedJob } from './types'
@@ -22,9 +30,26 @@ const LOG_TICK_MS = 200
 const MAX_LOG_TICKS = 300
 /** Cap on flow-status snapshots per flow job, same reason. */
 const MAX_STATUS_SNAPSHOTS = 500
-/** Recorded timestamps are caller-controlled (uploaded files), so no event may
- * schedule beyond this horizon. */
+/** Recorded timestamps are caller-controlled, so no event may schedule beyond
+ * this horizon. */
 const MAX_REPLAY_MS = 6 * 60 * 60 * 1000
+/** Aggregate cap on synthesized events across every job of one replay — the
+ * per-job caps alone would let a 2000-job recording materialize ~1.6M timer
+ * events. Matches the total the v1 format enforced on stored events. */
+const MAX_TOTAL_REPLAY_EVENTS = 20_000
+/** Aggregate cap on the structure snapshots may clone: each flow-status
+ * snapshot is a deep clone of the job's status, so a status near the per-value
+ * render budget (~100k nodes) must get few snapshots, not 500. */
+const MAX_TOTAL_SNAPSHOT_NODES = 500_000
+
+/** Shared across every stream of one replay; see the caps above. */
+type SynthesisBudget = { events: number; snapshotNodes: number }
+
+function newBudget(): SynthesisBudget {
+	return { events: MAX_TOTAL_REPLAY_EVENTS, snapshotNodes: MAX_TOTAL_SNAPSHOT_NODES }
+}
+
+const asArray = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
 
 function parseMs(d: unknown): number | undefined {
 	if (typeof d !== 'string' && typeof d !== 'number') return undefined
@@ -49,19 +74,21 @@ function offsetDate(d: string | undefined, offset: number): string | undefined {
 	return isNaN(t) ? d : new Date(t + offset).toISOString()
 }
 
+/** Mutates `fs` — only ever call on a clone this module created. */
 function rebaseFlowStatus(fs: any, offset: number) {
 	if (!fs) return
-	const mods = [...(fs.modules ?? []), fs.failure_module, fs.preprocessor_module]
+	const mods = [...asArray<any>(fs.modules), fs.failure_module, fs.preprocessor_module]
 	for (const mod of mods) {
 		const durations = mod?.flow_jobs_duration
-		if (durations?.started_at) {
+		if (Array.isArray(durations?.started_at)) {
 			durations.started_at = durations.started_at.map((d: string) => offsetDate(d, offset) ?? d)
 		}
 	}
 }
 
-/** Shift a (cloned) job's absolute timestamps by `offset` ms so elapsed-time
- * displays anchored on `Date.now()` read correctly during replay. */
+/** Shift a job's absolute timestamps by `offset` ms so elapsed-time displays
+ * anchored on `Date.now()` read correctly during replay. Mutates `job` — only
+ * ever call on a clone this module created. */
 function rebaseJob(job: any, offset: number) {
 	for (const k of ['started_at', 'created_at', 'completed_at', 'scheduled_for']) {
 		if (job[k]) job[k] = offsetDate(job[k], offset)
@@ -70,6 +97,26 @@ function rebaseJob(job: any, offset: number) {
 }
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v))
+
+/** Rough structure size of a value, for the snapshot budget. Iterative so a
+ * hostile depth can't blow the stack; bails once far past the budget. */
+function roughNodeCount(v: unknown): number {
+	let n = 0
+	const stack: unknown[] = [v]
+	while (stack.length > 0) {
+		const x = stack.pop()
+		if (Array.isArray(x)) {
+			n += x.length
+			for (const i of x) stack.push(i)
+		} else if (x !== null && typeof x === 'object') {
+			const keys = Object.keys(x)
+			n += keys.length
+			for (const k of keys) stack.push((x as any)[k])
+		}
+		if (n > 2 * MAX_TOTAL_SNAPSHOT_NODES) return n
+	}
+	return n
+}
 
 /** A module's execution window on the recording clock, from its recorded
  * per-iteration durations, its iteration jobs, or its single job. Undefined
@@ -82,24 +129,25 @@ function moduleSpan(
 ): { start: number; end: number; iterStarts: number[] } | undefined {
 	const starts: number[] = []
 	const ends: number[] = []
-	const fjd = mod.flow_jobs_duration
-	if (fjd?.started_at?.length) {
-		fjd.started_at.forEach((s, i) => {
+	const fjd: any = mod.flow_jobs_duration
+	const fjdStarts = asArray<unknown>(fjd?.started_at)
+	if (fjdStarts.length > 0) {
+		fjdStarts.forEach((s, i) => {
 			const st = parseMs(s)
 			if (st === undefined) return
-			const d = fjd.duration_ms?.[i]
+			const d = Array.isArray(fjd?.duration_ms) ? fjd.duration_ms[i] : undefined
 			starts.push(st - anchorMs)
 			ends.push(st - anchorMs + (typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : 0))
 		})
-	} else if (mod.flow_jobs?.length) {
+	} else if (Array.isArray(mod.flow_jobs) && mod.flow_jobs.length > 0) {
 		for (const jid of mod.flow_jobs) {
-			const j = jobsById[jid]
+			const j = typeof jid === 'string' ? jobsById[jid] : undefined
 			const st = jobStartMs(j)
 			if (j === undefined || st === undefined) continue
 			starts.push(st - anchorMs)
 			ends.push(st - anchorMs + jobDurationMs(j))
 		}
-	} else if (mod.job && jobsById[mod.job]) {
+	} else if (typeof mod.job === 'string' && jobsById[mod.job]) {
 		const j = jobsById[mod.job]
 		const st = jobStartMs(j)
 		if (st !== undefined) {
@@ -112,72 +160,100 @@ function moduleSpan(
 	return { start: clampT(Math.min(...starts)), end: clampT(Math.max(...ends)), iterStarts }
 }
 
-/** The module as it looked at time `T`: untouched final state once its window
- * has passed, a bare waiting marker before it, and in between an in-progress
- * variant with loop iterations trimmed to those already started. */
-function moduleAt(
+/** The module as it looked at time `T`: its final state once its window has
+ * passed, a bare waiting marker before it, and in between an in-progress
+ * variant with loop iterations trimmed to those already started. `orig` is
+ * read-only timing input; the returned module is always freshly owned (built
+ * from `cloned`, a clone of `orig`) so later rebasing can't touch the input. */
+function moduleStateAt(
 	T: number,
-	mod: FlowStatusModule,
+	orig: FlowStatusModule,
+	cloned: FlowStatusModule | undefined,
 	jobsById: Record<string, Job>,
 	anchorMs: number
 ): FlowStatusModule {
-	const span = moduleSpan(mod, jobsById, anchorMs)
-	if (!span || T >= span.end) return mod
+	const m: any = cloned ?? clone(orig)
+	const span = moduleSpan(orig, jobsById, anchorMs)
+	if (!span || T >= span.end) return m
 	if (T < span.start) {
-		return { id: mod.id, type: 'WaitingForPriorSteps' }
+		return { id: orig.id, type: 'WaitingForPriorSteps' }
 	}
 	const started = span.iterStarts.filter((s) => s <= T).length
-	const m: FlowStatusModule = { ...mod, type: 'InProgress' }
-	if (mod.flow_jobs) {
-		m.flow_jobs = mod.flow_jobs.slice(0, started)
-		if (mod.flow_jobs_success) m.flow_jobs_success = mod.flow_jobs_success.slice(0, started)
-		if (mod.flow_jobs_duration) {
-			m.flow_jobs_duration = {
-				started_at: mod.flow_jobs_duration.started_at?.slice(0, started),
-				duration_ms: mod.flow_jobs_duration.duration_ms?.slice(0, started)
-			}
+	m.type = 'InProgress'
+	if (Array.isArray(m.flow_jobs)) {
+		m.flow_jobs = m.flow_jobs.slice(0, started)
+		if (Array.isArray(m.flow_jobs_success)) {
+			m.flow_jobs_success = m.flow_jobs_success.slice(0, started)
 		}
-		if (mod.iterator) {
-			m.iterator = { ...mod.iterator, index: Math.max(0, started - 1) }
+		const fjd = m.flow_jobs_duration
+		if (fjd) {
+			if (Array.isArray(fjd.started_at)) fjd.started_at = fjd.started_at.slice(0, started)
+			if (Array.isArray(fjd.duration_ms)) fjd.duration_ms = fjd.duration_ms.slice(0, started)
+		}
+		if (m.iterator !== null && typeof m.iterator === 'object') {
+			m.iterator.index = Math.max(0, started - 1)
 		}
 	}
 	return m
 }
 
 /** The whole flow status as it looked at time `T`, derived from the completed
- * status plus the sub-jobs' timings. */
+ * status plus the sub-jobs' timings. Always a fresh deep structure. */
 function flowStatusAt(
 	T: number,
 	final: FlowStatus,
 	jobsById: Record<string, Job>,
 	anchorMs: number
 ): FlowStatus {
-	const modules = (final.modules ?? []).map((mod) => moduleAt(T, mod, jobsById, anchorMs))
+	const fs: any = clone(final)
+	const origModules = asArray<FlowStatusModule>(final.modules)
+	const clonedModules = asArray<FlowStatusModule>(fs.modules)
+	fs.modules = origModules.map((mod, i) =>
+		moduleStateAt(T, mod, clonedModules[i], jobsById, anchorMs)
+	)
 	let step = 0
-	for (const mod of final.modules ?? []) {
+	for (const mod of origModules) {
 		const span = moduleSpan(mod, jobsById, anchorMs)
 		if (span && T >= span.end) step++
 		else break
 	}
-	const fs: FlowStatus = { ...final, step, modules }
+	fs.step = step
 	if (final.failure_module) {
-		fs.failure_module = moduleAt(T, final.failure_module, jobsById, anchorMs) as any
+		fs.failure_module = moduleStateAt(
+			T,
+			final.failure_module,
+			fs.failure_module,
+			jobsById,
+			anchorMs
+		)
 	}
 	if (final.preprocessor_module) {
-		fs.preprocessor_module = moduleAt(T, final.preprocessor_module, jobsById, anchorMs)
+		fs.preprocessor_module = moduleStateAt(
+			T,
+			final.preprocessor_module,
+			fs.preprocessor_module,
+			jobsById,
+			anchorMs
+		)
 	}
 	return fs
 }
 
 /** The times at which some module's shown state changes — each one gets a
- * flow-status snapshot event. */
+ * flow-status snapshot event, thinned evenly to `max`. */
 function statusBoundaries(
 	final: FlowStatus,
 	jobsById: Record<string, Job>,
-	anchorMs: number
+	anchorMs: number,
+	max: number
 ): number[] {
+	if (max <= 0) return []
 	const ts = new Set<number>()
-	const mods = [...(final.modules ?? []), final.failure_module, final.preprocessor_module]
+	const mods = [
+		...asArray<FlowStatusModule>(final.modules),
+		final.failure_module,
+		final.preprocessor_module
+	]
 	for (const mod of mods) {
 		if (!mod) continue
 		const span = moduleSpan(mod, jobsById, anchorMs)
@@ -187,9 +263,9 @@ function statusBoundaries(
 		for (const s of span.iterStarts) ts.add(s)
 	}
 	let sorted = [...ts].sort((a, b) => a - b)
-	if (sorted.length > MAX_STATUS_SNAPSHOTS) {
-		const stride = sorted.length / MAX_STATUS_SNAPSHOTS
-		sorted = Array.from({ length: MAX_STATUS_SNAPSHOTS }, (_, i) => sorted[Math.floor(i * stride)])
+	if (sorted.length > max) {
+		const stride = sorted.length / max
+		sorted = Array.from({ length: max }, (_, i) => sorted[Math.floor(i * stride)])
 	}
 	return sorted
 }
@@ -220,12 +296,16 @@ export type SynthesisOptions = {
 	/** Reveal everything at t=0 instead of streaming — for a job the viewer
 	 * opens after it already finished. */
 	collapse?: boolean
+	/** Shared across a multi-job replay so the aggregate caps hold; a fresh
+	 * budget is used when absent (single-job replays). */
+	budget?: SynthesisBudget
 }
 
 /** Turn one completed job into the stream of updates a live watch of it would
- * have produced. */
+ * have produced. Never mutates `job`. */
 export function synthesizeJobStream(job: Job, opts: SynthesisOptions): RecordedJob {
 	const { anchorMs, nowMs, jobsById = {}, collapse } = opts
+	const budget = opts.budget ?? newBudget()
 	const offset = nowMs - anchorMs
 
 	const completed: any = clone(job)
@@ -257,18 +337,32 @@ export function synthesizeJobStream(job: Job, opts: SynthesisOptions): RecordedJ
 	const events: RecordedEvent[] = [{ t: startT, data: { running: true } }]
 
 	if (job.flow_status) {
-		for (const t of statusBoundaries(job.flow_status as FlowStatus, jobsById, anchorMs)) {
+		const statusCost = Math.max(1, roughNodeCount(job.flow_status))
+		const allowed = Math.min(
+			MAX_STATUS_SNAPSHOTS,
+			Math.floor(budget.snapshotNodes / statusCost),
+			budget.events
+		)
+		for (const t of statusBoundaries(job.flow_status as FlowStatus, jobsById, anchorMs, allowed)) {
 			if (t <= startT || t >= endT) continue
 			const fs = flowStatusAt(t, job.flow_status as FlowStatus, jobsById, anchorMs)
 			rebaseFlowStatus(fs, offset)
 			events.push({ t, data: { running: true, flow_status: fs } })
+			budget.events--
+			budget.snapshotNodes -= statusCost
 		}
 	}
 
 	const logs = typeof (job as any).logs === 'string' ? ((job as any).logs as string) : ''
 	if (logs.length > 0 && durMs > 0) {
-		const maxTicks = Math.min(MAX_LOG_TICKS, Math.max(1, Math.ceil(durMs / LOG_TICK_MS)))
+		// At least one chunk even with the budget spent, so logs still appear —
+		// a single event per job is bounded by the job count.
+		const maxTicks = Math.max(
+			1,
+			Math.min(MAX_LOG_TICKS, Math.ceil(durMs / LOG_TICK_MS), budget.events)
+		)
 		const chunks = chunkLogs(logs, maxTicks)
+		budget.events -= chunks.length
 		let logOffset = 0
 		chunks.forEach((chunk, i) => {
 			logOffset += chunk.length
@@ -313,10 +407,15 @@ export function synthesizeFlowReplay(
 			.filter((t): t is number => t !== undefined)
 			.sort((a, b) => a - b)[0] ??
 		0
+	const budget = newBudget()
 	const streams: Record<string, RecordedJob> = {}
 	let maxT = 0
-	for (const [id, job] of Object.entries(jobs)) {
-		const stream = synthesizeJobStream(job, { anchorMs, nowMs, jobsById: jobs })
+	// Root first so the graph-driving status snapshots get first claim on the
+	// budget before sub-job log ticks consume it.
+	const ids = [rootJobId, ...Object.keys(jobs).filter((id) => id !== rootJobId)]
+	for (const id of ids) {
+		if (!jobs[id]) continue
+		const stream = synthesizeJobStream(jobs[id], { anchorMs, nowMs, jobsById: jobs, budget })
 		streams[id] = stream
 		if (id !== rootJobId) {
 			for (const e of stream.events) maxT = Math.max(maxT, e.t)

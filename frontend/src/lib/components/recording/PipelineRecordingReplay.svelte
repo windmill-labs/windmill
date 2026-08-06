@@ -2,7 +2,7 @@
 	import type { Job } from '$lib/gen'
 	import { setActiveReplay } from './replay.svelte'
 	import { synthesizeSingleJobReplay } from './replayStream'
-	import type { PipelineRecording, RecordedNodeState } from './types'
+	import type { PipelineRecording, RecordedJob, RecordedNodeState } from './types'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphSelection } from '$lib/components/assets/AssetGraph/types'
 	import type { RunnableRunState } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
@@ -211,7 +211,14 @@
 		// live (logs pacing out over the job's real duration); a node the graph
 		// already shows as finished reveals its logs and result at once.
 		const streamLive = selectedStatus === 'running'
-		const stream = synthesizeSingleJobReplay(recorded, { collapse: !streamLive })
+		let stream: RecordedJob
+		try {
+			stream = synthesizeSingleJobReplay(recorded, { collapse: !streamLive })
+		} catch {
+			// A malformed recorded job (recordings are caller-controlled) must not
+			// take down the player from this event handler — show it as-is instead.
+			stream = { initial_job: recorded, events: [] }
+		}
 		setActiveReplay({ jobs: { [jobId]: stream } })
 		await tick()
 		jobLoader?.watchJob(jobId)
