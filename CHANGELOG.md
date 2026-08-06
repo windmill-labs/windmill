@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.781.1](https://github.com/windmill-labs/windmill/compare/v1.781.0...v1.781.1) (2026-08-06)
+
+
+### Bug Fixes
+
+* open the expression property column on demand, not from focus ([#10558](https://github.com/windmill-labs/windmill/issues/10558)) ([386c66b](https://github.com/windmill-labs/windmill/commit/386c66bef0534d4a63b3220050e98b9654ef8f34))
+* restore the flow expression editor's property side panel ([#10555](https://github.com/windmill-labs/windmill/issues/10555)) ([e4e7782](https://github.com/windmill-labs/windmill/commit/e4e7782517a9fd0fbbec020694b263a948ed1c0c))
+
+
+### Performance Improvements
+
+* keep run status out of flow graph node and edge data ([#10554](https://github.com/windmill-labs/windmill/issues/10554)) ([b2d38e0](https://github.com/windmill-labs/windmill/commit/b2d38e0391f26d92e8f9245a3db099129b6c3977))
+
 ## [1.781.0](https://github.com/windmill-labs/windmill/compare/v1.780.0...v1.781.0) (2026-08-05)
 
 
