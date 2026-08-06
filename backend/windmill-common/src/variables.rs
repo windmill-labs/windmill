@@ -192,14 +192,25 @@ pub async fn generate_approval_token(
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
-/// Stateless read-share signature for a job: `HMAC(workspace_key, job_id || "view_token")`.
+/// Domain separator of the member-audience view token (see [`generate_view_token`]).
+pub const VIEW_TOKEN_DOMAIN: &[u8] = b"view_token";
+
+/// Domain separator of the public-audience view token (see [`generate_view_token`]).
+/// Distinct from [`VIEW_TOKEN_DOMAIN`] so that already-shared member links keep granting
+/// only what they were minted for: going public is always an explicit new mint.
+pub const PUBLIC_VIEW_TOKEN_DOMAIN: &[u8] = b"public_view_token";
+
+/// Stateless read-share signature for a job: `HMAC(workspace_key, job_id || domain)`.
 /// Mirrors [`generate_approval_token`] but in a distinct domain so an approval token can
 /// never be used as a view token (or vice-versa). Used to build a "share read link" that
-/// grants an authenticated workspace member read access to a job (and its flow subtree)
-/// they otherwise lack ACL on. No expiry/revocation (stateless), like the approval token.
+/// grants read access to a job (and its flow subtree) to someone who otherwise lacks ACL
+/// on it: an authenticated workspace member under [`VIEW_TOKEN_DOMAIN`], anyone holding
+/// the link (logged in or not) under [`PUBLIC_VIEW_TOKEN_DOMAIN`]. No expiry/revocation
+/// (stateless), like the approval token.
 pub async fn generate_view_token(
     w_id: &str,
     job_id: uuid::Uuid,
+    domain: &[u8],
     db: &DB,
 ) -> crate::error::Result<String> {
     use hmac::{Hmac, Mac};
@@ -208,7 +219,7 @@ pub async fn generate_view_token(
     let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
         .map_err(|e| crate::Error::internal_err(format!("HMAC key error: {e}")))?;
     mac.update(job_id.as_bytes());
-    mac.update(b"view_token");
+    mac.update(domain);
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
