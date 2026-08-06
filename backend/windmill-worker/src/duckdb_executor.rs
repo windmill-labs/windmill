@@ -1641,6 +1641,8 @@ pub async fn do_duckdb(
         let (result, column_order) = match result {
             Ok(r) => r,
             Err(e) => {
+                #[cfg(feature = "private")]
+                let e = crate::duckdb_isolation_ee::explain_error(e);
                 if let Some((_, meta)) = &materialize {
                     record_mat(
                         conn,
