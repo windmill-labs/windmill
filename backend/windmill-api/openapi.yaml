@@ -1239,7 +1239,7 @@ paths:
                   type: boolean
                 dev_workspace_label:
                   type: string
-                  enum: [dev, staging]
+                  description: "Environment label, e.g. 'dev' or 'staging'; also names the branch the dev workspace deploys to. Null defaults to 'dev'"
               required:
                 - dev_workspace_id
       responses:
@@ -1301,7 +1301,7 @@ paths:
                   dev_workspace_label:
                     type: string
                     nullable: true
-                    description: "Cosmetic display label ('dev' | 'staging'); null defaults to 'dev'"
+                    description: "Environment label, e.g. 'dev' or 'staging'; null defaults to 'dev'"
                 required:
                   - id
                   - name
@@ -31115,7 +31115,7 @@ components:
               dev_workspace_label:
                 type: string
                 nullable: true
-                description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
+                description: "Environment label of the dev workspace, e.g. 'dev' or 'staging'; null defaults to 'dev'"
               created_by:
                 type: string
                 nullable: true
@@ -31191,8 +31191,7 @@ components:
           description: "Copy the parent's members (users + group memberships) into the fork so the team can work in it"
         dev_workspace_label:
           type: string
-          enum: [dev, staging]
-          description: "Cosmetic display label for the dev workspace (badge text + wording only); ignored for non-dev forks"
+          description: "Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the branch it deploys to. Ignored for non-dev forks"
       required:
         - id
         - name
@@ -31222,7 +31221,7 @@ components:
         dev_workspace_label:
           type: string
           nullable: true
-          description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
+          description: "Environment label of the dev workspace, e.g. 'dev' or 'staging'; null defaults to 'dev'"
       required:
         - id
         - name

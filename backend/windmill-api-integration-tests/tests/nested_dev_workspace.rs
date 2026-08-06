@@ -107,6 +107,19 @@ async fn test_nested_dev_workspace_attach_guards(db: Pool<Postgres>) -> anyhow::
     assert!(is_dev);
     assert_eq!(label.as_deref(), Some("staging"));
 
+    // Distinct labels are the only requirement, so a name outside the two the UI offers extends the
+    // chain past them: `test-workspace` -> `tw-dev` ('dev') -> `spare` ('staging') -> `e-cand` ('uat').
+    let (status, body) = attach(
+        port,
+        "spare",
+        json!({ "dev_workspace_id": "e-cand", "dev_workspace_label": "uat" }),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "custom-label attach returned {status}: {body}"
+    );
+
     Ok(())
 }
 
@@ -419,11 +432,8 @@ async fn test_archive_takes_the_pairing_lock_for_a_standalone_workspace(
         .execute(&mut *held)
         .await?;
 
-    let finished = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        archive(port, "h-cand"),
-    )
-    .await;
+    let finished =
+        tokio::time::timeout(std::time::Duration::from_secs(5), archive(port, "h-cand")).await;
     assert!(
         finished.is_err(),
         "archive of a standalone workspace completed while its pairing lock was held: {finished:?}"

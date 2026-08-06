@@ -171,10 +171,13 @@
 			{#if pendingFork}
 				<span class="shrink-0 opacity-70 font-normal">(new)</span>
 			{:else if currentWs?.is_dev_workspace}
+				<!-- max-w/truncate: a custom environment label can be far longer than `dev`/`stg` and
+				     would otherwise push the workspace name out of the row. -->
 				<Badge
 					color="dark-blue"
 					small
-					class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
+					title={devBadgeText(currentWs.dev_workspace_label)}
+					class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white max-w-24 truncate"
 					>{devBadgeText(currentWs.dev_workspace_label)}</Badge
 				>
 			{/if}

@@ -490,8 +490,8 @@ struct CreateWorkspaceFork {
     /// the team can work in it. Defaults off; the dev-workspace UI defaults it on.
     #[serde(default)]
     copy_members: bool,
-    /// Cosmetic display label for the dev workspace: 'dev' | 'staging'. Purely visual (badge text +
-    /// wording); ignored for non-dev forks. None defaults to 'dev'.
+    /// Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the
+    /// branch it deploys to. Ignored for non-dev forks. None defaults to 'dev'.
     #[serde(default)]
     dev_workspace_label: Option<String>,
 }
@@ -712,16 +712,103 @@ struct DevWorkspaceInfo {
     dev_workspace_label: Option<String>,
 }
 
-/// Normalize/validate the cosmetic dev-workspace display label. None or 'dev' both render as "dev";
-/// 'staging' renders as "stg". Anything else is rejected. Stored explicitly ('dev'/'staging') so it
-/// round-trips, but a NULL column is treated as 'dev' on the read side too.
+/// Normalize/validate the dev-workspace environment label. Unset or empty defaults to 'dev', which
+/// is also what a NULL column reads as. 'dev' and 'staging' are the labels the UI offers; any other
+/// accepted value is a custom environment name, which is what lets a chain hold more than two dev
+/// workspaces (each must carry a distinct label, see `reject_dev_label_taken_in_chain`).
+///
+/// The label is used verbatim as the git branch the dev workspace deploys to
+/// (`dev_workspace_branch`), so it must be a valid single-segment ref name: no '/', nothing git
+/// refuses (`..`, a trailing '.' or '.lock'), and short enough to read as a badge.
 fn normalize_dev_workspace_label(label: Option<String>) -> Result<Option<String>> {
-    match label.as_deref() {
-        None | Some("dev") => Ok(Some("dev".to_string())),
-        Some("staging") => Ok(Some("staging".to_string())),
-        Some(other) => Err(Error::BadRequest(format!(
-            "invalid dev workspace label '{other}' (expected 'dev' or 'staging')"
-        ))),
+    let label = label.unwrap_or_default();
+    let label = label.trim();
+    if label.is_empty() {
+        return Ok(Some("dev".to_string()));
+    }
+    // Git stores refs hierarchically, so a branch cannot share its name with a directory of other
+    // branches: `refs/heads/wm-fork` and `refs/heads/wm-fork/main/abc` cannot both exist. These two
+    // roots hold the fork and promotion branches the same repo already carries (see
+    // `git_sync_deploy_pr_head_branch` in the worker), so a label equal to one of them would
+    // create/attach fine and then fail every deploy that has to write the branch.
+    const RESERVED_BRANCH_NAMESPACES: [&str; 2] = ["wm-fork", "wm_deploy"];
+    if RESERVED_BRANCH_NAMESPACES.contains(&label) {
+        return Err(Error::BadRequest(format!(
+            "dev workspace label '{label}' is reserved: it names the git branch the dev workspace \
+             deploys to, and '{label}/...' branches already hold this repository's fork and \
+             promotion deploys. Use another label."
+        )));
+    }
+    let valid = label.len() <= 30
+        && label.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && label
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'))
+        && !label.contains("..")
+        && !label.ends_with('.')
+        && !label.ends_with(".lock");
+    if !valid {
+        return Err(Error::BadRequest(format!(
+            "invalid dev workspace label '{label}': it names the git branch the dev workspace \
+             deploys to, so it must be 1-30 characters of lowercase letters, digits, '-', '_' or \
+             '.', start with a letter or digit, and not end with '.' or '.lock'"
+        )));
+    }
+    Ok(Some(label.to_string()))
+}
+
+#[cfg(test)]
+mod dev_workspace_label_tests {
+    use super::normalize_dev_workspace_label;
+
+    fn norm(label: &str) -> Option<String> {
+        normalize_dev_workspace_label(Some(label.to_string()))
+            .ok()
+            .flatten()
+    }
+
+    #[test]
+    fn unset_and_blank_default_to_dev() {
+        assert_eq!(
+            normalize_dev_workspace_label(None).unwrap().as_deref(),
+            Some("dev")
+        );
+        assert_eq!(norm("  ").as_deref(), Some("dev"));
+        assert_eq!(norm(" staging ").as_deref(), Some("staging"));
+    }
+
+    #[test]
+    fn accepts_a_custom_environment_name() {
+        for label in ["uat", "pre-prod", "qa_2", "v1.2"] {
+            assert_eq!(norm(label).as_deref(), Some(label), "rejected '{label}'");
+        }
+    }
+
+    #[test]
+    fn rejects_what_git_will_not_take_as_a_branch() {
+        // The label is used verbatim as a branch name, so each of these would either fail the push
+        // or land outside the single top-level ref the chain check reasons about.
+        for label in [
+            "feature/uat",
+            "UAT",
+            "-uat",
+            ".uat",
+            "u..at",
+            "uat.",
+            "uat.lock",
+            "uat env",
+            "uat~1",
+            &"u".repeat(31),
+            // Roots of the `wm-fork/**` and `wm_deploy/**` branch namespaces: git cannot hold a
+            // branch and a directory of branches under one name.
+            "wm-fork",
+            "wm_deploy",
+        ] {
+            assert!(
+                normalize_dev_workspace_label(Some(label.to_string())).is_err(),
+                "accepted '{label}'"
+            );
+        }
     }
 }
 
@@ -832,7 +919,7 @@ async fn reject_dev_label_matching_tracked_branch(
                     "The environment label '{label_branch}' matches the tracked branch of git-sync \
                      repository '{path}' in workspace '{w_id}': deploys from the dev workspace go \
                      to the '{label_branch}' branch and would overwrite the branch that repository \
-                     syncs from. Use the other label or change the repository's tracked branch."
+                     syncs from. Use a different label or change the repository's tracked branch."
                 )));
             }
         }
@@ -6688,7 +6775,7 @@ async fn create_workspace_fork_branch(
     // that second call. Validating early lets a bad request fail before any branch is created.
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
-        // Reject a bad cosmetic label before any git branch is created (acted on in create_workspace_fork).
+        // Reject a bad label before any git branch is created (acted on in create_workspace_fork).
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&w_id]).await?;
         ensure_dev_parent_can_host_dev(&db, &w_id).await?;
@@ -7015,7 +7102,7 @@ async fn create_workspace_fork(
         validate_fork_workspace_id(&nw.id)?;
     }
     validate_workspace_name(&nw.name)?;
-    // Cosmetic label only applies to dev workspaces; a non-dev fork stores NULL.
+    // The environment label only applies to dev workspaces; a non-dev fork stores NULL.
     let dev_workspace_label = if nw.is_dev_workspace {
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&parent_workspace_id])
@@ -7297,7 +7384,7 @@ struct AttachDevWorkspace {
     lock_prod_deploy: bool,
     #[serde(default)]
     lock_prod_forking: bool,
-    /// Cosmetic display label for the attached dev workspace: 'dev' | 'staging'. None defaults to 'dev'.
+    /// Environment label for the attached dev workspace, e.g. 'dev' or 'staging'. None defaults to 'dev'.
     #[serde(default)]
     dev_workspace_label: Option<String>,
 }
@@ -9098,7 +9185,10 @@ async fn reject_attach_cycle<'e, E: sqlx::Executor<'e, Database = Postgres>>(
 ///
 /// Recomputed inside the transaction, but from a set that may already be stale — harmless, because
 /// whoever made it stale is the operation holding the node this one is missing.
-pub(crate) async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>, seeds: &[&str]) -> Result<()> {
+pub(crate) async fn lock_dev_pairing(
+    tx: &mut Transaction<'_, Postgres>,
+    seeds: &[&str],
+) -> Result<()> {
     let seeds: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
     // Depth bounds are the cycle-safety backstop used by every other hierarchy walk.
     let nodes = sqlx::query_scalar!(
@@ -9187,10 +9277,9 @@ async fn reject_stranding_nested_dev<'e, E: sqlx::Executor<'e, Database = Postgr
 /// branch: each deploy clobbers the other environment, and the root's auto-pull routes that branch
 /// to whichever dev it matches first. Require every dev workspace in the resulting chain to carry a
 /// distinct label — the dev ancestors `new_dev_id` lands under, `new_dev_id` with `label`, and (when
-/// it already exists and so keeps its own subtree) the dev workspaces it brings with it. Since
-/// `normalize_dev_workspace_label` admits only 'dev' and 'staging', this caps a chain at two dev
-/// workspaces. Dev workspaces only ever hang off a root or another dev (`ensure_dev_parent_can_host_dev`),
-/// so that chain is linear and this is the whole of it.
+/// it already exists and so keeps its own subtree) the dev workspaces it brings with it. Dev
+/// workspaces only ever hang off a root or another dev (`ensure_dev_parent_can_host_dev`), so that
+/// chain is linear and this is the whole of it.
 async fn reject_dev_label_taken_in_chain(
     db: &mut sqlx::PgConnection,
     parent_w_id: &str,
@@ -9264,7 +9353,7 @@ async fn reject_dev_label_taken_in_chain(
             return Err(Error::BadRequest(format!(
                 "'{other}' and '{id}' would both be '{branch}' workspaces in the same chain: dev \
                  workspaces in a chain share their git-sync repositories, so both would deploy to \
-                 the '{branch}' branch. Use the other environment label."
+                 the '{branch}' branch. Use a different environment label."
             )));
         }
     }
