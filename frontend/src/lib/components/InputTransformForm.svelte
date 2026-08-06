@@ -576,8 +576,10 @@
 {#if (arg != undefined || collapsed) && !hidden}
 	<div class={twMerge('relative group flex flex-col gap-1', className)}>
 		<!-- `relative` so the absolute button cluster below anchors to this row rather than
-		     to the whole field, letting it share the label's baseline. -->
-		<div class="relative flex flex-row flex-wrap justify-between gap-1">
+		     to the whole field, letting it share the label's baseline. `w-full` so an
+		     `align-items` on the caller's class can't shrink the row to its label and pull
+		     `right-0` onto it. -->
+		<div class="relative w-full flex flex-row flex-wrap justify-between gap-1">
 			<!-- min-h-7 reserves room for the button cluster beside a plain label; a custom
 			     header is a control of its own and sets the row's height itself. -->
 			<div class="flex grow items-end {header ? '' : 'min-h-7'}">
