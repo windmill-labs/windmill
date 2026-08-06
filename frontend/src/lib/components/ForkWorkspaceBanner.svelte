@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, userWorkspaces, userStore } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, userStore, type UserExt } from '$lib/stores'
 	import { ScriptService } from '$lib/gen'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
@@ -29,8 +29,16 @@
 	// Operators run scripts and flows, they never deploy a fork, so the banner and
 	// its CTA are noise for them. Gates the fetches too, not just the markup: the
 	// fork/parent comparison is an expensive tally no operator can act on.
-	let isOperator = $derived($userStore?.operator ?? false)
-	let showBanner = $derived(isFork && !isOperator)
+	//
+	// Only a role fetched for the workspace we are on answers this. `$workspaceStore`
+	// flips synchronously on a switch while `$userStore` still holds the workspace we
+	// left, so trusting it unqualified would flash the banner at (and start the tally
+	// for) an operator entering a fork from a workspace where they are not one.
+	function isConfirmedNonOperator(user: UserExt | undefined, ws: string | undefined): boolean {
+		return !!user && !!ws && user.workspace_id === ws && !user.operator
+	}
+	let isNotOperator = $derived(isConfirmedNonOperator($userStore, $workspaceStore))
+	let showBanner = $derived(isFork && isNotOperator)
 
 	// Drafts in this fork. When the fork is otherwise in sync with its parent, a
 	// user with only pending drafts should still get the draft CTA (mirrors the
@@ -68,11 +76,10 @@
 		resetCiTestSummary()
 	}
 
-	// `isOperator` is a dependency of its own: the role lands after the workspace
-	// switch that changes it, so a run keyed only on the workspace would decide on
-	// the previous workspace's role.
+	// `isNotOperator` is a dependency of its own: it only turns true once this
+	// workspace's role has landed, which is after the switch that triggered it.
 	$effect(() => {
-		;[$workspaceStore, parentWorkspaceId, isOperator]
+		;[$workspaceStore, parentWorkspaceId, isNotOperator]
 		untrack(() => {
 			if (showBanner && $workspaceStore) {
 				checkForChanges()
