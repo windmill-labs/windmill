@@ -9,7 +9,6 @@
 	import { getContext } from 'svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
-	import { getAgentActionStateId } from './AIToolNode.svelte'
 
 	interface Props {
 		data: ModuleN['data']
@@ -43,7 +42,8 @@
 	 */
 	let agentToolSummary = $derived.by(() => {
 		if (!data.insertable || data.module?.value?.type !== 'aiagent') return undefined
-		const actions = flowRunStatus?.getModuleState(data.id)?.agent_actions
+		const agentState = flowRunStatus?.getModuleState(data.id)
+		const actions = agentState?.agent_actions
 		if (!actions?.length) return undefined
 		const tally = new Map<string, { count: number; pending: number }>()
 		let calls = 0
@@ -52,15 +52,14 @@
 		actions.forEach((action, index) => {
 			const entry = tally.get(action.type) ?? { count: 0, pending: 0 }
 			entry.count++
-			const type = flowRunStatus?.getModuleState(
-				getAgentActionStateId(index, data.id, action)
-			)?.type
-			if (type === 'Failure') failed++
-			else if (type !== 'Success') entry.pending++
+			// A missing entry in the parallel success array means the action is still running.
+			const success = agentState?.agent_actions_success?.[index]
+			if (success === undefined) entry.pending++
+			else if (!success) failed++
 			tally.set(action.type, entry)
 			if (action.type !== 'message') {
 				calls++
-				if (type !== 'Success' && type !== 'Failure') pending++
+				if (success === undefined) pending++
 			}
 		})
 		const detail: string[] = []

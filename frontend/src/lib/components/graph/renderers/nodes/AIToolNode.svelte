@@ -354,9 +354,12 @@
 	 */
 	const toolCalls = $derived.by(() => {
 		if (flowModuleState) return undefined
-		const actions = flowRunStatus?.getModuleState(data.agentModuleId)?.agent_actions
+		const agentState = flowRunStatus?.getModuleState(data.agentModuleId)
+		const actions = agentState?.agent_actions
 		if (!actions) return undefined
-		const types: (GraphModuleState['type'] | undefined)[] = []
+		let count = 0
+		let failed = 0
+		let pending = 0
 		actions.forEach((action, index) => {
 			if (
 				!agentActionMatchesTool(action, {
@@ -366,18 +369,14 @@
 				})
 			)
 				return
-			types.push(
-				flowRunStatus?.getModuleState(getAgentActionStateId(index, data.agentModuleId, action))
-					?.type
-			)
+			count++
+			const success = agentState?.agent_actions_success?.[index]
+			if (success === undefined) pending++
+			else if (!success) failed++
 		})
-		if (types.length === 0) return undefined
-		const type = types.some((t) => t !== 'Success' && t !== 'Failure')
-			? 'InProgress'
-			: types.some((t) => t === 'Failure')
-				? 'Failure'
-				: 'Success'
-		return { type, count: types.length } as const
+		if (count === 0) return undefined
+		const type = pending > 0 ? 'InProgress' : failed > 0 ? 'Failure' : 'Success'
+		return { type, count } as const
 	})
 
 	let colorClasses = $derived(

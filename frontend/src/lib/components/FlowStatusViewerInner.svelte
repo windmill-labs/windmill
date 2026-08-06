@@ -762,7 +762,8 @@
 
 				if (mod.agent_actions && mod.id) {
 					setModuleState(mod.id, {
-						agent_actions: mod.agent_actions
+						agent_actions: mod.agent_actions,
+						agent_actions_success: mod.agent_actions_success
 					})
 					mod.agent_actions.forEach((action, idx) => {
 						if (!mod.id) {
