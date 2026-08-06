@@ -1050,6 +1050,9 @@
 	 * existing step's state — so without this the tools all appear at once when the step ends.
 	 */
 	let agentActionsVersion = $derived.by(() => {
+		// The editor draws the agent's declared tools and ignores the run's calls, so neither the
+		// layout nor the tool nodes can change as they land.
+		if (insertable) return ''
 		let version = ''
 		for (const [id, state] of Object.entries(flowModuleStates ?? {})) {
 			const actions = state?.agent_actions
