@@ -267,6 +267,14 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('deepseek-reasoner')).toBe(1000000)
 	})
 
+	it('maps Qwen3-Max to 256K and other Qwen ids to the family fallback', () => {
+		expect(getKnownModelContextWindow('qwen3-max')).toBe(256000)
+		expect(getKnownModelContextWindow('qwen3-max-2025-09-23')).toBe(256000)
+		// a version between "qwen3" and "-max" must not claim the 256K entry
+		expect(getKnownModelContextWindow('qwen3.8-max')).toBe(128000)
+		expect(getKnownModelContextWindow('qwen2.5-72b-instruct')).toBe(128000)
+	})
+
 	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
 		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
 		expect(getModelContextWindow('some-custom-model')).toBe(128000)

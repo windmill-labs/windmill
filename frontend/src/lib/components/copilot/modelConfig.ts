@@ -98,8 +98,12 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['deepseek-chat', 1_000_000],
 	['deepseek-reasoner', 1_000_000],
 	['deepseek', 128_000],
+	// Alibaba — Qwen3-Max is 256K; other Qwen ids fall through to the
+	// conservative family fallback
+	['qwen3-max', 256_000],
 	// Others
 	['llama', 128_000],
+	['qwen', 128_000],
 	['codestral', 32_000]
 ]
 
