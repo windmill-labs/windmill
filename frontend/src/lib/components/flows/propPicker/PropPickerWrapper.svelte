@@ -13,6 +13,10 @@
 		inputMatches: Writable<{ word: string; value: string }[] | undefined>
 		connectProp: (propName: string, onSelect: SelectCallback) => void
 		clearConnect: () => void
+		/** Reveal a `sidePane` column: its input is being written in. Reaching for the editor
+		 *  again after dismissing the column has to say so, since an editor that kept focus
+		 *  throughout emits no new focus event. */
+		openPicker: () => void
 		/** Where the properties are offered, and therefore what a pick does:
 		 *  - 'pane': the step's input form — a pick replaces the argument outright.
 		 *  - 'sidePane': a settings row — a pick lands at the expression's cursor, since a
@@ -102,8 +106,12 @@
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
-		connectProp: (propName, onSelect) => connect.arm({ id: propName, onSelect }),
+		connectProp: (propName, onSelect) => {
+			connect.arm({ id: propName, onSelect })
+			openPicker()
+		},
 		clearConnect: closePicker,
+		openPicker,
 		pickerMode: () => (sidePane ? 'sidePane' : 'pane'),
 		setPickTarget: (target) => {
 			pickTarget = target
@@ -123,22 +131,17 @@
 
 	let pickTarget: { id: string; onSelect: (path: string) => void } | undefined = $state(undefined)
 
-	// The side column stays put once the row is being worked on: picking a property blurs
-	// the editor, so closing on blur would take the column away mid-click. It is dismissed
-	// deliberately instead — by clicking away, by the input's own connect button, or by the
-	// setting being switched off.
+	// Opened and dismissed on demand rather than derived from focus: picking a property blurs
+	// the editor, so a column that followed focus would vanish mid-click — and one that
+	// latched onto focus would never let go of an editor unmounted by its own setting.
 	let sidePaneOpen = $state(false)
-	$effect(() => {
-		if ($propPickerConfig != undefined || $exprBeingEdited.length > 0) {
-			sidePaneOpen = true
-		}
-	})
+
+	function openPicker() {
+		sidePaneOpen = true
+	}
 
 	function closePicker() {
 		connect.disarm()
-		// A switched-off setting unmounts its editor rather than blurring it, so the focus
-		// claim outlives the field — left standing, it reopens the column on the next tick.
-		exprBeingEdited.set([])
 		sidePaneOpen = false
 	}
 </script>

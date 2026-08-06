@@ -161,6 +161,7 @@
 		connectProp: focusProp,
 		propPickerConfig,
 		clearConnect: clearFocus,
+		openPicker,
 		exprBeingEdited
 	} = propPickerWrapperContext ?? {}
 
@@ -941,7 +942,12 @@
 									{/snippet}
 								</ArgInput>
 							{:else if argKind === 'javascript' && arg.expr != undefined}
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<!-- Reaching for the editor reveals the properties beside it. On pointerdown,
+								     not focus: an editor that was never blurred emits no focus event, so a
+								     column dismissed while it kept the caret could not be brought back. -->
 								<div
+									onpointerdown={() => openPicker?.()}
 									class={`bg-surface-input rounded-md flex flex-col pl-2 overflow-auto ${inputBorderClass({ forceFocus: focused, error: !!error })}`}
 								>
 									<SimpleEditor
@@ -956,6 +962,7 @@
 										on:focus={() => {
 											focused = true
 											updatePropsBeingEdited(true)
+											openPicker?.()
 										}}
 										on:blur={() => {
 											focused = false
