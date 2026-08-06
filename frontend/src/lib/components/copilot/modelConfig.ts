@@ -65,8 +65,9 @@ export function requiresMaxCompletionTokens(model: string) {
 // name found in the bare model id wins, so vendor-namespaced and date-suffixed
 // ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
 // Conservative family fallbacks sit below the explicit entries; models not
-// listed at all resolve to undefined, which disables auto-trimming and the
-// indicator denominator.
+// listed at all resolve to undefined, which hides the indicator denominator —
+// trim/compaction consumers go through getModelContextWindow, whose 128K
+// fallback keeps a limit enforced even then.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
