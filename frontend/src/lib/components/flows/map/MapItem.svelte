@@ -143,7 +143,7 @@
 		{#if sideAnnotation && sideAnnotation != ''}
 			<div
 				title={sideAnnotationTitle}
-				class="absolute z-10 left-full ml-2 top-1/2 -translate-y-1/2 whitespace-nowrap text-2xs text-tertiary pointer-events-none"
+				class="nodrag nopan absolute z-10 left-full ml-2 top-1/2 -translate-y-1/2 whitespace-nowrap text-2xs text-tertiary cursor-default"
 			>
 				{sideAnnotation}
 			</div>

@@ -37,8 +37,8 @@
 
 	/**
 	 * The editor draws an agent's declared tools, not the calls a run makes, so a run would
-	 * otherwise leave no trace on the step. This rides the annotation slot, which is positioned
-	 * absolutely above the node, and so reports the run without moving anything.
+	 * otherwise leave no trace on the step. It is drawn beside the step, out of the flow and clear
+	 * of the tool rows above, so it reports the run without moving anything.
 	 */
 	let agentToolSummary = $derived.by(() => {
 		if (!data.insertable || data.module?.value?.type !== 'aiagent') return undefined
@@ -69,8 +69,8 @@
 			detail.push(`${entry.count} ${entry.count > 1 ? kind.plural : kind.singular}`)
 		}
 		if (failed > 0) detail.push(`${failed} failed`)
-		// The tools and their "+" node sit directly above, ~112px in, so the visible line has to
-		// stay short; the per-kind breakdown rides the tooltip instead of overlapping them.
+		// The visible line sits beside the step where a long string would run into the canvas, so
+		// it stays a total and the per-kind breakdown rides the tooltip.
 		const messages = tally.get('message')?.count ?? 0
 		const short =
 			calls > 0
