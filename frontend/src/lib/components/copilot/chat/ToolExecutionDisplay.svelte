@@ -65,11 +65,14 @@
 	// Resolved once so the label and the icon cannot disagree about which state this is.
 	const planState = $derived(planSettled ? 'settled' : message.error ? 'declined' : 'pending')
 	const planLabel = $derived(planCopy?.[planState] ?? '')
-	const planDoc = $derived(
-		message.planArtifactId
-			? aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
-			: undefined
-	)
+	const planDoc = $derived.by(() => {
+		if (!message.planArtifactId) return undefined
+		const doc = aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
+		// A conversation has one plan document, so a later proposal — or the rollback of a
+		// refused one — overwrites what this card wrote. The button would then open a plan the
+		// card never proposed, so it goes away instead of pointing somewhere else.
+		return doc?.content === planBodyText ? doc : undefined
+	})
 	// Read off the live document, not this card's outcome: a rejected proposal rolls the
 	// document back, so the card that says "not approved" can be the one whose document is
 	// the approved plan again. The button names what it opens.
