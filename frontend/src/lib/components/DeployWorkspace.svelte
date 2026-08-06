@@ -106,6 +106,19 @@
 		return undefined
 	}
 
+	/**
+	 * Authorization half of the on_behalf_of pair for flows/scripts. Only a custom pick
+	 * names one; for every other choice the backend derives it from the email, so
+	 * returning undefined clears the source item's value rather than keeping it.
+	 */
+	function getOnBehalfOfPermissionedAsForDeploy(
+		statusPath: string,
+		kind: Kind
+	): string | undefined {
+		if (kind === 'trigger' || onBehalfOfChoice[statusPath] !== 'custom') return undefined
+		return customOnBehalfOf[statusPath]?.permissionedAs
+	}
+
 	async function reload(path: string) {
 		try {
 			if (!$superadmin) {
@@ -324,7 +337,8 @@
 			workspaceFrom: $workspaceStore!,
 			workspaceTo: workspaceToDeployTo!,
 			additionalInformation,
-			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind)
+			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind),
+			onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusPath, kind)
 		})
 
 		if (result.success) {
@@ -440,7 +454,7 @@
 	>
 {:else if notSet == true}
 	<Alert type="error" title="Staging/Prod deploy not set up"
-		>As an admin, go to Settings {'->'} Workspace {'->'} Deployment UI</Alert
+		>As an admin, go to Settings {'->'} Workspace {'->'} Dev workspace</Alert
 	>
 {:else}
 	<Alert type="info" title="Shareable page"

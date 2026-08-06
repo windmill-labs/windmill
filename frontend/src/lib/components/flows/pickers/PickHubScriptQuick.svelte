@@ -74,6 +74,7 @@
 		displayPath?: boolean
 		apps?: string[]
 		refreshCount?: number
+		onHover?: (index: number) => void
 	}
 
 	let {
@@ -85,7 +86,8 @@
 		items = $bindable([]),
 		displayPath = false,
 		apps = $bindable([]),
-		refreshCount = 0
+		refreshCount = 0,
+		onHover = undefined
 	}: Props = $props()
 
 	let allApps: string[] = $state([])
@@ -199,7 +201,14 @@
 	<ul class="gap-1 flex flex-col">
 		{#each items as item, index (item.path)}
 			<li class="w-full">
-				<Popover class="w-full" placement="right" forceOpen={index === selected}>
+				<!-- Only the selected row may show a tooltip: the Popover opens on its own hover too, and a
+				     row scrolled under a stationary cursor would otherwise open a second one. -->
+				<Popover
+					class="w-full"
+					placement="right"
+					forceOpen={index === selected}
+					disablePopup={index !== selected}
+				>
 					{#snippet text()}
 						<div class="flex flex-col">
 							<div class="text-left text-xs font-normal leading-tight py-0"
@@ -211,10 +220,14 @@
 						</div>
 					{/snippet}
 					<Button
-						selected={selected === index}
 						variant="subtle"
 						unifiedSize="sm"
-						btnClasses="justify-start"
+						btnClasses="justify-start h-auto min-h-7 py-1 {selected === index
+							? 'bg-surface-hover'
+							: onHover
+								? 'hover:bg-transparent'
+								: ''}"
+						onmousemove={() => onHover?.(index)}
 						onClick={() => handlePickScript(item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
@@ -229,11 +242,11 @@
 						</div>
 
 						<div class="flex flex-col grow min-w-0">
-							<div class="grow truncate text-left font-normal leading-tight py-0.5"
+							<div class="min-w-0 truncate text-left font-normal leading-tight"
 								>{item.summary ?? ''}</div
 							>
 							{#if displayPath && item.path}
-								<div class="grow truncate text-left text-2xs font-thin">
+								<div class="min-w-0 truncate text-left text-2xs font-thin leading-tight">
 									{item.path}
 								</div>
 							{/if}

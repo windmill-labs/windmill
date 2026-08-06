@@ -5,6 +5,7 @@ import {
 	type TableMetadata
 } from './apps/components/display/dbtable/utils'
 import { runScriptAndPollResult } from './jobs/utils'
+import { writingJobOptions } from './jobs/writingJob'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
@@ -50,7 +51,8 @@ export function dbTableOpsWithPreviewScripts({
 	colDefs,
 	workspace,
 	whereClause,
-	version
+	version,
+	tag
 }: {
 	input: DbInput
 	tableKey: string
@@ -62,6 +64,8 @@ export function dbTableOpsWithPreviewScripts({
 	// DuckLake time-travel: when set, reads are pinned to this catalog snapshot
 	// via `AT (VERSION => n)` (DuckDB/ducklake only). Read-only by nature.
 	version?: number
+	// Overrides the language's native worker tag.
+	tag?: string
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
@@ -86,7 +90,7 @@ export function dbTableOpsWithPreviewScripts({
 			})
 			const result = await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, quicksearch }, language, content }
+				requestBody: { args: { ...dbArg, quicksearch }, language, content, tag }
 			})
 			const count = result?.[0].count as number
 			return count
@@ -101,7 +105,7 @@ export function dbTableOpsWithPreviewScripts({
 			})
 			let items = (await runScriptAndPollResult({
 				workspace,
-				requestBody: { args: { ...dbArg, ...params }, language, content }
+				requestBody: { args: { ...dbArg, ...params }, language, content, tag }
 			})) as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
@@ -114,28 +118,32 @@ export function dbTableOpsWithPreviewScripts({
 				column: colDef,
 				columns: colDefs
 			})
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: {
-					args: { ...dbArg, value_to_update: newValue, ...values },
-					language,
-					content
-				}
-			})
+			await runScriptAndPollResult(
+				{
+					workspace,
+					requestBody: {
+						args: { ...dbArg, value_to_update: newValue, ...values },
+						language,
+						content,
+						tag
+					}
+				},
+				writingJobOptions
+			)
 		},
 		onDelete: async ({ values }) => {
 			const content = makeMarker('DELETE', { table: tableKey, columns: colDefs })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content }
-			})
+			await runScriptAndPollResult(
+				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content, tag } },
+				writingJobOptions
+			)
 		},
 		onInsert: async ({ values }) => {
 			const content = makeMarker('INSERT', { table: tableKey, columns: colDefs })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content }
-			})
+			await runScriptAndPollResult(
+				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content, tag } },
+				writingJobOptions
+			)
 		}
 	}
 }
@@ -256,13 +264,18 @@ export class MigrationRunCancelled extends Error {
 export function dbSchemaOpsWithPreviewScripts({
 	workspace,
 	input,
-	confirmRunOutOfOrder
+	confirmRunOutOfOrder,
+	tag
 }: {
 	workspace: string
 	input: DbInput
 	/** Asked before running a just-created migration ahead of `pendingCount`
 	 * still-pending earlier ones. Return false to abort (throws MigrationRunCancelled). */
 	confirmRunOutOfOrder?: (pendingCount: number) => Promise<boolean>
+	// Overrides the language's native worker tag, for a database only reachable from
+	// a specific worker group. Data table migrations are run by the server, which
+	// picks their tag itself, so they are unaffected.
+	tag?: string
 }): IDbSchemaOps {
 	const dbType = getDbType(input)
 	const dbArg = getDatabaseArg(input)
@@ -340,7 +353,10 @@ export function dbSchemaOpsWithPreviewScripts({
 			? await WorkspaceService.getDatatableMigrationsStatus({ workspace, datatableName })
 			: undefined
 		if (!datatableName || !status?.enabled) {
-			await runScriptAndPollResult({ workspace, requestBody: { args: dbArg, content, language } })
+			await runScriptAndPollResult(
+				{ workspace, requestBody: { args: dbArg, content, language, tag } },
+				writingJobOptions
+			)
 			return
 		}
 		// The new migration gets the highest timestamp, so any still-pending
@@ -449,7 +465,7 @@ export function dbSchemaOpsWithPreviewScripts({
 					const fkContent = makeMarker('FOREIGN_KEYS', { table, schema })
 					const fkResult = await runScriptAndPollResult({
 						workspace,
-						requestBody: { args: dbArg, content: fkContent, language }
+						requestBody: { args: dbArg, content: fkContent, language, tag }
 					})
 
 					let rawForeignKeys: RawForeignKey[]
@@ -482,7 +498,7 @@ export function dbSchemaOpsWithPreviewScripts({
 					const pkContent = makeMarker('PRIMARY_KEY_CONSTRAINT', { table, schema })
 					const pkResult = (await runScriptAndPollResult({
 						workspace,
-						requestBody: { args: dbArg, content: pkContent, language }
+						requestBody: { args: dbArg, content: pkContent, language, tag }
 					})) as { constraint_name?: string; CONSTRAINT_NAME?: string }[]
 
 					if (pkResult && Array.isArray(pkResult) && pkResult.length > 0) {
@@ -506,17 +522,20 @@ export function dbSchemaOpsWithPreviewScripts({
 
 export async function getDucklakeSchema({
 	workspace,
-	ducklake
+	ducklake,
+	tag
 }: {
 	workspace: string
 	ducklake: string
+	tag?: string
 }): Promise<DBSchema> {
 	let result = await runScriptAndPollResult({
 		workspace,
 		requestBody: {
 			language: 'duckdb',
 			content: `ATTACH 'ducklake://${ducklake}' AS __ducklake__; ${DUCKLAKE_GET_SCHEMA_QUERY}`,
-			args: {}
+			args: {},
+			tag
 		}
 	})
 	let schemas = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? {})
@@ -567,6 +586,12 @@ export function getDbType(input: DbInput): DbType {
 		case 'ducklake':
 			return 'duckdb'
 	}
+}
+
+/** Tag the database's jobs carry with no override: for every DB the manager
+ * supports, the language of its queries is also the name of its native tag. */
+export function getDefaultDbTag(input: DbInput): string {
+	return getLanguageByResourceType(getDbType(input))
 }
 
 export function getDatabaseArg(input: DbInput | undefined) {

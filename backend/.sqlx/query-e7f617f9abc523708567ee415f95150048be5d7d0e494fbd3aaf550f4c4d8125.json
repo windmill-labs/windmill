@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ('test-workspace', 'ops', '', '{}') ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e7f617f9abc523708567ee415f95150048be5d7d0e494fbd3aaf550f4c4d8125"
+}

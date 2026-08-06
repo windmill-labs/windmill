@@ -57,8 +57,9 @@ use windmill_common::{
     get_database_url,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
-        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
         HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
         RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
@@ -68,7 +69,11 @@ use windmill_common::{
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
-use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED, PgDatabase};
+use windmill_common::{
+    error::to_anyhow,
+    worker::{reload_custom_tags_setting, CLOUD_HOSTED},
+    PgDatabase,
+};
 
 /// Unauthenticated settings routes.
 ///
@@ -115,6 +120,7 @@ pub fn global_service() -> Router {
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
+        .route("/github_app_stale_webhooks", get(github_app_stale_webhooks))
         .route(
             "/instance_config",
             get(get_instance_config).put(set_instance_config),
@@ -847,6 +853,17 @@ pub async fn set_global_setting_internal(
         bump_instance_ai_config_revision();
     }
 
+    // Tag reads are served from an in-memory cache that this process otherwise only
+    // refreshes on the next global-settings poll, so without this a refetch right after
+    // the write still returns the pre-write list. The setting is already persisted at
+    // this point, so a failed refresh must not be reported as a failed write — the
+    // poller retries it.
+    if key == CUSTOM_TAGS_SETTING {
+        if let Err(e) = reload_custom_tags_setting(db).await {
+            tracing::error!(error = %e, "Could not reload custom tags setting after write");
+        }
+    }
+
     Ok(())
 }
 
@@ -1078,6 +1095,30 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING => {
+            // A bad value here yields a webhook GitHub can never deliver to, and the
+            // failure only shows up much later as "falling back to polling" on a
+            // repository — so reject it at the boundary instead.
+            match value {
+                // Clearing (delete row) is handled by the caller; allow it through.
+                serde_json::Value::Null => {}
+                serde_json::Value::String(s) if s.trim().is_empty() => {}
+                serde_json::Value::String(s) => {
+                    windmill_common::global_settings::validate_webhook_base_url(s).map_err(
+                        |e| {
+                            error::Error::BadRequest(format!(
+                                "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING}: {e}"
+                            ))
+                        },
+                    )?;
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING} must be a URL string"
+                    )));
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1234,6 +1275,25 @@ pub async fn get_global_setting(
 struct GlobalSetting {
     name: String,
     value: serde_json::Value,
+}
+
+/// Repositories whose registered webhook still points at a receiver the instance no
+/// longer uses — what an admin has to re-save after changing the webhook base URL.
+/// Read-only; changing the setting never moves a live hook on its own.
+async fn github_app_stale_webhooks(
+    Extension(_db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<serde_json::Value> {
+    require_super_admin(&_db, &authed.email).await?;
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let stale = windmill_common::git_sync_ee::stale_webhook_repos(&_db).await?;
+        return Ok(Json(serde_json::to_value(stale).map_err(|e| {
+            error::Error::internal_err(format!("Failed to serialize stale webhooks: {e}"))
+        })?));
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    Ok(Json(serde_json::json!([])))
 }
 
 #[cfg(feature = "enterprise")]

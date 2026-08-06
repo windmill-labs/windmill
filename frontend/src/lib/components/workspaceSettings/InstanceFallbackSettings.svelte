@@ -30,7 +30,7 @@
 
 {#if instanceAiSummary}
 	<SettingCard label="Active instance AI">
-		<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
+		<div class="flex flex-col gap-4">
 			<p class="text-xs text-secondary">
 				This workspace is currently using the instance AI defaults shown below.
 			</p>
@@ -91,7 +91,7 @@
 {/if}
 
 <SettingCard label="Workspace override">
-	<div class="flex flex-col gap-3 p-4 rounded-md border bg-surface-tertiary">
+	<div class="flex flex-col gap-3">
 		<p class="text-xs text-secondary">
 			Create workspace-specific AI settings only if this workspace needs to override the active
 			instance defaults.

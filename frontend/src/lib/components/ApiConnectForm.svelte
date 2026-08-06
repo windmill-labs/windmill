@@ -58,7 +58,11 @@
 		viewJsonSchema = false
 		try {
 			schema = resourceTypeInfo.schema as any
-			schema.order = schema.order ?? Object.keys(schema.properties).sort()
+			// A resource type may declare no properties at all — `dbt_profile` is a
+			// `profiles.yml` block whose keys are its adapter's, not Windmill's. That
+			// is a JSON-edited type, NOT a missing one: `Object.keys(undefined)` threw
+			// into the catch below, so the drawer told the user to sync a type it had.
+			schema.order = schema.order ?? Object.keys(schema.properties ?? {}).sort()
 			notFound = false
 		} catch (e) {
 			notFound = true
@@ -233,7 +237,7 @@
 	>
 	<SyncResourceTypes {resourceType} {onSynced} />
 {/if}
-{#if notFound || viewJsonSchema}
+{#if notFound || viewJsonSchema || !schema?.properties}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
 		>{:else}<div class="py-2"></div>{/if}

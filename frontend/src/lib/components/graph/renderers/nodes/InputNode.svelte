@@ -12,6 +12,7 @@
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { MessageSquare } from 'lucide-svelte'
 	import { getGraphContext } from '../../graphContext'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 	import FunnelCog from '$lib/components/icons/FunnelCog.svelte'
 
 	interface Props {
@@ -21,6 +22,7 @@
 	let { data }: Props = $props()
 
 	const { selectionManager, diffManager } = getGraphContext()
+	const flowRunStatus = getFlowRunStatusContext()
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const { previewArgs, flowStore } = flowEditorContext || {}
@@ -110,7 +112,7 @@
 				data.eventHandlers.hideJobStatus()
 			}}
 			individualStepTests={data.individualStepTests}
-			job={data.flowJob}
+			job={flowRunStatus?.flowJob}
 			showJobStatus={data.showJobStatus}
 			flowHasChanged={data.flowHasChanged}
 		>

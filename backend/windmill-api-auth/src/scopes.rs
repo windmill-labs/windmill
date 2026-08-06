@@ -120,6 +120,10 @@ impl ScopeDefinition {
 
         match (self.action.as_str(), other.action.as_str()) {
             (a, b) if (a == "write" && b == "read") || (a == b) => {}
+            // Apps only: `write` can rewrite the app and its policy, so it also covers
+            // running its components. Not general — `jobs:write` must not grant
+            // `jobs:run`. The resource check below still confines it to the same app.
+            ("write", "run") if self.domain == "apps" => {}
             _ => return false,
         }
 
@@ -489,6 +493,25 @@ pub fn check_route_access(
         }
     }
 
+    // Each declared scope must grant what its prompt said and no more:
+    // `jobs:run` only deployed runnables, `users:read` only the viewer's identity.
+    if has_raw_app_sdk_sentinel(Some(token_scopes)) {
+        if let Some(suffix) = route_suffix.as_deref() {
+            if is_request_supplied_code_route(suffix) {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token cannot run request-supplied code."
+                        .to_string(),
+                ));
+            }
+            if required_domain == ScopeDomain::Users && suffix != "users/whoami" {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token can only read the viewer's own identity."
+                        .to_string(),
+                ));
+            }
+        }
+    }
+
     // MCP scopes (mcp:all, mcp:favorites, mcp:hub:*, etc.) use a custom format
     // that doesn't fit the standard domain:action model. Verify the token has at
     // least one mcp: scope; MCP handlers do their own fine-grained checking.
@@ -701,6 +724,34 @@ pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
 }
 
+/// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
+/// to narrow the declared scopes to what the viewer's prompt promised.
+pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
+
+pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|s| s.iter().any(|x| x == RAW_APP_SDK_SENTINEL))
+}
+
+/// Endpoints that run code the caller supplies or names by job id (the latter
+/// with no ownership check). Their jobs get an unscoped credential as the viewer,
+/// so reaching one would make a captured SDK token a full account takeover.
+fn is_request_supplied_code_route(suffix: &str) -> bool {
+    // Prefixes, so the `_async` variants are covered too.
+    const CODE_ROUTES: [&str; 10] = [
+        "jobs/run/preview",
+        "jobs/run_inline/preview",
+        "jobs/run_wait_result/preview",
+        "jobs/run/preview_bundle",
+        "jobs/run/preview_flow",
+        "jobs/run_wait_result/preview_flow",
+        "jobs/run/dependencies",
+        "jobs/run/flow_dependencies",
+        "jobs/run/workflow_as_code",
+        "jobs/restart/f",
+    ];
+    CODE_ROUTES.iter().any(|p| suffix.starts_with(p))
+}
+
 /// Routes an app embed token (sentinel) is denied. Its broad scopes (`apps:run`,
 /// `jobs:read`, `users:read`, `folders:read`) exist only for a fixed set of routes a
 /// running app uses, but the whole `/apps`, `/jobs`, `/users`, `/folders` routers are
@@ -800,6 +851,15 @@ fn scope_grants_access(
     if scope_domain == ScopeDomain::Resources && scope_action == ScopeAction::Run {
         return Ok(required_action == ScopeAction::Read
             && route_path.is_some_and(resource_metadata_route_allowed));
+    }
+
+    // Apps `write` covers `run` (see `ScopeDefinition::includes`). Like every domain
+    // here this layer is resource-blind; the Run handlers path-check the app.
+    if scope_domain == ScopeDomain::Apps
+        && scope_action == ScopeAction::Write
+        && required_action == ScopeAction::Run
+    {
+        return Ok(true);
     }
 
     if !scope_action.includes(&required_action)
@@ -1014,6 +1074,29 @@ mod tests {
         // Conversely a scripts token does not reach the data_metrics route.
         let sc = vec!["scripts:read".to_string()];
         assert!(check_route_access(&sc, "/api/w/test/data_metrics/list", "GET").is_err());
+    }
+
+    /// `apps_u/execute_component` (and the S3 upload the same components drive) is a
+    /// Run action, so a scoped token needs `apps:run`. `apps:write` must keep reaching
+    /// it too: it can rewrite the app and its policy, so withholding execution from it
+    /// protects nothing while breaking every app-scoped token.
+    #[test]
+    fn apps_run_routes_accept_run_and_write_scopes() {
+        let execute = "/api/w/test/apps_u/execute_component/u/admin/app";
+        for scope in ["apps:run", "apps:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], execute, "POST").is_ok(),
+                "{scope} must reach execute_component"
+            );
+        }
+        assert!(check_route_access(&["apps:read".to_string()], execute, "POST").is_err());
+        // The write-satisfies-run allowance is confined to the apps domain.
+        assert!(check_route_access(
+            &["jobs:write".to_string()],
+            "/api/w/test/jobs/run/p/u/admin/script",
+            "POST"
+        )
+        .is_err());
     }
 
     #[test]

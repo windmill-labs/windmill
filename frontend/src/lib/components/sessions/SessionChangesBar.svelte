@@ -217,7 +217,7 @@
 		const owner = runtime?.previewTabs
 		const target = previewTargetFor(item)
 		if (!owner || !target) return
-		owner.openAndPulse(target)
+		owner.open(target)
 	}
 
 	// A pipeline's bundle path (`f/<folder>/data_pipeline`) is an implementation

@@ -1,3 +1,4 @@
+import { isDbtDescriptorPath } from "./resource_folders.ts";
 export type ScriptLanguage =
   | "python3"
   | "deno"
@@ -21,6 +22,7 @@ export type ScriptLanguage =
   | "ansible"
   | "ruby"
   | "rlang"
+  | "dbt"
   | "java";
 // for related places search: ADD_NEW_LANG
 
@@ -106,6 +108,8 @@ export function inferContentTypeFromFilePath(
     return "java";
   } else if (contentPath.endsWith(".rb")) {
     return "ruby";
+  } else if (isDbtDescriptorPath(contentPath)) {
+    return "dbt";
   } else if (contentPath.endsWith(".r")) {
     return "rlang";
 	// for related places search: ADD_NEW_LANG
@@ -119,7 +123,7 @@ export function inferContentTypeFromFilePath(
     throw new Error(
       `Cannot infer script language from extension '${ext}' (file ${contentPath}).` +
         hint +
-        "\nSupported extensions: .ts (bun/deno), .py, .go, .sh, .ps1, .php, .rs, .cs, .nu, .java, .rb, .r, .gql, .playbook.yml, .pg.sql, .my.sql, .bq.sql, .sf.sql, .ms.sql, .odb.sql, .duckdb.sql"
+        "\nSupported extensions: .ts (bun/deno), .py, .go, .sh, .ps1, .php, .rs, .cs, .nu, .java, .rb, .r, .gql, .playbook.yml, .pg.sql, .my.sql, .bq.sql, .sf.sql, .ms.sql, .odb.sql, .duckdb.sql, and a dbt project folder `<name>__dbt/`"
     );
   }
 }

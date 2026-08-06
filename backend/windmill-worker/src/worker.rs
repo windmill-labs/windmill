@@ -152,6 +152,7 @@ use crate::{
     worker_flow::handle_flow,
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
+        tally_unfinished_dependency_deploy,
     },
     worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
 };
@@ -360,6 +361,8 @@ lazy_static::lazy_static! {
         std::env::var("NSJAIL_PY_RLIMIT_AS_MB").ok();
     pub static ref NSJAIL_ANSIBLE_RLIMIT_AS_MB: Option<String> =
         std::env::var("NSJAIL_ANSIBLE_RLIMIT_AS_MB").ok();
+    pub static ref NSJAIL_DBT_RLIMIT_AS_MB: Option<String> =
+        std::env::var("NSJAIL_DBT_RLIMIT_AS_MB").ok();
 
     // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
@@ -699,6 +702,26 @@ lazy_static::lazy_static! {
         .unwrap_or(1000);
 
     pub static ref FLOW_RUNNER_RUNNING: Mutex<bool> = Mutex::new(false);
+}
+
+lazy_static::lazy_static! {
+    /// Registry TLS/timeout settings for uv. Env-only (they have no instance setting), and read
+    /// both by the job path and by the DB-less `prepare-deps` CLI, which has no other source of
+    /// registry configuration.
+    pub static ref TRUSTED_HOST: Option<String> = non_empty_env("PY_TRUSTED_HOST").or_else(|| non_empty_env("PIP_TRUSTED_HOST"));
+    pub static ref INDEX_CERT: Option<String> = non_empty_env("PY_INDEX_CERT").or_else(|| non_empty_env("PIP_INDEX_CERT"));
+    pub static ref NATIVE_CERT: bool = non_empty_env("PY_NATIVE_CERT").or_else(|| non_empty_env("UV_NATIVE_TLS")).map(|flag| flag == "true").unwrap_or(false);
+    /// uv's HTTP request timeout (seconds). The uv invocations use env_clear(), so a
+    /// UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
+    /// Only forwarded when set; otherwise uv keeps its own default. Lets operators
+    /// raise it for slow/contended private registries ("operation timed out").
+    pub static ref UV_HTTP_TIMEOUT: Option<String> = non_empty_env("UV_HTTP_TIMEOUT");
+}
+
+/// A variable declared but left empty (a common shape in compose/k8s manifests) must not
+/// shadow the fallback name it is checked against.
+pub(crate) fn non_empty_env(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
 lazy_static::lazy_static! {
@@ -1575,7 +1598,7 @@ pub fn create_span_with_name(
         span.record("hostname", hostname);
     }
     if let Some(trigger_kind) = arc_job.trigger_kind.as_ref() {
-        span.record("trigger_kind", trigger_kind.to_string().as_str());
+        span.record("trigger_kind", trigger_kind.as_str());
     }
     if let Some(trigger) = arc_job.trigger.as_ref() {
         span.record("trigger", trigger.as_str());
@@ -1685,7 +1708,7 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.to_string()),
+        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),
@@ -1724,7 +1747,7 @@ pub async fn handle_all_job_kind_error(
                 0,
                 None,
                 err,
-                false,
+                StepFailureKind::Normal,
                 same_worker_tx,
                 &worker_dir,
                 &worker_name,
@@ -2349,6 +2372,27 @@ pub async fn run_worker(
         );
     }
 
+    // Dedicated workers wait for the init script before installing their dependencies, so it has to
+    // be queued before they are spawned.
+    if i_worker == 1 {
+        // Initialize runtime asset inserter for batched database inserts
+        if let Connection::Sql(db) = conn {
+            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
+        }
+        if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
+            resolve_init_script(InitScriptState::Aborted);
+            killpill_tx.send();
+            tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
+            return;
+        }
+        spawn_periodic_script_task(
+            worker_name.clone(),
+            conn.clone(),
+            same_worker_tx.clone(),
+            killpill_rx.resubscribe(),
+        );
+    }
+
     // (dedi_path, dedicated_worker_tx, dedicated_worker_handle)
     // Option<Sender<Arc<QueuedJob>>>,
     // Option<JoinHandle<()>>,
@@ -2378,24 +2422,6 @@ pub async fn run_worker(
         HashMap<String, Sender<DedicatedWorkerJob>>,
         Vec<JoinHandle<()>>,
     ) = (HashMap::new(), vec![]);
-
-    if i_worker == 1 {
-        // Initialize runtime asset inserter for batched database inserts
-        if let Connection::Sql(db) = conn {
-            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
-        }
-        if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
-            killpill_tx.send();
-            tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
-            return;
-        }
-        spawn_periodic_script_task(
-            worker_name.clone(),
-            conn.clone(),
-            same_worker_tx.clone(),
-            killpill_rx.resubscribe(),
-        );
-    }
 
     #[cfg(feature = "prometheus")]
     let _worker_dedicated_channel_queue_send_duration = {
@@ -3314,6 +3340,12 @@ pub async fn run_worker(
 
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exiting", worker_name);
 
+    // Only this worker runs the init job, so if its loop exited before doing so, nothing ever will:
+    // release whoever waits on it, otherwise joining the dedicated worker handles below hangs.
+    if i_worker == 1 {
+        resolve_init_script(InitScriptState::Aborted);
+    }
+
     #[cfg(feature = "enterprise")]
     {
         let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
@@ -3371,6 +3403,81 @@ pub async fn run_worker(
     tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InitScriptState {
+    Pending,
+    Completed,
+    Aborted,
+}
+
+lazy_static::lazy_static! {
+    /// State of the INIT_SCRIPT job, which is the documented hook to prepare the host (CA
+    /// certificates, proxies, mounts), so anything reaching the network at startup waits on it. The
+    /// init job is executed by the main loop, which only starts once dedicated workers have been
+    /// spawned, hence a gate rather than plain ordering. Every path that gives up on running it
+    /// MUST resolve the gate, or waiters park forever and worker teardown hangs joining them.
+    static ref INIT_SCRIPT_STATE: tokio::sync::watch::Sender<InitScriptState> =
+        tokio::sync::watch::channel(InitScriptState::Pending).0;
+}
+
+/// Called with the post-processing verdict, which is the only one that accounts for `wm_failure`.
+pub(crate) fn init_script_finished(success: bool) {
+    resolve_init_script(if success {
+        InitScriptState::Completed
+    } else {
+        InitScriptState::Aborted
+    });
+}
+
+fn resolve_init_script(state: InitScriptState) {
+    INIT_SCRIPT_STATE.send_if_modified(|current| {
+        if *current == InitScriptState::Pending {
+            *current = state;
+            true
+        } else {
+            false
+        }
+    });
+}
+
+/// Returns false when the init script will never succeed (it failed, or the worker is shutting
+/// down), in which case the caller must give up instead of preparing anything.
+// Only called from the dedicated worker paths, which are gated behind the `private` feature.
+#[allow(dead_code)]
+pub(crate) async fn wait_for_init_script_completed(
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+) -> bool {
+    let mut rx = INIT_SCRIPT_STATE.subscribe();
+    let state = *rx.borrow_and_update();
+    if state != InitScriptState::Pending {
+        return state == InitScriptState::Completed;
+    }
+    tracing::info!("waiting for init script to complete before installing dependencies");
+    // recv() is cancel-safe, so losing the select does not consume the killpill the caller still
+    // needs.
+    tokio::select! {
+        _ = rx.changed() => *rx.borrow_and_update() == InitScriptState::Completed,
+        _ = killpill_rx.recv() => false,
+    }
+}
+
+#[cfg(test)]
+mod init_script_gate_tests {
+    use super::*;
+
+    // The gate is a process-global whose first resolution wins, so this must stay the only test
+    // that resolves it.
+    #[tokio::test]
+    async fn aborting_the_init_script_releases_waiters_for_good() {
+        let (_killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel(1);
+        resolve_init_script(InitScriptState::Aborted);
+        // Parking here instead would hang worker teardown on the dedicated worker handles.
+        assert!(!wait_for_init_script_completed(&mut killpill_rx).await);
+        resolve_init_script(InitScriptState::Completed);
+        assert!(!wait_for_init_script_completed(&mut killpill_rx).await);
+    }
+}
+
 async fn queue_init_bash_maybe<'c>(
     conn: &Connection,
     same_worker_tx: SameWorkerSender,
@@ -3383,6 +3490,7 @@ async fn queue_init_bash_maybe<'c>(
         };
         Some((uuid, content))
     } else {
+        resolve_init_script(InitScriptState::Completed);
         None
     };
     if let Some((uuid, content)) = uuid_content {
@@ -3531,6 +3639,38 @@ pub struct UpdateFlow {
     pub worker_dir: String,
     pub stop_early_override: Option<bool>,
     pub token: String,
+    pub step_failure: StepFailureKind,
+}
+
+/// Why the step a flow is being resumed from failed, which bounds what the engine may do next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepFailureKind {
+    /// The step failed by running, or did not fail at all.
+    Normal,
+    /// A suspend gate was disapproved or timed out. The worker that ran the approval step is
+    /// still alive, but the failure is recorded against the step the gate was holding back,
+    /// which never ran — so that step's `retry` and `continue_on_error` describe nothing that
+    /// happened, and honouring them would re-open the gate or skip the step outright.
+    /// `suspend.continue_on_disapprove_timeout` is how a flow opts into continuing past a gate.
+    SuspendNotApproved,
+    /// The step's worker died (OOM/zombie), or the flow status update itself errored. Neither
+    /// leaves state worth pinning to: in the first case that worker is gone, in the second the
+    /// flow's own bookkeeping is what just broke.
+    Unrecoverable,
+}
+
+impl StepFailureKind {
+    /// Whether the failed module's own `retry` / `continue_on_error` still describe the
+    /// failure at hand. When they don't, the failure module is the only way forward.
+    pub fn honors_step_error_policy(self) -> bool {
+        matches!(self, Self::Normal)
+    }
+
+    /// Whether follow-up work may still be pinned to the worker that ran the previous step,
+    /// via `same_worker` or dedicated flow-module runners.
+    pub fn keeps_worker_pin(self) -> bool {
+        !matches!(self, Self::Unrecoverable)
+    }
 }
 
 async fn do_nativets(
@@ -3832,8 +3972,8 @@ pub async fn handle_queued_job(
                 flow_runners,
                 &killpill_rx,
                 // A freshly pulled flow job is being executed by a live worker; the prior
-                // step (if any) completed normally, so this is never unrecoverable here.
-                false,
+                // step (if any) completed normally.
+                StepFailureKind::Normal,
             ))
             .warn_after_seconds(10)
             .await?;
@@ -3958,6 +4098,9 @@ pub async fn handle_queued_job(
         } else {
             None
         };
+        // Set by the dependency handlers once they reach `handle_deployment_metadata`,
+        // so the fallback tally below never counts the same deploy twice.
+        let mut deployment_tallied = false;
         // Box::pin all async branches to prevent large match enum on stack
         let result = match job.kind {
             JobKind::Dependencies => match conn {
@@ -3975,6 +4118,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -3999,6 +4143,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -4021,6 +4166,7 @@ pub async fn handle_queued_job(
                     &client.token,
                     occupancy_metrics,
                     raw_workspace_dependencies_o,
+                    &mut deployment_tallied,
                 ))
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -4106,6 +4252,20 @@ pub async fn handle_queued_job(
                 r
             }
         };
+
+        // A lock generation that failed or was cancelled still leaves the deployed
+        // version live in the workspace, so its fork/parent change must be tallied.
+        // `AlreadyCompleted` is not such a failure — another worker owns the job.
+        if job.kind.is_dependency()
+            && (result
+                .as_ref()
+                .is_err_and(|err| !matches!(err, &Error::AlreadyCompleted(_)))
+                || canceled_by.is_some())
+        {
+            if let Connection::Sql(db) = conn {
+                tally_unfinished_dependency_deploy(db, job.as_ref(), &mut deployment_tallied).await;
+            }
+        }
 
         let cjob = MiniCompletedJob::from(job.to_owned());
         drop(job);
@@ -5759,6 +5919,30 @@ mount {{
                 .await
             }
         }
+        ScriptLang::Dbt => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            Box::pin(crate::dbt_executor::handle_dbt_job(
+                lock.as_ref(),
+                job_dir,
+                worker_name,
+                job,
+                mem_peak,
+                canceled_by,
+                conn,
+                client,
+                &code,
+                envs,
+                occupancy_metrics,
+                // The project's identity is derived from these, so the dbt
+                // executor needs them even though they are already on disk.
+                modules.as_ref(),
+            ))
+            .await
+        }
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
@@ -5896,6 +6080,7 @@ pub fn parse_sig_of_lang(
             ScriptLang::Rlang => Some(windmill_parser_r::parse_r_signature(code)?),
             #[cfg(not(feature = "rlang"))]
             ScriptLang::Rlang => None,
+            ScriptLang::Dbt => Some(windmill_parser_yaml::parse_dbt_sig(code)?),
             // for related places search: ADD_NEW_LANG
         }
     } else {

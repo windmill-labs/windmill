@@ -217,7 +217,12 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('claude-sonnet-4-6')).toBe(1000000)
 		expect(getKnownModelContextWindow('claude-opus-4-6')).toBe(1000000)
 		expect(getKnownModelContextWindow('claude-opus-4-8')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-opus-5')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-sonnet-5')).toBe(1000000)
 		expect(getKnownModelContextWindow('anthropic.claude-sonnet-4-6-v1:0')).toBe(1000000)
+		// OpenRouter dot-versions the same models; both spellings must resolve
+		expect(getKnownModelContextWindow('anthropic/claude-sonnet-4.6')).toBe(1000000)
+		expect(getKnownModelContextWindow('anthropic/claude-opus-4.8')).toBe(1000000)
 	})
 
 	it('keeps Haiku and older Claude models at 200K', () => {
@@ -242,6 +247,17 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('gpt-5.5')).toBe(1000000)
 	})
 
+	it('does not let a version entry claim a longer version number', () => {
+		// `gpt-4.1` and `gpt-4-1106-preview` collapse to the same prefix, but the
+		// latter is a 128K model and must stay unlisted
+		expect(getKnownModelContextWindow('gpt-4-1106-preview')).toBeUndefined()
+		expect(getKnownModelContextWindow('gpt-4.1-mini')).toBe(1000000)
+		// family fallbacks still catch a version welded onto the name (Ollama ids),
+		// which is what keeps compaction on for them
+		expect(getKnownModelContextWindow('llama3.1')).toBe(128000)
+		expect(getKnownModelContextWindow('llama3-70b-8192')).toBe(128000)
+	})
+
 	it('maps recent Gemini and DeepSeek models to the 1M window', () => {
 		expect(getKnownModelContextWindow('gemini-3.1-pro')).toBe(1000000)
 		expect(getKnownModelContextWindow('gemini-3-flash')).toBe(1000000)
@@ -249,6 +265,15 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('deepseek-v4-pro')).toBe(1000000)
 		expect(getKnownModelContextWindow('deepseek-chat')).toBe(1000000)
 		expect(getKnownModelContextWindow('deepseek-reasoner')).toBe(1000000)
+	})
+
+	it('maps Qwen3-Max to 256K and leaves other Qwen ids to the assumed window', () => {
+		expect(getKnownModelContextWindow('qwen3-max')).toBe(256000)
+		expect(getKnownModelContextWindow('qwen3-max-2025-09-23')).toBe(256000)
+		// a version between "qwen3" and "-max" must not claim the 256K entry, and
+		// there is deliberately no qwen family entry (variant windows range 8K–1M)
+		expect(getKnownModelContextWindow('qwen3.8-max')).toBeUndefined()
+		expect(getModelContextWindow('qwen3.8-max')).toBe(128000)
 	})
 
 	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {

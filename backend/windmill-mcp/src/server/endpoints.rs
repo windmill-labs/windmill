@@ -59,17 +59,13 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
     // Create annotations based on HTTP method and endpoint characteristics
     let annotations = create_endpoint_annotations(tool);
 
-    Tool {
-        name: tool.name.clone(),
-        description: Some(description.into()),
-        input_schema: Arc::new(combined_schema.as_object().unwrap().clone()),
-        title: Some(tool.name.to_string()),
-        output_schema: None,
-        icons: None,
-        annotations: Some(annotations),
-        meta: None,
-        execution: None,
-    }
+    Tool::new(
+        tool.name.clone(),
+        description,
+        Arc::new(combined_schema.as_object().unwrap().clone()),
+    )
+    .with_title(tool.name.to_string())
+    .with_annotations(annotations)
 }
 
 /// Convert an endpoint tool to an MCP tool for multi-workspace mode.
@@ -130,26 +126,19 @@ pub fn list_workspaces_tool() -> Tool {
         "required": []
     });
 
-    Tool {
-        name: Cow::Borrowed("list_workspaces"),
-        description: Some(
-            "List the Windmill workspaces this token can access. Use the returned workspace ids as the `workspace_id` argument of the other tools."
-                .into(),
-        ),
-        input_schema: Arc::new(schema.as_object().unwrap().clone()),
-        title: Some("List accessible workspaces".to_string()),
-        output_schema: None,
-        icons: None,
-        annotations: Some(ToolAnnotations {
-            title: Some("List accessible workspaces".to_string()),
-            read_only_hint: Some(true),
-            destructive_hint: Some(false),
-            idempotent_hint: Some(true),
-            open_world_hint: Some(false),
-        }),
-        meta: None,
-        execution: None,
-    }
+    Tool::new(
+        Cow::Borrowed("list_workspaces"),
+        "List the Windmill workspaces this token can access. Use the returned workspace ids as the `workspace_id` argument of the other tools.",
+        Arc::new(schema.as_object().unwrap().clone()),
+    )
+    .with_title("List accessible workspaces")
+    .with_annotations(
+        ToolAnnotations::with_title("List accessible workspaces")
+            .read_only(true)
+            .destructive(false)
+            .idempotent(true)
+            .open_world(false),
+    )
 }
 
 /// Create appropriate annotations for endpoint tools based on HTTP method
@@ -166,13 +155,11 @@ fn create_endpoint_annotations(tool: &EndpointTool) -> ToolAnnotations {
         _ => (false, true, false, true),    // Default: assume can modify and be destructive
     };
 
-    ToolAnnotations {
-        title: Some(format!("{} {}", method, tool.path)),
-        read_only_hint: Some(read_only),
-        destructive_hint: Some(destructive),
-        idempotent_hint: Some(idempotent),
-        open_world_hint: Some(open_world),
-    }
+    ToolAnnotations::with_title(format!("{} {}", method, tool.path))
+        .read_only(read_only)
+        .destructive(destructive)
+        .idempotent(idempotent)
+        .open_world(open_world)
 }
 
 /// Merge schema into combined properties and required fields

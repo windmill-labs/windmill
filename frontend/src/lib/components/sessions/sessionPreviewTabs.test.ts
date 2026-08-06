@@ -153,6 +153,16 @@ describe('previewTargetForSessionTarget', () => {
 			label: 'my_folder'
 		})
 	})
+	it('maps a pipeline owner path to the same folder target as the bare name', () => {
+		// open_preview is routinely called with `f/<folder>`; keeping the prefix
+		// would scope the editor to the folder "f/<folder>" and make every node
+		// path `f/f/<folder>/…`.
+		expect(previewTargetForSessionTarget('pipeline', 'f/my_folder')).toEqual({
+			type: 'page',
+			href: `${base}/pipeline/my_folder`,
+			label: 'my_folder'
+		})
+	})
 })
 
 describe('previewTargetForDeployKind', () => {
@@ -171,41 +181,6 @@ describe('previewTargetForDeployKind', () => {
 		expect(previewTargetForDeployKind('schedule', 'u/me/s')).toBeUndefined()
 		expect(previewTargetForDeployKind('http_trigger', 'u/me/t')).toBeUndefined()
 		expect(previewTargetForDeployKind('variable', 'u/me/v')).toBeUndefined()
-	})
-})
-
-describe('SessionPreviewTabs.openAndPulse', () => {
-	// The flash is the only feedback when focusing changed nothing else, so it
-	// must not fire when revealing the panel or switching tabs already said so.
-	it('flashes a tab that was already the displayed active one', () => {
-		const o = owner()
-		o.open(scriptTarget)
-		const before = o.focusPulse.nonce
-		expect(o.openAndPulse(scriptTarget).status).toBe('focused')
-		expect(o.focusPulse.nonce).toBe(before + 1)
-	})
-
-	it('does not flash when the panel was collapsed, or when another tab was active', () => {
-		const collapsed = owner()
-		collapsed.open(scriptTarget)
-		collapsed.setCollapsed(true)
-		let before = collapsed.focusPulse.nonce
-		collapsed.openAndPulse(scriptTarget)
-		expect(collapsed.focusPulse.nonce).toBe(before)
-
-		const switching = owner()
-		switching.open(scriptTarget)
-		switching.open(dndAppTarget)
-		before = switching.focusPulse.nonce
-		expect(switching.openAndPulse(scriptTarget).status).toBe('focused')
-		expect(switching.focusPulse.nonce).toBe(before)
-	})
-
-	it('does not flash a freshly opened tab', () => {
-		const o = owner()
-		const before = o.focusPulse.nonce
-		expect(o.openAndPulse(scriptTarget).status).toBe('opened')
-		expect(o.focusPulse.nonce).toBe(before)
 	})
 })
 
@@ -425,6 +400,18 @@ describe('SessionPreviewTabs.navigate', () => {
 		o.navigate(pageTarget)
 		expect(o.tabs[0].friendlyLabel).toBeUndefined()
 		expect(o.tabs[0].friendlyPath).toBeUndefined()
+		expect(o.tabs[0].editorNamed).toBeUndefined()
+	})
+
+	it('claims the tab for its editor even when the editor names nothing', () => {
+		const o = owner()
+		o.open(flowTarget)
+		// A deployed item with no summary reports neither a label nor a staged path
+		// — the same values a never-stamped tab already holds. It must still count
+		// as named, or the sessions page keeps falling back to the workspace
+		// listing and resurrects a summary the user just cleared.
+		o.setEditorFriendlyLabel({ kind: 'flow', path: 'u/me/bar' }, undefined, undefined)
+		expect(o.tabs[0].editorNamed).toBe(true)
 	})
 })
 
@@ -713,5 +700,96 @@ describe('SessionPreviewTabs.pulseFocus', () => {
 		expect(o.focusPulse).toEqual({ id: 'tab-a', nonce: 2 })
 		o.pulseFocus('tab-b')
 		expect(o.focusPulse).toEqual({ id: 'tab-b', nonce: 3 })
+	})
+
+	it('fires on re-opening whatever the panel already displays, for any tab kind', () => {
+		const o = owner()
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(0)
+		o.open(rawAppTarget)
+		expect(o.focusPulse).toEqual({ id: o.activeId, nonce: 1 })
+		// A second tab taking over is its own visible change.
+		o.open(pageTarget)
+		expect(o.focusPulse.nonce).toBe(1)
+		o.open(pageTarget)
+		expect(o.focusPulse).toEqual({ id: o.activeId, nonce: 2 })
+		// Re-pointing the displayed tab elsewhere changes what is on screen.
+		o.navigate(scriptTarget)
+		expect(o.focusPulse.nonce).toBe(2)
+		o.navigate(scriptTarget)
+		expect(o.focusPulse.nonce).toBe(3)
+	})
+
+	it('still flashes a collapsed-but-fullscreen panel', () => {
+		const o = owner()
+		o.open(rawAppTarget)
+		o.setCollapsed(true)
+		// Fullscreen carries over from the previous session and overrides collapse,
+		// so the tab is on screen and a re-open of it changes nothing visible.
+		o.setFullscreen(true)
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(1)
+	})
+
+	it('judges a composed select+navigate as one change', () => {
+		const o = owner()
+		o.open(pageTarget)
+		const runs = o.tabs[0].id
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(0)
+		// open_page reusing a *background* page tab: the switch is the visible change.
+		o.asOneChange(() => {
+			o.select(runs)
+			o.navigate(pageTarget)
+		})
+		expect(o.focusPulse.nonce).toBe(0)
+		// Same sequence once that tab is already displayed: nothing changes, so flash.
+		o.asOneChange(() => {
+			o.select(runs)
+			o.navigate(pageTarget)
+		})
+		expect(o.focusPulse).toEqual({ id: runs, nonce: 1 })
+	})
+
+	it('keeps the editor-stamped label when re-pointed at the same item', () => {
+		const o = owner()
+		o.open(scriptTarget)
+		o.setEditorFriendlyLabel({ kind: 'script', path: 'u/me/foo' }, 'My script', 'u/me/staged')
+		// Nothing re-stamps a tab that never changed item, so a wipe here would be
+		// permanent — and would make the "nothing changed" flash a lie.
+		o.navigate(scriptTarget)
+		expect(o.tabs[0].friendlyLabel).toBe('My script')
+		expect(o.tabs[0].friendlyPath).toBe('u/me/staged')
+		o.navigate(flowTarget)
+		expect(o.tabs[0].friendlyLabel).toBeUndefined()
+	})
+
+	it('focuses (and flashes) a run tab whose href carries ?workspace=', () => {
+		const o = owner()
+		const run: PreviewTarget = {
+			type: 'page',
+			href: `${base}/run/job-1?workspace=fork`,
+			label: 'Run'
+		}
+		o.open(run)
+		// What the frame reports back has the injected params stripped.
+		o.observeLocation(o.activeId, `${base}/run/job-1?workspace=fork&nomenubar=true`)
+		expect(o.tabs.length).toBe(1)
+		expect(o.open(run).status).toBe('focused')
+		expect(o.tabs.length).toBe(1)
+		expect(o.focusPulse.nonce).toBe(1)
+	})
+
+	it('stays quiet when the re-open is what reveals the tab', () => {
+		const o = owner()
+		o.open(rawAppTarget)
+		o.setCollapsed(true)
+		// Un-collapsing onto the same tab is already visible.
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(0)
+		// Switching back to a background tab is too.
+		o.open(pageTarget)
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(0)
 	})
 })

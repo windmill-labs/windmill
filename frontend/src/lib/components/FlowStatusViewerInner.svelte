@@ -49,6 +49,7 @@
 		AI_TOOL_MESSAGE_PREFIX,
 		AI_MCP_TOOL_CALL_PREFIX,
 		AI_WEBSEARCH_PREFIX,
+		getAgentActionStateId,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
@@ -761,34 +762,28 @@
 
 				if (mod.agent_actions && mod.id) {
 					setModuleState(mod.id, {
-						agent_actions: mod.agent_actions
+						agent_actions: mod.agent_actions,
+						agent_actions_success: mod.agent_actions_success
 					})
 					mod.agent_actions.forEach((action, idx) => {
-						if (mod.id) {
-							if (action.type == 'tool_call') {
-								const toolCallId = getToolCallId(idx, mod.id, action.module_id)
-								const success = mod.agent_actions_success?.[idx]
-								setModuleState(toolCallId, {
-									job_id: action.job_id,
-									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
-								})
-							} else if (action.type == 'mcp_tool_call') {
-								const mcpToolCallId = AI_MCP_TOOL_CALL_PREFIX + '-' + mod.id + '-' + idx
-								const success = mod.agent_actions_success?.[idx]
-								setModuleState(mcpToolCallId, {
-									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
-								})
-							} else if (action.type == 'web_search') {
-								const websearchId = AI_WEBSEARCH_PREFIX + '-' + mod.id + '-' + idx
-								setModuleState(websearchId, {
-									type: 'Success'
-								})
-							} else if (action.type == 'message') {
-								const toolCallId = getToolCallId(idx, mod.id)
-								setModuleState(toolCallId, {
-									type: 'Success'
-								})
-							}
+						if (!mod.id) {
+							return
+						}
+						const stateId = getAgentActionStateId(idx, mod.id, action)
+						const success = mod.agent_actions_success?.[idx]
+						if (action.type == 'tool_call') {
+							setModuleState(stateId, {
+								job_id: action.job_id,
+								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+							})
+						} else if (action.type == 'mcp_tool_call') {
+							setModuleState(stateId, {
+								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+							})
+						} else {
+							setModuleState(stateId, {
+								type: 'Success'
+							})
 						}
 					})
 				}

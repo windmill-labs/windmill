@@ -12,7 +12,7 @@
 		}
 	}
 
-	let { noEditor, branch = $bindable() }: Props = $props()
+	let { noEditor, branch }: Props = $props()
 </script>
 
 <div class="h-full flex flex-col">
@@ -23,13 +23,8 @@
 			</div>
 		{/snippet}
 		<div class="p-4">
-			<div class="mt-2 mb-2 text-sm font-bold">Skip failures</div>
-			<Toggle
-				bind:checked={branch.skip_failure}
-				options={{
-					right: 'Skip failures'
-				}}
-			/>
+			<div class="mb-2 text-xs font-semibold text-emphasis">Skip failures</div>
+			<Toggle bind:checked={branch.skip_failure} />
 		</div>
 	</FlowCard>
 </div>

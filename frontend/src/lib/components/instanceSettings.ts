@@ -1,5 +1,14 @@
 import type { ButtonType } from './common/button/model'
 import { z } from 'zod'
+import { writable } from 'svelte/store'
+
+/**
+ * Bumped after instance settings are successfully saved. Settings whose display
+ * depends on server-side state derived from a saved value (rather than on the value
+ * in the form) subscribe to this to refetch — the form values change on every
+ * keystroke, so they are not a usable signal for that.
+ */
+export const instanceSettingsSaved = writable(0)
 
 // Languages that support HTTP request tracing via OTEL proxy
 export const OTEL_TRACING_PROXY_LANGUAGES = [
@@ -52,6 +61,7 @@ export interface Setting {
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
 		| 'github_enterprise_app'
+		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
 	storage: SettingStorage
@@ -128,6 +138,46 @@ export const scimSamlSetting: Setting[] = [
 		triggersRestart: true
 	}
 ]
+
+/**
+ * Mirror of `validate_webhook_base_url` in backend/windmill-common/src/global_settings.rs.
+ * Parses rather than pattern-matches so the two agree on the awkward cases (an
+ * invalid port like `https://x:abc`, IPv6 hosts, surrounding whitespace) — the
+ * server trims and runs `Url::parse`, so this does the same. The webhook path is
+ * appended to this value verbatim, hence no query, fragment or trailing slash.
+ */
+export function isValidWebhookBaseUrl(value: unknown): boolean {
+	if (value == undefined) return true
+	// `Setting.isValid` receives `any`, and YAML mode can put any JSON type here — a
+	// non-string must read as invalid rather than throw while the form computes which
+	// categories are in error.
+	if (typeof value !== 'string') return false
+	if (value.trim() === '') return true
+	const trimmed = value.trim()
+	let url: URL
+	try {
+		url = new URL(trimmed)
+	} catch {
+		return false
+	}
+	return (
+		(url.protocol === 'http:' || url.protocol === 'https:') &&
+		url.host !== '' &&
+		// Userinfo would end up in the per-repository receiver stored in workspace
+		// settings, which workspace admins can read.
+		url.username === '' &&
+		url.password === '' &&
+		// Tested on the raw string, not `url.search`/`url.hash`: those are `''` for a
+		// bare `?` or `#`, while Rust reports an empty-but-present query/fragment and
+		// rejects it. A literal delimiter is never valid here either way.
+		!trimmed.includes('?') &&
+		!trimmed.includes('#') &&
+		// `new URL` silently percent-encodes a space in the path, where the server
+		// rejects it outright.
+		!/\s/.test(trimmed) &&
+		!trimmed.endsWith('/')
+	)
+}
 
 export const settings: Record<string, Setting[]> = {
 	Core: [
@@ -947,6 +997,19 @@ export const settings: Record<string, Setting[]> = {
 				if (!v?.self_managed) return true
 				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.client_id && v?.private_key)
 			}
+		},
+		{
+			label: 'Webhook base url',
+			description:
+				'Base url GitHub delivers git sync webhooks to, without trailing slash. Leave empty to use the instance base url. Set it when GitHub cannot reach the base url and a separate ingress fronts this instance for inbound webhooks.',
+			key: 'github_app_webhook_base_url',
+			fieldType: 'webhook_base_url',
+			placeholder: 'https://windmill-webhooks.company.com',
+			storage: 'setting',
+			ee_only: '',
+			error:
+				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
 		}
 	],
 	WebSocket: [
@@ -1228,6 +1291,13 @@ export function extractMarkedLabel(marked: string | undefined, labelLength: numb
 		if (marked[markedIdx] === '<') {
 			while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
 			markedIdx++
+		} else if (marked[markedIdx] === '&') {
+			// SearchItems escapes the haystack, so one plain character can arrive
+			// as an entity. Skipping the whole entity keeps this offset walk in
+			// step with `labelLength`, which counts unescaped characters.
+			const end = marked.indexOf(';', markedIdx)
+			markedIdx = end === -1 ? markedIdx + 1 : end + 1
+			plainIdx++
 		} else {
 			plainIdx++
 			markedIdx++

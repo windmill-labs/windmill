@@ -52,7 +52,7 @@ use crate::{
     otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
-    UpdateFlow, SAME_WORKER_REQUIREMENTS,
+    StepFailureKind, UpdateFlow, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -212,7 +212,7 @@ async fn process_jc(
         span.record("root_job", root_job.to_string().as_str());
     }
     if let Some(trigger_kind) = jc.job.trigger_kind.as_ref() {
-        span.record("trigger_kind", trigger_kind.to_string().as_str());
+        span.record("trigger_kind", trigger_kind.as_str());
     }
     if let Some(trigger) = jc.job.trigger.as_ref() {
         span.record("trigger", trigger.as_str());
@@ -409,6 +409,14 @@ pub fn start_background_processor(
                     .warn_after_seconds(10)
                     .await;
 
+                    // Resolved here rather than from the main loop's outcome because `wm_failure`
+                    // can flip an exit-zero init script to a failure, and dedicated workers must
+                    // not install against a host it failed to prepare. An agent server relays other
+                    // workers' init scripts, so it has no say over its own gate.
+                    if is_init_script && !is_agent_server {
+                        crate::worker::init_script_finished(final_success);
+                    }
+
                     if is_init_script && !final_success {
                         if is_agent_server {
                             // The failed init script belongs to a remote agent
@@ -457,6 +465,7 @@ pub fn start_background_processor(
                             worker_dir,
                             stop_early_override,
                             token,
+                            step_failure,
                         }),
                     time,
                 }) => {
@@ -477,7 +486,7 @@ pub fn start_background_processor(
                         None,
                         Arc::new(result),
                         None,
-                        true,
+                        step_failure,
                         &same_worker_tx,
                         &worker_dir,
                         stop_early_override,
@@ -681,8 +690,66 @@ pub async fn handle_receive_completed_job(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
-    let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
+    // This client drives post-completion orchestration (the next step's input transforms fetch
+    // prior results) and outlives the finished step, so the step's own token can already be near
+    // expiry. Refresh it — but only from the server-written job_perms row, never from the
+    // completion payload's owner fields, which are untrusted on the agent-worker path.
+    let token = if jc.job.is_flow_step()
+        && windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
+            .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS)
+    {
+        let label = windmill_common::auth::ephemeral_script_token_label(
+            &jc.job.permissioned_as,
+            &jc.job.created_by,
+        );
+        match windmill_common::auth::get_job_perms(db, &jc.job.id, &jc.job.workspace_id).await {
+            Ok(Some(perms)) => windmill_common::auth::create_token_for_owner(
+                db,
+                &jc.job.workspace_id,
+                &jc.job.permissioned_as,
+                &label,
+                *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
+                &jc.job.permissioned_as_email,
+                &jc.job.id,
+                Some(perms),
+                Some(format!(
+                    "job-span-{}",
+                    jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
+                )),
+            )
+            .warn_after_seconds(5)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "could not mint fresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }),
+            // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
+            // token rather than minting an identity from untrusted payload fields. The token is
+            // near expiry, so trace it — the downstream fetch may hit the original failure.
+            Ok(None) => {
+                tracing::warn!(
+                    "no job_perms row to refresh flow-orchestration token for job {}, reusing step token",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
+            // A transient DB error must not silently reuse the near-expired token without a trace,
+            // or the very failure this guards against recurs invisibly.
+            Err(e) => {
+                tracing::warn!(
+                    "could not load job_perms to refresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
+        }
+    } else {
+        jc.token.clone()
+    };
     let client = AuthedClient::new(base_internal_url.to_string(), workspace, token, None);
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
@@ -725,7 +792,7 @@ pub async fn handle_receive_completed_job(
                 mem_peak,
                 canceled_by,
                 err,
-                false,
+                StepFailureKind::Normal,
                 same_worker_tx.clone(),
                 &worker_dir,
                 worker_name,
@@ -1527,7 +1594,7 @@ pub async fn process_completed_job(
                     canceled_by,
                     result,
                     started_at.map(|x| FlowJobDuration { started_at: x, duration_ms: duration }),
-                    false,
+                    StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
@@ -1634,7 +1701,7 @@ pub async fn process_completed_job(
                             duration_ms: d,
                         })
                     }),
-                    false,
+                    StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
@@ -1912,7 +1979,7 @@ pub async fn handle_job_error(
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     err: Error,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
@@ -1962,7 +2029,7 @@ pub async fn handle_job_error(
             canceled_by.clone(),
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
             None,
-            unrecoverable,
+            step_failure,
             &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,
             None,

@@ -17,8 +17,7 @@
 		AssetGraphResponse,
 		AssetGraphSelection,
 		NativeTriggerKind,
-		PipelineMode
-	} from './types'
+		PipelineMode, DbtAssetProvenance } from './types'
 	import type { AssetKind, Script, ScriptLang } from '$lib/gen'
 	import type { RunnableRunState, PipelineEvent } from './activeRunnables.svelte'
 	import type { PipelineOutputKind } from './pipelineTemplates'
@@ -77,6 +76,7 @@
 		localScriptsVersion,
 		selectionProducers = [],
 		selectionColumnGraph,
+		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
 		schemaContractContext = undefined,
@@ -182,6 +182,8 @@
 		selectionProducers?: Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
 		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph
+		/** dbt provenance of the selected relation — carries its SQL. */
+		selectionDbt?: DbtAssetProvenance
 		schemaCanEvolve?: boolean
 		/** Fork workspaces: data-environment state of the selected ducklake asset (route page). */
 		selectionForkMaterialization?: 'fork' | 'deferred'
@@ -512,6 +514,7 @@
 						selection={activeDraft ? undefined : editor.selection}
 						selectionProducers={activeDraft ? [] : selectionProducers}
 						{selectionColumnGraph}
+						{selectionDbt}
 						{schemaCanEvolve}
 						{selectionForkMaterialization}
 						{schemaContractContext}

@@ -102,6 +102,60 @@ pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_rou
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
+/// Base URL GitHub delivers git-sync repository webhooks to. Falls back to
+/// `base_url` when unset; set it when the browser-facing URL is not reachable
+/// from GitHub and a separate ingress fronts the API for inbound webhooks.
+pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
+
+/// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
+///
+/// The receiver path is appended to it verbatim, so anything that doesn't
+/// concatenate into a URL GitHub can POST to must be rejected at write time
+/// rather than silently producing an unreachable hook: a wrong scheme
+/// (`httpss://`), a missing host, embedded whitespace, or a query/fragment
+/// (appending a path after `?`/`#` keeps it inside the query/fragment).
+///
+/// No message here echoes the submitted value. Userinfo is not the only secret a
+/// URL can carry — `?token=…` is just as common — so rather than enumerating the
+/// shapes worth hiding, no branch reports the value at all and each says what was
+/// wrong with it instead. That matters because these strings reach further than the
+/// submitter: the declarative path wraps them into `sync-config` output and operator
+/// reconcile logs.
+pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    let url =
+        url::Url::parse(value).map_err(|e| format!("must be an absolute http(s) URL: {e}"))?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(
+            "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
+        );
+    }
+    if !matches!(url.scheme(), "http" | "https") {
+        // The scheme is submitted text too — `hunter2://host` parses fine — so it is
+        // named, not echoed, like every other branch here.
+        return Err("must use the http or https scheme".to_string());
+    }
+    if !url.has_host() {
+        return Err("must include a host".to_string());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(
+            "must not include a query string or fragment, since the webhook path is appended to it"
+                .to_string(),
+        );
+    }
+    if value.chars().any(char::is_whitespace) {
+        return Err("must not contain whitespace".to_string());
+    }
+    // Matches the sibling `base_url` / `hub_base_url` convention. The receiver
+    // builder trims it anyway, so this is about keeping the stored value canonical
+    // rather than about reachability.
+    if value.ends_with('/') {
+        return Err("must not end with a trailing slash".to_string());
+    }
+    Ok(())
+}
+
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
@@ -245,6 +299,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
     "MAX_WAIT_FOR_SIGINT",
     "MAX_WAIT_FOR_SIGTERM",
+    "JOB_OOM_SCORE_ADJ",
     "WORKER_GROUP",
     "SAML_METADATA",
     "INSTANCE_IS_DEV",
@@ -342,6 +397,83 @@ pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webhook_base_url_errors_never_echo_credentials() {
+        // These strings reach sync-config output and operator logs, so no branch may
+        // report the value verbatim. The secret is distinctive so this asserts on the
+        // credential leaking, not on the wording of the message.
+        const SECRET: &str = "hunter2xyzzy";
+        for bad in [
+            format!("https://admin:{SECRET}@hooks.example.com"),
+            format!("https://admin:{SECRET}@hooks.example.com?x=1"),
+            format!("https://admin:{SECRET}@hooks.example.com/"),
+            format!("https://admin:{SECRET}@"),
+            format!("https://admin:{SECRET}@hooks.example.com#f"),
+            format!("admin:{SECRET}@not-a-url"),
+            // Reach the parse-failure branch, the only one that sees an unvalidated
+            // string: multiple `@`, an invalid scheme, and no `//` at all.
+            format!("https://alias@admin:{SECRET}@["),
+            format!("https://a@b@admin:{SECRET}@hooks.example.com"),
+            format!("1x:{SECRET}@hooks.example.com"),
+            format!("ad min:{SECRET}@hooks.example.com"),
+            format!("{SECRET}@"),
+            // A query token is just as sensitive as userinfo and reaches the same logs.
+            format!("https://hooks.example.com?token={SECRET}"),
+            format!("https://hooks.example.com#{SECRET}"),
+            format!("https://hooks.example.com/{SECRET} x"),
+            // A custom scheme parses fine, so the scheme itself is attacker-chosen text.
+            format!("{SECRET}://hooks.example.com"),
+        ] {
+            let err = validate_webhook_base_url(&bad).expect_err("should be rejected");
+            assert!(
+                !err.contains(SECRET),
+                "'{bad}' leaked its credential into: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn webhook_base_url_matches_the_ui_validator() {
+        // Kept in lockstep with `isValidWebhookBaseUrl` in
+        // frontend/src/lib/components/instanceSettings.ts: a value the field accepts
+        // must not 400 on save, and vice versa.
+        let accept = [
+            "https://hooks.example.com",
+            "http://hooks.example.com:8080",
+            "https://example.com/windmill",
+            " https://hooks.example.com ",
+            "https://[::1]:8000",
+        ];
+        let reject = [
+            "httpss://hooks.example.com",
+            "hooks.example.com",
+            "ftp://hooks.example.com",
+            "https://",
+            "https://hooks.example.com?token=x",
+            "https://hooks.example.com#frag",
+            "https://hooks example.com",
+            "https://hooks.example.com/",
+            "https://hooks.example.com:abc",
+            "https://x/a b",
+            "https://hooks.example.com?",
+            "https://hooks.example.com#",
+            "https://user:password@hooks.example.com",
+            "https://user@hooks.example.com",
+        ];
+        for v in accept {
+            assert!(
+                validate_webhook_base_url(v).is_ok(),
+                "'{v}' should be accepted"
+            );
+        }
+        for v in reject {
+            assert!(
+                validate_webhook_base_url(v).is_err(),
+                "'{v}' should be rejected"
+            );
+        }
+    }
 
     #[test]
     fn agent_workers_can_read_operational_settings() {
