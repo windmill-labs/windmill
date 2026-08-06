@@ -961,6 +961,7 @@ async function pushFilesetParentResource(
     newObj,
     resourceFilePath,
     wsSpecific ? true : undefined,
+    true,
   );
   return { status: "pushed", resourceFilePath };
 }
@@ -5082,6 +5083,7 @@ export async function push(
                     newObj,
                     resourceFilePath,
                     isFileResWsSpecific ? true : undefined,
+                    true,
                   );
                 }
                 // Already-synced parents got the full content this run.

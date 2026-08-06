@@ -91,6 +91,10 @@ export async function pushResource(
   localResource: ResourceFile,
   originalLocalPath?: string,
   wsSpecific?: boolean,
+  // Sync pushes reject non-canonical fileset pointers (the diff engine can
+  // only round-trip the canonical layout); the standalone `resource push`
+  // command pushes a single explicit file, where any pointer is fine.
+  enforceCanonicalFileset?: boolean,
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource");
   try {
@@ -106,7 +110,9 @@ export async function pushResource(
   const resolveInlineContent = async () => {
     if (typeof localResource.value === "string" && localResource.value.startsWith("!inline_fileset ")) {
       const dirPath = localResource.value.split(" ")[1];
-      validateFilesetPointer(dirPath, remotePath, originalLocalPath);
+      if (enforceCanonicalFileset) {
+        validateFilesetPointer(dirPath, remotePath, originalLocalPath);
+      }
       localResource.value = await readFilesetDirectory(dirPath.replaceAll("/", SEP));
     } else if (localResource.value["content"]?.startsWith("!inline ")) {
       const basePath = localResource.value["content"].split(" ")[1];
