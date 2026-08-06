@@ -240,7 +240,11 @@
 
 					if (workspace && user) {
 						const newUser = await getUserExt(workspace)
-						if (!deepEqual(newUser, $userStore)) {
+						// Refreshes the workspace that was active when the tick started; a
+						// switch mid-flight makes this answer describe the one we left.
+						if ($workspaceStore !== workspace) {
+							console.debug('workspace changed during user refresh, dropping')
+						} else if (!deepEqual(newUser, $userStore)) {
 							userStore.set(newUser)
 							console.info('refreshed user')
 						} else {
