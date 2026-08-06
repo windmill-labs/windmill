@@ -234,6 +234,7 @@
 		connectProp: () => {},
 		propPickerConfig: writable(undefined),
 		clearConnect: () => {},
+		openPicker: () => {},
 		pickerMode: () => 'pane' as const,
 		setPickTarget: () => {},
 		onPick: () => {},
