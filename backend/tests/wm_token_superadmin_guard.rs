@@ -323,9 +323,12 @@ async fn test_wm_token_rejected_by_require_devops_role(db: Pool<Postgres>) -> an
     let base = format!("http://localhost:{port}/api");
 
     let sa_wm = wm_token("test@windmill.dev", true).await;
-    let resp = authed(client().get(format!("{base}/service_logs/list_files")), &sa_wm)
-        .send()
-        .await?;
+    let resp = authed(
+        client().get(format!("{base}/service_logs/list_files")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
     assert_eq!(
         resp.status(),
         401,
@@ -423,12 +426,10 @@ async fn test_wm_token_rejected_by_instance_admin_gates(db: Pool<Postgres>) -> a
     set_jwt_secret().await;
 
     // A worker-group config carrying a static env value that must stay masked.
-    sqlx::query(
-        "INSERT INTO config (name, config) VALUES ('worker__wm2082grp', $1)",
-    )
-    .bind(json!({ "env_vars_static": { "LEAKY": "supersecretvalue" } }))
-    .execute(&db)
-    .await?;
+    sqlx::query("INSERT INTO config (name, config) VALUES ('worker__wm2082grp', $1)")
+        .bind(json!({ "env_vars_static": { "LEAKY": "supersecretvalue" } }))
+        .execute(&db)
+        .await?;
 
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -466,12 +467,30 @@ async fn test_wm_token_rejected_by_instance_admin_gates(db: Pool<Postgres>) -> a
         resp.text().await?
     );
 
-    // 3. Worker-group config: the static env value must be masked for a job token.
-    let body = authed(client().get(format!("{base}/configs/list_worker_groups")), &sa_wm)
-        .send()
-        .await?
-        .text()
-        .await?;
+    // 3. The sibling listing spans every workspace's concurrency keys, so it is
+    //    gated the same way as the prune above.
+    let resp = authed(
+        client().get(format!("{base}/concurrency_groups/list")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not list global concurrency groups: {}",
+        resp.text().await?
+    );
+
+    // 4. Worker-group config: the static env value must be masked for a job token.
+    let body = authed(
+        client().get(format!("{base}/configs/list_worker_groups")),
+        &sa_wm,
+    )
+    .send()
+    .await?
+    .text()
+    .await?;
     assert!(
         !body.contains("supersecretvalue"),
         "superadmin WM_TOKEN must get the obfuscated worker-group view: {body}"
@@ -490,6 +509,64 @@ async fn test_wm_token_rejected_by_instance_admin_gates(db: Pool<Postgres>) -> a
     assert!(
         body.contains("supersecretvalue"),
         "a real superadmin token must still see the unobfuscated worker-group config: {body}"
+    );
+
+    Ok(())
+}
+
+/// Capping a `WM_TOKEN` at the gates is only durable if the token cannot trade
+/// itself for one without the `job_id` those gates key off. Both credential-minting
+/// routes must therefore refuse an elevated job token: `refresh_token` (which mints
+/// a database-backed session token and returns it in `Set-Cookie`) and
+/// `tokens/create` for the `devops` tier, whose routes are capped just like
+/// superadmin's (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_cannot_mint_a_provenance_free_credential(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/users");
+
+    // 1. Session refresh: a superadmin-identity job token must not obtain a session
+    //    token, which would authenticate with no job provenance at all.
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+    let resp = authed(client().get(format!("{base}/refresh_token")), &sa_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not refresh into a session token: {}",
+        resp.text().await?
+    );
+
+    // No false positive: a real superadmin API token still refreshes.
+    let resp = authed(client().get(format!("{base}/refresh_token")), "SECRET_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a real superadmin token must still refresh: {}",
+        resp.text().await?
+    );
+
+    // 2. Token mint, devops tier: `require_devops_role` rejects this job token, so
+    //    minting one that would pass it by email must be refused too.
+    let devops_wm = wm_token("devops@windmill.dev", false).await;
+    let resp = authed(client().post(format!("{base}/tokens/create")), &devops_wm)
+        .json(&json!({ "label": "from-script" }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "devops WM_TOKEN must not mint a token: {}",
+        resp.text().await?
     );
 
     Ok(())

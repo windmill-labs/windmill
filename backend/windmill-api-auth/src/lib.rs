@@ -354,6 +354,33 @@ pub async fn forbid_superadmin_job_token(
     Ok(())
 }
 
+/// Forbid *minting a durable credential* from a job token that carries an elevated
+/// instance identity (superadmin or `devops`; [`is_devops_email`] covers both).
+///
+/// The gates that cap `$WM_TOKEN` key off `ApiAuthed::job_id`, which only a job
+/// token carries. A token minted from one is an ordinary database-backed token with
+/// no such provenance, so it passes every one of those gates by email alone — the
+/// cap would last only until the script exchanged its token for a fresh one
+/// (GHSA-hfh4-cx4h-3fcr). Narrower than rejecting all job tokens: a script running
+/// as an unprivileged identity has nothing to launder and still mints freely.
+pub async fn forbid_elevated_job_token(
+    db: &DB,
+    email: &str,
+    job_id: Option<uuid::Uuid>,
+) -> error::Result<()> {
+    if job_id.is_some() && is_devops_email(db, email).await? {
+        return Err(Error::NotAuthorized(
+            "A job token ($WM_TOKEN) running as a superadmin or devops user cannot mint a new \
+             token, which would carry that identity without the job provenance that caps it. \
+             If a script genuinely needs this, create a dedicated token from the User settings \
+             drawer (the 'Tokens' section), store it as a secret, and use that token explicitly \
+             instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
 where
     F: FnOnce() -> String,

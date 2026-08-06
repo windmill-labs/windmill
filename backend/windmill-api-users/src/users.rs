@@ -27,7 +27,9 @@ use axum::{
     Json, Router,
 };
 use hyper::{header::LOCATION, StatusCode};
-use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin, OptJobAuthed};
+use windmill_api_auth::{
+    forbid_elevated_job_token, forbid_superadmin_job_token, require_super_admin, OptJobAuthed,
+};
 use windmill_common::usernames::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -2312,12 +2314,10 @@ async fn change_user_email(
     // Read back inside the transaction: the address is derived at dispatch through a cache
     // that nothing else evicts, so without this a job pushed in the next 60s would resolve
     // the old address and with it the wrong superadmin flag and instance groups.
-    let memberships = sqlx::query_scalar!(
-        "SELECT workspace_id FROM usr WHERE email = $1",
-        &new_email
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    let memberships =
+        sqlx::query_scalar!("SELECT workspace_id FROM usr WHERE email = $1", &new_email)
+            .fetch_all(&mut *tx)
+            .await?;
 
     tx.commit().await?;
 
@@ -2762,6 +2762,18 @@ async fn refresh_token(
     authed: ApiAuthed,
     cookies: Cookies,
 ) -> Result<String> {
+    // The session token minted below is database-backed and carries no job provenance,
+    // so a job token that exchanged itself for one would shed the `job_id` every
+    // `$WM_TOKEN` cap keys off (GHSA-hfh4-cx4h-3fcr). Only a browser session refreshes.
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN). If a script \
+             genuinely needs a token of its own, create a dedicated token from the User \
+             settings drawer (the 'Tokens' section), store it as a secret, and use that \
+             token explicitly instead of $WM_TOKEN."
+                .to_string(),
+        ));
+    }
     if let Some(thresh_s) = query.if_expiring_in_less_than_s {
         let t_hash = windmill_common::auth::hash_token(&token);
         let not_expired = sqlx::query_scalar!("SELECT true FROM token WHERE token_hash = $1 and expiration IS NOT NULL and expiration > now() + $2::int * '1 sec'::interval", &t_hash, thresh_s)
@@ -2905,7 +2917,7 @@ async fn create_token(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
 
     // `username_override_from_label` trusts a server-minted label to name the entity acting,
