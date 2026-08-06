@@ -36,22 +36,29 @@
 		if (!data.insertable || data.module?.value?.type !== 'aiagent') return ''
 		const actions = flowRunStatus?.getModuleState(data.id)?.agent_actions
 		if (!actions?.length) return ''
-		let total = 0
+		let calls = 0
+		let messages = 0
 		let failed = 0
 		let pending = 0
 		actions.forEach((action, index) => {
-			// The run records the agent's own replies here too; they are not tool calls.
-			if (action.type === 'message') return
-			total++
+			// The run records the agent's own replies alongside its calls; they are not tool calls,
+			// and a run that only answered still deserves to say so.
+			if (action.type === 'message') {
+				messages++
+				return
+			}
+			calls++
 			const type = flowRunStatus?.getModuleState(
 				getAgentActionStateId(index, data.id, action)
 			)?.type
 			if (type === 'Failure') failed++
 			else if (type !== 'Success') pending++
 		})
-		if (total === 0) return ''
-		const calls = `${total} tool call${total > 1 ? 's' : ''}`
-		return `${calls}${pending > 0 ? '…' : ''}${failed > 0 ? ` · ${failed} failed` : ''}`
+		const parts: string[] = []
+		if (calls > 0) parts.push(`${calls} tool call${calls > 1 ? 's' : ''}${pending > 0 ? '…' : ''}`)
+		if (messages > 0) parts.push(`${messages} message${messages > 1 ? 's' : ''}`)
+		if (failed > 0) parts.push(`${failed} failed`)
+		return parts.join(' · ')
 	})
 
 	let flowJobs = $derived(
