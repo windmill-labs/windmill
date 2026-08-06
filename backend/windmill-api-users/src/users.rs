@@ -3160,6 +3160,11 @@ async fn update_token_scopes(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenScopesRequest>,
 ) -> Result<String> {
+    // Widening is what makes a narrowly-scoped mint (app embed, raw-app SDK, MCP
+    // OAuth) recoverable as a general credential: a job token is unscoped, so the
+    // caller check below would let it clear the scopes of any token sharing its
+    // email (GHSA-hfh4-cx4h-3fcr).
+    forbid_elevated_job_token(&db, &authed.email, authed.job_id).await?;
     windmill_api_auth::ensure_scopes_within_caller(&authed, req.scopes.as_deref())?;
 
     let mut tx = db.begin().await?;

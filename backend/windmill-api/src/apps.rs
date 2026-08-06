@@ -84,7 +84,7 @@ use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 use windmill_store::resources::get_resource_value_interpolated_internal;
 
 use windmill_api_auth::{
-    create_token_internal, ensure_scopes_within_caller, forbid_superadmin_job_token, NewToken,
+    create_token_internal, ensure_scopes_within_caller, forbid_elevated_job_token, NewToken,
     OptJobAuthed,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -1310,7 +1310,9 @@ async fn mint_raw_app_sdk_token(
 ) -> Result<(String, chrono::DateTime<chrono::Utc>)> {
     // This credential outlives the request, so an ephemeral job token must not be
     // able to launder itself into one — the reason `users/tokens/create` refuses.
-    forbid_superadmin_job_token(db, &authed.email, job_id).await?;
+    // The minted scopes do not contain it: `users/tokens/update_scopes` can widen
+    // any token of the same email.
+    forbid_elevated_job_token(db, &authed.email, job_id).await?;
     // An embed token represents untrusted app JS; it must not bootstrap a
     // broader SDK credential (same guard as `mint_app_embed_token`).
     if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
@@ -1383,7 +1385,7 @@ pub async fn build_embed_token_response(
             _ => (None, None),
         }
     } else if policy.sandbox {
-        let resp = mint_app_embed_token(db, w_id, app_path, opt_authed).await?;
+        let resp = mint_app_embed_token(db, w_id, app_path, opt_authed, job_id).await?;
         (resp.token, resp.expiration)
     } else {
         (None, None)
@@ -1507,8 +1509,13 @@ pub async fn mint_app_embed_token(
     w_id: &str,
     app_path: &str,
     opt_authed: Option<&ApiAuthed>,
+    job_id: Option<uuid::Uuid>,
 ) -> Result<EmbedTokenResponse> {
     let token_and_exp = if let Some(authed) = opt_authed {
+        // This credential outlives the request and its narrow scopes are not the
+        // boundary — `users/tokens/update_scopes` can widen any same-email token —
+        // so an elevated job token must not mint one (GHSA-hfh4-cx4h-3fcr).
+        forbid_elevated_job_token(db, &authed.email, job_id).await?;
         // An app embed token represents untrusted app JS in the sandboxed iframe; it
         // must never reach this mint path to renew itself. The 12h expiry is the
         // blast-radius cap on a leaked embed token, and `ensure_scopes_within_caller`

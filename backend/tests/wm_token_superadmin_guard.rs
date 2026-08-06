@@ -649,3 +649,70 @@ async fn test_wm_token_cannot_mint_via_mcp_oauth_approval(
 
     Ok(())
 }
+
+/// The two links that let a narrowly-scoped mint become a general credential: the
+/// sandboxed app embed mint (a 12h database token with no job provenance) and
+/// `tokens/update_scopes`, which an unscoped job token could use to clear the
+/// scopes of any token sharing its email (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_wm_token_cannot_mint_or_widen_an_app_embed_token(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    // A sandboxed app the superadmin identity can read — the mint's precondition.
+    sqlx::query(
+        "INSERT INTO app (id, workspace_id, path, summary, versions, policy, extra_perms)
+         VALUES (9001, 'test-workspace', 'u/test-user/embedded', 'Embedded', '{}',
+                 '{\"execution_mode\": \"viewer\", \"sandbox\": true}', '{}')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO app_version (id, app_id, value, created_by, created_at)
+         VALUES (9001, 9001, '{\"grid\": []}', 'test-user', NOW())",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query("UPDATE app SET versions = ARRAY[9001::bigint] WHERE id = 9001")
+        .execute(&db)
+        .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+
+    let sa_wm = wm_token("test@windmill.dev", true).await;
+    let resp = authed(
+        client().get(format!(
+            "{base}/w/test-workspace/apps/embed_token/p/u/test-user/embedded"
+        )),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not mint an app embed token: {}",
+        resp.text().await?
+    );
+
+    // Even a token minted some other way must stay narrow: widening is refused.
+    let resp = authed(
+        client().post(format!("{base}/users/tokens/update_scopes/SECRET_T")),
+        &sa_wm,
+    )
+    .json(&json!({ "scopes": serde_json::Value::Null }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not widen a token's scopes: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
