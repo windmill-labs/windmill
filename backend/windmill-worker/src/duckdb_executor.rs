@@ -1516,6 +1516,10 @@ pub async fn do_duckdb(
                 probe_blocks,
             )
             .await?;
+            // The probe opens its own DuckDB connection, so it needs the same
+            // connection policy as the main query below.
+            #[cfg(feature = "private")]
+            let probe_blocks = crate::duckdb_isolation_ee::apply_duckdb_isolation(probe_blocks)?;
             let alter_ddl = compute_sync_alter_ddl(
                 probe_blocks,
                 job_args.clone(),
@@ -1641,8 +1645,6 @@ pub async fn do_duckdb(
         let (result, column_order) = match result {
             Ok(r) => r,
             Err(e) => {
-                #[cfg(feature = "private")]
-                let e = crate::duckdb_isolation_ee::explain_error(e);
                 if let Some((_, meta)) = &materialize {
                     record_mat(
                         conn,
@@ -1846,6 +1848,8 @@ pub async fn do_duckdb(
     match result {
         Ok(result) => Ok(result),
         Err(e) => {
+            #[cfg(feature = "private")]
+            let e = crate::duckdb_isolation_ee::explain_error(e);
             // Passwords might appear in the error message — and, for the
             // structured data-test failure, in sampled row data read from an
             // attached database — so every outgoing error is sanitized here.
