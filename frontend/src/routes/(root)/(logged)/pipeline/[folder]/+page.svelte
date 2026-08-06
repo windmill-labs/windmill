@@ -1415,12 +1415,12 @@
 	// other's storage writes.
 	let cascadeRunningRoot = $state<string | undefined>(undefined)
 
-	// Recorder: when armed, the next cascade run captures the resolved graph, the
-	// per-node status timeline and each node's job stream into a downloadable
-	// recording that the /pipeline_replay player can rerun offline (parity with the
-	// flow/script recorders). Job capture (`watchJob`) and status capture
-	// (`recordStatuses`) no-op unless the store is active, so the cascade run
-	// paths call them unconditionally.
+	// Recorder: when armed, the next cascade run captures the resolved graph and
+	// the per-node status timeline into a downloadable recording that the
+	// /pipeline_replay player can rerun offline (parity with the flow/script
+	// recorders); each node's completed job is fetched when the run finalizes.
+	// Status capture (`recordStatuses`) no-ops unless the store is active, so
+	// the cascade run paths call it unconditionally.
 	let pipelineRecording = createPipelineRecording()
 	let recordingMode = $state(false)
 	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
@@ -1790,8 +1790,6 @@
 				launch: async (path) => {
 					const jobId = await launchCascadeScript(path)
 					activeRunnables.arm(`script:${path}`)
-					// No-op unless a recording is active; captures the node's stream.
-					if ($workspaceStore) pipelineRecording.watchJob(jobId, $workspaceStore)
 					if (firstJobId === undefined) {
 						firstJobId = jobId
 						runsPendingJobId = jobId

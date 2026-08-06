@@ -7,7 +7,6 @@
 import { describe, expect, it } from 'vitest'
 import {
 	MAX_COMPONENT_FANOUT,
-	MAX_EVENTS_PER_JOB,
 	MAX_FLOW_MODULES,
 	MAX_RECORDED_JOBS,
 	MAX_MAP_ROWS,
@@ -74,15 +73,37 @@ describe('isAppRecording', () => {
 	})
 })
 
-const job = (events = 1) => ({
-	initial_job: { id: 'j' },
-	events: Array.from({ length: events }, (_, t) => ({ t, data: { completed: true } }))
+// A recorded job is a completed job as the API returns it.
+const job = (extra: Record<string, unknown> = {}) => ({
+	id: 'j',
+	type: 'CompletedJob',
+	...extra
 })
 
 const header = { recorded_at: '2026-07-25T00:00:00.000Z', total_duration_ms: 1000 }
 
+const flowRec = (extra: Record<string, unknown> = {}) => ({
+	version: 2,
+	flow_path: 'f',
+	...header,
+	root_job_id: 'j',
+	jobs: { j: job() },
+	...extra
+})
+
+const scriptRec = (extra: Record<string, unknown> = {}) => ({
+	version: 2,
+	type: 'script',
+	script_path: 's',
+	...header,
+	code: 'echo hi',
+	language: 'bash',
+	job: job(),
+	...extra
+})
+
 const pipeline = (extra: Record<string, unknown> = {}) => ({
-	version: 1,
+	version: 2,
 	type: 'pipeline',
 	folder: 'orders',
 	...header,
@@ -100,21 +121,9 @@ const rejected = (data: unknown) => parseRecording(data).ok === false
 
 describe('parseRecording', () => {
 	it('routes each kind to its player, defaulting a type-less payload to flow', () => {
-		expect(kindOf({ version: 1, flow_path: 'f', ...header, jobs: { j: job() } })).toBe('flow')
-		expect(
-			kindOf({ version: 1, type: 'flow', flow_path: 'f', ...header, jobs: { j: job() } })
-		).toBe('flow')
-		expect(
-			kindOf({
-				version: 1,
-				type: 'script',
-				script_path: 's',
-				...header,
-				code: 'echo hi',
-				language: 'bash',
-				job: job()
-			})
-		).toBe('script')
+		expect(kindOf(flowRec())).toBe('flow')
+		expect(kindOf(flowRec({ type: 'flow' }))).toBe('flow')
+		expect(kindOf(scriptRec())).toBe('script')
 		expect(kindOf(pipeline())).toBe('pipeline')
 		expect(
 			kindOf({
@@ -129,35 +138,78 @@ describe('parseRecording', () => {
 		).toBe('app')
 	})
 
+	it('upgrades v1 job recordings in place, refusing only what cannot be salvaged', () => {
+		// v1 stored live event streams; published recordings (the hub) collapse to
+		// the completed job each stream carried and keep replaying.
+		const v1Stream = (j: Record<string, unknown>, logChunks: string[] = []) => ({
+			initial_job: { id: j.id },
+			events: [
+				...logChunks.map((c, i) => ({ t: i, data: { new_logs: c, log_offset: i + 1 } })),
+				{ t: 5, data: { completed: true, job: j } }
+			]
+		})
+		const v1Flow = {
+			version: 1,
+			flow_path: 'f',
+			...header,
+			jobs: {
+				root: v1Stream(job({ id: 'root', job_kind: 'flowpreview' })),
+				// The backfilled completed job carried no logs — only the stream did.
+				sub: v1Stream(job({ id: 'sub', parent_job: 'root' }), ['line 1\n', 'line 2\n'])
+			}
+		}
+		const flow = parseRecording(v1Flow)
+		expect(flow.ok && flow.loaded.kind).toBe('flow')
+		expect(flow.ok && (flow.loaded.recording as any).root_job_id).toBe('root')
+		expect(flow.ok && (flow.loaded.recording as any).jobs.sub.logs).toBe('line 1\nline 2\n')
+		const v1Script = {
+			version: 1,
+			type: 'script',
+			script_path: 's',
+			...header,
+			code: 'x',
+			language: 'bash',
+			job: v1Stream(job())
+		}
+		expect(kindOf(v1Script)).toBe('script')
+		// A v1 file whose streams carry no completed job has nothing to replay from.
+		const v1Empty = parseRecording({ version: 1, flow_path: 'f', ...header, jobs: {} })
+		expect(v1Empty.ok ? '' : v1Empty.error).toMatch(/older version/)
+		const future = parseRecording(flowRec({ version: 3 }))
+		expect(future.ok ? '' : future.error).toMatch(/newer version/)
+		// App recordings never changed format and stay at version 1.
+		const futureApp = parseRecording({ ...valid(), version: 2 })
+		expect(futureApp.ok ? '' : futureApp.error).toMatch(/newer version/)
+	})
+
 	it('rejects payloads a player would choke on rather than falling through to flow', () => {
 		// A `?src=` origin is arbitrary: a claimed kind must be validated as that
 		// kind, never silently reinterpreted.
-		expect(rejected({ version: 1, type: 'script', code: 'x', language: 'bash' })).toBe(true)
-		expect(rejected({ version: 1, type: 'pipeline', timeline: [], jobs: {} })).toBe(true)
-		expect(rejected({ version: 1, type: 'somethingelse', jobs: {} })).toBe(true)
-		expect(rejected({ version: 2, jobs: {} })).toBe(true)
+		expect(rejected({ version: 2, type: 'script', code: 'x', language: 'bash' })).toBe(true)
+		expect(rejected({ version: 2, type: 'pipeline', timeline: [], jobs: {} })).toBe(true)
+		expect(rejected({ version: 2, type: 'somethingelse', jobs: {} })).toBe(true)
 		expect(rejected(null)).toBe(true)
-		expect(rejected([{ version: 1 }])).toBe(true)
+		expect(rejected([{ version: 2 }])).toBe(true)
 		// Header fields are required by the types and rendered by every player.
-		expect(rejected({ version: 1, jobs: { j: job() } })).toBe(true)
-		expect(rejected({ version: 1, flow_path: 'f', recorded_at: 'x', jobs: { j: job() } })).toBe(
-			true
-		)
-		// JobLoader replays each event in a timer, where a throw escapes every
-		// boundary, so a non-object event has to be caught at load.
+		expect(rejected({ version: 2, root_job_id: 'j', jobs: { j: job() } })).toBe(true)
 		expect(
 			rejected({
-				version: 1,
+				version: 2,
 				flow_path: 'f',
-				...header,
-				jobs: { j: { initial_job: {}, events: ['nope'] } }
+				recorded_at: 'x',
+				root_job_id: 'j',
+				jobs: { j: job() }
 			})
 		).toBe(true)
+		// The replay is keyed and anchored by job ids, so a job without one — or a
+		// root id naming no recorded job — has nothing to attach to.
+		expect(rejected(flowRec({ jobs: { j: { type: 'CompletedJob' } } }))).toBe(true)
+		expect(rejected(flowRec({ root_job_id: 'missing' }))).toBe(true)
 		// Cardinality, not just shape: each job mounts a JobLoader.
 		const tooManyJobs = Object.fromEntries(
-			Array.from({ length: MAX_RECORDED_JOBS + 1 }, (_, i) => [`j${i}`, job(0)])
+			Array.from({ length: MAX_RECORDED_JOBS + 1 }, (_, i) => [`j${i}`, job({ id: `j${i}` })])
 		)
-		expect(rejected({ version: 1, flow_path: 'f', ...header, jobs: tooManyJobs })).toBe(true)
+		expect(rejected(flowRec({ jobs: { j: job(), ...tooManyJobs } }))).toBe(true)
 	})
 
 	it('holds every recorded value to one structural render budget', () => {
@@ -167,87 +219,48 @@ describe('parseRecording', () => {
 		const wide = (n: number) => Array.from({ length: n }, () => 0)
 		const overBudget = MAX_VALUE_NODES + 1
 
-		const flowJob = (initial: unknown, eventData?: unknown) => ({
-			version: 1,
-			flow_path: 'f',
-			...header,
-			jobs: {
-				j: {
-					initial_job: initial,
-					events: eventData ? [{ t: 0, data: eventData }] : []
-				}
-			}
-		})
+		const flowJob = (jobExtra: Record<string, unknown>) => flowRec({ jobs: { j: job(jobExtra) } })
 		// args (a JobArgs row per key) and flow_status.modules (a subtree per entry).
-		expect(rejected(flowJob({ id: 'j', args: { a: wide(overBudget) } }))).toBe(true)
-		expect(rejected(flowJob({ id: 'j', flow_status: { modules: wide(overBudget) } }))).toBe(true)
-		// Same via an event rather than the initial job.
-		expect(rejected(flowJob({ id: 'j' }, { flow_status: { modules: wide(overBudget) } }))).toBe(
-			true
-		)
+		expect(rejected(flowJob({ args: { a: wide(overBudget) } }))).toBe(true)
+		expect(rejected(flowJob({ flow_status: { modules: wide(overBudget) } }))).toBe(true)
 		// render_all fans out into nested DisplayResults, and the renderer recurses —
 		// so a nested budget, not the top-level array's length.
 		const nested = Array.from({ length: 400 }, () => ({ render_all: wide(400) }))
-		expect(
-			rejected(
-				flowJob({ id: 'j' }, { completed: true, job: { id: 'j', result: { render_all: nested } } })
-			)
-		).toBe(true)
+		expect(rejected(flowJob({ result: { render_all: nested } }))).toBe(true)
 		// data_tests is a sibling key whose renderer also fans out per entry; nobody
 		// had to name it for the budget to cover it.
-		expect(
-			rejected(
-				flowJob(
-					{ id: 'j' },
-					{ completed: true, job: { id: 'j', result: { data_tests: wide(overBudget) } } }
-				)
-			)
-		).toBe(true)
+		expect(rejected(flowJob({ result: { data_tests: wide(overBudget) } }))).toBe(true)
 		// Depth is its own hazard: a renderer recursing over this blows the stack long
 		// before the node count would.
 		let deep: unknown = 0
 		for (let i = 0; i < MAX_VALUE_DEPTH + 2; i++) deep = { nest: deep }
-		expect(rejected(flowJob({ id: 'j', args: { a: deep } }))).toBe(true)
+		expect(rejected(flowJob({ args: { a: deep } }))).toBe(true)
 
-		expect(kindOf(flowJob({ id: 'j', args: { a: 1, b: 'two' } }))).toBe('flow')
+		expect(kindOf(flowJob({ args: { a: 1, b: 'two' } }))).toBe('flow')
 	})
 
 	it('bounds what a script and a flow render immediately', () => {
 		const wide = (n: number) => Array.from({ length: n }, () => 0)
-		const script = (extra: Record<string, unknown>) => ({
-			version: 1,
-			type: 'script',
-			script_path: 's',
-			...header,
-			code: 'x',
-			language: 'bash',
-			job: job(),
-			...extra
-		})
 		// SchemaForm recurses into nested properties, so the cap cannot be top-level.
 		expect(
 			rejected(
-				script({
+				scriptRec({
 					schema: { properties: { outer: { properties: { inner: wide(MAX_VALUE_NODES + 1) } } } }
 				})
 			)
 		).toBe(true)
-		expect(kindOf(script({ args: { a: 1 } }))).toBe('script')
+		expect(kindOf(scriptRec({ args: { a: 1 } }))).toBe('script')
 		// `args` and `schema.properties` arrive as the root of the walk on this kind.
 		const wideMap = Object.fromEntries(
 			Array.from({ length: MAX_MAP_ROWS + 1 }, (_, i) => [`a${i}`, 1])
 		)
-		expect(rejected(script({ args: wideMap }))).toBe(true)
-		expect(rejected(script({ args: Array.from({ length: MAX_MAP_ROWS + 1 }, () => 0) }))).toBe(true)
-		expect(rejected(script({ schema: { properties: wideMap } }))).toBe(true)
+		expect(rejected(scriptRec({ args: wideMap }))).toBe(true)
+		expect(rejected(scriptRec({ args: Array.from({ length: MAX_MAP_ROWS + 1 }, () => 0) }))).toBe(
+			true
+		)
+		expect(rejected(scriptRec({ schema: { properties: wideMap } }))).toBe(true)
 
-		const flowWith = (value: unknown) => ({
-			version: 1,
-			flow_path: 'f',
-			...header,
-			jobs: { j: job() },
-			flow: { value }
-		})
+		const flowWith = (value: unknown) => flowRec({ flow: { value } })
 		const modules = (n: number) =>
 			Array.from({ length: n }, (_, i) => ({ id: `m${i}`, value: { type: 'identity' } }))
 		expect(rejected(flowWith({ modules: modules(MAX_FLOW_MODULES + 1) }))).toBe(true)
@@ -313,17 +326,7 @@ describe('parseRecording', () => {
 
 	it('bounds the three things that cost differently: structure, text, components', () => {
 		const wide = (n: number) => Array.from({ length: n }, () => 0)
-		const flowJob = (result: unknown) => ({
-			version: 1,
-			flow_path: 'f',
-			...header,
-			jobs: {
-				j: {
-					initial_job: { id: 'j' },
-					events: [{ t: 0, data: { completed: true, job: { id: 'j', result } } }]
-				}
-			}
-		})
+		const flowJob = (result: unknown) => flowRec({ jobs: { j: job({ result }) } })
 
 		// Fan-out is cumulative across the value, not per array: nesting sidesteps a
 		// per-array cap while mounting a component per leaf.
@@ -382,33 +385,27 @@ describe('parseRecording', () => {
 		const properties = Object.fromEntries(
 			Array.from({ length: MAX_VALUE_NODES }, (_, i) => [`p${i}`, { type: 'string' }])
 		)
-		const res = parseRecording({
-			version: 1,
-			flow_path: 'f',
-			...header,
-			jobs: { j: job() },
-			flow: { schema: { properties }, value: { modules: [] } }
-		})
+		const res = parseRecording(
+			flowRec({ flow: { schema: { properties }, value: { modules: [] } } })
+		)
 		expect(res.ok).toBe(false)
 		// A module's inline `content` is the flow kind's equivalent of a script's
 		// `code`, and text is not structure.
 		expect(
-			rejected({
-				version: 1,
-				flow_path: 'f',
-				...header,
-				jobs: { j: job() },
-				flow: {
-					value: {
-						modules: [
-							{
-								id: 'a',
-								value: { type: 'rawscript', content: 'x'.repeat(MAX_VALUE_STRING_CHARS + 1) }
-							}
-						]
+			rejected(
+				flowRec({
+					flow: {
+						value: {
+							modules: [
+								{
+									id: 'a',
+									value: { type: 'rawscript', content: 'x'.repeat(MAX_VALUE_STRING_CHARS + 1) }
+								}
+							]
+						}
 					}
-				}
-			})
+				})
+			)
 		).toBe(true)
 	})
 
@@ -437,17 +434,7 @@ describe('parseRecording', () => {
 		// Metadata strings land in a header, a highlighter class or an error panel, and
 		// were only `typeof === 'string'`.
 		const long = 'x'.repeat(5000)
-		expect(
-			rejected({
-				version: 1,
-				type: 'script',
-				script_path: 's',
-				...header,
-				code: 'x',
-				language: long,
-				job: job()
-			})
-		).toBe(true)
+		expect(rejected(scriptRec({ language: long }))).toBe(true)
 		expect(rejected(pipeline({ codes: { 'f/a/b': { content: 'x', language: long } } }))).toBe(true)
 		expect(
 			rejected(
@@ -465,37 +452,13 @@ describe('parseRecording', () => {
 				})
 			)
 		).toBe(true)
-
-		// One job's events all become timers in a single pass.
-		expect(
-			rejected({
-				version: 1,
-				flow_path: 'f',
-				...header,
-				jobs: {
-					j: {
-						initial_job: { id: 'j' },
-						events: Array.from({ length: MAX_EVENTS_PER_JOB + 1 }, () => ({
-							t: 0,
-							data: { progress: 1 }
-						}))
-					}
-				}
-			})
-		).toBe(true)
 	})
 
 	it('refuses a huge recording before it looks at what any field means', () => {
 		// The backstop needs no key name, so a field no validator mentions is still
 		// bounded.
 		const filler = Array.from({ length: 5000 }, () => Array.from({ length: 500 }, () => 0))
-		const res = parseRecording({
-			version: 1,
-			flow_path: 'f',
-			...header,
-			jobs: { j: job() },
-			some_future_field: filler
-		})
+		const res = parseRecording(flowRec({ some_future_field: filler }))
 		expect(res.ok).toBe(false)
 		expect(res.ok ? '' : res.error).toMatch(new RegExp(`more than ${MAX_RECORDING_NODES} values`))
 
@@ -503,9 +466,7 @@ describe('parseRecording', () => {
 		// silently uncounted — a backstop that gives up is not a backstop.
 		let buried: unknown = filler
 		for (let i = 0; i < MAX_VALUE_DEPTH + 2; i++) buried = { nest: buried }
-		expect(rejected({ version: 1, flow_path: 'f', ...header, jobs: { j: job() }, buried })).toBe(
-			true
-		)
+		expect(rejected(flowRec({ buried }))).toBe(true)
 	})
 
 	it('bounds an errored asset sample, which still renders its own fields', () => {
@@ -545,36 +506,23 @@ describe('parseRecording', () => {
 		// A wide for-loop flow records a job per iteration, so a real capture can trip
 		// this — it must not read as "your recorder wrote a broken file".
 		const tooManyJobs = Object.fromEntries(
-			Array.from({ length: MAX_RECORDED_JOBS + 1 }, (_, i) => [`j${i}`, job(0)])
+			Array.from({ length: MAX_RECORDED_JOBS + 1 }, (_, i) => [`j${i}`, job({ id: `j${i}` })])
 		)
-		const res = parseRecording({ version: 1, flow_path: 'f', ...header, jobs: tooManyJobs })
+		const res = parseRecording(flowRec({ jobs: { j: job(), ...tooManyJobs } }))
 		expect(res.ok ? '' : res.error).toMatch(/holds \d+ jobs/)
-		const corrupt = parseRecording({ version: 1, flow_path: 'f', ...header, jobs: 'nope' })
+		const corrupt = parseRecording(flowRec({ jobs: 'nope' }))
 		expect(corrupt.ok ? '' : corrupt.error).toBe('Invalid flow recording format.')
 		// The render budget is the cap a real capture is most likely to trip, so it
 		// names the value and what about it was too big.
-		const fat = parseRecording({
-			version: 1,
-			flow_path: 'f',
-			...header,
-			jobs: {
-				j: {
-					initial_job: { id: 'j' },
-					events: [
-						{
-							t: 0,
-							data: {
-								completed: true,
-								job: {
-									id: 'j',
-									result: { render_all: Array.from({ length: MAX_COMPONENT_FANOUT + 1 }, () => 0) }
-								}
-							}
-						}
-					]
+		const fat = parseRecording(
+			flowRec({
+				jobs: {
+					j: job({
+						result: { render_all: Array.from({ length: MAX_COMPONENT_FANOUT + 1 }, () => 0) }
+					})
 				}
-			}
-		})
+			})
+		)
 		expect(fat.ok ? '' : fat.error).toMatch(/a recorded job carries more than \d+ `render_all`/)
 	})
 

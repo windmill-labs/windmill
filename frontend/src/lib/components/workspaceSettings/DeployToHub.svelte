@@ -105,18 +105,17 @@
 		// Browser-reported type wins over the extension: a PNG misnamed *.svg
 		// must be treated as PNG or the Hub's content sniff rejects it later.
 		const lower = file.name.toLowerCase()
-		const mime =
-			file.type
-				? file.type === 'image/png'
-					? 'image/png'
-					: file.type === 'image/svg+xml'
-						? 'image/svg+xml'
-						: undefined
-				: lower.endsWith('.png')
-					? 'image/png'
-					: lower.endsWith('.svg')
-						? 'image/svg+xml'
-						: undefined
+		const mime = file.type
+			? file.type === 'image/png'
+				? 'image/png'
+				: file.type === 'image/svg+xml'
+					? 'image/svg+xml'
+					: undefined
+			: lower.endsWith('.png')
+				? 'image/png'
+				: lower.endsWith('.svg')
+					? 'image/svg+xml'
+					: undefined
 		if (!mime) {
 			sendUserToast('Logo must be a PNG or SVG file', true)
 			return
@@ -144,7 +143,6 @@
 		logoDragOver = false
 		await handleLogoFile(e.dataTransfer?.files?.[0])
 	}
-
 </script>
 
 {#if deployHub.session}
@@ -764,6 +762,40 @@
 							schema={s.recordSchema}
 						/>
 					{/if}
+
+					{#if s.pastRuns.length > 0 && s.runState !== 'running'}
+						<div class="flex flex-col gap-1 rounded-md border p-3">
+							<span class="text-xs font-semibold text-primary">Or pick an existing run</span>
+							<span class="text-[11px] text-hint">
+								A recording is built from the completed run, so any recent successful run works.
+							</span>
+							<div class="mt-1 flex flex-col divide-y">
+								{#each s.pastRuns as run}
+									<div class="flex items-center justify-between gap-2 py-1.5">
+										<a
+											href={`/run/${run.id}?workspace=${s.workspace}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+										>
+											<ExternalLink size={12} />
+											{run.started_at ? new Date(run.started_at).toLocaleString() : run.id}
+										</a>
+										<div class="flex items-center gap-2">
+											{#if run.duration_ms !== undefined}
+												<span class="text-[11px] text-hint"
+													>{(run.duration_ms / 1000).toFixed(1)}s</span
+												>
+											{/if}
+											<Button size="xs" variant="default" onclick={() => s.useExistingRun(run.id)}>
+												Use this run
+											</Button>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
 				</div>
 				{#snippet actions()}
 					{#if s.runState === 'success'}
@@ -1133,9 +1165,7 @@
 							</span>
 							<div class="mt-1 flex flex-col items-center gap-2">
 								<div class="w-64 overflow-hidden rounded-2xl border shadow-sm">
-									<div
-										class="flex h-32 items-center justify-center bg-surface-secondary/50 px-4"
-									>
+									<div class="flex h-32 items-center justify-center bg-surface-secondary/50 px-4">
 										<img
 											src={`data:${s.hubLogo.mime};base64,${s.hubLogo.b64}`}
 											alt="Project logo preview"
@@ -1147,7 +1177,9 @@
 											{s.hubName.trim() || 'Project name'}
 										</div>
 										<p class="mt-0.5 line-clamp-2 text-[11px] text-secondary">
-											{s.hubSummary.trim() || s.hubName.trim() || 'Short one-liner shown on the Hub card'}
+											{s.hubSummary.trim() ||
+												s.hubName.trim() ||
+												'Short one-liner shown on the Hub card'}
 										</p>
 									</div>
 								</div>
