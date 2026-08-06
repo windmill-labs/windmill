@@ -188,6 +188,12 @@ async function push(opts: PushOptions, filePath: string) {
     );
   }
 
+  if (isFileResource(filePath) || isFilesetResource(filePath)) {
+    throw Error(
+      "Cannot push a file/fileset resource content file as a script, push its .resource.yaml with 'wmill resource push' instead"
+    );
+  }
+
   await requireLogin(opts);
 
   // Warn about metadata state before pushing
