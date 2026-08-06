@@ -110,7 +110,7 @@ export const artifactTools: Tool<{}>[] = [
 		def: createToolDef(
 			listArtifactsSchema,
 			'list_artifacts',
-			"List the current session's artifacts (id, name, kind, role)."
+			"List the current session's artifacts (id, name, kind, role). `role` is `plan` on this conversation's plan document, and on nothing else."
 		),
 		readonly: true,
 		fn: async ({ toolId, toolCallbacks, helpers }) => {
@@ -121,15 +121,23 @@ export const artifactTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: UNAVAILABLE })
 			}
 			const items = await h.artifacts.listForSession(sessionId)
+			const chatId = h.getChatId?.()
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${items.length} artifact${items.length === 1 ? '' : 's'}`
 			})
 			return JSON.stringify(
 				items
 					.sort((a, b) => b.updatedAt - a.updatedAt)
-					// `role` is what lets the model find the conversation's plan among the rest;
-					// undefined on ordinary artifacts, so it costs nothing to list them.
-					.map((a) => ({ id: a.id, name: a.name, kind: a.kind, role: a.role }))
+					.map((a) => ({
+						id: a.id,
+						name: a.name,
+						kind: a.kind,
+						// `role` is what lets the model find the plan to amend, so it is scoped to the
+						// conversation asking. Artifacts outlive a chat and there is one plan per chat,
+						// so an unscoped label would offer several and the newest is often another
+						// conversation's — folding its plan into this one.
+						role: a.role === 'plan' && a.chatId === chatId ? a.role : undefined
+					}))
 			)
 		}
 	},

@@ -89,6 +89,29 @@ describe('artifact tools', () => {
 		expect(list[0]).not.toHaveProperty('content')
 	})
 
+	it('labels only this conversation as the plan', async () => {
+		// Artifacts outlive a chat, so a session accumulates one plan per conversation. An
+		// unscoped label would offer the model several, and it is the newest — another
+		// conversation's — that it would fold into this one's plan.
+		const mine = await ctx.store.create('s1', {
+			name: 'Mine',
+			content: '# Mine',
+			role: 'plan',
+			chatId: 'c1'
+		})
+		const theirs = await ctx.store.create('s1', {
+			name: 'Theirs',
+			content: '# Theirs',
+			role: 'plan',
+			chatId: 'c2'
+		})
+		const list = JSON.parse(await ctx.call('list_artifacts', {}))
+
+		expect(list.filter((x: any) => x.role === 'plan').map((x: any) => x.id)).toEqual([mine.id])
+		// Still listed, just not as the plan: it is a readable artifact like any other.
+		expect(list.find((x: any) => x.id === theirs.id)).toMatchObject({ name: 'Theirs' })
+	})
+
 	it('read_artifact returns the full content', async () => {
 		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'body' }))
 		const read = JSON.parse(await ctx.call('read_artifact', { id: a.id }))
