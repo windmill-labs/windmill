@@ -700,6 +700,10 @@
 
 	// Clear SvelteFlow's internal selection by creating new nodes array
 	function clearFlowSelection() {
+		// xyflow owns `selected` on the objects it was handed, and drops it only when it sees a
+		// node it does not recognise. Serving the cached mapping back would hand it the very
+		// object it marked selected, so the clear has to go through fresh objects.
+		offsetNodeCache = new WeakMap<Node, Node>()
 		nodes = nodes.map((node) => {
 			if (node.selected) {
 				return { ...node, selected: false }
@@ -1458,7 +1462,10 @@
 	   match ours exactly and load order decides. Scoping by the class we pass to <Controls>
 	   outranks them instead of racing them. */
 	:global(.svelte-flow__controls.wm-flow-controls) {
-		@apply overflow-hidden rounded-md border;
+		/* Name the colour rather than leaning on the base layer's bare `.border`: preflight
+		   sets a light `border-color` on every element, so whenever that base rule does not
+		   make it into the bundle alongside this one the bar draws a white outline. */
+		@apply overflow-hidden rounded-md border border-border-light;
 		box-shadow: none;
 	}
 	:global(.wm-flow-controls .svelte-flow__controls-button) {

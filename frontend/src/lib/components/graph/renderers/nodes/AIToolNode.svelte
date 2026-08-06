@@ -71,9 +71,13 @@
 
 	function agentActionsOf(
 		nodes: (Node & NodeLayout)[],
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleStates: Record<string, GraphModuleState> | undefined,
+		insertable: boolean
 	): Record<string, unknown> {
 		const actions: Record<string, unknown> = {}
+		// The editor renders the static tool set and ignores the run's actions, so snapshotting
+		// them there would deep-clone a value that changes every poll and never matches.
+		if (insertable) return actions
 		for (const node of nodes) {
 			if (node.type !== 'module' || node.data.module.value.type !== 'aiagent') continue
 			actions[node.id] = $state.snapshot(flowModuleStates?.[node.id]?.agent_actions)
@@ -95,7 +99,10 @@
 	} {
 		if (
 			computeAIToolNodesCache &&
-			deepEqual(agentActionsOf(nodes, flowModuleStates), computeAIToolNodesCache.agentActions) &&
+			deepEqual(
+				agentActionsOf(nodes, flowModuleStates, insertable),
+				computeAIToolNodesCache.agentActions
+			) &&
 			deepEqual(nodes.map(getComparableNode), computeAIToolNodesCache.nodes) &&
 			deepEqual(linkedAgentTools, computeAIToolNodesCache.linkedAgentTools)
 		) {
@@ -264,7 +271,7 @@
 
 		computeAIToolNodesCache = {
 			nodes: nodes.map(getComparableNode),
-			agentActions: agentActionsOf(nodes, flowModuleStates),
+			agentActions: agentActionsOf(nodes, flowModuleStates, insertable),
 			linkedAgentTools: $state.snapshot(linkedAgentTools),
 			ret
 		}

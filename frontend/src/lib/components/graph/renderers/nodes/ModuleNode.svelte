@@ -18,6 +18,7 @@
 
 	// Get NoteEditor context for group note creation
 	const noteEditorContext = getNoteEditorContext()
+	const flowRunStatus = getFlowRunStatusContext()
 
 	let state = $derived.by(() => {
 		return data.testModuleState
@@ -57,7 +58,6 @@
 	// that works from any state as its shortcut.
 	const stepExploreHint = getContext<(() => boolean) | undefined>('flowGraphStepExploreHint')
 	const selectionManager = getGraphContext()?.selectionManager
-	const flowRunStatus = getFlowRunStatusContext()
 
 	const menuItems: Item[] = $derived(
 		data.editMode
