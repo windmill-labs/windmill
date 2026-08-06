@@ -26,7 +26,12 @@
 					requestBody: { code, state }
 				})
 				$oauthStore = res
-				goto(`/resources?callback=${client_name}`)
+				// The data table wizard parks its state before redirecting; send the user back to
+				// where they started rather than always to /resources.
+				const returnTo = sessionStorage.getItem('datatable_wizard_resume')
+					? '/workspace_settings?tab=windmill_data_tables'
+					: '/resources'
+				goto(`${returnTo}${returnTo.includes('?') ? '&' : '?'}callback=${client_name}`)
 			} catch (e) {
 				sendUserToast(`Error parsing the response token, ${e.body}`, true)
 				goto('/resources')

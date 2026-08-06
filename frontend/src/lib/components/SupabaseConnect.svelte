@@ -4,6 +4,8 @@
 	import { Loader2, RotateCwIcon } from 'lucide-svelte'
 
 	import { Button, DrawerContent } from './common'
+	import Select from './select/Select.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import Path from './Path.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -45,11 +47,124 @@
 		database?: { host: string }
 		region: string
 		id: string
+		status?: string
 	}
 	let databases: undefined | Database[] = $state(undefined)
 
+	type Organization = { id: string; name: string; slug?: string }
+	let orgs: undefined | Organization[] = $state(undefined)
+	let selectedOrgSlug: string | undefined = $state(undefined)
+	let newProjectName = $state('')
+	let creating = $state(false)
+	let createStatus = $state('')
+
+	// region_selection is { type: 'specific' | 'smartGroup', code: <region> }. Neither the
+	// published docs nor the OpenAPI spec describe it correctly (they give `kind`/`region` and
+	// `primary`), so this shape comes from the API's own validation errors -- do not "correct"
+	// it against the documentation. Only 'specific' has a shape we can rely on.
+	const SUPABASE_REGIONS = [
+		'us-east-1',
+		'us-west-1',
+		'eu-central-1',
+		'eu-west-1',
+		'eu-west-3',
+		'ap-southeast-1',
+		'ap-northeast-1'
+	]
+	let selectedRegion: string = $state('eu-central-1')
+
+	async function listOrgs() {
+		if (!token) return
+		const res = await fetch('/api/oauth/list_supabase_orgs', {
+			headers: { 'Content-Type': 'application/json', 'X-Supabase-Token': token }
+		})
+		if (!res.ok) {
+			sendUserToast(`Could not list Supabase organizations: ${await res.text()}`, true)
+			return
+		}
+		orgs = await res.json()
+		// organization_slug is what create takes; older payloads only carry an id.
+		if (orgs?.length === 1) selectedOrgSlug = orgs[0].slug ?? orgs[0].id
+	}
+
+	// Supabase never lets a password be read back, so the only way to know it is to be the
+	// one who set it: db_pass is an input to project creation.
+	function generatePassword(): string {
+		const charset = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+		const values = new Uint32Array(32)
+		crypto.getRandomValues(values)
+		return Array.from(values, (v) => charset[v % charset.length]).join('')
+	}
+
+	// Creation returns immediately with the project still coming up, so the pooler is not
+	// reachable yet — poll until Supabase reports it healthy before building the resource.
+	async function waitUntilHealthy(id: string): Promise<Database> {
+		for (let i = 0; i < 60; i++) {
+			await new Promise((r) => setTimeout(r, 5000))
+			const res = await fetch('/api/oauth/list_supabase', {
+				headers: { 'Content-Type': 'application/json', 'X-Supabase-Token': token ?? '' }
+			})
+			if (!res.ok) continue
+			const list: Database[] = await res.json()
+			const project = list?.find?.((d) => d.id === id)
+			if (project?.status === 'ACTIVE_HEALTHY') return project
+			createStatus = `Waiting for Supabase to finish provisioning${
+				project?.status ? ` (${project.status})` : ''
+			}...`
+		}
+		throw new Error('Timed out waiting for the project to become healthy')
+	}
+
+	async function createProject() {
+		if (!token || !selectedOrgSlug || !newProjectName) return
+		creating = true
+		createStatus = 'Creating the project...'
+		try {
+			const db_pass = generatePassword()
+			const res = await fetch('/api/oauth/create_supabase_project', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', 'X-Supabase-Token': token },
+				body: JSON.stringify({
+					name: newProjectName,
+					organization_slug: selectedOrgSlug,
+					db_pass,
+					// Supabase rejects the request unless exactly one of region / region_selection is set.
+					region_selection: { type: 'specific', code: selectedRegion }
+				})
+			})
+			if (!res.ok) {
+				sendUserToast(`Supabase refused to create the project: ${await res.text()}`, true)
+				return
+			}
+			const created = await res.json()
+			// Surface the password before waiting: Supabase never hands it back, so if the poll
+			// below fails the project would otherwise exist with a password nobody holds.
+			password = db_pass
+			selectedDatabase = created
+			step = 'resource'
+			try {
+				selectedDatabase = await waitUntilHealthy(created.id ?? created.ref)
+			} catch (err) {
+				sendUserToast(
+					`${created.name} was created but is not reachable yet (${err}). Its password is filled in below - save the resource and retry the connection once Supabase reports it ready.`,
+					true
+				)
+			}
+			await listDatabases()
+		} catch (err) {
+			sendUserToast(`Could not create the Supabase project: ${err}`, true)
+		} finally {
+			creating = false
+			createStatus = ''
+		}
+	}
+
 	run(() => {
 		token != undefined && listDatabases()
+	})
+
+	run(() => {
+		token != undefined && listOrgs()
 	})
 
 	let selectedDatabase: undefined | Database = $state(undefined)
@@ -142,11 +257,39 @@
 			{/if}
 
 			<h3 class="mt-8 mb-2">Create a new database</h3>
-			<p class="text-sm text-secondary"
-				><a href="https://supabase.com/dashboard/projects" target="_blank" rel="noopener noreferrer"
-					>Create a new database in your Supabase account
-				</a>
+			<p class="text-sm text-secondary mb-3">
+				Windmill creates the project in your Supabase organization and generates its database
+				password, so you never have to retrieve it from the Supabase dashboard.
 			</p>
+			<div class="flex flex-col gap-2 max-w-lg">
+				<Select
+					items={(orgs ?? []).map((o) => ({ label: o.name, value: o.slug ?? o.id }))}
+					bind:value={selectedOrgSlug}
+					placeholder={orgs === undefined ? 'Loading organizations...' : 'Select an organization'}
+					disabled={creating}
+				/>
+				<TextInput
+					bind:value={newProjectName}
+					inputProps={{ placeholder: 'Project name', disabled: creating }}
+				/>
+				<Select
+					items={SUPABASE_REGIONS.map((r) => ({ label: r, value: r }))}
+					bind:value={selectedRegion}
+					placeholder="Region"
+					disabled={creating}
+				/>
+				<Button
+					variant="accent"
+					disabled={!selectedOrgSlug || !newProjectName || creating}
+					loading={creating}
+					on:click={createProject}
+				>
+					Create project
+				</Button>
+				{#if createStatus}
+					<p class="text-sm text-secondary">{createStatus}</p>
+				{/if}
+			</div>
 		{:else if step === 'resource'}
 			<Path
 				bind:error={pathError}

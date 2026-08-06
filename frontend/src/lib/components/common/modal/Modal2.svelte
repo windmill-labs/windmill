@@ -91,7 +91,9 @@
 	// Elevate above the AI chat panel (zIndexes.aiChat) while chat is open so
 	// the dialog isn't hidden behind it; otherwise keep the default modal
 	// stacking just above disposables (zIndexes.disposables).
-	const overlayZIndex = $derived(chatState.size > 0 ? zIndexes.aiChat + 1 : zIndexes.disposables + 10)
+	const overlayZIndex = $derived(
+		chatState.size > 0 ? zIndexes.aiChat + 1 : zIndexes.disposables + 10
+	)
 </script>
 
 <svelte:window onkeydown={handleKeyDown} />
@@ -109,7 +111,7 @@
 						heightMap[fixedHeight] ? `height: ${heightMap[fixedHeight]}; ` : ''
 					}${css?.popup?.style || ''}`}
 					class={twMerge(
-						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface p-4',
+						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface py-4 px-6',
 						css?.popup?.class,
 						'wm-modal-form-popup'
 					)}
@@ -120,7 +122,7 @@
 					<List gap="md">
 						<div class="flex w-full">
 							<List horizontal justify="between">
-								<h3>{title}</h3>
+								<h3 class="font-semibold">{title}</h3>
 								<div class="grow w-min-0">
 									<List horizontal justify="between">
 										<div class="min-w-0 grow">

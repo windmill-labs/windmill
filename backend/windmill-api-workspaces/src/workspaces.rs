@@ -135,6 +135,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
         .route(
+            "/test_datatable_resource_connection",
+            get(test_datatable_resource_connection),
+        )
+        .route(
             "/test_datatable_connection/{datatable_name}",
             get(test_datatable_connection),
         )
@@ -2035,6 +2039,31 @@ struct DataTableConnectionCheck {
 /// from the settings page is the difference between finding out here and finding
 /// out on a first schema change, when the failure reads as a Postgres refusal
 /// deep inside a migration.
+#[derive(Deserialize)]
+struct TestDataTableResourceQuery {
+    resource_path: String,
+}
+
+/// Same check as [`test_datatable_connection`], but against a resource that is not yet
+/// referenced by any data table. The setup wizard creates the resource first and needs to
+/// prove the role can create tables *before* writing the workspace's data table config.
+async fn test_datatable_resource_connection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<TestDataTableResourceQuery>,
+) -> JsonResult<DataTableConnectionCheck> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let db_resource = windmill_common::workspaces::transform_json_value_unchecked(
+        &serde_json::Value::String(format!("$res:{}", query.resource_path)),
+        &w_id,
+        &db,
+    )
+    .await?;
+    check_datatable_connection(&db, db_resource).await
+}
+
 async fn test_datatable_connection(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2043,9 +2072,16 @@ async fn test_datatable_connection(
     require_admin(authed.is_admin, &authed.username)?;
 
     let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
+    check_datatable_connection(&db, db_resource).await
+}
+
+async fn check_datatable_connection(
+    db: &DB,
+    db_resource: serde_json::Value,
+) -> JsonResult<DataTableConnectionCheck> {
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = pg_db.connect(Some(&db)).await?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     // One round trip, no side effects: `has_*_privilege` answers for the
@@ -9098,7 +9134,10 @@ async fn reject_attach_cycle<'e, E: sqlx::Executor<'e, Database = Postgres>>(
 ///
 /// Recomputed inside the transaction, but from a set that may already be stale — harmless, because
 /// whoever made it stale is the operation holding the node this one is missing.
-pub(crate) async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>, seeds: &[&str]) -> Result<()> {
+pub(crate) async fn lock_dev_pairing(
+    tx: &mut Transaction<'_, Postgres>,
+    seeds: &[&str],
+) -> Result<()> {
     let seeds: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
     // Depth bounds are the cycle-safety backstop used by every other hierarchy walk.
     let nodes = sqlx::query_scalar!(

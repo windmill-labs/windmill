@@ -4792,32 +4792,28 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  user:
-                    type: string
-                  schema:
-                    type: string
-                    nullable: true
-                  can_create_table:
-                    type: boolean
-                  can_create_schema:
-                    type: boolean
-                  migrations_table_exists:
-                    type: boolean
-                  suggested_grants:
-                    type: array
-                    items:
-                      type: string
-                  suggested_search_path:
-                    type: string
-                required:
-                  - user
-                  - schema
-                  - can_create_table
-                  - can_create_schema
-                  - migrations_table_exists
-                  - suggested_grants
+                $ref: "#/components/schemas/DataTableConnectionCheck"
+
+  /w/{workspace}/workspaces/test_datatable_resource_connection:
+    get:
+      summary: check what a postgres resource lets its role do, before it is attached to a data table
+      operationId: testDataTableResourceConnection
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: resource_path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: connection and privilege report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataTableConnectionCheck"
 
   /w/{workspace}/workspaces/list_datatable_tables:
     get:
@@ -32133,6 +32129,34 @@ components:
             - ran
             - not_run
             - unknown
+    DataTableConnectionCheck:
+      type: object
+      properties:
+        user:
+          type: string
+        schema:
+          type: string
+          nullable: true
+        can_create_table:
+          type: boolean
+        can_create_schema:
+          type: boolean
+        migrations_table_exists:
+          type: boolean
+        suggested_grants:
+          type: array
+          items:
+            type: string
+        suggested_search_path:
+          type: string
+      required:
+        - user
+        - schema
+        - can_create_table
+        - can_create_schema
+        - migrations_table_exists
+        - suggested_grants
+
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]

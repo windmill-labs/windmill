@@ -89,6 +89,12 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import AddDataTableWizard, {
+		takeParkedWizard,
+		type WizardResume
+	} from './AddDataTableWizard.svelte'
+	import { Database } from 'lucide-svelte'
+	import { onMount } from 'svelte'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
@@ -211,6 +217,25 @@
 		}
 	}
 
+	let wizardOpen = $state(false)
+	let wizardResume: WizardResume | undefined = $state(undefined)
+
+	// Supabase sends the user back here after authorizing; pick the wizard back up where it
+	// was rather than making them start again.
+	onMount(() => {
+		const parked = takeParkedWizard()
+		if (parked) {
+			wizardResume = parked
+			wizardOpen = true
+		}
+	})
+
+	async function reloadAfterWizard() {
+		const s = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		dataTableSettings = convertDataTableSettingsFromBackend(s.datatable)
+		wizardResume = undefined
+	}
+
 	let confirmationModal = createAsyncConfirmationModal()
 	let dirtyMap = $derived.by(() => {
 		const map: Record<string, boolean> = {}
@@ -273,8 +298,26 @@
 	<tbody class="divide-y bg-surface-tertiary">
 		{#if tempSettings.dataTables.length == 0}
 			<Row>
-				<Cell colspan={tableHeadNames.length} class="text-center py-6">
-					No data table in this workspace yet
+				<Cell colspan={tableHeadNames.length} class="py-8">
+					<div class="flex flex-col items-center gap-3 text-center">
+						<div class="w-9 h-9 rounded-lg bg-surface-secondary border grid place-items-center">
+							<Database size={18} class="text-secondary" />
+						</div>
+						<div class="flex flex-col gap-1 items-center">
+							<span class="font-semibold text-sm">No data table yet</span>
+							<p class="text-xs text-secondary max-w-sm">
+								Give your scripts a database to store and query data.
+								{#if isCloudHosted()}
+									Set one up free in about a minute.
+								{:else}
+									Use the Windmill database, or bring your own.
+								{/if}
+							</p>
+						</div>
+						<Button size="sm" variant="accent" on:click={() => (wizardOpen = true)}>
+							Add a database
+						</Button>
+					</div>
 				</Cell>
 			</Row>
 		{/if}
@@ -383,15 +426,22 @@
 				</Cell>
 			</Row>
 		{/each}
-		<Row class="!border-0">
-			<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
-				<div class="flex justify-center">
-					<Button size="sm" btnClasses="max-w-fit" variant="default" on:click={onNewDataTable}>
-						<Plus /> New Data Table
-					</Button>
-				</div>
-			</Cell>
-		</Row>
+		{#if tempSettings.dataTables.length > 0}
+			<Row class="!border-0">
+				<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
+					<div class="flex justify-center">
+						<Button
+							size="sm"
+							btnClasses="max-w-fit"
+							variant="default"
+							on:click={() => (wizardOpen = true)}
+						>
+							<Plus /> Add a database
+						</Button>
+					</div>
+				</Cell>
+			</Row>
+		{/if}
 	</tbody>
 </DataTable>
 
@@ -467,3 +517,11 @@
 />
 
 <ConfirmationModal {...confirmationModal.props} />
+
+<AddDataTableWizard
+	bind:opened={wizardOpen}
+	existingNames={tempSettings.dataTables.map((d) => d.name)}
+	resume={wizardResume}
+	onDone={reloadAfterWizard}
+	onUseInstance={onNewDataTable}
+/>
