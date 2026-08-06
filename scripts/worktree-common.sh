@@ -184,7 +184,7 @@ wm_setup_ee_worktree() {
     if git -C "$ee_repo" worktree add "$ee_worktree_dir" "$branch" 2>/dev/null; then
       echo "Created EE worktree at $ee_worktree_dir (existing local branch: $branch)"
     elif git -C "$ee_repo" show-ref --verify --quiet "refs/remotes/origin/$branch" \
-         && git -C "$ee_repo" worktree add -b "$branch" "$ee_worktree_dir" "origin/$branch" 2>/dev/null; then
+         && git -C "$ee_repo" worktree add --track -b "$branch" "$ee_worktree_dir" "origin/$branch" 2>/dev/null; then
       echo "Created EE worktree at $ee_worktree_dir (tracking origin/$branch)"
     elif git -C "$ee_repo" worktree add -b "$branch" "$ee_worktree_dir" main 2>/dev/null; then
       echo "Created EE worktree at $ee_worktree_dir (new branch: $branch from main)"
