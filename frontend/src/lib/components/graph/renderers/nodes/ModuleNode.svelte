@@ -26,8 +26,8 @@
 			: flowRunStatus?.getModuleState(data.id)
 	})
 
-	// Only `tool_call` has a node of its own in the editor, so everything else a run does is
-	// visible here or nowhere.
+	// A `message` is the one action with no tool node of its own, so the annotation is the only
+	// place it can show.
 	const AGENT_ACTION_KINDS = [
 		{ type: 'tool_call', singular: 'tool call', plural: 'tool calls' },
 		{ type: 'mcp_tool_call', singular: 'MCP call', plural: 'MCP calls' },
@@ -171,17 +171,17 @@
 			editMode={data.editMode}
 			moduleAction={data.moduleAction}
 			{menuItems}
-			annotationTitle={agentToolSummary?.detail}
-			annotation={agentToolSummary?.short ||
-				(flowJobs &&
-				(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
-					? 'Iteration: ' +
-						((state?.selectedForloopIndex ?? 0) >= 0
-							? (state?.selectedForloopIndex ?? 0) + 1
-							: state?.flow_jobs?.length) +
-						'/' +
-						(state?.iteration_total ?? '?')
-					: '')}
+			sideAnnotation={agentToolSummary?.short}
+			sideAnnotationTitle={agentToolSummary?.detail}
+			annotation={flowJobs &&
+			(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
+				? 'Iteration: ' +
+					((state?.selectedForloopIndex ?? 0) >= 0
+						? (state?.selectedForloopIndex ?? 0) + 1
+						: state?.flow_jobs?.length) +
+					'/' +
+					(state?.iteration_total ?? '?')
+				: ''}
 			nodeState={state?.skipped ? '_Skipped' : type}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}

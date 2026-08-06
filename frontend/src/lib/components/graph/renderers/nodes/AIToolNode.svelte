@@ -57,6 +57,10 @@
 
 	export type AgentAction = NonNullable<GraphModuleState['agent_actions']>[number]
 
+	function bareResourcePath(path: string | undefined): string | undefined {
+		return path?.startsWith('$res:') ? path.slice('$res:'.length) : path
+	}
+
 	/** Whether a run's action was a call of this declared tool. The editor keeps one node per
 	 * declared tool, so each kind of action has to find its way back to the right one: a flow
 	 * module by id, web search by being the only one of its kind, an MCP server by its resource
@@ -72,8 +76,12 @@
 				return tool.type === 'websearch'
 			case 'mcp_tool_call':
 				// One MCP node stands for a whole server and many function names, so the server path
-				// is the only join that holds.
-				return tool.type === 'mcp' && action.resource_path === tool.resourcePath
+				// is the only join that holds. The worker strips `$res:` before building the action,
+				// while a flow authored outside the resource picker can still carry it.
+				return (
+					tool.type === 'mcp' &&
+					bareResourcePath(action.resource_path) === bareResourcePath(tool.resourcePath)
+				)
 			case 'message':
 				return false
 		}

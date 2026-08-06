@@ -23,6 +23,8 @@
 		moduleAction: ModuleActionInfo | undefined
 		annotation?: string | undefined
 		annotationTitle?: string | undefined
+		sideAnnotation?: string | undefined
+		sideAnnotationTitle?: string | undefined
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
@@ -57,6 +59,8 @@
 		moduleAction = undefined,
 		annotation = undefined,
 		annotationTitle = undefined,
+		sideAnnotation = undefined,
+		sideAnnotationTitle = undefined,
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
@@ -134,6 +138,14 @@
 				)}
 			>
 				{msToSec(duration_ms)}s
+			</div>
+		{/if}
+		{#if sideAnnotation && sideAnnotation != ''}
+			<div
+				title={sideAnnotationTitle}
+				class="absolute z-10 left-full ml-2 top-1/2 -translate-y-1/2 whitespace-nowrap text-2xs text-tertiary pointer-events-none"
+			>
+				{sideAnnotation}
 			</div>
 		{/if}
 		{#if annotation && annotation != ''}
