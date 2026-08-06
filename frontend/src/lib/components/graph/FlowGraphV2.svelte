@@ -96,7 +96,7 @@
 	import { NoteManager } from './noteManager.svelte'
 	import type { MoveManager } from './moveManager.svelte'
 	import DragCoordinator from './DragCoordinator.svelte'
-	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import { jobToGraphModuleState, type ModulesTestStates } from '../modulesTest.svelte'
 	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
@@ -384,7 +384,23 @@
 		// catches every status change. Walking deeper would subscribe to every step's args and
 		// result on the hottest path in the graph.
 		Object.values(flowModuleStates ?? {})
-		untrack(() => flowRunStatus.setModuleStates(flowModuleStates))
+		// The loader mutates `flow_status` on the job it already handed us, so subscribing to the
+		// test state alone would never see an agent's calls land.
+		Object.values(testModuleStates?.states ?? {}).forEach((s) => [
+			s.loading,
+			s.testJob?.['flow_status']?.modules?.[0]?.agent_actions?.length
+		])
+		untrack(() => {
+			// Testing one step is its own small run, and its agent calls arrive on the test job
+			// rather than the flow's states. Fold them in so the renderers keep a single source.
+			let states = flowModuleStates
+			for (const [id, testState] of Object.entries(testModuleStates?.states ?? {})) {
+				const tested = jobToGraphModuleState(testState)
+				if (!tested?.agent_actions) continue
+				states = { ...(states ?? {}), [id]: { ...(states?.[id] ?? {}), ...tested } }
+			}
+			flowRunStatus.setModuleStates(states)
+		})
 	})
 
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {

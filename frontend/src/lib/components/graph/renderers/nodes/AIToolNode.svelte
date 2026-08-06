@@ -55,6 +55,58 @@
 			: AI_TOOL_MESSAGE_PREFIX + '-' + agentModuleId + '-' + idx
 	}
 
+	export type AgentAction = NonNullable<GraphModuleState['agent_actions']>[number]
+
+	function bareResourcePath(path: string | undefined): string | undefined {
+		return path?.startsWith('$res:') ? path.slice('$res:'.length) : path
+	}
+
+	/** Whether a run's action was a call of this declared tool. The editor keeps one node per
+	 * declared tool, so each kind of action has to find its way back to the right one: a flow
+	 * module by id, web search by being the only one of its kind, an MCP server by its resource
+	 * path. A miss leaves the node undecorated rather than decorating the wrong tool. */
+	export function agentActionMatchesTool(
+		action: AgentAction,
+		tool: { moduleId: string; type?: string; resourcePath?: string }
+	): boolean {
+		switch (action.type) {
+			case 'tool_call':
+				return action.module_id === tool.moduleId
+			case 'web_search':
+				return tool.type === 'websearch'
+			case 'mcp_tool_call':
+				// One MCP node stands for a whole server and many function names, so the server path
+				// is the only join that holds. The worker strips `$res:` before building the action,
+				// while a flow authored outside the resource picker can still carry it.
+				return (
+					tool.type === 'mcp' &&
+					bareResourcePath(action.resource_path) === bareResourcePath(tool.resourcePath)
+				)
+			case 'message':
+				return false
+		}
+	}
+
+	/** The one id an agent action's state is written and read under. Every writer and reader has
+	 * to rebuild the same key, so they all come here; a switch with no default makes a new action
+	 * kind a compile error rather than a status that silently never resolves. */
+	export function getAgentActionStateId(
+		idx: number,
+		agentModuleId: string,
+		action: AgentAction
+	): string {
+		switch (action.type) {
+			case 'tool_call':
+				return getToolCallId(idx, agentModuleId, action.module_id)
+			case 'mcp_tool_call':
+				return AI_MCP_TOOL_CALL_PREFIX + '-' + agentModuleId + '-' + idx
+			case 'web_search':
+				return AI_WEBSEARCH_PREFIX + '-' + agentModuleId + '-' + idx
+			case 'message':
+				return getToolCallId(idx, agentModuleId)
+		}
+	}
+
 	function getComparableNode(node: Node & NodeLayout): Node & NodeLayout {
 		if (node.type === 'module' && node.data.module.value.type === 'aiagent') {
 			return {
@@ -128,6 +180,7 @@
 				name: string
 				type?: string
 				stateType?: GraphModuleState['type']
+				resourcePath?: string
 			}[] = sourceTools.map((t, idx) => {
 				// Handle FlowModule, MCP, and Websearch tools
 				const toolType =
@@ -141,7 +194,8 @@
 				return {
 					id: t.id,
 					name: t.summary ?? '',
-					type: toolType
+					type: toolType,
+					resourcePath: t.value.tool_type === 'mcp' ? t.value.resource_path : undefined
 				}
 			})
 
@@ -151,26 +205,13 @@
 				baseOffset = BELOW_ADDITIONAL_OFFSET + AI_TOOL_BASE_OFFSET
 				rowOffset = AI_TOOL_ROW_OFFSET
 				tools = agentActions.map((a, idx) => {
+					const id = getAgentActionStateId(idx, node.id, a)
 					if (a.type === 'tool_call' || a.type === 'mcp_tool_call') {
-						const id =
-							a.type === 'tool_call'
-								? getToolCallId(idx, node.id, a.module_id)
-								: AI_MCP_TOOL_CALL_PREFIX + '-' + node.id + '-' + idx
-						return {
-							id,
-							name: a.function_name
-						}
+						return { id, name: a.function_name }
 					} else if (a.type === 'web_search') {
-						return {
-							id: AI_WEBSEARCH_PREFIX + '-' + node.id + '-' + idx,
-							name: 'Web Search',
-							type: 'websearch'
-						}
+						return { id, name: 'Web Search', type: 'websearch' }
 					} else {
-						return {
-							id: getToolCallId(idx, node.id),
-							name: 'Message'
-						}
+						return { id, name: 'Message' }
 					}
 				})
 			}
@@ -210,7 +251,9 @@
 						// misroute agent-node clicks into the graph's manual aiTool selection path.
 						selectTarget: isLinkedAgent && !agentActions ? node.id : undefined,
 						insertable,
-						readOnly: isLinkedAgent
+						readOnly: isLinkedAgent,
+						agentModuleId: node.id,
+						resourcePath: tool.resourcePath
 					},
 					id: `${node.id}-tool-${tool.id}`,
 					width: inputToolWidth,
@@ -310,9 +353,43 @@
 	const { selectionManager } = getGraphContext()
 
 	const flowModuleState = $derived(flowRunStatus?.getModuleState(data.moduleId))
+
+	/**
+	 * The editor draws the agent's declared tools, one node per tool, while a run keys its state
+	 * per call. Roll every call of this tool into the one node it already has, so a run shows up
+	 * here without adding nodes and shifting the graph. A run graph looks its own state up
+	 * directly, so it never gets here.
+	 */
+	const toolCalls = $derived.by(() => {
+		if (flowModuleState) return undefined
+		const agentState = flowRunStatus?.getModuleState(data.agentModuleId)
+		const actions = agentState?.agent_actions
+		if (!actions) return undefined
+		let count = 0
+		let failed = 0
+		let pending = 0
+		actions.forEach((action, index) => {
+			if (
+				!agentActionMatchesTool(action, {
+					moduleId: data.moduleId,
+					type: data.type,
+					resourcePath: data.resourcePath
+				})
+			)
+				return
+			count++
+			const success = agentState?.agent_actions_success?.[index]
+			if (success === undefined) pending++
+			else if (!success) failed++
+		})
+		if (count === 0) return undefined
+		const type = pending > 0 ? 'InProgress' : failed > 0 ? 'Failure' : 'Success'
+		return { type, count } as const
+	})
+
 	let colorClasses = $derived(
 		getNodeColorClasses(
-			data.nameError ? 'Failure' : flowModuleState?.type,
+			data.nameError ? 'Failure' : (flowModuleState?.type ?? toolCalls?.type),
 			selectionManager?.getSelectedId() === (data.selectTarget ?? data.moduleId)
 		)
 	)
@@ -363,6 +440,17 @@
 				<span class={twMerge('text-3xs truncate flex-1', data.nameError && 'text-red-400')}>
 					{data.tool || 'Missing name'}
 				</span>
+
+				<!-- Sits inside the button's fixed width, so the label truncates instead of the node
+				     growing and pushing the graph around. -->
+				{#if toolCalls && toolCalls.count > 1}
+					<span
+						class="text-3xs tabular-nums shrink-0 mr-1 px-1 rounded bg-surface/70 text-secondary"
+						title={`Called ${toolCalls.count} times in this run`}
+					>
+						{toolCalls.count}
+					</span>
+				{/if}
 			</button>
 			{#if data.insertable && !data.readOnly}
 				<button

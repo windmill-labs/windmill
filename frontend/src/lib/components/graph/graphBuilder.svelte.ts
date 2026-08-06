@@ -311,6 +311,11 @@ export type AiToolN = {
 		nameError?: string
 		eventHandlers: GraphEventHandlers
 		moduleId: string
+		/** An MCP tool's server, which its calls are keyed to. */
+		resourcePath?: string
+		/** The agent step this tool hangs off. The editor draws the declared tools, whose ids the
+		 * run's per-call state is not keyed by, so the node needs its agent to find its calls. */
+		agentModuleId: string
 		// Set on a linked agent's display-only tools: clicking selects this module (the agent step)
 		// instead of the tool, whose resource-owned id is not flow-unique.
 		selectTarget?: string
