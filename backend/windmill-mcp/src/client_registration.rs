@@ -24,6 +24,11 @@ pub struct McpClientCredentials {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub token_endpoint: String,
+    /// `token_endpoint` after SSRF validation, carrying the addresses it resolved
+    /// to. Token requests carry the `client_secret`, so they must go out on a
+    /// client pinned to these ([`no_redirect_http_client_pinned`]); re-resolving
+    /// the host at connect time would reopen the DNS-rebinding window.
+    pub token_endpoint_target: windmill_common::ssrf::ValidatedTarget,
 }
 
 #[derive(FromRow)]
@@ -146,11 +151,12 @@ pub async fn get_or_refresh_mcp_client(
     if let Some(client) = cached_client {
         if !client.is_expired() {
             tracing::debug!("Using cached MCP client for {}", mcp_server_url);
-            windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
-                &client.token_endpoint,
-                "MCP server token endpoint URL",
-            )
-            .await?;
+            let token_endpoint_target =
+                windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+                    &client.token_endpoint,
+                    "MCP server token endpoint URL",
+                )
+                .await?;
             let decrypted_secret = if let Some(ref encrypted_secret) = client.client_secret {
                 Some(decrypt_client_secret(db, encrypted_secret).await?)
             } else {
@@ -160,6 +166,7 @@ pub async fn get_or_refresh_mcp_client(
                 client_id: client.client_id,
                 client_secret: decrypted_secret,
                 token_endpoint: client.token_endpoint,
+                token_endpoint_target,
             });
         }
         tracing::debug!("Cached MCP client expired, re-registering");
@@ -185,7 +192,7 @@ pub async fn get_or_refresh_mcp_client(
         .await
         .map_err(|e| error::Error::BadRequest(format!("OAuth discovery failed: {e}")))?;
 
-    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+    let token_endpoint_target = windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
         &metadata.token_endpoint,
         "MCP server token endpoint URL",
     )
@@ -241,5 +248,10 @@ pub async fn get_or_refresh_mcp_client(
     .await
     .map_err(|e| error::Error::InternalErr(format!("Database error: {e}")))?;
 
-    Ok(McpClientCredentials { client_id, client_secret, token_endpoint: metadata.token_endpoint })
+    Ok(McpClientCredentials {
+        client_id,
+        client_secret,
+        token_endpoint: metadata.token_endpoint,
+        token_endpoint_target,
+    })
 }
