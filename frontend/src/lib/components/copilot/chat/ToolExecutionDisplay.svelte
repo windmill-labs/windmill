@@ -14,6 +14,7 @@
 	import {
 		EXIT_PLAN_MODE_TOOL,
 		isPlanCardTool,
+		planCardState,
 		PLAN_CARD_COPY,
 		PLAN_MODE_TEXT_COLOR
 	} from './planMode'
@@ -52,19 +53,11 @@
 	// exit_plan_mode carries the plan, enter_plan_mode the one-line justification.
 	const planBody = $derived(isPlanReview ? message.parameters?.summary : message.parameters?.reason)
 	const planBodyText = $derived(typeof planBody === 'string' ? planBody : '')
-	// isQueued matters: a card waiting its turn has no error and no confirmation
-	// pending yet, so without it a queued call reads as already resolved.
-	const planSettled = $derived(
-		isPlanCard &&
-			!message.needsConfirmation &&
-			!message.error &&
-			!message.isLoading &&
-			!message.isQueued &&
-			!message.isStreamingArguments
-	)
 	// Resolved once so the label and the icon cannot disagree about which state this is.
-	const planState = $derived(planSettled ? 'settled' : message.error ? 'declined' : 'pending')
-	const planLabel = $derived(planCopy?.[planState] ?? '')
+	// Undefined means this call does not read as a plan card at all; it renders as the
+	// ordinary tool call below, where its error is the message.
+	const planState = $derived(isPlanCard ? planCardState(message) : undefined)
+	const planLabel = $derived((planState && planCopy?.[planState]) ?? '')
 	const planDoc = $derived.by(() => {
 		if (!message.planArtifactId) return undefined
 		const doc = aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
@@ -153,7 +146,7 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
 		{/if}
 	</div>
-{:else if isPlanCard && !message.refusedBeforeConfirmation}
+{:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
 	<div
@@ -172,7 +165,7 @@
 				<div class="flex items-center gap-2 min-w-0">
 					{#if message.isLoading && !message.needsConfirmation}
 						<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
-					{:else if planSettled}
+					{:else if planState === 'settled'}
 						<Check class={twMerge('w-3.5 h-3.5 shrink-0', PLAN_MODE_TEXT_COLOR)} />
 					{:else if planState === 'declined'}
 						<!-- Muted and not red: declining a plan is an outcome, not a failure, and

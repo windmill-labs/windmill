@@ -4,6 +4,7 @@ import {
 	derivePlanTitle,
 	exitPlanModeRejection,
 	isPlanCardTool,
+	planCardState,
 	PLAN_MODE_MESSAGES
 } from './planMode'
 
@@ -16,6 +17,31 @@ describe('isPlanCardTool', () => {
 		expect(isPlanCardTool('constructor')).toBe(false)
 		expect(isPlanCardTool('__proto__')).toBe(false)
 		expect(isPlanCardTool(undefined)).toBe(false)
+	})
+})
+
+describe('planCardState', () => {
+	it('reads as declined only when the user decided, not on any error', () => {
+		expect(
+			planCardState({ error: 'Tool execution was cancelled by user', declinedByUser: true })
+		).toBe('declined')
+		// Everything else that ends in an error renders as an ordinary tool error: claiming a
+		// decision the user never made is the whole failure mode this guards.
+		expect(planCardState({ error: PLAN_MODE_MESSAGES.exitOutsidePlanMode })).toBeUndefined()
+		expect(
+			planCardState({ error: 'Tool call arguments were invalid or truncated' })
+		).toBeUndefined()
+		expect(planCardState({ error: 'Unknown tool call: enter_plan_mode.' })).toBeUndefined()
+	})
+
+	it('holds a call that has not resolved yet at pending', () => {
+		expect(planCardState({ needsConfirmation: true })).toBe('pending')
+		expect(planCardState({ isLoading: true })).toBe('pending')
+		// A card waiting its turn behind another tool has no error and no confirmation
+		// pending yet, so without this it would read as already approved.
+		expect(planCardState({ isQueued: true })).toBe('pending')
+		expect(planCardState({ isStreamingArguments: true })).toBe('pending')
+		expect(planCardState({})).toBe('settled')
 	})
 })
 

@@ -8,7 +8,7 @@ const PLAN_MODE_INSTRUCTIONS = `# Plan mode active
 You are in **plan mode**: a read-only research posture. You MUST NOT modify anything yet.
 
 - Investigate freely with read-only tools (search, read, inspect, lint, list).
-- Any tool that writes, edits, deletes, deploys, or runs code is blocked and returns an error until the plan is approved. Do not retry blocked tools.
+- Any tool that writes, edits, deletes, deploys, or runs the user's code is blocked and returns an error until the plan is approved. Do not retry blocked tools. Reading a database schema is still available: it inspects, it does not run their code.
 - When you understand the task, call \`exit_plan_mode\` with the full plan as the \`summary\` (concise, well-structured markdown). The plan is shown to the user for approval there, so do not also repeat it in your message text — a one-line lead-in is enough. Only on approval are mutating tools unblocked.
 - Your \`summary\` is saved as a markdown document and opened in the session preview for the user to read, so write it as a complete, self-contained plan. Do not call \`create_artifact\` for the plan — \`exit_plan_mode\` persists it for you.
 - A plan document may already exist for this conversation, and your \`summary\` **replaces it wholesale** — submitting only the new part erases the rest. So before planning an extension, a follow-up, or an amendment, call \`list_artifacts\`, find the entry whose \`role\` is \`plan\`, \`read_artifact\` it, and make your \`summary\` that plan with the new work folded in — marking what is already delivered as done. Start from a blank plan only when the user asks you to replace it.
@@ -94,8 +94,8 @@ export const EXIT_PLAN_MODE_TOOL = 'exit_plan_mode'
 
 /** What each plan card says, keyed by the tool call it renders. `settled` / `declined` /
  * `pending` are the three states a card can be read in. `declined` is not only the reject
- * button: switching posture out of plan mode resolves the card, and a call refused before
- * any card was offered renders here too, so it must not name a decision the user made. */
+ * button: a Stop and switching posture out of plan mode both resolve a pending card, so it
+ * must not name the button rather than the outcome. */
 export const PLAN_CARD_COPY = {
 	[ENTER_PLAN_MODE_TOOL]: {
 		settled: 'Planning started',
@@ -119,6 +119,36 @@ export function isPlanCardTool(name: string | undefined): name is PlanCardTool {
 	// hasOwn, not `in`: tool names come from the model, and `in` would accept
 	// `toString` or `__proto__` and render an unknown call as a plan card.
 	return name !== undefined && Object.hasOwn(PLAN_CARD_COPY, name)
+}
+
+/** The status fields a plan card reads. Structural rather than imported: shared.ts imports
+ * this module, so the dependency cannot run the other way. */
+type PlanCardStatus = {
+	error?: string
+	declinedByUser?: boolean
+	needsConfirmation?: boolean
+	isLoading?: boolean
+	isQueued?: boolean
+	isStreamingArguments?: boolean
+}
+
+/** How to read a plan call, or undefined when it must render as an ordinary tool error.
+ * A card names a decision, so only an error the user actually caused may reach `declined` —
+ * a refused call, arguments the model truncated, or a tool that has left the schema would
+ * otherwise all be reported as a plan the user turned down. Keying off the decision rather
+ * than off each error means a path added later reads as an error by default. */
+export function planCardState(
+	status: PlanCardStatus
+): 'settled' | 'declined' | 'pending' | undefined {
+	if (status.error) return status.declinedByUser ? 'declined' : undefined
+	// isQueued matters: a card waiting its turn has no error and no confirmation pending
+	// yet, so without it a queued call reads as already resolved.
+	return status.needsConfirmation ||
+		status.isLoading ||
+		status.isQueued ||
+		status.isStreamingArguments
+		? 'pending'
+		: 'settled'
 }
 
 /** The model-facing refusal for an `exit_plan_mode` with no usable plan, or undefined

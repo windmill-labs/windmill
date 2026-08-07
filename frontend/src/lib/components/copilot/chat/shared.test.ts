@@ -238,7 +238,6 @@ describe('processToolCall', () => {
 			expect.objectContaining({
 				content: error,
 				error,
-				refusedBeforeConfirmation: true,
 				isLoading: false,
 				isStreamingArguments: false,
 				needsConfirmation: false,
@@ -1017,6 +1016,7 @@ describe('processToolCall plan-mode gate', () => {
 	it('returns the tool cancellationMessage when the user rejects the confirmation', async () => {
 		const { createToolDef } = await import('./shared')
 		const fn = vi.fn()
+		const setToolStatus = vi.fn()
 
 		const result = await runToolCall(
 			{
@@ -1026,11 +1026,21 @@ describe('processToolCall plan-mode gate', () => {
 				cancellationMessage: 'keep planning',
 				fn
 			},
-			{ isPlanModeActive: () => true, requestConfirmation: vi.fn().mockResolvedValue(false) }
+			{
+				isPlanModeActive: () => true,
+				requestConfirmation: vi.fn().mockResolvedValue(false),
+				setToolStatus
+			}
 		)
 
 		expect(fn).not.toHaveBeenCalled()
 		expect(result.content).toBe('keep planning')
+		// The one place a decline is recorded: planCardState reads it to tell a plan the
+		// user turned down apart from a call that merely errored.
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_plan',
+			expect.objectContaining({ declinedByUser: true })
+		)
 	})
 
 	it('blocks a mutating tool if plan mode is entered while its confirmation is pending', async () => {

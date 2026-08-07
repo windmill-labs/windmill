@@ -4546,7 +4546,10 @@ describe('prepareGlobalSystemMessage', () => {
 // the set so a new tool has to be classified rather than defaulting into the
 // blocked bucket by omission. Reading is the bar, not "harmless": open_preview runs
 // a raw app's runnables and close_page discards tabs the user opened themselves, so
-// neither belongs here.
+// neither belongs here. Running a job is not the bar either — get_db_schema queues one,
+// and belongs here because it is a fixed introspection SELECT the model needs to plan
+// against a database at all; what disqualifies open_preview is running the user's own
+// code, whose side effects are anything the app does.
 describe('plan-mode readonly classification', () => {
 	const PLAN_MODE_READONLY_TOOLS = [
 		'askUserQuestion',
