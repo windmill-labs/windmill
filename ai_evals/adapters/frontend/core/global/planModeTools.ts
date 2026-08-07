@@ -44,6 +44,16 @@ export function createEvalPlanTools(artifacts: {
         // Carries `readonly` for the same reason production does: it is the only way out
         // of the posture, so the gate must not refuse it.
         readonly: true,
+        // Production refuses the call once the plan is approved, and a conversation holds
+        // one plan document. Without this a second call writes a second `role: plan`
+        // artifact, and list_artifacts reports two of them as this conversation's plan.
+        validateBeforeConfirmation: () =>
+          planActive
+            ? undefined
+            : {
+                label: PLAN_MODE_MESSAGES.exitOutsidePlanModeLabel,
+                result: PLAN_MODE_MESSAGES.exitOutsidePlanMode,
+              },
         fn: async ({ args }) => {
           const summary = exitPlanModeArgs.safeParse(args).data?.summary;
           if (!summary?.trim()) {

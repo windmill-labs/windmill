@@ -514,7 +514,7 @@ describe('AIChatManager autonomy mode', () => {
 			toolId
 		})
 		// The hook deliberately does not block the card, so let its save settle.
-		const save = (manager as any).planSave
+		const save = (manager as any).planRound?.save
 		expect(save?.doc).toBeInstanceOf(Promise)
 		await save.doc
 		return setToolStatus
@@ -712,7 +712,7 @@ describe('AIChatManager autonomy mode', () => {
 			toolId: 'call_exit'
 		})
 		await vi.waitFor(() => expect(releaseSave).toBeDefined())
-		const inFlight = (manager as any).planSave.doc
+		const inFlight = (manager as any).planRound.save.doc
 
 		// Stop (or "Keep planning") while that write is still in flight.
 		manager.exitPlanModeTool.onConfirmationDeclined?.({
@@ -750,7 +750,7 @@ describe('AIChatManager autonomy mode', () => {
 			toolId: 'call_exit_2'
 		})
 		await vi.waitFor(() => expect(releaseUpdate).toBeDefined())
-		const inFlight = (manager as any).planSave.doc
+		const inFlight = (manager as any).planRound.save.doc
 		await manager.saveAndClear()
 		releaseUpdate?.()
 		await inFlight
@@ -787,7 +787,7 @@ describe('AIChatManager autonomy mode', () => {
 			toolId: 'call_exit_2'
 		})
 		await vi.waitFor(() => expect(releaseUpdate).toBeDefined())
-		const inFlight = (manager as any).planSave.doc
+		const inFlight = (manager as any).planRound.save.doc
 		// Proposing already opened this document; only what the rollback opens matters here.
 		;(manager.openArtifact as ReturnType<typeof vi.fn>).mockClear()
 		await manager.saveAndClear()
@@ -805,6 +805,67 @@ describe('AIChatManager autonomy mode', () => {
 		// The document belongs to the conversation just left, so restoring it must not pull
 		// it into the preview of the one the user switched to.
 		expect(manager.openArtifact).not.toHaveBeenCalled()
+	})
+
+	it('rolls a round back once, so a later revision survives the chat rotating', async () => {
+		const manager = planningManager()
+		await proposePlan(manager, '# Approved\n\nStep one.')
+		await callExitPlanMode(manager, '# Approved\n\nStep one.')
+
+		// Propose an amendment and refuse it: the document goes back to the approved plan.
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		await proposePlan(manager, '# Amended\n\nStep two.', 'call_exit_2')
+		manager.exitPlanModeTool.onConfirmationDeclined?.({
+			args: { summary: '# Amended\n\nStep two.' },
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit_2'
+		})
+		await vi.waitFor(() =>
+			expect(planDocs.get('artifact-1')?.content).toBe('# Approved\n\nStep one.')
+		)
+
+		// The user leaves planning, and the model revises the plan as an ordinary artifact —
+		// which the prompt asks it to do when the work parts ways with the plan.
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		await manager.artifacts.update('artifact-1', { content: '# Approved, amended in flight' })
+		await manager.saveAndClear()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+
+		// A round that already rolled back has nothing left to restore; rolling back twice
+		// would put the plan back over the revision the user asked for.
+		expect(planDocs.get('artifact-1')?.content).toBe('# Approved, amended in flight')
+	})
+
+	it('keeps a plan approved while its write is still landing and the chat rotates', async () => {
+		const manager = planningManager()
+		await proposePlan(manager, '# Approved\n\nStep one.')
+		await callExitPlanMode(manager, '# Approved\n\nStep one.')
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		const store = manager.artifacts.update
+		let releaseUpdate: (() => void) | undefined
+		manager.artifacts.update = vi.fn(async (id: string, input: any) => {
+			manager.artifacts.update = store
+			await new Promise<void>((resolve) => (releaseUpdate = resolve))
+			return (store as any)(id, input)
+		}) as any
+		manager.exitPlanModeTool.onConfirmationRequested?.({
+			args: { summary: '# Amended\n\nStep two.' },
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit_2'
+		})
+		await vi.waitFor(() => expect(releaseUpdate).toBeDefined())
+
+		// Approve, then rotate before the write lands. The approval settles the round up
+		// front, so the rotation has nothing to undo — treated as undecided, it would roll
+		// the amendment back and leave the user's approval with nothing to show for it.
+		const approval = callExitPlanMode(manager, '# Amended\n\nStep two.', vi.fn(), 'call_exit_2')
+		await manager.saveAndClear()
+		releaseUpdate?.()
+		await approval
+		await new Promise((resolve) => setTimeout(resolve, 0))
+
+		expect(planDocs.get('artifact-1')?.content).toBe('# Amended\n\nStep two.')
 	})
 
 	it('keeps an approved amendment when the chat rotates afterwards', async () => {
@@ -915,7 +976,7 @@ describe('AIChatManager autonomy mode', () => {
 			toolCallbacks: { setToolStatus, removeToolStatus: vi.fn() },
 			toolId: 'call_exit'
 		})
-		const inFlight = (manager as any).planSave.doc
+		const inFlight = (manager as any).planRound.save.doc
 
 		await manager.saveAndClear()
 		finishCreate({ id: 'artifact-1', name: 'First chat' })
