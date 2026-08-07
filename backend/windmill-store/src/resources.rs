@@ -2465,7 +2465,10 @@ fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
             v4.is_loopback()
                 || v4.is_private()
                 || v4.is_link_local()
-                || v4.is_unspecified()
+                // RFC 1122 "this network": the whole /8, not just the
+                // unspecified address `is_unspecified()` matches — stacks that
+                // map 0.x.y.z onto the local host make `0.0.0.1` a bypass.
+                || v4.octets()[0] == 0 // 0.0.0.0/8
                 || v4.is_broadcast()
                 // 100.64.0.0/10 (Carrier-grade NAT / CGNAT)
                 || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
@@ -3416,9 +3419,12 @@ mod tests {
         assert!(is_private_or_reserved_ip(
             &"100.64.0.1".parse::<IpAddr>().unwrap()
         ));
-        // Unspecified
+        // "This network" 0.0.0.0/8, not just the unspecified address
         assert!(is_private_or_reserved_ip(
             &"0.0.0.0".parse::<IpAddr>().unwrap()
+        ));
+        assert!(is_private_or_reserved_ip(
+            &"0.0.0.1".parse::<IpAddr>().unwrap()
         ));
         // IPv6 loopback
         assert!(is_private_or_reserved_ip(&"::1".parse::<IpAddr>().unwrap()));
