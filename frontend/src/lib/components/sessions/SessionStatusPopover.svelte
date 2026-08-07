@@ -17,6 +17,7 @@
 		row,
 		actions,
 		footer,
+		separatorAfter,
 		customTrigger,
 		ariaLabel,
 		triggerClass = TOKEN_TRIGGER_CLASS,
@@ -43,6 +44,9 @@
 		/** Pinned below the scrolling list; give it `data-status-row` to join the
 		 * arrow-key order as the last stop. */
 		footer?: Snippet
+		/** Closes a pinned group after this row, as a pane edge rather than a hairline —
+		 * rows are otherwise unruled, so a 1px line would read as a row border. */
+		separatorAfter?: (item: T, index: number) => boolean
 		/** Replaces the default SessionStatusToken trigger. */
 		customTrigger?: Snippet
 		ariaLabel?: string
@@ -118,7 +122,7 @@
 			<!-- svelte-ignore a11y_no_static_element_interactions (keydown only routes arrows to the row buttons) -->
 			<div class="flex min-h-0 flex-col" bind:this={listRoot} onkeydown={handleListKeydown}>
 				<div role="list" class="{maxHeightClass} overflow-y-auto py-1">
-					{#each items as item (itemKey(item))}
+					{#each items as item, index (itemKey(item))}
 						<div
 							class="flex items-center gap-2 py-1 pl-3 pr-2 hover:bg-surface-hover focus-within:bg-surface-hover"
 							role="listitem"
@@ -138,6 +142,12 @@
 								</div>
 							{/if}
 						</div>
+						{#if separatorAfter?.(item, index)}
+							<!-- Full-bleed and outside the row: a divider inside it would land in the
+							     row's button and take its hover. role=presentation keeps the list's
+							     children listitems for assistive tech. -->
+							<div class="my-1 border-b-2 border-border-light" role="presentation"></div>
+						{/if}
 					{/each}
 				</div>
 				{#if footer}

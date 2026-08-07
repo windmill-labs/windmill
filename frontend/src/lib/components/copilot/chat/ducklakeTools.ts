@@ -36,6 +36,7 @@ export function getDucklakeTools(): Tool<{}>[] {
 	return [
 		{
 			def: listDucklakesToolDef,
+			readonly: true,
 			fn: async ({ workspace, toolId, toolCallbacks }) => {
 				toolCallbacks.setToolStatus(toolId, { content: 'Listing DuckLake catalogs...' })
 				try {

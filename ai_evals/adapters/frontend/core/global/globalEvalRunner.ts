@@ -12,7 +12,9 @@ import {
   getGlobalDraft,
   listGlobalDrafts,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
+import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
+import { createEvalPlanTools } from "./planModeTools";
 import { UserDraft } from "../../../../../frontend/src/lib/userDraft.svelte";
 import type { ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
@@ -59,6 +61,10 @@ function createEvalArtifactHelpers() {
         kind: input.kind ?? "md",
         name: input.name,
         content: input.content,
+        // The plan document is only distinguishable by these, both in the snapshot the
+        // judge reads and in what list_artifacts reports back to the model.
+        role: input.role,
+        approved: input.approved,
         createdAt: now,
         updatedAt: now,
       };
@@ -82,6 +88,7 @@ function createEvalArtifactHelpers() {
         ...existing,
         name: input.name ?? existing.name,
         content: input.content ?? existing.content,
+        approved: input.approved ?? existing.approved,
         updatedAt: seq++,
       };
       items.set(id, updated);
@@ -143,6 +150,9 @@ export interface GlobalEvalOptions {
   user?: GlobalUserFixture;
   // Emulate a session chat (preview tools + session prompt); default false = standalone baseline.
   sessionChat?: boolean;
+  // Start in plan mode: the gate refuses every tool without `readonly`, and the two plan
+  // tools are offered. Needs sessionChat, which is what plan mode is gated on in production.
+  planMode?: boolean;
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
@@ -174,18 +184,39 @@ export async function runGlobalEval(
     // Pass the seeded identity straight to the prompt builder rather than mutating
     // the process-global `userStore`, so concurrent cases never race on it.
     const evalArtifacts = createEvalArtifactHelpers();
+    const planMode = options.planMode
+      ? createEvalPlanTools({
+          create: evalArtifacts.helpers.artifacts.create,
+          sessionId: evalArtifacts.helpers.sessionId,
+          chatId: evalArtifacts.helpers.getChatId(),
+        })
+      : undefined;
+    const baseSystemMessage = prepareGlobalSystemMessage(undefined, {
+      user: options.user,
+      previewTools: options.sessionChat ?? false,
+    });
     const rawResult = await runEval({
       userPrompt,
-      systemMessage: prepareGlobalSystemMessage(undefined, {
-        user: options.user,
-        previewTools: options.sessionChat ?? false,
-      }),
+      systemMessage: baseSystemMessage,
+      // Re-derived per request, as production's getter is: the instructions have to leave
+      // the prompt when the plan is approved, or the model is still told it may not build
+      // while the gate has already opened.
+      getSystemMessage: planMode
+        ? () =>
+            planMode.isPlanModeActive()
+              ? appendPlanModeInstructions(baseSystemMessage, 0)
+              : baseSystemMessage
+        : undefined,
+      isPlanModeActive: planMode?.isPlanModeActive,
       userMessage: prepareGlobalUserMessage(
         userPrompt,
         [],
         injectActiveEditorContext ? { workspace: workspaceRoot } : {},
       ),
-      tools: getGlobalEvalTools(options.sessionChat ?? false),
+      tools: [
+        ...getGlobalEvalTools(options.sessionChat ?? false),
+        ...(planMode?.tools ?? []),
+      ],
       helpers: evalArtifacts.helpers,
       apiKey,
       getOutput: async () => ({

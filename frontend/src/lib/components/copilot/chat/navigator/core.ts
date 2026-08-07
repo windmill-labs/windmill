@@ -240,6 +240,7 @@ const triggerComponentTool: Tool<{}> = {
 
 const getTriggerableComponentsTool: Tool<{}> = {
 	def: GET_TRIGGERABLE_COMPONENTS_TOOL,
+	readonly: true,
 	fn: async ({ toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Scanning the page...'
@@ -254,6 +255,7 @@ const getTriggerableComponentsTool: Tool<{}> = {
 
 const getCurrentPageNameTool: Tool<{}> = {
 	def: GET_CURRENT_PAGE_NAME_TOOL,
+	readonly: true,
 	fn: async ({ toolId, toolCallbacks }) => {
 		const pageName = getCurrentPageName()
 		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved current page name' })
@@ -263,6 +265,7 @@ const getCurrentPageNameTool: Tool<{}> = {
 
 const getAvailableResourcesTool: Tool<{}> = {
 	def: GET_AVAILABLE_RESOURCES_TOOL,
+	readonly: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Getting available resources...' })
 		try {

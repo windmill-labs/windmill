@@ -4541,6 +4541,59 @@ describe('prepareGlobalSystemMessage', () => {
 	})
 })
 
+// Pinned so a new tool has to be classified rather than defaulting into the blocked
+// bucket by omission, which the model would never report. The bar is reading, not
+// "harmless" and not "runs no job": get_db_schema queues a fixed introspection SELECT
+// and belongs here; open_preview runs the user's own app code and does not.
+describe('plan-mode readonly classification', () => {
+	const PLAN_MODE_READONLY_TOOLS = [
+		'askUserQuestion',
+		'call_api_get',
+		'diff',
+		'get_app_runtime_logs',
+		'get_datatable_table_schema',
+		'get_db_schema',
+		'get_flow_run_details',
+		'get_instructions',
+		'get_job_logs',
+		'get_preview_status',
+		'get_schedule_schema',
+		'get_trigger_schema',
+		'list_app_runs',
+		'list_artifacts',
+		'list_datatables',
+		'list_ducklakes',
+		'list_runs',
+		'list_workspace_items',
+		'open_page',
+		'read_app_file',
+		'read_artifact',
+		'read_docs_page',
+		'read_dom',
+		'read_file',
+		'read_flow_module_code',
+		'read_skill',
+		'read_workspace_item',
+		'search_api_endpoints',
+		'search_app',
+		'search_docs',
+		'search_dom',
+		'search_files',
+		'search_hub_scripts',
+		'search_npm_packages',
+		'search_resource_types',
+		'take_screenshot'
+	]
+
+	it('pins which global tools are safe to run while planning', () => {
+		const readonlyNames = globalTools
+			.filter((t) => t.readonly === true)
+			.map((t) => t.def.function.name)
+			.sort()
+		expect(readonlyNames).toEqual(PLAN_MODE_READONLY_TOOLS)
+	})
+})
+
 describe('session-only preview tools gating', () => {
 	const toolNames = (sessionPreview: boolean) =>
 		globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)

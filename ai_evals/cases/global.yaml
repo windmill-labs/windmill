@@ -1665,6 +1665,29 @@
     - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
     - does not create a flow or script draft yet
 
+- id: global-planmode1-hands-over-a-plan
+  prompt: |-
+    Our support inbox is a mess. I want incoming emails triaged by urgency and routed to the
+    right team, with anything urgent also posted to Slack.
+    Work out how you'd build this in Windmill.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+    planMode: true
+  # No draft assertion: approving the plan opens the gate mid-run, and building from there is
+  # what production asks for, so a draft is not a failure. The gate itself is covered by
+  # shared.test.ts; what only a real model can show is whether it researches and hands over a
+  # usable plan instead of guessing at one.
+  toolExpect:
+    requiredToolsUsed:
+      - exit_plan_mode
+  # Not "saves the plan as an artifact": exit_plan_mode writes it, so the harness would
+  # satisfy that on every run the tool is called at all — it grades itself, not the model.
+  judgeChecklist:
+    - the plan covers classifying an incoming email by urgency, routing it to a team, and posting urgent ones to Slack
+    - the plan is specific about what would be built in Windmill (a flow and its steps, or the scripts involved)
+
 - id: global-npm1-script-search-package
   prompt: |-
     Find a good npm package for parsing RSS/Atom feeds and use it to create a draft Bun script

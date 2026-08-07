@@ -26,6 +26,7 @@ import {
 	type ChatJobStatus,
 	completedJobToolStatus,
 	backgroundJobCompletionNote,
+	createToolDef,
 	deriveChatJobStatus,
 	trimJob
 } from './shared'
@@ -134,6 +135,18 @@ import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
+import {
+	appendPlanModeInstructions,
+	derivePlanTitle,
+	enterPlanModeArgs,
+	exitPlanModeArgs,
+	exitPlanModeRejection,
+	ENTER_PLAN_MODE_TOOL,
+	ENTER_PLAN_MODE_TOOL_DESCRIPTION,
+	EXIT_PLAN_MODE_TOOL,
+	EXIT_PLAN_MODE_TOOL_DESCRIPTION,
+	PLAN_MODE_MESSAGES
+} from './planMode'
 
 // SSR and users who prefer reduced motion get no typewriter pacing.
 function prefersInstantReveal(): boolean {
@@ -206,6 +219,7 @@ export enum AIMode {
 }
 
 export enum AIAutonomyMode {
+	PLAN = 'plan',
 	DEFAULT = 'default',
 	ACCEPT_EDIT = 'acceptedit',
 	YOLO = 'yolo'
@@ -220,6 +234,7 @@ const AUTO_ACCEPT_TOOL_CONFIRMATION_MODES = new Set<AIMode>([
 	AIMode.APP,
 	AIMode.GLOBAL
 ])
+const PLAN_MODES = new Set<AIMode>([AIMode.GLOBAL])
 
 export function isAIMode(mode: unknown): mode is AIMode {
 	return ALL_AI_MODES.includes(mode as AIMode)
@@ -235,6 +250,10 @@ export function supportsAutoAcceptEdits(mode: AIMode): boolean {
 
 export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
 	return AUTO_ACCEPT_TOOL_CONFIRMATION_MODES.has(mode)
+}
+
+export function supportsPlanMode(mode: AIMode): boolean {
+	return PLAN_MODES.has(mode)
 }
 
 export function isAIModeVisible(mode: AIMode): boolean {
@@ -261,7 +280,7 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 		return AIAutonomyMode.ACCEPT_EDIT
 	}
 	const persistedMode = getLocalSetting(key)
-	if (isAIAutonomyMode(persistedMode)) {
+	if (isAIAutonomyMode(persistedMode) && persistedMode !== AIAutonomyMode.PLAN) {
 		return persistedMode
 	}
 	// No stored preference: default to auto-accepting edits (tool calls still
@@ -274,6 +293,11 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
+	// Plan is session-only: persisting it would re-block a later session where the
+	// picker never offered Plan. The stored pre-plan baseline is what a reload restores.
+	if (mode === AIAutonomyMode.PLAN) {
+		return
+	}
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (!BROWSER || !key) {
 		return
@@ -339,6 +363,41 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 type QueuedEntry = {
 	draft: DraftSnapshot
 	context: ContextElement[] | undefined
+}
+
+/** The plan a round of planning overwrites, carried on the save that overwrites it so a
+ * decline landing before that read completes can still put it back. `approved` because a
+ * round can overwrite an earlier draft, which must not come back promoted. */
+type PlanRoundBase = { content: string; approved: boolean }
+
+type PlanSaveResult = { id: string; name: string; rollback: PlanRoundBase | undefined }
+
+/**
+ * One round of planning: from entering plan mode to the proposal the user decides on. Held
+ * as a single value because its rollback runs at most once — `status` is what says so, and
+ * every path that could roll back reads it. Split across fields, "already settled" was the
+ * accident of some of them being undefined, and each new path had to re-encode it.
+ *
+ * `base` is filled in by the save, which is also the only thing that knows the document id,
+ * so a decline arriving first still finds them on `save`'s result rather than on a field it
+ * may have cleared.
+ */
+type PlanRound = {
+	generation: number
+	/** What the document held when the round opened, restored by every refused proposal in
+	 * it. `baseCaptured` because "nothing was there" is a real answer that must not be
+	 * mistaken for "not read yet" — a later proposal would then take a refused draft as the
+	 * thing to restore. */
+	base: PlanRoundBase | undefined
+	baseCaptured: boolean
+	/** Resolved by the save, which is also the only thing that knows it on a reopened
+	 * session, where the id has to be looked up on disk. */
+	docId: string | undefined
+	save: { toolId: string; doc: Promise<PlanSaveResult | undefined> } | undefined
+	/** `settled` once the round is over — approved, or the user left plan mode. A refused
+	 * proposal does not end it: the user stays in plan mode and the next proposal has to be
+	 * restorable too. */
+	status: 'pending' | 'settled'
 }
 
 export class AIChatManager {
@@ -518,6 +577,7 @@ export class AIChatManager {
 	// summary round-trip is skipped in favor of drop-oldest. Reset on any
 	// successful summarization. Not persisted — a fresh load gets a fresh chance.
 	private consecutiveCompactionFailures = 0
+	private planBlocksThisTurn = $state(0)
 	// True while the summarization round-trip is in flight, so the UI can show a
 	// "Compacting conversation" label on the processing indicator.
 	compacting = $state(false)
@@ -527,6 +587,12 @@ export class AIChatManager {
 	// labels while set; the hook clears it back to undefined when done.
 	loadingLabel = $state<string | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
+	// Set by AI sessions. Enables the session-only preview tools (open_preview /
+	// get_preview_status) and their system-prompt guidance in GLOBAL mode, and gates
+	// plan mode, which needs the preview pane to show the plan it proposes; the global
+	// side-panel chat leaves it false so neither is offered. Reactive because
+	// `planModeAvailable` derives from it.
+	isSessionChat = $state(false)
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
@@ -537,6 +603,16 @@ export class AIChatManager {
 	autoAcceptToolConfirmationsActive = $derived(
 		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
 	)
+	planModeAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
+	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
+	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
+	private planRound: PlanRound | undefined
+	// One plan document per conversation, revised in place: it outlives a round, so amending
+	// an approved plan revises it rather than stacking stale copies beside it. An unrelated
+	// second plan in one conversation overwrites the first; "New chat" is what separates them.
+	private planDocId: string | undefined
+	// Bumped on every reset so a save still in flight can tell its conversation is gone.
+	private planDocGeneration = 0
 	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
@@ -566,15 +642,14 @@ export class AIChatManager {
 	/** Cached datatables for app context (fetched asynchronously) */
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
-	private confirmationCallbacks = new Map<string, (value: boolean) => void>()
+	private confirmationCallbacks = new Map<
+		string,
+		{ resolve: (value: boolean) => void; toolName?: string }
+	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
-	// Set by AI sessions. Enables the session-only preview tools (open_preview /
-	// get_preview_status) and their system-prompt guidance in GLOBAL mode; the
-	// global side-panel chat leaves it false so those tools aren't offered.
-	isSessionChat = false
 	// The session this manager belongs to (session chats only). Carried into the
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
@@ -1445,13 +1520,13 @@ export class AIChatManager {
 	}
 
 	// Request confirmation from user for a tool call
-	requestConfirmation = (toolId: string): Promise<boolean> => {
+	requestConfirmation = (toolId: string, toolName?: string): Promise<boolean> => {
 		if (this.autoAcceptToolConfirmationsActive) {
 			return Promise.resolve(true)
 		}
 
 		return new Promise((resolve) => {
-			this.confirmationCallbacks.set(toolId, resolve)
+			this.confirmationCallbacks.set(toolId, { resolve, toolName })
 		})
 	}
 
@@ -1459,14 +1534,16 @@ export class AIChatManager {
 	handleToolConfirmation = (toolId: string, confirmed: boolean) => {
 		const confirmationCallback = this.confirmationCallbacks.get(toolId)
 		if (confirmationCallback) {
-			confirmationCallback(confirmed)
+			confirmationCallback.resolve(confirmed)
 			this.confirmationCallbacks.delete(toolId)
 		}
 	}
 
 	private acceptPendingToolConfirmations = () => {
-		for (const confirmationCallback of this.confirmationCallbacks.values()) {
-			confirmationCallback(true)
+		for (const { resolve, toolName } of this.confirmationCallbacks.values()) {
+			// Decline a pending enter_plan_mode here: opting into YOLO must not drop the
+			// user into read-only plan mode against the autonomy they just chose.
+			resolve(toolName !== ENTER_PLAN_MODE_TOOL)
 		}
 		this.confirmationCallbacks.clear()
 	}
@@ -1477,10 +1554,39 @@ export class AIChatManager {
 		}
 	}
 
+	private resolvePendingPlanCard = (toolName: string, confirmed: boolean) => {
+		for (const [toolId, cb] of this.confirmationCallbacks) {
+			if (cb.toolName === toolName) {
+				cb.resolve(confirmed)
+				this.confirmationCallbacks.delete(toolId)
+			}
+		}
+	}
+
 	setAutonomyMode = (mode: AIAutonomyMode) => {
+		const enteringPlan = mode === AIAutonomyMode.PLAN && this.autonomyMode !== AIAutonomyMode.PLAN
+		const leavingPlan = mode !== AIAutonomyMode.PLAN && this.autonomyMode === AIAutonomyMode.PLAN
+		if (enteringPlan) {
+			this.prePlanAutonomyMode = this.autonomyMode
+			// A new round of planning: whatever the document holds now is what a rejected
+			// proposal in this round must restore.
+			this.planRound = undefined
+		} else if (mode !== AIAutonomyMode.PLAN) {
+			this.prePlanAutonomyMode = undefined
+			this.planBlocksThisTurn = 0
+			// The round ends with the posture. Left pending, its base outlives it, and a
+			// rotation later would restore it over whatever the plan has become since.
+			if (this.planRound) this.planRound.status = 'settled'
+		}
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
 
+		if (enteringPlan) {
+			this.resolvePendingPlanCard(ENTER_PLAN_MODE_TOOL, true)
+		} else if (leavingPlan) {
+			// Opting into YOLO means "run it"; leaving plan mode any other way is not a sign-off.
+			this.resolvePendingPlanCard(EXIT_PLAN_MODE_TOOL, mode === AIAutonomyMode.YOLO)
+		}
 		if (this.autoAcceptToolConfirmationsActive) {
 			this.acceptPendingToolConfirmations()
 		}
@@ -1502,6 +1608,8 @@ export class AIChatManager {
 	hydrateUserScopedAutonomy = () => {
 		migrateLegacyAutonomyKeys()
 		this.autonomyMode = getPersistedAutonomyMode()
+		this.prePlanAutonomyMode = undefined
+		this.resetPlanDoc()
 	}
 
 	applyScriptEditorCode = async (code: string, opts?: ReviewChangesOpts) => {
@@ -1996,6 +2104,261 @@ export class AIChatManager {
 		}
 	}
 
+	// The plan document belongs to the conversation that proposed it. Plan mode outlives
+	// a chat switch, so without this the next proposal takes the update branch and
+	// rewrites the previous conversation's saved plan in place. Only chat rotation resets
+	// it: a posture change must not, or amending an approved plan starts a new one.
+	private resetPlanDoc = () => {
+		// The conversation being left may hold a proposal it will now never decide on, so the
+		// round goes with it — still pending, so the rollback below runs.
+		const abandoned = this.planRound
+		const id = this.planDocId
+		this.planRound = undefined
+		this.planDocId = undefined
+		this.planDocGeneration++
+		if (abandoned) void this.rollbackPlanDoc(abandoned, id)
+	}
+
+	/** Put back the plan this round overwrote. A plan is saved when *proposed*, so keeping
+	 * planning or stopping the turn would otherwise leave the user holding a draft and the
+	 * plan they agreed to nowhere. No-op on a conversation's first plan, which is a draft. */
+	private restorePlanDoc = () => {
+		const round = this.planRound
+		return round ? this.rollbackPlanDoc(round, this.planDocId) : Promise.resolve()
+	}
+
+	/**
+	 * Put the round's base back, once. `status` is the whole guard: a round that was approved
+	 * or already rolled back must not write again, and the paths that could — a decline, a
+	 * chat rotation, the save undoing itself — all reach here.
+	 *
+	 * Reads nothing off the manager after an await. A decline can arrive before the save has
+	 * read the plan it is overwriting, so both the base and the document id come from the
+	 * round or from the save's own result.
+	 */
+	private rollbackPlanDoc = async (round: PlanRound, docId: string | undefined) => {
+		if (round.status !== 'pending') return
+		const saved = await round.save?.doc
+		const base = round.base ?? saved?.rollback
+		const id = round.docId ?? docId ?? saved?.id
+		if (!base || !id) return
+		// The round's own generation, so a rotation-triggered rollback writes the document
+		// back without opening it in the conversation the user has arrived in.
+		const generation = round.generation
+		try {
+			const restored = await this.artifacts.update(id, {
+				name: derivePlanTitle(base.content),
+				content: base.content,
+				approved: base.approved
+			})
+			// Only the reopening is generation-guarded: the write above belongs to whichever
+			// conversation proposed it, but its document must not be shown in another one.
+			if (generation !== this.planDocGeneration || !restored) return
+			this.openArtifact?.(restored.id, restored.name)
+		} catch (e) {
+			console.error('Failed to restore plan artifact', e)
+		}
+	}
+
+	// `planDocId` is in-memory, so a reload or a reopened session has none even though the
+	// conversation's plan is still on disk. Recover it from the store, or the amend writes a
+	// second plan beside the one the user is looking at. Keyed by chat: the id is what scopes
+	// a plan to its conversation, and it survives the reload the field does not.
+	private findPlanDocForCurrentChat = async (): Promise<string | undefined> => {
+		if (!this.sessionId) return undefined
+		const chatId = this.historyManager.getCurrentChatId()
+		const items = await this.artifacts.listForSession(this.sessionId)
+		// Newest first, so a conversation that accumulated plans before this lookup existed
+		// revises the live one rather than the first one it ever wrote.
+		return items.find((a) => a.role === 'plan' && a.chatId === chatId)?.id
+	}
+
+	// A round spans the whole posture, so re-proposing revises the same document and keeps the
+	// base the first proposal took. Keyed by tool call so a card's confirmation hook and fn
+	// share one write.
+	private ensurePlanDoc = (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => {
+		const round = (this.planRound ??= {
+			generation: this.planDocGeneration,
+			base: undefined,
+			baseCaptured: false,
+			docId: undefined,
+			save: undefined,
+			status: 'pending'
+		})
+		if (round.save?.toolId !== p.toolId) {
+			round.save = { toolId: p.toolId, doc: this.savePlanDoc(p, round) }
+		}
+		return round.save.doc
+	}
+
+	// A failed save must not block the plan card or the posture restore.
+	private savePlanDoc = async (
+		{
+			args,
+			toolCallbacks,
+			toolId
+		}: {
+			args: any
+			toolCallbacks: ToolCallbacks
+			toolId: string
+		},
+		round: PlanRound
+	) => {
+		if (!this.isSessionChat || !this.sessionId) return undefined
+		// safeParse, not parse: a malformed summary has no document to save, and must not
+		// take the card or the posture restore down with it. validateBeforeConfirmation
+		// already refused those calls; this keeps the write itself total.
+		const summary = exitPlanModeArgs.safeParse(args).data?.summary
+		if (!summary) return undefined
+		const name = derivePlanTitle(summary)
+		// The write outlives the conversation that asked for it: nothing below may be
+		// adopted once the chat has rotated, or the next conversation inherits this plan.
+		const generation = this.planDocGeneration
+		// Read before any await, so the document is stamped with the conversation that
+		// proposed the plan rather than whichever one is current when the write lands.
+		const chatId = this.historyManager.getCurrentChatId()
+		try {
+			const existingId = this.planDocId ?? (await this.findPlanDocForCurrentChat())
+			// The lookup awaits, so re-check before writing: a chat rotated in that window
+			// would otherwise have this plan written into the conversation it just left.
+			if (generation !== this.planDocGeneration) return undefined
+			// The round owns this document from here on. `planDocId` is cleared by a rotation,
+			// so without this a rollback or an approval landing after one has nothing to write
+			// to — on a reopened session it was never set in the first place.
+			if (existingId) round.docId = existingId
+			// Read before overwriting: this round's first proposal is the moment the standing
+			// plan is lost, so that is where the copy to restore has to be taken. Held as a
+			// local too — a rotation clears the field before the undo below can read it.
+			let roundBase = round.base
+			if (existingId && !round.baseCaptured) {
+				const previous = await this.artifacts.get(existingId)
+				roundBase = previous && {
+					content: previous.content,
+					approved: previous.approved === true
+				}
+				// Recorded on the round only once the chat is known not to have rotated: the
+				// round belongs to the conversation that opened it, and a decline in the next
+				// one would otherwise write this conversation's plan into its document.
+				if (generation !== this.planDocGeneration) return undefined
+				round.base = roundBase
+				round.baseCaptured = true
+			}
+			const updated = existingId
+				? await this.artifacts.update(existingId, { name, content: summary, approved: false })
+				: undefined
+			// The rotation that moved the generation on also abandoned this round, and does its
+			// own rollback against `round.docId` once this save settles — so this write needs
+			// only to stop being adopted, not to undo itself.
+			if (generation !== this.planDocGeneration) return undefined
+			// Falls back to a create when the document is gone — the user may have deleted it.
+			const plan =
+				updated ??
+				(await this.artifacts.create(this.sessionId, {
+					name,
+					content: summary,
+					kind: 'md',
+					role: 'plan',
+					approved: false,
+					chatId
+				}))
+			if (generation !== this.planDocGeneration) return undefined
+			this.planDocId = plan.id
+			round.docId = plan.id
+			this.openArtifact?.(plan.id, plan.name)
+			toolCallbacks.setToolStatus(toolId, { planArtifactId: plan.id })
+			return { id: plan.id, name: plan.name, rollback: roundBase }
+		} catch (e) {
+			console.error('Failed to persist plan artifact', e)
+			return undefined
+		}
+	}
+
+	// Approval separates a plan from a proposal, and the artifact list is read long after the
+	// card scrolled away, so it lands on the document rather than being inferred from the
+	// transcript. Unguarded by `planDocGeneration`: the user approved this document whichever
+	// conversation is current when the write lands.
+	private markPlanApproved = async (id: string) => {
+		try {
+			await this.artifacts.update(id, { approved: true })
+		} catch (e) {
+			console.error('Failed to mark plan artifact approved', e)
+		}
+	}
+
+	// `readonly` is what lets this tool through the plan-mode gate; without it plan mode
+	// has no exit. `processToolCall` grants no other exemption.
+	exitPlanModeTool: Tool<any> = {
+		def: createToolDef(exitPlanModeArgs, EXIT_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL_DESCRIPTION),
+		readonly: true,
+		requiresConfirmation: true,
+		// Refuses the call before any card offers "Approve and implement", so a plan-less
+		// approval can never unblock mutating tools. `fn` does not run and plan mode holds.
+		// Outside plan mode every call is refused here: the tool stays registered only to
+		// route a model that remembers proposing a plan to the document, so approval — and
+		// with it the posture switch — remains something only plan mode can hand out.
+		validateBeforeConfirmation: ({ args }) =>
+			this.planModeActive
+				? exitPlanModeRejection(args)
+				: {
+						label: PLAN_MODE_MESSAGES.exitOutsidePlanModeLabel,
+						result: PLAN_MODE_MESSAGES.exitOutsidePlanMode
+					},
+		confirmationMessage: (args) =>
+			exitPlanModeArgs.safeParse(args).data?.summary ?? PLAN_MODE_MESSAGES.exitPrompt,
+		cancellationMessage: PLAN_MODE_MESSAGES.exitDeclined,
+		showDetails: true,
+		onConfirmationRequested: (p) => {
+			void this.ensurePlanDoc(p)
+		},
+		onConfirmationDeclined: () => {
+			void this.restorePlanDoc()
+		},
+		fn: async ({ args, toolCallbacks, toolId }) => {
+			const save = this.ensurePlanDoc({ args, toolCallbacks, toolId })
+			// Settled before the write is awaited: this content is the plan now, and a rotation
+			// landing in that window would otherwise treat the proposal as undecided and put
+			// back the plan it replaced.
+			const round = this.planRound
+			if (round) round.status = 'settled'
+			const saved = await save
+			// The round's own id when a rotation stopped the save from returning one: the user
+			// approved this document, so the approval lands on it whichever chat is current.
+			const approvedId = saved?.id ?? round?.docId
+			if (approvedId) {
+				await this.markPlanApproved(approvedId)
+			}
+			// No-op if the user already left plan mode while the card was pending.
+			if (this.planModeActive) {
+				this.setAutonomyMode(this.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
+			}
+			return approvedId ? PLAN_MODE_MESSAGES.approvedWithDoc : PLAN_MODE_MESSAGES.approved
+		}
+	}
+
+	enterPlanModeTool: Tool<any> = {
+		def: createToolDef(enterPlanModeArgs, ENTER_PLAN_MODE_TOOL, ENTER_PLAN_MODE_TOOL_DESCRIPTION),
+		readonly: true,
+		requiresConfirmation: true,
+		confirmationMessage: (args) =>
+			enterPlanModeArgs.safeParse(args).data?.reason ?? PLAN_MODE_MESSAGES.enterPrompt,
+		cancellationMessage: PLAN_MODE_MESSAGES.enterDeclined,
+		showDetails: true,
+		fn: async () => {
+			this.setAutonomyMode(AIAutonomyMode.PLAN)
+			return PLAN_MODE_MESSAGES.entered
+		}
+	}
+
+	// Appended per request rather than built into the mode's tool list: these close over the
+	// manager, and the autonomy mode they answer to changes without rebuilding that list.
+	// exit_plan_mode is unconditional in a session even though it only redirects outside plan
+	// mode: a model revising an approved plan must not call a tool that has left the schema.
+	get planModeTools(): Tool<any>[] {
+		if (!this.planModeAvailable) return []
+		const canEnter = !this.planModeActive && !this.autoAcceptToolConfirmationsActive
+		return canEnter ? [this.enterPlanModeTool, this.exitPlanModeTool] : [this.exitPlanModeTool]
+	}
+
 	openChat = () => {
 		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
 		localStorage.setItem('ai-chat-open', 'true')
@@ -2265,20 +2628,23 @@ export class AIChatManager {
 				messages,
 				addedMessages,
 				get systemMessage() {
-					const base = systemMessageOverride ?? self.systemMessage
+					let base = systemMessageOverride ?? self.systemMessage
 					// Inject the attached-files roster at request time (re-read each iteration)
 					// so it always reflects the live file list without reactive bookkeeping.
 					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
-						return appendAttachedFilesRoster(
+						base = appendAttachedFilesRoster(
 							base,
 							self.attachedFiles,
 							self.orphanedMessageFileIds()
 						)
 					}
+					if (self.planModeActive) {
+						base = appendPlanModeInstructions(base, self.planBlocksThisTurn)
+					}
 					return base
 				},
 				get tools() {
-					return self.tools
+					return [...self.tools, ...self.planModeTools]
 				},
 				get helpers() {
 					return self.helpers
@@ -2559,6 +2925,7 @@ export class AIChatManager {
 				return false
 			}
 		}
+		this.planBlocksThisTurn = 0
 		// Built-in session commands run locally instead of becoming a chat turn.
 		// Intercepted here — before the beforeSend workspace commit, file regrants,
 		// and skill expansion. Scoped to session chat GLOBAL mode, where the
@@ -3110,6 +3477,10 @@ export class AIChatManager {
 					},
 					requestConfirmation: this.requestConfirmation,
 					shouldAutoAcceptToolConfirmations: () => this.autoAcceptToolConfirmationsActive,
+					isPlanModeActive: () => this.planModeActive,
+					onToolBlockedByPlanMode: () => {
+						this.planBlocksThisTurn++
+					},
 					requestUserQuestion: this.requestUserQuestion,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
@@ -3350,8 +3721,8 @@ export class AIChatManager {
 	}
 
 	cancel = (reason?: string) => {
-		for (const confirmationCallback of this.confirmationCallbacks.values()) {
-			confirmationCallback(false)
+		for (const { resolve } of this.confirmationCallbacks.values()) {
+			resolve(false)
 		}
 		this.confirmationCallbacks.clear()
 		for (const resolveQuestion of this.userQuestionCallbacks.values()) {
@@ -3527,6 +3898,7 @@ export class AIChatManager {
 		// Message-attached rows belong to the conversation just left in every case.
 		this.#syncMessageFiles()
 		this.syncArtifactsSession()
+		this.resetPlanDoc()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
@@ -3569,6 +3941,7 @@ export class AIChatManager {
 			this.#syncMessageFiles()
 			this.#automaticScroll = true
 			this.syncArtifactsSession()
+			this.resetPlanDoc()
 			this.onChatRotated?.(id)
 		}
 	}

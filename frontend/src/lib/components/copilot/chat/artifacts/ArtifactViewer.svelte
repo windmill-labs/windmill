@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import { Code, Eye, FileText, Copy, Check, Download } from 'lucide-svelte'
+	import { Code, Eye, FileText, Copy, Check, Download, ClipboardList } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -11,6 +11,8 @@
 	import LinkRenderer from '../LinkRenderer.svelte'
 	import { artifactFilename, artifactMimeType, type PersistedArtifact } from './artifactsDB'
 	import { markdownProse } from '$lib/components/markdownProse'
+	import { twMerge } from 'tailwind-merge'
+	import { PLAN_MODE_BADGE_CLASS, PLAN_MODE_TEXT_COLOR } from '../planMode'
 
 	interface Props {
 		artifact: PersistedArtifact
@@ -20,6 +22,8 @@
 
 	// Markdown is the only rendered kind in v1; anything else shows source only.
 	const canPreview = $derived(artifact.kind === 'md')
+	const isPlan = $derived(artifact.role === 'plan')
+	const isApprovedPlan = $derived(isPlan && artifact.approved === true)
 	let showSource = $state(false)
 	const source = $derived(!canPreview || showSource)
 
@@ -39,10 +43,28 @@
 <div class="flex flex-col h-full bg-surface-tertiary">
 	<div class="flex items-center justify-between gap-2 px-8 py-2">
 		<div class="flex items-center gap-1.5 min-w-0 flex-1">
-			<FileText size={14} class="shrink-0 text-secondary" />
+			{#if isPlan}
+				<ClipboardList size={14} class={twMerge('shrink-0', PLAN_MODE_TEXT_COLOR)} />
+			{:else}
+				<FileText size={14} class="shrink-0 text-secondary" />
+			{/if}
 			<span class="truncate text-xs font-normal text-emphasis" title={artifact.name}>
 				{artifact.name}
 			</span>
+			{#if isPlan}
+				<!-- Sized against the title beside it, not the Copy button opposite: at the
+				     list's text-2xs it reads as heavy as the 12px name it annotates.
+				     `pt-px pb-0` is optical, not a typo: an all-caps word leaves the line
+				     box's descender space empty, so symmetric padding sits it 1px high. -->
+				<span
+					class={twMerge(
+						'shrink-0 rounded px-1 pt-px pb-0 text-3xs font-medium uppercase tracking-wide',
+						isApprovedPlan ? PLAN_MODE_BADGE_CLASS : 'bg-surface-secondary text-tertiary'
+					)}
+				>
+					{isApprovedPlan ? 'plan' : 'draft'}
+				</span>
+			{/if}
 		</div>
 		<div class="flex items-center gap-2 shrink-0">
 			<!-- Copy raw markdown, with a dropdown for the download-as-file variant. -->

@@ -35,6 +35,7 @@ const READ_DOCS_PAGE_TOOL: ChatCompletionTool = {
 
 export const readDocsPageTool: Tool<{}> = {
 	def: READ_DOCS_PAGE_TOOL,
+	readonly: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		const url = typeof args?.url === 'string' ? args.url : ''
 		const section =
@@ -56,7 +57,9 @@ export const readDocsPageTool: Tool<{}> = {
 			})
 			console.error('Error reading documentation page:', error)
 			const errorMessage =
-				error instanceof Error ? error.message : 'An error occurred while reading the documentation page'
+				error instanceof Error
+					? error.message
+					: 'An error occurred while reading the documentation page'
 			return `Failed to read documentation page: ${errorMessage}, pursuing with the user request...`
 		}
 	}
@@ -84,6 +87,7 @@ const SEARCH_DOCS_TOOL: ChatCompletionTool = {
 
 export const searchDocsTool: Tool<{}> = {
 	def: SEARCH_DOCS_TOOL,
+	readonly: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		const query = typeof args?.query === 'string' ? args.query.trim() : ''
 		toolCallbacks.setToolStatus(toolId, {
@@ -106,7 +110,9 @@ export const searchDocsTool: Tool<{}> = {
 			})
 			console.error('Error searching documentation:', error)
 			const errorMessage =
-				error instanceof Error ? error.message : 'An error occurred while searching the documentation'
+				error instanceof Error
+					? error.message
+					: 'An error occurred while searching the documentation'
 			return `Failed to search documentation: ${errorMessage}, pursuing with the user request...`
 		}
 	}
