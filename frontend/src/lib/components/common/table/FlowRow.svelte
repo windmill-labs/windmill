@@ -212,6 +212,19 @@
 					return [
 						...selectMenuItems(rowSelection),
 						{
+							displayName: 'Move/Rename',
+							icon: FolderOpen,
+							action: () => {
+								// Addressed by the generated path its draft row sits at, but
+								// named by the path typed in the editor.
+								moveDrawer.openDrawer((flow as any).draft_path ?? path, flow.summary, 'flow', {
+									storagePath: path
+								})
+							},
+							disabled: !showEditButton,
+							hide: $userStore?.operator
+						},
+						{
 							displayName: 'Delete',
 							icon: Trash,
 							action: (event) => {

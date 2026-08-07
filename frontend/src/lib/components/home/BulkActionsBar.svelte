@@ -17,6 +17,7 @@
 		eligible,
 		movedPath,
 		runBulk,
+		sourcePath,
 		type BulkAction,
 		type BulkContext,
 		type BulkOutcome
@@ -266,7 +267,7 @@
 				{@const target = moveTarget}
 				{@render pathList(
 					'Will be moved to',
-					pendingItems.map((i) => `${i.path} → ${movedPath(i, target)}`)
+					pendingItems.map((i) => `${sourcePath(i)} → ${movedPath(i, target)}`)
 				)}
 			{/if}
 		{:else if pending === 'discard'}

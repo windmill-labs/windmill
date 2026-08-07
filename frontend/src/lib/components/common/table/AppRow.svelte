@@ -190,6 +190,20 @@
 					return [
 						...selectMenuItems(rowSelection),
 						{
+							displayName: 'Move/Rename',
+							icon: FolderOpen,
+							action: () => {
+								// Addressed by the generated path its draft row sits at, but
+								// named by the path typed in the editor.
+								moveDrawer.openDrawer((app as any).draft_path ?? path, summary, 'app', {
+									storagePath: path,
+									rawApp: !!app.raw_app
+								})
+							},
+							disabled: !showEditButton,
+							hide: $userStore?.operator
+						},
+						{
 							displayName: 'Delete',
 							icon: Trash,
 							action: async (event) => {

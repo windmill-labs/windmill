@@ -275,6 +275,19 @@
 							}
 						},
 						{
+							displayName: 'Move/Rename',
+							icon: FolderOpen,
+							action: () => {
+								// Addressed by the generated path its draft row sits at, but
+								// named by the path typed in the editor.
+								moveDrawer.openDrawer(script.draft_path ?? script.path, script.summary, 'script', {
+									storagePath: script.path
+								})
+							},
+							disabled: !showEditButton,
+							hide: $userStore?.operator
+						},
+						{
 							displayName: 'Delete',
 							icon: Trash,
 							action: (event) => {

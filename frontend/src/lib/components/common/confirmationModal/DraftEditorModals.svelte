@@ -2,6 +2,7 @@
 	/**
 	 * The draft modals every editor route mounts at its trailer:
 	 *  - DraftSyncConflictModal: surfaces a 409 from the autosave pipeline.
+	 *  - DraftMovedModal: the item was moved away from this path mid-edit.
 	 *  - OtherUsersDraftsModal: other users' drafts at this path, for forking.
 	 *  - StaleDraftModal: prompts when the user's draft predates the latest
 	 *    deploy; open-state is computed here from the route's timestamps.
@@ -12,6 +13,7 @@
 	 */
 	import type { UserDraftItemKind } from '$lib/gen'
 	import DraftSyncConflictModal from './DraftSyncConflictModal.svelte'
+	import DraftMovedModal from './DraftMovedModal.svelte'
 	import OtherUsersDraftsModal, { type OtherDraftUser } from './OtherUsersDraftsModal.svelte'
 	import StaleDraftModal from './StaleDraftModal.svelte'
 	import ConfirmationModal from './ConfirmationModal.svelte'
@@ -38,13 +40,14 @@
 		draftSavedAt?: string | undefined
 		/** ISO timestamp of the latest deploy at this path. */
 		deployedAt?: string | undefined
-		/** Precise staleness inputs (flows/apps): the deployed version the draft was
-		 *  forked from, and the current deployed head. When both are set they drive
-		 *  `isStale` and the dedup key instead of the timestamps — exact, and stable
-		 *  across autosaves (the timestamp drifts past `deployedAt` as you keep
-		 *  editing). Absent (pre-feature drafts, scripts) ⇒ timestamp fallback. */
-		draftBaseVersion?: number | undefined
-		deployedHeadVersion?: number | undefined
+		/** Precise staleness inputs: the deployed version the draft was forked from,
+		 *  and the current deployed head. When both are set they drive `isStale` and
+		 *  the dedup key instead of the timestamps — exact, and stable across
+		 *  autosaves (the timestamp drifts past `deployedAt` as you keep editing).
+		 *  Flows/apps pass version ids; scripts pass hashes, which are strings.
+		 *  Absent (pre-feature drafts) ⇒ timestamp fallback. */
+		draftBaseVersion?: number | string | undefined
+		deployedHeadVersion?: number | string | undefined
 		/** Discard the draft and reload deployed (same as "Reset to deployed"). */
 		onLoadLatestDeploy?: () => void | Promise<void>
 		/** Defaults to true; set to false to suppress all modals. */
@@ -113,6 +116,7 @@
 		{onLoadFromServer}
 		{getLocalDraft}
 	/>
+	<DraftMovedModal query={{ workspace, itemKind, path }} {getLocalDraft} />
 	{#if otherDraftsUsers.length > 0}
 		{#key path}
 			<OtherUsersDraftsModal
