@@ -9,6 +9,8 @@
 		noDate?: boolean
 		isRecent?: boolean
 		noSeconds?: boolean
+		/** Single-unit form ("2m", "3h", "5d") for rows too narrow for "2 mins ago". */
+		compact?: boolean
 	}
 
 	let {
@@ -16,7 +18,8 @@
 		agoOnlyIfRecent = false,
 		noDate = false,
 		isRecent = $bindable(true),
-		noSeconds = false
+		noSeconds = false,
+		compact = false
 	}: Props = $props()
 
 	let computedTimeAgo: string | undefined = $state(undefined)
@@ -24,7 +27,8 @@
 	let interval
 
 	onMount(() => {
-		// Update every minute for noSeconds mode, every second for regular mode
+		// Update every minute for noSeconds mode, every second otherwise — compact counts
+		// seconds below the minute mark, so a minute tick would leave them visibly stale.
 		const intervalMs = noSeconds ? 60000 : 1000
 		interval = setInterval(() => {
 			computeDate()
@@ -79,6 +83,23 @@
 
 	async function displayDaysAgo(dateString: string): Promise<string> {
 		const date = new Date(dateString)
+
+		if (compact) {
+			// The s/m/h/d ladder the hand-rolled `ago()` helpers around the codebase use
+			// (PipelineEventLog, PipelineActivityPanel, IndexerMemorySettings): seconds stay
+			// meaningful right up to the minute mark.
+			const secs = secondsAgo(date)
+			if (secs < 60) return `${secs}s`
+			const mins = minutesAgo(date)
+			if (mins < 60) return `${mins}m`
+			const hours = hoursAgo(date)
+			if (hours < 24) return `${hours}h`
+			// Days all the way up, never an absolute date: callers read as "<slot> ago", and
+			// the hand-rolled ago() helpers this mirrors have no date fallback either. Every
+			// form here still advances, so the refresh timer must keep running — isRecent =
+			// false clears it for good and freezes the value for as long as the row is shown.
+			return `${daysAgo(date)}d`
+		}
 
 		// New noSeconds mode
 		if (noSeconds) {
