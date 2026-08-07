@@ -1020,68 +1020,9 @@ async fn check_path_conflict<'c>(
 
 /// Resource types the platform writes on its own behalf rather than users editing them:
 /// `state` backs `setState` and `cache` backs cached job results, so both are rewritten on
-/// every job run. Kept out of version history for the same reason workspace export skips them.
+/// every job run. Workspace export skips them for the same reason the `record_resource_version`
+/// trigger does; that trigger repeats this list in SQL, so the two have to move together.
 pub const INTERNAL_RESOURCE_TYPES: [&str; 2] = ["state", "cache"];
-
-/// Versions retained per path. Resources are not only edited by humans — `setResource` from a
-/// script goes through the same authed write path — so an unbounded history is reachable from
-/// a loop, unlike flows and apps where nothing deploys in one.
-const MAX_RESOURCE_VERSIONS: i64 = 100;
-
-/// Append the resource's current value as a new version. Call after the row is written, inside
-/// the same transaction: the value is read back from `resource` so no caller has to thread it
-/// through, and every write path records history the same way whatever shape its own update took.
-///
-/// Skipped when the latest version already holds this value, which is what keeps no-op saves and
-/// trashbin restores (they rewrite the value the last version holds) out of the history.
-async fn record_resource_version(
-    tx: &mut sqlx::PgConnection,
-    w_id: &str,
-    path: &str,
-    created_by: &str,
-) -> Result<()> {
-    sqlx::query!(
-        "INSERT INTO resource_version (workspace_id, path, resource_type, value, created_by)
-         SELECT r.workspace_id, r.path, r.resource_type, r.value, $3
-         FROM resource r
-         WHERE r.workspace_id = $1 AND r.path = $2
-           AND r.resource_type <> ALL($4)
-           AND NOT EXISTS (
-               SELECT 1 FROM resource_version v
-               WHERE v.workspace_id = r.workspace_id AND v.path = r.path
-                 AND v.value IS NOT DISTINCT FROM r.value
-                 AND v.id = (
-                     SELECT max(id) FROM resource_version l
-                     WHERE l.workspace_id = r.workspace_id AND l.path = r.path
-                 )
-           )",
-        w_id,
-        path,
-        created_by,
-        &INTERNAL_RESOURCE_TYPES.map(|t| t.to_string())[..],
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "DELETE FROM resource_version
-         WHERE workspace_id = $1 AND path = $2
-           AND id < (
-               SELECT min(id) FROM (
-                   SELECT id FROM resource_version
-                   WHERE workspace_id = $1 AND path = $2
-                   ORDER BY id DESC LIMIT $3
-               ) kept
-           )",
-        w_id,
-        path,
-        MAX_RESOURCE_VERSIONS,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    Ok(())
-}
 
 #[derive(Deserialize)]
 struct CreateResourceQuery {
@@ -1205,8 +1146,6 @@ async fn create_resource(
             )));
         }
     }
-
-    record_resource_version(&mut tx, &w_id, &resource.path, &authed.username).await?;
 
     // Mirror update_resource: Some(true) inserts, Some(false) clears (only
     // meaningful on the upsert path, since a pure create has no existing row),
@@ -1901,11 +1840,6 @@ async fn update_resource(
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
 
-    // At npath, not path: a rename has already carried the existing versions over via the
-    // cascading FK. Unconditional because dedup decides — a rename or description-only edit
-    // leaves the value untouched and so mints nothing.
-    record_resource_version(&mut tx, &w_id, &npath, &authed.username).await?;
-
     if let Some(nlabels) = &ns.labels {
         sqlx::query!(
             "UPDATE resource SET labels = $1 WHERE path = $2 AND workspace_id = $3",
@@ -2104,7 +2038,6 @@ async fn set_resource_value(
     if updated.rows_affected() == 0 {
         return Err(Error::NotFound(format!("Resource {} not found", path)));
     }
-    record_resource_version(&mut tx, w_id, path, &authed.username).await?;
     audit_log(
         &mut *tx,
         authed,

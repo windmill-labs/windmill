@@ -133,6 +133,10 @@
 				workspace={effectiveWorkspace}
 				onRestore={() => {
 					historyDrawer?.closeDrawer()
+					// Close the editor too. It holds a baseline captured before the restore, and
+					// any local draft on top of it, so saving from it afterwards would write the
+					// pre-restore value straight back over the version just restored.
+					drawer?.closeDrawer()
 					dispatch('refresh')
 				}}
 			/>

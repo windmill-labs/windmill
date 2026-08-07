@@ -6975,7 +6975,7 @@ paths:
 
   /w/{workspace}/workspaces/prune_versions:
     post:
-      summary: prune old versions of scripts, flows, or apps
+      summary: prune old versions of scripts, flows, apps, or resources
       operationId: pruneVersions
       tags:
         - workspace
@@ -6994,6 +6994,7 @@ paths:
                     - scripts
                     - flows
                     - apps
+                    - resources
               required:
                 - resource_type
       responses:

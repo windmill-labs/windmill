@@ -1,6 +1,6 @@
 //! Regression tests for resource value history.
 //!
-//! Three properties that a later refactor could plausibly undo, each with a cost
+//! Four properties that a later refactor could plausibly undo, each with a cost
 //! that is invisible until it bites:
 //!  - `state` and `cache` resources are excluded. They are rewritten by every job
 //!    that calls `setState` or caches a result, so versioning them would grow the
@@ -10,6 +10,11 @@
 //!    out of the history.
 //!  - restore appends the old value as a new version rather than rewinding, so the
 //!    history stays append-only and the restore is itself attributable.
+//!  - writes that never touch the resource handlers are still recorded. Variable
+//!    renames, workspace forks and native integrations all write `resource` directly,
+//!    and a rename that changes path and value in one statement used to leave the
+//!    newest version holding the pre-rename value while the UI labelled it "Current".
+//!    This is why recording lives in a database trigger rather than the handlers.
 
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
@@ -105,6 +110,51 @@ async fn test_resource_version_history(db: Pool<Postgres>) -> anyhow::Result<()>
             "{internal} resources must not be versioned"
         );
     }
+
+    Ok(())
+}
+
+/// Writes that bypass the resource handlers entirely. A variable rename changes a linked
+/// resource's path and value in one statement; the cascading FK moves the history to the new
+/// path, so without trigger-level recording the newest row would keep the pre-rename value and
+/// disagree with the resource it describes.
+#[sqlx::test(fixtures("resource_versioning"))]
+async fn test_direct_writes_are_recorded(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let path = "u/rver-admin/direct";
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by, edited_at)
+         VALUES ('rver-ws', $1, '{\"h\":\"one\"}', 'postgresql', 'rver-admin', now())",
+    )
+    .bind(path)
+    .execute(&db)
+    .await?;
+
+    let renamed = "u/rver-admin/direct_renamed";
+    sqlx::query(
+        "UPDATE resource SET path = $1, value = '{\"h\":\"two\"}', edited_at = now()
+         WHERE workspace_id = 'rver-ws' AND path = $2",
+    )
+    .bind(renamed)
+    .bind(path)
+    .execute(&db)
+    .await?;
+
+    let (count, newest): (i64, Option<String>) = sqlx::query_as(
+        "SELECT count(*), (SELECT value->>'h' FROM resource_version
+                            WHERE workspace_id = 'rver-ws' AND path = $1
+                            ORDER BY id DESC LIMIT 1)
+           FROM resource_version WHERE workspace_id = 'rver-ws' AND path = $1",
+    )
+    .bind(renamed)
+    .fetch_one(&db)
+    .await?;
+
+    assert_eq!(count, 2, "the direct insert and the rename both record");
+    assert_eq!(
+        newest.as_deref(),
+        Some("two"),
+        "newest version must match the live value after a rename that also changed it"
+    );
 
     Ok(())
 }
