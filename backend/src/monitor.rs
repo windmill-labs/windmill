@@ -117,6 +117,7 @@ use windmill_queue::{
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
     SameWorkerPayload,
 };
+use windmill_store::resources::MAX_RESOURCE_VERSIONS;
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, StepFailureKind, WorkspaceRegistryMap,
@@ -1257,10 +1258,6 @@ async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
         send_email_if_possible(email_subject, &email_body, email);
     }
 }
-
-/// Versions retained per resource path. Trimmed on a sweep rather than on write — see
-/// `trim_resource_versions` below.
-const MAX_RESOURCE_VERSIONS: i64 = 100;
 
 /// Trim resource version history down to the per-path cap.
 ///

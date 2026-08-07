@@ -1027,6 +1027,11 @@ async fn check_path_conflict<'c>(
 /// trigger does; that trigger repeats this list in SQL, so the two have to move together.
 pub const INTERNAL_RESOURCE_TYPES: [&str; 2] = ["state", "cache"];
 
+/// Versions retained per resource path. The monitor sweep enforces it eventually; the history
+/// endpoint caps its own read at the same number so a burst of writes between two sweeps cannot
+/// make the drawer fetch an unbounded list.
+pub const MAX_RESOURCE_VERSIONS: i64 = 100;
+
 #[derive(Deserialize)]
 struct CreateResourceQuery {
     update_if_exists: Option<bool>,
@@ -2126,9 +2131,10 @@ async fn get_resource_history(
     let versions = sqlx::query_as!(
         ResourceVersion,
         "SELECT id, created_at, created_by FROM resource_version
-         WHERE workspace_id = $1 AND path = $2 ORDER BY id DESC",
+         WHERE workspace_id = $1 AND path = $2 ORDER BY id DESC LIMIT $3",
         w_id,
-        path
+        path,
+        MAX_RESOURCE_VERSIONS
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -2187,28 +2193,35 @@ async fn missing_references(
         }
     }
 
-    let existing_vars: Vec<String> = sqlx::query_scalar!(
+    // Sets, not Vecs: a value carries as many references as its author put in it, and a linear
+    // scan per reference would make the cost of one version fetch quadratic in caller-controlled
+    // input.
+    let existing_vars: std::collections::HashSet<String> = sqlx::query_scalar!(
         "SELECT path FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
         w_id,
         &var_paths[..]
     )
     .fetch_all(&mut *tx)
-    .await?;
-    let existing_res: Vec<String> = sqlx::query_scalar!(
+    .await?
+    .into_iter()
+    .collect();
+    let existing_res: std::collections::HashSet<String> = sqlx::query_scalar!(
         "SELECT path FROM resource WHERE workspace_id = $1 AND path = ANY($2)",
         w_id,
         &res_paths[..]
     )
     .fetch_all(&mut *tx)
-    .await?;
+    .await?
+    .into_iter()
+    .collect();
 
     Ok(refs
         .into_iter()
         .filter(
             |r| match VAR_PREFIXES.iter().find_map(|p| r.strip_prefix(p)) {
-                Some(p) => !existing_vars.iter().any(|e| e == p),
+                Some(p) => !existing_vars.contains(p),
                 None => match r.strip_prefix(RES_PREFIX) {
-                    Some(p) => !existing_res.iter().any(|e| e == p),
+                    Some(p) => !existing_res.contains(p),
                     None => false,
                 },
             },
