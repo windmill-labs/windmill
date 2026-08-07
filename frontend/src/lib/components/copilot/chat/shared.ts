@@ -1312,9 +1312,11 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 				).asks ?? [])
 
 		if (scripts.length === 0) {
-			// A whiffed semantic search still leaves the integration browsable, which
-			// is what turns "no exact match" into a worked example to follow.
-			const suggested = query ? await suggestHubIntegrations(query) : []
+			// A whiffed search still leaves the integration browsable, which is what
+			// turns "no exact match" into a worked example to follow. Suggest against
+			// the slug too, so a browse for a misremembered one lands on the real name
+			// instead of dead-ending on an empty list.
+			const suggested = await suggestHubIntegrations(query ?? app ?? '')
 			toolCallbacks.setToolStatus(toolId, { content: `No hub script found for ${subject}` })
 			return JSON.stringify({ results: [], suggested_integrations: suggested })
 		}

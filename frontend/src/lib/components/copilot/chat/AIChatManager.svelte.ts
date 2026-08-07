@@ -44,7 +44,7 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getNonStreamingCompletion, providerSupportsWebSearch } from '../lib'
+import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getModelContextWindow } from '../modelConfig'
@@ -110,7 +110,6 @@ import {
 	setUserCustomPrompts,
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
-import type { AIProvider as AIProviderType } from '$lib/gen'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
 	globalToolsFor,
@@ -1909,12 +1908,12 @@ export class AIChatManager {
 	/** Web-search availability the GLOBAL system message was last built against. */
 	private globalWebSearchAdvertised: boolean | undefined = undefined
 
-	private syncGlobalWebSearchGuidance = (provider: AIProviderType | undefined) => {
-		if (this.mode !== AIMode.GLOBAL) {
-			return
-		}
-		const available = providerSupportsWebSearch(provider) && isWebSearchEnabledForProvider(provider)
-		if (available === this.globalWebSearchAdvertised) {
+	/** Keep the GLOBAL prompt's web-search guidance matching what the loop will
+	 * actually hand the model. `available` is the loop's effective value, so this
+	 * covers a mid-conversation provider switch and the runtime rejection probe
+	 * alike — neither of which the prompt could observe on its own. */
+	private syncGlobalWebSearchGuidance = (available: boolean) => {
+		if (this.mode !== AIMode.GLOBAL || available === this.globalWebSearchAdvertised) {
 			return
 		}
 		this.globalWebSearchAdvertised = available
@@ -2350,13 +2349,9 @@ export class AIChatManager {
 					}
 					return undefined
 				},
-				onBeforeIteration: async (tools, _helpers, modelProvider) => {
+				onBeforeIteration: async (tools, _helpers, modelProvider, webSearch) => {
 					this.lastIterationModel = modelProvider
-					// Web search is provider-hosted, so the prompt is the only thing that can
-					// advertise it — and the selector stays switchable mid-conversation. Rebuild
-					// when availability flips, or a switch onto a provider without web search
-					// leaves the prompt telling the model to use a tool it is no longer handed.
-					this.syncGlobalWebSearchGuidance(modelProvider.provider)
+					this.syncGlobalWebSearchGuidance(webSearch)
 					for (const tool of tools) {
 						if (tool.setSchema) {
 							await tool.setSchema(this.helpers)

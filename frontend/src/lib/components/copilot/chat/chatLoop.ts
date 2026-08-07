@@ -71,11 +71,16 @@ export interface ChatLoopConfig {
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
 	/** Called before each iteration (e.g. to refresh tool schemas, or to record
-	 * which model the iteration is about to use). */
+	 * which model the iteration is about to use). `webSearch` is the effective
+	 * value for this iteration — static gates and the runtime probe both applied —
+	 * so a caller whose system prompt advertises web search can resync here. The
+	 * system message is read after this returns, so such a resync lands on this
+	 * iteration rather than the next. */
 	onBeforeIteration?: (
 		tools: Tool<any>[],
 		helpers: any,
-		modelProvider: ReasoningProviderModel
+		modelProvider: ReasoningProviderModel,
+		webSearch: boolean
 	) => Promise<void>
 }
 
@@ -349,7 +354,6 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		// Callers can use JS getter properties to provide dynamic values.
 		const tools = config.tools
 		const helpers = config.helpers
-		const systemMessage = config.systemMessage
 		const modelProvider = config.modelProvider
 		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
 		const webSearch =
@@ -358,8 +362,12 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			!unsupportedWebSearchCache.has(webSearchCacheKey)
 
 		if (onBeforeIteration) {
-			await onBeforeIteration(tools, helpers, modelProvider)
+			await onBeforeIteration(tools, helpers, modelProvider, webSearch)
 		}
+
+		// Read after onBeforeIteration: a caller that resyncs its system prompt to
+		// `webSearch` there must have that land on this request, not the next one.
+		const systemMessage = config.systemMessage
 
 		const pendingUserMessage = getPendingUserMessage?.()
 

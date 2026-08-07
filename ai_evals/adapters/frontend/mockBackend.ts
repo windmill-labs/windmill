@@ -1040,20 +1040,23 @@ export async function main(
  * integration, or overlapping on three meaningful words. A looser bar answers
  * "send a Slack message" with the Discord fixture, handing an unrelated case a
  * plausible-looking wrong integration. */
-function searchBenchmarkHubScripts(text: string) {
+function searchBenchmarkHubScripts(text: string, app: string | null) {
 	const tokens = new Set(
 		text
 			.toLowerCase()
 			.split(/[^a-z0-9]+/)
 			.filter((token) => token.length > 2)
 	)
-	return BENCHMARK_HUB_SCRIPTS.map((script) => {
-		const words = new Set(
-			`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
-		)
-		const score = [...tokens].filter((token) => words.has(token)).length
-		return { script, score, namesApp: tokens.has(script.app) }
-	})
+	// The real endpoint filters by app before ranking, so honour it here too —
+	// otherwise a narrowed search silently returns other integrations' scripts.
+	return BENCHMARK_HUB_SCRIPTS.filter((script) => !app || script.app === app)
+		.map((script) => {
+			const words = new Set(
+				`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
+			)
+			const score = [...tokens].filter((token) => words.has(token)).length
+			return { script, score, namesApp: tokens.has(script.app) }
+		})
 		.filter((entry) => entry.namesApp || entry.score >= 3)
 		.sort((a, b) => b.score - a.score)
 		.map(({ script }, index) => ({
@@ -1193,7 +1196,9 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
 		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''
-		return Response.json(searchBenchmarkHubScripts(text))
+		return Response.json(
+			searchBenchmarkHubScripts(text, new URLSearchParams(url.split('?')[1] ?? '').get('app'))
+		)
 	}
 	if (path === '/api/scripts/hub/top') {
 		const app = new URLSearchParams(url.split('?')[1] ?? '').get('app')
