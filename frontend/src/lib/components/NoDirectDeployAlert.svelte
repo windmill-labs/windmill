@@ -1,9 +1,8 @@
 <script lang="ts">
 	/**
-	 * Compact marker for a workspace locked against direct edits. It sits above list and detail
-	 * pages that are otherwise unremarkable, so it stays a badge: the rule names, the route into the
-	 * dev workspace and the admin bypass live in its popover. Renders nothing for operators, who
-	 * have no edit affordance for it to explain.
+	 * Badge for a workspace locked against direct edits, with the rule names, the route into the dev
+	 * workspace and the admin bypass in its popover. Renders nothing for operators, who have no edit
+	 * affordance for it to explain.
 	 */
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
@@ -47,8 +46,6 @@
 		onUpdateCanEditStatus(canEdit)
 	})
 
-	// Short enough to read as a chip: the destination workspace and the rules behind it are one
-	// click away in the popover.
 	let badgeLabel = $derived(
 		bypassActive
 			? 'Protection bypassed'
@@ -66,13 +63,9 @@
 			triggerAttrs={{ 'aria-label': badgeLabel }}
 		>
 			{#snippet trigger()}
-				<Badge
-					small
-					color={bypassActive ? 'yellow' : 'blue'}
-					class={bypassActive
-						? 'cursor-pointer hover:bg-yellow-200 dark:hover:bg-yellow-500/25'
-						: 'cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-700/60'}
-				>
+				<!-- `clickable` is unusable here: it renders the badge as a <button>, nested inside the
+				     one Popover wraps its trigger in. -->
+				<Badge small color={bypassActive ? 'yellow' : 'blue'} class="cursor-pointer">
 					{#if bypassActive}
 						<ShieldOff class="h-3 w-3" />
 					{:else if canonicalDev}

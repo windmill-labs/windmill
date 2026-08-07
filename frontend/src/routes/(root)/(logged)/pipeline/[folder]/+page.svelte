@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { workspaceStore, userStore } from '$lib/stores'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -255,7 +256,7 @@
 
 	// Draft autosave (the data_pipeline DraftService bundle) lives inside
 	// PipelineGraphEditor now; the route just supplies its path to the indicator.
-	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
+	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
 
 	// The live editor overlays (annotations / body assets / content for the open
 	// script) now live in `pe`. The canonical "empty" literals stay here — they
@@ -2498,7 +2499,7 @@
 				{#if $workspaceStore}
 					<AutosaveIndicator
 						workspace={$workspaceStore}
-						itemKind="data_pipeline"
+						itemKind={PIPELINE_DRAFT_KIND}
 						path={pipelineDraftPath}
 						draftOnly
 						loadedFromDraft={pe.loadedFromDbDraft}
