@@ -10,7 +10,10 @@ import { join, sep as SEP } from "node:path";
 import { handleFile } from "../src/commands/script/script.ts";
 import { validateFilesetPointer } from "../src/commands/resource/resource.ts";
 import { findFilesetResourceFile } from "../src/commands/sync/sync.ts";
-import { isWorkspaceSpecificFile } from "../src/core/specific_items.ts";
+import {
+  isCurrentWorkspaceFile,
+  isWorkspaceSpecificFile,
+} from "../src/core/specific_items.ts";
 
 describe("handleFile routing", () => {
   test("returns false for fileset children with script extensions", async () => {
@@ -56,10 +59,21 @@ describe("workspace-specific classification", () => {
     ]) {
       expect(isWorkspaceSpecificFile(p)).toBe(false);
     }
+    // A child carrying the active workspace's own suffix must not be remapped
+    // onto the unsuffixed sibling key, which would deploy over that sibling.
+    expect(
+      isCurrentWorkspaceFile(
+        "f/resources/data.fileset/edge/inner.ws_main.resource.yaml",
+        "ws_main",
+      ),
+    ).toBe(false);
     // The parent's own metadata still carries the suffix.
     expect(isWorkspaceSpecificFile("f/resources/data.ws_main.resource.yaml")).toBe(
       true,
     );
+    expect(
+      isCurrentWorkspaceFile("f/resources/data.ws_main.resource.yaml", "ws_main"),
+    ).toBe(true);
   });
 });
 
