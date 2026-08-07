@@ -1,6 +1,8 @@
 use std::{
+    any::Any,
     collections::HashMap,
     ffi::{c_char, c_uint, CStr, CString},
+    panic::{catch_unwind, AssertUnwindSafe},
     ptr::null_mut,
     sync::LazyLock,
 };
@@ -10,6 +12,69 @@ use regex::Regex;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+
+// The worker reads a leading "ERROR " as "this call failed", and json-decodes the
+// rest (`decode_ffi_error` in duckdb_executor.rs).
+fn ffi_error(message: String) -> String {
+    let encoded = serde_json::to_string(&message)
+        .unwrap_or_else(|_| "\"Unknown error in duckdb ffi lib\"".to_string());
+    format!("ERROR {}", encoded)
+}
+
+/// Run an FFI entry point's body so that a panic returns an error instead of
+/// unwinding out of `extern "C"`, which aborts the process. DuckDB is in-process
+/// here, so that abort takes down every other job on the worker and leaves this
+/// one wedged in the queue; a job-level error costs only this job.
+///
+/// Not a blanket safety net: an abort raised inside DuckDB's own C++ (or a panic
+/// crossing a callback it invoked) never becomes a Rust unwind and still ends the
+/// process. This covers panics raised in Rust frames on the way down, which is
+/// what the bindings themselves produce.
+fn catch_ffi_panic<T>(what: &str, body: impl FnOnce() -> T) -> Result<T, String> {
+    catch_unwind(AssertUnwindSafe(body)).map_err(|payload| {
+        // The panic hook has already logged the message and backtrace to the
+        // worker's stderr; this only needs to reach the job's own error.
+        format!("panic in duckdb ffi {}: {}", what, panic_message(&payload))
+    })
+}
+
+fn panic_message(payload: &Box<dyn Any + Send>) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("unknown panic payload")
+}
+
+#[cfg(test)]
+mod ffi_boundary_tests {
+    use super::{catch_ffi_panic, ffi_error};
+
+    // Each case panics on purpose, so the panic hook prints a backtrace here even
+    // though the test passes.
+    #[test]
+    fn a_panic_becomes_an_error_the_worker_can_read() {
+        let caught = catch_ffi_panic("probe", || panic!("boom {}", 1)).unwrap_err();
+        assert!(caught.contains("boom 1"), "message lost: {caught}");
+        // The worker keys on this prefix to tell a failure from a result payload.
+        let wire = ffi_error(caught);
+        assert!(wire.starts_with("ERROR "));
+        assert!(serde_json::from_str::<String>(&wire["ERROR ".len()..])
+            .unwrap()
+            .contains("boom 1"));
+    }
+
+    #[test]
+    fn a_str_payload_panic_also_carries_its_message() {
+        let caught = catch_ffi_panic("probe", || -> () { panic!("static message") }).unwrap_err();
+        assert!(caught.contains("static message"), "message lost: {caught}");
+    }
+
+    #[test]
+    fn the_happy_path_is_untouched() {
+        assert_eq!(catch_ffi_panic("probe", || 7).unwrap(), 7);
+    }
+}
 
 // Worker passes "" for "no override" — saves an extra C string nullability dance.
 // Returns an owned String so the value outlives the raw pointer's lifetime.
@@ -67,40 +132,40 @@ pub extern "C" fn run_duckdb_ffi(
     collect_last_only: bool,
     collect_first_row_only: bool,
 ) -> *mut c_char {
-    let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
-        (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
-        (Err(e), _) | (_, Err(e)) => Err(e),
-    };
-    let (r, column_order) = match convert_args(
-        query_block_list,
-        query_block_list_count,
-        job_args,
-        token,
-        base_internal_url,
-        w_id,
-    )
-    .and_then(|args| resource_limits.map(|r| (args, r)))
-    .and_then(
-        |((query_block_list, job_args, token, base_internal_url, w_id), limits)| {
-            run_duckdb_internal(
-                query_block_list,
-                query_block_list_count,
-                job_args,
-                token,
-                base_internal_url,
-                w_id,
-                limits,
-                collect_last_only,
-                collect_first_row_only,
-            )
-        },
-    ) {
+    let outcome = catch_ffi_panic("run_duckdb_ffi", || {
+        let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
+            (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
+            (Err(e), _) | (_, Err(e)) => Err(e),
+        };
+        convert_args(
+            query_block_list,
+            query_block_list_count,
+            job_args,
+            token,
+            base_internal_url,
+            w_id,
+        )
+        .and_then(|args| resource_limits.map(|r| (args, r)))
+        .and_then(
+            |((query_block_list, job_args, token, base_internal_url, w_id), limits)| {
+                run_duckdb_internal(
+                    query_block_list,
+                    query_block_list_count,
+                    job_args,
+                    token,
+                    base_internal_url,
+                    w_id,
+                    limits,
+                    collect_last_only,
+                    collect_first_row_only,
+                )
+            },
+        )
+    });
+
+    let (r, column_order) = match outcome.and_then(|inner| inner) {
         Ok(result) => result,
-        Err(err) => {
-            let err = serde_json::to_string(&err)
-                .unwrap_or_else(|_| "Unknown error in duckdb ffi lib".to_string());
-            (format!("ERROR {}", err), None)
-        }
+        Err(err) => (ffi_error(err), None),
     };
 
     unsafe {
@@ -194,29 +259,29 @@ pub extern "C" fn prepare_duckdb_ffi(
     memory_limit: *const c_char,
     temp_directory: *const c_char,
 ) -> *mut c_char {
-    let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
-        (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
-        (Err(e), _) | (_, Err(e)) => Err(e),
-    };
-    let r = match convert_prepare_args(
-        query_block_list,
-        query_block_list_count,
-        token,
-        base_internal_url,
-        w_id,
-    )
-    .and_then(|args| resource_limits.map(|r| (args, r)))
-    .and_then(
-        |((query_block_list, token, base_internal_url, w_id), limits)| {
-            prepare_duckdb_internal(query_block_list, token, base_internal_url, w_id, limits)
-        },
-    ) {
+    let outcome = catch_ffi_panic("prepare_duckdb_ffi", || {
+        let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
+            (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
+            (Err(e), _) | (_, Err(e)) => Err(e),
+        };
+        convert_prepare_args(
+            query_block_list,
+            query_block_list_count,
+            token,
+            base_internal_url,
+            w_id,
+        )
+        .and_then(|args| resource_limits.map(|r| (args, r)))
+        .and_then(
+            |((query_block_list, token, base_internal_url, w_id), limits)| {
+                prepare_duckdb_internal(query_block_list, token, base_internal_url, w_id, limits)
+            },
+        )
+    });
+
+    let r = match outcome.and_then(|inner| inner) {
         Ok(result) => result,
-        Err(err) => {
-            let err = serde_json::to_string(&err)
-                .unwrap_or_else(|_| "Unknown error in duckdb ffi lib".to_string());
-            format!("ERROR {}", err)
-        }
+        Err(err) => ffi_error(err),
     };
 
     CString::new(r).map(|s| s.into_raw()).unwrap_or_else(|e| {
