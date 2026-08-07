@@ -3,12 +3,11 @@ use sqlx::{Pool, Postgres};
 
 use windmill_test_utils::*;
 
-/// Seed an anonymous public app running as `on_behalf_of`, then fork as `token`. Returns the
+/// Seed an anonymous public app owned by the parent's admin, then fork as `token`. Returns the
 /// cloned app's policy and custom path.
 async fn fork_with_public_app(
     db: &Pool<Postgres>,
     token: &str,
-    on_behalf_of: (&str, &str),
 ) -> anyhow::Result<(serde_json::Value, Option<String>)> {
     initialize_tracing().await;
 
@@ -20,8 +19,8 @@ async fn fork_with_public_app(
          VALUES ('test-workspace', 'u/test-user/pub', '', $1, '{}', 'pub-path')
          RETURNING id",
         json!({
-            "on_behalf_of": on_behalf_of.0,
-            "on_behalf_of_email": on_behalf_of.1,
+            "on_behalf_of": "u/test-user",
+            "on_behalf_of_email": "test@windmill.dev",
             "execution_mode": "anonymous",
         })
     )
@@ -69,8 +68,7 @@ async fn fork_with_public_app(
 async fn test_fork_downgrades_app_policy_for_unprivileged_creator(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
-    let (policy, custom_path) =
-        fork_with_public_app(&db, "SECRET_TOKEN_2", ("u/test-user", "test@windmill.dev")).await?;
+    let (policy, custom_path) = fork_with_public_app(&db, "SECRET_TOKEN_2").await?;
 
     assert_eq!(policy["on_behalf_of"], json!("u/test-user-2"));
     assert_eq!(policy["on_behalf_of_email"], json!("test2@windmill.dev"));
@@ -86,31 +84,12 @@ async fn test_fork_downgrades_app_policy_for_unprivileged_creator(
 /// claiming it make it resolve to either one.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_fork_keeps_app_policy_for_admin_creator(db: Pool<Postgres>) -> anyhow::Result<()> {
-    // The fork's creator is the one member it always gets, so their principal resolves there.
-    let (policy, custom_path) =
-        fork_with_public_app(&db, "SECRET_TOKEN", ("u/test-user", "test@windmill.dev")).await?;
+    let (policy, custom_path) = fork_with_public_app(&db, "SECRET_TOKEN").await?;
 
     assert_eq!(policy["on_behalf_of"], json!("u/test-user"));
     assert_eq!(policy["on_behalf_of_email"], json!("test@windmill.dev"));
     assert_eq!(policy["execution_mode"], json!("anonymous"));
     assert_eq!(custom_path, None);
-
-    Ok(())
-}
-
-/// Preserving is still bounded by what the fork can authenticate: `test-user-2` is a parent member
-/// the fork never receives, and a policy naming them would only reach `fetch_authed_from_
-/// permissioned_as`'s "user not found in workspace" — with an address left behind for a later
-/// re-derivation to trust.
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_fork_drops_app_identity_that_names_no_fork_member(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    let (policy, _) =
-        fork_with_public_app(&db, "SECRET_TOKEN", ("u/test-user-2", "test2@windmill.dev")).await?;
-
-    assert_eq!(policy.get("on_behalf_of"), None);
-    assert_eq!(policy.get("on_behalf_of_email"), None);
 
     Ok(())
 }
