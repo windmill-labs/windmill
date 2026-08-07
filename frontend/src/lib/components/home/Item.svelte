@@ -131,6 +131,7 @@
 		{depth}
 		bind:menuOpen
 		{keyboardSelected}
+		reserveSelectionGutter={!!homeSelection?.available}
 	/>
 {/if}
 

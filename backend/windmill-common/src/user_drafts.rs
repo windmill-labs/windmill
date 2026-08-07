@@ -160,6 +160,17 @@ impl UserDraftItemKind {
         }
     }
 
+    /// The `draft.value` key holding the user-typed target path — where a
+    /// deploy of this draft would land when the user staged a rename. A script
+    /// draft round-trips its own `path`; every other kind writes a separate
+    /// `draft_path`, and only when it differs from the row's path.
+    pub fn typed_path_field(&self) -> &'static str {
+        match self {
+            UserDraftItemKind::Script => "path",
+            _ => "draft_path",
+        }
+    }
+
     /// Whether OTHER users' drafts at a path are visible to a viewer (the
     /// "others are editing" list, owner circles, and the `get_draft_for_user`
     /// View JSON / Fork endpoint). Enabled only for the full-page editor items
@@ -476,6 +487,84 @@ pub async fn delete_own_draft_for_path(
     )
     .execute(db)
     .await?;
+    Ok(())
+}
+
+/// Carry every draft at `old_path` over to `new_path` when an item MOVES
+/// (rename or relocation). A draft is bound to its item by nothing but the path
+/// string, so without this a move detaches every draft on the item. No owner
+/// filter: teammates' rows and the legacy NULL-email row follow too.
+///
+/// `typed_path_field` is the draft JSON key holding the user-typed target path
+/// (`path` for scripts, `draft_path` for flows/apps). It is rewritten whenever
+/// present — a target staged against the old location would otherwise un-move
+/// the item the next time that draft is deployed. Absent means "same as the
+/// row's path", which the move already fixed.
+///
+/// `base_version` restamps the version the draft forked from so the carried
+/// draft doesn't read as stale against the version the move just created. The
+/// value is JSON text, because the kinds disagree on its type: a script's
+/// `parent_hash` is a hex string, a flow's `version_id` and an app's
+/// `parent_version` are numbers. Only restamps rows that already carry the
+/// field.
+///
+/// A row whose owner already has a draft at `new_path` stays put: the target
+/// draft is work in its own right and is never overwritten.
+pub async fn move_drafts_for_path(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    kinds: &[UserDraftItemKind],
+    old_path: &str,
+    new_path: &str,
+    typed_path_field: &str,
+    base_version: Option<(&str, String)>,
+) -> Result<()> {
+    let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    // `create_missing = false` on the typed path: absent means "same as the
+    // row's path", which `SET path` already points at `new_path`.
+    let moved = sqlx::query_scalar!(
+        r#"UPDATE draft AS d
+           SET path = $3,
+               value = to_json(
+                   jsonb_set(to_jsonb(d.value), ARRAY[$4::text], to_jsonb($3::text), false)
+               )
+           WHERE d.workspace_id = $1
+             AND d.path = $2
+             AND d.typ::text = ANY($5::text[])
+             AND NOT EXISTS (
+                 SELECT 1 FROM draft o
+                 WHERE o.workspace_id = d.workspace_id
+                   AND o.path = $3
+                   AND o.typ = d.typ
+                   AND o.email IS NOT DISTINCT FROM d.email
+             )
+           RETURNING d.id"#,
+        w_id,
+        old_path,
+        new_path,
+        typed_path_field,
+        &typs as &[&str],
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    if let Some((field, version)) = base_version {
+        if !moved.is_empty() {
+            sqlx::query!(
+                r#"UPDATE draft
+                   SET value = to_json(
+                       jsonb_set(to_jsonb(value), ARRAY[$1::text], $2::text::jsonb, false)
+                   )
+                   WHERE id = ANY($3)"#,
+                field,
+                version,
+                &moved,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
     Ok(())
 }
 

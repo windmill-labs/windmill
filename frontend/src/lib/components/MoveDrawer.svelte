@@ -8,11 +8,19 @@
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
-	import { FlowService, ScriptService, type TriggersCount } from '$lib/gen'
+	import { DraftService, FlowService, ScriptService, type TriggersCount } from '$lib/gen'
 
 	const dispatch = createEventDispatcher()
 
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
+
+	/** Where a draft-only item's draft row actually lives. It is parked at a
+	 * generated path while the drawer edits the name the user sees, so the two
+	 * can't be the same string. Empty for a deployed item, which is addressed by
+	 * `initialPath` throughout. */
+	let storagePath = $state('')
+	let rawApp = $state(false)
+	let draftOnly = $derived(storagePath !== '')
 
 	let kind = $state<Kind>('flow')
 	let initialPath = $state('')
@@ -66,21 +74,31 @@
 	})
 	let attachedTotal = $derived(attachedSummary.reduce((s, { count }) => s + count, 0))
 
+	/** `draft` marks an item that exists only as the caller's draft: pass the
+	 * generated path its draft row sits at, and `initialPath_l` is then the name
+	 * the user sees. Nothing is deployed, so there are no triggers to cascade
+	 * and no on-behalf-of identity to warn about. */
 	export async function openDrawer(
 		initialPath_l: string,
 		summary_l: string | undefined,
-		kind_l: Kind
+		kind_l: Kind,
+		draft?: { storagePath: string; rawApp?: boolean }
 	) {
 		kind = kind_l
 		path = undefined
 		dirtyPath = false
 		onBehalfOfEmail = undefined
 		attachedTriggers = undefined
+		storagePath = draft?.storagePath ?? ''
+		rawApp = draft?.rawApp ?? false
 		initialPath = initialPath_l
 		initialSummary = summary_l ?? ''
 		summary = summary_l
 		loadOwner()
 		drawer.openDrawer()
+		if (draftOnly) {
+			return
+		}
 		if (kind === 'flow') {
 			onBehalfOfEmail = await checkFlowOnBehalfOf($workspaceStore!, initialPath_l)
 		}
@@ -103,11 +121,18 @@
 	}
 
 	function loadOwner() {
-		own = isOwner(initialPath, $userStore!, $workspaceStore!)
+		own = isOwner(draftOnly ? storagePath : initialPath, $userStore!, $workspaceStore!)
 	}
 
 	async function updatePath() {
-		if (kind === 'flow' || kind === 'script' || kind === 'app') {
+		if (draftOnly && (kind === 'flow' || kind === 'script' || kind === 'app')) {
+			await DraftService.moveDraft({
+				workspace: $workspaceStore!,
+				kind: kind === 'app' && rawApp ? 'raw_app' : kind,
+				path: storagePath,
+				requestBody: { new_path: path ?? '', summary: summary ?? '' }
+			})
+		} else if (kind === 'flow' || kind === 'script' || kind === 'app') {
 			await updateItemPathAndSummary({
 				workspace: $workspaceStore!,
 				kind,

@@ -20,7 +20,6 @@
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
-		CheckSquare,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -58,6 +57,7 @@
 	import { base } from '$lib/base'
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { SELECTION_GUTTER_CLASS } from '../common/table/rowSelection'
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
@@ -1607,7 +1607,7 @@
 			<div class="mt-10"></div>
 		{/if}
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-6">
+			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-7">
 				<Popover floatingConfig={{ placement: 'bottom-end' }}>
 					{#snippet trigger()}
 						<Button
@@ -1616,10 +1616,8 @@
 							}}
 							nonCaptureEvent
 							iconOnly
-							size="xs"
-							color="light"
-							variant="default"
-							spacingSize="xs2"
+							unifiedSize="sm"
+							variant="subtle"
 						/>
 					{/snippet}
 					{#snippet content()}
@@ -1661,10 +1659,8 @@
 							nonCaptureEvent
 							disabled={filter !== ''}
 							iconOnly={short === ''}
-							size="xs"
-							color="light"
-							variant="default"
-							spacingSize="xs2"
+							unifiedSize="sm"
+							variant="subtle"
 							startIcon={{ icon: ArrowDownUp }}
 							title={filter !== ''
 								? 'Sorting is disabled while searching (results are ranked by relevance)'
@@ -1689,21 +1685,6 @@
 							Collapse all
 						{/if}
 					</Button>
-				{/if}
-				{#if homeSelection.available && !homeSelection.active}
-					<!-- Last child of a flex-row-reverse row, so `mr-auto` absorbs the free
-					     space and pins it to the far left, away from the view/sort controls. -->
-					<Button
-						wrapperClasses="mr-auto"
-						startIcon={{ icon: CheckSquare }}
-						iconOnly
-						size="xs"
-						color="light"
-						variant="default"
-						spacingSize="xs2"
-						title="Select items — move, archive, delete or discard several at once"
-						on:click={() => homeSelection.enter()}
-					/>
 				{/if}
 			</div>
 		{/if}
@@ -1769,6 +1750,9 @@
 							href="{base}/pipeline/{encodeURIComponent(folder)}"
 							class="w-full inline-flex items-center gap-4 px-4 py-3 border-b last:border-b-0 hover:bg-surface-hover transition-colors text-sm first-of-type:rounded-t-md"
 						>
+							{#if homeSelection.available}
+								<div class={SELECTION_GUTTER_CLASS}></div>
+							{/if}
 							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
 							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>
 						</a>
