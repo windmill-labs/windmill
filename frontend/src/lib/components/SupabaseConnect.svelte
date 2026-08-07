@@ -24,6 +24,7 @@
 		generateDbPassword,
 		listSupabaseOrgs,
 		orgSlug,
+		supabaseResourceValue,
 		waitUntilSupabaseHealthy,
 		type SupabaseOrg
 	} from './workspaceSettings/supabaseProvisioning'
@@ -100,7 +101,8 @@
 				selectedDatabase = (await waitUntilSupabaseHealthy(
 					token,
 					created.id ?? (created as any).ref,
-					(st) => (createStatus = `Waiting for Supabase to finish provisioning${st ? ` (${st})` : ''}...`)
+					(st) =>
+						(createStatus = `Waiting for Supabase to finish provisioning${st ? ` (${st})` : ''}...`)
 				)) as any
 			} catch (err) {
 				sendUserToast(
@@ -132,19 +134,9 @@
 	let password = $state('')
 	let path: string | undefined = $state(undefined)
 
-	/**
-	 * https://github.com/orgs/supabase/discussions/17817
-	 * host is in the format of `aws-0-${region}.pooler.supabase.com`
-	 * user is in the format of `postgres.${id}`
-	 */
-	let resourceValue = $derived.by(() => ({
-		host: `aws-0-${selectedDatabase?.region}.pooler.supabase.com`,
-		user: `postgres.${selectedDatabase?.id}`,
-		port: 5432,
-		dbname: 'postgres',
-		sslmode: 'prefer',
-		password: `$var:${path}`
-	}))
+	let resourceValue = $derived(
+		selectedDatabase ? supabaseResourceValue(selectedDatabase, path ?? '') : undefined
+	)
 	let disabled = $derived(path == undefined || pathError != '' || path == '')
 
 	const dispatch = createEventDispatcher()
