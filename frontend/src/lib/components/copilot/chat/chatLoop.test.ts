@@ -339,6 +339,43 @@ describe('runChatLoop onBeforeIteration web search sync', () => {
 		expect(seen).toEqual([true, false])
 	})
 
+	it('sends the corrected system message on the fallback retry, not the rejected one', async () => {
+		let systemMessage: ChatLoopConfig['systemMessage'] = {
+			role: 'system',
+			content: 'search the web'
+		}
+
+		mocks.getOpenAIResponsesCompletion
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Hosted tool 'web_search' is not supported with this model"), {
+					status: 400,
+					error: { type: 'invalid_request_error' }
+				})
+			)
+			.mockResolvedValue({})
+
+		await runChatLoop(
+			createConfig({
+				workspace: `workspace-${randomUUID()}`,
+				getSystemMessage: () => systemMessage,
+				// Production drops the guidance here; the retry must pick that up.
+				onWebSearchUnavailable: () => {
+					systemMessage = { role: 'system', content: 'no web search' }
+				}
+			})
+		)
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][0][0]).toEqual({
+			role: 'system',
+			content: 'search the web'
+		})
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][0][0]).toEqual({
+			role: 'system',
+			content: 'no web search'
+		})
+	})
+
 	it('sends the system message the callback rewrote on this iteration, not the next', async () => {
 		let systemMessage: ChatLoopConfig['systemMessage'] = { role: 'system', content: 'stale' }
 		const config = createConfig({

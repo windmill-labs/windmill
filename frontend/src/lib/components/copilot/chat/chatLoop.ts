@@ -71,11 +71,9 @@ export interface ChatLoopConfig {
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
 	/** Called before each iteration (e.g. to refresh tool schemas, or to record
-	 * which model the iteration is about to use). `webSearch` is the effective
-	 * value for this iteration — static gates and the runtime probe both applied —
-	 * so a caller whose system prompt advertises web search can resync here. The
-	 * system message is read after this returns, so such a resync lands on this
-	 * iteration rather than the next. */
+	 * which model it is about to use). `webSearch` is this iteration's effective
+	 * value, and the system message is read after this returns, so a caller whose
+	 * prompt advertises web search can resync it in time for this request. */
 	onBeforeIteration?: (
 		tools: Tool<any>[],
 		helpers: any,
@@ -388,11 +386,18 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const visibleMessages = modelSupportsVision(modelProvider.provider, modelProvider.model)
 			? boundImagePartBytes(messages)
 			: stripImagePartsFromMessages(messages)
-		const messageParams = [
-			systemMessage,
+		const sanitizedMessages = [
 			...sanitizeToolCallArguments(visibleMessages),
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
+		// Rebuilt per attempt so a web-search fallback retry picks up a system message
+		// the rejection just corrected; reusing the first attempt's array would resend
+		// guidance for a tool the retry deliberately drops.
+		const messageParamsFor = (currentSystemMessage: ChatCompletionSystemMessageParam) => [
+			currentSystemMessage,
+			...sanitizedMessages
+		]
+		const messageParams = messageParamsFor(systemMessage)
 		const toolDefs = tools.map((t) => t.def)
 		const parseOptions = { workspace, provider: modelProvider.provider }
 
@@ -414,7 +419,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 			const runOpenAIResponses = async (useWebSearch: boolean): Promise<boolean> => {
 				const completion = await getOpenAIResponsesCompletion(
-					messageParams,
+					messageParamsFor(useWebSearch === webSearch ? systemMessage : config.systemMessage),
 					abortController,
 					toolDefs,
 					{
@@ -517,7 +522,10 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			}
 		} else if (isAnthropic) {
 			const runAnthropic = async (useWebSearch: boolean): Promise<boolean> => {
-				const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs, {
+				const attemptParams = messageParamsFor(
+					useWebSearch === webSearch ? systemMessage : config.systemMessage
+				)
+				const completion = await getAnthropicCompletion(attemptParams, abortController, toolDefs, {
 					forceModelProvider: modelProvider,
 					anthropicClient: clients.anthropic,
 					webSearch: useWebSearch,

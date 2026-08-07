@@ -1846,7 +1846,8 @@ export class AIChatManager {
 	private configureGlobalMode = () => {
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
-			skills: this.globalSkills
+			skills: this.globalSkills,
+			webSearch: this.globalWebSearchAdvertised
 		})
 		const sessionCtx = this.sessionContextResolver?.()
 		if (sessionCtx) {
@@ -1929,7 +1930,10 @@ export class AIChatManager {
 		}
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
-			skills: this.globalSkills
+			skills: this.globalSkills,
+			// Carry the loop's observed availability: re-deriving would lose a runtime
+			// rejection, which the static provider/settings gates cannot see.
+			webSearch: this.globalWebSearchAdvertised
 		})
 		// Preserve the session-state and active pipeline-editor augmentations that
 		// configureGlobalMode adds — otherwise update_user_instructions (which calls
@@ -3151,6 +3155,9 @@ export class AIChatManager {
 				addedMessages: collectedMessages,
 				onWebSearchUnavailable: () => {
 					webSearchUnavailable = true
+					// The loop drops the tool for the rest of this workspace+model; drop the
+					// guidance with it so the retry and later turns stop advertising it.
+					this.syncGlobalWebSearchGuidance(false)
 				}
 			})
 			const wasAborted = this.abortController?.signal.aborted ?? false

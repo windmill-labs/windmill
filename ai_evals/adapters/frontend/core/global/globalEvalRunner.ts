@@ -180,11 +180,9 @@ export async function runGlobalEval(
       systemMessage: prepareGlobalSystemMessage(undefined, {
         user: options.user,
         previewTools: options.sessionChat ?? false,
-        // Derived from the model under test rather than left to the production
-        // default, which reads the copilot model store the harness deliberately
-        // leaves empty — that would resolve false and hide guidance the benchmarked
-        // provider does serve. Mirrors runChatLoop's gate so a Gemini or DeepSeek
-        // run is never told to use a tool the loop will not hand it.
+        // Mirrors runChatLoop's gate. The production default reads the copilot model
+        // store, which the harness leaves empty, so it would hide guidance every
+        // benchmarked provider actually serves.
         webSearch: providerSupportsWebSearch(options.provider),
       }),
       userMessage: prepareGlobalUserMessage(
