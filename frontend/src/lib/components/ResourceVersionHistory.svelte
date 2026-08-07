@@ -38,10 +38,9 @@
 	let currentValue = $state<string>('')
 	let view = $state<'value' | 'diff'>('value')
 	let restoring = $state(false)
-	// Compared rather than inferred from position: the newest version should always equal the live
-	// value (the trigger records every write), so diffing it would show nothing — but if they ever
-	// do drift, offering the diff is more useful than hiding it on an assumption.
-	let matchesCurrent = $derived(loaded?.value === currentValue)
+	// The newest version holds the live value — recording is a database trigger, so every write
+	// mints one — which makes a diff of it against current necessarily empty.
+	let isCurrent = $derived(loaded !== undefined && versions?.[0]?.id === loaded.id)
 	let clearing = $state(false)
 	let confirmingClear = $state(false)
 
@@ -188,8 +187,8 @@
 		{:else}
 			<div class="flex flex-col h-full">
 				<div class="flex flex-row justify-between items-center gap-2 p-2 border-b">
-					{#if matchesCurrent}
-						<span class="text-2xs text-tertiary">Matches the current value</span>
+					{#if isCurrent}
+						<span class="text-2xs text-tertiary">This is the current value</span>
 					{:else}
 						<ToggleButtonGroup bind:selected={view}>
 							{#snippet children({ item })}
@@ -202,10 +201,7 @@
 						size="xs"
 						variant="default"
 						startIcon={{ icon: RotateCcw }}
-						disabled={restoring ||
-						!canRestore ||
-						loaded.id !== selectedId ||
-						versions?.[0]?.id === loaded.id}
+						disabled={restoring || !canRestore || loaded.id !== selectedId || isCurrent}
 						onclick={restore}
 					>
 						Restore this version
@@ -222,7 +218,7 @@
 				{/if}
 
 				<div class="grow min-h-0">
-					{#if view === 'diff' && !matchesCurrent}
+					{#if view === 'diff' && !isCurrent}
 						<!-- Imported on demand: the diff is the only thing here that needs Monaco, and
 						     pulling it in on open would load the editor for everyone who just wants to
 						     read a value. -->
