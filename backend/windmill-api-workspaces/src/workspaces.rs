@@ -11709,9 +11709,25 @@ async fn prune_versions(
 
             deleted.rows_affected()
         }
+        "resources" => {
+            // No `versions` array to rewrite afterwards, unlike flows and apps: the latest
+            // version is whichever row has the highest id for the path.
+            let deleted = sqlx::query(
+                "DELETE FROM resource_version rv
+                WHERE rv.workspace_id = $1
+                AND rv.id != (
+                    SELECT max(id) FROM resource_version l
+                    WHERE l.workspace_id = rv.workspace_id AND l.path = rv.path
+                )",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+            deleted.rows_affected()
+        }
         _ => {
             return Err(Error::BadRequest(format!(
-                "Invalid resource type '{}'. Must be 'scripts', 'flows', or 'apps'",
+                "Invalid resource type '{}'. Must be 'scripts', 'flows', 'apps', or 'resources'",
                 req.resource_type
             )));
         }

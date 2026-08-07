@@ -50,6 +50,18 @@ tool starting can run the changed definition, or fail if the tool was removed. P
 carrying the resolved definition into the child job rather than its id. Inline (unlinked) agents are
 unaffected: their tools live in the flow value, which is snapshotted with the run.
 
+## Version history
+
+Editing a resource appends a row to `resource_version` (all types except `state` and `cache`,
+which the platform rewrites on every job), so an agent's prompt, model and tool set can be
+diffed and restored from the resource editor's History drawer. Restoring writes the old value
+forward as a new version rather than rewinding, keeping the history append-only.
+
+History captures the resource, not its transitive closure. A `$var:`/`$res:` reference is stored
+as the reference, so two versions can be byte-identical while the agent behaves differently
+because the referenced variable changed underneath them. Anything comparing agent runs across
+versions has to account for that.
+
 ## Dependencies and locks
 
 A linked step carries `tools: []`, and no dependency job ever visits the `ai_agent` resource, so the

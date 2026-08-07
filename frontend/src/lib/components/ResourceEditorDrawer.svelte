@@ -3,10 +3,14 @@
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
-	import { Loader2, Save } from 'lucide-svelte'
+	import { History, Loader2, Save } from 'lucide-svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
+	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
+	import { createEventDispatcher } from 'svelte'
+
+	const dispatch = createEventDispatcher()
 
 	let {
 		workspace = undefined,
@@ -14,6 +18,7 @@
 	}: { workspace?: string; disableChatOffset?: boolean } = $props()
 
 	let drawer: Drawer | undefined = $state()
+	let historyDrawer: Drawer | undefined = $state()
 	let canSave = $state(true)
 	let resource_type: string | undefined = $state(undefined)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
@@ -89,6 +94,14 @@
 		{/snippet}
 		{#snippet actions()}
 			{#if mode == 'edit' && path && effectiveWorkspace}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: History }}
+					on:click={() => historyDrawer?.openDrawer()}
+				>
+					History
+				</Button>
 				<WsSpecificVersions
 					kind="resource"
 					workspaceId={effectiveWorkspace}
@@ -109,5 +122,20 @@
 				Save
 			</Button>
 		{/snippet}
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={historyDrawer} size="60rem">
+	<DrawerContent title="History of {path}" on:close={historyDrawer?.closeDrawer}>
+		{#if path && effectiveWorkspace}
+			<ResourceVersionHistory
+				{path}
+				workspace={effectiveWorkspace}
+				onRestore={() => {
+					historyDrawer?.closeDrawer()
+					dispatch('refresh')
+				}}
+			/>
+		{/if}
 	</DrawerContent>
 </Drawer>
