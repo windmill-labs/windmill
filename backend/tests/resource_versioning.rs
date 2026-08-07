@@ -113,6 +113,63 @@ async fn test_resource_version_history(db: Pool<Postgres>) -> anyhow::Result<()>
     Ok(())
 }
 
+/// A version's reported dangling references. Pins that `$jsonvar:` is matched on its own prefix
+/// rather than colliding with `$var:` — the two share a suffix, so a check written with a
+/// substring test instead of a prefix test would report every `$jsonvar:` as missing.
+#[sqlx::test(fixtures("resource_versioning"))]
+async fn test_missing_references(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api/w/rver-ws", server.addr.port());
+    let path = "u/rver-admin/refs";
+
+    authed(client().post(format!("{base}/variables/create")))
+        .json(&json!({
+            "path": "u/rver-admin/present",
+            "value": "v",
+            "is_secret": false,
+            "description": ""
+        }))
+        .send()
+        .await?;
+
+    authed(client().post(format!("{base}/resources/create")))
+        .json(&json!({
+            "path": path,
+            "value": {
+                "a": "$jsonvar:u/rver-admin/present",
+                "b": "$jsonvar:u/rver-admin/absent",
+                "c": "$var:u/rver-admin/present",
+                "d": "$res:u/rver-admin/absent"
+            },
+            "resource_type": "postgresql"
+        }))
+        .send()
+        .await?;
+
+    let id = history(&base, path).await?[0]["id"].as_i64().unwrap();
+    let version: Value = authed(client().get(format!("{base}/resources/history/v/{id}")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let mut missing: Vec<&str> = version["missing_references"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    missing.sort();
+
+    assert_eq!(
+        missing,
+        vec!["$jsonvar:u/rver-admin/absent", "$res:u/rver-admin/absent"],
+        "only the references that do not resolve should be reported"
+    );
+
+    Ok(())
+}
+
 /// Writes that bypass the resource handlers entirely. A variable rename changes a linked
 /// resource's path and value in one statement; the cascading FK moves the history to the new
 /// path, so without trigger-level recording the newest row would keep the pre-rename value and

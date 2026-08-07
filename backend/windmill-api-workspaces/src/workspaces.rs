@@ -11582,12 +11582,10 @@ async fn get_cloud_quotas(
     .await?
     .unwrap_or(0);
 
+    // Every path keeps exactly one current version, so the prunable count is the total minus
+    // the number of distinct paths — one scan rather than a probe per row.
     let resources_prunable = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM resource_version rv
-        WHERE rv.workspace_id = $1 AND rv.id != (
-            SELECT max(id) FROM resource_version l
-            WHERE l.workspace_id = rv.workspace_id AND l.path = rv.path
-        )",
+        "SELECT COUNT(*) - COUNT(DISTINCT path) FROM resource_version WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&db)
@@ -11725,11 +11723,11 @@ async fn prune_versions(
             // No `versions` array to rewrite afterwards, unlike flows and apps: the latest
             // version is whichever row has the highest id for the path.
             let deleted = sqlx::query(
-                "DELETE FROM resource_version rv
-                WHERE rv.workspace_id = $1
-                AND rv.id != (
-                    SELECT max(id) FROM resource_version l
-                    WHERE l.workspace_id = rv.workspace_id AND l.path = rv.path
+                "DELETE FROM resource_version
+                WHERE workspace_id = $1
+                AND id NOT IN (
+                    SELECT max(id) FROM resource_version
+                    WHERE workspace_id = $1 GROUP BY path
                 )",
             )
             .bind(&w_id)

@@ -89,8 +89,11 @@ BEGIN
     RETURN NEW;
 END;
 -- SECURITY DEFINER so history is written on behalf of every writer, including the read-only
--- policy above, without granting anyone direct write access to the table.
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- policy above, without granting anyone direct write access to the table. `SET search_path FROM
+-- CURRENT` is the injection hardening that goes with it, captured rather than hardcoded so
+-- installs running a non-public PG_SCHEMA still resolve (see
+-- 20260624103600_repair_folder_labels_search_path.up.sql).
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path FROM CURRENT;
 
 -- Split in two, and gated in WHEN rather than in the function body, so the rows that never
 -- produce a version never enter plpgsql at all: `state`/`cache` writes (one per setState and

@@ -7752,6 +7752,21 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ResourceVersion"
+    delete:
+      summary: clear a resource's past versions, keeping only the current value
+      operationId: clearResourceHistory
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: history cleared
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/resources/history/v/{version}:
     get:

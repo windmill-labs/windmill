@@ -8,7 +8,7 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { AlertTriangle, Code, Diff, History, RotateCcw } from 'lucide-svelte'
+	import { AlertTriangle, Code, Diff, History, RotateCcw, Trash2 } from 'lucide-svelte'
 	import { displayDate } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 
@@ -33,6 +33,8 @@
 	let currentValue = $state<string>('')
 	let view = $state<'value' | 'diff'>('value')
 	let restoring = $state(false)
+	let clearing = $state(false)
+	let confirmingClear = $state(false)
 
 	function pretty(value: unknown): string {
 		return JSON.stringify(value ?? null, null, 2)
@@ -84,6 +86,18 @@
 		}
 	}
 
+	async function clearHistory() {
+		clearing = true
+		try {
+			await ResourceService.clearResourceHistory({ workspace: effectiveWorkspace, path })
+			sendUserToast(`Cleared past versions of ${path}`)
+			confirmingClear = false
+			await loadVersions()
+		} finally {
+			clearing = false
+		}
+	}
+
 	$effect(() => {
 		if (path && effectiveWorkspace) {
 			loadVersions()
@@ -104,6 +118,33 @@
 				No history yet. Versions are recorded from the next edit onwards.
 			</div>
 		{:else}
+			{#if versions.length > 1}
+				<div class="px-3 py-2 border-b">
+					{#if confirmingClear}
+						<p class="text-2xs text-tertiary mb-2">
+							Delete every past version, keeping only the current value? Past values can no
+							longer be compared or restored.
+						</p>
+						<div class="flex flex-row gap-2">
+							<Button size="xs" variant="accent" disabled={clearing} onclick={clearHistory}>
+								{clearing ? 'Clearing' : 'Confirm'}
+							</Button>
+							<Button size="xs" variant="default" onclick={() => (confirmingClear = false)}>
+								Cancel
+							</Button>
+						</div>
+					{:else}
+						<Button
+							size="xs"
+							variant="default"
+							startIcon={{ icon: Trash2 }}
+							onclick={() => (confirmingClear = true)}
+						>
+							Clear past versions
+						</Button>
+					{/if}
+				</div>
+			{/if}
 			<ul class="divide-y">
 				{#each versions as version, index (version.id)}
 					<li>

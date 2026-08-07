@@ -74,7 +74,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/update/{*path}", post(update_resource))
         .route("/update_value/{*path}", post(update_resource_value))
-        .route("/history/p/{*path}", get(get_resource_history))
+        .route(
+            "/history/p/{*path}",
+            get(get_resource_history).delete(clear_resource_history),
+        )
         .route("/history/v/{version}", get(get_resource_version))
         .route(
             "/history/restore/v/{version}",
@@ -2148,14 +2151,15 @@ async fn missing_references(
     value: Option<&serde_json::Value>,
 ) -> Result<Vec<String>> {
     const VAR_PREFIXES: [&str; 2] = ["$var:", "$jsonvar:"];
+    const RES_PREFIX: &str = "$res:";
 
     let mut refs: Vec<String> = vec![];
     fn collect(v: &serde_json::Value, out: &mut Vec<String>) {
         match v {
+            // Stated once: adding a form to the consts above must not need a second edit here,
+            // or the new form would be collected but never checked (or the reverse).
             serde_json::Value::String(s)
-                if s.starts_with("$var:")
-                    || s.starts_with("$jsonvar:")
-                    || s.starts_with("$res:") =>
+                if VAR_PREFIXES.iter().any(|p| s.starts_with(p)) || s.starts_with(RES_PREFIX) =>
             {
                 out.push(s.clone())
             }
@@ -2176,7 +2180,7 @@ async fn missing_references(
         match VAR_PREFIXES.iter().find_map(|p| r.strip_prefix(p)) {
             Some(p) => var_paths.push(p.to_string()),
             None => {
-                if let Some(p) = r.strip_prefix("$res:") {
+                if let Some(p) = r.strip_prefix(RES_PREFIX) {
                     res_paths.push(p.to_string())
                 }
             }
@@ -2203,7 +2207,7 @@ async fn missing_references(
         .filter(
             |r| match VAR_PREFIXES.iter().find_map(|p| r.strip_prefix(p)) {
                 Some(p) => !existing_vars.iter().any(|e| e == p),
-                None => match r.strip_prefix("$res:") {
+                None => match r.strip_prefix(RES_PREFIX) {
                     Some(p) => !existing_res.iter().any(|e| e == p),
                     None => false,
                 },
@@ -2240,6 +2244,72 @@ async fn get_resource_version(
         value: row.value,
         missing_references: missing,
     }))
+}
+
+/// Drop every version of a resource except the one matching its current value.
+///
+/// The remediation for a credential that was stored inline in a resource value (which `wmill`
+/// pushes and `setResource` writes can do, unlike the UI form) and has since been rotated:
+/// without this, rotating leaves the old secret readable in the history by anyone who can read
+/// the resource. All-but-current rather than per-version because such a secret sits in every
+/// version from its introduction to the rotation, so deleting them one at a time would silently
+/// leave copies behind.
+async fn clear_resource_history(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
+    require_owner_of_path(&authed, path)?;
+
+    // Confirm the caller can see the resource under their own RLS before deleting anything with
+    // the unrestricted pool — resource_version grants users SELECT only, so the delete cannot run
+    // through user_db.
+    let mut tx = user_db.begin(&authed).await?;
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)",
+        w_id,
+        path
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    if !exists.unwrap_or(false) {
+        return Err(Error::NotFound(format!("Resource {} not found", path)));
+    }
+
+    let mut tx = db.begin().await?;
+    let deleted = sqlx::query!(
+        "DELETE FROM resource_version rv
+         WHERE rv.workspace_id = $1 AND rv.path = $2
+           AND rv.id != (
+               SELECT max(id) FROM resource_version l
+               WHERE l.workspace_id = rv.workspace_id AND l.path = rv.path
+           )",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resources.clear_history",
+        ActionKind::Delete,
+        &w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!(
+        "cleared {} past versions of resource {}",
+        deleted.rows_affected(),
+        path
+    ))
 }
 
 async fn restore_resource_version(
