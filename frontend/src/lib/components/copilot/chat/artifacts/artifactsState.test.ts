@@ -191,6 +191,50 @@ describe('SessionArtifactsStore', () => {
 		expect((await store.update(created.id, { content: '' }))?.content).toBe('')
 	})
 
+	it('snapshots a version per content change, and none for a rename', async () => {
+		await store.setSession('s1')
+		const created = await store.create('s1', { name: 'Plan', content: 'v1' })
+
+		await store.update(created.id, { content: 'v2', note: 'Added a rollback step' })
+		// Neither a rename nor a rewrite to the identical content is a new version.
+		await store.update(created.id, { name: 'Renamed', note: 'ignored' })
+		await store.update(created.id, { content: 'v2', note: 'ignored' })
+
+		const versions = await store.listVersions(created.id)
+		expect(versions.map((v) => [v.version, v.content, v.note])).toEqual([
+			[2, 'v2', 'Added a rollback step'],
+			[1, 'v1', undefined]
+		])
+		expect((await store.get(created.id))?.version).toBe(2)
+		expect((await store.getVersion(created.id, 1))?.content).toBe('v1')
+	})
+
+	it('keeps a legacy v1 when a rename lands before the first content edit', async () => {
+		await dbMod.putArtifact(mk({ id: 'legacy', content: 'original' }))
+		await store.setSession('s1')
+
+		// The rename stamps `version`, after which nothing else would recognise this as a
+		// pre-history artifact — so its v1 has to be captured here or it is lost for good.
+		await store.update('legacy', { name: 'Renamed' })
+		await store.update('legacy', { content: 'edited', note: 'Rewrote it' })
+
+		expect((await store.listVersions('legacy')).map((v) => [v.version, v.content])).toEqual([
+			[2, 'edited'],
+			[1, 'original']
+		])
+	})
+
+	it('reads an artifact stored before history existed as its own version 1', async () => {
+		await dbMod.putArtifact(mk({ id: 'legacy', content: 'only' }))
+		await store.setSession('s1')
+
+		expect(await store.listVersions('legacy')).toMatchObject([{ version: 1, content: 'only' }])
+		expect((await store.getVersion('legacy', 1))?.content).toBe('only')
+		// Its first edit still lands as v2, so version numbers stay monotonic.
+		await store.update('legacy', { content: 'edited' })
+		expect((await store.listVersions('legacy')).map((v) => v.version)).toEqual([2, 1])
+	})
+
 	it('remove deletes from the DB and the loaded list', async () => {
 		await store.setSession('s1')
 		const created = await store.create('s1', { name: 'Plan', content: 'x' })
