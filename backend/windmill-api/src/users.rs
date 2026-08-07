@@ -21,7 +21,9 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::Deserialize;
-use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin};
+use windmill_api_auth::{
+    forbid_elevated_job_token, forbid_superadmin_job_token, require_super_admin,
+};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
@@ -115,7 +117,7 @@ async fn list_ext_jwt_tokens(
     Extension(db): Extension<DB>,
     Query(query): Query<ListExtJwtTokensQuery>,
 ) -> Result<Json<Vec<ExternalJwtToken>>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let (per_page, offset) = windmill_common::utils::paginate(windmill_common::utils::Pagination {
         page: query.page,
@@ -146,7 +148,10 @@ async fn set_password(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    // Choosing the password of the elevated account this job runs as is a credential
+    // mint by another name: logging in with it yields a session with no `job_id`
+    // (GHSA-hfh4-cx4h-3fcr).
+    forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     let email = authed.email.clone();
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
@@ -159,7 +164,7 @@ async fn set_password_of_user(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
@@ -176,7 +181,7 @@ async fn rename_user(
     Extension(db): Extension<DB>,
     Json(ru): Json<RenameUser>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let mut tx = db.begin().await?;

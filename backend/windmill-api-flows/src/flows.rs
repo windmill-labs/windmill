@@ -578,8 +578,7 @@ async fn create_flow(
 
     // Apply folder default_permissioned_as on create when the caller did not
     // explicitly preserve a value and the user can preserve.
-    let explicit_preserve = (nf.on_behalf_of_email.is_some()
-        || nf.on_behalf_of.is_some())
+    let explicit_preserve = (nf.on_behalf_of_email.is_some() || nf.on_behalf_of.is_some())
         && nf.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
@@ -599,16 +598,15 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
-    let resolved_on_behalf_of =
-        windmill_common::resolve_on_behalf_of(
-            nf.on_behalf_of_email.as_deref(),
-            nf.on_behalf_of.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-            &w_id,
-            &db,
-        )
-        .await?;
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
     // Written beside the principal only while a worker that still reads it may be live.
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
@@ -1126,16 +1124,15 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     let is_new_path = nf.path != flow_path;
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
-    let resolved_on_behalf_of =
-        windmill_common::resolve_on_behalf_of(
-            nf.on_behalf_of_email.as_deref(),
-            nf.on_behalf_of.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-            &w_id,
-            &db,
-        )
-        .await?;
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
     // Written beside the principal only while a worker that still reads it may be live.
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)

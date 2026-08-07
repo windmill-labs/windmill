@@ -1,9 +1,8 @@
-use windmill_api_auth::{check_scopes, ApiAuthed};
+use windmill_api_auth::{check_scopes, is_instance_admin, require_instance_admin, ApiAuthed};
 use windmill_common::{
     db::{UserDB, DB},
     error::Error::PermissionDenied,
     error::{self, JsonResult},
-    utils::require_admin,
 };
 
 use crate::query::{filter_list_completed_query, filter_list_queue_query};
@@ -43,7 +42,9 @@ async fn list_concurrency_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<ConcurrencyGroups>> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Instance-global: the listing spans every workspace's concurrency keys, so a job
+    // token's workspace-admin claim must not reach it (mirrors the prune route below).
+    require_instance_admin(&authed)?;
 
     let concurrency_counts = sqlx::query_as::<_, (String, i64)>(
         "SELECT concurrency_id, (select COUNT(*) from jsonb_object_keys(job_uuids)) as n_job_uuids FROM concurrency_counter",
@@ -66,7 +67,9 @@ async fn prune_concurrency_group(
     Extension(db): Extension<DB>,
     Path(concurrency_key): Path<String>,
 ) -> JsonResult<()> {
-    if !authed.is_admin {
+    // Global concurrency-group pruning gated on the caller's own is_admin claim,
+    // so a job token (capped at workspace admin) must not pass.
+    if !is_instance_admin(&authed) {
         return Err(PermissionDenied(
             "Only administrators can delete concurrency groups".to_string(),
         ));
@@ -282,7 +285,8 @@ async fn get_concurrent_intervals(
         // This second transaction uses the db, so it will fetch information
         // potentially forbidden to the user. It must be obscured before
         // returning it
-        let running_jobs_db: Vec<UnifiedJob> = if lq.success.is_none() && lq.resolved != Some(true) {
+        let running_jobs_db: Vec<UnifiedJob> = if lq.success.is_none() && lq.resolved != Some(true)
+        {
             sqlx::query_as(&sql_q).fetch_all(&db).await?
         } else {
             vec![]

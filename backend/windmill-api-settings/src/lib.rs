@@ -50,7 +50,6 @@ use windmill_common::secret_backend::{
     AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
 };
 use windmill_common::{
-    auth::is_super_admin_email,
     ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
     error::{self, pg_error_message, JsonResult, Result},
@@ -236,7 +235,7 @@ pub async fn test_email(
     authed: ApiAuthed,
     Json(test_email): Json<TestEmail>,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let smtp = test_email.smtp;
     let to = test_email.to;
 
@@ -273,7 +272,7 @@ pub async fn test_s3_bucket(
     // local-filesystem surface (see validate_object_storage_test). On self-hosted instances the
     // object store usually lives on the local/private network and all authenticated users are
     // trusted, so testing there stays unrestricted. Super admins keep the unrestricted path too.
-    let is_super_admin = is_super_admin_email(&db, &authed.email).await?;
+    let is_super_admin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
     let restrict = !is_super_admin && *CLOUD_HOSTED;
     if restrict {
         validate_object_storage_test(&test_s3_bucket).await?;
@@ -573,7 +572,7 @@ async fn get_object_storage_usage(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::JsonResult<Option<storage_usage::StorageUsageProgress>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     Ok(Json(storage_usage::get_status(&db).await?))
 }
 
@@ -582,7 +581,7 @@ async fn compute_object_storage_usage(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::Result<axum::http::StatusCode> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     storage_usage::try_start(&db).await?;
     storage_usage::spawn_compute(db.clone());
     Ok(axum::http::StatusCode::ACCEPTED)
@@ -593,7 +592,7 @@ async fn run_log_cleanup(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::Result<axum::http::StatusCode> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     log_cleanup::try_start(&db).await?;
     log_cleanup::spawn_cleanup(db.clone());
     Ok(axum::http::StatusCode::ACCEPTED)
@@ -604,7 +603,7 @@ async fn log_cleanup_status(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::JsonResult<Option<log_cleanup::LogCleanupProgress>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     Ok(Json(log_cleanup::get_status(&db).await?))
 }
 
@@ -613,7 +612,7 @@ async fn audit_logs_s3_status(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::JsonResult<Option<audit_logs_s3::AuditLogsS3ExportStatus>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     Ok(Json(audit_logs_s3::get_status(&db).await?))
 }
 
@@ -623,7 +622,7 @@ async fn run_audit_logs_s3_backfill(
     authed: ApiAuthed,
     Json(req): Json<audit_logs_s3_backfill::BackfillRequest>,
 ) -> error::Result<axum::http::StatusCode> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
         return Err(error::Error::BadRequest(
             "Audit log export to object storage is an Enterprise feature".to_string(),
@@ -639,7 +638,7 @@ async fn audit_logs_s3_backfill_status(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::JsonResult<Option<audit_logs_s3_backfill::AuditBackfillProgress>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     Ok(Json(audit_logs_s3_backfill::get_status(&db).await?))
 }
 
@@ -653,7 +652,7 @@ pub async fn test_license_key(
     authed: ApiAuthed,
     Json(TestKey { license_key }): Json<TestKey>,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let (_, expired, _offline_meta) = validate_license_key(license_key, Some(&db)).await?;
 
     if expired {
@@ -674,7 +673,7 @@ pub async fn get_offline_license_status(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::JsonResult<Option<windmill_common::ee_oss::OfflineCapStatus>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let offline = (**windmill_common::ee_oss::LICENSE_OFFLINE_METADATA.load()).clone();
     let is_offline = matches!(&offline, Some(m) if m.is_offline());
@@ -700,7 +699,7 @@ pub async fn get_instance_hash(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::JsonResult<InstanceHash> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     #[cfg(feature = "enterprise")]
     let hash = windmill_common::ee_oss::compute_instance_hash(&db)
         .await
@@ -714,7 +713,7 @@ pub async fn get_local_settings(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::JsonResult<serde_json::Value> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let mut settings = serde_json::Map::new();
     for key in ENV_SETTINGS.iter() {
@@ -773,7 +772,7 @@ pub async fn set_global_setting(
     Path(key): Path<String>,
     Json(value): Json<Value>,
 ) -> error::Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     set_global_setting_internal(&db, key, value.value.unwrap_or(serde_json::Value::Null)).await
 }
 
@@ -1132,7 +1131,7 @@ async fn get_instance_config(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> JsonResult<InstanceConfig> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let config = InstanceConfig::from_db(&db)
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
@@ -1143,7 +1142,7 @@ async fn get_instance_config_yaml(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::Result<Response> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let config = InstanceConfig::from_db(&db)
         .await
         .map_err(|e| error::Error::internal_err(e.to_string()))?;
@@ -1161,7 +1160,7 @@ async fn set_instance_config(
     authed: ApiAuthed,
     Json(desired): Json<InstanceConfig>,
 ) -> error::Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let current = InstanceConfig::from_db(&db)
         .await
@@ -1260,7 +1259,7 @@ pub async fn get_global_setting(
         && key != HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
         && key != WS_BASE_URL_SETTING
     {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
     let value = sqlx::query!("SELECT value FROM global_settings WHERE name = $1", key)
         .fetch_optional(&db)
@@ -1284,7 +1283,7 @@ async fn github_app_stale_webhooks(
     Extension(_db): Extension<DB>,
     authed: ApiAuthed,
 ) -> JsonResult<serde_json::Value> {
-    require_super_admin(&_db, &authed.email).await?;
+    require_super_admin(&_db, &authed).await?;
     #[cfg(all(feature = "enterprise", feature = "private"))]
     {
         let stale = windmill_common::git_sync_ee::stale_webhook_repos(&_db).await?;
@@ -1301,7 +1300,7 @@ async fn list_global_settings(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> JsonResult<Vec<GlobalSetting>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let settings = sqlx::query_as!(GlobalSetting, "SELECT name, value FROM global_settings")
         .fetch_all(&db)
         .await?;
@@ -1317,7 +1316,7 @@ async fn list_global_settings() -> JsonResult<String> {
 }
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     windmill_common::stats_oss::send_stats(
         &HTTP_CLIENT,
         &db,
@@ -1334,7 +1333,7 @@ async fn restart_worker_group(
     authed: ApiAuthed,
     Path(worker_group): Path<String>,
 ) -> error::Result<String> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     sqlx::query!(
         "INSERT INTO notify_event (channel, payload) VALUES ('restart_worker_group', $1)",
@@ -1359,7 +1358,7 @@ pub async fn get_stats(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::JsonResult<StatsDownload> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let stats = windmill_common::stats_oss::get_stats_payload(
         &db,
         &windmill_common::stats_oss::SendStatsReason::Manual,
@@ -1389,7 +1388,7 @@ pub async fn get_latest_key_renewal_attempt(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> JsonResult<Option<KeyRenewalAttempt>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let last_attempt = sqlx::query!(
         "SELECT value, created_at FROM metrics WHERE id = $1 ORDER BY created_at DESC LIMIT 1",
@@ -1432,7 +1431,7 @@ pub async fn renew_license_key(
     Query(LicenseQuery { license_key }): Query<LicenseQuery>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let result = windmill_common::ee_oss::renew_license_key(
         &HTTP_CLIENT,
         &db,
@@ -1478,7 +1477,7 @@ pub async fn test_critical_channels(
     authed: ApiAuthed,
     Json(test_critical_channels): Json<Vec<CriticalErrorChannel>>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     #[cfg(feature = "enterprise")]
     send_critical_alert(
@@ -1502,7 +1501,7 @@ pub async fn get_critical_alerts(
     authed: ApiAuthed,
     Query(params): Query<windmill_alerting::AlertQueryParams>,
 ) -> JsonResult<serde_json::Value> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     windmill_alerting::get_critical_alerts(db, params, None).await
 }
@@ -1518,7 +1517,7 @@ pub async fn acknowledge_critical_alert(
     authed: ApiAuthed,
     Path(id): Path<i32>,
 ) -> error::Result<String> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
     windmill_alerting::acknowledge_critical_alert(db, None, id).await
 }
 
@@ -1532,7 +1531,7 @@ pub async fn acknowledge_all_critical_alerts(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     windmill_alerting::acknowledge_all_critical_alerts(db, None).await
 }
@@ -1590,7 +1589,7 @@ async fn list_custom_instance_pg_databases(
             ))
         })?;
 
-    if is_super_admin_email(&db, &authed.email).await? {
+    if windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         // Enrich each database with the list of workspaces referencing it through
         // either a ducklake catalog or a datatable database whose resource_type is
         // 'instance'. Not stored in DB to avoid drift.
@@ -1640,7 +1639,7 @@ async fn refresh_custom_instance_user_pwd(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<()> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     windmill_common::utils::refresh_custom_instance_user_pwd(&db).await?;
     windmill_common::utils::refresh_custom_instance_replication_user_pwd(&db).await?;
     Ok(Json(()))
@@ -1679,7 +1678,7 @@ async fn setup_custom_instance_pg_database_inner(
     dbname: &str,
     logs: &mut CustomInstanceDbLogs,
 ) -> Result<()> {
-    require_super_admin(db, &authed.email).await?;
+    require_super_admin(db, &authed).await?;
     logs.super_admin = "OK".to_string();
     let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     logs.database_credentials = "OK".to_string();
@@ -1795,7 +1794,7 @@ async fn drop_custom_instance_pg_database(
     Extension(db): Extension<DB>,
     Path(dbname): Path<String>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     windmill_common::drop_custom_instance_database(&db, &dbname).await?;
 
@@ -1818,7 +1817,7 @@ pub async fn test_secret_backend(
     authed: ApiAuthed,
     Json(settings): Json<VaultSettings>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     windmill_common::secret_backend::test_vault_connection(&settings, Some(&db)).await?;
 
@@ -1838,7 +1837,7 @@ pub async fn migrate_secrets_to_vault(
     authed: ApiAuthed,
     Json(settings): Json<VaultSettings>,
 ) -> JsonResult<SecretMigrationReport> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let report = windmill_common::secret_backend::migrate_secrets_to_vault(&db, &settings).await?;
 
@@ -1858,7 +1857,7 @@ pub async fn migrate_secrets_to_database(
     authed: ApiAuthed,
     Json(settings): Json<VaultSettings>,
 ) -> JsonResult<SecretMigrationReport> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let report =
         windmill_common::secret_backend::migrate_secrets_to_database(&db, &settings).await?;
@@ -1875,7 +1874,7 @@ pub async fn test_azure_kv_backend(
     authed: ApiAuthed,
     Json(settings): Json<AzureKeyVaultSettings>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     windmill_common::secret_backend::test_azure_kv_connection(&settings).await?;
 
@@ -1891,7 +1890,7 @@ pub async fn migrate_secrets_to_azure_kv(
     authed: ApiAuthed,
     Json(settings): Json<AzureKeyVaultSettings>,
 ) -> JsonResult<SecretMigrationReport> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let report =
         windmill_common::secret_backend::migrate_secrets_to_azure_kv(&db, &settings).await?;
@@ -1908,7 +1907,7 @@ pub async fn migrate_secrets_from_azure_kv(
     authed: ApiAuthed,
     Json(settings): Json<AzureKeyVaultSettings>,
 ) -> JsonResult<SecretMigrationReport> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let report =
         windmill_common::secret_backend::migrate_secrets_from_azure_kv(&db, &settings).await?;
@@ -1923,7 +1922,7 @@ pub async fn test_aws_sm_backend(
     authed: ApiAuthed,
     Json(settings): Json<AwsSecretsManagerSettings>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     windmill_common::secret_backend::test_aws_sm_connection(&settings).await?;
     Ok("Successfully connected to AWS Secrets Manager".to_string())
 }
@@ -1935,7 +1934,7 @@ pub async fn migrate_secrets_to_aws_sm(
     authed: ApiAuthed,
     Json(settings): Json<AwsSecretsManagerSettings>,
 ) -> JsonResult<SecretMigrationReport> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let report = windmill_common::secret_backend::migrate_secrets_to_aws_sm(&db, &settings).await?;
     Ok(Json(report))
 }
@@ -1947,7 +1946,7 @@ pub async fn migrate_secrets_from_aws_sm(
     authed: ApiAuthed,
     Json(settings): Json<AwsSecretsManagerSettings>,
 ) -> JsonResult<SecretMigrationReport> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let report =
         windmill_common::secret_backend::migrate_secrets_from_aws_sm(&db, &settings).await?;
     Ok(Json(report))
@@ -2046,7 +2045,7 @@ async fn sync_cached_resource_types(
     authed: ApiAuthed,
     Query(SyncResourceTypesQuery { name }): Query<SyncResourceTypesQuery>,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     use windmill_common::worker::HUB_RT_CACHE_DIR;
     let cache_path = format!("{}/resource_types.json", *HUB_RT_CACHE_DIR);

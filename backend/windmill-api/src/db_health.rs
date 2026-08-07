@@ -197,10 +197,10 @@ struct SlowQueriesQuery {
 }
 
 async fn get_db_health(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<DbHealthResponse> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let (database_size, connection_pool, table_maintenance, slow_queries, datatables) = tokio::try_join!(
         fetch_database_size(&db),
@@ -220,11 +220,11 @@ async fn get_db_health(
 }
 
 async fn get_db_health_jobs(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(query): Query<DbHealthQuery>,
 ) -> JsonResult<DbHealthJobsResponse> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let scan_limit = query.scan_limit.unwrap_or(10_000).clamp(1_000, 1_000_000);
 
@@ -237,20 +237,20 @@ async fn get_db_health_jobs(
 }
 
 async fn get_slow_queries(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(query): Query<SlowQueriesQuery>,
 ) -> JsonResult<Option<SlowQueriesInfo>> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed).await?;
     let sort = query.sort.unwrap_or(SlowQuerySort::Total);
     Ok(Json(fetch_slow_queries(&db, sort).await?))
 }
 
 async fn reset_slow_queries(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> windmill_common::error::Result<StatusCode> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed).await?;
     sqlx::query("SELECT pg_stat_statements_reset()")
         .execute(&db)
         .await

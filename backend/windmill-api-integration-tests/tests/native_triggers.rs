@@ -62,6 +62,7 @@ fn test_authed() -> ApiAuthed {
         is_session_token: false,
         token_prefix: None,
         read_only: false,
+        job_id: None,
     }
 }
 

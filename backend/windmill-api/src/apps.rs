@@ -84,7 +84,7 @@ use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 use windmill_store::resources::get_resource_value_interpolated_internal;
 
 use windmill_api_auth::{
-    create_token_internal, ensure_scopes_within_caller, forbid_superadmin_job_token, NewToken,
+    create_token_internal, ensure_scopes_within_caller, forbid_elevated_job_token, NewToken,
     OptJobAuthed,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -1310,7 +1310,9 @@ async fn mint_raw_app_sdk_token(
 ) -> Result<(String, chrono::DateTime<chrono::Utc>)> {
     // This credential outlives the request, so an ephemeral job token must not be
     // able to launder itself into one — the reason `users/tokens/create` refuses.
-    forbid_superadmin_job_token(db, &authed.email, job_id).await?;
+    // The minted scopes do not contain it: `users/tokens/update_scopes` can widen
+    // any token of the same email.
+    forbid_elevated_job_token(db, &authed.email, job_id).await?;
     // An embed token represents untrusted app JS; it must not bootstrap a
     // broader SDK credential (same guard as `mint_app_embed_token`).
     if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
@@ -1383,7 +1385,7 @@ pub async fn build_embed_token_response(
             _ => (None, None),
         }
     } else if policy.sandbox {
-        let resp = mint_app_embed_token(db, w_id, app_path, opt_authed).await?;
+        let resp = mint_app_embed_token(db, w_id, app_path, opt_authed, job_id).await?;
         (resp.token, resp.expiration)
     } else {
         (None, None)
@@ -1507,8 +1509,13 @@ pub async fn mint_app_embed_token(
     w_id: &str,
     app_path: &str,
     opt_authed: Option<&ApiAuthed>,
+    job_id: Option<uuid::Uuid>,
 ) -> Result<EmbedTokenResponse> {
     let token_and_exp = if let Some(authed) = opt_authed {
+        // This credential outlives the request and its narrow scopes are not the
+        // boundary — `users/tokens/update_scopes` can widen any same-email token —
+        // so an elevated job token must not mint one (GHSA-hfh4-cx4h-3fcr).
+        forbid_elevated_job_token(db, &authed.email, job_id).await?;
         // An app embed token represents untrusted app JS in the sandboxed iframe; it
         // must never reach this mint path to renew itself. The 12h expiry is the
         // blast-radius cap on a leaked embed token, and `ensure_scopes_within_caller`
@@ -2157,6 +2164,14 @@ async fn create_app_internal<'a>(
             app.policy.on_behalf_of_email = Some(authed.email.clone());
         }
     }
+
+    // Reject a forged superadmin run identity in the (possibly preserved) policy.
+    // Done on the non-RLS pool before the transaction below, like the resolution
+    // above, to avoid holding a second connection while `tx` is checked out.
+    windmill_common::auth::validate_on_behalf_of(
+        app.policy.on_behalf_of.as_deref(),
+        app.policy.on_behalf_of_email.as_deref(),
+    )?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let path = app.path.clone();
@@ -2984,6 +2999,22 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+    }
+
+    // Reject a forged superadmin run identity in a preserved policy. Mirror the
+    // `should_preserve` gate below (only a preserved value is caller-controlled;
+    // otherwise the policy is rewritten to the deployer's own identity) and run
+    // it on the non-RLS pool before the transaction to avoid a second connection.
+    if let Some(npolicy) = ns.policy.as_ref() {
+        let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
+            && windmill_common::can_preserve_on_behalf_of(&authed)
+            && npolicy.on_behalf_of.is_some();
+        if should_preserve {
+            windmill_common::auth::validate_on_behalf_of(
+                npolicy.on_behalf_of.as_deref(),
+                npolicy.on_behalf_of_email.as_deref(),
+            )?;
+        }
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -4971,6 +5002,18 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
             )
         })?
         .to_string();
+    // Defence in depth against a policy that already carries a forged superadmin
+    // sentinel (deployed before validation existed, or copied verbatim by a
+    // workspace fork): the sentinels are internal-only and never a legitimate app
+    // run identity, so refuse to execute rather than mint a superadmin token.
+    if windmill_common::auth::is_reserved_on_behalf_of_identity(
+        Some(&permissioned_as),
+        Some(&email),
+    ) {
+        return Err(Error::BadRequest(
+            "app on_behalf_of is a reserved internal identity and cannot be executed".to_string(),
+        ));
+    }
     Ok((permissioned_as, email))
 }
 

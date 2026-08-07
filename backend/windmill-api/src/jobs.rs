@@ -25,8 +25,6 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use url::Url;
-#[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
-use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 #[cfg(feature = "run_inline")]
 use windmill_common::client::AuthedClient;
@@ -2402,7 +2400,7 @@ async fn send_email_with_instance_smtp(
     let is_handler_job = authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
         || authed.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL;
 
-    if !is_handler_job && !is_super_admin_email(&db, &authed.email).await? {
+    if !is_handler_job && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::NotAuthorized(
             "Only super admin or whitelisted token can access email workspace error handler feature"
                 .to_string(),
@@ -8671,7 +8669,7 @@ async fn add_batch_jobs(
     Path((w_id, n)): Path<(String, i32)>,
     Json(batch_info): Json<BatchInfo>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let (
         hash,
@@ -10640,11 +10638,11 @@ struct TagCount {
 }
 
 async fn count_by_tag(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(query): Query<CountByTagQuery>,
 ) -> JsonResult<Vec<TagCount>> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed).await?;
     let horizon = query.horizon_secs.unwrap_or(3600); // Default to 1 hour if not specified
 
     let counts = sqlx::query_as!(
@@ -11378,6 +11376,7 @@ mod approval_view_gate_tests {
             is_session_token: false,
             token_prefix: None,
             read_only: false,
+            job_id: None,
         }
     }
 

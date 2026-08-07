@@ -138,6 +138,20 @@ impl AuthCache {
         w_id: Option<String>,
         token: &str,
     ) -> Option<OptJobAuthed> {
+        let mut opt_job_authed = self.get_opt_job_authed_inner(w_id, token).await?;
+        // Single source of truth: mirror the resolved job_id onto the authed so
+        // every consumer (require_super_admin, ...) sees that this identity came
+        // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
+        // predates this field.
+        opt_job_authed.authed.job_id = opt_job_authed.job_id;
+        Some(opt_job_authed)
+    }
+
+    async fn get_opt_job_authed_inner(
+        &self,
+        w_id: Option<String>,
+        token: &str,
+    ) -> Option<OptJobAuthed> {
         // In no-auth mode there are no real tokens: resolve directly as the
         // admin superadmin so direct cache callers (e.g. get_all_runnables,
         // which re-validates the request token per workspace) don't reject the
@@ -218,8 +232,21 @@ impl AuthCache {
                             is_session_token,
                             token_prefix: claims.audit_span,
                             read_only: false,
+                            job_id: None,
                         };
-                        let job_id = claims.job_id.and_then(|j| uuid::Uuid::from_str(&j).ok());
+                        // Fail closed: a `job_id` claim that does not parse must reject
+                        // the token rather than resolve to `None`, which would clear the
+                        // job provenance and uncap the token (GHSA-hfh4-cx4h-3fcr).
+                        let job_id = match claims.job_id {
+                            Some(j) => match uuid::Uuid::from_str(&j) {
+                                Ok(job_id) => Some(job_id),
+                                Err(_) => {
+                                    tracing::error!("JWT auth error: job_id claim is not a uuid");
+                                    return None;
+                                }
+                            },
+                            None => None,
+                        };
                         AUTH_CACHE.insert(
                             key,
                             ExpiringAuthCache {
@@ -319,6 +346,7 @@ impl AuthCache {
                                                 is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                job_id: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -371,6 +399,7 @@ impl AuthCache {
                                                 is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                job_id: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -446,6 +475,7 @@ impl AuthCache {
                                                 is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                job_id: None,
                                             })
                                         }
                                         None if super_admin => {
@@ -469,6 +499,7 @@ impl AuthCache {
                                                     is_session_token,
                                                     token_prefix: Some(safe_token_prefix(token)),
                                                     read_only,
+                                                    job_id: None,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -494,6 +525,7 @@ impl AuthCache {
                                         is_session_token,
                                         token_prefix: Some(safe_token_prefix(token)),
                                         read_only,
+                                        job_id: None,
                                     })
                                 }
                             }
@@ -531,6 +563,7 @@ impl AuthCache {
                         is_session_token: false,
                         token_prefix: Some(safe_token_prefix(token)),
                         read_only: false,
+                        job_id: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -740,6 +773,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         is_session_token: false,
         token_prefix: None,
         read_only: false,
+        job_id: None,
     }
 }
 

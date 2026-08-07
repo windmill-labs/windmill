@@ -11,7 +11,7 @@ use std::net::IpAddr;
 
 use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
-    require_super_admin, ApiAuthed, Tokened,
+    require_super_admin_email, ApiAuthed, Tokened,
 };
 use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
@@ -695,7 +695,16 @@ pub async fn get_resource_value_interpolated_internal<'a>(
 ) -> Result<Option<serde_json::Value>> {
     // This is a special syntax to help debugging custom instance databases
     if let Some(dbname) = path.strip_prefix("CUSTOM_INSTANCE_DB/") {
-        require_super_admin(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
+        // A job's WM_TOKEN must never reach this superadmin-only path even if it
+        // runs on behalf of a superadmin (GHSA-hfh4-cx4h-3fcr). Read the job
+        // provenance from the *authenticated* identity, never the caller-supplied
+        // `job_id` param (which comes from an untrusted query string).
+        if db_with_opt_authed.authed().and_then(|a| a.job_id).is_some() {
+            return Err(Error::NotAuthorized(
+                "CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)".to_string(),
+            ));
+        }
+        require_super_admin_email(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = dbname.to_string();
         let pg_creds = serde_json::to_value(&pg_creds)
