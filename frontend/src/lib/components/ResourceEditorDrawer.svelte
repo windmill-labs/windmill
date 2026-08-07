@@ -133,8 +133,8 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={historyDrawer} size="60rem">
-	<DrawerContent title="History of {path}" on:close={historyDrawer?.closeDrawer}>
+<Drawer bind:this={historyDrawer} size="1200px">
+	<DrawerContent title="Versions History" on:close={historyDrawer?.closeDrawer} noPadding>
 		{#if path && historyWorkspace}
 			<ResourceVersionHistory
 				{path}

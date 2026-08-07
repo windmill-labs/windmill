@@ -116,7 +116,7 @@
 </script>
 
 <Splitpanes class="h-full">
-	<Pane size={25} minSize={20}>
+	<Pane size={20}>
 		{#if versions === undefined}
 			<div class="p-2 flex flex-col gap-2">
 				{#each Array(4) as _}
@@ -179,7 +179,7 @@
 			</div>
 		{/if}
 	</Pane>
-	<Pane size={75}>
+	<Pane size={80}>
 		{#if loaded === undefined}
 			<div class="p-4 text-tertiary text-xs">Select a version to inspect its value.</div>
 		{:else}
