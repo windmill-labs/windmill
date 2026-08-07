@@ -70,10 +70,10 @@ export interface ChatLoopConfig {
 	 * lets the caller recover partial output if the loop throws or is aborted.
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
-	/** Called before each iteration (e.g. to refresh tool schemas, or to record
-	 * which model it is about to use). `webSearch` is this iteration's effective
-	 * value, and the system message is read after this returns, so a caller whose
-	 * prompt advertises web search can resync it in time for this request. */
+	/** Called before each request (e.g. to refresh tool schemas, or to record which
+	 * model it is about to use), including again mid-iteration when a fallback
+	 * changes `webSearch`. That argument is the effective value, and the system
+	 * message is read after this returns, so a caller can resync its prompt in time. */
 	onBeforeIteration?: (
 		tools: Tool<any>[],
 		helpers: any,
