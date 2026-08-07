@@ -4765,6 +4765,11 @@ export async function push(
       ) {
         continue;
       }
+      // Fileset content is arbitrary: a child may itself be named
+      // `*.resource.yaml`, and its body is not this resource's metadata.
+      if (isFilesetResource(change.path)) {
+        continue;
+      }
       const content = change.name === "added" ? change.content : change.after;
       let parsed: any;
       try {
@@ -5119,6 +5124,30 @@ export async function push(
                   );
                 }
               }
+              // Fileset routing must precede the single-file check (as it does
+              // in the added/deleted branches): a fileset accepts arbitrary
+              // child names, so a child like `<res>.fileset/q.resource.file.sql`
+              // matches both predicates and belongs to its fileset parent.
+              if (isFilesetResource(change.path)) {
+                const result = await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                  specificItems,
+                );
+                if (result.status === "parent-missing") {
+                  throw new Error(
+                    `No resource metadata file found for fileset resource: ${change.path}`,
+                  );
+                }
+                // Pushed or already-synced: the parent resource carries the
+                // whole fileset, so this child's content is on the remote.
+                if (stateTarget) {
+                  await writeFile(stateTarget, change.after, "utf-8");
+                }
+                continue;
+              }
               if (isFileResource(change.path)) {
                 const resourceFilePath = await findResourceFile(change.path);
                 if (!alreadySynced.includes(resourceFilePath)) {
@@ -5162,26 +5191,6 @@ export async function push(
                   );
                 }
                 // Already-synced parents got the full content this run.
-                if (stateTarget) {
-                  await writeFile(stateTarget, change.after, "utf-8");
-                }
-                continue;
-              }
-              if (isFilesetResource(change.path)) {
-                const result = await pushFilesetParentResource(
-                  change.path,
-                  workspace.workspaceId,
-                  alreadySynced,
-                  cachedWsNameForPush,
-                  specificItems,
-                );
-                if (result.status === "parent-missing") {
-                  throw new Error(
-                    `No resource metadata file found for fileset resource: ${change.path}`,
-                  );
-                }
-                // Pushed or already-synced: the parent resource carries the
-                // whole fileset, so this child's content is on the remote.
                 if (stateTarget) {
                   await writeFile(stateTarget, change.after, "utf-8");
                 }

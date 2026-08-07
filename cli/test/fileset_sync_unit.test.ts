@@ -10,6 +10,7 @@ import { join, sep as SEP } from "node:path";
 import { handleFile } from "../src/commands/script/script.ts";
 import { validateFilesetPointer } from "../src/commands/resource/resource.ts";
 import { findFilesetResourceFile } from "../src/commands/sync/sync.ts";
+import { isWorkspaceSpecificFile } from "../src/core/specific_items.ts";
 
 describe("handleFile routing", () => {
   test("returns false for fileset children with script extensions", async () => {
@@ -39,6 +40,26 @@ describe("handleFile routing", () => {
         [],
       ),
     ).toBe(false);
+  });
+});
+
+describe("workspace-specific classification", () => {
+  test("fileset children are never workspace-specific", () => {
+    // The workspace-name segment of the pattern spans `/`, so a child whose
+    // own name looks like a typed metadata file would otherwise be read as
+    // belonging to another workspace and dropped from every diff — i.e.
+    // silently never deployed.
+    for (const p of [
+      "f/resources/data.fileset/edge/q.resource.file.sql",
+      "f/resources/data.fileset/edge/inner.resource.yaml",
+      "f/resources/data.fileset/queries/report.sql",
+    ]) {
+      expect(isWorkspaceSpecificFile(p)).toBe(false);
+    }
+    // The parent's own metadata still carries the suffix.
+    expect(isWorkspaceSpecificFile("f/resources/data.ws_main.resource.yaml")).toBe(
+      true,
+    );
   });
 });
 

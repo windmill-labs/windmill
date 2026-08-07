@@ -464,6 +464,14 @@ export function isCurrentWorkspaceFile(path: string, workspaceNameOverride?: str
  * Used to identify and skip files from other branches during sync operations
  */
 export function isWorkspaceSpecificFile(path: string): boolean {
+  // Fileset children are never workspace-specific: only the parent's metadata
+  // file carries the suffix, children stay in the shared canonical directory.
+  // The patterns below read any dot-free run as a workspace name, and `[^.]`
+  // spans `/`, so a child named `q.resource.file.sql` would otherwise be taken
+  // for a workspace-specific file and dropped from every diff.
+  if (isFilesetResource(path)) {
+    return false;
+  }
   const typePattern = buildItemTypePattern();
   return new RegExp(
     `\\.[^.]+\\.${typePattern}\\.(yaml|json)$|` +
