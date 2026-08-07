@@ -788,6 +788,8 @@ describe('AIChatManager autonomy mode', () => {
 		})
 		await vi.waitFor(() => expect(releaseUpdate).toBeDefined())
 		const inFlight = (manager as any).planSave.doc
+		// Proposing already opened this document; only what the rollback opens matters here.
+		;(manager.openArtifact as ReturnType<typeof vi.fn>).mockClear()
 		await manager.saveAndClear()
 		releaseUpdate?.()
 		await inFlight
@@ -800,6 +802,30 @@ describe('AIChatManager autonomy mode', () => {
 				approved: true
 			})
 		)
+		// The document belongs to the conversation just left, so restoring it must not pull
+		// it into the preview of the one the user switched to.
+		expect(manager.openArtifact).not.toHaveBeenCalled()
+	})
+
+	it('keeps an approved amendment when the chat rotates afterwards', async () => {
+		const manager = planningManager()
+		await proposePlan(manager, '# First\n\nStep one.')
+		await callExitPlanMode(manager, '# First\n\nStep one.')
+
+		// Coming back to amend: this round's base is the plan just approved, which the save
+		// carries so a decline can restore it. An approval retires that claim — left standing,
+		// the next rotation hands it to the rollback and the amendment is overwritten by the
+		// plan it replaced.
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		await proposePlan(manager, '# Amended\n\nStep two.', 'call_exit_2')
+		await callExitPlanMode(manager, '# Amended\n\nStep two.', vi.fn(), 'call_exit_2')
+		await manager.saveAndClear()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+
+		expect(planDocs.get('artifact-1')).toMatchObject({
+			content: '# Amended\n\nStep two.',
+			approved: true
+		})
 	})
 
 	it('starts a new plan document after the chat rotates', async () => {

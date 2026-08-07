@@ -1682,10 +1682,12 @@
   toolExpect:
     requiredToolsUsed:
       - exit_plan_mode
+  # Not "saves the plan as an artifact": exit_plan_mode writes it, so the harness would
+  # satisfy that on every run the tool is called at all — it grades itself, not the model.
   judgeChecklist:
-    - saves the plan as a markdown artifact rather than leaving it only in the reply
     - the plan covers classifying an incoming email by urgency, routing it to a team, and posting urgent ones to Slack
     - the plan is specific about what would be built in Windmill (a flow and its steps, or the scripts involved)
+    - the plan reflects what Windmill actually offers for the trigger and the integrations, rather than inventing capabilities
 
 - id: global-npm1-script-search-package
   prompt: |-

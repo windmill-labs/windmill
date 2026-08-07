@@ -584,10 +584,8 @@ export class AIChatManager {
 	// it; an unrelated second plan in one conversation overwrites the first.
 	private planSave: { toolId: string; doc: Promise<PlanSaveResult | undefined> } | undefined
 	private planDocId: string | undefined
-	// The plan this round of planning is about to overwrite, kept so an unapproved proposal
-	// can be rolled back. Undefined when there is nothing to lose — no document yet, or this
-	// round has not proposed anything. Carries `approved` because a round can just as well
-	// overwrite an earlier draft, which must not come back promoted.
+	// Undefined when there is nothing to lose: no document yet, this round has not proposed
+	// anything, or the proposal was approved and is the plan now.
 	private planRoundBase: PlanRoundBase | undefined
 	// Bumped on every reset so a save still in flight can tell its conversation is gone.
 	private planDocGeneration = 0
@@ -2087,7 +2085,14 @@ export class AIChatManager {
 		// The conversation being left may hold a proposal that already overwrote its approved
 		// plan and will now never be decided, so roll it back off the fields about to be
 		// cleared. Its own decline may also be in flight — both write the same content.
-		const pending = { save: this.planSave, base: this.planRoundBase, id: this.planDocId }
+		const pending = {
+			save: this.planSave,
+			base: this.planRoundBase,
+			id: this.planDocId,
+			// Taken before the bump, so the restored document is written but not reopened: it
+			// belongs to the conversation being left, not the one arriving.
+			generation: this.planDocGeneration
+		}
 		this.planSave = undefined
 		this.planDocId = undefined
 		this.planRoundBase = undefined
@@ -2102,7 +2107,8 @@ export class AIChatManager {
 		this.rollbackPlanDoc({
 			save: this.planSave,
 			base: this.planRoundBase,
-			id: this.planDocId
+			id: this.planDocId,
+			generation: this.planDocGeneration
 		})
 
 	// Everything it needs arrives as an argument or on the save's own result, never off the
@@ -2112,6 +2118,7 @@ export class AIChatManager {
 		save: { toolId: string; doc: Promise<PlanSaveResult | undefined> } | undefined
 		base: PlanRoundBase | undefined
 		id: string | undefined
+		generation: number
 	}) => {
 		// The proposal's save is started, not awaited, by onConfirmationRequested, and it is
 		// what resolves both the document id and the plan being overwritten.
@@ -2119,7 +2126,7 @@ export class AIChatManager {
 		const base = round.base ?? saved?.rollback
 		const id = round.id ?? saved?.id
 		if (!base || !id) return
-		const generation = this.planDocGeneration
+		const generation = round.generation
 		try {
 			const restored = await this.artifacts.update(id, {
 				name: derivePlanTitle(base.content),
@@ -2193,8 +2200,11 @@ export class AIChatManager {
 					content: previous.content,
 					approved: previous.approved === true
 				}
-				this.planRoundBase = roundBase
+				// Adopted onto the manager only once the chat is known not to have rotated: it
+				// would otherwise become the next conversation's base, and a decline there would
+				// write this conversation's plan into its document.
 				if (generation !== this.planDocGeneration) return undefined
+				this.planRoundBase = roundBase
 			}
 			const updated = existingId
 				? await this.artifacts.update(existingId, { name, content: summary, approved: false })
@@ -2203,7 +2213,15 @@ export class AIChatManager {
 				// The chat rotated while this write was landing, so it stands on a document the
 				// conversation being left owns and nothing else can still reach: this write is
 				// the only thing that knows what it replaced, so it undoes itself here.
-				if (updated) void this.rollbackPlanDoc({ save: undefined, base: roundBase, id: updated.id })
+				// `generation` is this write's own, which the rotation has already moved past, so
+				// the restored document is put back without being opened in the new conversation.
+				if (updated)
+					void this.rollbackPlanDoc({
+						save: undefined,
+						base: roundBase,
+						id: updated.id,
+						generation
+					})
 				return undefined
 			}
 			// Falls back to a create when the document is gone — the user may have deleted it.
@@ -2271,7 +2289,10 @@ export class AIChatManager {
 		fn: async ({ args, toolCallbacks, toolId }) => {
 			const saved = await this.ensurePlanDoc({ args, toolCallbacks, toolId })
 			// Approved: this content is the plan now, so there is nothing left to roll back to.
+			// Both sources of a rollback have to go — the settled save still carries the plan
+			// this one replaced, and a later chat rotation would restore it over this one.
 			this.planRoundBase = undefined
+			this.planSave = undefined
 			if (saved) {
 				await this.markPlanApproved(saved.id)
 			}
