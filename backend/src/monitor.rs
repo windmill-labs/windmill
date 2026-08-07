@@ -1258,6 +1258,10 @@ async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
     }
 }
 
+/// Versions retained per resource path. Trimmed on a sweep rather than on write — see the
+/// comment at the call site below.
+const MAX_RESOURCE_VERSIONS: i64 = 100;
+
 pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
@@ -1323,6 +1327,33 @@ pub async fn delete_expired_items(db: &DB) -> () {
             }
         }
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
+    }
+
+    // Resource version history is capped per path. Trimmed here rather than in the
+    // record_resource_version trigger so the cap costs nothing on the write path, which
+    // `setResource` from a script can drive in a loop. History may sit briefly above the cap
+    // between sweeps, which is harmless.
+    let trimmed_resource_versions = sqlx::query_scalar!(
+        "DELETE FROM resource_version rv
+         WHERE rv.id < (
+             SELECT min(id) FROM (
+                 SELECT id FROM resource_version
+                 WHERE workspace_id = rv.workspace_id AND path = rv.path
+                 ORDER BY id DESC LIMIT $1
+             ) kept
+         ) RETURNING rv.id",
+        MAX_RESOURCE_VERSIONS,
+    )
+    .fetch_all(db)
+    .await;
+
+    match trimmed_resource_versions {
+        Ok(ids) => {
+            if ids.len() > 0 {
+                tracing::info!("trimmed {} resource versions past the cap", ids.len())
+            }
+        }
+        Err(e) => tracing::error!("Error trimming resource versions: {}", e.to_string()),
     }
 
     let deleted_expired_variables = sqlx::query_scalar!(

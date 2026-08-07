@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM resource_version rv\n         WHERE rv.id < (\n             SELECT min(id) FROM (\n                 SELECT id FROM resource_version\n                 WHERE workspace_id = rv.workspace_id AND path = rv.path\n                 ORDER BY id DESC LIMIT $1\n             ) kept\n         ) RETURNING rv.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b072e88b0946989eab85d759cabc3252b18b3c1292ce43156288d83b7dc7239f"
+}

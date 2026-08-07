@@ -60,12 +60,11 @@ WHERE resource_type NOT IN ('state', 'cache');
 -- reinsert them (windmill-api/src/trash.rs). Handler-level hooks would miss all of those
 -- and every path added later, leaving a history that silently disagrees with the value it
 -- claims to describe.
+--
+-- Deleting a resource hard-deletes it, so the FK cascade takes its whole history with it: a
+-- trashbin restore lands on an empty history and starts a new one at v1.
 CREATE OR REPLACE FUNCTION record_resource_version() RETURNS trigger AS $$
 BEGIN
-    -- Deleting a resource hard-deletes it, so the FK cascade takes its whole history with
-    -- it. A trashbin restore therefore lands on an empty history and starts a new one at
-    -- v1 rather than continuing the old.
-
     -- `session.user` is set by UserDB::begin for authed requests; worker and system writes fall
     -- back to the row's own author. NULLIF because a transaction-local set_config resets the
     -- placeholder to the empty string rather than unsetting it, so a pooled connection that
@@ -76,17 +75,9 @@ BEGIN
         COALESCE(NULLIF(current_setting('session.user', true), ''), NEW.created_by)
     );
 
-    -- Resources are not only edited by humans: `setResource` from a script reaches the same
-    -- write path, so a scheduled job can grow one path's history without bound.
-    DELETE FROM resource_version
-    WHERE workspace_id = NEW.workspace_id AND path = NEW.path
-      AND id < (
-          SELECT min(id) FROM (
-              SELECT id FROM resource_version
-              WHERE workspace_id = NEW.workspace_id AND path = NEW.path
-              ORDER BY id DESC LIMIT 100
-          ) kept
-      );
+    -- The per-path cap is enforced by delete_expired_items in the monitor, not here: trimming on
+    -- every write would tax a path `setResource` can drive in a loop, to keep a bound that does
+    -- not need to hold instantaneously.
 
     RETURN NEW;
 END;
