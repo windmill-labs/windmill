@@ -65,9 +65,10 @@ versions has to account for that.
 A superseded value is retained for up to 100 versions. Values written through the UI keep their
 secrets in linked variables, but one pushed by `wmill` or written by `setResource` can hold an
 inline credential, and overwriting it no longer removes it from the database — anyone who can
-read the resource can read it from the history. Rotating such a credential does not erase the old
-one; deleting the resource (which cascades its history) or an admin workspace-wide prune are the
-only ways to drop it. Secret *variables* are deliberately not versioned at all for this reason.
+read the resource can read it from the history. Rotating such a credential therefore does not
+erase the old one on its own — follow the rotation with **Clear past versions** in the History
+drawer, which drops every version but the current value for that one resource. Secret *variables*
+are deliberately not versioned at all for the same reason.
 
 ## Dependencies and locks
 

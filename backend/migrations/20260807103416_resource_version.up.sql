@@ -66,12 +66,14 @@ BEGIN
     -- it. A trashbin restore therefore lands on an empty history and starts a new one at
     -- v1 rather than continuing the old.
 
-    -- `session.user` is set by UserDB::begin for authed requests and absent for worker and
-    -- system writes, which fall back to the row's own author.
+    -- `session.user` is set by UserDB::begin for authed requests; worker and system writes fall
+    -- back to the row's own author. NULLIF because a transaction-local set_config resets the
+    -- placeholder to the empty string rather than unsetting it, so a pooled connection that
+    -- previously served an authed request reports '' here, not NULL.
     INSERT INTO resource_version (workspace_id, path, resource_type, value, created_by)
     VALUES (
         NEW.workspace_id, NEW.path, NEW.resource_type, NEW.value,
-        COALESCE(current_setting('session.user', true), NEW.created_by)
+        COALESCE(NULLIF(current_setting('session.user', true), ''), NEW.created_by)
     );
 
     -- Resources are not only edited by humans: `setResource` from a script reaches the same

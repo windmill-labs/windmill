@@ -129,6 +129,7 @@
 			<ResourceVersionHistory
 				{path}
 				workspace={effectiveWorkspace}
+				canWrite={canWriteSelected}
 				onRestore={() => {
 					historyDrawer?.closeDrawer()
 					// Close the editor too. It holds a baseline captured before the restore, and

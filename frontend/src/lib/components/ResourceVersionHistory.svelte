@@ -15,10 +15,12 @@
 	let {
 		path,
 		workspace = undefined,
+		canWrite = true,
 		onRestore = undefined
 	}: {
 		path: string
 		workspace?: string
+		canWrite?: boolean
 		onRestore?: () => void
 	} = $props()
 
@@ -71,14 +73,18 @@
 	}
 
 	async function restore() {
-		if (selectedId === undefined) return
+		// loaded.id, never selectedId: the two diverge while a version is in flight, and restoring
+		// the clicked row while the pane still shows the previous one would write a value the user
+		// never saw.
+		const id = loaded?.id
+		if (id === undefined) return
 		restoring = true
 		try {
 			await ResourceService.restoreResourceVersion({
 				workspace: effectiveWorkspace,
-				version: selectedId
+				version: id
 			})
-			sendUserToast(`Restored ${path} to version ${selectedId}`)
+			sendUserToast(`Restored ${path} to version ${id}`)
 			onRestore?.()
 			await loadVersions()
 		} finally {
@@ -118,7 +124,7 @@
 				No history yet. Versions are recorded from the next edit onwards.
 			</div>
 		{:else}
-			{#if versions.length > 1}
+			{#if versions.length > 1 && canWrite}
 				<div class="px-3 py-2 border-b">
 					{#if confirmingClear}
 						<p class="text-2xs text-tertiary mb-2">
@@ -187,7 +193,7 @@
 						size="xs"
 						variant="default"
 						startIcon={{ icon: RotateCcw }}
-						disabled={restoring || versions?.[0]?.id === loaded.id}
+						disabled={restoring || loaded.id !== selectedId || versions?.[0]?.id === loaded.id}
 						onclick={restore}
 					>
 						Restore this version
