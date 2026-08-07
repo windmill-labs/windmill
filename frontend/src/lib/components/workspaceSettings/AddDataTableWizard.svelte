@@ -44,7 +44,7 @@
 	import Select from '../select/Select.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import SupabaseIcon from '../icons/SupabaseIcon.svelte'
-	import { ResourceService, VariableService, WorkspaceService } from '$lib/gen'
+	import { OauthService, ResourceService, VariableService, WorkspaceService } from '$lib/gen'
 	import type { TestDataTableConnectionResponse } from '$lib/gen'
 	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -107,6 +107,13 @@
 	let token = $derived($oauthStore?.access_token)
 	let authed = $derived(!!token)
 
+	// Supabase statuses are SCREAMING_SNAKE; only worth showing when it is not the happy path,
+	// since a paused project (free tier pauses after a week idle) fails the connection check.
+	function projectStatus(p: SupabaseProject): string | undefined {
+		if (!p.status || p.status === 'ACTIVE_HEALTHY') return undefined
+		return p.status === 'INACTIVE' ? 'paused' : p.status.toLowerCase().replace(/_/g, ' ')
+	}
+
 	function defaultProjectName(): string {
 		return `windmill-${$workspaceStore ?? 'workspace'}`
 	}
@@ -139,6 +146,16 @@
 			region = resume.region
 			dataTableName = resume.name
 		}
+	})
+
+	// The Supabase branch goes through the instance's `supabase_wizard` OAuth client; where a
+	// superadmin has not configured one, the connect endpoint dead-ends, so do not offer it.
+	let supabaseAvailable = $state(false)
+	$effect(() => {
+		if (!opened) return
+		OauthService.listOauthConnects()
+			.then((cs) => (supabaseAvailable = (cs ?? []).some((c) => c.name === 'supabase_wizard')))
+			.catch(() => {})
 	})
 
 	$effect(() => {
@@ -446,16 +463,18 @@
 								'Managed for you. No setup.'
 							)}
 						{/if}
-						{#snippet supabaseIcon()}
-							<SupabaseIcon height="18px" width="18px" />
-						{/snippet}
-						{@render providerCard(
-							'supabase',
-							supabaseIcon,
-							'Supabase',
-							'Sign in and Windmill sets up a database for you.',
-							'free'
-						)}
+						{#if supabaseAvailable}
+							{#snippet supabaseIcon()}
+								<SupabaseIcon height="18px" width="18px" />
+							{/snippet}
+							{@render providerCard(
+								'supabase',
+								supabaseIcon,
+								'Supabase',
+								'Sign in and Windmill sets up a database for you.',
+								'free'
+							)}
+						{/if}
 						{#snippet ownIcon()}
 							<Database size={18} class="text-secondary" />
 						{/snippet}
@@ -463,7 +482,7 @@
 							'existing',
 							ownIcon,
 							'Your own database',
-							'Use a database already in this workspace, or add one with its connection string.'
+							'Use a database resource, or add one with its connection string.'
 						)}
 					</div>
 				{:else if step === 2}
@@ -551,9 +570,9 @@
 												? 'text-accent'
 												: 'text-emphasis'}">{p.name}</span
 										>
-										<span class="block text-xs text-secondary font-normal font-mono"
-											>{p.id} &middot; {p.region}</span
-										>
+										<span class="block text-xs text-secondary font-normal">
+											{p.region}{#if projectStatus(p)}&nbsp;&middot; {projectStatus(p)}{/if}
+										</span>
 									</button>
 								{/each}
 								{#if selectedProject}
