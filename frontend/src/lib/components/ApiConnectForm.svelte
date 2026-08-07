@@ -11,12 +11,18 @@
 	import Button from './common/button/Button.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
-	import { base } from '$lib/base'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
+	import Modal2 from './common/modal/Modal2.svelte'
+	import SupabaseProjectStep, {
+		type SupabasePick
+	} from './workspaceSettings/SupabaseProjectStep.svelte'
+	import { supabaseResourceValue } from './workspaceSettings/supabaseProvisioning'
+	import { useSupabaseOauth } from './workspaceSettings/supabaseOauth.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		resourceType: string
@@ -127,6 +133,51 @@
 	let rawCodeEditor: { setCode: (code: string) => void } | undefined = $state(undefined)
 	let textFileContent: string | undefined = $state(undefined)
 
+	let supabaseOpen = $state(false)
+	let supaStep: ReturnType<typeof SupabaseProjectStep> | undefined = $state(undefined)
+	let supaResult: SupabasePick | undefined = $state(undefined)
+
+	// Authorizing is not something to present a dialog about first: the button goes straight
+	// to the popup, and the dialog opens on the way back, already holding the projects.
+	const supaOauth = useSupabaseOauth()
+	let awaitingSupabaseAuth = $state(false)
+
+	function connectSupabase() {
+		if (supaOauth.authed) {
+			supabaseOpen = true
+			return
+		}
+		awaitingSupabaseAuth = true
+		supaOauth.connect()
+	}
+
+	$effect(() => {
+		if (awaitingSupabaseAuth && supaOauth.authed) {
+			awaitingSupabaseAuth = false
+			supabaseOpen = true
+		}
+	})
+
+	// The resource is being edited here rather than created for us, so the project's password
+	// goes straight into the form as a value. The user can link it to a secret variable with
+	// the same affordance every other password field has.
+	function applySupabasePick(pick: SupabasePick) {
+		args = {
+			...(args ?? {}),
+			...supabaseResourceValue(pick.project, ''),
+			password: pick.password
+		}
+		rawCode = JSON.stringify(args, null, 2)
+		rawCodeEditor?.setCode(rawCode)
+		supabaseOpen = false
+		supaResult = undefined
+		sendUserToast(`Filled in the connection for ${pick.project.name}`)
+	}
+
+	$effect(() => {
+		if (supaResult) applySupabasePick(supaResult)
+	})
+
 	function parseTextFileContent() {
 		args = {
 			content: textFileContent
@@ -172,7 +223,7 @@
 				}}
 			>
 				{#snippet trigger()}
-					<Button spacingSize="sm" size="xs" variant="default" nonCaptureEvent>
+					<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" nonCaptureEvent>
 						From connection string
 					</Button>
 				{/snippet}
@@ -206,14 +257,15 @@
 			</Popover>
 		{/if}
 		{#if resourceType == 'postgresql' && supabaseWizard}
-			<a
-				target="_blank"
-				href="{base}/api/oauth/connect/supabase_wizard"
-				class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
+			<Button
+				unifiedSize="md"
+				variant="default"
+				startIcon={{ icon: SupabaseIcon }}
+				loading={awaitingSupabaseAuth}
+				on:click={connectSupabase}
 			>
-				<SupabaseIcon height="16px" width="16px" />
-				<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
-			</a>
+				Connect Supabase
+			</Button>
 		{/if}
 		<GitHubAppIntegration
 			{resourceType}
@@ -286,3 +338,37 @@
 		bind:args
 	/>
 {/if}
+
+<Modal2
+	bind:isOpen={supabaseOpen}
+	target="#content"
+	title="Connect Supabase"
+	contentClasses="flex flex-col"
+	fixedWidth="md"
+	fixedHeight="md"
+>
+	<div class="flex h-full flex-col gap-3">
+		<div class="flex-1 flex flex-col gap-3 min-h-0">
+			<SupabaseProjectStep
+				bind:this={supaStep}
+				bind:result={supaResult}
+				defaultProjectName={`windmill-${$workspaceStore ?? 'workspace'}`}
+				continueLabel="Use this project"
+			/>
+		</div>
+		{#if supaStep}
+			{@const action = supaStep.getAction()}
+			<div class="flex justify-end pt-3">
+				<Button
+					size="sm"
+					variant="accent"
+					disabled={action.disabled}
+					loading={action.busy}
+					onClick={() => action.act?.()}
+				>
+					{action.label}
+				</Button>
+			</div>
+		{/if}
+	</div>
+</Modal2>
