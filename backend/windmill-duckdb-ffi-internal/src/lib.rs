@@ -268,6 +268,39 @@ fn configure_duckdb_resource_limits(
     })
 }
 
+static URI_SCHEME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z][A-Za-z0-9+.\-]*://").expect("invalid regex"));
+
+fn is_remote_uri(path: &str) -> bool {
+    // `file://` is served from the local filesystem, so it spills fine and
+    // refusing it would break a working configuration.
+    URI_SCHEME.is_match(path) && !path.to_ascii_lowercase().starts_with("file://")
+}
+
+// Spilling to a remote temp directory calls `std::terminate` deep in the engine,
+// which aborts this in-process worker and every job colocated on it — nothing up
+// the stack can catch it. Read the value back rather than matching the script for
+// a `SET`: the engine honors spellings a text check keeps missing.
+fn ensure_local_temp_directory(conn: &duckdb::Connection) -> Result<(), String> {
+    let temp_directory: String = conn
+        // Qualified through the (unwritable) system catalog: a user macro named
+        // `current_setting` shadows the bare built-in and would feed a lie here.
+        .query_row(
+            "SELECT system.main.current_setting('temp_directory')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Error reading temp_directory: {}", e.to_string()))?;
+    if is_remote_uri(&temp_directory) {
+        return Err(format!(
+            "temp_directory must be a local path, got `{temp_directory}`. DuckDB cannot read \
+             and write spill files over a remote filesystem. Leave temp_directory unset to \
+             spill into the job directory, or point it at a local path."
+        ));
+    }
+    Ok(())
+}
+
 fn setup_duckdb_connection(
     conn: &duckdb::Connection,
     token: &str,
@@ -370,12 +403,20 @@ fn prepare_duckdb_internal(
         if is_setup_statement(query_block) {
             conn.execute_batch(query_block)
                 .map_err(|e| format!("Error executing setup statement: {}", e.to_string()))?;
+            // Setup statements really execute in this pass, so a bad value
+            // surfaces while editing instead of on the run that would abort.
+            ensure_local_temp_directory(&conn)?;
             continue;
         }
 
         let modified_query = replace_params_with_null(query_block);
         // Validate the query parses correctly by preparing it
-        if let Err(e) = conn.prepare(&modified_query) {
+        let prepare_error = conn.prepare(&modified_query).err();
+        // Before the error branch: a failed bind still leaves the block's earlier
+        // statements executed, and skipping the guard would hand every later
+        // block of this pass a connection already pointed at a remote directory.
+        ensure_local_temp_directory(&conn)?;
+        if let Some(e) = prepare_error {
             results.push(PrepareQueryResult { columns: None, error: Some(e.to_string()) });
             continue;
         }
@@ -503,6 +544,10 @@ fn run_duckdb_internal<'a>(
             &mut column_order,
         )
         .map_err(|e| e.to_string())?;
+        // Not redundant with the pre-`query` guard: a block whose *last*
+        // statement sets the directory leaves it live for the next block's
+        // `prepare`, which is already executing statements by then.
+        ensure_local_temp_directory(&conn)?;
         results.push(result);
     }
     let results = serde_json::value::to_raw_value(&results).map_err(|e| e.to_string())?;
@@ -522,6 +567,10 @@ fn do_duckdb_inner(
     let (query, job_args) = interpolate_named_args(query, &job_args);
 
     let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
+    // `prepare` runs every statement but the last when a block holds several —
+    // the one engine behaviour every guard site below depends on. Here it covers
+    // a `SET` that rode in alongside the query about to be stepped.
+    ensure_local_temp_directory(conn)?;
 
     let mut rows = stmt
         .query(params_from_iter(job_args))
@@ -1220,4 +1269,81 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
         TimeUnit::Microsecond,
         time.num_seconds_from_midnight() as i64,
     ))
+}
+
+#[cfg(test)]
+mod temp_directory_guard_tests {
+    use super::*;
+
+    #[test]
+    fn remote_temp_directory_is_refused_past_a_shadowed_probe() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch("SET temp_directory='s3://bucket/tmp'")
+            .unwrap();
+        assert!(ensure_local_temp_directory(&conn).is_err(), "remote");
+
+        // A script can shadow bare `current_setting` with a macro and feed the
+        // guard a local path while the real setting is remote. Only the
+        // system-catalog qualifier resolves past it.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE OR REPLACE MACRO current_setting(x) AS '/tmp/local';
+             SET temp_directory='s3://bucket/tmp';",
+        )
+        .unwrap();
+        assert!(
+            ensure_local_temp_directory(&conn).is_err(),
+            "shadowed probe"
+        );
+
+        // The scheme test must not swallow the paths that legitimately spill.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        assert!(ensure_local_temp_directory(&conn).is_ok(), "default");
+        for stmt in [
+            "SET temp_directory='/tmp/windmill/jobs/abc'",
+            "SET temp_directory='file:///tmp/scratch'",
+            "SET temp_directory=''",
+        ] {
+            conn.execute_batch(stmt).unwrap();
+            assert!(
+                ensure_local_temp_directory(&conn).is_ok(),
+                "should have been allowed: {stmt}"
+            );
+        }
+    }
+
+    #[test]
+    fn guard_between_prepare_and_step_leaves_ordinary_queries_alone() {
+        // The readback runs on every DuckDB block, so a regression here breaks
+        // all jobs, not just spilling ones.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let rows = do_duckdb_inner(
+            &conn,
+            "SELECT 1 AS n",
+            &HashMap::new(),
+            false,
+            false,
+            &mut None,
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn multi_statement_block_is_caught_before_its_query_runs() {
+        // `prepare` executes every statement but the last, so a `SET` riding
+        // alongside the query must be caught between prepare and step — pins the
+        // guard's placement in do_duckdb_inner, not just the predicate.
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let err = do_duckdb_inner(
+            &conn,
+            "SET temp_directory='s3://bucket/tmp'; SELECT 1",
+            &HashMap::new(),
+            false,
+            false,
+            &mut None,
+        )
+        .unwrap_err();
+        assert!(err.contains("temp_directory must be a local path"), "{err}");
+    }
 }
