@@ -376,6 +376,44 @@ describe('runChatLoop onBeforeIteration web search sync', () => {
 		})
 	})
 
+	// The Completions API has no web-search tool at all, so the fallback is a third
+	// path (beside the two retries) that must not ship the guidance.
+	it('drops the web search guidance on the Completions API fallback', async () => {
+		let systemMessage: ChatLoopConfig['systemMessage'] = {
+			role: 'system',
+			content: 'search the web'
+		}
+
+		mocks.getOpenAIResponsesCompletion.mockRejectedValue(
+			new Error('Responses API is not enabled for this organization')
+		)
+		mocks.getCompletion.mockResolvedValue({})
+		const onWebSearchUnavailable = vi.fn()
+
+		await runChatLoop(
+			createConfig({
+				workspace: `workspace-${randomUUID()}`,
+				getSystemMessage: () => systemMessage,
+				onWebSearchUnavailable,
+				onBeforeIteration: async (_t, _h, _m, webSearch: boolean) => {
+					systemMessage = {
+						role: 'system',
+						content: webSearch ? 'search the web' : 'no web search'
+					}
+				}
+			})
+		)
+
+		// Falling back is per request; the model itself can still serve web search.
+		expect(onWebSearchUnavailable).not.toHaveBeenCalled()
+
+		expect(mocks.getCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getCompletion.mock.calls[0][0][0]).toEqual({
+			role: 'system',
+			content: 'no web search'
+		})
+	})
+
 	it('sends the system message the callback rewrote on this iteration, not the next', async () => {
 		let systemMessage: ChatLoopConfig['systemMessage'] = { role: 'system', content: 'stale' }
 		const config = createConfig({

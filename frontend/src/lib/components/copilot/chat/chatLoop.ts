@@ -494,12 +494,18 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			}
 
 			if (useCompletionsApi) {
+				let completionsParams = messageParams
 				if (webSearch) {
 					console.warn(
 						'Web search is only supported via the OpenAI Responses API; ignoring it for the Completions API fallback.'
 					)
+					// Re-announce the effective value for the request actually being sent —
+					// not onWebSearchUnavailable, which means the model cannot serve web
+					// search at all and is cached as such; this fallback is per request.
+					await onBeforeIteration?.(tools, helpers, modelProvider, false)
+					completionsParams = messageParamsFor(config.systemMessage)
 				}
-				const completion = await getCompletion(messageParams, abortController, toolDefs, {
+				const completion = await getCompletion(completionsParams, abortController, toolDefs, {
 					forceCompletions: true,
 					forceModelProvider: modelProvider,
 					openaiClient: clients.openai,

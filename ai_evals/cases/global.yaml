@@ -2011,11 +2011,9 @@
     - authentication uses Holded's own key header rather than a bearer token
     - the result stays an AI draft and is not deployed
 
-# The fixture hub carries two Baremetrics scripts (List Sources, Create Customer) and
-# none for annotations, so no hub script does what is asked. The integration's
-# conventions — a `Baremetrics` resource type whose single field is `apiKey`, bearer
-# auth, the api.baremetrics.com/v1 base — are only knowable by reading one of those
-# other scripts, which is what makes this a test of using a near-miss as an example.
+# The fixture hub carries two Baremetrics scripts, neither for annotations, so nothing
+# does what is asked. Its conventions — an `apiKey` resource, bearer auth, the
+# api.baremetrics.com/v1 base — are only knowable by reading one of those near-misses.
 - id: global-hub3-integration-as-example
   prompt: |-
     Write me a script that adds an annotation to my Baremetrics account.
