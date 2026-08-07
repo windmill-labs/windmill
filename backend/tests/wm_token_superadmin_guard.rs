@@ -467,7 +467,22 @@ async fn test_wm_token_rejected_by_instance_admin_gates(db: Pool<Postgres>) -> a
         resp.text().await?
     );
 
-    // 3. Worker-group config: the static env value must be masked for a job token.
+    // 3. The sibling listing spans every workspace's concurrency keys, so it is
+    //    gated the same way as the prune above.
+    let resp = authed(
+        client().get(format!("{base}/concurrency_groups/list")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not list global concurrency groups: {}",
+        resp.text().await?
+    );
+
+    // 4. Worker-group config: the static env value must be masked for a job token.
     let body = authed(
         client().get(format!("{base}/configs/list_worker_groups")),
         &sa_wm,

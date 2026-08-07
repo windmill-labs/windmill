@@ -1,9 +1,8 @@
-use windmill_api_auth::{check_scopes, is_instance_admin, ApiAuthed};
+use windmill_api_auth::{check_scopes, is_instance_admin, require_instance_admin, ApiAuthed};
 use windmill_common::{
     db::{UserDB, DB},
     error::Error::PermissionDenied,
     error::{self, JsonResult},
-    utils::require_admin,
 };
 
 use crate::query::{filter_list_completed_query, filter_list_queue_query};
@@ -43,7 +42,9 @@ async fn list_concurrency_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<ConcurrencyGroups>> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Instance-global: the listing spans every workspace's concurrency keys, so a job
+    // token's workspace-admin claim must not reach it (mirrors the prune route below).
+    require_instance_admin(&authed)?;
 
     let concurrency_counts = sqlx::query_as::<_, (String, i64)>(
         "SELECT concurrency_id, (select COUNT(*) from jsonb_object_keys(job_uuids)) as n_job_uuids FROM concurrency_counter",
