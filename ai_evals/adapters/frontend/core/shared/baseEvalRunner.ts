@@ -43,6 +43,9 @@ export interface RunEvalParams<THelpers, TOutput> {
   getOutput: () => TOutput | Promise<TOutput>;
   /** Model and Windmill backend configuration */
   options: EvalRunnerOptions;
+  /** Drives the production plan-mode gate in processToolCall. Absent leaves it inert,
+   * which is what every mode but an opted-in global case wants. */
+  isPlanModeActive?: () => boolean;
   onAssistantMessageStart?: () => void;
   onAssistantToken?: (token: string) => void;
   onAssistantMessageEnd?: () => void;
@@ -68,6 +71,7 @@ export async function runEval<THelpers, TOutput>(
     onAssistantToken,
     onAssistantMessageEnd,
     onToolCall,
+    isPlanModeActive,
   } = params;
   let shouldEmitMessageStart = true;
 
@@ -119,6 +123,7 @@ export async function runEval<THelpers, TOutput>(
   } = {
     setToolStatus: () => {},
     removeToolStatus: () => {},
+    isPlanModeActive,
     onNewToken: (token: string) => {
       if (shouldEmitMessageStart) {
         onAssistantMessageStart?.();

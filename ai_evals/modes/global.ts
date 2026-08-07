@@ -42,6 +42,7 @@ export function createGlobalModeRunner(
           liveEditorDrafts: initial?.liveEditorDrafts,
           user: initial?.user,
           sessionChat: context.evalCase?.runtime?.sessionChat,
+          planMode: context.evalCase?.runtime?.planMode,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           provider: modelConfig.provider,
           model: modelConfig.model,

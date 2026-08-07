@@ -33,6 +33,9 @@ export interface EvalCaseRuntimeSpec {
   appContext?: EvalCaseRuntimeAppContextSpec;
   // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
   sessionChat?: boolean;
+  // Global session chats: start the case in plan mode, so mutating tools are refused until
+  // the model hands over a plan with exit_plan_mode.
+  planMode?: boolean;
 }
 
 export interface FlowValidationSpec {
