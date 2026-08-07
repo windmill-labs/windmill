@@ -232,8 +232,8 @@
 							/>
 						{/await}
 					{:else}
-						<div class="h-full overflow-auto p-2">
-							<HighlightCode language="json" code={loaded.value} lines />
+						<div class="h-full overflow-auto px-3 py-2">
+							<HighlightCode language="json" code={loaded.value} />
 						</div>
 					{/if}
 				</div>
