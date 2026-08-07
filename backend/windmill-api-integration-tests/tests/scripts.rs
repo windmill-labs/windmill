@@ -1,5 +1,6 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
+use std::collections::HashMap;
 
 use windmill_test_utils::*;
 
@@ -558,6 +559,124 @@ async fn test_list_search_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<
     let unscoped = list_search_paths(port, "SECRET_TOKEN").await;
     assert!(unscoped.contains(&"f/allowed/foo".to_string()));
     assert!(unscoped.contains(&"f/private/bar".to_string()));
+
+    Ok(())
+}
+
+/// The hash-addressed script endpoints must enforce the same folder ACLs and token
+/// scopes as their path-addressed counterparts: a hash is an alternate address for a
+/// script, never a way around its permissions.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_by_hash_endpoints_enforce_acls(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+
+    // `allowed` grants test-user-2 read; `private` grants it nothing.
+    for (folder, extra_perms) in [
+        ("allowed", json!({ "u/test-user-2": false })),
+        ("private", json!({})),
+    ] {
+        let resp = authed(client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/folders/create"
+        )))
+        .json(&json!({ "name": folder, "extra_perms": extra_perms }))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 200, "create folder: {}", resp.text().await?);
+    }
+
+    let mut hashes = HashMap::new();
+    for (path, content) in [
+        (
+            "f/allowed/foo",
+            "export async function main() { return 'allowed'; }",
+        ),
+        (
+            "f/private/bar",
+            "export async function main() { return 'secret'; }",
+        ),
+    ] {
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(&new_script(path, "summary", content))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201, "create {path}: {}", resp.text().await?);
+        let resp = authed_get(port, "get/p", path).await;
+        assert_eq!(resp.status(), 200);
+        let body = resp.json::<serde_json::Value>().await?;
+        hashes.insert(path, body["hash"].as_str().unwrap().to_string());
+    }
+
+    // A token scoped to `f/allowed/*` for the same super-admin user: RLS lets it through,
+    // only the per-path scope check can stop it.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+         (encode(sha256('SCOPED_TOKEN'::bytea), 'hex'), 'SCOPED_TOK', 'SCOPED_TOKEN', 'test@windmill.dev', 'scoped', true, ARRAY['scripts:read:f/allowed/*'])",
+    )
+    .execute(&db)
+    .await?;
+
+    async fn get_as(port: u16, token: &str, endpoint: &str, path: &str) -> reqwest::Response {
+        client()
+            .get(script_url(port, endpoint, path))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .unwrap()
+    }
+
+    let private = &hashes["f/private/bar"];
+    let allowed = &hashes["f/allowed/foo"];
+
+    for token in ["SECRET_TOKEN_2", "SCOPED_TOKEN"] {
+        for (endpoint, hash) in [
+            ("get/h", private.clone()),
+            ("raw/h", format!("{private}.ts")),
+            ("deployment_status/h", private.clone()),
+        ] {
+            let resp = get_as(port, token, endpoint, &hash).await;
+            let status = resp.status();
+            let body = resp.text().await?;
+            assert!(
+                !status.is_success(),
+                "{token} must not reach {endpoint} of f/private/bar (got {status}: {body})"
+            );
+            assert!(
+                !body.contains("return 'secret'"),
+                "{token} must not read f/private/bar source via {endpoint}: {body}"
+            );
+        }
+    }
+
+    // Denying an RLS-invisible script must not read as "this script does not exist":
+    // legitimate viewers reach these endpoints for scripts they cannot read.
+    let resp = get_as(port, "SECRET_TOKEN_2", "raw/h", &format!("{private}.ts")).await;
+    let body = resp.text().await?;
+    assert!(
+        body.contains("does not have permissions to access it"),
+        "denial must name the permission problem, got: {body}"
+    );
+
+    // The grant/scope that does cover `f/allowed/*` must keep working by hash.
+    for token in ["SECRET_TOKEN_2", "SCOPED_TOKEN"] {
+        for (endpoint, hash) in [
+            ("get/h", allowed.clone()),
+            ("raw/h", format!("{allowed}.ts")),
+            ("deployment_status/h", allowed.clone()),
+        ] {
+            let resp = get_as(port, token, endpoint, &hash).await;
+            let status = resp.status();
+            let body = resp.text().await?;
+            assert_eq!(
+                status, 200,
+                "{token} must still reach {endpoint} of f/allowed/foo (got {status}: {body})"
+            );
+        }
+    }
 
     Ok(())
 }

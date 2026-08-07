@@ -9813,10 +9813,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: authed
-          in: query
-          schema:
-            type: boolean
       responses:
         "200":
           description: script details
