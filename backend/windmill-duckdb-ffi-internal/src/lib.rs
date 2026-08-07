@@ -51,8 +51,8 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
 mod ffi_boundary_tests {
     use super::{catch_ffi_panic, ffi_error};
 
-    // Each case panics on purpose, so the panic hook prints a backtrace here even
-    // though the test passes.
+    // Each case panics on purpose, so the panic hook logs one here even though the
+    // test passes.
     #[test]
     fn a_panic_becomes_an_error_the_worker_can_read() {
         let caught = catch_ffi_panic("probe", || panic!("boom {}", 1)).unwrap_err();
