@@ -34,7 +34,6 @@
 	import { base } from '$lib/base'
 	import { Database, Check, ArrowRight, Loader2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import Badge from '../common/badge/Badge.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Modal2 from '../common/modal/Modal2.svelte'
@@ -181,6 +180,7 @@
 	}
 
 	const OAUTH_WINDOW = 'windmill_supabase_oauth'
+	const SUPABASE_SIGNUP_URL = 'https://supabase.com/dashboard/sign-up'
 
 	let oauthWindow: Window | null = null
 	let oauthPending = $state(false)
@@ -343,6 +343,19 @@
 	async function checkAndContinue() {
 		await runCheck()
 		if (canAdvanceFromSetup()) step = 3
+	}
+
+	// A check result describes one database, so it must not outlive the choice that produced
+	// it: switching provider or Supabase mode has to leave the new tab with a blank slate.
+	function clearCheck() {
+		checkReport = undefined
+		checkError = ''
+	}
+
+	function selectProvider(key: Provider) {
+		if (key === provider) return
+		clearCheck()
+		provider = key
 	}
 
 	function checkPassed(): boolean {
@@ -514,8 +527,7 @@
 								'supabase',
 								supabaseIcon,
 								'Supabase',
-								'Sign in and Windmill sets up a database for you.',
-								'free'
+								'Connect a project you already have, or let Windmill create one.'
 							)}
 						{/if}
 						{#snippet ownIcon()}
@@ -542,6 +554,7 @@
 							bind:selected={
 								() => supaMode,
 								(v) => {
+									if (v !== supaMode) clearCheck()
 									supaMode = v
 									supaModeChosen = true
 								}
@@ -556,7 +569,7 @@
 							{#if provisioning === 0}
 								<div class="grid grid-cols-2 gap-2">
 									<div>
-										<span class="text-xs font-semibold text-primary">Organization</span>
+										<span class="text-xs font-semibold text-emphasis">Organization</span>
 										<Select
 											items={(orgs ?? []).map((o) => ({ label: o.name, value: orgSlug(o) }))}
 											bind:value={selectedOrg}
@@ -564,7 +577,7 @@
 										/>
 									</div>
 									<div>
-										<span class="text-xs font-semibold text-primary">Region</span>
+										<span class="text-xs font-semibold text-emphasis">Region</span>
 										<Select
 											items={SUPABASE_REGIONS.map((r) => ({ label: r, value: r }))}
 											bind:value={region}
@@ -573,7 +586,7 @@
 									</div>
 								</div>
 								<div>
-									<span class="text-xs font-semibold text-primary">Project name</span>
+									<span class="text-xs font-semibold text-emphasis">Project name</span>
 									<TextInput
 										bind:value={projectName}
 										inputProps={{ placeholder: defaultProjectName() }}
@@ -582,9 +595,6 @@
 										Named after your workspace. Change it if you like.
 									</p>
 								</div>
-								<p class="text-2xs text-secondary">
-									Free on Supabase. You can upgrade later without changing anything here.
-								</p>
 							{:else}
 								<div class="flex flex-col gap-1.5">
 									{@render progress(provisioning >= 2, provisioning === 1, 'Created on Supabase')}
@@ -613,26 +623,30 @@
 						{:else}
 							<div class="flex flex-col gap-2">
 								{#each projects ?? [] as p}
+									{@const selected = selectedProject?.id === p.id}
 									<button
-										class="text-left border rounded-md p-2 transition-colors {selectedProject?.id ===
-										p.id
+										class="text-left border rounded-md p-3 flex gap-3 items-start transition-colors {selected
 											? 'border-border-selected/50 bg-surface-accent-selected'
 											: 'border-border-light hover:bg-surface-hover'}"
 										onclick={() => (selectedProject = p)}
 									>
-										<span
-											class="text-xs font-medium {selectedProject?.id === p.id
-												? 'text-accent'
-												: 'text-emphasis'}">{p.name}</span
+										<span class="mt-0.5 shrink-0"
+											><Database size={18} class="text-secondary" /></span
 										>
-										<span class="block text-xs text-secondary font-normal">
-											{p.region}{#if projectStatus(p)}&nbsp;&middot; {projectStatus(p)}{/if}
+										<span class="flex flex-col gap-0.5 min-w-0">
+											<span class="text-xs font-medium {selected ? 'text-accent' : 'text-emphasis'}"
+												>{p.name}</span
+											>
+											<span class="text-xs text-secondary font-normal"
+												>{p.region}{#if projectStatus(p)}
+													&middot; {projectStatus(p)}{/if}</span
+											>
 										</span>
 									</button>
 								{/each}
 								{#if selectedProject}
 									<div>
-										<span class="text-xs font-semibold text-primary"
+										<span class="text-xs font-semibold text-emphasis"
 											>Database password for {selectedProject.name}</span
 										>
 										<TextInput
@@ -648,7 +662,7 @@
 						{/if}
 					{:else}
 						<div>
-							<span class="text-xs font-semibold text-primary">Database</span>
+							<span class="text-xs font-semibold text-emphasis">Database</span>
 							<ResourcePicker bind:value={resourcePath} resourceType="postgresql" />
 							<p class="text-2xs text-secondary mt-1">
 								Pick one, or add a new one with its connection string.
@@ -659,7 +673,7 @@
 					{@render checkResult()}
 				{:else}
 					<div>
-						<span class="text-xs font-semibold text-primary">Name this data table</span>
+						<span class="text-xs font-semibold text-emphasis">Name this data table</span>
 						<TextInput bind:value={dataTableName} inputProps={{ placeholder: 'main' }} />
 						<p class="text-2xs text-secondary mt-1">
 							{#if nameTaken}
@@ -679,50 +693,50 @@
 				{/if}
 			</div>
 
-			<div class="flex justify-between items-center pt-3 gap-2">
-				<div>
-					{#if step > 1 && !primary.busy}
-						<Button size="xs" variant="default" onClick={() => (step = step - 1)}>Back</Button>
-					{/if}
+			<div class="flex flex-col gap-1 pt-3">
+				<div class="flex justify-between items-center gap-2">
+					<div>
+						{#if step > 1 && !primary.busy}
+							<Button size="xs" variant="default" onClick={() => (step = step - 1)}>Back</Button>
+						{/if}
+					</div>
+					<Button
+						size="sm"
+						variant="accent"
+						disabled={primary.disabled}
+						loading={primary.busy}
+						endIcon={primary.busy ? undefined : { icon: ArrowRight }}
+						onClick={() => primary.act?.()}
+					>
+						{primary.label}
+					</Button>
 				</div>
-				<Button
-					size="sm"
-					variant="accent"
-					disabled={primary.disabled}
-					loading={primary.busy}
-					endIcon={primary.busy ? undefined : { icon: ArrowRight }}
-					onClick={() => primary.act?.()}
-				>
-					{primary.label}
-				</Button>
+				{#if provider === 'supabase' && !authed}
+					<p class="text-2xs text-secondary text-right">
+						If you do not have a Supabase account you can <a
+							href={SUPABASE_SIGNUP_URL}
+							target="_blank"
+							rel="noreferrer"
+							class="text-blue-500 hover:underline">create one for free</a
+						>.
+					</p>
+				{/if}
 			</div>
 		</div>
 	</div>
 </Modal2>
 
-{#snippet providerCard(
-	key: Provider,
-	icon: Snippet,
-	title: string,
-	subtitle: string,
-	badge?: string
-)}
+{#snippet providerCard(key: Provider, icon: Snippet, title: string, subtitle: string)}
 	{@const selected = provider === key}
 	<button
 		class="text-left border rounded-md p-3 flex gap-3 items-start transition-colors {selected
 			? 'border-border-selected/50 bg-surface-accent-selected'
 			: 'border-border-light hover:bg-surface-hover'}"
-		onclick={() => (provider = key)}
+		onclick={() => selectProvider(key)}
 	>
 		<span class="mt-0.5 shrink-0">{@render icon()}</span>
 		<span class="flex flex-col gap-0.5 min-w-0">
-			<span class="flex items-center gap-1.5">
-				<span class="text-xs font-medium {selected ? 'text-accent' : 'text-emphasis'}">{title}</span
-				>
-				{#if badge}
-					<Badge color="green" small>{badge}</Badge>
-				{/if}
-			</span>
+			<span class="text-xs font-medium {selected ? 'text-accent' : 'text-emphasis'}">{title}</span>
 			<span class="text-xs text-secondary font-normal">{subtitle}</span>
 		</span>
 	</button>
