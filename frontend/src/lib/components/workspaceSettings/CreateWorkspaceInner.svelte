@@ -611,15 +611,16 @@
 	onMount(() => {
 		loadWorkspaces()
 
-		// Fail open: the section is gated on this, and `edit_auto_invite` rejects a
-		// banned domain anyway, so a failed check costs an error on submit rather
-		// than hiding auto-invite from an allowed domain for good.
+		// Settle on a value rather than leaving the section stuck in its in-flight
+		// state, and settle on `false`: `createWorkspace` commits the workspace
+		// before `editAutoInvite`, so offering the toggle to a domain the backend
+		// then rejects leaves a created workspace behind a failed submit.
 		WorkspaceService.isDomainAllowed()
 			.then((x) => {
 				isDomainAllowed = x
 			})
 			.catch(() => {
-				isDomainAllowed = true
+				isDomainAllowed = false
 			})
 	})
 
