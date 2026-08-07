@@ -62,15 +62,6 @@ WHERE resource_type NOT IN ('state', 'cache');
 -- claims to describe.
 CREATE OR REPLACE FUNCTION record_resource_version() RETURNS trigger AS $$
 BEGIN
-    IF NEW.resource_type IN ('state', 'cache') THEN
-        RETURN NEW;
-    END IF;
-
-    -- A rename or a description edit leaves the value alone and so records nothing.
-    IF TG_OP = 'UPDATE' AND NEW.value IS NOT DISTINCT FROM OLD.value THEN
-        RETURN NEW;
-    END IF;
-
     -- Deleting a resource hard-deletes it, so the FK cascade takes its whole history with
     -- it. A trashbin restore therefore lands on an empty history and starts a new one at
     -- v1 rather than continuing the old.
@@ -101,6 +92,21 @@ END;
 -- policy above, without granting anyone direct write access to the table.
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER record_resource_version_trigger
-AFTER INSERT OR UPDATE ON resource
-FOR EACH ROW EXECUTE FUNCTION record_resource_version();
+-- Split in two, and gated in WHEN rather than in the function body, so the rows that never
+-- produce a version never enter plpgsql at all: `state`/`cache` writes (one per setState and
+-- per cached job result — by far the hottest writers of this table) and updates that leave the
+-- value alone. Separate triggers because a WHEN on INSERT cannot reference OLD.
+CREATE TRIGGER record_resource_version_insert_trigger
+AFTER INSERT ON resource
+FOR EACH ROW
+WHEN (NEW.resource_type NOT IN ('state', 'cache'))
+EXECUTE FUNCTION record_resource_version();
+
+CREATE TRIGGER record_resource_version_update_trigger
+AFTER UPDATE ON resource
+FOR EACH ROW
+WHEN (
+    NEW.resource_type NOT IN ('state', 'cache')
+    AND NEW.value IS DISTINCT FROM OLD.value
+)
+EXECUTE FUNCTION record_resource_version();
