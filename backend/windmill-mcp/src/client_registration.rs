@@ -25,10 +25,20 @@ pub struct McpClientCredentials {
     pub client_secret: Option<String>,
     pub token_endpoint: String,
     /// `token_endpoint` after SSRF validation, carrying the addresses it resolved
-    /// to. Token requests carry the `client_secret`, so they must go out on a
-    /// client pinned to these ([`no_redirect_http_client_pinned`]); re-resolving
-    /// the host at connect time would reopen the DNS-rebinding window.
-    pub token_endpoint_target: windmill_common::ssrf::ValidatedTarget,
+    /// to. Private so the only way to reach it is [`Self::token_request`], which
+    /// hands back the URL alongside the client pinned to it — a client pinned to
+    /// one host but posting to another would silently re-open the rebinding window.
+    token_endpoint_target: windmill_common::ssrf::ValidatedTarget,
+}
+
+impl McpClientCredentials {
+    /// The URL to post a token request to, together with a client pinned to the
+    /// address that URL was validated against. Token requests carry the
+    /// `client_secret`, so they must not re-resolve the host at connect time.
+    pub fn token_request(&self) -> Result<(reqwest::Client, &str), reqwest::Error> {
+        let client = no_redirect_http_client_pinned(&self.token_endpoint_target)?;
+        Ok((client, self.token_endpoint.as_str()))
+    }
 }
 
 #[derive(FromRow)]
@@ -254,4 +264,71 @@ pub async fn get_or_refresh_mcp_client(
         token_endpoint: metadata.token_endpoint,
         token_endpoint_target,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::{ErrorKind, Read},
+        net::TcpListener,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    /// The whole SSRF fix rests on the pin actually diverting the connect: the
+    /// token URL's host must never be resolved at connect time. `.invalid` is
+    /// guaranteed not to resolve (RFC 6761), so the request can only arrive at
+    /// the listener if it went to the pinned address.
+    ///
+    /// The accept loop is bounded so that a pin which stops working fails this
+    /// test in seconds rather than blocking on `accept` forever.
+    #[tokio::test]
+    async fn token_request_connects_to_the_pinned_address_not_the_host() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let handle = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut buffer = [0u8; 256];
+                        stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+                        let read = stream.read(&mut buffer).unwrap_or(0);
+                        return Some(String::from_utf8_lossy(&buffer[..read]).to_string());
+                    }
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10))
+                    }
+                    Err(_) => return None,
+                }
+            }
+            None
+        });
+
+        let credentials = McpClientCredentials {
+            client_id: "id".to_string(),
+            client_secret: None,
+            token_endpoint: "http://unresolvable.invalid/token".to_string(),
+            token_endpoint_target: windmill_common::ssrf::ValidatedTarget {
+                host: "unresolvable.invalid".to_string(),
+                addrs: vec![addr],
+            },
+        };
+
+        let (client, token_url) = credentials.token_request().unwrap();
+        assert_eq!(token_url, "http://unresolvable.invalid/token");
+        let _ = client.post(token_url).send().await;
+
+        let request = handle
+            .join()
+            .unwrap()
+            .expect("pinned address should have received the token POST");
+        assert!(
+            request.contains("/token") && request.contains("unresolvable.invalid"),
+            "pinned socket should receive the token POST, got: {request}"
+        );
+    }
 }
