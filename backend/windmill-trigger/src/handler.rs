@@ -361,7 +361,17 @@ pub trait TriggerCrud: Send + Sync + 'static {
         .bind(script_path)
         .fetch_one(&mut *tx)
         .await
-        .unwrap_or(0);
+        // Falling back to 0 keeps one unreadable table from failing the whole count
+        // endpoint, but the cause must still reach the logs: a silent 0 is
+        // indistinguishable from "no triggers" in the UI.
+        .unwrap_or_else(|err| {
+            tracing::error!(
+                "failed to count {} triggers of {} {script_path} in {workspace_id}: {err:#}",
+                Self::TABLE_NAME,
+                if is_flow { "flow" } else { "script" }
+            );
+            0
+        });
 
         count
     }

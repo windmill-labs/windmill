@@ -14,6 +14,8 @@ import {
 	type PreviewTarget
 } from './previewRouter'
 import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
+import type { Kind } from '$lib/utils_deployable'
+import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 
 // The single live owner of a session's preview tabs. Runs behind a small
 // interface both the sessions page (renderer) and the `open_preview` tool cross,
@@ -59,13 +61,17 @@ function targetUrl(target: PreviewTarget): string {
 // Point a tab at a new destination. Clears `friendlyLabel`/`friendlyPath`
 // (bound to the previous editor's item): a new editor re-stamps them, and
 // navigating to a plain page must drop the stale name so the tab falls back
-// to the location label.
+// to the location label. Only on an actual change of destination, though —
+// nothing re-stamps a tab that stays on the item it already hosts, so wiping
+// there would strand its label at the storage path (`…/draft_<uuid>`).
 function retargetTab(tab: SessionPreviewTab, url: string): void {
+	if (tab.url !== url) {
+		tab.friendlyLabel = undefined
+		tab.friendlyPath = undefined
+		tab.editorNamed = undefined
+	}
 	tab.url = url
 	tab.loc = url
-	tab.friendlyLabel = undefined
-	tab.friendlyPath = undefined
-	tab.editorNamed = undefined
 }
 
 // Strip the query params the sessions preview injects into iframe URLs
@@ -113,6 +119,28 @@ export function previewTargetForSessionTarget(
 			? { kind: 'app', raw_app: true, path, summary: '' }
 			: { kind, path, summary: '' }
 	return { type: 'item', item }
+}
+
+// Adapt a deployable item's layout kind (the session review dock speaks `Kind`,
+// not SessionTarget) to a preview destination: the three live editors, data
+// pipelines, plus legacy drag-and-drop apps, which the panel hosts as an iframe
+// over their edit route. Every other kind maps to undefined — not for lack of any
+// route (a variable or trigger has a list page the panel can host) but because
+// there is no item editor to preview, so their row falls back to the diff. The
+// undefined is also the caller's test for "can this row be previewed?".
+export function previewTargetForDeployKind(kind: Kind, path: string): PreviewTarget | undefined {
+	if (kind === 'app') {
+		return { type: 'item', item: { kind: 'app', raw_app: false, path, summary: '' } }
+	}
+	if (kind === 'script' || kind === 'flow' || kind === 'raw_app') {
+		return previewTargetForSessionTarget(kind, path)
+	}
+	// A pipeline's editor is its folder's graph view, not its bundle path.
+	if (kind === 'data_pipeline') {
+		const folder = pipelineFolderFromBundlePath(path)
+		return folder ? previewTargetForSessionTarget('pipeline', folder) : undefined
+	}
+	return undefined
 }
 
 // Build the initial tab model for a session: its saved tabs, else empty. Default
@@ -166,6 +194,13 @@ export class SessionPreviewTabs {
 	// Ephemeral UI signals — not part of the persisted snapshot.
 	#focusPulse = $state({ id: '', nonce: 0 })
 	#reloadPulse = $state({ id: '', nonce: 0 })
+	// Set while a mutation sequence is being judged as a whole (see asOneChange).
+	#pulsing = false
+	// Fullscreen overrides the collapsed layout, so the panel can be on screen
+	// while `#collapsed` still says otherwise. Page-level state (it outlives a
+	// session switch, unlike the persisted per-session flag), pushed in here so
+	// the flash decision reads what the user can actually see.
+	#fullscreen = false
 	readonly #adapter: PreviewTabsAdapter
 	readonly #flushDelay: number
 	#flushHandle: ReturnType<typeof setTimeout> | undefined
@@ -228,10 +263,66 @@ export class SessionPreviewTabs {
 		this.#schedulePersist()
 	}
 
+	// Whether the panel is on screen at all — fullscreen wins over collapsed.
+	setFullscreen(fullscreen: boolean): void {
+		this.#fullscreen = fullscreen
+	}
+
+	// The tab the user is actually looking at, or undefined when nothing is on screen.
+	#displayedTab(): SessionPreviewTab | undefined {
+		if (this.#collapsed && !this.#fullscreen) return undefined
+		return this.#tabs.find((t) => t.id === this.#activeId)
+	}
+
+	// Run a caller's own multi-call sequence (select + navigate + reveal) as a
+	// single change for the flash decision. Judging each call separately would
+	// flash a tab the sequence had just switched to, since the step that made it
+	// visible is not the step that finds nothing left to change. `mutate` must be
+	// synchronous: the verdict is read the moment it returns.
+	asOneChange<T>(mutate: () => T): T {
+		return this.#pulsingIfUnchanged(mutate)
+	}
+
+	// Run a tab mutation, flashing the displayed tab's border when it left the
+	// panel showing exactly what it already showed. Re-opening a destination that
+	// is already on screen is otherwise indistinguishable from a dead click.
+	#pulsingIfUnchanged<T>(mutate: () => T): T {
+		// Already inside a sequence: that outer call owns the decision, and an
+		// inner open()/navigate() must not rule on its own slice of it.
+		if (this.#pulsing) return mutate()
+		this.#pulsing = true
+		try {
+			return this.#pulseIfSameDestination(mutate)
+		} finally {
+			this.#pulsing = false
+		}
+	}
+
+	#pulseIfSameDestination<T>(mutate: () => T): T {
+		const before = this.#displayedTab()
+		const shown = before && { id: before.id, url: before.url, loc: before.loc }
+		const result = mutate()
+		const after = this.#displayedTab()
+		if (
+			shown &&
+			after &&
+			after.id === shown.id &&
+			after.url === shown.url &&
+			after.loc === shown.loc
+		) {
+			this.pulseFocus(after.id)
+		}
+		return result
+	}
+
 	// Open — or focus, if already shown — a tab for a destination, and reveal the
 	// panel. An editable item dedupes against the tab already hosting that same
 	// (kind, path); anything else dedupes on the tab's observed location.
 	open(target: PreviewTarget): { status: 'opened' | 'focused' } {
+		return this.#pulsingIfUnchanged(() => this.#open(target))
+	}
+
+	#open(target: PreviewTarget): { status: 'opened' | 'focused' } {
 		const editorTarget = editorTargetFor(target)
 		// A fresh session starts collapsed, so without this the tab opens behind a
 		// collapsed panel and the user sees nothing change.
@@ -276,8 +367,12 @@ export class SessionPreviewTabs {
 		}
 		// Focus the tab currently *showing* this destination instead of opening a
 		// duplicate. Matched on the observed `loc`, not `url`: a tab that was
-		// opened here but navigated away no longer counts as showing it.
-		const shown = this.#tabs.find((t) => t.loc === url)
+		// opened here but navigated away no longer counts as showing it. Both sides
+		// are canonicalized because a caller may bake `?workspace=` into the href
+		// (the frame re-injects it from the session anyway) while the observed loc
+		// has had it stripped — comparing raw would reopen the page as a duplicate.
+		const canonicalUrl = canonicalizeObservedLoc(url)
+		const shown = this.#tabs.find((t) => canonicalizeObservedLoc(t.loc) === canonicalUrl)
 		if (shown) {
 			this.#activeId = shown.id
 			this.#flush()
@@ -294,6 +389,10 @@ export class SessionPreviewTabs {
 	// Re-point the active tab at a destination (breadcrumb pick / in-editor link /
 	// iframe-posted editor navigation).
 	navigate(target: PreviewTarget): void {
+		this.#pulsingIfUnchanged(() => this.#navigate(target))
+	}
+
+	#navigate(target: PreviewTarget): void {
 		const t = this.#tabs.find((x) => x.id === this.#activeId)
 		if (!t) return
 		const editorTarget = editorTargetFor(target)

@@ -47,7 +47,7 @@ import { sendUserToast } from '$lib/toast'
 import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
-import { getKnownModelContextWindow } from '../modelConfig'
+import { getModelContextWindow } from '../modelConfig'
 import {
 	getCompactionSummaryPrompt,
 	formatCompactSummary,
@@ -2971,9 +2971,11 @@ export class AIChatManager {
 			this.currentReasoningActive = false
 			this.resetReasoningTiming()
 
-			// Compaction trigger. Without a known context window there is no limit
-			// to enforce, so compaction stays off rather than guessing one.
-			const contextWindow = model ? getKnownModelContextWindow(model.model) : undefined
+			// Compaction trigger. An unrecognized model still gets the conservative
+			// assumed window rather than no limit: without one the context grows
+			// unbounded until the provider (or a proxy in front of it) times out.
+			// Guessing low only compacts earlier, which is always recoverable.
+			const contextWindow = model ? getModelContextWindow(model.model) : undefined
 			if (
 				contextWindow !== undefined &&
 				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO

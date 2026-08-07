@@ -56,6 +56,12 @@ pub(crate) async fn change_workspace_id(
 
     let mut tx = db.begin().await?;
 
+    // A rename rewrites the workspace's dev flag and reparents its children, so it decides on the
+    // same state the pairing handlers do: without this lock a concurrent create/attach could commit
+    // an active dev workspace under the shell this rename is about to archive. Both ids, since the
+    // rename moves the chain from one to the other.
+    crate::workspaces::lock_dev_pairing(&mut tx, &[&old_id, &rw.new_id]).await?;
+
     check_w_id_conflict(&mut tx, &rw.new_id).await?;
 
     info!(

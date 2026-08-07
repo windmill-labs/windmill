@@ -579,6 +579,7 @@ async fn route_job(
                 None,
                 early_return,
                 has_failure_module,
+                false,
             );
 
             let body = axum::body::Body::from_stream(

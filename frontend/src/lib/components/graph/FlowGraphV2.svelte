@@ -96,13 +96,14 @@
 	import { NoteManager } from './noteManager.svelte'
 	import type { MoveManager } from './moveManager.svelte'
 	import DragCoordinator from './DragCoordinator.svelte'
-	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import { jobToGraphModuleState, type ModulesTestStates } from '../modulesTest.svelte'
 	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import { computeNodeExtraSpace } from './nodeExtraSpace'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
+	import { setFlowRunStatusContext } from './flowRunStatus.svelte'
 	import { computeNoteNodes } from './noteUtils.svelte'
 	import { Tooltip } from '../meltComponents'
 	import { getNoteEditorContext } from './noteEditor.svelte'
@@ -371,6 +372,37 @@
 		groupDisplayState
 	} as any)
 
+	const flowRunStatus = setFlowRunStatusContext()
+	$effect(() => {
+		flowRunStatus.flowJob = flowJob
+	})
+	$effect(() => {
+		flowRunStatus.suspendStatus = suspendStatus
+	})
+	$effect(() => {
+		// Each step's state object is replaced rather than mutated, so reading the top level
+		// catches every status change. Walking deeper would subscribe to every step's args and
+		// result on the hottest path in the graph.
+		Object.values(flowModuleStates ?? {})
+		// The loader mutates `flow_status` on the job it already handed us, so subscribing to the
+		// test state alone would never see an agent's calls land.
+		Object.values(testModuleStates?.states ?? {}).forEach((s) => [
+			s.loading,
+			s.testJob?.['flow_status']?.modules?.[0]?.agent_actions?.length
+		])
+		untrack(() => {
+			// Testing one step is its own small run, and its agent calls arrive on the test job
+			// rather than the flow's states. Fold them in so the renderers keep a single source.
+			let states = flowModuleStates
+			for (const [id, testState] of Object.entries(testModuleStates?.states ?? {})) {
+				const tested = jobToGraphModuleState(testState)
+				if (!tested?.agent_actions) continue
+				states = { ...(states ?? {}), [id]: { ...(states?.[id] ?? {}), ...tested } }
+			}
+			flowRunStatus.setModuleStates(states)
+		})
+	})
+
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
 		if (isSimplifiable(untrack(() => modules))) {
 			triggerContext?.simplifiedPoll?.set(true)
@@ -517,7 +549,25 @@
 			triggerContext?.simplifiedPoll.set(detail)
 		},
 		expandSubflow: async (id: string, path: string) => {
-			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+			// Reads the subflow's *current* definition, which a share link deliberately does
+			// not cover: it authorizes the run's job subtree, not the workspace's flow
+			// library. So a share-link viewer (and any anonymous one) is refused here — name
+			// that case, but only when the error actually says so.
+			let flow: OpenFlow
+			try {
+				flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+			} catch (err) {
+				const denied = err?.status === 401 || err?.status === 403
+				sendUserToast(
+					`Could not expand subflow ${path}: ${
+						denied
+							? "viewing a subflow's definition requires being logged in with access to it"
+							: (err?.body ?? err)
+					}`,
+					true
+				)
+				return
+			}
 			expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			expandedSubflows = expandedSubflows
 		},
@@ -613,20 +663,58 @@
 
 	let height = $state(0)
 
+	/**
+	 * A run only changes what the steps display, never the shape of the graph, but every
+	 * status poll rebuilds these arrays from scratch. xyflow re-measures every node it is
+	 * handed a new object for, and Svelte destroys and re-creates every edge, so handing
+	 * back fresh identities re-renders a graph that did not change. Reuse the previous
+	 * object wherever it still deep-equals the new one.
+	 */
+	function reuseUnchanged<T extends { id: string }>(previous: T[], next: T[]): T[] {
+		const previousById = new Map(previous.map((item) => [item.id, item]))
+		let changed = previous.length !== next.length
+		const reconciled = next.map((item, index) => {
+			const before = previousById.get(item.id)
+			if (before && deepEqual(before, item)) {
+				changed ||= previous[index] !== before
+				return before
+			}
+			changed = true
+			return item
+		})
+		return changed ? reconciled : previous
+	}
+
+	// Keyed by the source node, so a node that survived reconciliation keeps its offset
+	// object too — remapping every node would undo the identity reuse above.
+	let offsetNodeCache = new WeakMap<Node, Node>()
+	let offsetCacheKey: string | undefined = undefined
+
 	// Derived nodes with yOffset applied to all nodes uniformly and selectable flag set to false if notSelectable is true
 	const nodesWithOffset = $derived.by(() => {
+		const cacheKey = `${yOffset}:${notSelectable}`
+		if (cacheKey !== offsetCacheKey) {
+			offsetNodeCache = new WeakMap<Node, Node>()
+			offsetCacheKey = cacheKey
+		}
 		return nodes.map((node) => {
-			if (node.type && !AI_OR_ASSET_NODE_TYPES.includes(node.type)) {
-				return {
-					...node,
-					position: { ...node.position, y: node.position.y + yOffset },
-					selectable: notSelectable ? false : node.selectable
-				}
+			const cached = offsetNodeCache.get(node)
+			if (cached) {
+				return cached
 			}
-			return {
-				...node,
-				selectable: notSelectable ? false : node.selectable
-			}
+			const mapped =
+				node.type && !AI_OR_ASSET_NODE_TYPES.includes(node.type)
+					? {
+							...node,
+							position: { ...node.position, y: node.position.y + yOffset },
+							selectable: notSelectable ? false : node.selectable
+						}
+					: {
+							...node,
+							selectable: notSelectable ? false : node.selectable
+						}
+			offsetNodeCache.set(node, mapped)
+			return mapped
 		})
 	})
 
@@ -646,6 +734,10 @@
 
 	// Clear SvelteFlow's internal selection by creating new nodes array
 	function clearFlowSelection() {
+		// xyflow owns `selected` on the objects it was handed, and drops it only when it sees a
+		// node it does not recognise. Serving the cached mapping back would hand it the very
+		// object it marked selected, so the clear has to go through fresh objects.
+		offsetNodeCache = new WeakMap<Node, Node>()
 		nodes = nodes.map((node) => {
 			if (node.selected) {
 				return { ...node, selected: false }
@@ -797,13 +889,13 @@
 			: undefined
 
 		// update nodes
-		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
+		nodes = reuseUnchanged(nodes, [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])])
 
-		edges = [
+		edges = reuseUnchanged(edges, [
 			...(assetNodesResult?.newAssetEdges ?? []),
 			...aiToolNodesResult.toolEdges,
 			...graph.edges
-		]
+		])
 
 		await tick()
 		updateHeight()
@@ -889,6 +981,13 @@
 		moduleTracker.counter
 		effectiveModuleActions
 		currentGroups
+		// The poll replaces `flowJob` on every tick and is what makes the untracked
+		// `flowModuleStates` above get re-read, so it stays a dependency. It is deliberately
+		// not handed to graphBuilder: anything put there lands in every node and edge's data,
+		// and a per-tick value there re-creates the whole graph. Renderers read it from
+		// FlowRunStatus instead.
+		flowJob
+		suspendStatus
 
 		const collapsedGroupIds = new Set(
 			allGroups
@@ -939,9 +1038,7 @@
 				isOwner,
 				isRunning,
 				individualStepTests,
-				flowJob,
 				showJobStatus,
-				suspendStatus,
 				flowHasChanged,
 				chatInputEnabled,
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
@@ -981,6 +1078,27 @@
 	// Track groups for re-layout when groups change
 	let currentGroups = $derived(groups ?? [])
 
+	/**
+	 * An agent's tool calls become nodes, and they land one at a time while the step runs.
+	 * Nothing else the graph reads changes as they arrive — the run only appends to an
+	 * existing step's state — so without this the tools all appear at once when the step ends.
+	 */
+	let agentActionsVersion = $derived.by(() => {
+		// The editor draws the agent's declared tools and ignores the run's calls, so neither the
+		// layout nor the tool nodes can change as they land.
+		if (insertable) return ''
+		let version = ''
+		for (const [id, state] of Object.entries(flowModuleStates ?? {})) {
+			const actions = state?.agent_actions
+			if (!actions) continue
+			version += `${id}:${actions.length}:`
+			for (const action of actions) {
+				version += `${action.type}/${(action as { function_name?: string }).function_name ?? ''},`
+			}
+		}
+		return version
+	})
+
 	$effect(() => {
 		;[
 			graph,
@@ -990,6 +1108,7 @@
 			noteManager.renderCount,
 			currentGroups,
 			groupDisplayState.renderCount,
+			agentActionsVersion,
 			// A linked step's tools resolve asynchronously; recompute tool nodes when they land.
 			linkedAgentToolsVersion()
 		]
@@ -1399,7 +1518,10 @@
 	   match ours exactly and load order decides. Scoping by the class we pass to <Controls>
 	   outranks them instead of racing them. */
 	:global(.svelte-flow__controls.wm-flow-controls) {
-		@apply overflow-hidden rounded-md border;
+		/* Name the colour rather than leaning on the base layer's bare `.border`: preflight
+		   sets a light `border-color` on every element, so whenever that base rule does not
+		   make it into the bundle alongside this one the bar draws a white outline. */
+		@apply overflow-hidden rounded-md border border-border-light;
 		box-shadow: none;
 	}
 	:global(.wm-flow-controls .svelte-flow__controls-button) {

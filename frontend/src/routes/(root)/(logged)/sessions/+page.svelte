@@ -318,6 +318,12 @@
 	let emptyStateNewTabOpen = $state(false)
 
 	let fullscreen = $state(false)
+	// Fullscreen is page state, not per-session, so it outlives a session switch —
+	// tell the incoming session's model, whose own collapsed flag it overrides, or
+	// re-opening the item plainly on screen would be judged invisible and not flash.
+	$effect(() => {
+		owner?.setFullscreen(fullscreen)
+	})
 	// Collapse the preview panel to give the chat the full width. Per-session and
 	// owned by the runtime's previewTabs (restored on switch, written back on
 	// toggle) so it survives session switches with the rest of the tab model.
@@ -477,8 +483,7 @@
 	// (or focus, if already shown) the item's preview in the active session's panel —
 	// the visible chat is always the active session, so `owner` is its panel. Read
 	// `owner` lazily inside the handler (not in the effect body) so this registers
-	// once, not on every session switch. A 'focused' open leaves the tab where it is,
-	// so pulse it to make the click visibly land.
+	// once, not on every session switch.
 	$effect(() => {
 		return registerToolDisplayActionHandler('open_item_preview', (action) => {
 			if (action.type !== 'open_item_preview') return
@@ -486,8 +491,7 @@
 			if (!o) return
 			const target = previewTargetForSessionTarget(action.previewKind, action.path)
 			if (!target) return
-			const { status } = o.open(target)
-			if (status === 'focused') o.pulseFocus(o.activeId)
+			o.open(target)
 		})
 	})
 

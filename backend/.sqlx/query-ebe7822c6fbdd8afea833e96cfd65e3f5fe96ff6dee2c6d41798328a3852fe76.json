@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE seeded AS (SELECT unnest($1::text[]) AS id),\n           up AS (\n               SELECT w.id, w.parent_workspace_id, 0 AS depth\n               FROM workspace w JOIN seeded s ON w.id = s.id\n               UNION ALL\n               SELECT w.id, w.parent_workspace_id, up.depth + 1\n               FROM workspace w JOIN up ON w.id = up.parent_workspace_id\n               WHERE up.depth < 20\n           ),\n           down AS (\n               SELECT w.id, 0 AS depth FROM workspace w JOIN seeded s ON w.id = s.id\n               UNION ALL\n               SELECT w.id, down.depth + 1\n               FROM workspace w JOIN down ON w.parent_workspace_id = down.id\n               WHERE down.depth < 20 AND w.is_dev_workspace\n           )\n           SELECT id AS \"id!\" FROM (\n               SELECT id FROM seeded UNION SELECT id FROM up UNION SELECT id FROM down\n           ) n ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ebe7822c6fbdd8afea833e96cfd65e3f5fe96ff6dee2c6d41798328a3852fe76"
+}

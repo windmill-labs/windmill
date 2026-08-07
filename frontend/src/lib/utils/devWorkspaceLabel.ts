@@ -1,25 +1,43 @@
-// Cosmetic display label for a dev workspace. The paired-fork machinery is unchanged; this only
-// swaps the badge text and identity wording so a team can present the environment as "staging"
-// instead of "dev". A null/unknown stored value renders as "dev" (the default).
+// Environment label of a dev workspace: its badge text, the wording used to name it, and the git
+// branch it deploys to. A null/empty stored value reads as 'dev'.
 
-export type DevWorkspaceLabelKey = 'dev' | 'staging'
+/**
+ * The labels a dev workspace may carry, ordered dev -> prod. Mirrors `DEV_WORKSPACE_LABELS` in the
+ * backend, which is authoritative. Every dev workspace in a chain must carry a distinct one, so the
+ * length of this list is also the deepest promotion chain.
+ */
+export const DEV_WORKSPACE_LABELS = [
+	'dev',
+	'qa',
+	'test',
+	'uat',
+	'staging',
+	'demo',
+	'sandbox',
+	'preprod'
+] as const
 
-/** Resolve the stored `dev_workspace_label` to a known key; anything unset/unknown is 'dev'. */
-export function devLabelKey(label: string | null | undefined): DevWorkspaceLabelKey {
-	return label === 'staging' ? 'staging' : 'dev'
+/** A label the UI may assign. The read side stays `string`: rows predating a list change persist. */
+export type DevWorkspaceLabelKey = (typeof DEV_WORKSPACE_LABELS)[number]
+
+/** Resolve the stored `dev_workspace_label` to its effective value; unset/empty is 'dev'. */
+export function devLabelKey(label: string | null | undefined): string {
+	return label && label !== '' ? label : 'dev'
 }
 
-/** Short badge text: 'dev' or 'stg'. */
+/** Short badge text: 'staging' abbreviates to 'stg', anything else shows verbatim. */
 export function devBadgeText(label: string | null | undefined): string {
-	return devLabelKey(label) === 'staging' ? 'stg' : 'dev'
+	const key = devLabelKey(label)
+	return key === 'staging' ? 'stg' : key
 }
 
 /** Capitalized word for identity wording, e.g. `${devLabelWord(l)} workspace of X`. */
 export function devLabelWord(label: string | null | undefined): string {
-	return devLabelKey(label) === 'staging' ? 'Staging' : 'Dev'
+	const key = devLabelKey(label)
+	return key.charAt(0).toUpperCase() + key.slice(1)
 }
 
 /** Lowercase noun phrase for prose, e.g. "made in its ${devLabelNoun(l)}". */
 export function devLabelNoun(label: string | null | undefined): string {
-	return devLabelKey(label) === 'staging' ? 'staging workspace' : 'dev workspace'
+	return `${devLabelKey(label)} workspace`
 }

@@ -280,8 +280,9 @@
 	}
 
 	/* Subtle scrollbar: a thin, rounded thumb that only appears on hover, on both
-	   axes. Shared by ScrollableX (tab strips, code blocks) and the AI chat. Size
-	   via the `--wm-scrollbar-size` var (default 6px). Higher specificity than the
+	   axes. Shared by ScrollableX (code blocks, tab headers) and the AI chat. Size
+	   via the `--wm-scrollbar-size` var (default 6px) — WebKit only; Firefox sizes
+	   `thin` itself and spends ~11px of the box on it. Higher specificity than the
 	   app-wide `*::-webkit-scrollbar`, so it overrides it. */
 	.scrollbar-subtle {
 		scrollbar-width: thin;

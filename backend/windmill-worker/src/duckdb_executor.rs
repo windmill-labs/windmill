@@ -1597,6 +1597,10 @@ pub async fn do_duckdb(
         )
         .await?;
 
+        #[cfg(feature = "private")]
+        let query_block_list =
+            crate::duckdb_isolation_ee::apply_duckdb_isolation(query_block_list)?;
+
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
         let job_dir = job_dir.to_string();
