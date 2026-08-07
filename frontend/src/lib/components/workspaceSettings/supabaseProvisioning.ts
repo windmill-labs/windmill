@@ -6,6 +6,8 @@
  * access token.
  */
 
+import type { SetupStep } from '../wizards/SetupChecklist.svelte'
+
 export type SupabaseOrg = { id: string; name: string; slug?: string }
 
 export type SupabaseProject = {
@@ -14,6 +16,22 @@ export type SupabaseProject = {
 	region: string
 	status?: string
 	database?: { host: string }
+}
+
+/**
+ * The provisioning stages, as a checklist. Each entry is driven only by its own index, so a
+ * host that stops at the Supabase side can take the first two and leave the rest.
+ * `stage` is 0 idle, 1 creating, 2 starting, 3 checking, 4 ready.
+ */
+export function supabaseSetupSteps(stage: number, failed = false): SetupStep[] {
+	const titles = ['Created on Supabase', 'Starting it up', 'Checking Windmill can store data']
+	return titles.map((title, i) => {
+		const done = stage >= i + 2
+		const running = stage === i + 1
+		if (done) return { title, status: 'done' }
+		if (running) return { title, status: failed ? 'failed' : 'running' }
+		return { title, status: 'pending' }
+	})
 }
 
 /** Region codes accepted by region_selection. */
@@ -126,6 +144,13 @@ export function supabaseResourceValue(project: SupabaseProject, passwordVarPath:
 		port: 5432,
 		dbname: 'postgres',
 		sslmode: 'prefer',
-		password: `$var:${passwordVarPath}`
+		password: `$var:${passwordVarPath}`,
+		// Resource forms fill in every unset property from the schema as soon as they render,
+		// so a postgresql resource saved without these comes up already modified -- and saves a
+		// draft -- the first time anyone opens it. Write them here so opening one is a no-op.
+		// (accept_invalid_certs renders conditionally and is not seeded, so it stays out.)
+		region: '',
+		root_certificate_pem: '',
+		use_iam_auth: false
 	}
 }

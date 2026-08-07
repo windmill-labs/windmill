@@ -8,7 +8,7 @@
 	import { slide } from 'svelte/transition'
 	import Modal2 from '../common/modal/Modal2.svelte'
 	import Alert from '../common/alert/Alert.svelte'
-	import LoggedWizardResult, { firstEmptyStepIsError } from '../wizards/LoggedWizardResult.svelte'
+	import SetupChecklist from '../wizards/SetupChecklist.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
@@ -20,6 +20,7 @@
 	import { truncate } from '$lib/utils'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import { superadmin } from '$lib/stores'
+	import { instanceSetupSteps } from './instanceDbSteps'
 
 	type Props = {
 		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
@@ -59,7 +60,7 @@
 			<div class="basis-2/5 grow-0 shrink-0 flex flex-col">
 				<div class="flex-1 flex flex-col">
 					<span class="text-sm font-bold mb-2 overflow break-all">{dbname}</span>
-					<span class="text-sm">
+					<span class="text-xs font-normal text-secondary">
 						Custom instance databases are databases created in the Windmill PostgreSQL instance.
 						Their credentials are automatically managed by Windmill and are never exposed to users.
 						Only super admins can create them.
@@ -127,68 +128,8 @@
 						</div>
 					{/if}
 
-					<LoggedWizardResult
-						steps={firstEmptyStepIsError(
-							[
-								{
-									title: 'Super admin required',
-									status: status?.logs.super_admin,
-									description:
-										'You need to be a super admin to create a new database in the Windmill PostgreSQL instance'
-								},
-								{
-									title: 'Retrieve and parse database credentials',
-									status: status?.logs.database_credentials,
-									description:
-										'Windmill uses the DATABASE_URL or DATABASE_URL_FILE environment variable to connect to the PostgreSQL instance. Make sure it is correctly set'
-								},
-								{
-									title: 'Database name is valid',
-									status: status?.logs.valid_dbname,
-									description:
-										'The database name must be alphanumeric (underscores and hyphens allowed) and cannot be named the same as the Windmill database (usually "windmill")'
-								},
-								{
-									title:
-										'Create database' +
-										(status?.logs.created_database === 'SKIP' ? ' (already exists, skipped)' : ''),
-									status: status?.logs.created_database,
-									description: `In the Windmill PostgreSQL instance, run: CREATE DATABASE "${dbname}".`
-								},
-								{
-									title: `Connect to the ${dbname} database`,
-									status: status?.logs.db_connect,
-									description:
-										"Connect to the newly created database with the default admin user (the one in DATABASE_URL, usually 'postgres') to run the next commands"
-								},
-								{
-									title: 'Grant permissions to custom_instance_user',
-									status: status?.logs.grant_permissions,
-									description:
-										'Gives custom_instance_user the required permissions to use the database. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. These are the commands : \n\n' +
-										`GRANT CONNECT ON DATABASE "${dbname}" TO custom_instance_user;\n` +
-										'GRANT USAGE ON SCHEMA public TO custom_instance_user;\n' +
-										'GRANT CREATE ON SCHEMA public TO custom_instance_user;\n' +
-										`GRANT CREATE ON DATABASE "${dbname}" TO custom_instance_user;\n` +
-										'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
-										'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;\n' +
-										'ALTER ROLE custom_instance_user CREATEROLE;'
-								},
-								{
-									title: 'Grant replication to custom_instance_replication_user',
-									status: status?.logs.replication_user,
-									description:
-										'Postgres triggers on custom-instance datatables connect as custom_instance_replication_user, whose password is stored in global_settings.custom_instance_replication_pwd. The role is cluster-wide, so it is created on the Windmill PostgreSQL instance rather than on this database : \n\n' +
-										'ALTER ROLE custom_instance_replication_user REPLICATION;\n' +
-										'GRANT custom_instance_user TO custom_instance_replication_user;\n\n' +
-										'Setting REPLICATION requires a superuser on PostgreSQL 15 and older. Managed instances never grant one, so on AWS RDS Windmill falls back to GRANT rds_replication TO custom_instance_replication_user. The database stays usable for datatables if this step fails, but postgres triggers on them do not.' +
-										(status?.logs.replication_user_error
-											? `\n\nError: ${status.logs.replication_user_error}`
-											: '')
-								}
-							],
-							status?.error ?? undefined
-						)}
+					<SetupChecklist
+						steps={instanceSetupSteps(dbname, status, customInstanceDbSetupIsRunning)}
 					/>
 				</div>
 				{#if $superadmin}

@@ -67,7 +67,6 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
-	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		SettingService,
@@ -160,20 +159,6 @@
 				.map((d) => d.database.resource_path!)
 		]
 		return getUnusedInstanceDbName('dt', $workspaceStore ?? '', usedNames)
-	}
-
-	function onNewDataTable() {
-		const name = tempSettings.dataTables.some((d) => d.name === 'main')
-			? `${random_adj()}_datatable`
-			: 'main'
-		tempSettings.dataTables.push({
-			id: randomUUID(),
-			name,
-			database: {
-				resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
-				resource_path: $isCustomInstanceDbEnabled ? defaultInstanceDbName() : undefined
-			}
-		})
 	}
 
 	async function onSave() {
@@ -531,5 +516,7 @@
 	existingNames={tempSettings.dataTables.map((d) => d.name)}
 	resume={wizardResume}
 	onDone={reloadAfterWizard}
-	onUseInstance={onNewDataTable}
+	{customInstanceDbs}
+	{confirmationModal}
+	{defaultInstanceDbName}
 />

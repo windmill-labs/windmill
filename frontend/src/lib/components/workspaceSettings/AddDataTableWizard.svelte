@@ -31,8 +31,7 @@
 
 <script lang="ts">
 	import type { Snippet } from 'svelte'
-	import { base } from '$lib/base'
-	import { Database, Check, ArrowRight, Loader2 } from 'lucide-svelte'
+	import { Database, ArrowRight } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -40,27 +39,27 @@
 	import Stepper from '../common/stepper/Stepper.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
-	import Select from '../select/Select.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import SupabaseIcon from '../icons/SupabaseIcon.svelte'
-	import { OauthService, ResourceService, VariableService, WorkspaceService } from '$lib/gen'
-	import type { TestDataTableConnectionResponse } from '$lib/gen'
-	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
+	import {
+		OauthService,
+		ResourceService,
+		SettingService,
+		VariableService,
+		WorkspaceService
+	} from '$lib/gen'
+	import type { ListCustomInstanceDbsResponse, TestDataTableConnectionResponse } from '$lib/gen'
+	import type { ResourceReturn } from 'runed'
+	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
+	import SetupChecklist from '../wizards/SetupChecklist.svelte'
+	import { instanceSetupSteps } from './instanceDbSteps'
+	import SupabaseProjectStep, { type SupabasePick } from './SupabaseProjectStep.svelte'
+	import { DEFAULT_SUPABASE_REGION, type SupabaseProject } from './supabaseProvisioning'
+	import { useSupabaseOauth } from './supabaseOauth.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
-	import {
-		DEFAULT_SUPABASE_REGION,
-		SUPABASE_REGIONS,
-		createSupabaseProject,
-		generateDbPassword,
-		listSupabaseOrgs,
-		listSupabaseProjects,
-		orgSlug,
-		supabaseResourceValue,
-		waitUntilSupabaseHealthy,
-		type SupabaseOrg,
-		type SupabaseProject
-	} from './supabaseProvisioning'
+	import { supabaseResourceValue } from './supabaseProvisioning'
 
 	type Props = {
 		opened: boolean
@@ -68,51 +67,80 @@
 		/** Set when Supabase redirected the user back here mid-flow. */
 		resume?: WizardResume | undefined
 		onDone: () => void
-		/** Instance databases are provisioned by a superadmin from the row itself, so that
-		 * branch hands back to the existing inline editor rather than duplicating it. */
-		onUseInstance: () => void
+		/** The instance database pool and its confirmation host are owned by the settings page,
+		 * which already loads them for the rows; sharing them keeps one source of truth. */
+		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
+		confirmationModal: ConfirmationModalHandle
+		defaultInstanceDbName: () => string
 	}
 
-	let { opened = $bindable(), existingNames, resume, onDone, onUseInstance }: Props = $props()
+	let {
+		opened = $bindable(),
+		existingNames,
+		resume,
+		onDone,
+		customInstanceDbs,
+		confirmationModal,
+		defaultInstanceDbName
+	}: Props = $props()
 
 	type Provider = 'supabase' | 'existing' | 'instance'
 
 	let step = $state(1)
 	let provider: Provider | undefined = $state(undefined)
-	let supaMode: 'create' | 'existing' = $state('create')
-	let supaModeChosen = $state(false)
-
-	let orgs: SupabaseOrg[] | undefined = $state(undefined)
-	let selectedOrg: string | undefined = $state(undefined)
-	let region: string = $state(DEFAULT_SUPABASE_REGION)
-	let projectName = $state('')
-	let projects: SupabaseProject[] | undefined = $state(undefined)
-	let selectedProject: SupabaseProject | undefined = $state(undefined)
-	let existingPassword = $state('')
+	let supaStep: ReturnType<typeof SupabaseProjectStep> | undefined = $state(undefined)
+	let supaResult: SupabasePick | undefined = $state(undefined)
 
 	let resourcePath: string | undefined = $state(undefined)
 	let dataTableName = $state('main')
 
-	let provisioning = $state(0) // 0 idle, 1 created, 2 starting, 3 checking, 4 ready
-	let provisionStatus = $state('')
+	let instanceDbName: string | undefined = $state(undefined)
+	let instanceMode: 'existing' | 'create' = $state('create')
+	let instanceSetupRunning = $state(false)
+	// Selecting a database that is already healthy should not open with seven green ticks; the
+	// checks are worth the room once they have something to report.
+	let instanceSetupAttempted = $state(false)
+	let preventClose = false
+	let instanceStatus = $derived(
+		instanceDbName ? customInstanceDbs.current?.[instanceDbName] : undefined
+	)
+	// Instance databases are pooled across features; DuckLake catalogs are tagged separately
+	// and must not show up as somewhere to put a data table.
+	let instanceDbs = $derived(
+		Object.entries(customInstanceDbs.current ?? {})
+			.filter(([_, db]) => db.tag === 'datatable')
+			.map(([name, db]) => ({ name, db }))
+	)
+
+	function enterInstanceStep() {
+		instanceMode = 'create'
+		instanceDbName ??= defaultInstanceDbName()
+	}
+
+	function setInstanceMode(mode: 'existing' | 'create') {
+		if (mode === instanceMode) return
+		instanceMode = mode
+		selectInstanceDb(mode === 'create' ? defaultInstanceDbName() : undefined)
+	}
+
+	function selectInstanceDb(name: string | undefined) {
+		if (name === instanceDbName) return
+		instanceDbName = name
+		instanceSetupAttempted = false
+	}
+
+	function otherWorkspaces(name: string): string[] {
+		return (customInstanceDbs.current?.[name]?.used_by_workspaces ?? []).filter(
+			(w) => w !== $workspaceStore
+		)
+	}
+
 	let checking = $state(false)
 	let checkReport: TestDataTableConnectionResponse | undefined = $state(undefined)
 	let checkError = $state('')
 	let finishing = $state(false)
-	// Set only when a Supabase project was created but its credentials could not be saved.
-	let strandedPassword = $state('')
 	// Which password the saved resource holds, so a retry only re-creates it when it changed.
 	let savedPassword = $state('')
-
-	let token = $derived($oauthStore?.access_token)
-	let authed = $derived(!!token)
-
-	// Supabase statuses are SCREAMING_SNAKE; only worth showing when it is not the happy path,
-	// since a paused project (free tier pauses after a week idle) fails the connection check.
-	function projectStatus(p: SupabaseProject): string | undefined {
-		if (!p.status || p.status === 'ACTIVE_HEALTHY') return undefined
-		return p.status === 'INACTIVE' ? 'paused' : p.status.toLowerCase().replace(/_/g, ' ')
-	}
 
 	function defaultProjectName(): string {
 		return `windmill-${$workspaceStore ?? 'workspace'}`
@@ -134,16 +162,13 @@
 		}
 		if (!primed) {
 			primed = true
-			// Names are derived on open, not at construction: the wizard is mounted for the
+			// The name is derived on open, not at construction: the wizard is mounted for the
 			// lifetime of the page, so the existing data tables are not known until then.
 			dataTableName = resume?.name || defaultTableName()
-			projectName = resume?.projectName || defaultProjectName()
 		}
 		if (resume) {
 			provider = 'supabase'
-			supaMode = 'create'
 			step = 2
-			region = resume.region
 			dataTableName = resume.name
 		}
 	})
@@ -158,61 +183,18 @@
 			.catch(() => {})
 	})
 
-	$effect(() => {
-		if (opened && provider === 'supabase' && token && orgs === undefined) {
-			loadSupabase(token)
-		}
-	})
-
-	async function loadSupabase(t: string) {
-		try {
-			orgs = await listSupabaseOrgs(t)
-			if (orgs?.length && !selectedOrg) selectedOrg = orgSlug(orgs[0])
-			projects = await listSupabaseProjects(t)
-			// Someone who already has a Supabase database almost always means to connect it
-			// rather than make a second one. Only pre-empt the choice they have not made yet:
-			// a resumed run was already mid-creation, and a manual pick stands.
-			if (!resume && !supaModeChosen && projects?.length) supaMode = 'existing'
-		} catch (err) {
-			sendUserToast(String(err), true)
-			orgs = orgs ?? []
-		}
-	}
-
-	const OAUTH_WINDOW = 'windmill_supabase_oauth'
 	const SUPABASE_SIGNUP_URL = 'https://supabase.com/dashboard/sign-up'
 
-	let oauthWindow: Window | null = null
-	let oauthPending = $state(false)
-
-	/**
-	 * A full-page redirect unmounts the wizard, so a user who stops to create a Supabase
-	 * account lands on their dashboard with nothing left pointing back here. Driving the flow
-	 * from a popup keeps this modal on screen, and keeps the window ours to steer: after they
-	 * sign up we send the same popup back through the connect endpoint and consent follows.
-	 */
-	function startOauth() {
-		const url = `${base}/api/oauth/connect/supabase_wizard`
-		oauthWindow = window.open(url, OAUTH_WINDOW, 'width=600,height=820')
-		if (!oauthWindow) {
-			// Popups blocked: fall back to the redirect, parking what the user had chosen.
-			parkWizard({ name: dataTableName, region, projectName })
-			window.location.href = url
-			return
-		}
-		oauthPending = true
-		step = 2
-	}
-
-	$effect(() => {
-		function onMessage(e: MessageEvent) {
-			if (e.origin !== window.location.origin || e.data?.type !== 'supabase_oauth') return
-			$oauthStore = e.data.res
-			oauthPending = false
-			oauthWindow?.close()
-		}
-		window.addEventListener('message', onMessage)
-		return () => window.removeEventListener('message', onMessage)
+	// The step component drives its own authorization once the user is on it, but signing in is
+	// the whole of that step when it has not happened yet -- so Continue does it directly rather
+	// than spending a screen telling the user what the next button will do.
+	const supaOauth = useSupabaseOauth({
+		onPopupBlocked: () =>
+			parkWizard({
+				name: dataTableName,
+				region: DEFAULT_SUPABASE_REGION,
+				projectName: defaultProjectName()
+			})
 	})
 
 	/**
@@ -258,63 +240,21 @@
 		return path
 	}
 
-	async function provision() {
-		if (!token || !selectedOrg || !projectName) return
-		provisioning = 1
-		provisionStatus = ''
-		checkError = ''
-		let createdPassword = ''
-		try {
-			const dbPass = generateDbPassword()
-			// Before the call, not after: a throw here can still leave a project behind, and
-			// Supabase will never show its password again.
-			createdPassword = dbPass
-			const created = await createSupabaseProject(token, {
-				name: projectName,
-				organizationSlug: selectedOrg,
-				region,
-				dbPass
-			})
-			provisioning = 2
-			const healthy = await waitUntilSupabaseHealthy(
-				token,
-				created.id ?? (created as any).ref,
-				(s) => (provisionStatus = s ?? '')
-			)
-			provisioning = 3
-			// Save the credentials before checking: Supabase never hands the password back, so
-			// losing it here would leave a project nobody can log into.
-			resourcePath = await saveSupabaseResource(healthy, dbPass)
-			await runCheck()
-			provisioning = 4
-		} catch (err) {
-			checkError = String(err)
-			provisioning = 0
-			// The project may already exist on Supabase by now, and its password cannot be read
-			// back from there. Show it rather than let the database become unusable.
-			if (createdPassword) strandedPassword = createdPassword
-			// The project may exist now; refresh so it can be picked up from the other tab
-			// instead of provisioning a second one.
-			listSupabaseProjects(token)
-				.then((p) => (projects = p))
-				.catch(() => {})
-			sendUserToast(String(err), true)
-		}
-	}
-
-	async function connectExistingSupabase() {
-		if (!token || !selectedProject || !existingPassword) return
+	/**
+	 * The step component hands back a project and the password Windmill knows for it; from
+	 * here it is the same work either way. Credentials are saved before the check because
+	 * Supabase never hands a generated password back, and only re-saved when it changed, so a
+	 * retry after fixing GRANTs does not leave another orphan variable behind.
+	 */
+	async function adoptSupabaseResult(pick: SupabasePick) {
 		checking = true
 		checkError = ''
 		try {
-			// Only create the credentials once: a retry after fixing GRANTs re-checks what is
-			// already saved rather than leaving another orphan variable behind each time.
-			if (!resourcePath || savedPassword !== existingPassword) {
-				resourcePath = await saveSupabaseResource(selectedProject, existingPassword)
-				savedPassword = existingPassword
+			if (!resourcePath || savedPassword !== pick.password) {
+				resourcePath = await saveSupabaseResource(pick.project, pick.password)
+				savedPassword = pick.password
 			}
 			await runCheck()
-			if (canAdvanceFromSetup()) step = 3
 		} catch (err) {
 			checkError = String(err)
 			sendUserToast(String(err), true)
@@ -322,6 +262,10 @@
 			checking = false
 		}
 	}
+
+	$effect(() => {
+		if (supaResult) adoptSupabaseResult(supaResult)
+	})
 
 	async function runCheck() {
 		if (!resourcePath) return
@@ -358,26 +302,66 @@
 		provider = key
 	}
 
+	/**
+	 * setup_custom_instance_db both creates the database and re-runs every check, so one call
+	 * serves the first attempt and every retry. Creation is destructive enough to confirm, but
+	 * only the first time: once the database exists the call is a pure re-check.
+	 */
+	async function setupInstanceDb() {
+		if (!instanceDbName) return
+		const exists =
+			instanceStatus?.logs.created_database === 'OK' ||
+			instanceStatus?.logs.created_database === 'SKIP'
+		if (!exists) {
+			// The confirmation dialog takes focus from this modal, which Modal2 reads as a
+			// dismissal -- without the guard the wizard closes the moment setup is confirmed.
+			preventClose = true
+			const confirmed = await confirmationModal.ask({
+				title: 'Confirm setup',
+				children: `This will create a new database ${instanceDbName} in the Windmill PostgreSQL instance`,
+				confirmationText: 'Setup database'
+			})
+			preventClose = false
+			if (!confirmed) return
+		}
+		instanceSetupRunning = true
+		instanceSetupAttempted = true
+		try {
+			const result = await SettingService.setupCustomInstanceDb({
+				name: instanceDbName,
+				requestBody: { tag: 'datatable' }
+			})
+			await customInstanceDbs.refetch()
+			// Stay on the step even when everything passed: the checks are the point of this
+			// screen, and skipping past them hides what was just done to the database.
+			if (!result.success) sendUserToast(result.error ?? 'Setup failed', true)
+		} catch (err) {
+			sendUserToast(`Could not set up ${instanceDbName}: ${err}`, true)
+		} finally {
+			instanceSetupRunning = false
+		}
+	}
+
 	function checkPassed(): boolean {
 		return !!checkReport && checkReport.can_create_table && !checkError
 	}
 
 	function canAdvanceFromSetup(): boolean {
-		if (provider === 'supabase' && supaMode === 'create') return provisioning === 4 && checkPassed()
 		return checkPassed()
 	}
 
 	async function finish() {
-		if (!resourcePath && provider !== 'instance') return
+		if (provider === 'instance' ? !instanceDbName : !resourcePath) return
 		finishing = true
 		try {
 			// editDataTableConfig replaces the whole map, so the existing entries have to be
 			// read back and merged or they are silently dropped.
 			const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 			const datatables: Record<string, any> = { ...(settings.datatable?.datatables ?? {}) }
-			datatables[dataTableName] = {
-				database: { resource_type: 'postgresql', resource_path: resourcePath }
-			}
+			datatables[dataTableName] =
+				provider === 'instance'
+					? { database: { resource_type: 'instance', resource_path: instanceDbName } }
+					: { database: { resource_type: 'postgresql', resource_path: resourcePath } }
 			await WorkspaceService.editDataTableConfig({
 				workspace: $workspaceStore!,
 				requestBody: { settings: { datatables }, renames: [], deleted_datatables: [] }
@@ -396,21 +380,16 @@
 	function reset() {
 		step = 1
 		provider = undefined
-		supaMode = 'create'
-		supaModeChosen = false
-		orgs = undefined
-		projects = undefined
-		selectedOrg = undefined
-		selectedProject = undefined
-		existingPassword = ''
+		// The Supabase step keeps its own state; it is remounted with the modal, so closing is
+		// all it takes to clear it.
+		supaResult = undefined
 		resourcePath = undefined
-		provisioning = 0
-		provisionStatus = ''
+		instanceDbName = undefined
+		instanceMode = 'create'
+		instanceSetupAttempted = false
 		checkReport = undefined
 		checkError = ''
-		strandedPassword = ''
 		savedPassword = ''
-		projectName = ''
 		dataTableName = defaultTableName()
 	}
 
@@ -418,51 +397,46 @@
 	// moves the wizard on -- there is no separate "run the check" or "create" button.
 	let primary = $derived.by(() => {
 		if (step === 1) {
-			// Signing in is the whole of the Supabase setup step, so go straight there rather
-			// than spending a screen telling the user what the button is about to do.
-			if (provider === 'supabase' && !authed)
-				return { label: 'Connect to Supabase', disabled: false, act: startOauth }
+			if (provider === 'supabase' && !supaOauth.authed)
+				return {
+					label: 'Connect to Supabase',
+					disabled: false,
+					act: () => {
+						supaOauth.connect()
+						step = 2
+					}
+				}
 			return {
 				label: 'Continue',
 				disabled: !provider,
 				act: () => {
-					if (provider === 'instance') {
-						opened = false
-						reset()
-						onUseInstance()
-					} else {
-						step = 2
-					}
+					if (provider === 'instance') enterInstanceStep()
+					step = 2
 				}
 			}
 		}
 		if (step === 2) {
 			if (provider === 'supabase') {
-				// Reached while the popup is still open, or if the redirect came back without a
-				// token. Either way the action is the same: send the popup through consent again,
-				// which is immediate once the user has an account and is signed in.
-				if (!authed)
-					return {
-						label: oauthPending ? 'Continue' : 'Connect to Supabase',
-						disabled: false,
-						act: startOauth
-					}
-				if (supaMode === 'create') {
-					if (provisioning === 0)
-						return {
-							label: 'Create database',
-							disabled: !projectName || !selectedOrg,
-							act: provision
-						}
-					if (provisioning < 4) return { label: 'Setting it up', disabled: true, busy: true }
-					if (!checkPassed()) return { label: 'Try again', disabled: false, act: runCheck }
-					return { label: 'Continue', disabled: false, act: () => (step = 3) }
-				}
+				// Picking or creating the project is the step component's business; this only
+				// takes over once it has handed one back and the credentials have been checked.
+				if (!supaResult) return supaStep?.getAction() ?? { label: 'Continue', disabled: true }
 				if (checking) return { label: 'Checking', disabled: true, busy: true }
+				if (!checkPassed())
+					return {
+						label: 'Try again',
+						disabled: false,
+						act: () => adoptSupabaseResult(supaResult!)
+					}
+				return { label: 'Continue', disabled: false, act: () => (step = 3) }
+			}
+			if (provider === 'instance') {
+				if (instanceSetupRunning) return { label: 'Setting it up', disabled: true, busy: true }
+				if (instanceStatus?.success)
+					return { label: 'Continue', disabled: false, act: () => (step = 3) }
 				return {
-					label: checkReport && !checkPassed() ? 'Try again' : 'Continue',
-					disabled: !selectedProject || !existingPassword,
-					act: connectExistingSupabase
+					label: instanceStatus ? 'Try again' : 'Set up database',
+					disabled: !instanceDbName,
+					act: setupInstanceDb
 				}
 			}
 			if (checking) return { label: 'Checking', disabled: true, busy: true }
@@ -487,6 +461,7 @@
 	bind:isOpen={
 		() => opened,
 		(v) => {
+			if (!v && preventClose) return
 			opened = v
 			if (!v) reset()
 		}
@@ -541,124 +516,100 @@
 						)}
 					</div>
 				{:else if step === 2}
-					{#if provider === 'supabase' && !authed}
-						<Alert type="info" size="xs" bgClass="border-0" title="">
-							{#if oauthPending}
-								Sign in and approve Windmill in the Supabase window, then come back here.
-							{:else}
-								Windmill needs your approval on Supabase to see your databases.
+					{#if provider === 'supabase'}
+						<SupabaseProjectStep
+							bind:this={supaStep}
+							bind:result={supaResult}
+							defaultProjectName={defaultProjectName()}
+							resume={resume
+								? { region: resume.region, projectName: resume.projectName }
+								: undefined}
+							onPopupBlocked={(s) => parkWizard({ name: dataTableName, ...s })}
+							hostBusy={checking}
+							extraSteps={supaResult
+								? [
+										{
+											title: 'Checking Windmill can store data',
+											status: checkPassed()
+												? 'done'
+												: checking
+													? 'running'
+													: checkError || checkReport
+														? 'failed'
+														: 'pending'
+										}
+									]
+								: undefined}
+						/>
+					{:else if provider === 'instance'}
+						{#if instanceDbs.length}
+							<ToggleButtonGroup bind:selected={() => instanceMode, (v) => setInstanceMode(v)}>
+								{#snippet children({ item })}
+									<ToggleButton value="existing" label="Use an existing one" {item} small />
+									<ToggleButton value="create" label="Create a new one" {item} small />
+								{/snippet}
+							</ToggleButtonGroup>
+						{/if}
+						{#if instanceMode === 'existing'}
+							<!-- Above the list, not under it: the list scrolls, and a warning about sharing
+							another workspace's data is worthless if the user has to scroll to reach it. -->
+							{#if instanceDbName && otherWorkspaces(instanceDbName).length}
+								{@const shared = otherWorkspaces(instanceDbName)}
+								<Alert type="warning" size="xs" bgClass="border-0" title="">
+									This database is also used by workspace{shared.length > 1 ? 's' : ''}
+									<span class="font-semibold">{shared.join(', ')}</span>. Any data written here will
+									be shared with {shared.length > 1 ? 'them' : 'it'}.
+								</Alert>
 							{/if}
-						</Alert>
-					{:else if provider === 'supabase'}
-						<ToggleButtonGroup
-							bind:selected={
-								() => supaMode,
-								(v) => {
-									if (v !== supaMode) clearCheck()
-									supaMode = v
-									supaModeChosen = true
-								}
-							}
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="existing" label="Use an existing one" {item} small />
-								<ToggleButton value="create" label="Create a new project" {item} small />
-							{/snippet}
-						</ToggleButtonGroup>
-						{#if supaMode === 'create'}
-							{#if provisioning === 0}
-								<div class="grid grid-cols-2 gap-2">
-									<div>
-										<span class="text-xs font-semibold text-emphasis">Organization</span>
-										<Select
-											items={(orgs ?? []).map((o) => ({ label: o.name, value: orgSlug(o) }))}
-											bind:value={selectedOrg}
-											placeholder={orgs === undefined ? 'Loading...' : 'Select'}
-										/>
-									</div>
-									<div>
-										<span class="text-xs font-semibold text-emphasis">Region</span>
-										<Select
-											items={SUPABASE_REGIONS.map((r) => ({ label: r, value: r }))}
-											bind:value={region}
-											placeholder="Region"
-										/>
-									</div>
-								</div>
-								<div>
-									<span class="text-xs font-semibold text-emphasis">Project name</span>
-									<TextInput
-										bind:value={projectName}
-										inputProps={{ placeholder: defaultProjectName() }}
-									/>
-									<p class="text-2xs text-secondary mt-1">
-										Named after your workspace. Change it if you like.
-									</p>
-								</div>
-							{:else}
-								<div class="flex flex-col gap-1.5">
-									{@render progress(provisioning >= 2, provisioning === 1, 'Created on Supabase')}
-									{@render progress(provisioning >= 3, provisioning === 2, 'Starting it up')}
-									{@render progress(
-										provisioning >= 4,
-										provisioning === 3,
-										'Checking Windmill can store data'
-									)}
-								</div>
-								{#if provisioning < 4}
-									<p class="text-xs text-secondary">
-										This usually takes a minute or two. You can leave this open.{provisionStatus
-											? ` (${provisionStatus})`
-											: ''}
-									</p>
-								{:else if checkPassed()}
-									<Alert
-										type="success"
-										size="xs"
-										bgClass="border-0"
-										title="{projectName} is ready"
-									/>
-								{/if}
-							{/if}
-						{:else}
-							<div class="flex flex-col gap-2">
-								{#each projects ?? [] as p}
-									{@const selected = selectedProject?.id === p.id}
+							<!-- The list takes the leftover height and is the only thing that scrolls, so the
+							toggle and the sharing warning stay put and the step itself never needs a second
+							scrollbar. A pooled instance can hold dozens of databases. -->
+							<div class="flex flex-col gap-2 overflow-y-auto flex-1 min-h-24 pr-1">
+								{#each instanceDbs as { name, db } (name)}
+									{@const selected = instanceDbName === name}
+									{@const shared = otherWorkspaces(name)}
 									<button
 										class="text-left border rounded-md p-3 flex gap-3 items-start transition-colors {selected
 											? 'border-border-selected/50 bg-surface-accent-selected'
 											: 'border-border-light hover:bg-surface-hover'}"
-										onclick={() => (selectedProject = p)}
+										onclick={() => selectInstanceDb(name)}
 									>
 										<span class="mt-0.5 shrink-0"
 											><Database size={18} class="text-secondary" /></span
 										>
 										<span class="flex flex-col gap-0.5 min-w-0">
 											<span class="text-xs font-medium {selected ? 'text-accent' : 'text-emphasis'}"
-												>{p.name}</span
+												>{name}</span
 											>
-											<span class="text-xs text-secondary font-normal"
-												>{p.region}{#if projectStatus(p)}
-													&middot; {projectStatus(p)}{/if}</span
-											>
+											<span class="text-xs text-secondary font-normal">
+												{db.success ? 'Ready' : 'Needs setup'}{shared.length
+													? ` · shared with ${shared.length} other workspace${shared.length > 1 ? 's' : ''}`
+													: ''}
+											</span>
 										</span>
 									</button>
 								{/each}
-								{#if selectedProject}
-									<div>
-										<span class="text-xs font-semibold text-emphasis"
-											>Database password for {selectedProject.name}</span
-										>
-										<TextInput
-											bind:value={existingPassword}
-											inputProps={{ type: 'password', placeholder: '••••••••' }}
-										/>
-										<p class="text-2xs text-secondary mt-1">
-											Find it in your Supabase project settings, under Database.
-										</p>
-									</div>
-								{/if}
 							</div>
+						{:else}
+							<div>
+								<span class="text-xs font-semibold text-emphasis">Database name</span>
+								<TextInput
+									bind:value={() => instanceDbName ?? '', (v) => (instanceDbName = v)}
+									inputProps={{ placeholder: defaultInstanceDbName() }}
+								/>
+								<p class="text-2xs text-secondary mt-1">
+									Created in the Windmill PostgreSQL instance. Windmill manages its credentials.
+								</p>
+							</div>
+						{/if}
+						{#if instanceSetupRunning || (instanceStatus && (instanceSetupAttempted || instanceStatus.error))}
+							<SetupChecklist
+								steps={instanceSetupSteps(
+									instanceDbName ?? '',
+									instanceStatus,
+									instanceSetupRunning
+								)}
+							/>
 						{/if}
 					{:else}
 						<div>
@@ -711,7 +662,7 @@
 						{primary.label}
 					</Button>
 				</div>
-				{#if provider === 'supabase' && !authed}
+				{#if provider === 'supabase' && !supaOauth.authed}
 					<p class="text-2xs text-secondary text-right">
 						If you do not have a Supabase account you can <a
 							href={SUPABASE_SIGNUP_URL}
@@ -742,32 +693,7 @@
 	</button>
 {/snippet}
 
-{#snippet progress(done: boolean, running: boolean, label: string)}
-	<div class="flex items-center gap-2 text-xs bg-surface-secondary rounded-md px-2 py-1.5">
-		{#if done}
-			<Check size={14} class="text-green-500" />
-		{:else if running}
-			<Loader2 size={14} class="animate-spin text-blue-500" />
-		{:else}
-			<span class="w-3.5 h-3.5 rounded-full border border-gray-300"></span>
-		{/if}
-		<span>{label}</span>
-	</div>
-{/snippet}
-
 {#snippet checkResult()}
-	{#if strandedPassword}
-		<Alert type="error" size="xs" bgClass="border-0" title="Save this password">
-			<div class="flex flex-col gap-2">
-				<div>
-					The project was created on Supabase but Windmill could not store its credentials. Supabase
-					cannot show this password again - copy it now, or reset it from the project's database
-					settings.
-				</div>
-				<pre class="whitespace-pre-wrap select-all text-2xs">{strandedPassword}</pre>
-			</div>
-		</Alert>
-	{/if}
 	{#if checkError}
 		<Alert type="error" size="xs" bgClass="border-0" title="Could not connect">{checkError}</Alert>
 	{:else if checkReport && !checkReport.can_create_table}
