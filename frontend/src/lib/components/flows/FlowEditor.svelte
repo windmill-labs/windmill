@@ -131,9 +131,7 @@
 	let panelModalOpen = $state(false)
 
 	// Owned by FlowBuilder: this component is inside a `{#key}` that rebuilds it on a reload,
-	// and the crossing count belongs to the editing session rather than to one mount. The
-	// controller is rebuilt with it, so its width restarts at zero and only `measured` tells
-	// that transient apart from the panel genuinely being docked.
+	// and the crossing count belongs to the editing session rather than to one mount.
 	const placementTelemetry = useFlowPanelPlacementTelemetry()
 	$effect(() => {
 		placementTelemetry.observe(panelController.preference, panelMode, panelController.measured)

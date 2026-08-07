@@ -38,16 +38,12 @@ export function forcedPlacementEvent(
 }
 
 /**
- * Counts the width moving the panel into the modal.
+ * Counts the width moving the panel into the modal, once per crossing — `mode` re-resolves
+ * continuously as a drag settles, so counting per evaluation would read one drag as hundreds.
  *
- * Tracks where the panel was, not whether the breakpoint was responsible for it being
- * there: on a narrow editor, pinning `Detached` and returning to `auto` leaves the panel
- * modal throughout, and re-arming on the preference alone would read that as a second
- * activation. An unmeasured editor is not a placement at all — it resolves to `docked`
- * because that is what is safe to render — so it must leave the tracker untouched rather
- * than count as the panel having docked. Free of runes so every edge can be tested without
- * a component: `mode` is derived from a measured width, so anything counting per evaluation
- * rather than per transition would read one window drag as hundreds of activations.
+ * Both guards below are there because a modal panel is not by itself a crossing: `wasModal`
+ * follows where the panel was rather than whether the breakpoint put it there, and an
+ * unmeasured editor is no placement at all. Rune-free so each edge is testable directly.
  */
 export function createBreakpointTracker(emit: Log) {
 	let wasModal = false
@@ -73,12 +69,8 @@ const CONTEXT_KEY = 'flowPanelPlacementTelemetry'
 const NOOP: FlowPanelPlacementTelemetry = { observe: () => {}, forced: () => {} }
 
 /**
- * Published by `FlowBuilder`, which sits above the `{#key}` that rebuilds the editor on a
- * reload: crossings belong to the editing session, and a tracker recreated mid-edit would
- * re-arm and count a still-narrow editor again without the panel having moved. Surviving
- * the remount is only half of it — the rebuilt editor measures zero before its width
- * arrives, which is why the tracker ignores unmeasured placements instead of reading that
- * as a dock.
+ * Published by `FlowBuilder`, above the `{#key}` that rebuilds the editor on a reload: a
+ * tracker recreated mid-edit would re-arm and count a still-narrow editor again.
  *
  * `enabled` is false in session preview tabs. Those stay mounted and laid out at panel width
  * even while hidden, and that panel is narrower than the breakpoint by construction: their
