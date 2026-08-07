@@ -23,18 +23,18 @@ use crate::oauth::{no_redirect_http_client_pinned, AuthorizationManager};
 pub struct McpClientCredentials {
     pub client_id: String,
     pub client_secret: Option<String>,
-    pub token_endpoint: String,
-    /// `token_endpoint` after SSRF validation, carrying the addresses it resolved
-    /// to. Private so the only way to reach it is [`Self::token_request`], which
-    /// hands back the URL alongside the client pinned to it — a client pinned to
-    /// one host but posting to another would silently re-open the rebinding window.
+    /// The token endpoint and the addresses it resolved to during SSRF validation.
+    /// Both are private so that [`Self::token_request`] is the only way to obtain
+    /// the URL: it returns it together with a client pinned to those addresses, so
+    /// no caller can post the `client_secret` to this URL on a client that
+    /// re-resolves the host and lands somewhere else.
+    token_endpoint: String,
     token_endpoint_target: windmill_common::ssrf::ValidatedTarget,
 }
 
 impl McpClientCredentials {
     /// The URL to post a token request to, together with a client pinned to the
-    /// address that URL was validated against. Token requests carry the
-    /// `client_secret`, so they must not re-resolve the host at connect time.
+    /// address that URL was validated against.
     pub fn token_request(&self) -> Result<(reqwest::Client, &str), reqwest::Error> {
         let client = no_redirect_http_client_pinned(&self.token_endpoint_target)?;
         Ok((client, self.token_endpoint.as_str()))
@@ -294,6 +294,10 @@ mod tests {
             while Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        // macOS hands back an accepted socket that inherited the
+                        // listener's non-blocking flag; without this the read below
+                        // returns WouldBlock and the assertion sees an empty request.
+                        stream.set_nonblocking(false).ok();
                         let mut buffer = [0u8; 256];
                         stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
                         let read = stream.read(&mut buffer).unwrap_or(0);
