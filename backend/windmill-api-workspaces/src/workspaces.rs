@@ -6424,6 +6424,51 @@ fn downgrade_cloned_app_policy(policy: &mut serde_json::Value, authed: &ApiAuthe
     }
 }
 
+/// The rule [`clone_scripts`] applies to its column, for a caller holding one principal
+/// rather than a whole table: a policy naming somebody who cannot authenticate in the fork
+/// keeps no identity at all, address included — that address is all a later re-derivation
+/// would have to go on.
+async fn drop_unresolvable_policy_identity(
+    tx: &mut Transaction<'_, Postgres>,
+    target_workspace_id: &str,
+    policy: &mut serde_json::Value,
+) -> Result<()> {
+    let Some(obj) = policy.as_object_mut() else {
+        return Ok(());
+    };
+    let Some(permissioned_as) = obj
+        .get("on_behalf_of")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+    else {
+        return Ok(());
+    };
+    let resolves = sqlx::query_scalar!(
+        r#"SELECT CASE
+            WHEN $2 LIKE 'u/%' THEN EXISTS (
+                SELECT 1 FROM usr WHERE workspace_id = $1 AND username = substring($2 from 3)
+                UNION ALL
+                SELECT 1 FROM password WHERE super_admin
+                  AND (username = substring($2 from 3) OR email = substring($2 from 3)))
+            WHEN $2 LIKE 'g/%' THEN EXISTS (
+                SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = substring($2 from 3))
+            ELSE EXISTS (
+                SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2
+                UNION ALL
+                SELECT 1 FROM password WHERE email = $2 AND super_admin)
+        END AS "resolves!""#,
+        target_workspace_id,
+        permissioned_as,
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    if !resolves {
+        obj.remove("on_behalf_of");
+        obj.remove("on_behalf_of_email");
+    }
+    Ok(())
+}
+
 async fn clone_apps(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -6454,7 +6499,9 @@ async fn clone_apps(
         if let Some(&current_version) = app.versions.last() {
             latest_version_ids.insert(current_version);
         }
-        if !preserve_identity {
+        if preserve_identity {
+            drop_unresolvable_policy_identity(tx, target_workspace_id, &mut app.policy).await?;
+        } else {
             downgrade_cloned_app_policy(&mut app.policy, authed);
         }
         // An instance-wide custom path addresses one app (`create_app` rejects one already

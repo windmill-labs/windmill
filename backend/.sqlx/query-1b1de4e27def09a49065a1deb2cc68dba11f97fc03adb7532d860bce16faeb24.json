@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT CASE\n            WHEN $2 LIKE 'u/%' THEN EXISTS (\n                SELECT 1 FROM usr WHERE workspace_id = $1 AND username = substring($2 from 3)\n                UNION ALL\n                SELECT 1 FROM password WHERE super_admin\n                  AND (username = substring($2 from 3) OR email = substring($2 from 3)))\n            WHEN $2 LIKE 'g/%' THEN EXISTS (\n                SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = substring($2 from 3))\n            ELSE EXISTS (\n                SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2\n                UNION ALL\n                SELECT 1 FROM password WHERE email = $2 AND super_admin)\n        END AS \"resolves!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resolves!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1b1de4e27def09a49065a1deb2cc68dba11f97fc03adb7532d860bce16faeb24"
+}
