@@ -26,6 +26,13 @@
 					clientName: client_name,
 					requestBody: { code, state }
 				})
+				// Opened as the data table wizard's popup: hand the token to the tab that is still
+				// sitting on the wizard and get out of the way, so nothing has to be resumed.
+				if (window.opener) {
+					window.opener.postMessage({ type: 'supabase_oauth', res }, window.location.origin)
+					window.close()
+					return
+				}
 				$oauthStore = res
 				// The data table wizard parks its state before redirecting; send the user back to
 				// where they started rather than always to /resources.

@@ -81,6 +81,7 @@
 	let step = $state(1)
 	let provider: Provider | undefined = $state(undefined)
 	let supaMode: 'create' | 'existing' = $state('create')
+	let supaModeChosen = $state(false)
 
 	let orgs: SupabaseOrg[] | undefined = $state(undefined)
 	let selectedOrg: string | undefined = $state(undefined)
@@ -169,16 +170,50 @@
 			orgs = await listSupabaseOrgs(t)
 			if (orgs?.length && !selectedOrg) selectedOrg = orgSlug(orgs[0])
 			projects = await listSupabaseProjects(t)
+			// Someone who already has a Supabase database almost always means to connect it
+			// rather than make a second one. Only pre-empt the choice they have not made yet:
+			// a resumed run was already mid-creation, and a manual pick stands.
+			if (!resume && !supaModeChosen && projects?.length) supaMode = 'existing'
 		} catch (err) {
 			sendUserToast(String(err), true)
 			orgs = orgs ?? []
 		}
 	}
 
+	const OAUTH_WINDOW = 'windmill_supabase_oauth'
+
+	let oauthWindow: Window | null = null
+	let oauthPending = $state(false)
+
+	/**
+	 * A full-page redirect unmounts the wizard, so a user who stops to create a Supabase
+	 * account lands on their dashboard with nothing left pointing back here. Driving the flow
+	 * from a popup keeps this modal on screen, and keeps the window ours to steer: after they
+	 * sign up we send the same popup back through the connect endpoint and consent follows.
+	 */
 	function startOauth() {
-		parkWizard({ name: dataTableName, region, projectName })
-		window.location.href = `${base}/api/oauth/connect/supabase_wizard`
+		const url = `${base}/api/oauth/connect/supabase_wizard`
+		oauthWindow = window.open(url, OAUTH_WINDOW, 'width=600,height=820')
+		if (!oauthWindow) {
+			// Popups blocked: fall back to the redirect, parking what the user had chosen.
+			parkWizard({ name: dataTableName, region, projectName })
+			window.location.href = url
+			return
+		}
+		oauthPending = true
+		step = 2
 	}
+
+	$effect(() => {
+		function onMessage(e: MessageEvent) {
+			if (e.origin !== window.location.origin || e.data?.type !== 'supabase_oauth') return
+			$oauthStore = e.data.res
+			oauthPending = false
+			oauthWindow?.close()
+		}
+		window.addEventListener('message', onMessage)
+		return () => window.removeEventListener('message', onMessage)
+	})
 
 	/**
 	 * The variable and the resource share a path, so both have to be free. Reusing a taken one
@@ -349,6 +384,7 @@
 		step = 1
 		provider = undefined
 		supaMode = 'create'
+		supaModeChosen = false
 		orgs = undefined
 		projects = undefined
 		selectedOrg = undefined
@@ -389,8 +425,15 @@
 		}
 		if (step === 2) {
 			if (provider === 'supabase') {
-				// Only reachable if the redirect came back without a token.
-				if (!authed) return { label: 'Connect to Supabase', disabled: false, act: startOauth }
+				// Reached while the popup is still open, or if the redirect came back without a
+				// token. Either way the action is the same: send the popup through consent again,
+				// which is immediate once the user has an account and is signed in.
+				if (!authed)
+					return {
+						label: oauthPending ? 'Continue' : 'Connect to Supabase',
+						disabled: false,
+						act: startOauth
+					}
 				if (supaMode === 'create') {
 					if (provisioning === 0)
 						return {
@@ -487,14 +530,26 @@
 					</div>
 				{:else if step === 2}
 					{#if provider === 'supabase' && !authed}
-						<Alert type="warning" size="xs" bgClass="border-0" title="">
-							Windmill is not connected to Supabase. Connect to continue.
+						<Alert type="info" size="xs" bgClass="border-0" title="">
+							{#if oauthPending}
+								Sign in and approve Windmill in the Supabase window, then come back here.
+							{:else}
+								Windmill needs your approval on Supabase to see your databases.
+							{/if}
 						</Alert>
 					{:else if provider === 'supabase'}
-						<ToggleButtonGroup bind:selected={supaMode}>
+						<ToggleButtonGroup
+							bind:selected={
+								() => supaMode,
+								(v) => {
+									supaMode = v
+									supaModeChosen = true
+								}
+							}
+						>
 							{#snippet children({ item })}
-								<ToggleButton value="create" label="Create a new project" {item} small />
 								<ToggleButton value="existing" label="Use an existing one" {item} small />
+								<ToggleButton value="create" label="Create a new project" {item} small />
 							{/snippet}
 						</ToggleButtonGroup>
 						{#if supaMode === 'create'}
