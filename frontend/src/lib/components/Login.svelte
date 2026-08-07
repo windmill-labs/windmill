@@ -483,13 +483,13 @@
 				{/if}
 			{/each}
 			{#each logins.filter((login) => !providersType?.includes(login.type)) as login}
-				<Button variant="default" btnClasses="w-full" on:click={() => storeRedirect(login.type)}>
+				<Button variant="default" on:click={() => storeRedirect(login.type)}>
 					{login.displayName}
 				</Button>
 			{/each}
 		{/if}
 		{#if saml}
-			<Button variant="default" btnClasses="w-full" on:click={redirectSaml}>SSO</Button>
+			<Button variant="default" on:click={redirectSaml}>SSO</Button>
 		{/if}
 	</div>
 	{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
