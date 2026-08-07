@@ -179,6 +179,10 @@ export async function runGlobalEval(
       systemMessage: prepareGlobalSystemMessage(undefined, {
         user: options.user,
         previewTools: options.sessionChat ?? false,
+        // Stated rather than derived: the derivation reads the copilot model store,
+        // which the harness deliberately leaves empty, so it would resolve false and
+        // hide guidance every benchmarked provider actually serves.
+        webSearch: true,
       }),
       userMessage: prepareGlobalUserMessage(
         userPrompt,

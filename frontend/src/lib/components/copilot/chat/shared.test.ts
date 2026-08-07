@@ -33,6 +33,7 @@ vi.mock('$lib/components/flows/flowTree', () => ({
 vi.mock('$lib/gen', () => ({
 	ScriptService: {},
 	FlowService: {},
+	IntegrationService: {},
 	JobService: { getJob: vi.fn() },
 	ScheduleService: {
 		previewSchedule: vi.fn(),
@@ -1362,7 +1363,7 @@ describe('createSearchHubScriptsTool', () => {
 			toolId: 't1',
 			toolCallbacks: { setToolStatus: vi.fn() }
 		} as any)
-		return JSON.parse(raw)
+		return JSON.parse(raw).results
 	}
 
 	it('reports each script language alongside its content', async () => {
@@ -1377,12 +1378,14 @@ describe('createSearchHubScriptsTool', () => {
 			{
 				path: 'hub/1/discord/send_a_message',
 				summary: 'Send a message',
+				integration: 'discord',
 				language: 'bunnative',
 				content: '// hub/1/discord/send_a_message'
 			},
 			{
 				path: 'hub/2/slack/post_a_message',
 				summary: 'Post a message',
+				integration: 'slack',
 				language: 'python3',
 				content: '// hub/2/slack/post_a_message'
 			}
@@ -1400,5 +1403,54 @@ describe('createSearchHubScriptsTool', () => {
 		expect(results[0].error).toContain('hub unreachable')
 		expect(results[0].content).toBeUndefined()
 		expect(results[1].content).toBe('ok')
+	})
+
+	// Browsing by app is what surfaces an integration's other scripts as examples,
+	// and only the top-scripts endpoint carries the descriptions that make them
+	// judgeable — the semantic one would both omit those and filter near-misses out.
+	it('lists an integration through the top-scripts endpoint, with descriptions', async () => {
+		const { ScriptService } = await import('$lib/gen')
+		const getTopHubScripts = vi.fn(async () => ({
+			asks: [{ ...hit(3, 'stripe', 'Create a Payout'), description: 'Send funds to your bank' }]
+		}))
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []), getTopHubScripts })
+
+		const { createSearchHubScriptsTool } = await import('./shared')
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { integration: 'stripe' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(getTopHubScripts).toHaveBeenCalledWith({ app: 'stripe', kind: 'script', limit: 20 })
+		expect(ScriptService.queryHubScripts).not.toHaveBeenCalled()
+		expect(JSON.parse(raw).results).toEqual([
+			{
+				path: 'hub/3/stripe/create_a_payout',
+				summary: 'Create a Payout',
+				integration: 'stripe',
+				description: 'Send funds to your bank'
+			}
+		])
+	})
+
+	// A search below the similarity floor otherwise dead-ends; the slug is what
+	// lets the model fall back to browsing the integration.
+	it('suggests matching integrations when the search finds nothing', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'stripe' }, { name: 'slack' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'refund a stripe charge' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw)).toEqual({ results: [], suggested_integrations: ['stripe'] })
 	})
 })
