@@ -285,104 +285,41 @@
 			</div>
 		{/if}
 
-		<div class="flex flex-row items-center justify-between mt-8">
-			<h2 class="text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
-			{#if workspaces}
-				<Toggle size="xs" bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
-			{/if}
-		</div>
-
-		<div class="mt-4"></div>
-
-		{#if nonForkInvites.length == 0}
-			<p class="text-xs text-secondary"> You don't have new invites at the moment. </p>
-		{/if}
-
-		{#each nonForkInvites as invite}
-			<div
-				class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
-			text-xs mt-1 flex flex-row justify-between items-center"
-			>
-				<div class="grow">
-					<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
-					{#if invite.is_admin}
-						<span class="text-xs text-primary">as an admin</span>
-					{:else if invite.operator}
-						<span class="text-xs text-primary">as an operator</span>
-					{/if}
-				</div>
-				<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
-					<Button
-						variant="accent"
-						size="xs2"
-						href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
-							? `&rd=${encodeURIComponent(rd)}`
-							: ''}"
-					>
-						Accept
-					</Button>
-
-					<Button
-						variant="subtle"
-						size="xs2"
-						onClick={async () => {
-							await UserService.declineInvite({
-								requestBody: { workspace_id: invite.workspace_id }
-							})
-							sendUserToast(`Declined invite to ${invite.workspace_id}`)
-							loadInvites()
-						}}
-						destructive
-					>
-						Decline
-					</Button>
-				</div>
+		{#if invites.length > 0}
+			<div class="flex flex-row items-center justify-between mt-8">
+				<h2 class="text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
+				{#if workspaces}
+					<Toggle
+						size="xs"
+						bind:checked={showAllForks}
+						options={{ right: 'Show workspace forks' }}
+					/>
+				{/if}
 			</div>
-		{/each}
-
-		{#if showAllForks}
-			{@const allWorkspacesList = workspaces || []}
-			{@const filteredInvites = invites.filter((invite) => invite.parent_workspace_id)}
 
 			<div class="mt-4"></div>
-			{#if filteredInvites.length == 0}
-				<p class="text-xs text-secondary"
-					>There are no invites to join the forks of any workspace you're in.</p
-				>
-			{:else}
-				<span class="mb-2 text-xs font-normal text-secondary"
-					>Forks of the workspaces you're in</span
-				>
+
+			{#if nonForkInvites.length == 0}
+				<p class="text-xs text-secondary"> You don't have new invites at the moment. </p>
 			{/if}
 
-			{#each filteredInvites as invite}
-				{@const inviteWorkspace = allWorkspacesList.find((w) => w.id === invite.workspace_id)}
+			{#each nonForkInvites as invite}
 				<div
 					class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
 			text-xs mt-1 flex flex-row justify-between items-center"
 				>
 					<div class="grow">
-						<div class="flex items-center gap-2">
-							{#if inviteWorkspace?.parent_workspace_id}
-								<GitFork size={12} class="text-secondary flex-shrink-0" />
-							{/if}
-							<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
-						</div>
+						<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
 						{#if invite.is_admin}
 							<span class="text-xs text-primary">as an admin</span>
 						{:else if invite.operator}
 							<span class="text-xs text-primary">as an operator</span>
 						{/if}
-						{#if invite.parent_workspace_id}
-							<div class="text-secondary text-2xs mt-1">
-								Fork of {invite.parent_workspace_id}
-							</div>
-						{/if}
 					</div>
 					<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
 						<Button
 							variant="accent"
-							unifiedSize="xs"
+							size="xs2"
 							href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
 								? `&rd=${encodeURIComponent(rd)}`
 								: ''}"
@@ -392,8 +329,7 @@
 
 						<Button
 							variant="subtle"
-							unifiedSize="xs"
-							destructive
+							size="xs2"
 							onClick={async () => {
 								await UserService.declineInvite({
 									requestBody: { workspace_id: invite.workspace_id }
@@ -401,12 +337,82 @@
 								sendUserToast(`Declined invite to ${invite.workspace_id}`)
 								loadInvites()
 							}}
+							destructive
 						>
 							Decline
 						</Button>
 					</div>
 				</div>
 			{/each}
+
+			{#if showAllForks}
+				{@const allWorkspacesList = workspaces || []}
+				{@const filteredInvites = invites.filter((invite) => invite.parent_workspace_id)}
+
+				<div class="mt-4"></div>
+				{#if filteredInvites.length == 0}
+					<p class="text-xs text-secondary"
+						>There are no invites to join the forks of any workspace you're in.</p
+					>
+				{:else}
+					<span class="mb-2 text-xs font-normal text-secondary"
+						>Forks of the workspaces you're in</span
+					>
+				{/if}
+
+				{#each filteredInvites as invite}
+					{@const inviteWorkspace = allWorkspacesList.find((w) => w.id === invite.workspace_id)}
+					<div
+						class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
+			text-xs mt-1 flex flex-row justify-between items-center"
+					>
+						<div class="grow">
+							<div class="flex items-center gap-2">
+								{#if inviteWorkspace?.parent_workspace_id}
+									<GitFork size={12} class="text-secondary flex-shrink-0" />
+								{/if}
+								<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
+							</div>
+							{#if invite.is_admin}
+								<span class="text-xs text-primary">as an admin</span>
+							{:else if invite.operator}
+								<span class="text-xs text-primary">as an operator</span>
+							{/if}
+							{#if invite.parent_workspace_id}
+								<div class="text-secondary text-2xs mt-1">
+									Fork of {invite.parent_workspace_id}
+								</div>
+							{/if}
+						</div>
+						<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
+							<Button
+								variant="accent"
+								unifiedSize="xs"
+								href="{base}/user/accept_invite?workspace={encodeURIComponent(
+									invite.workspace_id
+								)}{rd ? `&rd=${encodeURIComponent(rd)}` : ''}"
+							>
+								Accept
+							</Button>
+
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								destructive
+								onClick={async () => {
+									await UserService.declineInvite({
+										requestBody: { workspace_id: invite.workspace_id }
+									})
+									sendUserToast(`Declined invite to ${invite.workspace_id}`)
+									loadInvites()
+								}}
+							>
+								Decline
+							</Button>
+						</div>
+					</div>
+				{/each}
+			{/if}
 		{/if}
 
 		<div class="flex justify-between items-center mt-10 flex-wrap gap-2">

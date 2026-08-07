@@ -41,15 +41,8 @@
 
 	// Computed expansion states that include auto-expansion for search results
 	let expansionStates = $derived.by(() => {
-		// Prod nodes that have a canonical dev start expanded so the dev is visible without a click;
-		// manual toggles still win, so the user can collapse them.
-		const devExpanded: Record<string, boolean> = {}
-		workspaces?.forEach((w) => {
-			if (w.is_dev_workspace && w.parent_workspace_id) devExpanded[w.parent_workspace_id] = true
-		})
-
 		if (!searchFilter || !filteredWorkspaces || !workspaces) {
-			return { ...devExpanded, ...manualExpansionStates }
+			return manualExpansionStates
 		}
 
 		const matchedWorkspaceIds = new Set(filteredWorkspaces.map((w) => w.id))
@@ -82,8 +75,7 @@
 			}
 		})
 
-		// Combine dev-default, manual, and auto-expanded states
-		return { ...devExpanded, ...manualExpansionStates, ...autoExpanded }
+		return { ...manualExpansionStates, ...autoExpanded }
 	})
 
 	// Build nested hierarchy correctly - always use full workspace list for hierarchy
