@@ -5380,8 +5380,7 @@ async fn create_workspace(
 // `authed` is the forker — `clone_drafts` only carries this user's per-user
 // drafts (and the legacy NULL-email workspace draft, if any) across, since other
 // users aren't added to the fork's `usr` table and their drafts would dangle as
-// orphans; `clone_apps` needs their role to decide whether cloned app policies
-// may keep someone else's run-as identity.
+// orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     db: &DB,
@@ -6393,13 +6392,11 @@ async fn clone_flow_nodes(
     Ok(())
 }
 
-/// Re-point a cloned app policy at the fork's creator, the way `create_app` /
-/// `update_app` do for a caller who may not preserve someone else's identity.
-/// `on_behalf_of` is what anonymous and publisher executions queue jobs under, and
-/// the fork's own endpoint outlives any revocation in the parent, so cloning it
-/// verbatim would hand the creator an identity they cannot otherwise assume.
-/// Anonymous apps also lose their unauthenticated endpoint: re-publishing goes
-/// through the app API, which enforces the workspace's anonymous-deployment rule.
+/// Re-point a cloned app policy at the fork's creator, the way `create_app` / `update_app`
+/// do for a caller who may not preserve someone else's identity: `on_behalf_of` is what
+/// anonymous and publisher executions queue jobs under, and the fork's endpoint outlives
+/// any revocation in the parent. Anonymous apps also lose their unauthenticated endpoint;
+/// re-publishing goes through the app API, which enforces the anonymous-deployment rule.
 fn downgrade_cloned_app_policy(policy: &mut serde_json::Value, authed: &ApiAuthed) {
     let Some(obj) = policy.as_object_mut() else {
         return;
@@ -6412,8 +6409,8 @@ fn downgrade_cloned_app_policy(policy: &mut serde_json::Value, authed: &ApiAuthe
         "on_behalf_of_email".to_string(),
         serde_json::Value::String(authed.email.clone()),
     );
-    // An absent `execution_mode` deserializes as anonymous (serde default), so it is
-    // one too.
+    // A policy missing `execution_mode` counts as anonymous: the safe reading, since no
+    // reader here decides what it would have meant.
     let anonymous = obj
         .get("execution_mode")
         .and_then(|m| m.as_str())
