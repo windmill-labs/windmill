@@ -5020,7 +5020,7 @@ struct SessionWorkspaceStatusRequest {
 /// lingering, so it is deliberately not treated as unreachable.
 async fn session_workspace_status(
     Extension(db): Extension<DB>,
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Json(req): Json<SessionWorkspaceStatusRequest>,
 ) -> JsonResult<HashMap<String, String>> {
     if req.workspace_ids.len() > 1000 {
@@ -5028,7 +5028,8 @@ async fn session_workspace_status(
             "Too many workspace ids (max 1000)".to_string(),
         ));
     }
-    let is_superadmin = windmill_common::auth::is_super_admin_email(&db, &email).await?;
+    let email = &authed.email;
+    let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
     let rows = sqlx::query!(
         // A missing workspace row must be caught before the membership arm: for a
         // superadmin the two arms below both fall through, and a hard-deleted workspace
