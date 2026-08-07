@@ -294,10 +294,6 @@ mod tests {
             while Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        // macOS hands back an accepted socket that inherited the
-                        // listener's non-blocking flag; without this the read below
-                        // returns WouldBlock and the assertion sees an empty request.
-                        stream.set_nonblocking(false).ok();
                         let mut buffer = [0u8; 256];
                         stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
                         let read = stream.read(&mut buffer).unwrap_or(0);
