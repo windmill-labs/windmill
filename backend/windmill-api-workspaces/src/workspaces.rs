@@ -5440,7 +5440,8 @@ async fn clone_workspace_data(
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone apps with new IDs and app scripts
-    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, authed).await?;
+    let _app_id_mapping =
+        clone_apps(tx, db, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
@@ -6395,9 +6396,8 @@ async fn clone_flow_nodes(
 /// Re-point a cloned app policy at the fork's creator, the way `create_app` / `update_app`
 /// do for a caller who may not preserve someone else's identity: `on_behalf_of` is what
 /// anonymous and publisher executions queue jobs under, and the fork's endpoint outlives
-/// any revocation in the parent. Anonymous apps also lose their unauthenticated endpoint;
-/// re-publishing goes through the app API, which enforces the anonymous-deployment rule.
-fn downgrade_cloned_app_policy(policy: &mut serde_json::Value, authed: &ApiAuthed) {
+/// any revocation in the parent.
+fn repoint_cloned_app_identity(policy: &mut serde_json::Value, authed: &ApiAuthed) {
     let Some(obj) = policy.as_object_mut() else {
         return;
     };
@@ -6409,6 +6409,15 @@ fn downgrade_cloned_app_policy(policy: &mut serde_json::Value, authed: &ApiAuthe
         "on_behalf_of_email".to_string(),
         serde_json::Value::String(authed.email.clone()),
     );
+}
+
+/// Close a cloned app's unauthenticated endpoint. `publisher` is the smallest step that does
+/// it: the app still runs under `on_behalf_of`, it just requires a session. Re-publishing
+/// goes back through the app API, which does consult the anonymous-deployment rule.
+fn force_authenticated_execution(policy: &mut serde_json::Value) {
+    let Some(obj) = policy.as_object_mut() else {
+        return;
+    };
     // A policy without `execution_mode` gets one too: `Policy` declares no serde default
     // for the field, so such a row does not read back as a policy until something writes it.
     let anonymous = obj
@@ -6426,11 +6435,28 @@ fn downgrade_cloned_app_policy(policy: &mut serde_json::Value, authed: &ApiAuthe
 
 async fn clone_apps(
     tx: &mut Transaction<'_, Postgres>,
+    db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
     authed: &ApiAuthed,
 ) -> Result<HashMap<i64, i64>> {
     let preserve_identity = windmill_common::can_preserve_on_behalf_of(authed);
+    // Deploying an anonymous app is gated on the parent's own rule, which the clone would
+    // otherwise never consult — and that rule exempts admins, not `wm_deployers`, so it is a
+    // separate question from whose identity the policy may keep.
+    let may_publish_anonymous = preserve_identity
+        && !matches!(
+            check_user_against_rule(
+                source_workspace_id,
+                &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+                AuditAuthorable::username(authed),
+                &authed.groups,
+                authed.is_admin,
+                db,
+            )
+            .await?,
+            RuleCheckResult::Blocked(_)
+        );
     // Get all apps from source workspace
     let apps = sqlx::query!(
         "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
@@ -6455,16 +6481,23 @@ async fn clone_apps(
             latest_version_ids.insert(current_version);
         }
         if !preserve_identity {
-            downgrade_cloned_app_policy(&mut app.policy, authed);
+            repoint_cloned_app_identity(&mut app.policy, authed);
         }
-        // Same scoping `create_app` applies when it rejects a custom path already taken:
-        // unless it is scoped per workspace, one addresses a single app instance-wide, and
-        // a clone that kept it would leave the parent's live public URL — resolved with no
-        // workspace filter and no ordering — answering from either row.
+        if !may_publish_anonymous {
+            force_authenticated_execution(&mut app.policy);
+        }
+        // Both halves of what `create_app` demands to set a custom path: admin, and — unless
+        // paths are scoped per workspace — that nobody else holds it. Cloning one instance-wide
+        // would leave the parent's live public URL, resolved with no workspace filter and no
+        // ordering, answering from either row.
         let scoped = *CLOUD_HOSTED
             || windmill_common::apps::APP_WORKSPACED_ROUTE
                 .load(std::sync::atomic::Ordering::Relaxed);
-        let custom_path = if scoped { app.custom_path } else { None };
+        let custom_path = if scoped && authed.is_admin {
+            app.custom_path
+        } else {
+            None
+        };
         let new_app_id = sqlx::query_scalar!(
             "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
