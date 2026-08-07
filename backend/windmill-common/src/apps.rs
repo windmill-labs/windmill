@@ -19,8 +19,8 @@ lazy_static::lazy_static! {
 }
 
 /// Whether an app's custom path names it within its workspace rather than instance-wide.
-/// Every site that stores or resolves one must agree: a path stored under a narrower scope
-/// than the resolver's makes two apps answer the same public URL.
+/// A path stored under a narrower scope than the one its resolver applies leaves two apps
+/// answering the same public URL, so storage and resolution must decide it the same way.
 pub fn custom_path_is_workspace_scoped() -> bool {
     *crate::worker::CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed)
 }

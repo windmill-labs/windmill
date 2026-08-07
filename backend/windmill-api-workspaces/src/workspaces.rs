@@ -6409,8 +6409,8 @@ fn downgrade_cloned_app_policy(policy: &mut serde_json::Value, authed: &ApiAuthe
         "on_behalf_of_email".to_string(),
         serde_json::Value::String(authed.email.clone()),
     );
-    // A policy missing `execution_mode` counts as anonymous: the safe reading, since no
-    // reader here decides what it would have meant.
+    // A policy without `execution_mode` gets one too: `Policy` declares no serde default
+    // for the field, so such a row does not read back as a policy until something writes it.
     let anonymous = obj
         .get("execution_mode")
         .and_then(|m| m.as_str())
