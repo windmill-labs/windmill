@@ -2272,16 +2272,15 @@ export class AIChatManager {
 		}
 	}
 
+	// Appended per request rather than built into the mode's tool list: these close over the
+	// manager, and the autonomy mode they answer to changes without rebuilding that list.
+	// exit_plan_mode is unconditional in a session even though it only redirects outside plan
+	// mode — dropping it the moment a plan was approved left a model revising its plan calling
+	// a tool that no longer existed, which surfaced as a plan the user had refused.
 	get planModeTools(): Tool<any>[] {
 		if (!this.planModeAvailable) return []
-		// planModeActive implies planModeAvailable; testing it first keeps enter_plan_mode
-		// from being offered while already planning.
-		if (this.planModeActive) return [this.exitPlanModeTool]
-		// exit_plan_mode stays registered outside plan mode even though it only redirects
-		// there: dropping it the moment a plan is approved left a model that revises its plan
-		// calling a tool that no longer exists, which surfaced as a plan the user had refused.
-		if (this.autoAcceptToolConfirmationsActive) return [this.exitPlanModeTool]
-		return [this.enterPlanModeTool, this.exitPlanModeTool]
+		const canEnter = !this.planModeActive && !this.autoAcceptToolConfirmationsActive
+		return canEnter ? [this.enterPlanModeTool, this.exitPlanModeTool] : [this.exitPlanModeTool]
 	}
 
 	openChat = () => {
