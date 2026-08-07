@@ -621,7 +621,8 @@ fn row_to_value(
     for (i, key) in column_names.iter().enumerate() {
         let value: duckdb::types::Value = row.get(i).map_err(|e| e.to_string())?;
         let type_alias = &type_aliases[i];
-        let json_value = duckdb_value_to_json_value(value, type_alias)?;
+        let json_value = duckdb_value_to_json_value(value, type_alias)
+            .map_err(|e| format!("column \"{key}\": {e}"))?;
         obj.insert(key.clone(), json_value);
     }
     serde_json::value::to_raw_value(&obj).map_err(|e| e.to_string())
@@ -715,12 +716,15 @@ fn duckdb_value_to_json_value(
         ),
         duckdb::types::Value::Union(value) => serde_json::Value::String(format!("{:?}", *value)),
         // `Value` is `#[non_exhaustive]`: a newer engine can hand back a variant this
-        // build has never seen. Name it instead of emitting a plausible-looking
-        // rendering that silently misrepresents the column.
+        // build has never seen. Name its type instead of emitting a plausible-looking
+        // rendering that silently misrepresents the column. The type, never the value:
+        // a row that reaches here is already unprintable, and it may be arbitrarily
+        // large or hold data that does not belong in a job's error message.
         other => {
             return Err(format!(
-                "Unsupported DuckDB value for this build: {:?}",
-                other
+                "DuckDB type {:?} is not supported by this worker's engine bindings; \
+                 cast the column to a supported type (e.g. VARCHAR) to return it",
+                other.data_type()
             ))
         }
     };
