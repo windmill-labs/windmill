@@ -100,7 +100,9 @@ vi.mock('../lib', () => ({
 		getOpenaiClient: mocks.getOpenaiClient,
 		getAnthropicClient: mocks.getAnthropicClient
 	},
-	getNonStreamingCompletion: mocks.getNonStreamingCompletion
+	getNonStreamingCompletion: mocks.getNonStreamingCompletion,
+	providerSupportsWebSearch: (provider: string | undefined) =>
+		provider === 'openai' || provider === 'anthropic'
 }))
 
 vi.mock('./api/apiTools', () => ({

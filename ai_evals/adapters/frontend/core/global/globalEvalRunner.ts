@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { AIProvider } from "$lib/gen/types.gen";
+import { providerSupportsWebSearch } from "../../../../../frontend/src/lib/components/copilot/lib";
 import {
   globalToolsFor,
   prepareGlobalSystemMessage,
@@ -179,10 +180,12 @@ export async function runGlobalEval(
       systemMessage: prepareGlobalSystemMessage(undefined, {
         user: options.user,
         previewTools: options.sessionChat ?? false,
-        // Stated rather than derived: the derivation reads the copilot model store,
-        // which the harness deliberately leaves empty, so it would resolve false and
-        // hide guidance every benchmarked provider actually serves.
-        webSearch: true,
+        // Derived from the model under test rather than left to the production
+        // default, which reads the copilot model store the harness deliberately
+        // leaves empty — that would resolve false and hide guidance the benchmarked
+        // provider does serve. Mirrors runChatLoop's gate so a Gemini or DeepSeek
+        // run is never told to use a tool the loop will not hand it.
+        webSearch: providerSupportsWebSearch(options.provider),
       }),
       userMessage: prepareGlobalUserMessage(
         userPrompt,

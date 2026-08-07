@@ -1216,13 +1216,13 @@ const searchHubScriptsSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'What you want the script to do, e.g. "send email", "list stripe invoices". Semantic search, so describe the intent. Omit when browsing an integration with `app` alone.'
+			'What you want the script to do, e.g. "send email", "list stripe invoices". Semantic search, so describe the intent. Omit when browsing with `integration` alone.'
 		),
 	integration: z
 		.string()
 		.optional()
 		.describe(
-			'Integration slug (e.g. "stripe", "slack", "gsheets") from a previous result\'s `integration` or `suggested_integrations`. Alone, it lists that integration\'s scripts with their descriptions — use it to find a worked example of the integration even when no script does exactly what you need. With `query`, it narrows the search to that integration.'
+			'Integration slug (e.g. "stripe") from a previous result\'s `integration` or `suggested_integrations`. Alone, lists that integration\'s scripts with descriptions, including ones that do not match your task but show how the integration is used. With `query`, narrows the search to it.'
 		)
 })
 
@@ -1256,9 +1256,17 @@ type HubScriptHit = { version_id: number; app: string; summary: string; descript
 let hubIntegrationsCache: string[] | undefined
 
 async function suggestHubIntegrations(query: string): Promise<string[]> {
-	if (!hubIntegrationsCache) {
-		const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
-		hubIntegrationsCache = integrations.map((i) => i.name)
+	// Suggestions are a bonus on an already-empty search, so an unreachable hub must
+	// degrade to "no results" rather than turn the whole search into a tool error.
+	// A failed or empty response is left uncached so the next search retries.
+	if (!hubIntegrationsCache?.length) {
+		try {
+			const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
+			hubIntegrationsCache = integrations.map((i) => i.name)
+		} catch (err) {
+			console.error('Could not list hub integrations', err)
+			return []
+		}
 	}
 	const tokens = query
 		.toLowerCase()

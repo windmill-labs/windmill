@@ -44,7 +44,7 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getNonStreamingCompletion } from '../lib'
+import { workspaceAIClients, getNonStreamingCompletion, providerSupportsWebSearch } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getModelContextWindow } from '../modelConfig'
@@ -110,6 +110,7 @@ import {
 	setUserCustomPrompts,
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
+import type { AIProvider as AIProviderType } from '$lib/gen'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
 	globalToolsFor,
@@ -1905,6 +1906,21 @@ export class AIChatManager {
 		}
 	}
 
+	/** Web-search availability the GLOBAL system message was last built against. */
+	private globalWebSearchAdvertised: boolean | undefined = undefined
+
+	private syncGlobalWebSearchGuidance = (provider: AIProviderType | undefined) => {
+		if (this.mode !== AIMode.GLOBAL) {
+			return
+		}
+		const available = providerSupportsWebSearch(provider) && isWebSearchEnabledForProvider(provider)
+		if (available === this.globalWebSearchAdvertised) {
+			return
+		}
+		this.globalWebSearchAdvertised = available
+		this.rebuildGlobalSystemMessage()
+	}
+
 	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
 	// the update_user_instructions tool) is picked up on the next chat-loop iteration, which
 	// re-reads this.systemMessage via a getter.
@@ -2336,6 +2352,11 @@ export class AIChatManager {
 				},
 				onBeforeIteration: async (tools, _helpers, modelProvider) => {
 					this.lastIterationModel = modelProvider
+					// Web search is provider-hosted, so the prompt is the only thing that can
+					// advertise it — and the selector stays switchable mid-conversation. Rebuild
+					// when availability flips, or a switch onto a provider without web search
+					// leaves the prompt telling the model to use a tool it is no longer handed.
+					this.syncGlobalWebSearchGuidance(modelProvider.provider)
 					for (const tool of tools) {
 						if (tool.setSchema) {
 							await tool.setSchema(this.helpers)

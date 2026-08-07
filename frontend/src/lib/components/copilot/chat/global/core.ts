@@ -6918,6 +6918,11 @@ async function deleteWorkspaceItem(
 	)
 }
 
+function deriveWebSearchAvailability(): boolean {
+	const provider = tryGetCurrentModel()?.provider
+	return providerSupportsWebSearch(provider) && isWebSearchEnabledForProvider(provider)
+}
+
 export function prepareGlobalSystemMessage(
 	instructions?: { workspace?: string; user?: string },
 	opts?: {
@@ -6927,8 +6932,8 @@ export function prepareGlobalSystemMessage(
 		// store (the eval harness) pass it explicitly instead.
 		user?: { username: string; is_admin?: boolean; folders?: string[]; folders_read?: string[] }
 		skills?: AiSkillListItem[]
-		// Defaults to the current model's provider support; passed explicitly by
-		// callers that must not read the process-global model store.
+		// Defaults to the current model's provider support, which reads the copilot
+		// model store; callers that must not touch it pass the value instead.
 		webSearch?: boolean
 	}
 ): ChatCompletionSystemMessageParam {
@@ -6941,10 +6946,7 @@ export function prepareGlobalSystemMessage(
 				isAdmin: user.is_admin ?? false
 			}
 		: undefined
-	const provider = tryGetCurrentModel()?.provider
-	const webSearch =
-		opts?.webSearch ??
-		(providerSupportsWebSearch(provider) && isWebSearchEnabledForProvider(provider))
+	const webSearch = opts?.webSearch ?? deriveWebSearchAvailability()
 	let content = buildGlobalSystemPrompt(
 		username,
 		opts?.previewTools ?? false,
