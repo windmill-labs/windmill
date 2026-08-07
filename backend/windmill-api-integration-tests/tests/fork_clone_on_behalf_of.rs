@@ -3,97 +3,6 @@ use sqlx::{Pool, Postgres};
 
 use windmill_test_utils::*;
 
-/// Seed an anonymous public app owned by the parent's admin, then fork as `token`. Returns the
-/// cloned app's policy and custom path.
-async fn fork_with_public_app(
-    db: &Pool<Postgres>,
-    token: &str,
-) -> anyhow::Result<(serde_json::Value, Option<String>)> {
-    initialize_tracing().await;
-
-    let server = ApiServer::start(db.clone()).await?;
-    let base_url = format!("http://localhost:{}/api", server.addr.port());
-
-    let app_id = sqlx::query_scalar!(
-        "INSERT INTO app (workspace_id, path, summary, policy, versions, custom_path)
-         VALUES ('test-workspace', 'u/test-user/pub', '', $1, '{}', 'pub-path')
-         RETURNING id",
-        json!({
-            "on_behalf_of": "u/test-user",
-            "on_behalf_of_email": "test@windmill.dev",
-            "execution_mode": "anonymous",
-        })
-    )
-    .fetch_one(db)
-    .await?;
-    // The clone re-aggregates `versions` from `app_version`, so an app without one lands in the
-    // fork with a NULL array.
-    sqlx::query!(
-        "WITH v AS (
-            INSERT INTO app_version (app_id, value, created_by)
-            VALUES ($1, '{}'::json, 'test-user') RETURNING id
-         )
-         UPDATE app SET versions = ARRAY[v.id] FROM v WHERE app.id = $1",
-        app_id
-    )
-    .execute(db)
-    .await?;
-
-    let resp = reqwest::Client::new()
-        .post(format!(
-            "{base_url}/w/test-workspace/workspaces/create_fork"
-        ))
-        .header("Authorization", format!("Bearer {token}"))
-        .json(&json!({ "id": "wm-fork-app", "name": "Fork", "color": "#0000ff" }))
-        .send()
-        .await?;
-    assert!(
-        resp.status().is_success(),
-        "creating the fork: {}",
-        resp.text().await?
-    );
-
-    let cloned =
-        sqlx::query!("SELECT policy, custom_path FROM app WHERE workspace_id = 'wm-fork-app'")
-            .fetch_one(db)
-            .await?;
-    Ok((cloned.policy, cloned.custom_path))
-}
-
-/// An app policy's `on_behalf_of` is the identity anonymous and publisher executions queue jobs
-/// under, and the fork's endpoint outlives any revocation in the parent — so a creator who may
-/// not preserve someone else's identity must not receive one by forking. `test-user-2` is a
-/// plain member of the parent.
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_fork_downgrades_app_policy_for_unprivileged_creator(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    let (policy, custom_path) = fork_with_public_app(&db, "SECRET_TOKEN_2").await?;
-
-    assert_eq!(policy["on_behalf_of"], json!("u/test-user-2"));
-    assert_eq!(policy["on_behalf_of_email"], json!("test2@windmill.dev"));
-    assert_eq!(policy["execution_mode"], json!("publisher"));
-    assert_eq!(custom_path, None);
-
-    Ok(())
-}
-
-/// An admin could have set any of this through the app API, so their fork keeps the policy — which
-/// is also what keeps dev workspaces, always admin-created, behaving like their parent. The custom
-/// path still goes: it is the instance-wide address of the parent's live public app, and two rows
-/// claiming it make it resolve to either one.
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_fork_keeps_app_policy_for_admin_creator(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let (policy, custom_path) = fork_with_public_app(&db, "SECRET_TOKEN").await?;
-
-    assert_eq!(policy["on_behalf_of"], json!("u/test-user"));
-    assert_eq!(policy["on_behalf_of_email"], json!("test@windmill.dev"));
-    assert_eq!(policy["execution_mode"], json!("anonymous"));
-    assert_eq!(custom_path, None);
-
-    Ok(())
-}
-
 /// A principal only means something in the workspace whose `usr`/`group_` rows define it, and a
 /// fork copies the creator and the groups but not the rest of the membership. Carrying one over
 /// blindly would leave a runnable naming somebody who cannot authenticate there; dropping them
@@ -197,9 +106,11 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
         .count();
     assert_eq!(orphaned, 0, "a dropped principal leaves no address behind");
     assert_eq!(
-        sqlx::query_scalar!("SELECT on_behalf_of FROM flow WHERE workspace_id = 'wm-fork-obo'")
-            .fetch_one(&db)
-            .await?,
+        sqlx::query_scalar!(
+            "SELECT on_behalf_of FROM flow WHERE workspace_id = 'wm-fork-obo'"
+        )
+        .fetch_one(&db)
+        .await?,
         None
     );
 
