@@ -57,6 +57,42 @@ describe('userScopedDb', () => {
 		expect((await dbA2!.getAll('items')).map((x) => x.id)).toEqual(['i1'])
 	})
 
+	it('yields its connection so another tab can upgrade the schema', async () => {
+		userStore.set(asUser('a@x.com'))
+		const held = userScopedDb<TestSchema>('t', { version: 1, upgrade })
+		expect(await held.whenReady()).toBeDefined()
+
+		// Second tab, higher version. Without the blocking handler the open never settles
+		// and this await hangs rather than failing.
+		const upgrading = userScopedDb<TestSchema>('t', { version: 2, upgrade })
+		expect((await upgrading.whenReady())?.version).toBe(2)
+
+		// The tab that yielded is still on the old schema, so its reopen cannot succeed —
+		// it degrades to in-memory like any failed open, rather than hanging or throwing.
+		expect(await held.whenReady()).toBeUndefined()
+	})
+
+	it('gives up on an upgrade an uncooperative connection is blocking', async () => {
+		userStore.set(asUser('a@x.com'))
+		// A tab running a build older than the blocking handler: it holds v1 open and never
+		// hears versionchange, so nothing this side can do will make it let go.
+		const legacy = await openDB<TestSchema>('t::a@x.com', 1, { upgrade })
+		const dbh = userScopedDb<TestSchema>('t', { version: 2, upgrade, blockedGraceMs: 20 })
+
+		// Bounded, so callers degrade to in-memory instead of awaiting it forever.
+		expect(await dbh.whenReady()).toBeUndefined()
+
+		// Every later call gives up too. A second open would queue behind the first, which is
+		// still waiting on the blocker, and never reach its own `blocked` callback — so it
+		// would hang where this one merely degraded.
+		expect(await dbh.whenReady()).toBeUndefined()
+		expect(await dbh.whenReady()).toBeUndefined()
+
+		// Giving up is not permanent: once the blocker goes, the next call gets the DB.
+		legacy.close()
+		await vi.waitFor(async () => expect((await dbh.whenReady())?.version).toBe(2))
+	})
+
 	it('runs migrate once per scoped name and claims+deletes the legacy DB', async () => {
 		// Seed a legacy (un-namespaced) DB, mirroring the chat-history pattern.
 		const legacy = await openDB<TestSchema>('t', 1, { upgrade })

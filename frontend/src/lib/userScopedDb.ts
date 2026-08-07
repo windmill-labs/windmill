@@ -27,14 +27,23 @@ export interface UserScopedDbOptions<Schema extends DBSchema> {
 	// Injectable for tests (defaults to the real idb implementations).
 	openDB?: typeof idbOpenDB
 	deleteDB?: typeof idbDeleteDB
+	// How long a blocked upgrade waits before giving up. Injectable for tests, which
+	// cannot afford the real grace period.
+	blockedGraceMs?: number
 }
 
 export interface UserScopedDb<Schema extends DBSchema> {
-	// Resolves to the open DB for the current user, or undefined when no user is
-	// logged in yet or the open failed (degrade to in-memory; never rejects).
+	// Resolves to the open DB for the current user, or undefined when no user is logged
+	// in yet, the open failed, or another connection is holding up a schema upgrade
+	// (degrade to in-memory; never rejects, never hangs).
 	whenReady(): Promise<IDBPDatabase<Schema> | undefined>
 	close(): void
 }
+
+// How long a blocked upgrade waits before the opener gives up. Only a connection from a
+// build predating the blocking handler below can block one (it never hears versionchange),
+// so this is a rollout-window escape hatch, not a routine path.
+const BLOCKED_OPEN_GRACE_MS = 5000
 
 export function userScopedDb<Schema extends DBSchema>(
 	baseName: string,
@@ -42,25 +51,68 @@ export function userScopedDb<Schema extends DBSchema>(
 ): UserScopedDb<Schema> {
 	const openDB = opts.openDB ?? idbOpenDB
 	const deleteDB = opts.deleteDB ?? idbDeleteDB
+	const blockedGraceMs = opts.blockedGraceMs ?? BLOCKED_OPEN_GRACE_MS
 	const migratedNames = new Set<string>()
 
 	let openName: string | undefined
 	let openPromise: Promise<IDBPDatabase<Schema> | undefined> | undefined
+	// Set once openPromise settles, so a resolved handle is handed out without re-racing.
+	let settled: { db: IDBPDatabase<Schema> | undefined } | undefined
+	// Resolves undefined once we stop waiting on a blocked upgrade; never rejects.
+	let gaveUp: Promise<undefined> | undefined
+	let blockedTooLong = false
+
+	function reset() {
+		openPromise = undefined
+		openName = undefined
+		settled = undefined
+		gaveUp = undefined
+		blockedTooLong = false
+	}
 
 	function closeCurrent() {
 		const prev = openPromise
 		if (prev) void prev.then((db) => db?.close()).catch(() => {})
-		openPromise = undefined
-		openName = undefined
+		reset()
 	}
 
-	async function open(name: string): Promise<IDBPDatabase<Schema> | undefined> {
+	// Drop the cached handle without closing it: these callers have already lost their
+	// connection, so there is nothing left to close.
+	function forget(name: string) {
+		if (openName !== name) return
+		reset()
+	}
+
+	async function open(name: string, onBlockedTooLong: () => void) {
+		let graceTimer: ReturnType<typeof setTimeout> | undefined
 		try {
+			let handle: IDBPDatabase<Schema> | undefined
 			const db = await openDB<Schema>(name, opts.version, {
 				upgrade(database) {
 					opts.upgrade(database)
+				},
+				// Another tab is opening this database at a higher version. A held-open
+				// connection blocks that upgrade indefinitely, and a blocked open never
+				// settles — so the other tab would hang on whenReady() forever rather than
+				// fail. Let go here; the next whenReady() reopens on the new schema.
+				blocking() {
+					handle?.close()
+					forget(name)
+				},
+				blocked(currentVersion, blockedVersion) {
+					console.warn(
+						`userScopedDb(${baseName}): upgrade ${currentVersion}→${blockedVersion} waiting on another connection`
+					)
+					graceTimer ??= setTimeout(onBlockedTooLong, blockedGraceMs)
+				},
+				// The browser force-closed the connection (site data cleared, database
+				// dropped from devtools). Every request on this handle would now throw, so
+				// stop handing it out.
+				terminated() {
+					forget(name)
 				}
 			})
+			handle = db
 			if (opts.migrate && !migratedNames.has(name)) {
 				migratedNames.add(name)
 				try {
@@ -74,12 +126,30 @@ export function userScopedDb<Schema extends DBSchema>(
 			}
 			return db
 		} catch (e) {
-			// Failed open (blocked / corrupt / private-browsing): degrade to
-			// in-memory by resolving undefined (callers no-op their writes). The
-			// undefined is cached for this name so we don't hammer the open.
+			// Failed open (corrupt / private-browsing): degrade to in-memory by resolving
+			// undefined (callers no-op their writes).
 			console.error(`userScopedDb(${baseName}): could not open database`, e)
 			return undefined
+		} finally {
+			if (graceTimer) clearTimeout(graceTimer)
 		}
+	}
+
+	function start(name: string) {
+		openName = name
+		let giveUp!: () => void
+		gaveUp = new Promise<undefined>((resolve) => (giveUp = () => resolve(undefined)))
+		const p = open(name, () => {
+			blockedTooLong = true
+			giveUp()
+		})
+		openPromise = p
+		void p.then((db) => {
+			// Superseded by a user switch while this was in flight: that name owns the handle.
+			if (openPromise !== p) return
+			settled = { db }
+			blockedTooLong = false
+		})
 	}
 
 	return {
@@ -91,10 +161,15 @@ export function userScopedDb<Schema extends DBSchema>(
 			}
 			if (name !== openName) {
 				closeCurrent()
-				openName = name
-				openPromise = open(name)
+				start(name)
 			}
-			return openPromise!
+			if (settled) return Promise.resolve(settled.db)
+			// Open requests queue per database, so a second one would wait behind this
+			// still-blocked first and never fire its own `blocked` — keep the one request and
+			// let callers past it instead. It stays live, so `settled` fills in the moment the
+			// blocker lets go and the store comes back for the rest of the page's life.
+			if (blockedTooLong) return Promise.resolve(undefined)
+			return Promise.race([openPromise!, gaveUp!])
 		},
 		close() {
 			closeCurrent()
