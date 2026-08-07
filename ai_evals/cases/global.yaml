@@ -1687,7 +1687,6 @@
   judgeChecklist:
     - the plan covers classifying an incoming email by urgency, routing it to a team, and posting urgent ones to Slack
     - the plan is specific about what would be built in Windmill (a flow and its steps, or the scripts involved)
-    - the plan reflects what Windmill actually offers for the trigger and the integrations, rather than inventing capabilities
 
 - id: global-npm1-script-search-package
   prompt: |-

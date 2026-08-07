@@ -384,8 +384,19 @@ type PlanSaveResult = { id: string; name: string; rollback: PlanRoundBase | unde
  */
 type PlanRound = {
 	generation: number
+	/** What the document held when the round opened, restored by every refused proposal in
+	 * it. `baseCaptured` because "nothing was there" is a real answer that must not be
+	 * mistaken for "not read yet" — a later proposal would then take a refused draft as the
+	 * thing to restore. */
 	base: PlanRoundBase | undefined
+	baseCaptured: boolean
+	/** Resolved by the save, which is also the only thing that knows it on a reopened
+	 * session, where the id has to be looked up on disk. */
+	docId: string | undefined
 	save: { toolId: string; doc: Promise<PlanSaveResult | undefined> } | undefined
+	/** `settled` once the round is over — approved, or the user left plan mode. A refused
+	 * proposal does not end it: the user stays in plan mode and the next proposal has to be
+	 * restorable too. */
 	status: 'pending' | 'settled'
 }
 
@@ -1563,6 +1574,9 @@ export class AIChatManager {
 		} else if (mode !== AIAutonomyMode.PLAN) {
 			this.prePlanAutonomyMode = undefined
 			this.planBlocksThisTurn = 0
+			// The round ends with the posture. Left pending, its base outlives it, and a
+			// rotation later would restore it over whatever the plan has become since.
+			if (this.planRound) this.planRound.status = 'settled'
 		}
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
@@ -2124,10 +2138,9 @@ export class AIChatManager {
 	 */
 	private rollbackPlanDoc = async (round: PlanRound, docId: string | undefined) => {
 		if (round.status !== 'pending') return
-		round.status = 'settled'
 		const saved = await round.save?.doc
 		const base = round.base ?? saved?.rollback
-		const id = docId ?? saved?.id
+		const id = round.docId ?? docId ?? saved?.id
 		if (!base || !id) return
 		// The round's own generation, so a rotation-triggered rollback writes the document
 		// back without opening it in the conversation the user has arrived in.
@@ -2167,6 +2180,8 @@ export class AIChatManager {
 		const round = (this.planRound ??= {
 			generation: this.planDocGeneration,
 			base: undefined,
+			baseCaptured: false,
+			docId: undefined,
 			save: undefined,
 			status: 'pending'
 		})
@@ -2207,11 +2222,15 @@ export class AIChatManager {
 			// The lookup awaits, so re-check before writing: a chat rotated in that window
 			// would otherwise have this plan written into the conversation it just left.
 			if (generation !== this.planDocGeneration) return undefined
+			// The round owns this document from here on. `planDocId` is cleared by a rotation,
+			// so without this a rollback or an approval landing after one has nothing to write
+			// to — on a reopened session it was never set in the first place.
+			if (existingId) round.docId = existingId
 			// Read before overwriting: this round's first proposal is the moment the standing
 			// plan is lost, so that is where the copy to restore has to be taken. Held as a
 			// local too — a rotation clears the field before the undo below can read it.
 			let roundBase = round.base
-			if (existingId && roundBase === undefined) {
+			if (existingId && !round.baseCaptured) {
 				const previous = await this.artifacts.get(existingId)
 				roundBase = previous && {
 					content: previous.content,
@@ -2222,22 +2241,15 @@ export class AIChatManager {
 				// one would otherwise write this conversation's plan into its document.
 				if (generation !== this.planDocGeneration) return undefined
 				round.base = roundBase
+				round.baseCaptured = true
 			}
 			const updated = existingId
 				? await this.artifacts.update(existingId, { name, content: summary, approved: false })
 				: undefined
-			if (generation !== this.planDocGeneration) {
-				// The chat rotated while this write was landing, onto a document the conversation
-				// being left owns and nothing else can still reach — this write is the only
-				// thing that knows what it replaced, so it undoes itself here. A no-op if the
-				// round settled meanwhile: an approval keeps what it approved.
-				if (updated)
-					void this.rollbackPlanDoc(
-						{ generation, base: roundBase, save: undefined, status: round.status },
-						updated.id
-					)
-				return undefined
-			}
+			// The rotation that moved the generation on also abandoned this round, and does its
+			// own rollback against `round.docId` once this save settles — so this write needs
+			// only to stop being adopted, not to undo itself.
+			if (generation !== this.planDocGeneration) return undefined
 			// Falls back to a create when the document is gone — the user may have deleted it.
 			const plan =
 				updated ??
@@ -2251,6 +2263,7 @@ export class AIChatManager {
 				}))
 			if (generation !== this.planDocGeneration) return undefined
 			this.planDocId = plan.id
+			round.docId = plan.id
 			this.openArtifact?.(plan.id, plan.name)
 			toolCallbacks.setToolStatus(toolId, { planArtifactId: plan.id })
 			return { id: plan.id, name: plan.name, rollback: roundBase }
@@ -2305,16 +2318,20 @@ export class AIChatManager {
 			// Settled before the write is awaited: this content is the plan now, and a rotation
 			// landing in that window would otherwise treat the proposal as undecided and put
 			// back the plan it replaced.
-			if (this.planRound) this.planRound.status = 'settled'
+			const round = this.planRound
+			if (round) round.status = 'settled'
 			const saved = await save
-			if (saved) {
-				await this.markPlanApproved(saved.id)
+			// The round's own id when a rotation stopped the save from returning one: the user
+			// approved this document, so the approval lands on it whichever chat is current.
+			const approvedId = saved?.id ?? round?.docId
+			if (approvedId) {
+				await this.markPlanApproved(approvedId)
 			}
 			// No-op if the user already left plan mode while the card was pending.
 			if (this.planModeActive) {
 				this.setAutonomyMode(this.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
 			}
-			return saved ? PLAN_MODE_MESSAGES.approvedWithDoc : PLAN_MODE_MESSAGES.approved
+			return approvedId ? PLAN_MODE_MESSAGES.approvedWithDoc : PLAN_MODE_MESSAGES.approved
 		}
 	}
 

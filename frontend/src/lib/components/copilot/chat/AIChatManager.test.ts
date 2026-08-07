@@ -865,7 +865,82 @@ describe('AIChatManager autonomy mode', () => {
 		await approval
 		await new Promise((resolve) => setTimeout(resolve, 0))
 
-		expect(planDocs.get('artifact-1')?.content).toBe('# Amended\n\nStep two.')
+		// Content alone is not enough: the approval also has to land on the document, or the
+		// user is left with the plan they agreed to labelled a draft.
+		expect(planDocs.get('artifact-1')).toMatchObject({
+			content: '# Amended\n\nStep two.',
+			approved: true
+		})
+	})
+
+	it('restores the approved plan every time a revision is refused, not just the first', async () => {
+		const manager = planningManager()
+		await proposePlan(manager, '# Approved\n\nStep one.')
+		await callExitPlanMode(manager, '# Approved\n\nStep one.')
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		// "Keep planning" twice is the flow exitDeclined asks for: discuss, revise, re-propose.
+		// A round spans all of it, so settling it on the first decline strands the second.
+		for (const [toolId, summary] of [
+			['call_a', '# Draft one'],
+			['call_b', '# Draft two']
+		]) {
+			await proposePlan(manager, summary, toolId)
+			manager.exitPlanModeTool.onConfirmationDeclined?.({
+				args: { summary },
+				toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+				toolId
+			})
+			await vi.waitFor(() =>
+				expect(planDocs.get('artifact-1')).toMatchObject({
+					content: '# Approved\n\nStep one.',
+					approved: true
+				})
+			)
+		}
+	})
+
+	it('marks a plan approved even when the chat rotates before its write lands', async () => {
+		const manager = planningManager()
+		// A reopened session: the plan is on disk but the in-memory id is gone, so the save
+		// has to look it up — and the rotation clears it before the rollback could use it.
+		planDocs.set('artifact-on-disk', {
+			id: 'artifact-on-disk',
+			name: 'Ship it',
+			content: '# Ship it\n\nStep one.',
+			approved: true,
+			role: 'plan'
+		})
+		manager.artifacts.listForSession = vi.fn(async () => [
+			{ id: 'artifact-on-disk', role: 'plan', chatId: manager.historyManager.getCurrentChatId() }
+		]) as any
+
+		const store = manager.artifacts.update
+		let releaseUpdate: (() => void) | undefined
+		manager.artifacts.update = vi.fn(async (id: string, input: any) => {
+			manager.artifacts.update = store
+			await new Promise<void>((resolve) => (releaseUpdate = resolve))
+			return (store as any)(id, input)
+		}) as any
+		manager.exitPlanModeTool.onConfirmationRequested?.({
+			args: { summary: '# Amended\n\nStep two.' },
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		await vi.waitFor(() => expect(releaseUpdate).toBeDefined())
+
+		const approval = callExitPlanMode(manager, '# Amended\n\nStep two.')
+		await manager.saveAndClear()
+		releaseUpdate?.()
+		await approval
+		await new Promise((resolve) => setTimeout(resolve, 0))
+
+		// The document the user approved must not be left labelled a draft: list_artifacts
+		// reports that flag, and the prompt tells the model not to build from an unapproved one.
+		expect(planDocs.get('artifact-on-disk')).toMatchObject({
+			content: '# Amended\n\nStep two.',
+			approved: true
+		})
 	})
 
 	it('keeps an approved amendment when the chat rotates afterwards', async () => {
