@@ -1262,6 +1262,39 @@ async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
 /// comment at the call site below.
 const MAX_RESOURCE_VERSIONS: i64 = 100;
 
+/// Trim resource version history down to the per-path cap.
+///
+/// Deliberately not part of `delete_expired_items` (which runs every monitor tick): this is a
+/// full pass over `resource_version`, and the cap only has to hold eventually, so it is gated to
+/// an hourly cadence at the call site alongside the other heavy sweeps.
+pub async fn trim_resource_versions(db: &DB) -> () {
+    let trimmed = sqlx::query_scalar!(
+        "DELETE FROM resource_version rv
+         USING (
+             SELECT id FROM (
+                 SELECT id, row_number() OVER (
+                     PARTITION BY workspace_id, path ORDER BY id DESC
+                 ) AS rn
+                 FROM resource_version
+             ) ranked WHERE rn > $1
+         ) over_cap
+         WHERE rv.id = over_cap.id
+         RETURNING rv.id",
+        MAX_RESOURCE_VERSIONS,
+    )
+    .fetch_all(db)
+    .await;
+
+    match trimmed {
+        Ok(ids) => {
+            if ids.len() > 0 {
+                tracing::info!("trimmed {} resource versions past the cap", ids.len())
+            }
+        }
+        Err(e) => tracing::error!("Error trimming resource versions: {}", e.to_string()),
+    }
+}
+
 pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
@@ -1327,40 +1360,6 @@ pub async fn delete_expired_items(db: &DB) -> () {
             }
         }
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
-    }
-
-    // Resource version history is capped per path. Trimmed here rather than in the
-    // record_resource_version trigger so the cap costs nothing on the write path, which
-    // `setResource` from a script can drive in a loop. History may sit briefly above the cap
-    // between sweeps, which is harmless.
-    //
-    // Ranked in one windowed pass rather than a correlated `min(id)` per row: the correlated
-    // form re-probed the index once for every row in the table on every sweep, whether or not
-    // any path was over the cap.
-    let trimmed_resource_versions = sqlx::query_scalar!(
-        "DELETE FROM resource_version rv
-         USING (
-             SELECT id FROM (
-                 SELECT id, row_number() OVER (
-                     PARTITION BY workspace_id, path ORDER BY id DESC
-                 ) AS rn
-                 FROM resource_version
-             ) ranked WHERE rn > $1
-         ) over_cap
-         WHERE rv.id = over_cap.id
-         RETURNING rv.id",
-        MAX_RESOURCE_VERSIONS,
-    )
-    .fetch_all(db)
-    .await;
-
-    match trimmed_resource_versions {
-        Ok(ids) => {
-            if ids.len() > 0 {
-                tracing::info!("trimmed {} resource versions past the cap", ids.len())
-            }
-        }
-        Err(e) => tracing::error!("Error trimming resource versions: {}", e.to_string()),
     }
 
     let deleted_expired_variables = sqlx::query_scalar!(
@@ -3215,6 +3214,15 @@ pub async fn monitor_db(
         }
     };
 
+    // run every hour (60 minutes / 30 seconds = 120)
+    let trim_resource_versions_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                trim_resource_versions(&db).await;
+            }
+        }
+    };
+
     // run every hour
     let vacuum_queue_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(60) {
@@ -3488,6 +3496,7 @@ pub async fn monitor_db(
         expired_items_f,
         zombie_jobs_f,
         stale_jobs_f,
+        trim_resource_versions_f,
         vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,
