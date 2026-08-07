@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.41"
-duckdb = { version = "1.10502.0", features = ["bundled"] }
+# `rust_decimal` is optional upstream, and off it there is no way to turn the
+# JSON number behind a `decimal`/`numeric` job argument into a DuckDB DECIMAL.
+duckdb = { version = "1.10505.0", features = ["bundled", "rust_decimal"] }
 regex = "1"
 rust_decimal = "1.37.2"
 serde = { version = "1.0", features = ["derive"] }

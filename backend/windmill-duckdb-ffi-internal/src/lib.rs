@@ -639,6 +639,7 @@ fn duckdb_value_to_json_value(
         duckdb::types::Value::Int(i) => serde_json::Value::Number(i.into()),
         duckdb::types::Value::BigInt(i) => serde_json::Value::Number(i.into()),
         duckdb::types::Value::HugeInt(i) => serde_json::Value::String(i.to_string()),
+        duckdb::types::Value::UHugeInt(u) => serde_json::Value::String(u.to_string()),
         duckdb::types::Value::UTinyInt(u) => serde_json::Value::Number(u.into()),
         duckdb::types::Value::USmallInt(u) => serde_json::Value::Number(u.into()),
         duckdb::types::Value::UInt(u) => serde_json::Value::Number(u.into()),
@@ -660,11 +661,14 @@ fn duckdb_value_to_json_value(
                 .map_err(|e| format!("Error parsing JSON text: {}", e.to_string()))?
         }
         duckdb::types::Value::Text(s) => serde_json::Value::String(s),
-        duckdb::types::Value::Blob(b) => serde_json::Value::Array(
-            b.into_iter()
-                .map(|byte| serde_json::Value::Number(byte.into()))
-                .collect(),
-        ),
+        // GEOMETRY surfaces as WKB bytes; render it like any other byte string.
+        duckdb::types::Value::Blob(b) | duckdb::types::Value::Geometry(b) => {
+            serde_json::Value::Array(
+                b.into_iter()
+                    .map(|byte| serde_json::Value::Number(byte.into()))
+                    .collect(),
+            )
+        }
         duckdb::types::Value::Date32(d) => {
             match chrono::DateTime::from_timestamp(i64::from(d) * 86_400, 0) {
                 Some(dt) => serde_json::Value::String(dt.date_naive().to_string()),
@@ -710,6 +714,15 @@ fn duckdb_value_to_json_value(
                 .collect::<Result<serde_json::Map<_, _>, _>>()?,
         ),
         duckdb::types::Value::Union(value) => serde_json::Value::String(format!("{:?}", *value)),
+        // `Value` is `#[non_exhaustive]`: a newer engine can hand back a variant this
+        // build has never seen. Name it instead of emitting a plausible-looking
+        // rendering that silently misrepresents the column.
+        other => {
+            return Err(format!(
+                "Unsupported DuckDB value for this build: {:?}",
+                other
+            ))
+        }
     };
     Ok(json_value)
 }
@@ -810,6 +823,39 @@ mod temporal_json_tests {
         );
         assert_eq!(json_of(3), serde_json::json!("2026-07-01"));
         assert_eq!(json_of(4), serde_json::json!("10:30:00"));
+    }
+
+    // DuckDB DECIMAL runs to 38 digits. Rendering one through a 96-bit decimal
+    // type aborts the whole worker rather than erroring — the panic escapes an
+    // `extern "C"` frame, which cannot unwind — so every width has to survive
+    // this conversion.
+    #[test]
+    fn wide_decimals_render_without_losing_precision() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT (-1.05)::DECIMAL(4, 2) AS neg,
+                        (1.50)::DECIMAL(4, 2) AS trailing_zero,
+                        '1234567890123456789012345678.9012345678'::DECIMAL(38, 10) AS wide,
+                        '-9999999999999999999999999999.9999999999'::DECIMAL(38, 10) AS wide_neg",
+            )
+            .unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let row = rows.next().unwrap().unwrap();
+        let json_of = |i: usize| {
+            let v: duckdb::types::Value = row.get(i).unwrap();
+            duckdb_value_to_json_value(v, &None).unwrap()
+        };
+        assert_eq!(json_of(0), serde_json::json!("-1.05"));
+        assert_eq!(json_of(1), serde_json::json!("1.50"));
+        assert_eq!(
+            json_of(2),
+            serde_json::json!("1234567890123456789012345678.9012345678")
+        );
+        assert_eq!(
+            json_of(3),
+            serde_json::json!("-9999999999999999999999999999.9999999999")
+        );
     }
 
     // The data-test sample probe shape emitted by
@@ -1174,7 +1220,8 @@ fn json_value_to_duckdb_value(
                 "double" | "float8" => duckdb::types::Value::Double(v),
                 "decimal" | "numeric" => duckdb::types::Value::Decimal(
                     Decimal::from_f64(v)
-                        .ok_or_else(|| "Could not convert f64 to Decimal".to_string())?,
+                        .ok_or_else(|| "Could not convert f64 to Decimal".to_string())?
+                        .into(),
                 ),
                 _ => duckdb::types::Value::Double(v), // default fallback
             }
