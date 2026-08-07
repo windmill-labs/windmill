@@ -5,7 +5,8 @@
 
 	import { History, Loader2, Save } from 'lucide-svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { isOwner } from '$lib/utils'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
 
@@ -36,6 +37,11 @@
 	let selected: string | undefined = $state(undefined)
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	// The editor renders whichever workspace-specific variant `selected` points at, so history has
+	// to follow it too — otherwise a restore would write over the variant the user is not looking at.
+	let historyWorkspace = $derived(selected ?? effectiveWorkspace)
+	// Clearing is irreversible and the backend gates it on ownership, not write access.
+	let isOwnerOfSelected = $derived(isOwner(path ?? '', $userStore, historyWorkspace))
 
 	export async function initEdit(p: string): Promise<void> {
 		resource_type = undefined
@@ -125,11 +131,11 @@
 
 <Drawer bind:this={historyDrawer} size="60rem">
 	<DrawerContent title="History of {path}" on:close={historyDrawer?.closeDrawer}>
-		{#if path && effectiveWorkspace}
+		{#if path && historyWorkspace}
 			<ResourceVersionHistory
 				{path}
-				workspace={effectiveWorkspace}
-				canWrite={canWriteSelected}
+				workspace={historyWorkspace}
+				canClear={isOwnerOfSelected}
 				onRestore={() => {
 					historyDrawer?.closeDrawer()
 					// Close the editor too. It holds a baseline captured before the restore, and

@@ -15,12 +15,12 @@
 	let {
 		path,
 		workspace = undefined,
-		canWrite = true,
+		canClear = false,
 		onRestore = undefined
 	}: {
 		path: string
 		workspace?: string
-		canWrite?: boolean
+		canClear?: boolean
 		onRestore?: () => void
 	} = $props()
 
@@ -124,7 +124,7 @@
 				No history yet. Versions are recorded from the next edit onwards.
 			</div>
 		{:else}
-			{#if versions.length > 1 && canWrite}
+			{#if versions.length > 1 && canClear}
 				<div class="px-3 py-2 border-b">
 					{#if confirmingClear}
 						<p class="text-2xs text-tertiary mb-2">
