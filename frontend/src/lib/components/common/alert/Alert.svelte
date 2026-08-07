@@ -54,6 +54,10 @@
 	}
 
 	const SvelteComponent = $derived(icons[type])
+
+	// A blank title would still occupy a text line and push the body down, leaving an alert
+	// that is visibly top-heavy. Body-only alerts skip the row, and the gap under it, entirely.
+	const hasTitleRow = $derived(!!title || collapsible || tooltip != '' || !!documentationLink)
 </script>
 
 <div
@@ -75,9 +79,7 @@
 			/>
 		</div>
 		<div class={twMerge('ml-1 w-full')}>
-			<!-- A blank title would still occupy a text line and push the body down, leaving an
-			alert that is visibly top-heavy. Body-only alerts skip the row entirely. -->
-			{#if title || collapsible || tooltip != '' || documentationLink}
+			{#if hasTitleRow}
 				<div class={twMerge('w-full flex flex-row items-center justify-between')}>
 					<span
 						class={twMerge('text-xs font-semibold', classes[type].titleClass, titleClass)}
@@ -100,23 +102,18 @@
 				</div>
 			{/if}
 
-			{#if children && !isCollapsed}
-				<div transition:slide|local={{ duration: 200 }} class={title ? 'mt-2' : ''}>
-					<div
-						class={twMerge('text-xs', classes[type].descriptionClass, descriptionClass)}
-						style={descriptionStyle}
-					>
-						{@render children?.()}
-					</div>
-				</div>
-			{:else if children && !collapsible}
-				<div class={title ? 'mb-2' : ''}>
-					<div
-						class={twMerge('text-xs', classes[type].descriptionClass, descriptionClass)}
-						style={descriptionStyle}
-					>
-						{@render children?.()}
-					</div>
+			{#if children && (!collapsible || !isCollapsed)}
+				<div
+					transition:slide|local={{ duration: 200 }}
+					class={twMerge(
+						'text-xs',
+						hasTitleRow ? 'mt-1' : '',
+						classes[type].descriptionClass,
+						descriptionClass
+					)}
+					style={descriptionStyle}
+				>
+					{@render children?.()}
 				</div>
 			{/if}
 		</div>
