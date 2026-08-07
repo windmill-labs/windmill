@@ -4,11 +4,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from './common/button/Button.svelte'
-	import DiffEditor from './DiffEditor.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
+	import HighlightCode from './HighlightCode.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { Code, Diff, History, RotateCcw, Trash2 } from 'lucide-svelte'
+	import { Code, Diff, History, Loader2, RotateCcw, Trash2 } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import VersionListItem from './VersionListItem.svelte'
 	import { displayDate } from '$lib/utils'
@@ -216,29 +215,26 @@
 
 				<div class="grow min-h-0">
 					{#if view === 'diff'}
-						<DiffEditor
-							open
-							automaticLayout
-							readOnly
-							defaultLang="json"
-							defaultOriginal={loaded.value}
-							defaultModified={currentValue}
-							className="h-full"
-						/>
-					{:else}
-						<!-- Keyed on the version: SimpleEditor reads `code` only when it builds its
-						     Monaco model and has no effect syncing later changes, so an already-mounted
-						     editor would keep showing the first version opened while Restore acted on
-						     the one actually selected. -->
-						{#key loaded.id}
-							<SimpleEditor
-								class="h-full"
-								lang="json"
-								code={loaded.value}
-								readOnly
+						<!-- Imported on demand: the diff is the only thing here that needs Monaco, and
+						     pulling it in on open would load the editor for everyone who just wants to
+						     read a value. -->
+						{#await import('./DiffEditor.svelte')}
+							<Loader2 class="animate-spin m-4" />
+						{:then Module}
+							<Module.default
+								open
 								automaticLayout
+								readOnly
+								defaultLang="json"
+								defaultOriginal={loaded.value}
+								defaultModified={currentValue}
+								className="h-full"
 							/>
-						{/key}
+						{/await}
+					{:else}
+						<div class="h-full overflow-auto p-2">
+							<HighlightCode language="json" code={loaded.value} lines />
+						</div>
 					{/if}
 				</div>
 			</div>
