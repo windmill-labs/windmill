@@ -5377,16 +5377,16 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
-// `authed_email` is the forker's email — `clone_drafts` only carries this
-// user's per-user drafts (and the legacy NULL-email workspace draft, if any)
-// across, since other users aren't added to the fork's `usr` table and
-// their drafts would dangle as orphans.
+// `authed` is the forker — `clone_drafts` only carries this user's per-user
+// drafts (and the legacy NULL-email workspace draft, if any) across, since other
+// users aren't added to the fork's `usr` table and their drafts would dangle as
+// orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    authed_email: &str,
+    authed: &ApiAuthed,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -5440,7 +5440,7 @@ async fn clone_workspace_data(
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone apps with new IDs and app scripts
-    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id).await?;
+    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
@@ -5451,7 +5451,7 @@ async fn clone_workspace_data(
     // own a `usr` row in the fork (see `clone_workspace_full`) so their
     // drafts would dangle and the home-page `draft_users` aggregate would
     // surface them as duplicate legacy entries.
-    clone_drafts(tx, source_workspace_id, target_workspace_id, authed_email).await?;
+    clone_drafts(tx, source_workspace_id, target_workspace_id, &authed.email).await?;
 
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
@@ -6392,11 +6392,45 @@ async fn clone_flow_nodes(
     Ok(())
 }
 
+/// Re-point a cloned app policy at the fork's creator, the way `create_app` / `update_app`
+/// do for a caller who may not preserve someone else's identity: `on_behalf_of` is what
+/// anonymous and publisher executions queue jobs under, and the fork's endpoint outlives
+/// any revocation in the parent. Anonymous apps also lose their unauthenticated endpoint;
+/// re-publishing goes through the app API, which enforces the anonymous-deployment rule.
+fn downgrade_cloned_app_policy(policy: &mut serde_json::Value, authed: &ApiAuthed) {
+    let Some(obj) = policy.as_object_mut() else {
+        return;
+    };
+    obj.insert(
+        "on_behalf_of".to_string(),
+        serde_json::Value::String(username_to_permissioned_as(&authed.username)),
+    );
+    obj.insert(
+        "on_behalf_of_email".to_string(),
+        serde_json::Value::String(authed.email.clone()),
+    );
+    // A policy without `execution_mode` gets one too: `Policy` declares no serde default
+    // for the field, so such a row does not read back as a policy until something writes it.
+    let anonymous = obj
+        .get("execution_mode")
+        .and_then(|m| m.as_str())
+        .unwrap_or("anonymous")
+        == "anonymous";
+    if anonymous {
+        obj.insert(
+            "execution_mode".to_string(),
+            serde_json::Value::String("publisher".to_string()),
+        );
+    }
+}
+
 async fn clone_apps(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed: &ApiAuthed,
 ) -> Result<HashMap<i64, i64>> {
+    let preserve_identity = windmill_common::can_preserve_on_behalf_of(authed);
     // Get all apps from source workspace
     let apps = sqlx::query!(
         "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
@@ -6416,10 +6450,21 @@ async fn clone_apps(
     let mut latest_version_ids: HashSet<i64> = HashSet::new();
 
     // Clone apps with new IDs
-    for app in apps {
+    for mut app in apps {
         if let Some(&current_version) = app.versions.last() {
             latest_version_ids.insert(current_version);
         }
+        if !preserve_identity {
+            downgrade_cloned_app_policy(&mut app.policy, authed);
+        }
+        // An instance-wide custom path addresses one app (`create_app` rejects one already
+        // taken in any workspace), so a clone that kept it would make the parent's live
+        // public URL resolve to either row.
+        let custom_path = if windmill_common::apps::custom_path_is_workspace_scoped() {
+            app.custom_path
+        } else {
+            None
+        };
         let new_app_id = sqlx::query_scalar!(
             "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -6430,7 +6475,7 @@ async fn clone_apps(
             app.policy,
             &Vec::<i64>::new(), // Start with empty versions array
             app.extra_perms,
-            app.custom_path,
+            custom_path,
         )
         .fetch_one(&mut **tx)
         .await?;
@@ -7283,14 +7328,8 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    if let Err(e) = clone_workspace_data(
-        &mut tx,
-        &db,
-        &parent_workspace_id,
-        &forked_id,
-        &authed.email,
-    )
-    .await
+    if let Err(e) =
+        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed).await
     {
         // A genuine `\u0000` in a source `json` value (`app_version.value` /
         // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH v AS (\n            INSERT INTO app_version (app_id, value, created_by)\n            VALUES ($1, '{}'::json, 'test-user') RETURNING id\n         )\n         UPDATE app SET versions = ARRAY[v.id] FROM v WHERE app.id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fc115fe14c69b9dd7e7571aea6d918bc042b58714ba5d66568770e7f11153ece"
+}
