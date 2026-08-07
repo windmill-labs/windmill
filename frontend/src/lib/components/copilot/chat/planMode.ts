@@ -20,11 +20,9 @@ const PLAN_MODE_ESCALATION = `\n\nSTOP retrying tools — they will stay blocked
 /** The tint every plan-mode surface shares. */
 const PLAN_MODE_TINT = 'bg-teal-600/10 dark:bg-teal-500/10'
 
-/** Plan mode's colour, on every surface that signals it: the autonomy pill, the composer
- * placeholder, a blocked tool call, and the plan's row in the artifact list. Teal, not the
- * house green: green is already the transcript's success colour — the check on a settled
- * tool call and the accept button sit a few rows above these surfaces — so a mode signal in
- * it reads as "this worked" rather than "this is held". */
+/** Plan mode's colour on every surface that signals it. Teal, not the house green: green is
+ * the transcript's success colour a few rows above, so a mode signal in it would read as
+ * "this worked" rather than "this is held". */
 export const PLAN_MODE_TEXT_COLOR = 'text-teal-600 dark:text-teal-500'
 
 /** The `plan` pill, in the artifact list and on the preview header. */
@@ -74,8 +72,12 @@ export const PLAN_MODE_MESSAGES = {
 	exitPrompt: 'Ready to execute this plan?',
 	enterDeclined:
 		'The user declined plan mode. Continue with the task directly, requesting confirmation on changes as usual.',
+	// A refused call renders as an ordinary tool row, so each of these pairs the row the user
+	// reads with the steer the model needs — which is far too long to be that row.
+	missingSummaryLabel: 'No plan to approve',
 	missingSummary:
 		'exit_plan_mode needs a non-empty `summary` holding the full plan — there is nothing to approve without it. Call it again with the plan as `summary`.',
+	exitOutsidePlanModeLabel: 'Not in plan mode — revise the plan document instead',
 	exitOutsidePlanMode:
 		'Not in plan mode, so there is no plan to approve — the approved plan is an ordinary artifact now. ' +
 		'Put the revision in it with update_artifact (list_artifacts → the entry whose `role` is `plan` → read_artifact for its current text), ' +
@@ -132,11 +134,10 @@ type PlanCardStatus = {
 	isStreamingArguments?: boolean
 }
 
-/** How to read a plan call, or undefined when it must render as an ordinary tool error.
- * A card names a decision, so only an error the user actually caused may reach `declined` —
- * a refused call, arguments the model truncated, or a tool that has left the schema would
- * otherwise all be reported as a plan the user turned down. Keying off the decision rather
- * than off each error means a path added later reads as an error by default. */
+/** How to read a plan call, or undefined when it must render as an ordinary tool error. The
+ * card names a decision, so only an error the user caused may reach `declined`: keying off
+ * the decision rather than off each error path means one added later reads as an error
+ * instead of as a plan they turned down. */
 export function planCardState(
 	status: PlanCardStatus
 ): 'settled' | 'declined' | 'pending' | undefined {
@@ -154,9 +155,16 @@ export function planCardState(
 /** The model-facing refusal for an `exit_plan_mode` with no usable plan, or undefined
  * when the call is fine. Plan mode is a safety posture, so an unusable call must be
  * refused before a card offers to approve it — not swallowed into a blank approval. */
-export function exitPlanModeRejection(args: unknown): string | undefined {
+export function exitPlanModeRejection(
+	args: unknown
+): { label: string; result: string } | undefined {
 	const summary = exitPlanModeArgs.safeParse(args).data?.summary
-	return summary?.trim() ? undefined : PLAN_MODE_MESSAGES.missingSummary
+	return summary?.trim()
+		? undefined
+		: {
+				label: PLAN_MODE_MESSAGES.missingSummaryLabel,
+				result: PLAN_MODE_MESSAGES.missingSummary
+			}
 }
 
 export function derivePlanTitle(summary: string): string {

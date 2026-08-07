@@ -440,9 +440,11 @@ describe('AIChatManager autonomy mode', () => {
 				helpers: {}
 			})
 
-		expect(validate({ summary: '# Plan\n\nDo the thing' })).toBe(
-			PLAN_MODE_MESSAGES.exitOutsidePlanMode
-		)
+		// The steer is the model's; the card gets a row a user can read.
+		expect(validate({ summary: '# Plan\n\nDo the thing' })).toEqual({
+			label: PLAN_MODE_MESSAGES.exitOutsidePlanModeLabel,
+			result: PLAN_MODE_MESSAGES.exitOutsidePlanMode
+		})
 
 		manager.setAutonomyMode(AIAutonomyMode.PLAN)
 		expect(validate({ summary: '# Plan\n\nDo the thing' })).toBeUndefined()
@@ -754,6 +756,48 @@ describe('AIChatManager autonomy mode', () => {
 		// Creating here would stamp the plan of the conversation just left onto the new one,
 		// which the generation check after the write can suppress the opening of but not undo.
 		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
+	})
+
+	it('puts the approved plan back when the chat rotates before the proposal is decided', async () => {
+		const manager = planningManager()
+		await proposePlan(manager, '# Approved\n\nStep one.')
+		await manager.exitPlanModeTool.fn({
+			args: { summary: '# Approved\n\nStep one.' },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+
+		// The amendment's write is still landing when the user leaves for another chat, so the
+		// rollback runs on a round whose state resetPlanDoc is about to clear.
+		const store = manager.artifacts.update
+		let releaseUpdate: (() => void) | undefined
+		manager.artifacts.update = vi.fn(async (id: string, input: any) => {
+			manager.artifacts.update = store
+			await new Promise<void>((resolve) => (releaseUpdate = resolve))
+			return (store as any)(id, input)
+		}) as any
+		manager.exitPlanModeTool.onConfirmationRequested?.({
+			args: { summary: '# Amended\n\nStep two.' },
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit_2'
+		})
+		await vi.waitFor(() => expect(releaseUpdate).toBeDefined())
+		const inFlight = (manager as any).planSave.doc
+		await manager.saveAndClear()
+		releaseUpdate?.()
+		await inFlight
+
+		// Without the rollback the conversation keeps the draft that replaced its plan, and
+		// the approval the user gave is gone with it.
+		await vi.waitFor(() =>
+			expect(planDocs.get('artifact-1')).toMatchObject({
+				content: '# Approved\n\nStep one.',
+				approved: true
+			})
+		)
 	})
 
 	it('starts a new plan document after the chat rotates', async () => {

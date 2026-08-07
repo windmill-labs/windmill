@@ -49,7 +49,10 @@ describe('exitPlanModeRejection', () => {
 	it('passes a real plan and refuses anything with nothing to approve', () => {
 		expect(exitPlanModeRejection({ summary: '# Plan\n\nDo it.' })).toBeUndefined()
 		for (const args of [{}, { summary: '' }, { summary: '  \n ' }, { summary: 42 }, null]) {
-			expect(exitPlanModeRejection(args)).toBe(PLAN_MODE_MESSAGES.missingSummary)
+			expect(exitPlanModeRejection(args)).toEqual({
+				label: PLAN_MODE_MESSAGES.missingSummaryLabel,
+				result: PLAN_MODE_MESSAGES.missingSummary
+			})
 		}
 	})
 })

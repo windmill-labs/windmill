@@ -841,13 +841,14 @@ export async function processToolCall<T>({
 			helpers
 		})
 		if (validationError) {
+			const label = typeof validationError === 'string' ? validationError : validationError.label
 			toolCallbacks.setToolStatus(toolCall.id, {
-				content: validationError,
+				content: label,
 				parameters: args,
 				isLoading: false,
 				isQueued: false,
 				isStreamingArguments: false,
-				error: validationError,
+				error: label,
 				needsConfirmation: false,
 				showDetails: tool?.showDetails,
 				autoCollapseDetails: tool?.autoCollapseDetails
@@ -855,7 +856,7 @@ export async function processToolCall<T>({
 			return {
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
-				content: validationError
+				content: typeof validationError === 'string' ? validationError : validationError.result
 			}
 		}
 
@@ -1013,11 +1014,14 @@ export interface Tool<T> {
 		toolId: string
 	}) => Promise<string>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
+	/** Refuse the call before any confirmation is offered. A bare string is both the row the
+	 * user reads and the result the model gets; return the pair when the model needs a steer
+	 * too long to be a transcript row. */
 	validateBeforeConfirmation?: (p: {
 		args: any
 		workspace: string
 		helpers: T
-	}) => MaybePromise<string | undefined>
+	}) => MaybePromise<string | { label: string; result: string } | undefined>
 	setSchema?: (helpers: any) => Promise<void>
 	/** Safe to run while plan mode is active. Absent ⇒ mutating: the plan-mode gate
 	 * blocks anything not explicitly `true`. Distinct from `requiresConfirmation` —
