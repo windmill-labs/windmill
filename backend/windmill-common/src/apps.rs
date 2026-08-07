@@ -18,6 +18,13 @@ lazy_static::lazy_static! {
     pub static ref APP_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
 }
 
+/// Whether an app's custom path names it within its workspace rather than instance-wide.
+/// Every site that stores or resolves one must agree: a path stored under a narrower scope
+/// than the resolver's makes two apps answer the same public URL.
+pub fn custom_path_is_workspace_scoped() -> bool {
+    *crate::worker::CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Traverse FlowValue while invoking provided by caller callback on leafs
 // #[async_recursion::async_recursion(?Send)]
 pub fn traverse_app_inline_scripts<

@@ -56,7 +56,7 @@ use std::str;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
+    apps::{AppScriptId, ListAppQuery},
     auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
     db::{DbWithOptAuthed, UserDB},
@@ -1114,13 +1114,13 @@ async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
 ) -> JsonResult<bool> {
-    let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+    let scoped = windmill_common::apps::custom_path_is_workspace_scoped();
 
     let exists =
         sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
             custom_path,
-            if *CLOUD_HOSTED || as_workspaced_route { Some(&w_id) } else { None }
+            if scoped { Some(&w_id) } else { None }
         )
         .fetch_one(&db)
         .await?.unwrap_or(false);
@@ -2179,8 +2179,7 @@ async fn create_app_internal<'a>(
     }
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
-        let scoped =
-            *CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+        let scoped = windmill_common::apps::custom_path_is_workspace_scoped();
 
         let conflict = sqlx::query!(
             "SELECT workspace_id, path FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) LIMIT 1",
@@ -3055,8 +3054,7 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
-            let scoped =
-                *CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+            let scoped = windmill_common::apps::custom_path_is_workspace_scoped();
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");

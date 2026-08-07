@@ -6460,10 +6460,14 @@ async fn clone_apps(
         if !preserve_identity {
             downgrade_cloned_app_policy(&mut app.policy, authed);
         }
-        // Off cloud a custom path addresses an app instance-wide (`create_app` rejects one
-        // already taken in any workspace), so a clone that kept it would make the parent's
-        // live public URL resolve to either row. Cloud scopes the lookup by workspace.
-        let custom_path = if *CLOUD_HOSTED { app.custom_path } else { None };
+        // An instance-wide custom path addresses one app (`create_app` rejects one already
+        // taken in any workspace), so a clone that kept it would make the parent's live
+        // public URL resolve to either row.
+        let custom_path = if windmill_common::apps::custom_path_is_workspace_scoped() {
+            app.custom_path
+        } else {
+            None
+        };
         let new_app_id = sqlx::query_scalar!(
             "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
