@@ -1333,15 +1333,22 @@ pub async fn delete_expired_items(db: &DB) -> () {
     // record_resource_version trigger so the cap costs nothing on the write path, which
     // `setResource` from a script can drive in a loop. History may sit briefly above the cap
     // between sweeps, which is harmless.
+    //
+    // Ranked in one windowed pass rather than a correlated `min(id)` per row: the correlated
+    // form re-probed the index once for every row in the table on every sweep, whether or not
+    // any path was over the cap.
     let trimmed_resource_versions = sqlx::query_scalar!(
         "DELETE FROM resource_version rv
-         WHERE rv.id < (
-             SELECT min(id) FROM (
-                 SELECT id FROM resource_version
-                 WHERE workspace_id = rv.workspace_id AND path = rv.path
-                 ORDER BY id DESC LIMIT $1
-             ) kept
-         ) RETURNING rv.id",
+         USING (
+             SELECT id FROM (
+                 SELECT id, row_number() OVER (
+                     PARTITION BY workspace_id, path ORDER BY id DESC
+                 ) AS rn
+                 FROM resource_version
+             ) ranked WHERE rn > $1
+         ) over_cap
+         WHERE rv.id = over_cap.id
+         RETURNING rv.id",
         MAX_RESOURCE_VERSIONS,
     )
     .fetch_all(db)

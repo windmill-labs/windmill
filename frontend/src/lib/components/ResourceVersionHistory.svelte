@@ -38,6 +38,10 @@
 	let currentValue = $state<string>('')
 	let view = $state<'value' | 'diff'>('value')
 	let restoring = $state(false)
+	// Compared rather than inferred from position: the newest version should always equal the live
+	// value (the trigger records every write), so diffing it would show nothing — but if they ever
+	// do drift, offering the diff is more useful than hiding it on an assumption.
+	let matchesCurrent = $derived(loaded?.value === currentValue)
 	let clearing = $state(false)
 	let confirmingClear = $state(false)
 
@@ -184,12 +188,16 @@
 		{:else}
 			<div class="flex flex-col h-full">
 				<div class="flex flex-row justify-between items-center gap-2 p-2 border-b">
-					<ToggleButtonGroup bind:selected={view}>
-						{#snippet children({ item })}
-							<ToggleButton small value="value" icon={Code} label="Value" {item} />
-							<ToggleButton small value="diff" icon={Diff} label="Diff with current" {item} />
-						{/snippet}
-					</ToggleButtonGroup>
+					{#if matchesCurrent}
+						<span class="text-2xs text-tertiary">Matches the current value</span>
+					{:else}
+						<ToggleButtonGroup bind:selected={view}>
+							{#snippet children({ item })}
+								<ToggleButton small value="value" icon={Code} label="Value" {item} />
+								<ToggleButton small value="diff" icon={Diff} label="Diff with current" {item} />
+							{/snippet}
+						</ToggleButtonGroup>
+					{/if}
 					<Button
 						size="xs"
 						variant="default"
@@ -214,7 +222,7 @@
 				{/if}
 
 				<div class="grow min-h-0">
-					{#if view === 'diff'}
+					{#if view === 'diff' && !matchesCurrent}
 						<!-- Imported on demand: the diff is the only thing here that needs Monaco, and
 						     pulling it in on open would load the editor for everyone who just wants to
 						     read a value. -->
