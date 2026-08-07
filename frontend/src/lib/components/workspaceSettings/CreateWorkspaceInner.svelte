@@ -611,9 +611,16 @@
 	onMount(() => {
 		loadWorkspaces()
 
-		WorkspaceService.isDomainAllowed().then((x) => {
-			isDomainAllowed = x
-		})
+		// Fail open: the section is gated on this, and `edit_auto_invite` rejects a
+		// banned domain anyway, so a failed check costs an error on submit rather
+		// than hiding auto-invite from an allowed domain for good.
+		WorkspaceService.isDomainAllowed()
+			.then((x) => {
+				isDomainAllowed = x
+			})
+			.catch(() => {
+				isDomainAllowed = true
+			})
 	})
 
 	let isDomainAllowed: undefined | boolean = $state(undefined)
@@ -1030,9 +1037,8 @@
 						</div>
 					{/if}
 				</div>
-				<!-- On cloud, generic mail domains (gmail and friends) can't be auto-joined:
-				     the whole section is dropped rather than shown as a dead control.
-				     Also dropped until the check resolves, so it never flashes in and out. -->
+				<!-- Strict `=== true`: undefined means the domain check is still in flight,
+				     and rendering then is a section that flashes in and back out. -->
 				{#if !isCloudHosted() || isDomainAllowed === true}
 					<div class="flex flex-col gap-1">
 						<label for="auto-invite" class="text-xs font-semibold text-emphasis"

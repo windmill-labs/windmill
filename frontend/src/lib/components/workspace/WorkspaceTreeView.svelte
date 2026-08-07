@@ -41,7 +41,6 @@
 
 	// Computed expansion states that include auto-expansion for search results
 	let expansionStates = $derived.by(() => {
-		// Every family starts collapsed — only a manual toggle or a search match opens one.
 		if (!searchFilter || !filteredWorkspaces || !workspaces) {
 			return manualExpansionStates
 		}
@@ -76,7 +75,6 @@
 			}
 		})
 
-		// Combine manual and auto-expanded states
 		return { ...manualExpansionStates, ...autoExpanded }
 	})
 

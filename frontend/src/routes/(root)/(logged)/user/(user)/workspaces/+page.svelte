@@ -285,8 +285,6 @@
 			</div>
 		{/if}
 
-		<!-- Nothing pending at all — neither a workspace nor a fork invite — so the
-		     whole section, toggle included, has nothing to reveal. -->
 		{#if invites.length > 0}
 			<div class="flex flex-row items-center justify-between mt-8">
 				<h2 class="text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
