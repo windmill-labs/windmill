@@ -112,6 +112,24 @@ describe('artifact tools', () => {
 		expect(list.find((x: any) => x.id === theirs.id)).toMatchObject({ name: 'Theirs' })
 	})
 
+	it('reports a plan the user never approved as unapproved', async () => {
+		// A plan is written when it is proposed, so a refused one stays on disk. Reported
+		// without `approved`, the model reads it as the plan the user signed off.
+		const drafted = await ctx.store.create('s1', {
+			name: 'Drafted',
+			content: '# Drafted',
+			role: 'plan',
+			approved: false,
+			chatId: 'c1'
+		})
+		const list = JSON.parse(await ctx.call('list_artifacts', {}))
+
+		expect(list.find((x: any) => x.id === drafted.id)).toMatchObject({
+			role: 'plan',
+			approved: false
+		})
+	})
+
 	it('read_artifact returns the full content', async () => {
 		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'body' }))
 		const read = JSON.parse(await ctx.call('read_artifact', { id: a.id }))

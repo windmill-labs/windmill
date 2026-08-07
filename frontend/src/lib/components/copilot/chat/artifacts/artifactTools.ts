@@ -110,7 +110,7 @@ export const artifactTools: Tool<{}>[] = [
 		def: createToolDef(
 			listArtifactsSchema,
 			'list_artifacts',
-			"List the current session's artifacts (id, name, kind, role). `role` is `plan` on this conversation's plan document, and on nothing else."
+			"List the current session's artifacts (id, name, kind, role, approved). `role` is `plan` on this conversation's plan document and on nothing else; `approved` is false on one the user has not signed off, which is a draft and not an agreed plan."
 		),
 		readonly: true,
 		fn: async ({ toolId, toolCallbacks, helpers }) => {
@@ -128,16 +128,23 @@ export const artifactTools: Tool<{}>[] = [
 			return JSON.stringify(
 				items
 					.sort((a, b) => b.updatedAt - a.updatedAt)
-					.map((a) => ({
-						id: a.id,
-						name: a.name,
-						kind: a.kind,
+					.map((a) => {
 						// `role` is what lets the model find the plan to amend, so it is scoped to the
 						// conversation asking. Artifacts outlive a chat and there is one plan per chat,
 						// so an unscoped label would offer several and the newest is often another
 						// conversation's — folding its plan into this one.
-						role: a.role === 'plan' && a.chatId === chatId ? a.role : undefined
-					}))
+						const isPlan = a.role === 'plan' && a.chatId === chatId
+						return {
+							id: a.id,
+							name: a.name,
+							kind: a.kind,
+							role: isPlan ? a.role : undefined,
+							// A plan is written when proposed, so the document exists whether or not the
+							// user ever agreed to it. Without this the model reads a refused draft as the
+							// plan they signed off.
+							approved: isPlan ? a.approved === true : undefined
+						}
+					})
 			)
 		}
 	},

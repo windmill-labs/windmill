@@ -365,6 +365,13 @@ type QueuedEntry = {
 	context: ContextElement[] | undefined
 }
 
+/** The plan a round of planning overwrites, carried on the save that overwrites it so a
+ * decline landing before that read completes can still put it back. `approved` because a
+ * round can overwrite an earlier draft, which must not come back promoted. */
+type PlanRoundBase = { content: string; approved: boolean }
+
+type PlanSaveResult = { id: string; name: string; rollback: PlanRoundBase | undefined }
+
 export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
@@ -575,15 +582,13 @@ export class AIChatManager {
 	// confirmation hook and fn share a single write. Survives leaving and re-entering plan
 	// mode, so amending an approved plan revises it rather than stacking stale copies beside
 	// it; an unrelated second plan in one conversation overwrites the first.
-	private planSave:
-		| { toolId: string; doc: Promise<{ id: string; name: string } | undefined> }
-		| undefined
+	private planSave: { toolId: string; doc: Promise<PlanSaveResult | undefined> } | undefined
 	private planDocId: string | undefined
 	// The plan this round of planning is about to overwrite, kept so an unapproved proposal
 	// can be rolled back. Undefined when there is nothing to lose — no document yet, or this
 	// round has not proposed anything. Carries `approved` because a round can just as well
 	// overwrite an earlier draft, which must not come back promoted.
-	private planRoundBase: { content: string; approved: boolean } | undefined
+	private planRoundBase: PlanRoundBase | undefined
 	// Bumped on every reset so a save still in flight can tell its conversation is gone.
 	private planDocGeneration = 0
 	#automaticScroll = $state<boolean>(true)
@@ -2090,13 +2095,9 @@ export class AIChatManager {
 		void this.rollbackPlanDoc(pending)
 	}
 
-	/**
-	 * Put back the plan this round of planning overwrote. A plan is saved when it is
-	 * *proposed*, so an approved plan is gone the moment the model proposes its successor,
-	 * and stopping the turn or keeping planning would leave the user holding a draft with the
-	 * plan they agreed to nowhere. No-op on a conversation's first plan: nothing to restore,
-	 * and the draft is worth keeping as one.
-	 */
+	/** Put back the plan this round overwrote. A plan is saved when *proposed*, so keeping
+	 * planning or stopping the turn would otherwise leave the user holding a draft and the
+	 * plan they agreed to nowhere. No-op on a conversation's first plan, which is a draft. */
 	private restorePlanDoc = () =>
 		this.rollbackPlanDoc({
 			save: this.planSave,
@@ -2104,21 +2105,20 @@ export class AIChatManager {
 			id: this.planDocId
 		})
 
-	// Everything it needs is passed in, never read off the manager after the await: the write
-	// it undoes can outlive the round that made it, and resetPlanDoc clears those fields the
-	// moment a chat rotates.
+	// Everything it needs arrives as an argument or on the save's own result, never off the
+	// manager after the await: a decline can land before the save has read the plan it is
+	// overwriting, and resetPlanDoc clears these fields the moment a chat rotates.
 	private rollbackPlanDoc = async (round: {
-		save: { toolId: string; doc: Promise<{ id: string; name: string } | undefined> } | undefined
-		base: { content: string; approved: boolean } | undefined
+		save: { toolId: string; doc: Promise<PlanSaveResult | undefined> } | undefined
+		base: PlanRoundBase | undefined
 		id: string | undefined
 	}) => {
-		if (!round.base) return
 		// The proposal's save is started, not awaited, by onConfirmationRequested, and it is
-		// what resolves the document id. Restoring before it lands would be overwritten by it.
+		// what resolves both the document id and the plan being overwritten.
 		const saved = await round.save?.doc
+		const base = round.base ?? saved?.rollback
 		const id = round.id ?? saved?.id
-		if (!id) return
-		const base = round.base
+		if (!base || !id) return
 		const generation = this.planDocGeneration
 		try {
 			const restored = await this.artifacts.update(id, {
@@ -2221,19 +2221,17 @@ export class AIChatManager {
 			this.planDocId = plan.id
 			this.openArtifact?.(plan.id, plan.name)
 			toolCallbacks.setToolStatus(toolId, { planArtifactId: plan.id })
-			return plan
+			return { id: plan.id, name: plan.name, rollback: roundBase }
 		} catch (e) {
 			console.error('Failed to persist plan artifact', e)
 			return undefined
 		}
 	}
 
-	// Approval is what separates a plan from a proposal, and the artifact list is read long
-	// after the card scrolled away — so it lands on the document rather than being inferred
-	// from the transcript, and survives the reload that drops every in-memory flag.
-	// Unguarded by `planDocGeneration`, unlike the writes above: this document is the plan
-	// the user approved whichever conversation is current by the time the write lands, and
-	// nothing downstream reads the result.
+	// Approval separates a plan from a proposal, and the artifact list is read long after the
+	// card scrolled away, so it lands on the document rather than being inferred from the
+	// transcript. Unguarded by `planDocGeneration`: the user approved this document whichever
+	// conversation is current when the write lands.
 	private markPlanApproved = async (id: string) => {
 		try {
 			await this.artifacts.update(id, { approved: true })
@@ -2302,8 +2300,7 @@ export class AIChatManager {
 	// Appended per request rather than built into the mode's tool list: these close over the
 	// manager, and the autonomy mode they answer to changes without rebuilding that list.
 	// exit_plan_mode is unconditional in a session even though it only redirects outside plan
-	// mode — dropping it the moment a plan was approved left a model revising its plan calling
-	// a tool that no longer existed, which surfaced as a plan the user had refused.
+	// mode: a model revising an approved plan must not call a tool that has left the schema.
 	get planModeTools(): Tool<any>[] {
 		if (!this.planModeAvailable) return []
 		const canEnter = !this.planModeActive && !this.autoAcceptToolConfirmationsActive

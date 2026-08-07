@@ -1665,7 +1665,7 @@
     - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
     - does not create a flow or script draft yet
 
-- id: global-planmode1-plans-instead-of-building
+- id: global-planmode1-hands-over-a-plan
   prompt: |-
     Our support inbox is a mess. I want incoming emails triaged by urgency and routed to the
     right team, with anything urgent also posted to Slack.
@@ -1675,19 +1675,17 @@
     maxTurns: 10
     sessionChat: true
     planMode: true
-  validate:
-    # The gate refuses a mutating tool before its fn runs, so a blocked attempt never reaches
-    # toolExpect at all — an empty draft state is what actually shows nothing was built.
-    draftCountExactly: 0
+  # No draft assertion: approving the plan opens the gate mid-run, and building from there is
+  # what production asks for, so a draft is not a failure. The gate itself is covered by
+  # shared.test.ts; what only a real model can show is whether it researches and hands over a
+  # usable plan instead of guessing at one.
   toolExpect:
     requiredToolsUsed:
       - exit_plan_mode
   judgeChecklist:
-    # The approved plan is saved as an artifact, so the run's output carries the plan text.
-    - saves the approved plan as a markdown artifact rather than leaving it only in the reply
+    - saves the plan as a markdown artifact rather than leaving it only in the reply
     - the plan covers classifying an incoming email by urgency, routing it to a team, and posting urgent ones to Slack
     - the plan is specific about what would be built in Windmill (a flow and its steps, or the scripts involved)
-    - does not build or deploy anything yet
 
 - id: global-npm1-script-search-package
   prompt: |-

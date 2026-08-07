@@ -9,17 +9,13 @@ import { createToolDef } from "../../../../../frontend/src/lib/components/copilo
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
 
 /**
- * The two plan tools, assembled from the same schemas, descriptions and messages
- * production ships, over a plain flag instead of AIChatManager's autonomy state.
+ * `exit_plan_mode` over a plain flag, from the schema, description and messages production
+ * exports — so a case exercises the real gate and the real wording while the posture lives
+ * here rather than on AIChatManager.
  *
- * The posture and the plan document are what an eval can see: the approved plan is saved
- * as an artifact, as production does, so the run's output carries the plan itself and not
- * just the fact that one was handed over. The rest of AIChatManager's lifecycle — the
- * rollback of a refused proposal, the generation guards — has no user to drive it here and
- * is covered by AIChatManager.test.ts.
- *
- * The eval runners define no `requestConfirmation`, so both tools resolve immediately,
- * standing in for a user who approves. A case needing a refused plan cannot be written.
+ * A case starts in plan mode, which is the posture production offers exactly this one tool
+ * in. It resolves immediately, since the eval runners define no `requestConfirmation`: the
+ * plan is always approved, and a refused one cannot be expressed.
  */
 export function createEvalPlanTools(artifacts: {
   create: (

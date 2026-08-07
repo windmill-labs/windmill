@@ -61,6 +61,10 @@ function createEvalArtifactHelpers() {
         kind: input.kind ?? "md",
         name: input.name,
         content: input.content,
+        // The plan document is only distinguishable by these, both in the snapshot the
+        // judge reads and in what list_artifacts reports back to the model.
+        role: input.role,
+        approved: input.approved,
         createdAt: now,
         updatedAt: now,
       };
@@ -84,6 +88,7 @@ function createEvalArtifactHelpers() {
         ...existing,
         name: input.name ?? existing.name,
         content: input.content ?? existing.content,
+        approved: input.approved ?? existing.approved,
         updatedAt: seq++,
       };
       items.set(id, updated);
@@ -192,11 +197,16 @@ export async function runGlobalEval(
     });
     const rawResult = await runEval({
       userPrompt,
-      // Production appends these for as long as the posture holds, so the model is told
-      // what the gate will refuse rather than discovering it one blocked call at a time.
-      systemMessage: planMode
-        ? appendPlanModeInstructions(baseSystemMessage, 0)
-        : baseSystemMessage,
+      systemMessage: baseSystemMessage,
+      // Re-derived per request, as production's getter is: the instructions have to leave
+      // the prompt when the plan is approved, or the model is still told it may not build
+      // while the gate has already opened.
+      getSystemMessage: planMode
+        ? () =>
+            planMode.isPlanModeActive()
+              ? appendPlanModeInstructions(baseSystemMessage, 0)
+              : baseSystemMessage
+        : undefined,
       isPlanModeActive: planMode?.isPlanModeActive,
       userMessage: prepareGlobalUserMessage(
         userPrompt,

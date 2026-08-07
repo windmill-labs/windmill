@@ -682,7 +682,7 @@ describe('AIChatManager autonomy mode', () => {
 		expect(planDocs.get('artifact-1')?.approved).toBe(true)
 	})
 
-	it('waits for the pending save before rolling a rejected proposal back', async () => {
+	it('rolls a rejected proposal back when the decline beats the save to the plan', async () => {
 		const manager = planningManager()
 		// The state a reopened session starts in: the approved plan is on disk, the in-memory
 		// id is gone, so the save has to look it up before it can write.
@@ -696,12 +696,14 @@ describe('AIChatManager autonomy mode', () => {
 		manager.artifacts.listForSession = vi.fn(async () => [
 			{ id: 'artifact-on-disk', role: 'plan', chatId: manager.historyManager.getCurrentChatId() }
 		]) as any
-		const write = manager.artifacts.update as any
+		// Block the read of the plan about to be overwritten — the decline then lands before
+		// the save has worked out either the document's id or what it is replacing, so
+		// nothing the manager holds can drive the rollback.
+		const read = manager.artifacts.get as any
 		let releaseSave: (() => void) | undefined
-		let updates = 0
-		manager.artifacts.update = vi.fn(async (id: string, input: any) => {
-			if (++updates === 1) await new Promise<void>((resolve) => (releaseSave = resolve))
-			return write(id, input)
+		manager.artifacts.get = vi.fn(async (id: string) => {
+			await new Promise<void>((resolve) => (releaseSave = resolve))
+			return read(id)
 		}) as any
 
 		manager.exitPlanModeTool.onConfirmationRequested?.({
@@ -724,8 +726,8 @@ describe('AIChatManager autonomy mode', () => {
 		await inFlight
 		await new Promise((resolve) => setTimeout(resolve, 0))
 
-		// Reading planDocId before the save lands skips the rollback, and the proposal that
-		// overwrote the approved plan is then the only thing left.
+		// The rollback has to take the plan off the save's own result: read from the manager,
+		// it is not there yet, and the proposal that overwrote the approved plan stands.
 		expect(planDocs.get('artifact-on-disk')).toMatchObject({
 			content: '# Ship the endpoint\n\nStep one.',
 			approved: true

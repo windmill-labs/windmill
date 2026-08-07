@@ -4541,15 +4541,10 @@ describe('prepareGlobalSystemMessage', () => {
 	})
 })
 
-// Plan mode blocks every tool without `readonly: true`, and an over-blocked
-// read-only tool fails silently — the model just loses it while planning. Pin
-// the set so a new tool has to be classified rather than defaulting into the
-// blocked bucket by omission. Reading is the bar, not "harmless": open_preview runs
-// a raw app's runnables and close_page discards tabs the user opened themselves, so
-// neither belongs here. Running a job is not the bar either — get_db_schema queues one,
-// and belongs here because it is a fixed introspection SELECT the model needs to plan
-// against a database at all; what disqualifies open_preview is running the user's own
-// code, whose side effects are anything the app does.
+// Pinned so a new tool has to be classified rather than defaulting into the blocked
+// bucket by omission, which the model would never report. The bar is reading, not
+// "harmless" and not "runs no job": get_db_schema queues a fixed introspection SELECT
+// and belongs here; open_preview runs the user's own app code and does not.
 describe('plan-mode readonly classification', () => {
 	const PLAN_MODE_READONLY_TOOLS = [
 		'askUserQuestion',

@@ -46,6 +46,10 @@ export interface RunEvalParams<THelpers, TOutput> {
   /** Drives the production plan-mode gate in processToolCall. Absent leaves it inert,
    * which is what every mode but an opted-in global case wants. */
   isPlanModeActive?: () => boolean;
+  /** Re-read before every request, as production's systemMessage getter is. Needed when a
+   * tool changes what the prompt should say — plan mode's instructions have to come back
+   * out once the plan is approved. Falls back to the fixed `systemMessage`. */
+  getSystemMessage?: () => ChatCompletionSystemMessageParam;
   onAssistantMessageStart?: () => void;
   onAssistantToken?: (token: string) => void;
   onAssistantMessageEnd?: () => void;
@@ -72,6 +76,7 @@ export async function runEval<THelpers, TOutput>(
     onAssistantMessageEnd,
     onToolCall,
     isPlanModeActive,
+    getSystemMessage,
   } = params;
   let shouldEmitMessageStart = true;
 
@@ -145,7 +150,9 @@ export async function runEval<THelpers, TOutput>(
     try {
       const result = await runChatLoop({
         messages,
-        systemMessage,
+        get systemMessage() {
+          return getSystemMessage?.() ?? systemMessage;
+        },
         tools: wrappedTools,
         helpers,
         abortController,
