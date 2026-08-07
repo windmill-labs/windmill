@@ -246,8 +246,7 @@
 			script = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
 				hash,
-				withStarredInfo: true,
-				authed: true
+				withStarredInfo: true
 			})
 		} catch {
 			try {

@@ -299,11 +299,13 @@
 			job.script_hash &&
 			persistentScriptDefinition === undefined
 		) {
+			// A job can be visible to someone with no read permission on its script, in
+			// which case the persistent-script banner is simply not shown.
 			const script = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
 				hash: job.script_hash
-			})
-			if (script.restart_unless_cancelled ?? false) {
+			}).catch(() => undefined)
+			if (script?.restart_unless_cancelled ?? false) {
 				persistentScriptDefinition = script
 			}
 		}

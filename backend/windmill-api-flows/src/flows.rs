@@ -1554,11 +1554,13 @@ struct DeploymentStatus {
     job_id: Option<sqlx::types::Uuid>,
 }
 async fn get_deployment_status(
-    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<DeploymentStatus> {
     let path = path.to_path();
-    let mut tx = db.begin().await?;
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
     let status_o = sqlx::query!(
         "SELECT f.lock_error_logs, dm.job_id
          FROM flow f
