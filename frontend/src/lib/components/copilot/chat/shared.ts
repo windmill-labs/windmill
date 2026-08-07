@@ -606,6 +606,10 @@ export type ToolDisplayMessage = {
 	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
 	 * error, so the transcript says the mode stopped it and not that the call failed. */
 	blockedByPlanMode?: boolean
+	/** Refused by the tool's own validation, before any card was offered. A card that
+	 * reports a decision (a plan card) must not claim the user made one here — nothing
+	 * was ever put to them. */
+	refusedBeforeConfirmation?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -844,6 +848,7 @@ export async function processToolCall<T>({
 				isQueued: false,
 				isStreamingArguments: false,
 				error: validationError,
+				refusedBeforeConfirmation: true,
 				needsConfirmation: false,
 				showDetails: tool?.showDetails,
 				autoCollapseDetails: tool?.autoCollapseDetails

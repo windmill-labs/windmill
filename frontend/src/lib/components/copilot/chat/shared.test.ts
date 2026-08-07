@@ -238,6 +238,7 @@ describe('processToolCall', () => {
 			expect.objectContaining({
 				content: error,
 				error,
+				refusedBeforeConfirmation: true,
 				isLoading: false,
 				isStreamingArguments: false,
 				needsConfirmation: false,

@@ -55,7 +55,7 @@ export const exitPlanModeArgs = z.object({
 
 export const ENTER_PLAN_MODE_TOOL_DESCRIPTION = `Call this before starting a non-trivial change to research first and get the user's sign-off on your approach. Prefer it when the task adds meaningful new functionality, has several valid approaches, requires an architectural decision, will touch more than a couple of files, or is unclear enough that you need to explore before you understand the scope. Do NOT use it for small, well-specified edits (a typo, one obvious bug, a single function with clear requirements) or pure questions. On approval you enter a read-only posture; investigate, then call \`exit_plan_mode\` with your plan.`
 
-export const EXIT_PLAN_MODE_TOOL_DESCRIPTION = `Call once your plan is ready and you want to start executing it. Shows the plan to the user for approval; only on approval are mutating tools unblocked. Do not call it to ask a question — use it only to hand over a complete plan.`
+export const EXIT_PLAN_MODE_TOOL_DESCRIPTION = `Call once your plan is ready and you want to start executing it. Shows the plan to the user for approval; only on approval are mutating tools unblocked. Do not call it to ask a question — use it only to hand over a complete plan. Valid only while plan mode is active: once the plan is approved there is nothing left to approve, and a revision goes into the plan document with \`update_artifact\`.`
 
 /** Plan mode's prose, in one place so the gate, the cards, the composer and the tool
  * results stay consistent. The user-facing and model-facing strings for one event are
@@ -76,6 +76,10 @@ export const PLAN_MODE_MESSAGES = {
 		'The user declined plan mode. Continue with the task directly, requesting confirmation on changes as usual.',
 	missingSummary:
 		'exit_plan_mode needs a non-empty `summary` holding the full plan — there is nothing to approve without it. Call it again with the plan as `summary`.',
+	exitOutsidePlanMode:
+		'Not in plan mode, so there is no plan to approve — the approved plan is an ordinary artifact now. ' +
+		'Put the revision in it with update_artifact (list_artifacts → the entry whose `role` is `plan` → read_artifact for its current text), ' +
+		'and say in your reply how the work now differs from what was approved.',
 	exitDeclined:
 		'The user rejected this plan. Stop here and hand the turn back to them: do not execute it, do not re-propose it, ' +
 		'and do not start another round of research. Reply in one or two sentences asking what is wrong, missing, or unwanted in it, ' +

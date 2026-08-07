@@ -2228,7 +2228,11 @@ export class AIChatManager {
 		requiresConfirmation: true,
 		// Refuses the call before any card offers "Approve and implement", so a plan-less
 		// approval can never unblock mutating tools. `fn` does not run and plan mode holds.
-		validateBeforeConfirmation: ({ args }) => exitPlanModeRejection(args),
+		// Outside plan mode every call is refused here: the tool stays registered only to
+		// route a model that remembers proposing a plan to the document, so approval — and
+		// with it the posture switch — remains something only plan mode can hand out.
+		validateBeforeConfirmation: ({ args }) =>
+			this.planModeActive ? exitPlanModeRejection(args) : PLAN_MODE_MESSAGES.exitOutsidePlanMode,
 		confirmationMessage: (args) =>
 			exitPlanModeArgs.safeParse(args).data?.summary ?? PLAN_MODE_MESSAGES.exitPrompt,
 		cancellationMessage: PLAN_MODE_MESSAGES.exitDeclined,
@@ -2268,12 +2272,16 @@ export class AIChatManager {
 		}
 	}
 
-	get planModeTool(): Tool<any> | undefined {
-		// planModeActive implies planModeAvailable; swapping these offers enter_plan_mode while already planning.
-		if (this.planModeActive) return this.exitPlanModeTool
-		if (this.planModeAvailable && !this.autoAcceptToolConfirmationsActive)
-			return this.enterPlanModeTool
-		return undefined
+	get planModeTools(): Tool<any>[] {
+		if (!this.planModeAvailable) return []
+		// planModeActive implies planModeAvailable; testing it first keeps enter_plan_mode
+		// from being offered while already planning.
+		if (this.planModeActive) return [this.exitPlanModeTool]
+		// exit_plan_mode stays registered outside plan mode even though it only redirects
+		// there: dropping it the moment a plan is approved left a model that revises its plan
+		// calling a tool that no longer exists, which surfaced as a plan the user had refused.
+		if (this.autoAcceptToolConfirmationsActive) return [this.exitPlanModeTool]
+		return [this.enterPlanModeTool, this.exitPlanModeTool]
 	}
 
 	openChat = () => {
@@ -2561,8 +2569,7 @@ export class AIChatManager {
 					return base
 				},
 				get tools() {
-					const planTool = self.planModeTool
-					return planTool ? [...self.tools, planTool] : self.tools
+					return [...self.tools, ...self.planModeTools]
 				},
 				get helpers() {
 					return self.helpers

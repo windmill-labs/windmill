@@ -153,7 +153,7 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
 		{/if}
 	</div>
-{:else if isPlanCard}
+{:else if isPlanCard && !message.refusedBeforeConfirmation}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
 	<div

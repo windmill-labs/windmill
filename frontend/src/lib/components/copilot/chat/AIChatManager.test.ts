@@ -407,23 +407,45 @@ describe('AIChatManager autonomy mode', () => {
 		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
 	})
 
-	it('offers exactly one plan-mode tool depending on session, availability, autonomy, and state', () => {
+	it('offers the plan-mode tools depending on session, availability, autonomy, and state', () => {
 		const manager = new AIChatManager()
 		manager.mode = AIMode.GLOBAL
 
-		expect(manager.planModeTool).toBeUndefined()
+		expect(manager.planModeTools).toEqual([])
 
+		// exit_plan_mode is offered outside plan mode too, where it only redirects: a model
+		// revising an approved plan must not call a tool that has left the schema.
 		manager.isSessionChat = true
-		expect(manager.planModeTool).toBe(manager.enterPlanModeTool)
+		expect(manager.planModeTools).toEqual([manager.enterPlanModeTool, manager.exitPlanModeTool])
 
 		manager.setAutonomyMode(AIAutonomyMode.YOLO)
-		expect(manager.planModeTool).toBeUndefined()
+		expect(manager.planModeTools).toEqual([manager.exitPlanModeTool])
 
 		manager.setAutonomyMode(AIAutonomyMode.PLAN)
-		expect(manager.planModeTool).toBe(manager.exitPlanModeTool)
+		expect(manager.planModeTools).toEqual([manager.exitPlanModeTool])
 
 		manager.mode = AIMode.NAVIGATOR
-		expect(manager.planModeTool).toBeUndefined()
+		expect(manager.planModeTools).toEqual([])
+	})
+
+	it('refuses exit_plan_mode outside plan mode and points the revision at the document', () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+
+		const validate = (args: unknown) =>
+			manager.exitPlanModeTool.validateBeforeConfirmation?.({
+				args,
+				workspace: 'test-workspace',
+				helpers: {}
+			})
+
+		expect(validate({ summary: '# Plan\n\nDo the thing' })).toBe(
+			PLAN_MODE_MESSAGES.exitOutsidePlanMode
+		)
+
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(validate({ summary: '# Plan\n\nDo the thing' })).toBeUndefined()
 	})
 
 	it('declines a pending enter_plan_mode when the user switches to YOLO, but accepts other tools', async () => {
