@@ -15,11 +15,13 @@
 	let {
 		path,
 		workspace = undefined,
+		canRestore = true,
 		canClear = false,
 		onRestore = undefined
 	}: {
 		path: string
 		workspace?: string
+		canRestore?: boolean
 		canClear?: boolean
 		onRestore?: () => void
 	} = $props()
@@ -193,7 +195,10 @@
 						size="xs"
 						variant="default"
 						startIcon={{ icon: RotateCcw }}
-						disabled={restoring || loaded.id !== selectedId || versions?.[0]?.id === loaded.id}
+						disabled={restoring ||
+						!canRestore ||
+						loaded.id !== selectedId ||
+						versions?.[0]?.id === loaded.id}
 						onclick={restore}
 					>
 						Restore this version

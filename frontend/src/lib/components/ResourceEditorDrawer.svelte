@@ -40,8 +40,12 @@
 	// The editor renders whichever workspace-specific variant `selected` points at, so history has
 	// to follow it too — otherwise a restore would write over the variant the user is not looking at.
 	let historyWorkspace = $derived(selected ?? effectiveWorkspace)
-	// Clearing is irreversible and the backend gates it on ownership, not write access.
-	let isOwnerOfSelected = $derived(isOwner(path ?? '', $userStore, historyWorkspace))
+	// Clearing is irreversible and the backend gates it on ownership, not write access. $userStore
+	// describes the user in the workspace they are signed into, so it can only answer for that
+	// one: a ws-specific variant living elsewhere gets no Clear button rather than a wrong verdict.
+	let canClearSelected = $derived(
+		historyWorkspace === effectiveWorkspace && isOwner(path ?? '', $userStore, effectiveWorkspace)
+	)
 
 	export async function initEdit(p: string): Promise<void> {
 		resource_type = undefined
@@ -135,7 +139,8 @@
 			<ResourceVersionHistory
 				{path}
 				workspace={historyWorkspace}
-				canClear={isOwnerOfSelected}
+				canRestore={canWriteSelected}
+				canClear={canClearSelected}
 				onRestore={() => {
 					historyDrawer?.closeDrawer()
 					// Close the editor too. It holds a baseline captured before the restore, and
