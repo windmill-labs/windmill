@@ -8,7 +8,9 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { AlertTriangle, Code, Diff, History, RotateCcw, Trash2 } from 'lucide-svelte'
+	import { Code, Diff, History, RotateCcw, Trash2 } from 'lucide-svelte'
+	import Alert from './common/alert/Alert.svelte'
+	import VersionListItem from './VersionListItem.svelte'
 	import { displayDate } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 
@@ -153,15 +155,13 @@
 					{/if}
 				</div>
 			{/if}
-			<ul class="divide-y">
+			<div class="flex flex-col gap-1 p-2">
 				{#each versions as version, index (version.id)}
-					<li>
-						<button
-							class="w-full text-left px-3 py-2 hover:bg-surface-hover {selectedId === version.id
-								? 'bg-surface-selected'
-								: ''}"
-							onclick={() => selectVersion(version.id)}
-						>
+					<VersionListItem
+						selected={selectedId === version.id}
+						onclick={() => selectVersion(version.id)}
+					>
+						<div class="flex flex-col gap-0.5 truncate">
 							<div class="text-xs font-medium flex items-center gap-1">
 								{#if index === 0}
 									<History size={12} />
@@ -173,10 +173,10 @@
 									? ` by ${version.created_by}`
 									: ''}
 							</div>
-						</button>
-					</li>
+						</div>
+					</VersionListItem>
 				{/each}
-			</ul>
+			</div>
 		{/if}
 	</Pane>
 	<Pane size={75}>
@@ -206,15 +206,11 @@
 				</div>
 
 				{#if loaded.missing.length > 0}
-					<div
-						class="flex flex-row gap-2 items-start text-2xs text-orange-600 dark:text-orange-400 px-3 py-2 border-b"
-					>
-						<AlertTriangle size={14} class="shrink-0 mt-0.5" />
-						<div>
-							This version references {loaded.missing.join(', ')}, which no longer exists.
-							Restoring it will leave the resource pointing at something unresolvable until you
-							recreate it.
-						</div>
+					<div class="px-3 py-2">
+						<Alert type="warning" size="xs" title="References something that no longer exists">
+							This version references {loaded.missing.join(', ')}. Restoring it leaves the
+							resource pointing at something unresolvable until you recreate it.
+						</Alert>
 					</div>
 				{/if}
 
