@@ -1258,15 +1258,15 @@ async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
     }
 }
 
-/// Versions retained per resource path. Trimmed on a sweep rather than on write — see the
-/// comment at the call site below.
+/// Versions retained per resource path. Trimmed on a sweep rather than on write — see
+/// `trim_resource_versions` below.
 const MAX_RESOURCE_VERSIONS: i64 = 100;
 
 /// Trim resource version history down to the per-path cap.
 ///
 /// Deliberately not part of `delete_expired_items` (which runs every monitor tick): this is a
-/// full pass over `resource_version`, and the cap only has to hold eventually, so it is gated to
-/// an hourly cadence at the call site alongside the other heavy sweeps.
+/// full pass over `resource_version`, and the cap only has to hold eventually, so the call site
+/// gates it to the same rare cadence as the other heavy sweeps.
 pub async fn trim_resource_versions(db: &DB) -> () {
     let trimmed = sqlx::query_scalar!(
         "DELETE FROM resource_version rv
@@ -3214,7 +3214,7 @@ pub async fn monitor_db(
         }
     };
 
-    // run every hour (60 minutes / 30 seconds = 120)
+    // run every 120 iterations (~20min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC)
     let trim_resource_versions_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
             if let Some(db) = conn.as_sql() {

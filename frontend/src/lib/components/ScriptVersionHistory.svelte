@@ -93,19 +93,21 @@
 								<span class="text-xs truncate">
 									{#if emptyString(version.deployment_msg)}Version {version.script_hash}{:else}{version.deployment_msg}{/if}
 								</span>
-								{#if openDetails}
-									<Button
-										on:click={() => {
-											dispatch('openDetails', { version: version.script_hash })
-										}}
-										class="ml-2 inline-flex gap-1 text-xs items-center"
-										size="xs"
-										color="light"
-										variant="border"
-									>
-										Run page<ExternalLink size={14} />
-									</Button>
-								{/if}
+								{#snippet action()}
+									{#if openDetails}
+										<Button
+											on:click={() => {
+												dispatch('openDetails', { version: version.script_hash })
+											}}
+											class="mr-2 shrink-0 inline-flex gap-1 text-xs items-center"
+											size="xs"
+											color="light"
+											variant="border"
+										>
+											Run page<ExternalLink size={14} />
+										</Button>
+									{/if}
+								{/snippet}
 							</VersionListItem>
 						{/each}
 					</div>

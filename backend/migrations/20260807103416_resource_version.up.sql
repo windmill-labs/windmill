@@ -75,9 +75,9 @@ BEGIN
         COALESCE(NULLIF(current_setting('session.user', true), ''), NEW.created_by)
     );
 
-    -- The per-path cap is enforced by delete_expired_items in the monitor, not here: trimming on
-    -- every write would tax a path `setResource` can drive in a loop, to keep a bound that does
-    -- not need to hold instantaneously.
+    -- The per-path cap is enforced by trim_resource_versions in the monitor, not here: trimming
+    -- on every write would tax a path `setResource` can drive in a loop, to keep a bound that
+    -- does not need to hold instantaneously.
 
     RETURN NEW;
 END;

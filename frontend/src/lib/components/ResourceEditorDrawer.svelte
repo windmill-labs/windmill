@@ -41,10 +41,11 @@
 	// to follow it too — otherwise a restore would write over the variant the user is not looking at.
 	let historyWorkspace = $derived(selected ?? effectiveWorkspace)
 	// Clearing is irreversible and the backend gates it on ownership, not write access. $userStore
-	// describes the user in the workspace they are signed into, so it can only answer for that
-	// one: a ws-specific variant living elsewhere gets no Clear button rather than a wrong verdict.
+	// describes the user in the workspace they are signed into, so it can only answer for that one:
+	// history pointed anywhere else — a ws-specific variant, or an explicit `workspace` prop — gets
+	// no Clear button rather than a verdict computed from the wrong membership.
 	let canClearSelected = $derived(
-		historyWorkspace === effectiveWorkspace && isOwner(path ?? '', $userStore, effectiveWorkspace)
+		historyWorkspace === $workspaceStore && isOwner(path ?? '', $userStore, $workspaceStore)
 	)
 
 	export async function initEdit(p: string): Promise<void> {
