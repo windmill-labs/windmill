@@ -15,7 +15,12 @@ cd "$(dirname "$0")"
 
 src_dirty="$(git status --porcelain -- src Cargo.toml Cargo.lock build.rs 2>/dev/null || true)"
 
-if [ -n "$src_dirty" ]; then
+if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+  # A caller that pinned the output dir wins over both: CI pins it so its cache
+  # step finds the artifacts and a following `cargo test` reuses this compile
+  # instead of building the bundled DuckDB a second time.
+  echo "duckdb-ffi: caller-pinned target $CARGO_TARGET_DIR"
+elif [ -n "$src_dirty" ]; then
   export CARGO_TARGET_DIR="$PWD/target"
   echo "duckdb-ffi: local crate changes detected -> isolated target $CARGO_TARGET_DIR"
 else

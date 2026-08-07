@@ -5,8 +5,11 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.41"
-# `rust_decimal` is optional upstream, and off it there is no way to turn the
-# JSON number behind a `decimal`/`numeric` job argument into a DuckDB DECIMAL.
+# `rust_decimal` is optional upstream. It stays on because its
+# `From<rust_decimal::Decimal>` derives the same width/scale/mantissa the crate
+# used to derive itself, so a `decimal`/`numeric` job argument still binds to the
+# identical DECIMAL. Building one by hand would mean reimplementing that
+# f64 → (mantissa, scale) inference.
 duckdb = { version = "1.10505.0", features = ["bundled", "rust_decimal"] }
 regex = "1"
 rust_decimal = "1.37.2"

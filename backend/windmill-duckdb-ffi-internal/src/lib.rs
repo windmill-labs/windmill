@@ -825,19 +825,20 @@ mod temporal_json_tests {
         assert_eq!(json_of(4), serde_json::json!("10:30:00"));
     }
 
-    // DuckDB DECIMAL runs to 38 digits. Rendering one through a 96-bit decimal
-    // type aborts the whole worker rather than erroring — the panic escapes an
-    // `extern "C"` frame, which cannot unwind — so every width has to survive
-    // this conversion.
+    // Numbers too wide for a JSON number are rendered as strings. DECIMAL runs to
+    // 38 digits and UHUGEINT to 2^128-1; rendering either through a type that
+    // cannot hold it aborts the whole worker rather than erroring, because the
+    // panic escapes an `extern "C"` frame and those cannot unwind.
     #[test]
-    fn wide_decimals_render_without_losing_precision() {
+    fn wide_numbers_render_as_strings_without_losing_precision() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
         let mut stmt = conn
             .prepare(
                 "SELECT (-1.05)::DECIMAL(4, 2) AS neg,
                         (1.50)::DECIMAL(4, 2) AS trailing_zero,
                         '1234567890123456789012345678.9012345678'::DECIMAL(38, 10) AS wide,
-                        '-9999999999999999999999999999.9999999999'::DECIMAL(38, 10) AS wide_neg",
+                        '-9999999999999999999999999999.9999999999'::DECIMAL(38, 10) AS wide_neg,
+                        '340282366920938463463374607431768211455'::UHUGEINT AS uhuge",
             )
             .unwrap();
         let mut rows = stmt.query([]).unwrap();
@@ -855,6 +856,10 @@ mod temporal_json_tests {
         assert_eq!(
             json_of(3),
             serde_json::json!("-9999999999999999999999999999.9999999999")
+        );
+        assert_eq!(
+            json_of(4),
+            serde_json::json!("340282366920938463463374607431768211455")
         );
     }
 
