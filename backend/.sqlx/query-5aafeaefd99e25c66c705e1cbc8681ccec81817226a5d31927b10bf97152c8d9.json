@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                     EXISTS(SELECT 1 FROM app WHERE workspace_id = $1 AND path = $2) as \"still_here!\",\n                     (SELECT a.path FROM app_version av JOIN app a ON a.id = av.app_id\n                      WHERE av.id = $3 AND a.workspace_id = $1) as new_path,\n                     (SELECT av.created_by FROM app_version av JOIN app a ON a.id = av.app_id\n                      WHERE av.id = $3 AND a.workspace_id = $1) as new_by",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "still_here!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "new_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "new_by",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "5aafeaefd99e25c66c705e1cbc8681ccec81817226a5d31927b10bf97152c8d9"
+}

@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE draft\n           SET path = $3,\n               value = to_json(\n                   jsonb_set(\n                       CASE WHEN $7::text IS NULL THEN to_jsonb(value)\n                            ELSE jsonb_set(to_jsonb(value), ARRAY['summary'], to_jsonb($7::text))\n                       END,\n                       ARRAY[$5::text], to_jsonb($3::text), false\n                   )\n               )\n           WHERE workspace_id = $1\n             AND path = $2\n             AND typ = $4\n             AND email = $6\n             AND NOT EXISTS (\n                 SELECT 1 FROM draft o\n                 WHERE o.workspace_id = $1 AND o.path = $3 AND o.typ = $4 AND o.email = $6\n             )\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline",
+                "trigger_amqp"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5980a2c9348982eab53e092496dc2d2e2319d9e87a9deb05238f311928201695"
+}

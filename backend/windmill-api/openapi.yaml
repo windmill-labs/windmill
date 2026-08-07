@@ -9142,11 +9142,54 @@ paths:
                 properties:
                   status:
                     type: string
-                    enum: [saved, conflict]
+                    enum: [saved, conflict, moved]
+                    description: "`moved`: the item left this path, so nothing was written — see `moved_to`."
                   current_timestamp:
                     type: string
                     format: date-time
+                  moved_to:
+                    type: string
+                    description: "`moved` only: the path the item lives at now."
+                  moved_by:
+                    type: string
+                    description: "`moved` only: who last deployed it there. Best-effort."
                 required: [status, current_timestamp]
+
+  /w/{workspace}/drafts/move/{kind}/{path}:
+    post:
+      summary: move the current user's draft-only item to another path
+      description: Relocates the authed user's own draft row (and the typed path inside its value). Only for draft-only items — a deployed item must be moved through its own deploy endpoint, which carries every draft with it.
+      operationId: moveDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/UserDraftItemKind"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_path:
+                  type: string
+                summary:
+                  type: string
+                  description: Also restate the draft's summary.
+              required: [new_path]
+      responses:
+        "200":
+          description: move result
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/drafts/migrate_legacy/{kind}/{path}:
     post:
