@@ -32,13 +32,14 @@ fn ffi_error(message: String) -> String {
 /// what the bindings themselves produce.
 fn catch_ffi_panic<T>(what: &str, body: impl FnOnce() -> T) -> Result<T, String> {
     catch_unwind(AssertUnwindSafe(body)).map_err(|payload| {
-        // The panic hook has already logged the message and backtrace to the
-        // worker's stderr; this only needs to reach the job's own error.
-        format!("panic in duckdb ffi {}: {}", what, panic_message(&payload))
+        // The panic hook has already run, so the worker log carries the location
+        // (and a backtrace when RUST_BACKTRACE is on); this only has to reach the
+        // job's own error.
+        format!("panic in duckdb ffi {}: {}", what, panic_message(&*payload))
     })
 }
 
-fn panic_message(payload: &Box<dyn Any + Send>) -> &str {
+fn panic_message(payload: &(dyn Any + Send)) -> &str {
     payload
         .downcast_ref::<&str>()
         .copied()
@@ -895,9 +896,9 @@ mod temporal_json_tests {
     }
 
     // Numbers too wide for a JSON number are rendered as strings. DECIMAL runs to
-    // 38 digits and UHUGEINT to 2^128-1; rendering either through a type that
-    // cannot hold it aborts the whole worker rather than erroring, because the
-    // panic escapes an `extern "C"` frame and those cannot unwind.
+    // 38 digits and UHUGEINT to 2^128-1; routing either through a type that cannot
+    // hold it panics deep in the bindings, which costs the job even though
+    // `catch_ffi_panic` keeps it from costing the worker.
     #[test]
     fn wide_numbers_render_as_strings_without_losing_precision() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
