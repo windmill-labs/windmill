@@ -43,16 +43,19 @@ export function forcedPlacementEvent(
  * Tracks where the panel was, not whether the breakpoint was responsible for it being
  * there: on a narrow editor, pinning `Detached` and returning to `auto` leaves the panel
  * modal throughout, and re-arming on the preference alone would read that as a second
- * activation. Free of runes so both edges can be tested without a component — `mode` is
- * derived from a measured width, so anything counting per evaluation rather than per
- * transition would read one window drag as hundreds of activations.
+ * activation. An unmeasured editor is not a placement at all — it resolves to `docked`
+ * because that is what is safe to render — so it must leave the tracker untouched rather
+ * than count as the panel having docked. Free of runes so every edge can be tested without
+ * a component: `mode` is derived from a measured width, so anything counting per evaluation
+ * rather than per transition would read one window drag as hundreds of activations.
  */
-export function createBreakpointTracker(log: Log) {
+export function createBreakpointTracker(emit: Log) {
 	let wasModal = false
 
 	return {
-		observe(preference: FlowPanelPreference, mode: FlowPanelMode) {
-			if (mode === 'modal' && !wasModal && preference === 'auto') log('breakpoint_modal')
+		observe(preference: FlowPanelPreference, mode: FlowPanelMode, measured: boolean) {
+			if (!measured) return
+			if (mode === 'modal' && !wasModal && preference === 'auto') emit('breakpoint_modal')
 			wasModal = mode === 'modal'
 		}
 	}
@@ -60,7 +63,7 @@ export function createBreakpointTracker(log: Log) {
 
 export interface FlowPanelPlacementTelemetry {
 	/** The panel's current placement; emits `breakpoint_modal` on a crossing into the modal. */
-	observe(preference: FlowPanelPreference, mode: FlowPanelMode): void
+	observe(preference: FlowPanelPreference, mode: FlowPanelMode, measured: boolean): void
 	/** A placement the user pinned, against where the panel was when they pinned it. */
 	forced(preference: FlowPanelPreference, mode: FlowPanelMode): void
 }
@@ -72,7 +75,10 @@ const NOOP: FlowPanelPlacementTelemetry = { observe: () => {}, forced: () => {} 
 /**
  * Published by `FlowBuilder`, which sits above the `{#key}` that rebuilds the editor on a
  * reload: crossings belong to the editing session, and a tracker recreated mid-edit would
- * re-arm and count a still-narrow editor again without the panel having moved.
+ * re-arm and count a still-narrow editor again without the panel having moved. Surviving
+ * the remount is only half of it — the rebuilt editor measures zero before its width
+ * arrives, which is why the tracker ignores unmeasured placements instead of reading that
+ * as a dock.
  *
  * `enabled` is false in session preview tabs. Those stay mounted and laid out at panel width
  * even while hidden, and that panel is narrower than the breakpoint by construction: their

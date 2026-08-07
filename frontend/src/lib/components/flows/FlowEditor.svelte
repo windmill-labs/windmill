@@ -131,10 +131,12 @@
 	let panelModalOpen = $state(false)
 
 	// Owned by FlowBuilder: this component is inside a `{#key}` that rebuilds it on a reload,
-	// and the crossing count belongs to the editing session rather than to one mount.
+	// and the crossing count belongs to the editing session rather than to one mount. The
+	// controller is rebuilt with it, so its width restarts at zero and only `measured` tells
+	// that transient apart from the panel genuinely being docked.
 	const placementTelemetry = useFlowPanelPlacementTelemetry()
 	$effect(() => {
-		placementTelemetry.observe(panelController.preference, panelMode)
+		placementTelemetry.observe(panelController.preference, panelMode, panelController.measured)
 	})
 
 	// Auto can move the panel back into the pane under a modal that is open — leaving it
