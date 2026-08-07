@@ -6444,7 +6444,8 @@ async fn clone_apps(
     // Two conditions, deliberately stricter than `create_app`, which consults the rule alone.
     // The parent's rule must allow publishing — it exempts admins, not `wm_deployers`, so it is
     // not answered by `preserve_identity`. And an unprivileged creator loses the anonymous
-    // endpoint either way: the identity below is rewritten, so it is no longer what the parent published.
+    // endpoint either way: the identity below is rewritten, so it is no longer what the parent
+    // published.
     let may_publish_anonymous = preserve_identity
         && !matches!(
             check_user_against_rule(
