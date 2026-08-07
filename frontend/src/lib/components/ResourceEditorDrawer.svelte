@@ -8,14 +8,12 @@
 	import { workspaceStore } from '$lib/stores'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
-	import { createEventDispatcher } from 'svelte'
-
-	const dispatch = createEventDispatcher()
 
 	let {
 		workspace = undefined,
-		disableChatOffset = false
-	}: { workspace?: string; disableChatOffset?: boolean } = $props()
+		disableChatOffset = false,
+		onRestored = undefined
+	}: { workspace?: string; disableChatOffset?: boolean; onRestored?: () => void } = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let historyDrawer: Drawer | undefined = $state()
@@ -137,7 +135,9 @@
 					// any local draft on top of it, so saving from it afterwards would write the
 					// pre-restore value straight back over the version just restored.
 					drawer?.closeDrawer()
-					dispatch('refresh')
+					// Its own callback rather than the `refresh` event: callers bind that to
+					// reopening a picker (EditorBar), which a restore should not trigger.
+					onRestored?.()
 				}}
 			/>
 		{/if}

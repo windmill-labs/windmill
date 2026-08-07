@@ -25,10 +25,15 @@ ALTER TABLE resource_version ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY admin_policy ON resource_version FOR ALL TO windmill_admin USING (true);
 
--- Visibility follows the parent resource: the subquery is itself subject to
--- resource's own path/extra_perms policies, so the several rules there stay
--- stated once instead of being mirrored (and left to drift) here.
-CREATE POLICY see_parent_resource ON resource_version FOR ALL TO windmill_user
+-- Read visibility follows the parent resource: the subquery is itself subject to resource's
+-- own path/extra_perms policies, so the several rules there stay stated once instead of being
+-- mirrored (and left to drift) here.
+--
+-- SELECT only, deliberately. `FOR ALL ... USING` would be reused as the INSERT/UPDATE/DELETE
+-- check expression, and since the subquery is a SELECT it applies resource's *read* policies —
+-- which would let a user with read-only access to a resource write its history. Nothing but the
+-- trigger below writes this table, and it is SECURITY DEFINER so it does not need a policy.
+CREATE POLICY see_parent_resource ON resource_version FOR SELECT TO windmill_user
 USING (
     EXISTS (
         SELECT 1 FROM resource r
@@ -61,11 +66,14 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- A rename or a description edit leaves the value alone and so records nothing. This
-    -- is also what keeps a trashbin restore from appending a duplicate of what it restored.
+    -- A rename or a description edit leaves the value alone and so records nothing.
     IF TG_OP = 'UPDATE' AND NEW.value IS NOT DISTINCT FROM OLD.value THEN
         RETURN NEW;
     END IF;
+
+    -- Deleting a resource hard-deletes it, so the FK cascade takes its whole history with
+    -- it. A trashbin restore therefore lands on an empty history and starts a new one at
+    -- v1 rather than continuing the old.
 
     -- `session.user` is set by UserDB::begin for authed requests and absent for worker and
     -- system writes, which fall back to the row's own author.
@@ -89,7 +97,9 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+-- SECURITY DEFINER so history is written on behalf of every writer, including the read-only
+-- policy above, without granting anyone direct write access to the table.
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE TRIGGER record_resource_version_trigger
 AFTER INSERT OR UPDATE ON resource

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM resource_version rv\n        WHERE rv.workspace_id = $1 AND rv.id != (\n            SELECT max(id) FROM resource_version l\n            WHERE l.workspace_id = rv.workspace_id AND l.path = rv.path\n        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "850f6544ab74c5f40e99bfad45d9b863490ee86ca107de346d318b219bffc2a1"
+}

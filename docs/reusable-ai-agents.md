@@ -62,6 +62,13 @@ as the reference, so two versions can be byte-identical while the agent behaves 
 because the referenced variable changed underneath them. Anything comparing agent runs across
 versions has to account for that.
 
+A superseded value is retained for up to 100 versions. Values written through the UI keep their
+secrets in linked variables, but one pushed by `wmill` or written by `setResource` can hold an
+inline credential, and overwriting it no longer removes it from the database — anyone who can
+read the resource can read it from the history. Rotating such a credential does not erase the old
+one; deleting the resource (which cascades its history) or an admin workspace-wide prune are the
+only ways to drop it. Secret *variables* are deliberately not versioned at all for this reason.
+
 ## Dependencies and locks
 
 A linked step carries `tools: []`, and no dependency job ever visits the `ai_agent` resource, so the

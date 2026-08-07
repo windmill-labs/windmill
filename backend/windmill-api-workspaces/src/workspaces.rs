@@ -11582,6 +11582,18 @@ async fn get_cloud_quotas(
     .await?
     .unwrap_or(0);
 
+    let resources_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM resource_version rv
+        WHERE rv.workspace_id = $1 AND rv.id != (
+            SELECT max(id) FROM resource_version l
+            WHERE l.workspace_id = rv.workspace_id AND l.path = rv.path
+        )",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
     let variables_used = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
         &w_id
@@ -11622,7 +11634,7 @@ async fn get_cloud_quotas(
         flows: QuotaInfo { used: flows_used, limit: 1000, prunable: flows_prunable },
         apps: QuotaInfo { used: apps_used, limit: 1000, prunable: apps_prunable },
         variables: QuotaInfo { used: variables_used, limit: 10000, prunable: 0 },
-        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: 0 },
+        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: resources_prunable },
         forks,
     }))
 }

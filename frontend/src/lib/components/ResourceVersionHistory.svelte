@@ -25,9 +25,11 @@
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
 	let versions = $state<ResourceVersion[] | undefined>(undefined)
+	// Which row is highlighted, updated on click. `loaded` lags it while the value is in
+	// flight, and the editor renders from `loaded` so it can never show one version's JSON
+	// under another version's label.
 	let selectedId = $state<number | undefined>(undefined)
-	let selectedValue = $state<string | undefined>(undefined)
-	let missingReferences = $state<string[]>([])
+	let loaded = $state<{ id: number; value: string; missing: string[] } | undefined>(undefined)
 	let currentValue = $state<string>('')
 	let view = $state<'value' | 'diff'>('value')
 	let restoring = $state(false)
@@ -50,19 +52,20 @@
 	}
 
 	async function selectVersion(id: number | undefined) {
+		selectedId = id
 		if (id === undefined) {
-			selectedId = undefined
-			selectedValue = undefined
-			missingReferences = []
+			loaded = undefined
 			return
 		}
-		selectedId = id
 		const version = await ResourceService.getResourceVersion({
 			workspace: effectiveWorkspace,
 			version: id
 		})
-		selectedValue = pretty(version.value)
-		missingReferences = version.missing_references ?? []
+		// Assigned as one object so the id keying the editor and the value it displays can
+		// never be out of step, whatever order the requests come back in.
+		if (selectedId === id) {
+			loaded = { id, value: pretty(version.value), missing: version.missing_references ?? [] }
+		}
 	}
 
 	async function restore() {
@@ -128,7 +131,7 @@
 		{/if}
 	</Pane>
 	<Pane size={75}>
-		{#if selectedValue === undefined}
+		{#if loaded === undefined}
 			<div class="p-4 text-tertiary text-xs">Select a version to inspect its value.</div>
 		{:else}
 			<div class="flex flex-col h-full">
@@ -143,20 +146,20 @@
 						size="xs"
 						variant="default"
 						startIcon={{ icon: RotateCcw }}
-						disabled={restoring || versions?.[0]?.id === selectedId}
+						disabled={restoring || versions?.[0]?.id === loaded.id}
 						onclick={restore}
 					>
 						Restore this version
 					</Button>
 				</div>
 
-				{#if missingReferences.length > 0}
+				{#if loaded.missing.length > 0}
 					<div
 						class="flex flex-row gap-2 items-start text-2xs text-orange-600 dark:text-orange-400 px-3 py-2 border-b"
 					>
 						<AlertTriangle size={14} class="shrink-0 mt-0.5" />
 						<div>
-							This version references {missingReferences.join(', ')}, which no longer exists.
+							This version references {loaded.missing.join(', ')}, which no longer exists.
 							Restoring it will leave the resource pointing at something unresolvable until you
 							recreate it.
 						</div>
@@ -170,18 +173,24 @@
 							automaticLayout
 							readOnly
 							defaultLang="json"
-							defaultOriginal={selectedValue}
+							defaultOriginal={loaded.value}
 							defaultModified={currentValue}
 							className="h-full"
 						/>
 					{:else}
-						<SimpleEditor
-							class="h-full"
-							lang="json"
-							bind:code={selectedValue}
-							readOnly
-							automaticLayout
-						/>
+						<!-- Keyed on the version: SimpleEditor reads `code` only when it builds its
+						     Monaco model and has no effect syncing later changes, so an already-mounted
+						     editor would keep showing the first version opened while Restore acted on
+						     the one actually selected. -->
+						{#key loaded.id}
+							<SimpleEditor
+								class="h-full"
+								lang="json"
+								code={loaded.value}
+								readOnly
+								automaticLayout
+							/>
+						{/key}
 					{/if}
 				</div>
 			</div>

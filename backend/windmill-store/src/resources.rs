@@ -2134,18 +2134,29 @@ async fn get_resource_history(
     Ok(Json(versions))
 }
 
-/// Collect `$var:`/`$res:` references in `value` that no longer point at anything. Only the two
-/// path-addressed forms are checkable: `$encrypted:` carries its payload inline, and neither
-/// resolution nor this check follows references transitively.
+/// Collect the references in `value` that no longer point at anything. Covers the three
+/// path-addressed forms — `$var:` and `$jsonvar:` resolve against `variable`, `$res:` against
+/// `resource`. `$encrypted:` carries its payload inline so there is nothing to look up, and
+/// neither resolution nor this check follows references transitively.
+///
+/// Runs on the caller's RLS-scoped transaction, so a referenced item the caller cannot read is
+/// reported as missing. That errs towards warning rather than staying silent, and the reference
+/// is unusable to them either way.
 async fn missing_references(
     tx: &mut sqlx::PgConnection,
     w_id: &str,
     value: Option<&serde_json::Value>,
 ) -> Result<Vec<String>> {
+    const VAR_PREFIXES: [&str; 2] = ["$var:", "$jsonvar:"];
+
     let mut refs: Vec<String> = vec![];
     fn collect(v: &serde_json::Value, out: &mut Vec<String>) {
         match v {
-            serde_json::Value::String(s) if s.starts_with("$var:") || s.starts_with("$res:") => {
+            serde_json::Value::String(s)
+                if s.starts_with("$var:")
+                    || s.starts_with("$jsonvar:")
+                    || s.starts_with("$res:") =>
+            {
                 out.push(s.clone())
             }
             serde_json::Value::Array(a) => a.iter().for_each(|x| collect(x, out)),
@@ -2159,34 +2170,46 @@ async fn missing_references(
     refs.sort();
     refs.dedup();
 
-    let mut missing = vec![];
-    for r in refs {
-        let (is_var, p) = match r.strip_prefix("$var:") {
-            Some(p) => (true, p),
-            None => (false, r.trim_start_matches("$res:")),
-        };
-        let exists = if is_var {
-            sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2)",
-                w_id,
-                p
-            )
-            .fetch_one(&mut *tx)
-            .await?
-        } else {
-            sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)",
-                w_id,
-                p
-            )
-            .fetch_one(&mut *tx)
-            .await?
-        };
-        if !exists.unwrap_or(false) {
-            missing.push(r);
+    let mut var_paths: Vec<String> = vec![];
+    let mut res_paths: Vec<String> = vec![];
+    for r in &refs {
+        match VAR_PREFIXES.iter().find_map(|p| r.strip_prefix(p)) {
+            Some(p) => var_paths.push(p.to_string()),
+            None => {
+                if let Some(p) = r.strip_prefix("$res:") {
+                    res_paths.push(p.to_string())
+                }
+            }
         }
     }
-    Ok(missing)
+
+    let existing_vars: Vec<String> = sqlx::query_scalar!(
+        "SELECT path FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
+        w_id,
+        &var_paths[..]
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let existing_res: Vec<String> = sqlx::query_scalar!(
+        "SELECT path FROM resource WHERE workspace_id = $1 AND path = ANY($2)",
+        w_id,
+        &res_paths[..]
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    Ok(refs
+        .into_iter()
+        .filter(
+            |r| match VAR_PREFIXES.iter().find_map(|p| r.strip_prefix(p)) {
+                Some(p) => !existing_vars.iter().any(|e| e == p),
+                None => match r.strip_prefix("$res:") {
+                    Some(p) => !existing_res.iter().any(|e| e == p),
+                    None => false,
+                },
+            },
+        )
+        .collect())
 }
 
 async fn get_resource_version(

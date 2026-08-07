@@ -5,9 +5,8 @@
 //!  - `state` and `cache` resources are excluded. They are rewritten by every job
 //!    that calls `setState` or caches a result, so versioning them would grow the
 //!    table without bound and without anyone asking for it.
-//!  - an unchanged value mints nothing, which is what keeps no-op saves (and
-//!    trashbin restores, which rewrite the value the last version already holds)
-//!    out of the history.
+//!  - an unchanged value mints nothing, which is what keeps no-op saves, renames and
+//!    description edits out of the history.
 //!  - restore appends the old value as a new version rather than rewinding, so the
 //!    history stays append-only and the restore is itself attributable.
 //!  - writes that never touch the resource handlers are still recorded. Variable
