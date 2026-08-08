@@ -28,6 +28,7 @@ class S3BufferedReader(BufferedReader):
             params=params,
             timeout=None,
         )
+        self._buffer = bytearray()
 
     def __enter__(self):
         reader = self._context_manager.__enter__()
@@ -49,19 +50,25 @@ class S3BufferedReader(BufferedReader):
         raise Exception("Not implemented, use read() instead")
 
     def read(self, size=-1):
-        read_result = []
+        # iter_bytes() yields whole HTTP chunks (~64KB), so read(size) must
+        # slice the last chunk and buffer the leftover for the next call.
         if size < 0:
-            for b in self._iterator:
-                read_result.append(b)
-        else:
-            for i in range(size):
+            while True:
                 try:
-                    b = self._iterator.__next__()
+                    self._buffer.extend(self._iterator.__next__())
                 except StopIteration:
                     break
-                read_result.append(b)
-
-        return b"".join(read_result)
+            result = bytes(self._buffer)
+            self._buffer.clear()
+            return result
+        while len(self._buffer) < size:
+            try:
+                self._buffer.extend(self._iterator.__next__())
+            except StopIteration:
+                break
+        result = bytes(self._buffer[:size])
+        del self._buffer[:size]
+        return result
 
     def read1(self, size=-1):
         return self.read(size)
