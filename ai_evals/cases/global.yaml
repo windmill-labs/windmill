@@ -1978,3 +1978,75 @@
     - authentication uses Holded's own key header rather than a bearer token
     - the document type, document id, and recipient emails are inputs to the script
     - the result stays an AI draft and is not deployed
+
+# Same task as global-hub1 with the hub never mentioned: this is what tells us the
+# model reaches for the hub on its own rather than only when pointed at it.
+- id: global-hub2-checks-hub-unprompted
+  prompt: |-
+    I want to email one of my Holded invoices to a customer from Windmill.
+    Save it as a draft script at `f/evals/global/holded_send_document` and leave it as
+    an AI draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      # No language assertion: the Holded script's body is `//native`, so a faithful
+      # fork lands on bun or bunnative depending on how literally it is copied.
+      - type: script
+        path: f/evals/global/holded_send_document
+        valueIncludes:
+          - api.holded.com/api/invoicing/v1/documents
+          - mailTemplateId
+  toolExpect:
+    requiredToolsUsed:
+      - search_hub_scripts
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  judgeChecklist:
+    - the draft sends an existing Holded document by email rather than creating one
+    - the request targets Holded's document send endpoint, not an invented URL
+    - authentication uses Holded's own key header rather than a bearer token
+    - the result stays an AI draft and is not deployed
+
+# The fixture hub carries two Baremetrics scripts, neither for annotations, so nothing
+# does what is asked. Its conventions — an `apiKey` resource, bearer auth, the
+# api.baremetrics.com/v1 base — are only knowable by reading one of those near-misses.
+- id: global-hub3-integration-as-example
+  prompt: |-
+    Write me a script that adds an annotation to my Baremetrics account.
+    Save it as a draft at `f/evals/global/baremetrics_create_annotation` and leave it as
+    an AI draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 14
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      # No language assertion: matching the hub script's own dialect is the point,
+      # and Baremetrics' scripts are `//native`, so both bun and bunnative are right.
+      - type: script
+        path: f/evals/global/baremetrics_create_annotation
+        valueIncludes:
+          - api.baremetrics.com/v1
+          - apiKey
+  toolExpect:
+    requiredToolsUsed:
+      - search_hub_scripts
+      - read_workspace_item
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: read_workspace_item
+        field: path
+        stringIncludesAnyOf:
+          - hub/
+  judgeChecklist:
+    - the script takes a Baremetrics resource as an input parameter rather than a bare API key string
+    - the resource type it declares carries an apiKey field, matching how other Baremetrics hub scripts take credentials
+    - the request authenticates with a bearer token built from that resource
+    - the script posts an annotation rather than reading data back
+    - the result stays an AI draft and is not deployed

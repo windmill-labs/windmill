@@ -8660,6 +8660,8 @@ paths:
                           type: number
                         summary:
                           type: string
+                        description:
+                          type: string
                         app:
                           type: string
                         version_id:

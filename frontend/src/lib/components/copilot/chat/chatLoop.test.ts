@@ -55,19 +55,26 @@ function createConfig({
 	modelProvider = { provider: 'openai', model: 'gpt-4.1' },
 	callbacks = createCallbacks(),
 	onWebSearchUnavailable,
-	onReasoningSummaryUnavailable
+	onReasoningSummaryUnavailable,
+	onBeforeIteration,
+	getSystemMessage = () => ({ role: 'system', content: '' })
 }: {
 	workspace: string
 	modelProvider?: ReasoningProviderModel
 	callbacks?: ChatLoopConfig['callbacks']
 	onWebSearchUnavailable?: ChatLoopConfig['onWebSearchUnavailable']
 	onReasoningSummaryUnavailable?: ChatLoopConfig['onReasoningSummaryUnavailable']
+	onBeforeIteration?: ChatLoopConfig['onBeforeIteration']
+	/** Read per iteration, mirroring the getter production passes. */
+	getSystemMessage?: () => ChatLoopConfig['systemMessage']
 }): ChatLoopConfig {
 	const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: 'search this' }]
 
 	return {
 		messages,
-		systemMessage: { role: 'system', content: '' },
+		get systemMessage() {
+			return getSystemMessage()
+		},
 		tools: [],
 		helpers: undefined,
 		abortController: new AbortController(),
@@ -80,7 +87,8 @@ function createConfig({
 		workspace,
 		maxIterations: 1,
 		onWebSearchUnavailable,
-		onReasoningSummaryUnavailable
+		onReasoningSummaryUnavailable,
+		onBeforeIteration
 	}
 }
 
@@ -295,6 +303,131 @@ describe('runChatLoop web search fallback', () => {
 
 		expect(mocks.getAnthropicCompletion).toHaveBeenCalledTimes(1)
 		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
+	})
+})
+
+// A caller whose system prompt advertises web search can only keep it honest if it
+// learns the effective value before the message is read — otherwise a provider
+// switch or a cached rejection advertises a tool that same request never gets.
+describe('runChatLoop onBeforeIteration web search sync', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.providerSupportsWebSearch.mockImplementation(
+			(provider) => provider === 'openai' || provider === 'anthropic'
+		)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+		mocks.parseOpenAICompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+	})
+
+	it('reports the effective web search value, false when the provider cannot serve it', async () => {
+		const seen: boolean[] = []
+		const onBeforeIteration = vi.fn(async (_t, _h, _m, webSearch: boolean) => {
+			seen.push(webSearch)
+		})
+
+		await runChatLoop(createConfig({ workspace: `workspace-${randomUUID()}`, onBeforeIteration }))
+		await runChatLoop(
+			createConfig({
+				workspace: `workspace-${randomUUID()}`,
+				modelProvider: { provider: 'googleai', model: 'gemini-3-pro' },
+				onBeforeIteration
+			})
+		)
+
+		expect(seen).toEqual([true, false])
+	})
+
+	it('sends the corrected system message on the fallback retry, not the rejected one', async () => {
+		let systemMessage: ChatLoopConfig['systemMessage'] = {
+			role: 'system',
+			content: 'search the web'
+		}
+
+		mocks.getOpenAIResponsesCompletion
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Hosted tool 'web_search' is not supported with this model"), {
+					status: 400,
+					error: { type: 'invalid_request_error' }
+				})
+			)
+			.mockResolvedValue({})
+
+		await runChatLoop(
+			createConfig({
+				workspace: `workspace-${randomUUID()}`,
+				getSystemMessage: () => systemMessage,
+				// Production drops the guidance here; the retry must pick that up.
+				onWebSearchUnavailable: () => {
+					systemMessage = { role: 'system', content: 'no web search' }
+				}
+			})
+		)
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][0][0]).toEqual({
+			role: 'system',
+			content: 'search the web'
+		})
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][0][0]).toEqual({
+			role: 'system',
+			content: 'no web search'
+		})
+	})
+
+	// The Completions API has no web-search tool at all, so the fallback is a third
+	// path (beside the two retries) that must not ship the guidance.
+	it('drops the web search guidance on the Completions API fallback', async () => {
+		let systemMessage: ChatLoopConfig['systemMessage'] = {
+			role: 'system',
+			content: 'search the web'
+		}
+
+		mocks.getOpenAIResponsesCompletion.mockRejectedValue(
+			new Error('Responses API is not enabled for this organization')
+		)
+		mocks.getCompletion.mockResolvedValue({})
+		const onWebSearchUnavailable = vi.fn()
+
+		await runChatLoop(
+			createConfig({
+				workspace: `workspace-${randomUUID()}`,
+				getSystemMessage: () => systemMessage,
+				onWebSearchUnavailable,
+				onBeforeIteration: async (_t, _h, _m, webSearch: boolean) => {
+					systemMessage = {
+						role: 'system',
+						content: webSearch ? 'search the web' : 'no web search'
+					}
+				}
+			})
+		)
+
+		// Falling back is per request; the model itself can still serve web search.
+		expect(onWebSearchUnavailable).not.toHaveBeenCalled()
+
+		expect(mocks.getCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getCompletion.mock.calls[0][0][0]).toEqual({
+			role: 'system',
+			content: 'no web search'
+		})
+	})
+
+	it('sends the system message the callback rewrote on this iteration, not the next', async () => {
+		let systemMessage: ChatLoopConfig['systemMessage'] = { role: 'system', content: 'stale' }
+		const config = createConfig({
+			workspace: `workspace-${randomUUID()}`,
+			getSystemMessage: () => systemMessage,
+			onBeforeIteration: async () => {
+				systemMessage = { role: 'system', content: 'resynced' }
+			}
+		})
+
+		await runChatLoop(config)
+
+		const sentMessages = mocks.getOpenAIResponsesCompletion.mock.calls[0][0]
+		expect(sentMessages[0]).toEqual({ role: 'system', content: 'resynced' })
 	})
 })
 

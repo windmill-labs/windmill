@@ -704,13 +704,15 @@ describe('global AI tools', () => {
 
 		expect(ScriptService.queryHubScripts).toHaveBeenCalledWith({
 			text: 'slack message',
-			kind: 'script'
+			kind: 'script',
+			app: undefined
 		})
 		expect(ScriptService.getHubScriptContentByPath).not.toHaveBeenCalled()
-		expect(JSON.parse(raw)).toEqual([
+		expect(JSON.parse(raw).results).toEqual([
 			{
 				path: 'hub/7/slack/send_message',
-				summary: 'Send Message'
+				summary: 'Send Message',
+				integration: 'slack'
 			}
 		])
 	})
@@ -4124,6 +4126,21 @@ describe('folder tools', () => {
 		const parsed = JSON.parse(raw)
 		expect(parsed.success).toBe(false)
 		expect(parsed.error).toContain('Folder already exists')
+	})
+})
+
+// Web search is provider-hosted and has no tool schema of ours, so the prompt is
+// the only thing advertising it — on a provider that cannot serve it, the guidance
+// would invite a tool call the model has no way to make.
+describe('web search guidance', () => {
+	it('points at vendor API docs when the provider serves web search', () => {
+		const content = prepareGlobalSystemMessage(undefined, { webSearch: true }).content as string
+		expect(content).toContain("search the web for the vendor's own API documentation")
+	})
+
+	it('stays silent when the provider does not serve web search', () => {
+		const content = prepareGlobalSystemMessage(undefined, { webSearch: false }).content as string
+		expect(content).not.toContain('search the web')
 	})
 })
 

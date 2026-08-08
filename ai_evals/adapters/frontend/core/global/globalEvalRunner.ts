@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { AIProvider } from "$lib/gen/types.gen";
+import { providerSupportsWebSearch } from "../../../../../frontend/src/lib/components/copilot/lib";
 import {
   globalToolsFor,
   prepareGlobalSystemMessage,
@@ -179,6 +180,10 @@ export async function runGlobalEval(
       systemMessage: prepareGlobalSystemMessage(undefined, {
         user: options.user,
         previewTools: options.sessionChat ?? false,
+        // Mirrors runChatLoop's gate. The production default reads the copilot model
+        // store, which the harness leaves empty, so it would hide guidance every
+        // benchmarked provider actually serves.
+        webSearch: providerSupportsWebSearch(options.provider),
       }),
       userMessage: prepareGlobalUserMessage(
         userPrompt,

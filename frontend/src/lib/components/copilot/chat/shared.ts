@@ -34,6 +34,7 @@ import { z } from 'zod'
 import {
 	ScriptService,
 	FlowService,
+	IntegrationService,
 	JobService,
 	type Job,
 	type CompletedJob,
@@ -726,11 +727,7 @@ type MaybePromise<T> = T | Promise<T>
  * misspelled keys and saves a policy that does nothing. Recursive because dropping one
  * nested key leaves the parent non-empty.
  */
-export function droppedOptionKeys(
-	supplied: unknown,
-	parsed: unknown,
-	prefix = ''
-): string[] {
+export function droppedOptionKeys(supplied: unknown, parsed: unknown, prefix = ''): string[] {
 	if (supplied === null || typeof supplied !== 'object' || Array.isArray(supplied)) {
 		return parsed === undefined && prefix ? [prefix] : []
 	}
@@ -738,7 +735,11 @@ export function droppedOptionKeys(
 		return Object.keys(supplied).length && prefix ? [prefix] : []
 	}
 	return Object.entries(supplied).flatMap(([key, value]) =>
-		droppedOptionKeys(value, (parsed as Record<string, unknown>)[key], prefix ? `${prefix}.${key}` : key)
+		droppedOptionKeys(
+			value,
+			(parsed as Record<string, unknown>)[key],
+			prefix ? `${prefix}.${key}` : key
+		)
 	)
 }
 
@@ -1213,13 +1214,22 @@ function hasOptionalProperties(schema: Record<string, any> | undefined): boolean
 const searchHubScriptsSchema = z.object({
 	query: z
 		.string()
-		.describe('The query to search for, e.g. send email, list stripe invoices, etc..')
+		.optional()
+		.describe(
+			'What you want the script to do, e.g. "send email", "list stripe invoices". Semantic search, so describe the intent. Omit when browsing with `integration` alone.'
+		),
+	integration: z
+		.string()
+		.optional()
+		.describe(
+			'Integration slug (e.g. "stripe") from a previous result\'s `integration` or `suggested_integrations`. Alone, lists that integration\'s scripts with descriptions, including ones that do not match your task but show how the integration is used. With `query`, narrows the search to it.'
+		)
 })
 
 const searchHubScriptsToolDef = createToolDef(
 	searchHubScriptsSchema,
 	'search_hub_scripts',
-	'Search for scripts in the hub'
+	"Search the Windmill Hub for prebuilt integration scripts, or list one integration's scripts with `integration`."
 )
 
 /** The hub resolves a script by its version id alone; the app and summary
@@ -1234,44 +1244,115 @@ export function isHubPath(path: string): boolean {
 	return path.startsWith('hub/')
 }
 
+const MAX_BROWSED_HUB_SCRIPTS = 20
+const MAX_SUGGESTED_INTEGRATIONS = 5
+
+/** Common shape of the two hub listings. Only the top-scripts one carries a
+ * description; the semantic search response has no field for it. */
+type HubScriptHit = { version_id: number; app: string; summary: string; description?: string }
+
+/** The integration slugs are a large but static list, so one fetch per session
+ * is enough. Only matched slugs ever reach the model, never the whole list. */
+let hubIntegrationsCache: string[] | undefined
+
+async function suggestHubIntegrations(query: string): Promise<string[]> {
+	// Suggestions are a bonus on an already-empty search, so an unreachable hub must
+	// degrade to "no results" rather than turn the whole search into a tool error.
+	// A failed or empty response is left uncached so the next search retries.
+	if (!hubIntegrationsCache?.length) {
+		try {
+			const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
+			hubIntegrationsCache = integrations.map((i) => i.name)
+		} catch (err) {
+			console.error('Could not list hub integrations', err)
+			return []
+		}
+	}
+	const tokens = query
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((t) => t.length > 2)
+	return hubIntegrationsCache
+		.filter((name) => {
+			const slug = name.toLowerCase()
+			return tokens.some((t) => slug.includes(t) || (slug.length > 2 && t.includes(slug)))
+		})
+		.slice(0, MAX_SUGGESTED_INTEGRATIONS)
+}
+
+export const clearHubIntegrationsCache = () => {
+	hubIntegrationsCache = undefined
+}
+
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(toolId, {
-			content: 'Searching for hub scripts related to "' + args.query + '"...'
-		})
 		const parsedArgs = searchHubScriptsSchema.parse(args)
-		const scripts = await ScriptService.queryHubScripts({
-			text: parsedArgs.query,
-			kind: 'script'
-		})
+		// The hub's own query param is `app`; the tool exposes it as `integration`,
+		// since `app` already means a Windmill app everywhere else in this surface.
+		const { query, integration: app } = parsedArgs
+		if (!query && !app) {
+			return 'Pass query (what the script should do), integration (a slug to list), or both.'
+		}
+		const subject = query ? `"${query}"` : `the ${app} integration`
+		toolCallbacks.setToolStatus(toolId, { content: `Searching hub scripts for ${subject}...` })
+
+		// Listing an integration goes through the hub's top-scripts endpoint rather
+		// than the semantic one: it is the only one carrying each script's
+		// description, and it has no similarity floor to drop the near-misses that
+		// are worth reading as examples of how the integration is used.
+		const scripts: HubScriptHit[] = query
+			? await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
+			: ((
+					await ScriptService.getTopHubScripts({
+						app,
+						kind: 'script',
+						limit: MAX_BROWSED_HUB_SCRIPTS
+					})
+				).asks ?? [])
+
+		if (scripts.length === 0) {
+			// A whiffed search still leaves the integration browsable, which is what
+			// turns "no exact match" into a worked example to follow. Suggest against
+			// the slug too, so a browse for a misremembered one lands on the real name
+			// instead of dead-ending on an empty list.
+			const suggested = await suggestHubIntegrations(query ?? app ?? '')
+			toolCallbacks.setToolStatus(toolId, { content: `No hub script found for ${subject}` })
+			return JSON.stringify({ results: [], suggested_integrations: suggested })
+		}
+
 		// Each result costs a content fetch, so cap the fan-out when content is wanted.
 		const matches = withContent ? scripts.slice(0, 3) : scripts
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Found ${matches.length} script${matches.length === 1 ? '' : 's'} in the hub related to "${parsedArgs.query}"`
+			content: `Found ${matches.length} hub script${matches.length === 1 ? '' : 's'} for ${subject}`
 		})
 		const results = await Promise.all(
 			matches.map(async (s) => {
 				const path = hubScriptPath(s)
+				const base = {
+					path,
+					summary: s.summary,
+					integration: s.app,
+					...(s.description ? { description: s.description } : {})
+				}
 				if (!withContent) {
-					return { path, summary: s.summary }
+					return base
 				}
 				try {
 					// get_full, not the raw content endpoint: callers are told to match the
 					// script's language, which raw content does not carry.
 					const hub = await ScriptService.getHubScriptByPath({ path })
-					return { path, summary: s.summary, language: hub.language, content: hub.content }
+					return { ...base, language: hub.language, content: hub.content }
 				} catch (err) {
 					// One unreachable script must not sink the whole search.
 					return {
-						path,
-						summary: s.summary,
+						...base,
 						error: `Could not fetch content: ${err instanceof Error ? err.message : String(err)}`
 					}
 				}
 			})
 		)
-		return JSON.stringify(results)
+		return JSON.stringify({ results })
 	}
 })
 
