@@ -60,6 +60,29 @@ def test_read_zero_returns_empty_without_consuming():
     assert reader.read(5) == b"AAAAA"
 
 
+def test_peek_returns_without_consuming():
+    reader = make_reader(CHUNKS)
+    assert reader.peek() == b"AAAAAAAAAA"
+    assert reader.peek(5) == b"AAAAAAAAAA"
+    assert reader.read(10) == b"AAAAAAAAAA"
+
+
+def test_peek_after_partial_read_returns_leftover():
+    reader = make_reader(CHUNKS)
+    assert reader.read(5) == b"AAAAA"
+    assert reader.peek(5) == b"AAAAA"
+    assert reader.read(5) == b"AAAAA"
+
+
+def test_peek_fills_when_buffered_bytes_are_insufficient():
+    reader = make_reader(CHUNKS)
+    assert reader.read(5) == b"AAAAA"
+    peeked = reader.peek(7)
+    assert peeked.startswith(b"AAAAA")
+    assert len(peeked) >= 7
+    assert reader.read(len(peeked)) == peeked
+
+
 def test_read_all_returns_everything():
     reader = make_reader(CHUNKS)
     assert reader.read(-1) == b"AAAAAAAAAABBBBBBBBBBCCCCCCCCCC"
