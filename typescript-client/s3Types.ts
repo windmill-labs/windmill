@@ -102,7 +102,7 @@ export type PolarsStorageOptions = {
  */
 export type PolarsConnectionSettings = {
   s3fs_args: PolarsS3FsArgs;
-  storage_options?: PolarsStorageOptions;
+  storage_options: PolarsStorageOptions;
 };
 
 /**

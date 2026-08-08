@@ -1306,14 +1306,21 @@ class Windmill:
         Returns:
             PostgreSQL connection URL string
         """
+        from urllib.parse import quote
+
         resource = self.get_resource(path)
+        # Defaults mirror PgDatabase::to_uri(); quote each component so that
+        # credentials containing '@', '/', '?' etc. cannot reshape the URI.
+        host = resource["host"]
+        if not (host.startswith("[") and host.endswith("]")):
+            host = quote(host, safe="")
         return "postgresql://{}:{}@{}:{}/{}?sslmode={}".format(
-            resource["user"],
-            resource["password"],
-            resource["host"],
-            resource["port"],
-            resource["dbname"],
-            resource["sslmode"],
+            quote(str(resource.get("user") or "postgres"), safe=""),
+            quote(str(resource.get("password") or ""), safe=""),
+            host,
+            resource.get("port") or 5432,
+            quote(resource["dbname"], safe=""),
+            resource.get("sslmode") or "prefer",
         )
 
     def request_interactive_slack_approval(

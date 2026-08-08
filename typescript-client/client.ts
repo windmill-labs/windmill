@@ -356,7 +356,7 @@ export async function cancelJob(
     workspace,
     id: jobId,
     requestBody: {
-      reason: reason ?? "cancelled via cancel_job method",
+      reason: reason ?? "cancelled via cancelJob method",
     },
   });
 }
