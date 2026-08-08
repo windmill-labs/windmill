@@ -52,20 +52,15 @@ class S3BufferedReader(BufferedReader):
     def read(self, size=-1):
         # iter_bytes() yields whole HTTP chunks (~64KB), so read(size) must
         # slice the last chunk and buffer the leftover for the next call.
-        if size < 0:
-            while True:
-                try:
-                    self._buffer.extend(self._iterator.__next__())
-                except StopIteration:
-                    break
-            result = bytes(self._buffer)
-            self._buffer.clear()
-            return result
-        while len(self._buffer) < size:
+        while size < 0 or len(self._buffer) < size:
             try:
                 self._buffer.extend(self._iterator.__next__())
             except StopIteration:
                 break
+        if size < 0:
+            result = bytes(self._buffer)
+            self._buffer.clear()
+            return result
         result = bytes(self._buffer[:size])
         del self._buffer[:size]
         return result
