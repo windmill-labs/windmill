@@ -63,3 +63,56 @@ export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
     `Invalid s3 object ${JSON.stringify(s3Object)}: expected an s3://<storage>/<key> URI (e.g. "s3:///${s3Object}" for key "${s3Object}" in the default storage) or { s3: <key> }`
   );
 }
+
+/**
+ * Settings necessary to connect DuckDB to an S3 bucket
+ */
+export type DuckDbConnectionSettings = {
+  /** DuckDB SET statements to configure the S3 connection */
+  connection_settings_str: string;
+  /** Azure container path when the target storage is Azure */
+  azure_container_path?: string;
+};
+
+/**
+ * S3 filesystem arguments consumed by Python's Polars `scan_parquet`/`read_parquet`
+ */
+export type PolarsS3FsArgs = {
+  endpoint_url: string;
+  key?: string;
+  secret?: string;
+  use_ssl: boolean;
+  cache_regions?: boolean;
+  client_kwargs?: Record<string, unknown>;
+};
+
+/**
+ * Object-storage options consumed by Python's Polars when reading S3 data
+ */
+export type PolarsStorageOptions = {
+  aws_endpoint_url: string;
+  aws_region: string;
+  aws_allow_http: string;
+  aws_access_key_id?: string;
+  aws_secret_access_key?: string;
+};
+
+/**
+ * Settings necessary to connect Polars to an S3 bucket
+ */
+export type PolarsConnectionSettings = {
+  s3fs_args: PolarsS3FsArgs;
+  storage_options?: PolarsStorageOptions;
+};
+
+/**
+ * Settings necessary to connect a boto3 client to an S3 bucket
+ */
+export type Boto3ConnectionSettings = {
+  endpoint_url: string;
+  region_name: string;
+  use_ssl: boolean;
+  aws_access_key_id: string;
+  aws_secret_access_key: string;
+  aws_session_token?: string;
+};

@@ -1297,6 +1297,25 @@ class Windmill:
             params=params,
         ).json()
 
+    def database_url_from_resource(self, path: str) -> str:
+        """Build a PostgreSQL connection URL from a database resource.
+
+        Args:
+            path: Path to the database resource in Windmill
+
+        Returns:
+            PostgreSQL connection URL string
+        """
+        resource = self.get_resource(path)
+        return "postgresql://{}:{}@{}:{}/{}?sslmode={}".format(
+            resource["user"],
+            resource["password"],
+            resource["host"],
+            resource["port"],
+            resource["dbname"],
+            resource["sslmode"],
+        )
+
     def request_interactive_slack_approval(
         self,
         slack_resource_path: str,
@@ -1722,6 +1741,19 @@ def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
     return _client.get_result(
         job_id=job_id, assert_result_is_not_none=assert_result_is_not_none
     )
+
+
+@init_global_client
+def database_url_from_resource(path: str) -> str:
+    """Build a PostgreSQL connection URL from a database resource.
+
+    Args:
+        path: Path to the database resource in Windmill
+
+    Returns:
+        PostgreSQL connection URL string
+    """
+    return _client.database_url_from_resource(path)
 
 
 @init_global_client
