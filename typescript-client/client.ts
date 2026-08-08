@@ -11,6 +11,7 @@ import {
   UserService,
   KafkaTriggerService,
 } from "./services.gen";
+import type { S3Resource } from "./types.gen";
 import { OpenAPI } from "./core/OpenAPI";
 import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "./wacError";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -19,6 +20,9 @@ import {
   S3ObjectRecord,
   parseS3Object,
   type S3Object,
+  type Boto3ConnectionSettings,
+  type DuckDbConnectionSettings,
+  type PolarsConnectionSettings,
 } from "./s3Types";
 
 export {
@@ -335,6 +339,26 @@ export async function getResult(jobId: string): Promise<any> {
 export async function getResultMaybe(jobId: string): Promise<any> {
   const workspace = getWorkspace();
   return await JobService.getCompletedJobResultMaybe({ workspace, id: jobId });
+}
+
+/**
+ * Cancel a specific job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+export async function cancelJob(
+  jobId: string,
+  reason: string | undefined = undefined
+): Promise<string> {
+  const workspace = getWorkspace();
+  return await JobService.cancelQueuedJob({
+    workspace,
+    id: jobId,
+    requestBody: {
+      reason: reason ?? "cancelled via cancelJob method",
+    },
+  });
 }
 const STRIP_COMMENTS =
   /(\/\/.*$)|(\/\*[\s\S]*?\*\/)|(\s*=[^,\)]*(('(?:\\'|[^'\r\n])*')|("(?:\\"|[^"\r\n])*"))|(\s*=[^,\)]*))/gm;
@@ -819,26 +843,83 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
   return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
 }
 
-// TODO(gb): need to investigate more how Polars and DuckDB work in TS
-// export async function polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
-//   const workspace = getWorkspace();
-//   return await HelpersService.polarsConnectionSettingsV2({
-//     workspace: workspace,
-// 		requestBody: {
-// 			s3_resource_path: s3_resource_path
-// 		}
-//   });
-// }
+/**
+ * Get the settings necessary to connect Polars to an S3 bucket
+ * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
+ * @returns S3 connection settings for Polars
+ */
+export async function polarsConnectionSettings(
+  s3_resource_path: string | undefined,
+  workspace: string | undefined = undefined
+): Promise<PolarsConnectionSettings> {
+  return await HelpersService.polarsConnectionSettingsV2({
+    workspace: workspace ?? getWorkspace(),
+    requestBody: {
+      s3_resource_path:
+        parseResourceSyntax(s3_resource_path) ?? s3_resource_path,
+    },
+  });
+}
 
-// export async function duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any> {
-//   const workspace = getWorkspace();
-//   return await HelpersService.duckdbConnectionSettingsV2({
-//     workspace: workspace,
-// 		requestBody: {
-// 			s3_resource_path: s3_resource_path
-// 		}
-//   });
-// }
+/**
+ * Get the settings necessary to connect DuckDB to an S3 bucket
+ * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
+ * @returns S3 connection settings for DuckDB
+ */
+export async function duckdbConnectionSettings(
+  s3_resource_path: string | undefined,
+  workspace: string | undefined = undefined
+): Promise<DuckDbConnectionSettings> {
+  return await HelpersService.duckdbConnectionSettingsV2({
+    workspace: workspace ?? getWorkspace(),
+    requestBody: {
+      s3_resource_path:
+        parseResourceSyntax(s3_resource_path) ?? s3_resource_path,
+    },
+  });
+}
+
+/**
+ * Get the settings necessary to connect a boto3 client to an S3 bucket
+ * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
+ * @returns S3 connection settings for boto3
+ */
+export async function boto3ConnectionSettings(
+  s3_resource_path: string | undefined,
+  workspace: string | undefined = undefined
+): Promise<Boto3ConnectionSettings> {
+  const s3Resource = (await HelpersService.s3ResourceInfo({
+    workspace: workspace ?? getWorkspace(),
+    requestBody: {
+      s3_resource_path:
+        parseResourceSyntax(s3_resource_path) ?? s3_resource_path,
+    },
+  })) as S3Resource & {
+    port?: number | string;
+    token?: string;
+    accessKey: string;
+    secretKey: string;
+  };
+  const endpoint_url_prefix = s3Resource.useSSL ? "https://" : "http://";
+  const endpoint = s3Resource.endPoint;
+  const endpointUrl = s3Resource.port
+    ? `${endpoint_url_prefix}${endpoint}:${s3Resource.port}`
+    : `${endpoint_url_prefix}${endpoint}`;
+  const settings: Boto3ConnectionSettings = {
+    endpoint_url: endpointUrl,
+    region_name: s3Resource.region,
+    use_ssl: s3Resource.useSSL,
+    aws_access_key_id: s3Resource.accessKey,
+    aws_secret_access_key: s3Resource.secretKey,
+  };
+  if (s3Resource.token) {
+    settings.aws_session_token = s3Resource.token;
+  }
+  return settings;
+}
 
 /**
  * Get S3 client settings from a resource or workspace default
