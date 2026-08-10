@@ -12,8 +12,28 @@ import { workspaceAIClients } from './lib'
 // result via a monotonic token — last invocation wins regardless of resolution
 // order. init() is synchronous so its ordering already matches.
 let loadCopilotToken = 0
-export async function loadCopilot(workspace: string) {
+
+// Consumers load the config for the workspace they operate on rather than trusting an
+// ancestor to have done it, and they mount together — so share the in-flight request
+// instead of firing one GET each. Only the newest load applies its result, hence only
+// the newest is shareable: a superseded workspace needs a fresh request to win again.
+let inFlight: { workspace: string; token: number; promise: Promise<void> } | undefined
+
+export function loadCopilot(workspace: string): Promise<void> {
+	if (inFlight && inFlight.workspace === workspace && inFlight.token === loadCopilotToken) {
+		return inFlight.promise
+	}
 	const token = ++loadCopilotToken
+	const promise = fetchAndApply(workspace, token).finally(() => {
+		if (inFlight?.token === token) {
+			inFlight = undefined
+		}
+	})
+	inFlight = { workspace, token, promise }
+	return promise
+}
+
+async function fetchAndApply(workspace: string, token: number) {
 	workspaceAIClients.init(workspace)
 	try {
 		const info = await WorkspaceService.getCopilotInfo({ workspace })

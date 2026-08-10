@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Sparkles, Plus, List, Ban, ExternalLinkIcon } from 'lucide-svelte'
+	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Loader2 } from 'lucide-svelte'
 	import type { Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -13,7 +13,8 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Alert } from '$lib/components/common'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
-	import { copilotInfo } from '$lib/aiStore'
+	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from './rawAppPolicy'
 	import { type DataTableRef, type RawAppData, formatDataTableRef } from './dataTableRefUtils'
@@ -117,7 +118,19 @@
 	)
 
 	const hasNoDatatables = $derived(availableDatatables?.length === 0)
-	const isAiEnabled = $derived($copilotInfo.enabled)
+
+	// copilotInfo is a global that stays empty until some ancestor's fetch lands, so
+	// `enabled` alone cannot tell "no providers" from "not loaded yet" and the modal
+	// would announce AI as unconfigured while it is merely unknown. Gate on the
+	// config describing opWs, and load it here so the claim owns its own evidence.
+	const aiConfigLoaded = $derived($copilotWorkspace === opWs)
+	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
+
+	$effect(() => {
+		if (open && opWs && !aiConfigLoaded) {
+			loadCopilot(opWs)
+		}
+	})
 
 	async function start(withPrompt: boolean) {
 		const template = templates[selectedTemplateIndex]
@@ -334,8 +347,13 @@
 					<span class="text-xs font-normal text-tertiary">(optional)</span>
 				</h2>
 
-				{#if !isAiEnabled}
-					<Alert type="info" title="AI is not configured for this workspace.">
+				{#if !aiConfigLoaded}
+					<div class="flex items-center gap-2 text-xs text-tertiary">
+						<Loader2 size={14} class="animate-spin" />
+						Loading AI settings...
+					</div>
+				{:else if !isAiEnabled}
+					<Alert type="info" title="AI is not configured.">
 						You can still create an app manually but using AI is highly recommended.
 						<br />
 						{#if $userStore?.is_admin}
