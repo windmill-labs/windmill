@@ -11020,6 +11020,19 @@ async fn compare_two_flows(
     });
 }
 
+/// The policy minus the identity pair. Deploying cannot converge a difference there — the
+/// target recomputes the identity from the deployer's own choice, which offers its current
+/// value, the deployer, or a typed-in one, never the source's — so listing an app for it
+/// alone leaves an entry no deploy can clear. `script` and `flow` compare no identity either.
+fn policy_without_identity(policy: &serde_json::Value) -> serde_json::Value {
+    let mut policy = policy.clone();
+    if let Some(obj) = policy.as_object_mut() {
+        obj.remove("on_behalf_of");
+        obj.remove("on_behalf_of_email");
+    }
+    policy
+}
+
 async fn compare_two_apps(
     db: &DB,
     source_workspace_id: &str,
@@ -11060,7 +11073,7 @@ async fn compare_two_apps(
     // Check metadata and content differences
     if let (Some(source), Some(target)) = (&source_app, &target_app) {
         if source.summary != target.summary
-            || source.policy != target.policy
+            || policy_without_identity(&source.policy) != policy_without_identity(&target.policy)
             || source.value != target.value
             || source.raw_app != target.raw_app
         {
