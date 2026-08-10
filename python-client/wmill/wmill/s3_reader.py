@@ -47,17 +47,19 @@ class S3BufferedReader(BufferedReader):
         return self
 
     def peek(self, size=0):
-        # io.BufferedReader.peek: hand back buffered bytes without consuming
-        # them, doing at most one read on the underlying stream — so the amount
-        # returned may be more or less than `size`.
+        """Return buffered bytes without consuming them.
+
+        Reads the underlying stream at most once, so the amount returned may be
+        more or less than `size`.
+        """
         if not self._buffer:
             self._fill(1)
         return bytes(self._buffer)
 
     def _fill(self, limit):
-        # iter_bytes() yields whole HTTP chunks (~64KB), so serving `limit`
-        # bytes means accumulating until the buffer holds enough and keeping
-        # the remainder of the final chunk for the next call.
+        # iter_bytes() yields whole HTTP chunks (~64KB), so a caller asking for
+        # `limit` bytes has to accumulate until the buffer holds that many.
+        # A negative limit means drain the stream.
         while limit < 0 or len(self._buffer) < limit:
             try:
                 self._buffer.extend(next(self._iterator))
@@ -65,6 +67,9 @@ class S3BufferedReader(BufferedReader):
                 break
 
     def read(self, size=-1):
+        # BufferedReader.read(None) is documented as equivalent to read(-1).
+        if size is None:
+            size = -1
         self._fill(size)
         if size < 0:
             result = bytes(self._buffer)
@@ -75,7 +80,18 @@ class S3BufferedReader(BufferedReader):
         return result
 
     def read1(self, size=-1):
-        return self.read(size)
+        """Return up to `size` bytes, reading the underlying stream at most once.
+
+        Unlike `read`, a negative `size` returns only what is already buffered
+        rather than draining the whole object.
+        """
+        if not self._buffer:
+            self._fill(1)
+        if size is None or size < 0:
+            size = len(self._buffer)
+        result = bytes(self._buffer[:size])
+        del self._buffer[:size]
+        return result
 
     def __exit__(self, *args):
         self._context_manager.__exit__(*args)

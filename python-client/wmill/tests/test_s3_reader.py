@@ -41,6 +41,10 @@ def make_reader(chunks):
 
 def test_read_size_slices_chunks_and_keeps_the_remainder():
     reader = make_reader(CHUNKS)
+    # read(0) must not pull from the stream: the "drain everything" sentinel is
+    # a negative size, and widening it to any falsy size would reintroduce the
+    # whole-file buffering this reader is built to avoid.
+    assert reader.read(0) == b""
     assert reader.read(5) == b"AAAAA"
     assert reader.read(5) == b"AAAAA"
     assert reader.read(10) == b"BBBBBBBBBB"
@@ -66,3 +70,10 @@ def test_peek_does_not_consume():
     reader = make_reader(CHUNKS)
     assert reader.peek() == b"AAAAAAAAAA"
     assert reader.read(10) == b"AAAAAAAAAA"
+
+
+def test_read1_stops_after_one_chunk():
+    reader = make_reader(CHUNKS)
+    # read1(-1) must not drain the stream the way read(-1) does.
+    assert reader.read1(-1) == b"AAAAAAAAAA"
+    assert reader.read1(4) == b"BBBB"
