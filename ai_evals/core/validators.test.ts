@@ -119,6 +119,57 @@ describe("validateToolExpectations", () => {
     });
   });
 
+  // The whole point of the same-call rule: the per-field rules are existential over
+  // calls, so two single-filter pages would satisfy them while never opening the
+  // combined view the case asks for.
+  it("requires the listed fields on one and the same call", () => {
+    const splitCalls = {
+      success: true,
+      actual: {},
+      assistantMessageCount: 1,
+      toolCallCount: 2,
+      toolsUsed: ["open_page"],
+      toolCallDetails: [
+        { name: "open_page", arguments: { page: "runs", label: "nightly-digest" } },
+        { name: "open_page", arguments: { page: "runs", worker: "wk-eval-1" } },
+      ],
+      skillsInvoked: [],
+    };
+    const sameCallRule = {
+      toolCallArgsSameCall: [
+        {
+          tool: "open_page",
+          args: [
+            { field: "label", stringIncludesAnyOf: ["nightly-digest"] },
+            { field: "worker", stringIncludesAnyOf: ["wk-eval-1"] },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      validateToolExpectations({ run: splitCalls, toolExpect: sameCallRule }).every(
+        (check) => check.passed
+      )
+    ).toBe(false);
+
+    expect(
+      validateToolExpectations({
+        run: {
+          ...splitCalls,
+          toolCallCount: 1,
+          toolCallDetails: [
+            {
+              name: "open_page",
+              arguments: { page: "runs", label: "nightly-digest", worker: "wk-eval-1" },
+            },
+          ],
+        },
+        toolExpect: sameCallRule,
+      }).every((check) => check.passed)
+    ).toBe(true);
+  });
+
   it("rejects forbidden tool usage", () => {
     const checks = validateToolExpectations({
       run: {

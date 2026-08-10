@@ -1129,19 +1129,19 @@
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
-    toolCallArgs:
+    # One page carrying both filters — two pages each carrying one is not the ask.
+    toolCallArgsSameCall:
       - tool: open_page
-        field: page
-        stringIncludesAnyOf:
-          - runs
-      - tool: open_page
-        field: label
-        stringIncludesAnyOf:
-          - nightly-digest
-      - tool: open_page
-        field: worker
-        stringIncludesAnyOf:
-          - wk-eval-1
+        args:
+          - field: page
+            stringIncludesAnyOf:
+              - runs
+          - field: label
+            stringIncludesAnyOf:
+              - nightly-digest
+          - field: worker
+            stringIncludesAnyOf:
+              - wk-eval-1
   skipJudge: true
   judgeChecklist:
     - opens the Runs page filtered to the nightly-digest label on worker wk-eval-1
@@ -1163,15 +1163,15 @@
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
-    toolCallArgs:
+    toolCallArgsSameCall:
       - tool: open_page
-        field: page
-        stringIncludesAnyOf:
-          - runs
-      - tool: open_page
-        field: job_trigger_kind
-        stringIncludesAnyOf:
-          - '!schedule'
+        args:
+          - field: page
+            stringIncludesAnyOf:
+              - runs
+          - field: job_trigger_kind
+            stringIncludesAnyOf:
+              - '!schedule'
   skipJudge: true
   judgeChecklist:
     - opens the Runs page with schedule-triggered jobs excluded

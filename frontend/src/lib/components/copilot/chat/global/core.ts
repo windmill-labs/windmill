@@ -2583,10 +2583,8 @@ function isoTimestamp(raw: string | undefined): string | undefined {
 	return isNaN(d.getTime()) ? undefined : d.toISOString()
 }
 
-// The Runs filters whose value is one comma-separated list, read back with the polarity of
-// its FIRST item: ` b` in "a, b" is matched with its space (and rejected outright for a
-// trigger kind), and a mixed "a,!b" quietly matches b as an inclusion. So trim the items
-// and refuse a mixed list instead of opening a page that filters by something else.
+// One comma-separated list each, read back with the polarity of its FIRST item: " b" in
+// "a, b" is matched with its space, and a mixed "a,!b" quietly matches b as an inclusion.
 const RUNS_LIST_FIELDS = ['path', 'user', 'label', 'tag', 'worker', 'job_trigger_kind'] as const
 
 function normalizeRunsList(raw: string): { value: string | undefined } | { mixed: true } {
@@ -2599,11 +2597,8 @@ function normalizeRunsList(raw: string): { value: string | undefined } | { mixed
 	return { value: items.length ? items.join(',') : undefined }
 }
 
-// Normalizes the Runs filters in place and reports the values the page could only fail
-// silently on — it drops a malformed JSON filter and an unparseable bound without a word,
-// 400s behind a generic toast on an unknown trigger kind, and shows a chip for `worker` /
-// `search` that the concurrency view never applies. Fail closed so the model can correct
-// itself rather than hand the user a page filtered by something they didn't ask for.
+// Normalizes the Runs filters in place, and fails closed on the values the page applies
+// differently than asked or not at all — silently, so nothing downstream would catch it.
 function prepareRunsFilters(a: OpenPageArgs): string | undefined {
 	for (const [field, raw] of [
 		['arg', a.arg],
@@ -2620,12 +2615,12 @@ function prepareRunsFilters(a: OpenPageArgs): string | undefined {
 			return `The ${field} filter must be a JSON object of key/value pairs to match, e.g. {"key":"value"} — got ${raw}`
 		}
 	}
-	// One positive folder only — the page wraps this value into a single `f/<folder>/` path
-	// prefix, so a comma or a `!` ends up inside the prefix and matches nothing.
+	// The page wraps this value into a single `f/<folder>/` path prefix, so anything but one
+	// bare folder name ends up inside the prefix and matches nothing (`f/f/infra/`, `f/a,b/`).
 	if (a.folder !== undefined) {
 		a.folder = a.folder.trim()
-		if (/[!,]/.test(a.folder)) {
-			return `The folder filter takes one folder name, without ! or commas — got ${a.folder}. Use path to name several runnables or to exclude some.`
+		if (!VALID_FOLDER_NAME.test(a.folder)) {
+			return `The folder filter takes one bare folder name (letters, digits, _ or -), without the 'f/' prefix, commas or ! — got ${a.folder}. Use path to name several runnables or to exclude some.`
 		}
 	}
 	const fields = a as Record<(typeof RUNS_LIST_FIELDS)[number], string | undefined>

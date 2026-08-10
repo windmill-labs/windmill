@@ -4918,19 +4918,19 @@ describe('buildOpenPageUrl runs filters', () => {
 		)
 	})
 
-	// Every one of these opens a Runs page filtered by something other than what was asked,
-	// with no error of the page's own: a malformed JSON filter and an unparseable bound are
-	// dropped silently, an unknown trigger kind 400s behind a generic toast, a mixed
-	// include/exclude list is read as all-inclusive, `f/<folder>/` swallows commas and `!`,
-	// and the concurrency view renders worker/search chips it cannot apply.
+	// Each of these would open a Runs page filtered by something other than what was asked,
+	// with no error of the page's own — so the tool has to be the one to refuse.
 	it('rejects filter values the Runs page could only fail silently on', async () => {
 		const rejections: [Record<string, unknown>, string][] = [
 			[{ arg: 'customer_id=42' }, 'must be a JSON object'],
 			[{ job_trigger_kind: 'cron' }, 'Unknown job_trigger_kind'],
 			[{ min_ts: 'last tuesday' }, 'ISO 8601'],
 			[{ job_trigger_kind: 'schedule,!http' }, 'cannot mix included and excluded values'],
-			[{ folder: '!infra' }, 'takes one folder name'],
-			[{ folder: 'infra,billing' }, 'takes one folder name'],
+			[{ folder: '!infra' }, 'takes one bare folder name'],
+			[{ folder: 'infra,billing' }, 'takes one bare folder name'],
+			// `f/infra` and `infra/sub` would become `f/f/infra/` and `f/infra/sub/`.
+			[{ folder: 'f/infra' }, 'takes one bare folder name'],
+			[{ folder: 'infra/sub' }, 'takes one bare folder name'],
 			[{ concurrency_key: 'ck', worker: 'wk-1' }, 'ignores worker'],
 			[{ concurrency_key: 'ck', search: 'timeout' }, 'ignores search']
 		]
