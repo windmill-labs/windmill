@@ -43,6 +43,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
@@ -844,6 +845,16 @@
 				bind:value={filters.val}
 				placeholder="Filter runs..."
 				autofocus
+			/>
+			<!-- Opens this exact view (filters included) as the new session's preview
+			     tab. The filters live in shallow-routed query params, so the href is
+			     read off `window.location` at click time — `page.url` never sees them. -->
+			<OpenInSessionButton
+				source={{
+					page: () => window.location.pathname + window.location.search,
+					workspaceId: $workspaceStore ?? undefined
+				}}
+				btnProps={{ unifiedSize: 'md' }}
 			/>
 		</div>
 

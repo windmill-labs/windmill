@@ -498,6 +498,7 @@
 {#snippet actionsButtons()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerPath={initialPath}
 			{trigger}
 			permissions={!drawerLoading && can_write ? 'create' : 'none'}
 			{allowDraft}

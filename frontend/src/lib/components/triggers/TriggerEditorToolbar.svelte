@@ -9,6 +9,15 @@
 	import TriggerSuspendedJobsModal from './TriggerSuspendedJobsModal.svelte'
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { pageHref, stripBase, TRIGGER_PAGES, type TriggerKind } from '../sessions/previewRouter'
+	import {
+		buildSchedulesUrl,
+		buildTriggersUrl,
+		SCHEDULES_PATH
+	} from '$lib/components/copilot/chat/global/pageNavigation'
+	import { page } from '$app/state'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		saveDisabled: any
@@ -27,6 +36,9 @@
 		trigger?: Trigger
 		suspendedJobsModal?: TriggerSuspendedJobsModal | null
 		disableSuspendedMode?: boolean
+		/** Path of the trigger being edited, used to deep-link "Open in AI session"
+		 * at this trigger. Empty while creating one. */
+		triggerPath?: string
 	}
 
 	let {
@@ -45,14 +57,37 @@
 		cloudDisabled = false,
 		trigger,
 		suspendedJobsModal,
-		disableSuspendedMode = false
+		disableSuspendedMode = false,
+		triggerPath
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
+
+	// "Open in AI session" only on the standalone trigger list pages, whose route
+	// IS the page the session should open — the same toolbar rendered inside a
+	// script/flow editor's Triggers panel is covered by that editor's own button.
+	// A trigger being created has no path to deep-link at yet.
+	const sessionPageHref = $derived.by(() => {
+		const path = triggerPath || trigger?.path
+		if (!path || trigger?.isDraft) return undefined
+		const route = stripBase(page.url.pathname)
+		const kind = (Object.keys(TRIGGER_PAGES) as TriggerKind[]).find(
+			(k) => TRIGGER_PAGES[k].path === route
+		)
+		if (kind) return pageHref(buildTriggersUrl({ trigger_kind: kind, open: path }))
+		if (route === SCHEDULES_PATH) return pageHref(buildSchedulesUrl({ open: path }))
+		return undefined
+	})
+	const sessionSource = $derived(
+		sessionPageHref
+			? { page: () => sessionPageHref, workspaceId: $workspaceStore ?? undefined }
+			: undefined
+	)
 </script>
 
 {#if !allowDraft}
 	{@render extra?.()}
+	<OpenInSessionButton source={sessionSource} />
 	{#if edit}
 		<TriggerModeToggle
 			canWrite={canSave}
@@ -78,6 +113,7 @@
 	{/if}
 {:else}
 	<div class="flex flex-row gap-2 items-center">
+		<OpenInSessionButton source={sessionSource} />
 		{#if !trigger?.draftConfig}
 			<div class="center-center">
 				<TriggerModeToggle

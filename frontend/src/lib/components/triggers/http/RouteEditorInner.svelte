@@ -362,8 +362,8 @@
 		return {
 			noDeployed: !!(s as any)?.no_deployed,
 			overlay: draftFromBackend
-			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
-			: undefined
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		}
 	}
 
@@ -985,6 +985,7 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}

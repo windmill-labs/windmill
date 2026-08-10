@@ -77,12 +77,22 @@ export async function openEditorInSession(
 	workspaceId?: string,
 	previewParams?: Record<string, string>
 ): Promise<void> {
-	// Seed the fresh session's preview with a single tab on `target` so it opens
-	// straight onto the editor the caller wants (resetSessionPreviewTabs also
-	// writes through a live runtime if one already exists for this id).
+	await openInSession(withPreviewParams(sessionTargetHref(target), previewParams), workspaceId)
+}
+
+// Open a fresh AI session showing a workspace page (Runs, a trigger list) in its
+// preview. A page is not an editable item, so callers hand over the in-app href
+// they want the tab to load rather than a SessionTarget.
+export async function openPageInSession(href: string, workspaceId?: string): Promise<void> {
+	await openInSession(href, workspaceId)
+}
+
+async function openInSession(url: string | undefined, workspaceId?: string): Promise<void> {
+	// Seed the fresh session's preview with a single tab on `url` so it opens
+	// straight onto what the caller wants (resetSessionPreviewTabs also writes
+	// through a live runtime if one already exists for this id).
 	const session = createSession()
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
-	const url = withPreviewParams(sessionTargetHref(target), previewParams)
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
 		// (chat manager → monaco) into this thin navigation seam, breaking its

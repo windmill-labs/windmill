@@ -5,7 +5,14 @@
 	// maps to, the workspace it lives in, and a persist hook run before routing
 	// so the session preview opens the item exactly as currently edited.
 	export type OpenInSessionSource = {
-		target: SessionTarget
+		/** The item the preview opens on. Surfaces that aren't editable items pass
+		 * `page` instead; exactly one of the two is set. */
+		target?: SessionTarget
+		/** Base-prefixed href of a workspace page the preview opens as a tab (Runs,
+		 * a trigger list). Resolved on click, not at render: a page whose filters
+		 * live in shallow-routed query params never reflects them in `page.url`, so
+		 * only `window.location` read at that moment matches what the user sees. */
+		page?: () => string | undefined
 		workspaceId?: string
 		beforeOpen?: () => void | Promise<void>
 		/** Where inside the item the preview should open (a flow's `selected`
@@ -20,7 +27,8 @@
 	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { openEditorInSession } from './sessionSwitch.svelte'
+	import { userStore } from '$lib/stores'
+	import { openEditorInSession, openPageInSession } from './sessionSwitch.svelte'
 
 	let {
 		source,
@@ -46,7 +54,14 @@
 	// SessionEditorTarget / the session wrapper); iframe preview tabs are not
 	// the top window.
 	const inSessionPanel = !!getContext('aiChatManager') || (BROWSER && window.self !== window.top)
-	const show = $derived(!inSessionPanel && !!source && isGlobalAiEnabled())
+	// The sessions page refuses operators, so an entry point on a page they can
+	// reach (Runs, the trigger lists) would only route them into that refusal.
+	const show = $derived(
+		!inSessionPanel &&
+			!!(source?.target || source?.page) &&
+			!$userStore?.operator &&
+			isGlobalAiEnabled()
+	)
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.
 	let opening = false
@@ -55,7 +70,12 @@
 		opening = true
 		try {
 			await source.beforeOpen?.()
-			await openEditorInSession(source.target, source.workspaceId, source.previewParams)
+			if (source.target) {
+				await openEditorInSession(source.target, source.workspaceId, source.previewParams)
+			} else {
+				const href = source.page?.()
+				if (href) await openPageInSession(href, source.workspaceId)
+			}
 		} finally {
 			opening = false
 		}
