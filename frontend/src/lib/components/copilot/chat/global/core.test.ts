@@ -1167,6 +1167,75 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// Making a readable variable secret keeps its value (the drawer's is_secret toggle
+	// does the same): it is the one path that promotes a readable value into the secret
+	// store, so it must move to memory rather than stay in the persisted draft.
+	it('carries the old value when making a readable variable secret', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'u/admin/config',
+			value: 'was-readable',
+			is_secret: false,
+			description: 'plain config',
+			ws_specific: false
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'u/admin/config',
+			is_secret: true
+		})
+
+		expect(
+			getBackendDraft<any>('variable', 'u/admin/config', { workspace: WORKSPACE })
+		).toMatchObject({
+			variable: { value: '', is_secret: true, description: 'plain config' },
+			pendingSecretValue: true
+		})
+
+		await callGlobalTool('deploy_workspace_item', { type: 'variable', path: 'u/admin/config' })
+
+		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
+			value: 'was-readable',
+			is_secret: true
+		})
+	})
+
+	// A draft accumulates: omitting `value` means "this write does not touch the value",
+	// so a rotation staged earlier stays staged. write_variable's description says so —
+	// abandoning it needs discard_local_draft.
+	it('keeps a rotation staged across a later metadata-only write', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			value: undefined,
+			is_secret: true,
+			description: 'old description',
+			ws_specific: false
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value: 'rotated-secret-99'
+		})
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			description: 'also fix the description'
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
+			value: 'rotated-secret-99',
+			is_secret: true,
+			description: 'also fix the description'
+		})
+	})
+
 	it('deploys every field of a script draft (not just content/summary)', async () => {
 		// The deploy delegates to the shared deployer, which reads the full persisted
 		// draft via getScriptByPath(getDraft) and deploys all of it. Config fields
