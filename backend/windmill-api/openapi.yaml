@@ -7749,9 +7749,17 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ResourceVersion"
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ResourceVersion"
+                  current_value: {}
+                  resource_type:
+                    type: string
+                required:
+                  - versions
     delete:
       summary: clear a resource's past versions, keeping only the current value
       operationId: clearResourceHistory

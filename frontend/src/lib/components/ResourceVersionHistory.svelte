@@ -36,9 +36,7 @@
 	let selectedId = $state<number | undefined>(undefined)
 	let loaded = $state<{ id: number; value: string; missing: string[] } | undefined>(undefined)
 	let currentValue = $state<string>('')
-	// Distinguishes "the live value is null" from "it could not be read". Conflating them would
-	// diff a version against a value the resource never held.
-	let currentKnown = $state(false)
+	let neverVersioned = $state(false)
 	// Bumped per load so a response for a path the drawer has since moved off cannot land. The
 	// component is reused rather than remounted when `path` changes, and `loaded` is what Restore
 	// acts on, so a late response could otherwise restore the previous resource's version.
@@ -62,17 +60,21 @@
 		versions = undefined
 		loaded = undefined
 		selectedId = undefined
-		currentKnown = false
 		currentValue = ''
-		const [list, current] = await Promise.all([
-			ResourceService.getResourceHistory({ workspace: effectiveWorkspace, path }),
-			ResourceService.getResourceValue({ workspace: effectiveWorkspace, path })
-				.then((value) => ({ value }))
-				.catch(() => undefined)
-		])
+		// One request, so the list and the live value are read from the same snapshot: labelling
+		// the newest version "Current" and diffing against the live value are only coherent if a
+		// write cannot have landed between the two reads.
+		const history = await ResourceService.getResourceHistory({
+			workspace: effectiveWorkspace,
+			path
+		})
 		if (generation !== loadGeneration) return
-		currentKnown = current !== undefined
-		currentValue = pretty(current?.value)
+		const list = history.versions ?? []
+		currentValue = pretty(history.current_value)
+		// Mirrors INTERNAL_RESOURCE_TYPES in windmill-store/src/resources.rs, which the recording
+		// trigger repeats in SQL. These are rewritten by every job and deliberately never versioned,
+		// so their history is permanently empty rather than waiting on a first edit.
+		neverVersioned = history.resource_type === 'state' || history.resource_type === 'cache'
 		versions = list
 		// The newest version mirrors the live value, so the first entry a user can usefully
 		// compare against is the one below it.
@@ -145,7 +147,12 @@
 			</div>
 		{:else if versions.length === 0}
 			<div class="p-4 text-tertiary text-xs">
-				No history yet. Versions are recorded from the next edit onwards.
+				{#if neverVersioned}
+					Resources of this type are written by every job that uses them, so their values are
+					deliberately not kept in history.
+				{:else}
+					No history yet. Versions are recorded from the next edit onwards.
+				{/if}
 			</div>
 		{:else}
 			{#if versions.length > 1 && canClear}
@@ -207,10 +214,6 @@
 				<div class="flex flex-row justify-between items-center gap-2 p-2 border-b">
 					{#if isCurrent}
 						<span class="text-2xs text-tertiary">This is the current value</span>
-					{:else if !currentKnown}
-						<span class="text-2xs text-tertiary">
-							The current value could not be loaded, so there is nothing to compare against
-						</span>
 					{:else}
 						<ToggleButtonGroup bind:selected={view}>
 							{#snippet children({ item })}
@@ -240,7 +243,7 @@
 				{/if}
 
 				<div class="grow min-h-0">
-					{#if view === 'diff' && !isCurrent && currentKnown}
+					{#if view === 'diff' && !isCurrent}
 						<!-- Imported on demand: the diff is the only thing here that needs Monaco, and
 						     pulling it in on open would load the editor for everyone who just wants to
 						     read a value. -->

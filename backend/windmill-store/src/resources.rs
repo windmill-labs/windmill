@@ -1043,7 +1043,7 @@ const RESOURCE_WRITE_ADVISORY_PER_MIN: u32 = 20;
 
 struct ResourceWriteRate {
     count: u32,
-    minute: i64,
+    minute_bucket: i64,
 }
 
 /// Writes seen per (workspace, path) per minute. Purely advisory, and deliberately so: nothing
@@ -1063,16 +1063,16 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
     if INTERNAL_RESOURCE_TYPES.contains(&resource_type) {
         return;
     }
-    let minute = chrono::Utc::now().timestamp() / 60;
+    let minute_bucket = chrono::Utc::now().timestamp() / 60;
     // The entry guard holds a lock on its DashMap shard, and `retain` below takes every shard.
     // Keeping the guard alive across that call deadlocks the request handler, so this block is
     // load-bearing: it must end before the eviction, not be flattened into the function body.
     let reached_cap = {
         let mut rate = RESOURCE_WRITE_RATES
             .entry((w_id.to_string(), path.to_string()))
-            .or_insert(ResourceWriteRate { count: 0, minute });
-        if rate.minute != minute {
-            rate.minute = minute;
+            .or_insert(ResourceWriteRate { count: 0, minute_bucket });
+        if rate.minute_bucket != minute_bucket {
+            rate.minute_bucket = minute_bucket;
             rate.count = 0;
         }
         rate.count += 1;
@@ -1081,7 +1081,7 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
     // Bounded without a background task: periodically drop what neither the current nor the
     // previous minute can still need.
     if RESOURCE_WRITES_SEEN.fetch_add(1, Ordering::Relaxed) % 256 == 0 {
-        RESOURCE_WRITE_RATES.retain(|_, rate| rate.minute >= minute - 1);
+        RESOURCE_WRITE_RATES.retain(|_, rate| rate.minute_bucket >= minute_bucket - 1);
     }
     // Once per minute per path: `==` rather than `>=` so a sustained loop logs at the crossing
     // and then stays quiet until the bucket rolls over.
@@ -2189,11 +2189,25 @@ struct ResourceVersionWithValue {
     missing_references: Vec<String>,
 }
 
+/// The version list together with the value the resource holds right now. They are returned
+/// together, and read in one transaction, because the drawer compares them: labelling a version
+/// "Current" or diffing against the live value is only coherent if neither can have moved
+/// relative to the other. Fetched as two requests they straddle any concurrent write, and the
+/// drawer would then diff a version against a value its own list contradicts.
+#[derive(Serialize)]
+pub struct ResourceHistory {
+    versions: Vec<ResourceVersion>,
+    current_value: Option<serde_json::Value>,
+    /// Lets the drawer say that an empty history is permanent rather than promising versions from
+    /// the next edit: INTERNAL_RESOURCE_TYPES are never recorded, so theirs can never fill up.
+    resource_type: Option<String>,
+}
+
 async fn get_resource_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Vec<ResourceVersion>> {
+) -> JsonResult<ResourceHistory> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -2208,9 +2222,24 @@ async fn get_resource_history(
     )
     .fetch_all(&mut *tx)
     .await?;
+    let resource = sqlx::query!(
+        "SELECT value, resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
     tx.commit().await?;
 
-    Ok(Json(versions))
+    let (current_value, resource_type) = match resource {
+        Some(r) => (r.value, Some(r.resource_type)),
+        None => (None, None),
+    };
+    Ok(Json(ResourceHistory {
+        versions,
+        current_value,
+        resource_type,
+    }))
 }
 
 /// Collect the references in `value` that no longer point at anything. Covers the three

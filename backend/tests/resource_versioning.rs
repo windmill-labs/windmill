@@ -29,13 +29,12 @@ fn authed(b: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
 }
 
 async fn history(base: &str, path: &str) -> anyhow::Result<Vec<Value>> {
-    Ok(
-        authed(client().get(format!("{base}/resources/history/p/{path}")))
-            .send()
-            .await?
-            .json()
-            .await?,
-    )
+    let body: Value = authed(client().get(format!("{base}/resources/history/p/{path}")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    Ok(body["versions"].as_array().cloned().unwrap_or_default())
 }
 
 #[sqlx::test(fixtures("resource_versioning"))]
