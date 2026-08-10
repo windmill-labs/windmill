@@ -2383,7 +2383,7 @@ const openPageFullSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Runs: filter by concurrency limit key, e.g. custom-key or a full script path. Cannot be combined with worker or search — that view has no way to apply them.'
+			'Runs: filter by concurrency limit key, e.g. custom-key or a full script path. Cannot be combined with worker, search, or a waiting/suspended status — that view has no way to apply them.'
 		),
 	arg: z
 		.string()
@@ -2639,10 +2639,11 @@ function prepareRunsFilters(a: OpenPageArgs): string | undefined {
 	if (unknownKinds.length) {
 		return `Unknown job_trigger_kind: ${unknownKinds.join(', ')}. Valid kinds are ${jobTriggerKinds.join(', ')}.`
 	}
-	// A concurrency key switches the page to its extended-jobs query, which has no worker
-	// or free-text parameter at all — those chips would render and do nothing.
+	// A concurrency key switches the page to its extended-jobs query, which has no worker,
+	// free-text or queue-status parameter — those chips would render and filter nothing.
 	if (a.concurrency_key !== undefined) {
-		const ignored = (['worker', 'search'] as const).filter((f) => a[f] !== undefined)
+		const ignored: string[] = (['worker', 'search'] as const).filter((f) => a[f] !== undefined)
+		if (a.status === 'waiting' || a.status === 'suspended') ignored.push(`status=${a.status}`)
 		if (ignored.length) {
 			return `The Runs page ignores ${ignored.join(' and ')} when concurrency_key is set (that view can't filter on ${ignored.length > 1 ? 'them' : 'it'}). Open the page with either concurrency_key or ${ignored.join('/')}, not both.`
 		}

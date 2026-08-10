@@ -4932,7 +4932,11 @@ describe('buildOpenPageUrl runs filters', () => {
 			[{ folder: 'f/infra' }, 'takes one bare folder name'],
 			[{ folder: 'infra/sub' }, 'takes one bare folder name'],
 			[{ concurrency_key: 'ck', worker: 'wk-1' }, 'ignores worker'],
-			[{ concurrency_key: 'ck', search: 'timeout' }, 'ignores search']
+			[{ concurrency_key: 'ck', search: 'timeout' }, 'ignores search'],
+			// The extended-jobs query has no queue-status parameter, so these two arrive with
+			// no status predicate at all — every job on the key, under a "waiting" chip.
+			[{ concurrency_key: 'ck', status: 'waiting' }, 'ignores status=waiting'],
+			[{ concurrency_key: 'ck', status: 'suspended' }, 'ignores status=suspended']
 		]
 		for (const [args, expected] of rejections) {
 			await expect(callGlobalTool('open_page', { page: 'runs', ...args })).resolves.toContain(

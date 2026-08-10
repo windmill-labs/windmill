@@ -51,9 +51,8 @@ export const WORKSPACE_SETTINGS_TABS = [
 
 // Valid query-param keys are derived from the real filter schemas (option arrays are
 // irrelevant to the key set), so a renamed filter key propagates here for free. The
-// permission flags are set so the key set is complete (`all_workspaces` included); the
-// caller is responsible for only passing that key when the user may use it — the Runs
-// page itself ignores it for anyone else, since its own schema then lacks the key.
+// permission flags are on so the key set is complete: gating `all_workspaces` is the
+// caller's job, and the Runs page ignores it for anyone whose own schema lacks the key.
 const RUNS_FILTER_KEYS = Object.keys(
 	buildRunsFilterSearchbarSchema({
 		paths: [],
