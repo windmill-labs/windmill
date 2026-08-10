@@ -176,10 +176,8 @@ import {
 	type TriggerKind as PageTriggerKind
 } from '$lib/components/sessions/previewRouter'
 import {
-	clearEphemeralSecretVariableDraftValue,
 	deleteGlobalDraft,
 	flushGlobalDraftSaves,
-	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
 	itemKindFor,
@@ -189,10 +187,8 @@ import {
 	readLocalDraftCellByKind,
 	resolveGlobalDraftStoragePathByKind,
 	saveGlobalAppDraft,
-	setEphemeralSecretVariableDraftValue,
 	type DraftPersistResult
 } from './userDraftAdapter'
-import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 import {
 	computeDiffParts,
 	expireWorkspaceDiffList,
@@ -603,7 +599,7 @@ const writeVariableSchema = variableRequestSchema.extend({
 		.string()
 		.optional()
 		.describe(
-			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: values are not readable, and a "$var:..." reference is NOT a valid value (that syntax only references a variable from inside a resource). Note that omitting it keeps whatever the draft already holds: if you set a new value earlier in this conversation, that new value stays staged, and only discard_local_draft abandons it.'
+			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: values are not readable, and a "$var:..." reference is NOT a valid value (that syntax only references a variable from inside a resource). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
 		),
 	is_secret: z
 		.boolean()
@@ -2825,9 +2821,7 @@ export const globalTools: Tool<{}>[] = [
 					draftCountByType.set(draft.type, count + 1)
 					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 						...draft,
-						value: undefined,
-						// Internal deploy bookkeeping, not something the model should reason about.
-						pendingSecretValue: undefined
+						value: undefined
 					})
 				}
 			}
@@ -4031,10 +4025,15 @@ function createResourceToDraftState(
 }
 
 function variableToDraftState(variable: ListableVariable): VariableDraftState {
+	// An OAuth variable's value is owned by the refresh flow, and `get_variable` hands back
+	// a freshly refreshed LIVE token for an expired one even under decryptSecret: false
+	// (variables.rs checks is_expired first). Drop it here, at the boundary: carrying it
+	// into a draft would pin a rotating value to a static one on the next deploy.
+	const oauthManaged = variable.is_oauth || variable.account != null
 	return {
 		path: variable.path,
 		variable: {
-			value: variable.value ?? '',
+			value: oauthManaged ? '' : (variable.value ?? ''),
 			is_secret: variable.is_secret,
 			description: variable.description ?? ''
 		},
@@ -4046,28 +4045,6 @@ function variableToDraftState(variable: ListableVariable): VariableDraftState {
 	}
 }
 
-// A readable value already on the base that must survive this write rather than be
-// redacted: a plain -> secret flip's old value, or plaintext the drawer put in the
-// shared draft cell. Kept in the draft (the endpoint encrypts it at rest), because
-// blanking the cell would also break the drawer's own save.
-function carriedSecretValue(
-	args: WriteVariableArgs,
-	base: VariableDraftState | undefined,
-	is_secret: boolean
-): string | undefined {
-	if (!is_secret || args.value !== undefined || base === undefined) return undefined
-	// An OAuth variable's value is owned by the refresh flow, and `get_variable` returns a
-	// freshly refreshed LIVE token for an expired one even under decryptSecret: false
-	// (variables.rs checks is_expired before decrypt_secret). Carrying that would copy a
-	// live token into memory and pin a rotating value to a static one.
-	if (base.is_oauth || base.account != null) return undefined
-	const stored = base.variable.value
-	// Already unreadable and safe at rest: kept in the draft itself, not in memory.
-	if (isEncryptedDraftValue(stored)) return undefined
-	if (!base.variable.is_secret) return stored
-	return stored === '' ? undefined : stored
-}
-
 function resolveVariableWrite(
 	args: WriteVariableArgs,
 	base?: VariableDraftState
@@ -4075,8 +4052,6 @@ function resolveVariableWrite(
 	is_secret: boolean
 	value: string
 	description: string
-	carried: string | undefined
-	stagesSecretValue: boolean
 } {
 	if (base === undefined && (args.value === undefined || args.is_secret === undefined)) {
 		throw new Error(
@@ -4100,15 +4075,10 @@ function resolveVariableWrite(
 			`Cannot turn secret variable "${args.path}" into a non-secret one without a value: its stored value cannot be read, so it would be replaced by an empty one. Pass the new plaintext value, or leave is_secret unset to keep it secret.`
 		)
 	}
-	const carried = carriedSecretValue(args, base, is_secret)
 	return {
 		is_secret,
 		value: args.value ?? base?.variable.value ?? '',
-		description: args.description ?? base?.variable.description ?? '',
-		carried,
-		// Only for a value held in memory — a carried one lives in the draft. Sticky, so a
-		// metadata-only edit on top of a staged rotation does not drop it at deploy.
-		stagesSecretValue: is_secret && (args.value !== undefined || base?.pendingSecretValue === true)
+		description: args.description ?? base?.variable.description ?? ''
 	}
 }
 
@@ -4116,18 +4086,12 @@ function createVariableToDraftState(
 	args: WriteVariableArgs,
 	base?: VariableDraftState
 ): VariableDraftState {
-	const { is_secret, value, description, carried, stagesSecretValue } = resolveVariableWrite(
-		args,
-		base
-	)
+	const { is_secret, value, description } = resolveVariableWrite(args, base)
 	return {
 		...base,
 		path: args.path,
 		variable: {
-			// A value THIS write supplied is redacted (kept in memory, never at rest);
-			// anything already on the base is preserved, ciphertext or not, since the
-			// drawer shares this cell and reads its own staged value back from it.
-			value: is_secret ? (carried ?? (isEncryptedDraftValue(value) ? value : '')) : value,
+			value,
 			is_secret,
 			description
 		},
@@ -4135,91 +4099,31 @@ function createVariableToDraftState(
 		wsSpecific: args.ws_specific ?? base?.wsSpecific ?? false,
 		account: args.account ?? base?.account,
 		is_oauth: args.is_oauth ?? base?.is_oauth,
-		expires_at: args.expires_at ?? base?.expires_at,
-		pendingSecretValue: stagesSecretValue || undefined
+		expires_at: args.expires_at ?? base?.expires_at
 	}
 }
 
-function syncEphemeralSecretVariableDraftValue(
-	workspace: string,
-	args: WriteVariableArgs,
-	base?: VariableDraftState
-): void {
-	const storagePath = getGlobalDraftStoragePath(workspace, 'variable', args.path)
-	const { is_secret } = resolveVariableWrite(args, base)
-	if (is_secret && args.value !== undefined) {
-		setEphemeralSecretVariableDraftValue(workspace, storagePath, args.value)
-	} else if (!is_secret || base?.pendingSecretValue !== true) {
-		// Nothing staged in memory any more, so any leftover entry is unreachable (see
-		// `resolveStagedSecretValue`) — drop it rather than holding a secret for the
-		// rest of the session.
-		clearEphemeralSecretVariableDraftValue(workspace, storagePath)
-	}
-}
-
-const LOST_SECRET_VALUE_HINT =
-	'is no longer available because secret draft values are kept only in memory. Run write_variable again before deploying this secret.'
-
-// The new secret value a draft stages, or `undefined` to leave the deployed secret alone.
-// Throws when one WAS staged but is no longer recoverable: deploying without it would
-// report a rotation that never happened.
-function resolveStagedSecretValue(
-	workspace: string,
-	path: string,
-	stored: string | undefined,
-	pendingSecretValue: boolean | undefined
-): string | undefined {
-	// A chat-written rotation wins over `stored`: the drawer's reveal writes the DEPLOYED
-	// secret into the same cell, which would otherwise re-deploy the old value over it.
-	// Only `pendingSecretValue` licenses reading the map, so a value left behind by a
-	// draft discarded elsewhere stays unreachable.
-	if (pendingSecretValue) {
-		const storagePath = getGlobalDraftStoragePath(workspace, 'variable', path)
-		const ephemeral = getEphemeralSecretVariableDraftValue(workspace, storagePath)
-		if (ephemeral !== undefined) return ephemeral
-		throw new Error(`Secret value for draft variable "${path}" ${LOST_SECRET_VALUE_HINT}`)
-	}
-	return stored !== undefined && stored !== '' ? stored : undefined
-}
-
-// The deploy body for a variable that does not exist yet. Creating a secret always
-// needs its value, so an unrecoverable one is an error rather than an omission.
-function buildVariableCreateRequestBody(
-	workspace: string,
-	path: string,
-	draftValue: CreateVariable,
-	pendingSecretValue: boolean | undefined
-): CreateVariable {
+// The deploy body for a variable that does not exist yet.
+function buildVariableCreateRequestBody(draftValue: CreateVariable): CreateVariable {
 	const requestBody = structuredClone(draftValue)
-	if (!requestBody.is_secret) return requestBody
-
-	const secretValue = resolveStagedSecretValue(
-		workspace,
-		path,
-		draftValue.value,
-		pendingSecretValue
-	)
-	if (secretValue === undefined) {
-		throw new Error(`Secret value for draft variable "${path}" ${LOST_SECRET_VALUE_HINT}`)
+	if (requestBody.is_secret && requestBody.value === '') {
+		throw new Error(
+			`Draft variable "${draftValue.path}" is secret but stages no value, so it cannot be created. Run write_variable with its value first.`
+		)
 	}
-
-	return { ...requestBody, value: secretValue }
+	return requestBody
 }
 
 // The deploy body for an existing variable. Every field is optional on the update
-// endpoint, so an edit that stages no new secret value omits `value` entirely and the
-// stored secret survives.
+// endpoint, and a secret draft stores '' when it stages no new value — so omitting
+// `value` in that case is what leaves the stored secret untouched. A staged value is
+// sent as-is: the endpoint decrypts an `$encrypted:` marker and encrypts plaintext.
 function buildVariableUpdateRequestBody(
-	workspace: string,
-	path: string,
-	draftValue: CreateVariable,
-	pendingSecretValue: boolean | undefined
+	draftValue: CreateVariable
 ): Omit<CreateVariable, 'value'> & { value?: string } {
 	const { value, ...rest } = structuredClone(draftValue)
 	if (!rest.is_secret) return { ...rest, value }
-
-	const secretValue = resolveStagedSecretValue(workspace, path, value, pendingSecretValue)
-	return secretValue === undefined ? rest : { ...rest, value: secretValue }
+	return value === '' ? rest : { ...rest, value }
 }
 
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
@@ -4355,7 +4259,6 @@ type WriteSpec<T, A> = {
 	probe: (workspace: string, path: string) => Promise<boolean>
 	fetchDeployed: (workspace: string, path: string) => Promise<T>
 	buildDraft: (base: T | undefined, args: A, path: string) => T | Promise<T>
-	beforePersist?: (workspace: string, args: A, base: T | undefined) => void
 }
 
 async function writeDraft<T, A>(
@@ -4378,7 +4281,6 @@ async function writeDraft<T, A>(
 	}
 
 	const draft = await spec.buildDraft(base, args, path)
-	spec.beforePersist?.(workspace, args, base)
 
 	const result = await persistGlobalDraft(workspace, type, path, draft, {
 		triggerKind: opts.triggerKind,
@@ -4567,9 +4469,7 @@ const VARIABLE_SPEC: WriteSpec<VariableDraftState, WriteVariableArgs> = {
 		variableToDraftState(
 			await VariableService.getVariable({ workspace, path, decryptSecret: false })
 		),
-	buildDraft: (base, args) => createVariableToDraftState(args, base),
-	beforePersist: (workspace, args, base) =>
-		syncEphemeralSecretVariableDraftValue(workspace, args, base)
+	buildDraft: (base, args) => createVariableToDraftState(args, base)
 }
 
 function writeVariableDraft(args: WriteVariableArgs, ctx: WriteDraftCtx): Promise<string> {
@@ -6732,32 +6632,19 @@ async function deployDraft(
 				break
 			}
 			case 'variable': {
-				// Can't go through the DB-reading shared deployer: a secret's value is
-				// resolved from memory or omitted entirely (see `resolveStagedSecretValue`).
-				// Everything comes off this one snapshot — re-reading the draft here would
-				// move the conflict baseline onto a row this deploy never checked.
+				// Can't go through the DB-reading shared deployer: a secret's `value` is
+				// omitted when the draft stages none (see `buildVariableUpdateRequestBody`).
 				const draftValue = draft.value as CreateVariable
-				const { pendingSecretValue } = draft
 				if (await VariableService.existsVariable({ workspace, path })) {
 					await VariableService.updateVariable({
 						workspace,
 						path,
-						requestBody: buildVariableUpdateRequestBody(
-							workspace,
-							path,
-							draftValue,
-							pendingSecretValue
-						)
+						requestBody: buildVariableUpdateRequestBody(draftValue)
 					})
 				} else {
 					await VariableService.createVariable({
 						workspace,
-						requestBody: buildVariableCreateRequestBody(
-							workspace,
-							path,
-							draftValue,
-							pendingSecretValue
-						)
+						requestBody: buildVariableCreateRequestBody(draftValue)
 					})
 				}
 				actions = [createOpenVariableAction(path)]

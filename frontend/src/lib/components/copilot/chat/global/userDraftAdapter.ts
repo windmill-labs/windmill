@@ -56,8 +56,6 @@ const GLOBAL_DRAFT_KINDS = [
 	'variable'
 ] as const satisfies UserDraftItemKind[]
 
-const secretVariableDraftValues = new Map<string, Map<string, string>>()
-
 function clone<T>(value: T): T {
 	return structuredClone(value) as T
 }
@@ -81,37 +79,6 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 
 function getItemSummary(value: unknown): string | undefined {
 	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
-}
-
-export function setEphemeralSecretVariableDraftValue(
-	workspace: string,
-	path: string,
-	value: string
-): void {
-	let workspaceValues = secretVariableDraftValues.get(workspace)
-	if (!workspaceValues) {
-		workspaceValues = new Map()
-		secretVariableDraftValues.set(workspace, workspaceValues)
-	}
-	workspaceValues.set(path, value)
-}
-
-export function getEphemeralSecretVariableDraftValue(
-	workspace: string,
-	path: string
-): string | undefined {
-	return secretVariableDraftValues.get(workspace)?.get(path)
-}
-
-export function clearEphemeralSecretVariableDraftValue(workspace: string, path: string): void {
-	const workspaceValues = secretVariableDraftValues.get(workspace)
-	if (!workspaceValues) return
-	workspaceValues.delete(path)
-	if (workspaceValues.size === 0) secretVariableDraftValues.delete(workspace)
-}
-
-function clearEphemeralSecretVariableDraftValues(workspace: string): void {
-	secretVariableDraftValues.delete(workspace)
 }
 
 export function itemKindFor(
@@ -260,7 +227,6 @@ function variableDraftToWorkspaceItem(path: string, draft: VariableDraftState): 
 		path,
 		summary: draft.variable.description || undefined,
 		isSecret: draft.variable.is_secret,
-		pendingSecretValue: draft.pendingSecretValue,
 		value: {
 			path,
 			value: draft.variable.value,
@@ -647,7 +613,6 @@ export async function deleteGlobalDraft(
 			`Draft "${path}" changed externally since you last read it; it was not removed. Re-read and retry.`
 		)
 	}
-	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 	invalidateWorkspaceDrafts(workspace)
 }
 
@@ -717,5 +682,4 @@ export function clearGlobalDrafts(workspace: string): void {
 	for (const draft of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
 		UserDraft.clear(draft.itemKind, draft.path, { workspace })
 	}
-	clearEphemeralSecretVariableDraftValues(workspace)
 }

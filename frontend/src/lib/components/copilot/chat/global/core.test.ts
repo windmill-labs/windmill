@@ -853,7 +853,7 @@ describe('global AI tools', () => {
 			{
 				path: 'f/secrets/api_key',
 				variable: {
-					value: '',
+					value: 'new-secret-token',
 					is_secret: true,
 					description: 'new description'
 				},
@@ -861,16 +861,15 @@ describe('global AI tools', () => {
 				wsSpecific: true,
 				account: 123,
 				is_oauth: true,
-				expires_at: '2026-06-22T09:30:00Z',
-				// This write supplies a secret value, so the draft records that it stages a
-				// rotation — the value itself stays in memory.
-				pendingSecretValue: true
+				expires_at: '2026-06-22T09:30:00Z'
 			}
 		)
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
 
-	it('deploys secret variable drafts with ephemeral values only', async () => {
+	// The draft row is the only place a staged secret lives (the draft endpoint encrypts it
+	// at rest). It must never reach localStorage on the way there.
+	it('deploys a secret variable draft from the draft itself', async () => {
 		await callGlobalTool('write_variable', {
 			path: 'f/secrets/api_key',
 			value: 'new-secret-token',
@@ -883,7 +882,7 @@ describe('global AI tools', () => {
 		).toMatchObject({
 			path: 'f/secrets/api_key',
 			variable: {
-				value: '',
+				value: 'new-secret-token',
 				is_secret: true,
 				description: 'new description'
 			},
@@ -912,7 +911,8 @@ describe('global AI tools', () => {
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
 
-	it('does not deploy a secret variable draft when the ephemeral value is gone', async () => {
+	// '' means "no value staged", so there is nothing to create the secret with.
+	it('does not create a secret variable draft that stages no value', async () => {
 		seedBackendDraft(
 			'variable',
 			'f/secrets/api_key',
@@ -934,7 +934,7 @@ describe('global AI tools', () => {
 				type: 'variable',
 				path: 'f/secrets/api_key'
 			})
-		).rejects.toThrow('secret draft values are kept only in memory')
+		).rejects.toThrow('stages no value')
 		expect(VariableService.createVariable).not.toHaveBeenCalled()
 		expect(VariableService.updateVariable).not.toHaveBeenCalled()
 	})
@@ -977,41 +977,9 @@ describe('global AI tools', () => {
 		expect(requestBody).not.toHaveProperty('value')
 	})
 
-	// The mirror of the test above: a draft that DID stage a new secret must never
-	// deploy as a metadata-only edit once its in-memory value is gone (reload, other
-	// tab), or the chat reports a rotation that never happened.
-	it('refuses to deploy a staged secret rotation whose in-memory value was lost', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'f/secrets/api_key',
-			value: undefined,
-			is_secret: true,
-			description: 'old description',
-			ws_specific: false
-		} as any)
-
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			value: 'rotated-secret-99'
-		})
-
-		// Reload: the in-memory secret map and the in-tab cells go, the draft row stays.
-		clearGlobalDrafts(WORKSPACE)
-
-		await expect(
-			callGlobalTool('deploy_workspace_item', {
-				type: 'variable',
-				path: 'f/secrets/api_key'
-			})
-		).rejects.toThrow('secret draft values are kept only in memory')
-		expect(VariableService.updateVariable).not.toHaveBeenCalled()
-	})
-
-	// The variable drawer shares this draft row and stores a secret it staged as an
-	// `$encrypted:` marker (encrypted at rest by the draft endpoint, decrypted by the
-	// deploy endpoints). A metadata-only chat edit must carry it through: blanking it
-	// would drop the user's pending secret with nothing to replace it.
+	// The drawer stages a secret in this same row as an `$encrypted:` marker (the draft
+	// endpoint encrypts at rest, the deploy endpoints decrypt). A metadata-only chat edit
+	// must leave it alone.
 	it('preserves an encrypted secret draft value through a metadata-only write', async () => {
 		seedBackendDraft(
 			'variable',
@@ -1086,8 +1054,8 @@ describe('global AI tools', () => {
 	})
 
 	// Readable plaintext in a secret draft comes from the drawer's shared cell (stood in for
-	// by the draft store here, since only a Svelte context can hold a cell). Leave it in
-	// place: the drawer reads its own staged value back from there.
+	// by the draft store here, since only a Svelte context can hold a cell). It must survive
+	// a metadata-only chat edit — the drawer reads its own staged value back from there.
 	it('carries a locally staged plaintext secret through a metadata-only write', async () => {
 		seedBackendDraft(
 			'variable',
@@ -1136,9 +1104,8 @@ describe('global AI tools', () => {
 		})
 	})
 
-	// Deploying a drawer-staged secret with no chat write in between: the draft carries
-	// the value but no `pendingSecretValue`, so it must still be sent rather than
-	// omitted as if only metadata had changed.
+	// Deploying a drawer-staged secret with no chat write in between: the draft carries the
+	// value, so it must be sent rather than omitted as if only metadata had changed.
 	it('deploys a secret value staged outside the chat', async () => {
 		seedBackendDraft(
 			'variable',
@@ -1168,9 +1135,8 @@ describe('global AI tools', () => {
 		})
 	})
 
-	// Making a readable variable secret keeps its value (the drawer's is_secret toggle
-	// does the same): it is the one path that promotes a readable value into the secret
-	// store, so it must move to memory rather than stay in the persisted draft.
+	// Making a readable variable secret keeps its value, as the drawer's is_secret toggle
+	// does — the endpoint encrypts it at rest once is_secret is set.
 	it('carries the old value when making a readable variable secret', async () => {
 		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
 		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
@@ -1201,10 +1167,10 @@ describe('global AI tools', () => {
 		})
 	})
 
-	// Revealing a secret in the drawer writes the DEPLOYED value into the shared cell, so a
-	// chat-staged rotation has to outrank it — otherwise deploying re-installs the old
-	// secret and silently drops the rotation.
-	it('prefers a chat-staged rotation over a value revealed afterwards', async () => {
+	// One source of truth means no precedence rule to get wrong: whatever last landed in the
+	// shared row deploys, so a drawer edit after a chat write is not overwritten by a stale
+	// copy held elsewhere.
+	it('deploys the value most recently written to the draft', async () => {
 		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
 		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
 		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
@@ -1217,15 +1183,15 @@ describe('global AI tools', () => {
 
 		await callGlobalTool('write_variable', {
 			path: 'f/secrets/api_key',
-			value: 'rotated-secret-99'
+			value: 'chat-wrote-this-first'
 		})
 
-		// The drawer's reveal lands the deployed secret in the same draft row.
+		// The drawer then types its own value into the same row.
 		const draft = getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
 		seedBackendDraft(
 			'variable',
 			'f/secrets/api_key',
-			{ ...draft, variable: { ...draft.variable, value: 'the-old-deployed-secret' } },
+			{ ...draft, variable: { ...draft.variable, value: 'drawer-wrote-this-second' } },
 			{ workspace: WORKSPACE }
 		)
 
@@ -1235,7 +1201,7 @@ describe('global AI tools', () => {
 		})
 
 		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
-			value: 'rotated-secret-99'
+			value: 'drawer-wrote-this-second'
 		})
 	})
 
@@ -1283,7 +1249,6 @@ describe('global AI tools', () => {
 
 		const draft = getBackendDraft<any>('variable', 'u/admin/gh_token', { workspace: WORKSPACE })
 		expect(draft.variable.value).toBe('')
-		expect(draft.pendingSecretValue).toBeUndefined()
 
 		await callGlobalTool('deploy_workspace_item', { type: 'variable', path: 'u/admin/gh_token' })
 
@@ -1292,9 +1257,8 @@ describe('global AI tools', () => {
 		expect(JSON.stringify(requestBody)).not.toContain('live-refreshed-access-token')
 	})
 
-	// A draft accumulates: omitting `value` means "this write does not touch the value",
-	// so a rotation staged earlier stays staged. write_variable's description says so —
-	// abandoning it needs discard_local_draft.
+	// A draft accumulates: omitting `value` means "this write does not touch the value", so a
+	// value set earlier stays set. Abandoning it needs discard_local_draft.
 	it('keeps a rotation staged across a later metadata-only write', async () => {
 		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
 		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
@@ -2198,9 +2162,8 @@ describe('global AI tools', () => {
 		).toBeUndefined()
 	})
 
-	// Same private-owner read path as schedules, for the variable drawer kind.
-	// Secret variables deploy through the ephemeral in-memory value instead
-	// (see the ephemeral-value tests above); this pins the plain-value cycle.
+	// Same private-owner read path as schedules, for the variable drawer kind. This pins the
+	// plain-value cycle; the secret cases are covered above.
 	it('reads and deploys a non-secret variable draft written by the chat', async () => {
 		await callGlobalTool('write_variable', {
 			path: 'u/admin/fresh_config',

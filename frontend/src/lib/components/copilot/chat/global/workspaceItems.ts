@@ -98,17 +98,16 @@ export type ResourceDraftState = {
 
 export type VariableDraftState = {
 	path: string
+	/** A secret's `value` is `''` unless this draft stages a new one, so a non-empty value
+	 * is always a staged one — that is what lets a metadata-only edit omit `value` at
+	 * deploy and leave the stored secret alone. This row is the single source of truth,
+	 * shared with the variable drawer; the draft endpoint encrypts it at rest. */
 	variable: { value: string; is_secret: boolean; description: string }
 	labels: string[] | undefined
 	wsSpecific: boolean
 	account?: number
 	is_oauth?: boolean
 	expires_at?: string
-	/** Secret drafts store `''` unless a value is staged, so any non-empty value is a
-	 * staged one. A chat-written value is redacted to `''` and held in memory instead —
-	 * this flag records that it exists, so losing it fails loudly rather than deploying
-	 * as a metadata-only edit. Sticky until the draft is deployed or discarded. */
-	pendingSecretValue?: boolean
 }
 
 export type WorkspaceItem = {
@@ -140,10 +139,6 @@ export type WorkspaceItem = {
 	 * without it a reader cannot tell a secret from a plain variable, since the
 	 * value is always redacted. */
 	isSecret?: boolean
-	/** Variable drafts only: mirrors `VariableDraftState.pendingSecretValue` so the
-	 * deploy path resolves the secret from the same snapshot it deploys, instead of
-	 * re-reading the draft and moving the conflict baseline off the row it checked. */
-	pendingSecretValue?: boolean
 	isDraft: boolean
 	isLiveDraft?: boolean
 }
