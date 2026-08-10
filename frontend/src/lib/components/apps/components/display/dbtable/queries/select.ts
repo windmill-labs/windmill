@@ -90,6 +90,17 @@ function makeSnowflakeSelectQuery(
 	return query
 }
 
+/**
+ * DuckDB's CONCAT implicitly casts scalars but rejects nested types:
+ * `CONCAT(' ', ['a','b'])` fails with "Cannot concatenate types VARCHAR and
+ * VARCHAR[] - an explicit cast is required". Quicksearch concatenates every
+ * visible column, so one LIST, STRUCT or MAP column makes the whole table
+ * impossible to preview. Casting is also what a text search wants.
+ */
+export function duckdbSearchableColumns(columns: string[]): string {
+	return columns.map((column) => `CAST(${column} AS VARCHAR)`).join(', ')
+}
+
 export function makeSelectQuery(
 	table: string,
 	columnDefs: ColumnDef[],
@@ -298,8 +309,8 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				)
 				.join(',\n')}`
 
-			quicksearchCondition = `($quicksearch = '' OR CONCAT(${filteredColumns.join(
-				', '
+			quicksearchCondition = `($quicksearch = '' OR CONCAT(${duckdbSearchableColumns(
+				filteredColumns
 			)}) ILIKE '%' || $quicksearch || '%')`
 
 			query += `SELECT ${filteredColumns.join(', ')} FROM ${table}\n`

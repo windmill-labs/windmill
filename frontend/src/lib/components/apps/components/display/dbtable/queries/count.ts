@@ -12,6 +12,7 @@ import { wrapDucklakeQuery } from '../../../../../ducklake'
 import type { DbType, DbInput } from '$lib/components/dbTypes'
 import { buildParameters } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
+import { duckdbSearchableColumns } from './select'
 
 export function makeCountQuery(
 	dbType: DbType,
@@ -118,8 +119,8 @@ export function makeCountQuery(
 		}
 		case 'duckdb':
 			if (filteredColumns.length > 0) {
-				quicksearchCondition += ` ($quicksearch = '' OR CONCAT(' ', ${filteredColumns.join(
-					', '
+				quicksearchCondition += ` ($quicksearch = '' OR CONCAT(' ', ${duckdbSearchableColumns(
+					filteredColumns
 				)}) LIKE CONCAT('%', $quicksearch, '%'))`
 			} else {
 				quicksearchCondition += ` ($quicksearch = '' OR 1 = 1)`
