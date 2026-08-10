@@ -1286,8 +1286,8 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
 // `memory_limit`, and only for jobs on an isolating worker.
 #[cfg(test)]
 mod patched_engine_tests {
-    /// Small enough that the CREATE TABLE below cannot be answered in memory, so the
-    /// engine has to reach the temp directory to finish it.
+    /// Too large to be answered within the `memory_limit` `spill_attempt` sets, so the engine
+    /// has to reach the temp directory to finish it.
     const SPILLING_QUERY: &str = "CREATE TABLE t AS SELECT * FROM range(1000000)";
 
     fn spill_attempt(temp_dir: &std::path::Path, lock: bool) -> Result<(), String> {
@@ -1336,11 +1336,17 @@ mod patched_engine_tests {
     // neighbouring field and LOAD blocks forever — so this is a timeout, not an assertion.
     #[test]
     fn prebuilt_extensions_still_load() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        // Fetching the extension needs egress, which loading it back does not. Only the load
+        // is what this guards, so an unreachable repository skips rather than fails.
+        if let Err(e) = conn.execute_batch("INSTALL httpfs;") {
+            eprintln!("skipping: cannot reach the duckdb extension repository ({e})");
+            return;
+        }
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let conn = duckdb::Connection::open_in_memory().unwrap();
             tx.send(
-                conn.execute_batch("INSTALL httpfs; LOAD httpfs;")
+                conn.execute_batch("LOAD httpfs;")
                     .map_err(|e| e.to_string()),
             )
         });
