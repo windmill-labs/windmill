@@ -1,6 +1,13 @@
 <script lang="ts">
+	import GraphZoomControls from './GraphZoomControls.svelte'
+	import FlowPanelPlacementPicker from '$lib/components/flows/common/FlowPanelPlacementPicker.svelte'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
+	import { findStepPath, parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
+	import { expandedSubflowParentId } from '../flows/expandedSubflowStep'
+	import { sendUserToast } from '$lib/utils'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
+	import { isTriggerStep } from '$lib/components/flows/flowStepSettings'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
 
@@ -19,7 +26,6 @@
 	} from '@xyflow/svelte'
 	import {
 		graphBuilder,
-		isTriggerStep,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -85,18 +91,19 @@
 	import { getAllModules } from '../flows/flowExplorer'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
-	import { SelectionManager } from './selectionUtils.svelte'
+	import { SelectionManager, isFlowLevelPanelTarget } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { NoteManager } from './noteManager.svelte'
 	import type { MoveManager } from './moveManager.svelte'
 	import DragCoordinator from './DragCoordinator.svelte'
-	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import { jobToGraphModuleState, type ModulesTestStates } from '../modulesTest.svelte'
 	import { compoundLayout } from './compoundLayout'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import { computeNodeExtraSpace } from './nodeExtraSpace'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
+	import { setFlowRunStatusContext } from './flowRunStatus.svelte'
 	import { computeNoteNodes } from './noteUtils.svelte'
 	import { Tooltip } from '../meltComponents'
 	import { getNoteEditorContext } from './noteEditor.svelte'
@@ -111,6 +118,7 @@
 	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
+	const overlays = overlayStack()
 
 	// Create diffManager instance for this FlowGraphV2
 	const diffManager = createFlowDiffManager()
@@ -364,6 +372,37 @@
 		groupDisplayState
 	} as any)
 
+	const flowRunStatus = setFlowRunStatusContext()
+	$effect(() => {
+		flowRunStatus.flowJob = flowJob
+	})
+	$effect(() => {
+		flowRunStatus.suspendStatus = suspendStatus
+	})
+	$effect(() => {
+		// Each step's state object is replaced rather than mutated, so reading the top level
+		// catches every status change. Walking deeper would subscribe to every step's args and
+		// result on the hottest path in the graph.
+		Object.values(flowModuleStates ?? {})
+		// The loader mutates `flow_status` on the job it already handed us, so subscribing to the
+		// test state alone would never see an agent's calls land.
+		Object.values(testModuleStates?.states ?? {}).forEach((s) => [
+			s.loading,
+			s.testJob?.['flow_status']?.modules?.[0]?.agent_actions?.length
+		])
+		untrack(() => {
+			// Testing one step is its own small run, and its agent calls arrive on the test job
+			// rather than the flow's states. Fold them in so the renderers keep a single source.
+			let states = flowModuleStates
+			for (const [id, testState] of Object.entries(testModuleStates?.states ?? {})) {
+				const tested = jobToGraphModuleState(testState)
+				if (!tested?.agent_actions) continue
+				states = { ...(states ?? {}), [id]: { ...(states?.[id] ?? {}), ...tested } }
+			}
+			flowRunStatus.setModuleStates(states)
+		})
+	})
+
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
 		if (isSimplifiable(untrack(() => modules))) {
 			triggerContext?.simplifiedPoll?.set(true)
@@ -474,10 +513,15 @@
 		insert: (detail) => {
 			onInsert?.(detail)
 		},
-		select: (modId) => {
+		select: (modId, opts) => {
 			// AI tools are not selectable by the flow. Selection has to be refactored to be simplier.
-			if (nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool' || modId === 'Trigger') {
-				selectionManager.selectId(modId)
+			// Flow-level panels reach selection only through here, so they must go through
+			// selectId or their intent (and the modal panel) never fires.
+			if (
+				nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool' ||
+				isFlowLevelPanelTarget(modId)
+			) {
+				selectionManager.selectId(modId, opts)
 			}
 			if (!notSelectable) {
 				onSelect?.(modId)
@@ -505,7 +549,25 @@
 			triggerContext?.simplifiedPoll.set(detail)
 		},
 		expandSubflow: async (id: string, path: string) => {
-			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+			// Reads the subflow's *current* definition, which a share link deliberately does
+			// not cover: it authorizes the run's job subtree, not the workspace's flow
+			// library. So a share-link viewer (and any anonymous one) is refused here — name
+			// that case, but only when the error actually says so.
+			let flow: OpenFlow
+			try {
+				flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+			} catch (err) {
+				const denied = err?.status === 401 || err?.status === 403
+				sendUserToast(
+					`Could not expand subflow ${path}: ${
+						denied
+							? "viewing a subflow's definition requires being logged in with access to it"
+							: (err?.body ?? err)
+					}`,
+					true
+				)
+				return
+			}
 			expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			expandedSubflows = expandedSubflows
 		},
@@ -601,20 +663,58 @@
 
 	let height = $state(0)
 
+	/**
+	 * A run only changes what the steps display, never the shape of the graph, but every
+	 * status poll rebuilds these arrays from scratch. xyflow re-measures every node it is
+	 * handed a new object for, and Svelte destroys and re-creates every edge, so handing
+	 * back fresh identities re-renders a graph that did not change. Reuse the previous
+	 * object wherever it still deep-equals the new one.
+	 */
+	function reuseUnchanged<T extends { id: string }>(previous: T[], next: T[]): T[] {
+		const previousById = new Map(previous.map((item) => [item.id, item]))
+		let changed = previous.length !== next.length
+		const reconciled = next.map((item, index) => {
+			const before = previousById.get(item.id)
+			if (before && deepEqual(before, item)) {
+				changed ||= previous[index] !== before
+				return before
+			}
+			changed = true
+			return item
+		})
+		return changed ? reconciled : previous
+	}
+
+	// Keyed by the source node, so a node that survived reconciliation keeps its offset
+	// object too — remapping every node would undo the identity reuse above.
+	let offsetNodeCache = new WeakMap<Node, Node>()
+	let offsetCacheKey: string | undefined = undefined
+
 	// Derived nodes with yOffset applied to all nodes uniformly and selectable flag set to false if notSelectable is true
 	const nodesWithOffset = $derived.by(() => {
+		const cacheKey = `${yOffset}:${notSelectable}`
+		if (cacheKey !== offsetCacheKey) {
+			offsetNodeCache = new WeakMap<Node, Node>()
+			offsetCacheKey = cacheKey
+		}
 		return nodes.map((node) => {
-			if (node.type && !AI_OR_ASSET_NODE_TYPES.includes(node.type)) {
-				return {
-					...node,
-					position: { ...node.position, y: node.position.y + yOffset },
-					selectable: notSelectable ? false : node.selectable
-				}
+			const cached = offsetNodeCache.get(node)
+			if (cached) {
+				return cached
 			}
-			return {
-				...node,
-				selectable: notSelectable ? false : node.selectable
-			}
+			const mapped =
+				node.type && !AI_OR_ASSET_NODE_TYPES.includes(node.type)
+					? {
+							...node,
+							position: { ...node.position, y: node.position.y + yOffset },
+							selectable: notSelectable ? false : node.selectable
+						}
+					: {
+							...node,
+							selectable: notSelectable ? false : node.selectable
+						}
+			offsetNodeCache.set(node, mapped)
+			return mapped
 		})
 	})
 
@@ -634,6 +734,10 @@
 
 	// Clear SvelteFlow's internal selection by creating new nodes array
 	function clearFlowSelection() {
+		// xyflow owns `selected` on the objects it was handed, and drops it only when it sees a
+		// node it does not recognise. Serving the cached mapping back would hand it the very
+		// object it marked selected, so the clear has to go through fresh objects.
+		offsetNodeCache = new WeakMap<Node, Node>()
 		nodes = nodes.map((node) => {
 			if (node.selected) {
 				return { ...node, selected: false }
@@ -644,6 +748,12 @@
 
 	// Keyboard event handling
 	function handleKeyDown(event: KeyboardEvent) {
+		// Escape belongs to the topmost overlay. This listener is on `document` and theirs
+		// are on `window`, so this one always runs first — without the guard, dismissing a
+		// modal or picker would also clear the selection under it and lose the user's step.
+		if (event.key === 'Escape' && overlays.val.length > 0) {
+			return
+		}
 		selectionManager.handleKeyDown(event)
 		noteManager.handleKeyDown(event)
 		if (event.key === 'Escape') {
@@ -779,13 +889,13 @@
 			: undefined
 
 		// update nodes
-		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
+		nodes = reuseUnchanged(nodes, [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])])
 
-		edges = [
+		edges = reuseUnchanged(edges, [
 			...(assetNodesResult?.newAssetEdges ?? []),
 			...aiToolNodesResult.toolEdges,
 			...graph.edges
-		]
+		])
 
 		await tick()
 		updateHeight()
@@ -871,6 +981,13 @@
 		moduleTracker.counter
 		effectiveModuleActions
 		currentGroups
+		// The poll replaces `flowJob` on every tick and is what makes the untracked
+		// `flowModuleStates` above get re-read, so it stays a dependency. It is deliberately
+		// not handed to graphBuilder: anything put there lands in every node and edge's data,
+		// and a per-tick value there re-creates the whole graph. Renderers read it from
+		// FlowRunStatus instead.
+		flowJob
+		suspendStatus
 
 		const collapsedGroupIds = new Set(
 			allGroups
@@ -921,9 +1038,7 @@
 				isOwner,
 				isRunning,
 				individualStepTests,
-				flowJob,
 				showJobStatus,
-				suspendStatus,
 				flowHasChanged,
 				chatInputEnabled,
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
@@ -963,6 +1078,27 @@
 	// Track groups for re-layout when groups change
 	let currentGroups = $derived(groups ?? [])
 
+	/**
+	 * An agent's tool calls become nodes, and they land one at a time while the step runs.
+	 * Nothing else the graph reads changes as they arrive — the run only appends to an
+	 * existing step's state — so without this the tools all appear at once when the step ends.
+	 */
+	let agentActionsVersion = $derived.by(() => {
+		// The editor draws the agent's declared tools and ignores the run's calls, so neither the
+		// layout nor the tool nodes can change as they land.
+		if (insertable) return ''
+		let version = ''
+		for (const [id, state] of Object.entries(flowModuleStates ?? {})) {
+			const actions = state?.agent_actions
+			if (!actions) continue
+			version += `${id}:${actions.length}:`
+			for (const action of actions) {
+				version += `${action.type}/${(action as { function_name?: string }).function_name ?? ''},`
+			}
+		}
+		return version
+	})
+
 	$effect(() => {
 		;[
 			graph,
@@ -972,6 +1108,7 @@
 			noteManager.renderCount,
 			currentGroups,
 			groupDisplayState.renderCount,
+			agentActionsVersion,
 			// A linked step's tools resolve asynchronously; recompute tool nodes when they land.
 			linkedAgentToolsVersion()
 		]
@@ -1089,6 +1226,54 @@
 		if (!showNotes) {
 			showNotes = true
 		}
+	}
+
+	let latestReload = 0
+
+	/** Flow an expanded subflow node stands for, read from the step it inlines: the edited
+	 * flow for a top-level expansion, the enclosing expansion's modules otherwise. */
+	function expandedSubflowPath(nodeId: string): string | undefined {
+		const parentId = expandedSubflowParentId(nodeId)
+		const parentModules = parentId == undefined ? modules : expandedSubflows[parentId]?.modules
+		const stepId = parseExpandedSubflowId(nodeId)?.leaf ?? nodeId
+		const value = parentModules && findStepPath(parentModules, stepId)?.target.value
+		return value && value.type === 'flow' ? value.path : undefined
+	}
+
+	/** Refetch the steps inlined by every expanded subflow, e.g. after one was deployed from
+	 * the flow editor drawer. Outermost first, so a nested expansion resolves its path from
+	 * its refreshed parent: a step now pointing at another flow must not keep rendering the
+	 * one it pointed at when it was expanded. */
+	export async function reloadExpandedSubflows() {
+		const reload = ++latestReload
+		const ids = Object.keys(expandedSubflows).sort(
+			(a, b) =>
+				(parseExpandedSubflowId(a)?.subflowSteps.length ?? 0) -
+				(parseExpandedSubflowId(b)?.subflowSteps.length ?? 0)
+		)
+		for (const id of ids) {
+			// A later reload owns the state from here on.
+			if (reload !== latestReload) return
+			const expansion = expandedSubflows[id]
+			if (expansion == undefined) continue
+			const path = expandedSubflowPath(id)
+			if (path == undefined) {
+				delete expandedSubflows[id]
+				continue
+			}
+			try {
+				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+				if (reload !== latestReload) return
+				// While this request was in flight the user may have collapsed the expansion, or
+				// collapsed it and re-expanded onto another flow: only commit onto the very
+				// expansion this response was fetched for.
+				if (expandedSubflows[id] !== expansion) continue
+				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
+			} catch (err) {
+				sendUserToast(`Could not reload expanded subflow ${path}: ${err.body ?? err}`, true)
+			}
+		}
+		expandedSubflows = expandedSubflows
 	}
 
 	export function createGroupFromSelection(ids: string[]) {
@@ -1230,12 +1415,17 @@
 						{@render leftHeader()}
 					</div>
 				{:else}
+					<!-- Their built-in glyphs are fill-based and sized differently from every other
+					     icon in the editor, so the bar is built from lucide throughout. -->
 					<Controls
+						class="wm-flow-controls"
 						position={controlsPosition === 'bottom' ? 'bottom-right' : 'top-right'}
 						orientation="horizontal"
+						showZoom={false}
+						showFitView={false}
 						showLock={false}
-						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}
 					>
+						<GraphZoomControls fitViewNodes={nodes.filter((n) => n.type !== 'note')} />
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>
@@ -1291,6 +1481,7 @@
 								<Expand size="14" />
 							</ControlButton>
 						{/if}
+						<FlowPanelPlacementPicker variant="control" placement="top-end" />
 					</Controls>
 
 					<Controls
@@ -1323,11 +1514,39 @@
 		opacity: 0;
 	}
 
-	:global(.svelte-flow__controls-button) {
-		@apply bg-surface border-0;
+	/* xy-flow's own rules are nested, so `.svelte-flow__controls-button svg` and the like
+	   match ours exactly and load order decides. Scoping by the class we pass to <Controls>
+	   outranks them instead of racing them. */
+	:global(.svelte-flow__controls.wm-flow-controls) {
+		/* Name the colour rather than leaning on the base layer's bare `.border`: preflight
+		   sets a light `border-color` on every element, so whenever that base rule does not
+		   make it into the bundle alongside this one the bar draws a white outline. */
+		@apply overflow-hidden rounded-md border border-border-light;
+		box-shadow: none;
 	}
-	:global(.svelte-flow__controls-button:hover) {
+	:global(.wm-flow-controls .svelte-flow__controls-button) {
+		@apply bg-surface text-primary;
+		width: 32px;
+		height: 30px;
+		padding: 8px;
+	}
+	:global(.wm-flow-controls .svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
+	}
+	:global(.wm-flow-controls.horizontal .svelte-flow__controls-button) {
+		@apply border-r border-gray-200 dark:border-gray-700;
+	}
+	:global(.wm-flow-controls.horizontal .svelte-flow__controls-button:last-child) {
+		@apply border-r-0;
+	}
+	/* Every glyph in this bar is lucide, so undo their base `fill: currentColor` — it beats
+	   lucide's inline fill="none" and would flood the stroke icons solid — and lift the
+	   12px cap that keeps them off the editor's icon scale. */
+	:global(.wm-flow-controls .svelte-flow__controls-button svg) {
+		max-width: 16px;
+		max-height: 16px;
+		fill: none;
+		stroke: currentColor;
 	}
 
 	:global(.svelte-flow__edgelabel-renderer) {

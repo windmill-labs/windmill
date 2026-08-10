@@ -166,6 +166,12 @@ export interface ToolCallArgumentRule {
    * tool — e.g. SQL where a mutation is mixed with verification SELECTs.
    */
   stringIncludesAnyOf?: string[];
+  /**
+   * Universal over calls: every recorded call to `tool` must carry `field` as a
+   * non-blank string. Use for a required argument whose value is free text, where
+   * the point is that the model filled it in at all rather than what it said.
+   */
+  nonEmpty?: boolean;
 }
 
 export interface ToolValidationSpec {

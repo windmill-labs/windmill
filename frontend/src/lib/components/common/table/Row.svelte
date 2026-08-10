@@ -8,6 +8,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Tooltip from '../../meltComponents/Tooltip.svelte'
 	import Checkbox from '../checkbox/Checkbox.svelte'
+	import type { RowSelection } from './rowSelection'
 
 	interface Props {
 		marked: string | undefined
@@ -24,6 +25,9 @@
 		 * children — checkbox, buttons, links) toggles selection. Opt-in so
 		 * existing tables that don't want it are unaffected. */
 		selectOnRowClick?: boolean
+		/** Home-style multi-select: the kind icon doubles as the checkbox instead
+		 * of adding a column, so an unused selection costs the row nothing. */
+		rowSelection?: RowSelection
 		alignWithSelectable?: boolean
 		errorHandlerMuted?: boolean
 		aiId?: string | undefined
@@ -80,6 +84,7 @@
 		isSelectable = false,
 		selectDisabledReason = undefined,
 		selectOnRowClick = false,
+		rowSelection = undefined,
 		alignWithSelectable = false,
 		errorHandlerMuted = false,
 		aiId = undefined,
@@ -113,6 +118,9 @@
 	})
 
 	const clickToSelect = $derived(selectOnRowClick && isSelectable && !disabled)
+	// Once selection mode is on the whole card toggles, and the title stops being
+	// a link so a stray click can't navigate out of the selection.
+	const inSelectionMode = $derived(!!rowSelection?.active)
 
 	// Interactive children that handle their own activation — selecting the row on
 	// top of them would double-fire (mouse) or hijack their keyboard activation.
@@ -121,6 +129,11 @@
 	}
 
 	function handleRowClick(e: MouseEvent) {
+		if (inSelectionMode) {
+			if (fromInteractiveChild(e)) return
+			rowSelection?.onToggle(e)
+			return
+		}
 		if (!clickToSelect) return
 		// Don't double-toggle when the click originated from an interactive child
 		// (the checkbox itself, action buttons, or the title link).
@@ -157,12 +170,18 @@
      with its sibling folder at the same depth. -->
 <div
 	bind:this={rowEl}
+	data-row-selection-key={rowSelection?.key}
+	data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 	class={twMerge(
-		'w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
+		'group/row w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
 		depth > 0 ? '!rounded-none' : '',
 		disabled ? 'opacity-25' : 'hover:bg-surface-hover',
-		clickToSelect ? 'cursor-pointer select-none' : '',
-		selected ? 'bg-surface-accent-selected' : keyboardSelected ? 'bg-gray-200 dark:bg-gray-700' : ''
+		clickToSelect || inSelectionMode ? 'cursor-pointer select-none' : '',
+		selected || rowSelection?.selected
+			? 'bg-surface-accent-selected'
+			: keyboardSelected
+				? 'bg-gray-200 dark:bg-gray-700'
+				: ''
 	)}
 	style={depth > 0 ? `padding-left: ${(depth + 1) * 16}px;` : ''}
 	role={clickToSelect ? 'button' : undefined}
@@ -181,16 +200,47 @@
 		<div class="rounded max-w-4 w-full"></div>
 	{/if}
 
-	{#if href}
+	{#if rowSelection}
+		<!-- The icon slot itself: the kind icon until the row is hovered (or
+		     selection mode is on), the checkbox from then on. Both are stacked in a
+		     fixed 16px box and swapped with visibility so nothing shifts. -->
+		<div class="shrink relative w-4 h-4">
+			<div
+				class={twMerge(
+					'absolute inset-0',
+					rowSelection.active ? 'invisible' : 'group-hover/row:invisible'
+				)}
+			>
+				<RowIcon {kind} {triggerKind} />
+			</div>
+			<Checkbox
+				class={twMerge(
+					'absolute inset-0 w-4 h-4',
+					rowSelection.active ? '' : 'invisible group-hover/row:visible'
+				)}
+				checked={rowSelection.selected}
+				title={rowSelection.selected ? 'Deselect' : 'Select (shift-click to select a range)'}
+				onClick={(e) => {
+					// Left unprevented on purpose: the browser's own toggle already lands
+					// on the value we are about to compute, except on a range re-select,
+					// which Checkbox re-asserts. Preventing it would revert the box AFTER
+					// the update and leave every clicked row visually unticked.
+					e.stopPropagation()
+					rowSelection?.onToggle(e)
+				}}
+			/>
+		</div>
+	{/if}
+
+	{#if href && !inSelectionMode}
 		<a
 			{href}
-			data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 			class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4"
 		>
-			{@render rowContent()}
+			{@render rowContent(!rowSelection)}
 		</a>
 	{:else}
-		{@render rowContent()}
+		{@render rowContent(!rowSelection)}
 	{/if}
 
 	{#if errorHandlerMuted}
@@ -216,11 +266,13 @@
 	</div>
 </div>
 
-{#snippet rowContent()}
-	<div class="shrink">
-		<RowIcon {kind} {triggerKind} />
-	</div>
-	<div class="grow">
+{#snippet rowContent(withIcon: boolean)}
+	{#if withIcon}
+		<div class="shrink">
+			<RowIcon {kind} {triggerKind} />
+		</div>
+	{/if}
+	<div class="grow min-w-0">
 		<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
 			{#if customSummary}
 				{@render customSummary?.()}

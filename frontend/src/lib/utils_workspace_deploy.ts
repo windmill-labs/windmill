@@ -14,10 +14,12 @@ import {
 	ScheduleService,
 	ScriptService,
 	SqsTriggerService,
+	GroupService,
 	UserService,
 	VariableService,
 	WebsocketTriggerService,
-	WorkspaceService
+	WorkspaceService,
+	type User
 } from '$lib/gen'
 import {
 	fetchProtectionRulesForWorkspace,
@@ -167,7 +169,45 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 	return map[kind]
 }
 
-function makeProvider(): DeployProvider {
+/** An identity in both formats the app policy stores it in. */
+export type AppIdentity = { email: string; permissionedAs: string }
+
+/**
+ * Set when a create-only deploy was refused because the target turned out to already have the
+ * item. Carried on an object rather than matched out of the error text: `deployItem` swallows
+ * every throw into `{ success: false, error }`, so the flag is the only reliable signal.
+ */
+export type DeployConflict = { hit: boolean }
+
+/**
+ * `deployItem` overrides only the email half of the identity, while the body it builds
+ * spreads the *source* item — which carries the source workspace's permissioned_as, valid
+ * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
+ * with the picked user's principal for a custom choice, and cleared otherwise so the
+ * backend derives the target's own from the email it is given. The shared `deployItem`
+ * clears it too, but this app consumes the published package, so the clear has to exist
+ * on both sides until that version ships.
+ */
+function makeProvider(
+	onBehalfOfPrincipal?: string,
+	appIdentity?: AppIdentity,
+	/**
+	 * Refuse the writes the shared `deployItem` reaches for only when the item already exists in
+	 * the target, turning its silent switch to an update into a failure the caller can act on.
+	 * The three below are exactly its `alreadyExists` branches: a flow and an app are replaced
+	 * outright, and a script is given the target's head as `parent_hash`, which is what makes an
+	 * otherwise identical `createScript` an update.
+	 */
+	conflict?: DeployConflict
+): DeployProvider {
+	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({
+		...requestBody,
+		on_behalf_of: onBehalfOfPrincipal
+	})
+	const refuseUpdate = (): never => {
+		if (conflict) conflict.hit = true
+		throw new Error('item already exists in the target workspace')
+	}
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -177,17 +217,39 @@ function makeProvider(): DeployProvider {
 		existsResourceType: (p) => ResourceService.existsResourceType(p),
 		existsFolder: (p) => FolderService.existsFolder(p),
 		getFlowByPath: (p) => FlowService.getFlowByPath(p),
-		createFlow: (p) => FlowService.createFlow(p),
-		updateFlow: (p) => FlowService.updateFlow(p),
+		createFlow: (p) =>
+			FlowService.createFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+		updateFlow: (p) =>
+			conflict
+				? refuseUpdate()
+				: FlowService.updateFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveFlowByPath: (p) => FlowService.archiveFlowByPath(p),
 		getScriptByPath: (p) => ScriptService.getScriptByPath(p),
-		createScript: (p) => ScriptService.createScript(p),
+		createScript: (p) =>
+			conflict && p.requestBody.parent_hash
+				? refuseUpdate()
+				: ScriptService.createScript({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
-		getAppByPath: (p) => AppService.getAppByPath(p),
+		// An app's identity lives in its policy, and the shared deploy forwards the source policy
+		// untouched — it only turns `onBehalfOf` into `preserve_on_behalf_of: true`. Rewriting the
+		// policy on the way out is therefore the only way a chosen identity reaches the target; the
+		// backend honours it (`should_preserve` requires `policy.on_behalf_of.is_some()`).
+		getAppByPath: async (p) => {
+			const app = await AppService.getAppByPath(p)
+			if (!appIdentity) return app
+			return {
+				...app,
+				policy: {
+					...app.policy,
+					on_behalf_of: appIdentity.permissionedAs,
+					on_behalf_of_email: appIdentity.email
+				}
+			}
+		},
 		createApp: (p) => AppService.createApp(p),
-		updateApp: (p) => AppService.updateApp(p),
+		updateApp: (p) => (conflict ? refuseUpdate() : AppService.updateApp(p)),
 		createAppRaw: (p) => AppService.createAppRaw(p),
-		updateAppRaw: (p) => AppService.updateAppRaw(p),
+		updateAppRaw: (p) => (conflict ? refuseUpdate() : AppService.updateAppRaw(p)),
 		getPublicSecretOfLatestVersionOfApp: (p) => AppService.getPublicSecretOfLatestVersionOfApp(p),
 		getRawAppData: (p) => AppService.getRawAppData(p),
 		deleteApp: (p) => AppService.deleteApp(p),
@@ -267,6 +329,20 @@ export interface DeployItemParams {
 	 * If undefined, the deploying user's identity is used.
 	 */
 	onBehalfOf?: string
+	/**
+	 * Authorization half of `onBehalfOf` (u/username or g/group). Must name the same identity as
+	 * `onBehalfOf`. Set it only when the user picked a specific user; undefined clears the key,
+	 * leaving the backend to derive the target workspace's own principal from `onBehalfOf`. Apps
+	 * additionally need it in the policy, which holds both formats — see `makeProvider`.
+	 */
+	onBehalfOfPrincipal?: string
+	/**
+	 * Fail instead of overwriting when the target turns out to already have the item. The shared
+	 * deploy re-probes and silently switches to an update, so a caller that only means to create —
+	 * one acting on the item being absent — has to say so or it will overwrite whoever got there
+	 * between the two probes. The result then carries `conflict`.
+	 */
+	createOnly?: boolean
 }
 
 /**
@@ -274,8 +350,19 @@ export interface DeployItemParams {
  * `DeployKind` union plus the legacy generic `'trigger'` from `DeployWorkspace.svelte`,
  * which carries its sub-kind in `additionalInformation`.
  */
-export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
-	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, onBehalfOf } = params
+export async function deployItem(
+	params: DeployItemParams
+): Promise<DeployResult & { conflict?: boolean }> {
+	const {
+		kind,
+		path,
+		workspaceFrom,
+		workspaceTo,
+		additionalInformation,
+		onBehalfOf,
+		onBehalfOfPrincipal,
+		createOnly
+	} = params
 
 	if (kind === 'trigger') {
 		// Legacy path: `DeployWorkspace.svelte` doesn't know the per-kind trigger
@@ -313,14 +400,84 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 		}
 	}
 
-	return sharedDeployItem(
-		makeProvider(),
+	const appIdentity =
+		(kind === 'app' || kind === 'raw_app') && onBehalfOf && onBehalfOfPrincipal
+			? { email: onBehalfOf, permissionedAs: onBehalfOfPrincipal }
+			: undefined
+	const conflict: DeployConflict | undefined = createOnly ? { hit: false } : undefined
+	const result = await sharedDeployItem(
+		makeProvider(onBehalfOfPrincipal, appIdentity, conflict),
 		kind as DeployKind,
 		path,
 		workspaceFrom,
 		workspaceTo,
 		onBehalfOf
 	)
+	return conflict?.hit ? { ...result, conflict: true } : result
+}
+
+/**
+ * The two sides of a `workspace_diff` row a deploy direction reads:
+ * `exists_in_source` is the parent (or arbitrary target) side, `exists_in_fork`
+ * the current workspace. `fork_last_event_*` is what the tally recorded for the
+ * fork's last write at this path, absent on a row that predates the recording.
+ */
+type WorkspaceDiffSides = {
+	ahead: number
+	behind: number
+	exists_in_source: boolean
+	exists_in_fork: boolean
+	fork_last_event_kind?: 'write' | 'delete' | 'rename_from'
+	fork_last_event_origin?: 'authored' | 'sync'
+}
+
+/** Deploying this row creates the item in the target, which does not have it. */
+export function diffCreatesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_source === false : diff.exists_in_fork === false
+}
+
+/**
+ * Deploying this row removes the item in the target, the only side that has it.
+ * A removal is always opt-in (never bulk-selected): the row states what deploying
+ * does, and for the merge direction `diffForkDroppedItem` is what justifies
+ * offering it at all.
+ */
+export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_fork === false : diff.exists_in_source === false
+}
+
+/**
+ * The fork dropped the item on purpose — someone deleted it, or renamed it away.
+ * The counters cannot show this (they count writes on a side without saying what
+ * they were), so only the recorded event does: a sync-origin removal is a git-sync
+ * revert rather than a fork decision, and an unrecorded one is no evidence at all.
+ */
+export function diffForkDroppedItem(diff: WorkspaceDiffSides): boolean {
+	return (
+		diff.fork_last_event_origin === 'authored' &&
+		(diff.fork_last_event_kind === 'delete' || diff.fork_last_event_kind === 'rename_from')
+	)
+}
+
+/**
+ * Rows a deploy in this direction can act on. A merge carries what the fork *has*,
+ * plus what it can show it dropped; an item the fork merely never received is no
+ * fork change. The update direction takes a parent-only row whatever the counters
+ * say. An arbitrary target merges one unconditionally — that one-way sync has no
+ * tally, so target-only does mean "remove".
+ */
+export function diffActionableInDirection(
+	diff: WorkspaceDiffSides,
+	mergeIntoParent: boolean,
+	isArbitraryTarget: boolean = false
+): boolean {
+	if (mergeIntoParent) {
+		if (!isArbitraryTarget && diff.exists_in_fork === false && !diffForkDroppedItem(diff)) {
+			return false
+		}
+		return diff.ahead > 0
+	}
+	return diff.behind > 0 || diffCreatesInTarget(diff, mergeIntoParent)
 }
 
 /**
@@ -393,6 +550,159 @@ export async function getOnBehalfOf(
 	return sharedGetOnBehalfOf(makeProvider(), kind as DeployKind, path, workspace)
 }
 
+/**
+ * `getOnBehalfOf` without its swallow-and-return-undefined. A caller that offers an identity choice
+ * only when the source has one must be able to tell "carries no identity" from "could not read it":
+ * conflating them silently reassigns the deployed item to whoever deployed it.
+ */
+export async function getOnBehalfOfOrThrow(
+	kind: 'script' | 'flow' | 'app' | 'raw_app',
+	path: string,
+	workspace: string
+): Promise<string | undefined> {
+	const provider = makeProvider()
+	if (kind === 'flow') return (await provider.getFlowByPath({ workspace, path })).on_behalf_of_email
+	if (kind === 'script')
+		return (await provider.getScriptByPath({ workspace, path })).on_behalf_of_email
+	return (await provider.getAppByPath({ workspace, path })).policy?.on_behalf_of_email
+}
+
+/**
+ * Every workspace group, not just the first page.
+ *
+ * `listGroupNames` would be the obvious call but unions in instance groups, which folder rules do
+ * not resolve against — a same-named instance group would let an unusable rule through. `listGroups`
+ * reads the workspace's own `group_` rows, which is what the server checks, but it paginates: a
+ * group missed here reads as "no account in the target", which now refuses a folder copy outright.
+ */
+async function workspaceGroupNames(workspace: string): Promise<Set<string>> {
+	const PER_PAGE = 1000
+	const names = new Set<string>()
+	// Stops on a short page; the size check is the backstop for a server that ignores `page`.
+	for (let page = 1; page <= 50; page++) {
+		const batch = await GroupService.listGroups({ workspace, page, perPage: PER_PAGE })
+		const before = names.size
+		batch.forEach((g) => names.add(g.name))
+		if (batch.length < PER_PAGE || names.size === before) break
+	}
+	return names
+}
+
+/**
+ * Resolve a source-workspace principal into the same person or group as the target names them.
+ *
+ * A `u/<username>` is workspace-local: the same username in the target can be a different account,
+ * so copying one verbatim can hand a folder — or an item's execution identity — to a namesake. Email
+ * is the only identifier stable across workspaces, so users go source username -> email -> target
+ * username, and anyone without an account there resolves to undefined for the caller to deal with.
+ */
+async function principalTranslator(workspaceFrom: string, workspaceTo: string) {
+	const [fromUsers, toUsers, targetGroups] = await Promise.all([
+		// `list_users` is unpaginated, unlike the group listing below.
+		UserService.listUsers({ workspace: workspaceFrom }),
+		UserService.listUsers({ workspace: workspaceTo }),
+		workspaceGroupNames(workspaceTo)
+	])
+	const emailOfSourceUsername = new Map(fromUsers.map((u) => [u.username, u.email]))
+	const targetUsernameOfEmail = new Map(toUsers.map((u) => [u.email, u.username]))
+
+	/** The same principal as `workspaceTo` names it, or undefined when it has no account there. */
+	return (principal: string): string | undefined => {
+		if (principal.startsWith('u/')) {
+			const email = emailOfSourceUsername.get(principal.slice(2))
+			const username = email ? targetUsernameOfEmail.get(email) : undefined
+			return username ? `u/${username}` : undefined
+		}
+		if (principal.startsWith('g/')) {
+			return targetGroups.has(principal.slice(2)) ? principal : undefined
+		}
+		// An email is already workspace-independent; it only has to name someone there.
+		return targetUsernameOfEmail.has(principal) ? principal : undefined
+	}
+}
+
+export type CreateFolderResult = DeployResult & {
+	/** Access dropped because its principal has no account in the target, if any. */
+	droppedAccess?: string[]
+}
+
+/**
+ * Copy a folder into `workspaceTo`, creating it and never updating it.
+ *
+ * `deployItem` re-probes and switches to `updateFolder` when the folder turns out to exist, which
+ * would replace its owners and ACL with the source's. For a folder the user asked to deploy that is
+ * the point; for one created on their behalf to give an item somewhere to land it would silently
+ * rewrite the permissions of a folder someone else just created. Losing that race is success here —
+ * the folder exists, which is all the caller needed.
+ *
+ * Every principal is translated into the target's own naming (see `principalTranslator`), and the
+ * two kinds of unresolvable principal are treated differently because they fail differently:
+ *
+ *  - an **owner or ACL entry** with no account in the target is dropped. The folder ends up more
+ *    restrictive than its source, never less, and `create_folder` makes the caller an owner, so
+ *    nobody is locked out of what they just created.
+ *  - an **identity rule** with no account in the target refuses the whole copy. Dropping it would
+ *    leave the folder applying no rule where the source applied one, so an item landing inside runs
+ *    as whoever deployed it — the silent substitution this prompt exists to prevent — and carrying
+ *    it verbatim is worse still: the server validates a rule's shape at folder-create time but its
+ *    principal's existence at item-create time, so the folder would be created and then reject
+ *    every deploy into it, including the retry.
+ *
+ * `default_permissioned_as` and `labels` are carried at all, which the shared folder deploy drops.
+ */
+export async function createFolderIfAbsent(
+	name: string,
+	workspaceFrom: string,
+	workspaceTo: string
+): Promise<CreateFolderResult> {
+	try {
+		const folder = await FolderService.getFolder({ workspace: workspaceFrom, name })
+		const rules = folder.default_permissioned_as ?? []
+		const owners = folder.owners ?? []
+		const acl = Object.entries((folder.extra_perms ?? {}) as Record<string, boolean>)
+		const translate = await principalTranslator(workspaceFrom, workspaceTo)
+
+		const unresolvableRule = rules.map((r) => r.permissioned_as).find((p) => !translate(p))
+		if (unresolvableRule) {
+			return {
+				success: false,
+				error:
+					`f/${name} runs items on behalf of ${unresolvableRule}, which has no account in ` +
+					`the target workspace. Bring the folder across from the compare page first.`
+			}
+		}
+
+		const droppedAccess = [...owners, ...acl.map(([p]) => p)].filter((p) => !translate(p))
+		await FolderService.createFolder({
+			workspace: workspaceTo,
+			requestBody: {
+				name,
+				owners: owners.map(translate).filter((p): p is string => !!p),
+				extra_perms: Object.fromEntries(
+					acl.flatMap(([p, write]) => {
+						const t = translate(p)
+						return t ? [[t, write] as const] : []
+					})
+				),
+				summary: folder.summary ?? undefined,
+				default_permissioned_as: rules.map((r) => ({
+					...r,
+					permissioned_as: translate(r.permissioned_as)!
+				})),
+				labels: folder.labels
+			}
+		})
+		return { success: true, droppedAccess: droppedAccess.length ? droppedAccess : undefined }
+	} catch (e) {
+		// The name conflict a concurrent create produces is not part of the API contract, so ask
+		// again rather than matching its message.
+		try {
+			if (await checkItemExists('folder', `f/${name}`, workspaceTo)) return { success: true }
+		} catch {}
+		return { success: false, error: `${e}` }
+	}
+}
+
 export type DeployPermission = { ok: boolean; reason?: string }
 
 /**
@@ -406,9 +716,13 @@ export type DeployPermission = { ok: boolean; reason?: string }
  * Fails open on any error — the server still enforces on the actual deploy.
  * Shared by the session dock and the compare page so both gate identically.
  */
-export async function checkDeployPermission(workspace: string): Promise<DeployPermission> {
+export async function checkDeployPermission(
+	workspace: string,
+	/** Pre-fetched `whoami` for `workspace`, to save a round trip when the caller already has one. */
+	whoami?: User
+): Promise<DeployPermission> {
 	try {
-		const me = await UserService.whoami({ workspace })
+		const me = whoami ?? (await UserService.whoami({ workspace }))
 		if (me.operator) {
 			return { ok: false, reason: "You're an operator in this workspace — operators can't deploy" }
 		}
@@ -429,5 +743,77 @@ export async function checkDeployPermission(workspace: string): Promise<DeployPe
 		return { ok: true }
 	} catch {
 		return { ok: true }
+	}
+}
+
+/**
+ * Whether `me` may write at `path` in `workspace` — the per-item half of the deploy gate, which
+ * `checkDeployPermission`'s workspace-level rules don't cover. Advisory only: it exists so the UI
+ * can refuse with a reason instead of letting the write fail, and the server stays the enforcement
+ * point. Same fail-open contract — every uncertain answer is `ok`.
+ *
+ * `me.folders` is the target workspace's *write* set, so a folder absent from it is one this user
+ * can read at most. `folderExists` is injected so the decision can be exercised without a backend.
+ */
+export async function checkPathWritePermission(
+	workspace: string,
+	path: string,
+	me: Pick<User, 'is_admin' | 'username' | 'folders'>,
+	folderExists: (folderPath: string) => Promise<boolean> = (folderPath) =>
+		checkItemExists('folder', folderPath, workspace)
+): Promise<DeployPermission> {
+	if (me.is_admin) return { ok: true }
+	const owner = path.match(/^u\/([^/]+)\//)?.[1]
+	if (owner) {
+		return owner === me.username
+			? { ok: true }
+			: {
+					ok: false,
+					reason: `${path} is owned by u/${owner} — only they or a workspace admin can write there`
+				}
+	}
+	const folder = path.match(/^f\/([^/]+)\//)?.[1]
+	if (!folder || me.folders?.includes(folder)) return { ok: true }
+	try {
+		// A folder the target doesn't have yet is created by the deploy, with the deployer as its
+		// owner — lacking write access to something that doesn't exist isn't a refusal.
+		if (!(await folderExists(`f/${folder}`))) return { ok: true }
+	} catch {
+		// Inconclusive: let the deploy decide rather than refusing on a failed probe.
+		return { ok: true }
+	}
+	return { ok: false, reason: `You don't have write access to folder ${folder}` }
+}
+
+export type DeployTargetAccess = {
+	permission: DeployPermission
+	/** Whether the user may hand the item an identity other than their own. */
+	canPreserveOnBehalfOf: boolean
+	/** The caller as `workspace` knows them — usernames are per-workspace, emails are not. */
+	me?: AppIdentity
+}
+
+/**
+ * What the target workspace says about landing one item in it: the workspace-level gate, write
+ * access to the item's path, and whether another identity may be preserved. Bundled so one `whoami`
+ * answers all of it, and so a refusal is known before the deploy rather than as a 403 on confirm.
+ */
+export async function checkItemDeployAccess(
+	workspace: string,
+	path: string
+): Promise<DeployTargetAccess> {
+	let me: User
+	try {
+		me = await UserService.whoami({ workspace })
+	} catch {
+		return { permission: { ok: true }, canPreserveOnBehalfOf: false }
+	}
+	const workspaceLevel = await checkDeployPermission(workspace, me)
+	return {
+		permission: workspaceLevel.ok
+			? await checkPathWritePermission(workspace, path, me)
+			: workspaceLevel,
+		canPreserveOnBehalfOf: me.is_admin || (me.groups ?? []).includes('wm_deployers'),
+		me: { email: me.email, permissionedAs: `u/${me.username}` }
 	}
 }

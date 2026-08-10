@@ -52,7 +52,7 @@ use crate::{
     otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
-    UpdateFlow, SAME_WORKER_REQUIREMENTS,
+    StepFailureKind, UpdateFlow, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -212,7 +212,7 @@ async fn process_jc(
         span.record("root_job", root_job.to_string().as_str());
     }
     if let Some(trigger_kind) = jc.job.trigger_kind.as_ref() {
-        span.record("trigger_kind", trigger_kind.to_string().as_str());
+        span.record("trigger_kind", trigger_kind.as_str());
     }
     if let Some(trigger) = jc.job.trigger.as_ref() {
         span.record("trigger", trigger.as_str());
@@ -465,6 +465,7 @@ pub fn start_background_processor(
                             worker_dir,
                             stop_early_override,
                             token,
+                            step_failure,
                         }),
                     time,
                 }) => {
@@ -485,7 +486,7 @@ pub fn start_background_processor(
                         None,
                         Arc::new(result),
                         None,
-                        true,
+                        step_failure,
                         &same_worker_tx,
                         &worker_dir,
                         stop_early_override,
@@ -690,43 +691,57 @@ pub async fn handle_receive_completed_job(
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
     let workspace = jc.job.workspace_id.clone();
-    // The client built here drives post-completion orchestration (the next step's input
-    // transforms fetch prior step results), which outlives the finished step. The step's own
-    // token has a `SCRIPT_TOKEN_EXPIRY` lifetime, so reusing it would fail that orchestration
-    // once the step itself ran longer than the token lives; refresh it when the step is old enough.
-    let token_maybe_expired = jc
-        .duration
-        .is_some_and(|d| d as u64 >= *windmill_common::worker::SCRIPT_TOKEN_EXPIRY * 1000 / 2);
-    let token = if jc.job.is_flow_step() && token_maybe_expired {
-        // Mirror `create_token`'s label so run-on-behalf-of flows keep their end-user override.
-        let label = if jc.job.permissioned_as != format!("u/{}", jc.job.created_by)
-            && jc.job.permissioned_as != jc.job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", jc.job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
-        match windmill_common::auth::create_token_for_owner(
-            db,
-            &jc.job.workspace_id,
+    // This client drives post-completion orchestration (the next step's input transforms fetch
+    // prior results) and outlives the finished step, so the step's own token can already be near
+    // expiry. Refresh it — but only from the server-written job_perms row, never from the
+    // completion payload's owner fields, which are untrusted on the agent-worker path.
+    let token = if jc.job.is_flow_step()
+        && windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
+            .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS)
+    {
+        let label = windmill_common::auth::ephemeral_script_token_label(
             &jc.job.permissioned_as,
-            &label,
-            *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
-            &jc.job.permissioned_as_email,
-            &jc.job.id,
-            None,
-            Some(format!(
-                "job-span-{}",
-                jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
-            )),
-        )
-        .warn_after_seconds(5)
-        .await
-        {
-            Ok(t) => t,
-            Err(e) => {
+            &jc.job.created_by,
+        );
+        match windmill_common::auth::get_job_perms(db, &jc.job.id, &jc.job.workspace_id).await {
+            Ok(Some(perms)) => windmill_common::auth::create_token_for_owner(
+                db,
+                &jc.job.workspace_id,
+                &jc.job.permissioned_as,
+                &label,
+                *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
+                &jc.job.permissioned_as_email,
+                &jc.job.id,
+                Some(perms),
+                Some(format!(
+                    "job-span-{}",
+                    jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
+                )),
+            )
+            .warn_after_seconds(5)
+            .await
+            .unwrap_or_else(|e| {
                 tracing::warn!(
                     "could not mint fresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }),
+            // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
+            // token rather than minting an identity from untrusted payload fields. The token is
+            // near expiry, so trace it — the downstream fetch may hit the original failure.
+            Ok(None) => {
+                tracing::warn!(
+                    "no job_perms row to refresh flow-orchestration token for job {}, reusing step token",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
+            // A transient DB error must not silently reuse the near-expired token without a trace,
+            // or the very failure this guards against recurs invisibly.
+            Err(e) => {
+                tracing::warn!(
+                    "could not load job_perms to refresh flow-orchestration token for job {}, reusing step token: {e:#}",
                     jc.job.id
                 );
                 jc.token.clone()
@@ -777,7 +792,7 @@ pub async fn handle_receive_completed_job(
                 mem_peak,
                 canceled_by,
                 err,
-                false,
+                StepFailureKind::Normal,
                 same_worker_tx.clone(),
                 &worker_dir,
                 worker_name,
@@ -852,6 +867,20 @@ fn parse_git_sync_changes(result_raw: &str) -> Option<(Vec<(String, String)>, bo
     ))
 }
 
+/// The pull script reports an unmergeable PR as a top-level `pr_check_error`
+/// sentinel field. Matched as an exact field, never a substring: a successful
+/// diff lists user-controlled repo paths that could embed the sentinel text.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn parse_pr_check_error(result_raw: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(result_raw)
+        .ok()
+        .and_then(|v| {
+            v.get("pr_check_error")
+                .and_then(|e| e.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
 #[cfg(all(feature = "enterprise", feature = "private"))]
 fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
     let mut lines = Vec::new();
@@ -866,7 +895,19 @@ fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
 
 #[cfg(all(test, feature = "enterprise", feature = "private"))]
 mod git_sync_check_tests {
-    use super::{format_change_list, parse_git_sync_changes};
+    use super::{format_change_list, parse_git_sync_changes, parse_pr_check_error};
+
+    #[test]
+    fn pr_check_error_is_a_field_not_a_substring() {
+        // A diff whose paths embed the sentinel text must not trip the verdict.
+        let diff = r#"{"changes":[{"type":"edited","path":"f/team/PR_MERGE_CONFLICTS.ts"}]}"#;
+        assert_eq!(parse_pr_check_error(diff), None);
+        let sentinel = r#"{"pr_check_error":"PR_MERGE_CONFLICTS","message":"m"}"#;
+        assert_eq!(
+            parse_pr_check_error(sentinel).as_deref(),
+            Some("PR_MERGE_CONFLICTS")
+        );
+    }
 
     #[test]
     fn parse_empty_changes_is_in_sync() {
@@ -958,7 +999,7 @@ async fn maybe_reconcile_git_sync_auto_pull(
 
 /// Branch a git-sync push job deployed to, mirroring the hub script's
 /// derivation: a dev workspace deploys to its environment-label branch
-/// (`dev`/`staging`), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
+/// (`dev`, `staging`, ...), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
 /// else the promotion `wm_deploy/**` formula (per-folder or per-item form).
 /// A dev workspace in promotion mode is the exception: it takes the promotion
 /// `wm_deploy/**` formula (per-item PRs into the parent) instead of its label
@@ -1376,8 +1417,37 @@ async fn maybe_post_git_sync_check(
             }
         }
     } else {
-        // Phase 4: dry-run diff preview for a PR.
-        if !success {
+        // Phase 4: dry-run diff preview for a PR. An unmergeable PR has no
+        // diff; the pull script reports which sentinel applies (returned as a
+        // result — thrown bun errors reach the job result as truncated log tails).
+        let pr_check_error = parse_pr_check_error(result_raw);
+        if pr_check_error.as_deref() == Some("PR_MERGE_CONFLICTS") {
+            (
+                "failure",
+                "Merge conflicts with the base branch".to_string(),
+                "This PR cannot be merged cleanly, so there is no deploy diff to compute. Resolve the conflicts and push again to re-run this check."
+                    .to_string(),
+            )
+        } else if pr_check_error.as_deref() == Some("PR_HEAD_REF_UNAVAILABLE") {
+            // Neutral, not failure: a transient fetch problem is Windmill-side
+            // and, unlike conflicts, has no fixing push that would re-run the
+            // check on its own — it must not hard-block the PR.
+            (
+                "neutral",
+                "Could not compute the deploy diff".to_string(),
+                "Windmill could not fetch this PR's head or enough history from GitHub to compute its merge with the base. Push again to re-run this check."
+                    .to_string(),
+            )
+        } else if pr_check_error.is_some() {
+            // Unknown sentinel (script newer than this backend): an explicit
+            // error signal must not degrade into a "diff computed" verdict.
+            (
+                "failure",
+                "Windmill diff failed".to_string(),
+                "The dry-run pull reported an unrecognized error. See the job in Windmill for details."
+                    .to_string(),
+            )
+        } else if !success {
             (
                 "failure",
                 "Windmill diff failed".to_string(),
@@ -1579,7 +1649,7 @@ pub async fn process_completed_job(
                     canceled_by,
                     result,
                     started_at.map(|x| FlowJobDuration { started_at: x, duration_ms: duration }),
-                    false,
+                    StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
@@ -1686,7 +1756,7 @@ pub async fn process_completed_job(
                             duration_ms: d,
                         })
                     }),
-                    false,
+                    StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
@@ -1964,7 +2034,7 @@ pub async fn handle_job_error(
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     err: Error,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
@@ -2014,7 +2084,7 @@ pub async fn handle_job_error(
             canceled_by.clone(),
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
             None,
-            unrecoverable,
+            step_failure,
             &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,
             None,

@@ -65,6 +65,10 @@
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
+	import DbtSettings, {
+		convertDbtSettingsFromBackend,
+		type DbtSettingsType
+	} from '$lib/components/workspaceSettings/DbtSettings.svelte'
 	import DucklakeSettings, {
 		convertDucklakeSettingsFromBackend,
 		type DucklakeSettingsType
@@ -251,6 +255,8 @@
 	let dataTableSettings: DataTableSettingsType = $state({ dataTables: [] })
 	let dataTableSettingsComponent: DataTableSettings | undefined = $state(undefined)
 
+	let dbtSettings: DbtSettingsType = $state({ warehouses: [] })
+	let dbtSavedSettings: DbtSettingsType = $state(untrack(() => dbtSettings))
 	let ducklakeSettings: DucklakeSettingsType = $state({ ducklakes: [] })
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
@@ -379,6 +385,7 @@
 			| 'windmill_lfs'
 			| 'volume_storage'
 			| 'ducklake'
+			| 'dbt'
 			| 'git_sync'
 			| 'default_app'
 			| 'native_triggers'
@@ -641,6 +648,8 @@
 		)
 		s3ResourceSavedSettings = clone(s3ResourceSettings)
 		dataTableSettings = convertDataTableSettingsFromBackend(settings.datatable)
+		dbtSettings = convertDbtSettingsFromBackend(settings.dbt_warehouses)
+		dbtSavedSettings = clone(dbtSettings)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 
@@ -937,6 +946,13 @@
 		s3ResourceSettings.volumeStorage = s3ResourceSavedSettings.volumeStorage
 	}
 
+	function getDbtSettingsInitialAndModifiedValues() {
+		return {
+			savedValue: { dbtSettings: dbtSavedSettings },
+			modifiedValue: { dbtSettings: dbtSettings }
+		}
+	}
+
 	// Function to check if there are unsaved changes in ducklake settings
 	function getDucklakeSettingsInitialAndModifiedValues() {
 		return {
@@ -1079,6 +1095,8 @@
 				return getVolumeStorageInitialAndModifiedValues()
 			case 'ducklake':
 				return getDucklakeSettingsInitialAndModifiedValues()
+			case 'dbt':
+				return getDbtSettingsInitialAndModifiedValues()
 			case 'dev_workspace':
 				return getDeploySettingsInitialAndModifiedValues()
 			case 'webhook':
@@ -1143,6 +1161,9 @@
 				break
 			case 'windmill_data_tables':
 				dataTableSettingsComponent?.discard()
+				break
+			case 'dbt':
+				dbtSettings = clone(dbtSavedSettings)
 				break
 			case 'default_app':
 				discardDefaultAppSettingsChanges()
@@ -1277,6 +1298,12 @@
 					label: 'Ducklake',
 					aiId: 'workspace-settings-ducklake',
 					aiDescription: 'Ducklake workspace settings'
+				},
+				{
+					id: 'dbt',
+					label: 'dbt',
+					aiId: 'workspace-settings-dbt',
+					aiDescription: 'dbt warehouses workspace settings'
 				}
 			]
 		},
@@ -1385,49 +1412,55 @@
 								description="Pair this workspace with a dev workspace: the same code with a different environment. Edits are made in the dev workspace and promoted to prod."
 								link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 							/>
-							<DevWorkspaceSetting />
-							{#if showDeployToTab}
-								<!-- The deploy filters only bite on a workspace that deploys into a
-								     parent; a root workspace promotes nowhere by lineage. -->
-								{#if $enterpriseLicense}
-									<DeployToSetting
-										bind:deployUiSettings
-										hasUnsavedChanges={hasDeploySettingsChanges}
-										parentWorkspaceId={currentWorkspace?.parent_workspace_id ?? undefined}
-										isDevWorkspace={currentWorkspace?.is_dev_workspace ?? false}
-										onSave={() => {
-											initialDeployUiSettings = clone(deployUiSettings)
-										}}
-										onDiscard={discardDeploySettingsChanges}
-									/>
-								{:else}
-									<div class="my-2"
-										><Alert type="warning" title="Enterprise license required"
-											>Deploy to staging/prod from the web UI is only available with an enterprise
-											license</Alert
-										></div
-									>
+							<!-- Positioned by DevWorkspaceSetting, not here — see its `deployTarget` prop. -->
+							{#snippet deployTarget()}
+								{#if showDeployToTab}
+									<!-- The deploy filters only bite on a workspace that deploys into a
+									     parent; a root workspace promotes nowhere by lineage. -->
+									{#if $enterpriseLicense}
+										<DeployToSetting
+											bind:deployUiSettings
+											hasUnsavedChanges={hasDeploySettingsChanges}
+											parentWorkspaceId={currentWorkspace?.parent_workspace_id ?? undefined}
+											isDevWorkspace={currentWorkspace?.is_dev_workspace ?? false}
+											onSave={() => {
+												initialDeployUiSettings = clone(deployUiSettings)
+											}}
+											onDiscard={discardDeploySettingsChanges}
+										/>
+									{:else}
+										<div class="my-2"
+											><Alert type="warning" title="Enterprise license required"
+												>Deploy to staging/prod from the web UI is only available with an enterprise
+												license</Alert
+											></div
+										>
+									{/if}
 								{/if}
-							{/if}
-						<!-- Last, and below the lineage target above: the escape hatch for a
+							{/snippet}
+							<DevWorkspaceSetting {deployTarget} />
+							<!-- Last, and below the lineage target above: the escape hatch for a
 						     destination the lineage cannot express. -->
-						<div class="flex flex-col gap-2 max-w-2xl mt-8 pt-6 border-t">
-							<span class="text-xs font-semibold text-emphasis">Deploy into another workspace</span>
-							<p class="text-sm text-secondary">
-								Promotion normally follows the lineage, from this workspace into its parent. For a
-								one-off migration you can instead point the merge UI at any workspace you administer;
-								it computes a full diff over both workspaces and deploys the items you pick, one way.
-							</p>
-							<div>
-								<Button
-									variant="default"
-									startIcon={{ icon: Target }}
-									onclick={() => goto(`${base}/forks/compare?mode=fork`)}
+							<div class="flex flex-col gap-2 max-w-2xl mt-8 pt-6 border-t">
+								<span class="text-xs font-semibold text-emphasis"
+									>Deploy into another workspace</span
 								>
-									Merge into another workspace
-								</Button>
+								<p class="text-sm text-secondary">
+									Promotion normally follows the lineage, from this workspace into its parent. For a
+									one-off migration you can instead point the merge UI at any workspace you
+									administer; it computes a full diff over both workspaces and deploys the items you
+									pick, one way.
+								</p>
+								<div>
+									<Button
+										variant="default"
+										startIcon={{ icon: Target }}
+										onclick={() => goto(`${base}/forks/compare?mode=fork`)}
+									>
+										Merge into another workspace
+									</Button>
+								</div>
 							</div>
-						</div>
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader
 								title="Workspace Protection Rulesets"
@@ -2002,7 +2035,8 @@ export async function main(
 								{hasInstanceAiConfig}
 								{usesInstanceAiConfig}
 								{instanceAiSummary}
-								onSave={(copilotSettingsState) => {
+								onSave={(savedConfig, copilotSettingsState) => {
+									aiInitialConfig = savedConfig
 									if (!copilotSettingsState) {
 										return
 									}
@@ -2033,6 +2067,14 @@ export async function main(
 								}}
 								onDiscard={() => {
 									s3ResourceSettings = clone(s3ResourceSavedSettings)
+								}}
+							/>
+						{:else if tab == 'dbt'}
+							<DbtSettings
+								bind:dbtSettings
+								bind:dbtSavedSettings
+								onDiscard={() => {
+									dbtSettings = clone(dbtSavedSettings)
 								}}
 							/>
 						{:else if tab == 'ducklake'}

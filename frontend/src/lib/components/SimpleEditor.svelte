@@ -29,7 +29,7 @@
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
-	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
@@ -58,6 +58,11 @@
 	import { twMerge } from 'tailwind-merge'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
+
+	/** Trailing debounce window (ms) on Monaco's onDidChangeModelContent. */
+	const CHANGE_TIMEOUT = 200
+
+	let changeTimeoutId: number | undefined = undefined
 
 	let divEl: HTMLDivElement | null = null
 	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
@@ -98,7 +103,8 @@
 		readOnly = false,
 		minHeight = 1000,
 		renderLineHighlight = 'none',
-		suggestion
+		suggestion,
+		leadingChangeSync = false
 	}: {
 		lang: string
 		code?: string
@@ -130,6 +136,11 @@
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
 		suggestion?: string
+		/** Materialize `code` on the first change of a burst instead of only after
+		 * the trailing debounce. Set it when a control's enabled state derives from
+		 * `code`; leave it off where each extra sync costs work downstream (an app
+		 * code input feeding an autoRefresh runnable re-runs a job per sync). */
+		leadingChangeSync?: boolean
 	} = $props()
 
 	let yPadding = MONACO_Y_PADDING
@@ -156,8 +167,18 @@
 			code = ncode
 		}
 		editor?.setValue(ncode)
+		// setValue emits a change event of its own; drop the burst it opens so an edit
+		// made right after an authoritative overwrite still counts as a leading change.
+		cancelPendingChanges()
 		if (formatCode) {
 			format()
+		}
+	}
+
+	function cancelPendingChanges(): void {
+		if (changeTimeoutId !== undefined) {
+			clearTimeout(changeTimeoutId)
+			changeTimeoutId = undefined
 		}
 	}
 
@@ -408,12 +429,21 @@
 			pasteListenerCleanup = () => pasteTarget?.removeEventListener('keydown', onPasteKeydown, true)
 		}
 
-		let timeoutModel: number | undefined = undefined
-		editor.onDidChangeModelContent((event) => {
-			timeoutModel && clearTimeout(timeoutModel)
-			timeoutModel = setTimeout(() => {
+		editor.onDidChangeModelContent(() => {
+			// A paste is a single change, so under a trailing-only sync `code` stays
+			// stale for CHANGE_TIMEOUT after it: a consumer gating a control on `code`
+			// (FlowYamlEditor disables "Apply changes" until it differs from a snapshot)
+			// then swallows a click made in that window. Schedule before firing so a
+			// re-entrant change from a consumer does not count as leading too.
+			const leading = leadingChangeSync && changeTimeoutId === undefined
+			cancelPendingChanges()
+			changeTimeoutId = setTimeout(() => {
+				changeTimeoutId = undefined
 				updateCode()
-			}, 200)
+			}, CHANGE_TIMEOUT)
+			if (leading) {
+				updateCode()
+			}
 		})
 		editor.onDidChangeCursorPosition((event) => {
 			if (key) editorPositionMap[key] = event.position
@@ -428,8 +458,9 @@
 				updateCode()
 				shouldBindKey && format && format()
 				// See Editor.svelte — re-broadcast the swallowed shortcut for
-				// page-level draft-flush handlers.
-				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
+				// page-level draft-flush handlers, after `tick()` so they see
+				// the value `updateCode()` just materialized.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
@@ -460,8 +491,9 @@
 				updateCode()
 				shouldBindKey && format && format()
 				// See Editor.svelte — re-broadcast the swallowed shortcut for
-				// page-level draft-flush handlers.
-				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
+				// page-level draft-flush handlers, after `tick()` so they see
+				// the value `updateCode()` just materialized.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
@@ -620,6 +652,11 @@
 
 	onDestroy(() => {
 		try {
+			// Same guards as Editor: only a pending keystroke debounce is ours to flush.
+			if (editor && changeTimeoutId !== undefined) {
+				updateCode()
+			}
+			cancelPendingChanges()
 			valueAfterDispose = getCode()
 			pasteListenerCleanup?.()
 			vimDisposable?.dispose()

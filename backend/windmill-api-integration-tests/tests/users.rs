@@ -513,6 +513,84 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_addable_instance_users(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/users/list_addable");
+
+    // The three fixture accounts are all members of test-workspace already.
+    sqlx::query(
+        "INSERT INTO password(email, password_hash, login_type, verified, username, disabled) VALUES
+         ('addable@windmill.dev', 'x', 'password', true, 'addable-user', false),
+         ('with_underscore@windmill.dev', 'x', 'password', true, 'underscored', false),
+         ('gone@windmill.dev', 'x', 'password', true, 'gone-user', true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr(workspace_id, email, username, is_admin, role, is_service_account)
+         VALUES ('test-workspace', 'sa@creator.test-workspace.sa.wm.dev', 'sa', false, 'User', true)"
+    )
+    .execute(&db)
+    .await?;
+
+    let emails = |query: &str| {
+        let url = format!("{base}?{query}");
+        async move {
+            let resp = authed(client().get(url)).send().await.unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.json::<Vec<serde_json::Value>>()
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|u| u["email"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    // Members, disabled accounts and service accounts are all out; a service account has no
+    // `password` row at all, so it can never reach the picker.
+    assert_eq!(
+        emails("").await,
+        vec![
+            "addable@windmill.dev",
+            // seeded by the migrations, not a member of test-workspace
+            "admin@windmill.dev",
+            "with_underscore@windmill.dev"
+        ]
+    );
+
+    // The exclusions are part of the query, so the limit counts addable accounts only — a
+    // workspace whose members sort first must not swallow the whole page.
+    assert_eq!(emails("per_page=1").await, vec!["addable@windmill.dev"]);
+
+    // Search matches the instance username as well as the email.
+    assert_eq!(
+        emails("search=addable-user").await,
+        vec!["addable@windmill.dev"]
+    );
+
+    // Wildcards in the search are matched literally rather than expanded.
+    assert_eq!(
+        emails("search=_").await,
+        vec!["with_underscore@windmill.dev"]
+    );
+    assert!(emails("search=%25").await.is_empty());
+
+    // Listing instance-wide accounts is superadmin-only, workspace admin is not enough.
+    let resp = client()
+        .get(&base)
+        .header("Authorization", "Bearer SECRET_TOKEN_3")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
@@ -657,6 +735,178 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await
         .unwrap();
     assert_eq!(resp.status(), 401);
+
+    Ok(())
+}
+
+/// A superadmin acting outside every workspace has no username of their own, so their runnables
+/// name them by their address — and an address may contain a `/`, which every reader of a
+/// principal splits on. Moving such an account has to leave behind the form that decodes back to
+/// them rather than one that reads as a group.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_change_user_email_to_slash_address(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let global_base = format!("http://localhost:{}/api/users", server.addr.port());
+
+    sqlx::query!(
+        "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
+         VALUES ('ext@windmill.dev', 'not-a-real-hash', 'password', true, true, 'Ext')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of)
+         VALUES ('test-workspace', 'u/test-user/s', 93001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'ext@windmill.dev')"
+    )
+    .execute(&db)
+    .await?;
+
+    // The principal follows the address, and a job row carries it in a narrower column than the
+    // runnable does, so a move that would make it unenqueueable is refused rather than silently
+    // leaving runnables that look configured and cannot start.
+    let resp = authed(client().post(format!("{global_base}/change_email/ext@windmill.dev")))
+        .json(&json!({ "new_email": "a-very-long-superadmin-address-for-this-test@windmill.dev" }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 400, "{body}");
+    assert!(body.contains("characters a job can carry"), "{body}");
+
+    let resp = authed(client().post(format!("{global_base}/change_email/ext@windmill.dev")))
+        .json(&json!({ "new_email": "ops/alice@windmill.dev" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
+
+    assert_eq!(
+        sqlx::query_scalar!(
+            "SELECT on_behalf_of FROM script WHERE path = 'u/test-user/s' AND workspace_id = 'test-workspace'"
+        )
+        .fetch_one(&db)
+        .await?
+        .as_deref(),
+        Some("u/ops/alice@windmill.dev"),
+        "left bare, the new address would come back as group 'alice@windmill.dev'"
+    );
+
+    Ok(())
+}
+
+/// A group's synthetic address (`group-{name}@windmill.dev`) can also be a real user's, and a
+/// runnable configured for the *group* carries that address next to `g/{name}`. Moving the
+/// colliding user's account must leave it alone: rewriting one half of the pair would leave it
+/// naming two different people, which the deploy path rejects.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let global_base = format!("http://localhost:{}/api/users", server.addr.port());
+
+    sqlx::query!("UPDATE password SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'")
+        .execute(&db)
+        .await?;
+    sqlx::query!("UPDATE usr SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO group_(workspace_id, name, summary, extra_perms) VALUES ('test-workspace', 'ops', '', '{}')"
+    )
+    .execute(&db)
+    .await?;
+
+    // An email change never moves a username, so the principal these rows hold stays put. What
+    // moves is the address beside it — kept for the workers that still read it — and in every
+    // pair a group-owned identity keeps the group's synthetic address even though a real account
+    // now holds it: rewriting one half leaves the pair naming two accounts.
+    sqlx::query!(
+        "INSERT INTO app(workspace_id, path, summary, policy, versions)
+         VALUES ('test-workspace', 'u/test-user/g', '', '{\"on_behalf_of\": \"g/ops\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}'),
+                ('test-workspace', 'u/test-user/u', '', '{\"on_behalf_of\": \"u/test-user-2\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}')"
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of, on_behalf_of_email)
+         VALUES ('test-workspace', 'u/test-user/sg', 95001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'g/ops', 'group-ops@windmill.dev'),
+                ('test-workspace', 'u/test-user/su', 95002, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user-2', 'group-ops@windmill.dev')"
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO draft(workspace_id, path, typ, value, email)
+         VALUES ('test-workspace', 'u/test-user/dg', 'script', '{\"on_behalf_of\": \"g/ops\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::json, 'test@windmill.dev'),
+                ('test-workspace', 'u/test-user/du', 'script', '{\"on_behalf_of\": \"u/test-user-2\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::json, 'test@windmill.dev')"
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!("{global_base}/change_email/group-ops@windmill.dev")))
+        .json(&json!({ "new_email": "renamed@windmill.dev" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
+
+    let apps = sqlx::query!(
+        "SELECT path, policy->>'on_behalf_of_email' AS email FROM app WHERE workspace_id = 'test-workspace' ORDER BY path"
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        apps.iter()
+            .map(|r| (r.path.as_str(), r.email.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("u/test-user/g", Some("group-ops@windmill.dev")),
+            ("u/test-user/u", Some("renamed@windmill.dev")),
+        ],
+        "the group-owned app keeps the group's address; the user-owned one moves"
+    );
+
+    let scripts = sqlx::query!(
+        "SELECT path, on_behalf_of_email AS email FROM script WHERE workspace_id = 'test-workspace' AND path LIKE 'u/test-user/s%' ORDER BY path"
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        scripts
+            .iter()
+            .map(|r| (r.path.as_str(), r.email.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("u/test-user/sg", Some("group-ops@windmill.dev")),
+            ("u/test-user/su", Some("renamed@windmill.dev")),
+        ],
+        "the group-owned script keeps the group's address; the user-owned one moves"
+    );
+
+    let drafts = sqlx::query!(
+        "SELECT path, value->>'on_behalf_of_email' AS email, value->>'on_behalf_of' AS principal FROM draft WHERE workspace_id = 'test-workspace' ORDER BY path"
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        drafts
+            .iter()
+            .map(|r| (r.path.as_str(), r.principal.as_deref(), r.email.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "u/test-user/dg",
+                Some("g/ops"),
+                Some("group-ops@windmill.dev")
+            ),
+            (
+                "u/test-user/du",
+                Some("u/test-user-2"),
+                Some("renamed@windmill.dev")
+            ),
+        ],
+        "a draft's pair moves as a whole or not at all — either half left behind is a 400 on deploy"
+    );
 
     Ok(())
 }

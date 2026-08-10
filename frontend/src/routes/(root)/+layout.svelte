@@ -40,10 +40,22 @@
 		"Client got disposed and can't be restarted."
 	]
 
+	// The only load of the workspace list for the whole session, and an empty `$userWorkspaces`
+	// degrades silently rather than erroring — the edit-in-dev affordance, the no-direct-deploy
+	// alert and the fork banner all quietly lose their dev workspace. Retry rather than strand
+	// the tab in that state.
+	const WORKSPACE_LIST_RETRY_DELAYS_MS = [1000, 3000, 8000]
 	async function setUserWorkspaceStore() {
-		const list = await WorkspaceService.listUserWorkspaces()
-		$usersWorkspaceStore = list
-		return list
+		for (let attempt = 0; ; attempt++) {
+			try {
+				$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+				return
+			} catch (e) {
+				if (attempt >= WORKSPACE_LIST_RETRY_DELAYS_MS.length) throw e
+				console.error('could not load workspace list, retrying', e)
+				await new Promise((r) => setTimeout(r, WORKSPACE_LIST_RETRY_DELAYS_MS[attempt]))
+			}
+		}
 	}
 
 	// A fork deleted remotely while the tab was open leaves the client pointing at a
@@ -118,10 +130,18 @@
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
 				} else {
-					$userStore = await getUserExt($workspaceStore)
-					if (!$userStore) {
+					const ws = $workspaceStore
+					const user = await getUserExt(ws)
+					// A switch mid-flight means this answers for the workspace we left, and
+					// that switch has already started the fetch answering for the active
+					// one: neither this role nor its failure describes where we are now.
+					if ($workspaceStore !== ws) {
+						return
+					}
+					if (!user) {
 						throw Error('Not logged in')
 					}
+					$userStore = user
 				}
 			} else {
 				if (
@@ -228,7 +248,11 @@
 
 					if (workspace && user) {
 						const newUser = await getUserExt(workspace)
-						if (!deepEqual(newUser, $userStore)) {
+						// Refreshes the workspace that was active when the tick started; a
+						// switch mid-flight makes this answer describe the one we left.
+						if ($workspaceStore !== workspace) {
+							console.debug('workspace changed during user refresh, dropping')
+						} else if (!deepEqual(newUser, $userStore)) {
 							userStore.set(newUser)
 							console.info('refreshed user')
 						} else {

@@ -23,5 +23,8 @@ jobs:
           cache-dependency-path: "frontend/package-lock.json"
       - name: "npm check"
         timeout-minutes: 5
+        env:
+          # svelte-check peaks past node's ~4GB default ceiling on this runner and aborts.
+          NODE_OPTIONS: --max-old-space-size=8192
         run: cd frontend && npm ci && npm run generate-backend-client && npm run
           check

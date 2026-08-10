@@ -52,23 +52,28 @@ use windmill_common::secret_backend::{
 use windmill_common::{
     auth::is_super_admin_email,
     ee_oss::{get_license_plan, LicensePlan},
-    email_oss::send_email_plain_text,
+    email_oss::{send_email_plain_text, SMTP_ENABLED},
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
-        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, GITHUB_APP_WEBHOOK_BASE_URL_SETTING,
-        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
-        MAX_RETENTION_OVERRIDE_WORKSPACES, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
-        RUFF_CONFIG_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
-        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
-        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WS_BASE_URL_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
+        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+        WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
-use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED, PgDatabase};
+use windmill_common::{
+    error::to_anyhow,
+    worker::{reload_custom_tags_setting, CLOUD_HOSTED},
+    PgDatabase,
+};
 
 /// Unauthenticated settings routes.
 ///
@@ -115,10 +120,7 @@ pub fn global_service() -> Router {
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
-        .route(
-            "/github_app_stale_webhooks",
-            get(github_app_stale_webhooks),
-        )
+        .route("/github_app_stale_webhooks", get(github_app_stale_webhooks))
         .route(
             "/instance_config",
             get(get_instance_config).put(set_instance_config),
@@ -235,10 +237,19 @@ pub async fn test_email(
     Json(test_email): Json<TestEmail>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    if !SMTP_ENABLED {
+        return Err(error::Error::Generic(
+            axum::http::StatusCode::NOT_IMPLEMENTED,
+            "This Windmill build was compiled without SMTP support, so no email can be sent."
+                .to_string(),
+        ));
+    }
     let smtp = test_email.smtp;
     let to = test_email.to;
 
-    let client_timeout = Duration::from_secs(3);
+    // A connection attempt covers TCP, the TLS handshake, EHLO and authentication against a remote
+    // provider; a tighter budget times out before the server ever states why it refused.
+    let client_timeout = Duration::from_secs(20);
     send_email_plain_text(
         "Test email from Windmill",
         "Test email content",
@@ -246,7 +257,15 @@ pub async fn test_email(
         smtp,
         Some(client_timeout),
     )
-    .await?;
+    .await
+    // The SMTP layer already phrases its failures for an instance admin; the anyhow wrapper it
+    // comes back in would bury that behind "Internal: ... @<source location>".
+    .map_err(|e| match e {
+        error::Error::Anyhow { error, .. } => {
+            error::Error::Generic(axum::http::StatusCode::BAD_REQUEST, format!("{error:#}"))
+        }
+        e => e,
+    })?;
 
     Ok("Sent test email".to_string())
 }
@@ -787,7 +806,6 @@ pub async fn set_global_setting_internal(
         value
     };
 
-
     // EE gate for workspace-fairness settings. Workspace fairness only matters
     // on multi-tenant clusters; it is licensed as an Enterprise feature so the
     // setter rejects writes from non-EE builds. Disabling/clearing writes are
@@ -852,6 +870,16 @@ pub async fn set_global_setting_internal(
         bump_instance_ai_config_revision();
     }
 
+    // Tag reads are served from an in-memory cache that this process otherwise only
+    // refreshes on the next global-settings poll, so without this a refetch right after
+    // the write still returns the pre-write list. The setting is already persisted at
+    // this point, so a failed refresh must not be reported as a failed write — the
+    // poller retries it.
+    if key == CUSTOM_TAGS_SETTING {
+        if let Err(e) = reload_custom_tags_setting(db).await {
+            tracing::error!(error = %e, "Could not reload custom tags setting after write");
+        }
+    }
 
     Ok(())
 }
@@ -1198,7 +1226,6 @@ async fn set_instance_config(
         if ai_config_changed {
             bump_instance_ai_config_revision();
         }
-
     }
 
     if !desired.worker_configs.is_empty() {

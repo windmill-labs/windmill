@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
-	import { getKnownModelContextWindow } from '../modelConfig'
+	import { getKnownModelContextWindow, getModelContextWindow } from '../modelConfig'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { AIMode } from './AIChatManager.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -14,8 +14,14 @@
 	let providerModel = $derived(
 		$copilotSessionModel ?? $copilotInfo.defaultModel ?? $copilotInfo.aiModels[0]
 	)
+	// The same number the compaction trigger uses: the known window when the
+	// model is listed, otherwise the conservative window the trigger assumes.
+	// The tooltip marks the assumed case so the guess never reads as a spec.
 	let contextWindow = $derived(
-		providerModel ? getKnownModelContextWindow(providerModel.model) : undefined
+		providerModel ? getModelContextWindow(providerModel.model) : undefined
+	)
+	let windowIsAssumed = $derived(
+		providerModel !== undefined && getKnownModelContextWindow(providerModel.model) === undefined
 	)
 	// The same number the compaction trigger uses: the provider's report when
 	// one describes the current history (one turn stale by nature), otherwise
@@ -53,9 +59,10 @@
 
 {#if visible}
 	<Tooltip small placement="top">
-		<!-- Only a meter when we know the window: it's a 0–100% reading. With an unknown
-		     window there's no max to measure against, so it's a plain labeled indicator
-		     (the bar is decorative/full and the token count lives in the tooltip). -->
+		<!-- Only a meter when a model is configured: it's a 0–100% reading against the
+		     window compaction enforces (known or assumed). With no model there's no max
+		     to measure against, so it's a plain labeled indicator (the bar is
+		     decorative/full and the token count lives in the tooltip). -->
 		<div
 			class="flex items-center h-5"
 			aria-label="Context window usage"
@@ -74,7 +81,7 @@
 				<p class="font-semibold">Context usage</p>
 				<p class="mt-1 tabular-nums">
 					~{formatTokenCount(usedTokens)}{contextWindow
-						? ` / ${formatTokenCount(contextWindow)}`
+						? ` / ${formatTokenCount(contextWindow)}${windowIsAssumed ? ' assumed' : ''}`
 						: ''}{fillPct !== undefined ? ` (${fillPct}%)` : ''}
 				</p>
 				{#if ratio !== undefined && ratio >= COMPACTION_TRIGGER_RATIO}

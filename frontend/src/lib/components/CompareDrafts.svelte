@@ -1,6 +1,7 @@
 <script lang="ts">
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import { maskHasDraftRow } from './sessions/modifiedItemsMask'
+	import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import DraftBadge from './DraftBadge.svelte'
@@ -28,7 +29,8 @@
 		useWorkspaceDrafts
 	} from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
-	import { userStore } from '$lib/stores'
+	import { userStore, userWorkspaces } from '$lib/stores'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -159,6 +161,10 @@
 	// On by default: a fork inherits the parent's drafts on creation, and those
 	// (unrelated to the fork's own work) are the common case worth hiding.
 	let hideUnchanged = $state(true)
+
+	const currentNoun = $derived(
+		childWorkspaceNoun($userWorkspaces.find((w) => w.id === currentWorkspaceId))
+	)
 
 	// The list (and, in the default view, the Draft Count) come from the Workspace
 	// Drafts module; deploy/discard invalidate the resource, so the list refetches
@@ -578,15 +584,9 @@
 		trigger_azure: '/azure_triggers',
 		trigger_email: '/email_triggers'
 	}
-	// A data-pipeline bundle is keyed at `f/<folder>/data_pipeline`; its editor
-	// is the pipeline view of that folder.
-	function pipelineFolderFromPath(path: string): string | undefined {
-		const segs = path.split('/')
-		return segs[0] === 'f' && segs.length >= 2 ? segs[1] : undefined
-	}
 	function draftEditUrl(d: Row): string | undefined {
 		if (d.draftKind === 'data_pipeline') {
-			const folder = pipelineFolderFromPath(d.path)
+			const folder = pipelineFolderFromBundlePath(d.path)
 			return folder
 				? `/pipeline/${encodeURIComponent(folder)}?workspace=${encodeURIComponent(currentWorkspaceId)}`
 				: undefined
@@ -616,7 +616,7 @@
 		// The pipeline bundle's storage path (`f/<folder>/data_pipeline`) is an
 		// implementation detail — show the folder it belongs to.
 		if (d.draftKind === 'data_pipeline') {
-			const folder = pipelineFolderFromPath(d.path)
+			const folder = pipelineFolderFromBundlePath(d.path)
 			return folder ? `f/${folder}` : d.path
 		}
 		const path = d.draft_path ?? d.path
@@ -668,8 +668,7 @@
 							size="xs"
 							options={{
 								right: 'Hide unchanged drafts',
-								rightTooltip:
-									"Hide drafts identical to the parent workspace. A fork inherits the parent's drafts when it's created; those are unrelated to the changes made in this fork."
+								rightTooltip: `Hide drafts identical to the parent workspace. A ${currentNoun} inherits the parent's drafts when it's created; those are unrelated to the changes made in this ${currentNoun}.`
 							}}
 						/>
 					{/if}

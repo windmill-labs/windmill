@@ -222,6 +222,89 @@ pub fn escape_ilike_pattern(s: &str) -> String {
         .replace('_', "\\_")
 }
 
+lazy_static::lazy_static! {
+    /// `[\p{Alphabetic}\p{Nd}_-]`, not `[\w-]`: Postgres' `\w` is `alnum` plus
+    /// underscore, while Rust's also covers combining marks, connector
+    /// punctuation and join controls. Spelling it out keeps these in step with
+    /// the CHECK constraints below, which are the real authority — a character
+    /// accepted here and rejected there puts the raw constraint violation back
+    /// on the wire, which is what this guard exists to prevent.
+    static ref PROPER_CHAR: &'static str = r"\p{Alphabetic}\p{Nd}_-";
+
+    /// Mirrors the `proper_id` CHECK shared by `script`, `flow`, `variable`,
+    /// `resource` and `schedule`.
+    static ref PROPER_PATH_RE: regex::Regex =
+        regex::Regex::new(&format!(r"^[ufg](/[{}]+){{2,}}$", *PROPER_CHAR)).unwrap();
+    /// Mirrors the `proper_name` CHECK on `resource_type.name`, which
+    /// `resource.resource_type` references without a foreign key of its own.
+    static ref PROPER_TYPE_NAME_RE: regex::Regex =
+        regex::Regex::new(&format!(r"^[{}]{{1,50}}$", *PROPER_CHAR)).unwrap();
+}
+
+/// Reject a path the `proper_id` constraint would reject anyway, so the caller
+/// gets a plain 400 instead of the raw Postgres constraint-violation string,
+/// which names the table and constraint and echoes the input back.
+pub fn check_proper_path(path: &str) -> Result<()> {
+    // The column is varchar(255); without this an over-long but well-formed path
+    // still reaches Postgres and leaks the same kind of message back.
+    if path.chars().count() > 255 {
+        return Err(Error::BadRequest(
+            "Invalid path: it must be at most 255 characters".to_string(),
+        ));
+    }
+    if !PROPER_PATH_RE.is_match(path) {
+        return Err(Error::BadRequest(
+            "Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or \
+             g/<group>/<name>, where every segment contains only alphanumeric characters, \
+             '_' or '-'"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Replace a Postgres rejection with a message that says what the caller did
+/// wrong and nothing about the schema. The raw error names the table and the
+/// constraint and echoes the input back.
+///
+/// This, not `check_proper_path`, is what makes the leak unreachable: Postgres
+/// classifies `\w` by the database's `LC_CTYPE`, so no fixed Rust charset can
+/// mirror `proper_id` across deployments (`u/usér/nom` is valid under a UTF-8
+/// locale and rejected under `C`). The pre-checks exist to give the common cases
+/// a precise message; this catches whatever they let through.
+pub fn sanitize_db_error(e: sqlx::Error) -> Error {
+    let Some(db_err) = e.as_database_error() else {
+        return Error::from(e);
+    };
+    match db_err.code().as_deref() {
+        // check_violation — `proper_id` / `proper_name` and friends
+        Some("23514") => Error::BadRequest(
+            "Invalid path or name: it does not match the required format".to_string(),
+        ),
+        // string_data_right_truncation
+        Some("22001") => Error::BadRequest("A field exceeds its maximum length".to_string()),
+        // insufficient_privilege — row-level security rejected the row
+        Some("42501") => {
+            Error::NotAuthorized("You don't have write permission at this path".to_string())
+        }
+        _ => Error::from(e),
+    }
+}
+
+/// Confine a resource type name to the charset `resource_type.name` already
+/// enforces. `resource.resource_type` has no such constraint of its own, so
+/// without this any string up to 50 chars can be stored and later rendered as
+/// the type of a resource everyone in the workspace sees.
+pub fn check_proper_type_name(name: &str) -> Result<()> {
+    if !PROPER_TYPE_NAME_RE.is_match(name) {
+        return Err(Error::BadRequest(
+            "Invalid resource type: it must be 1 to 50 alphanumeric characters, '_' or '-'"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     if !is_admin {
         Err(Error::RequireAdmin(username.to_string()))
@@ -1387,6 +1470,58 @@ pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The guards are only safe because they are never stricter than the DB
+    /// constraints they front. Narrowing `\w` to ASCII reads equivalent and
+    /// compiles, but would start rejecting paths that already deploy today.
+    #[test]
+    fn proper_path_matches_the_db_constraint() {
+        for ok in [
+            "u/admin/foo",
+            "f/some-folder/bar/baz",
+            "g/all/x",
+            "u/usér/nom",
+        ] {
+            assert!(check_proper_path(ok).is_ok(), "{ok} should be accepted");
+        }
+        for bad in [
+            "a/admin/foo",
+            "u/admin",
+            "u/admin/foo/",
+            "u/admin/lawful_variable/x<script>alert(1)</script>",
+            "<script>alert(1)</script>",
+            // Postgres' `\w` covers neither join controls nor combining marks;
+            // Rust's `\w` covers both, so `[\w-]` here would pass these through
+            // to the constraint and leak its message back to the caller.
+            "u/admin/a\u{200C}b",
+            "u/admin/a\u{0301}b",
+            "u/admin/a\u{203F}b",
+        ] {
+            assert!(check_proper_path(bad).is_err(), "{bad} should be rejected");
+        }
+        assert!(check_proper_path(&format!("u/admin/{}", "a".repeat(300))).is_err());
+    }
+
+    #[test]
+    fn proper_type_name_matches_the_db_constraint() {
+        for ok in ["postgresql", "c_aws_account", "my-type", &"a".repeat(50)] {
+            assert!(
+                check_proper_type_name(ok).is_ok(),
+                "{ok} should be accepted"
+            );
+        }
+        for bad in [
+            "",
+            &"a".repeat(51),
+            "<img src=x onerror=prompt('hacked')>",
+            "a\u{200C}b",
+        ] {
+            assert!(
+                check_proper_type_name(bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+    }
 
     #[test]
     fn truncate_handles_multibyte_at_boundary() {

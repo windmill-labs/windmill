@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { Loader2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { DraftService } from '$lib/gen'
@@ -16,8 +17,7 @@
 		AssetGraphResponse,
 		AssetGraphSelection,
 		NativeTriggerKind,
-		PipelineMode
-	} from './types'
+		PipelineMode, DbtAssetProvenance } from './types'
 	import type { AssetKind, Script, ScriptLang } from '$lib/gen'
 	import type { RunnableRunState, PipelineEvent } from './activeRunnables.svelte'
 	import type { PipelineOutputKind } from './pipelineTemplates'
@@ -76,6 +76,7 @@
 		localScriptsVersion,
 		selectionProducers = [],
 		selectionColumnGraph,
+		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
 		schemaContractContext = undefined,
@@ -181,6 +182,8 @@
 		selectionProducers?: Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
 		/** Transitive column-lineage trace for a selected ducklake asset (route page). */
 		selectionColumnGraph?: ColumnLineageGraph
+		/** dbt provenance of the selected relation — carries its SQL. */
+		selectionDbt?: DbtAssetProvenance
 		schemaCanEvolve?: boolean
 		/** Fork workspaces: data-environment state of the selected ducklake asset (route page). */
 		selectionForkMaterialization?: 'fork' | 'deferred'
@@ -262,8 +265,7 @@
 	// the global drafts list. localStorage is a synchronous crash mirror, READ only
 	// for the one-time migration below; the DB is the source of truth on load.
 	// FlowBuilder's autosave analogue — gated by `persistDrafts`.
-	const PIPELINE_DRAFT_KIND = 'data_pipeline' as const
-	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
+	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
 	let storageKey = $derived(`pipeline-${folder}`)
 	type PipelineDraftBundle = { drafts: Array<[string, PipelineDraft]>; activeDraftPath?: string }
 	// Hydration is tracked on the editor instance (`editor.hydratedFromDb`), not a
@@ -512,6 +514,7 @@
 						selection={activeDraft ? undefined : editor.selection}
 						selectionProducers={activeDraft ? [] : selectionProducers}
 						{selectionColumnGraph}
+						{selectionDbt}
 						{schemaCanEvolve}
 						{selectionForkMaterialization}
 						{schemaContractContext}

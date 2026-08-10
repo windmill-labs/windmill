@@ -567,6 +567,40 @@
     - passes dry_run as true
     - leaves only the schedule draft for review
 
+- id: global-test29-schedule-with-retry-and-error-handler
+  prompt: |-
+    The workspace already has a report digest helper.
+    Schedule it every morning at 6am UTC with `dry_run` on, and have it retry twice
+    if it fails. Run it on our `nightly` worker group.
+    Draft only, I'll review before deploying.
+  initial: ai_evals/fixtures/frontend/global/initial/report_digest_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: schedule
+        pathIncludes:
+          - digest
+        valueIncludes:
+          - f/evals/global/send_report_digest
+          - attempts
+          - nightly
+  toolExpect:
+    requiredToolsUsed:
+      - write_schedule
+      - get_schedule_schema
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+  judgeChecklist:
+    - finds the existing report digest helper rather than creating a new script or flow
+    - creates one schedule draft for that helper running daily around 06:00 UTC
+    - configures a retry policy with two attempts
+    - routes the schedule to the nightly worker tag
+    - leaves the schedule as a draft without deploying
+
 - id: global-test18-human-slack-resource-with-secret
   prompt: |-
     I'm preparing Slack notifications for eval failures.
@@ -1105,6 +1139,38 @@
   judgeChecklist:
     - closes the runs preview tab in the side panel
     - does not write, deploy, or delete anything
+
+# --- Artifact version history ---
+# Every content change to an artifact is snapshotted, and update_artifact requires a
+# change_note that the user reads in the version picker. A blank note makes the history
+# unreadable, so pin that the model fills it on every edit.
+
+- id: global-artifact-note-on-each-edit
+  prompt: |-
+    Write up a short rollout plan for me as a doc I can come back to, covering a staged
+    rollout in three phases. Then add a rollback section to it, and after that tighten
+    the wording of phase 2.
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - create_artifact
+      - update_artifact
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # The note is what the version picker shows; a blank one makes history unreadable.
+      - tool: update_artifact
+        field: change_note
+        nonEmpty: true
+  skipJudge: true
+  judgeChecklist:
+    - creates one artifact and revises it rather than creating a second artifact
+    - each revision carries a short description of what changed
 
 # --- Documentation search (search_docs) ---
 # Pure product-knowledge questions: the assistant should consult the docs via
@@ -1772,6 +1838,27 @@
   skipJudge: true
   judgeChecklist:
     - deletes the deployed script via delete_workspace_item rather than a raw API endpoint
+
+- id: global-undo-created-draft
+  prompt: |-
+    Create a draft Postgres resource at `u/admin/scratch_db` for host db.example.com port 5432, database `orders`, user `app`, and tell me what fields it ended up with.
+    Once you've shown me that, delete it from the workspace again — I only wanted to see the shape of it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - write_resource
+      - discard_local_draft
+    forbiddenToolsUsed:
+      - delete_workspace_item
+      - deploy_workspace_item
+  # Undoing a draft leaves no draft behind; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - undoes its own never-deployed resource with discard_local_draft rather than delete_workspace_item
 
 - id: global-draft-diff-report
   prompt: |-

@@ -108,6 +108,12 @@ export function isRootWorkspace(workspace: UserWorkspace): boolean {
  * Walk up `parent_workspace_id` to the top of a workspace's family. Stops at the first ancestor not
  * present in `allWorkspaces` (e.g. a parent the user can't see) and returns it, so the result is
  * always the highest reachable ancestor. Returns undefined when the id itself isn't in the list.
+ *
+ * A dev workspace nested under another dev workspace (a dev of a dev, supported but not the
+ * recommended shape) ends the walk: it is the prod of everything below it, and presenting the far
+ * root — which such a family may promote to only through an intermediate, and which its members
+ * often can't even reach — as the family head makes every root-scoped affordance (fork base, deploy
+ * target, scope chip) point past the workspace actually being worked in.
  */
 export function findWorkspaceRoot(
 	workspaceId: string | undefined,
@@ -118,9 +124,51 @@ export function findWorkspaceRoot(
 	while (current?.parent_workspace_id) {
 		const parent = allWorkspaces.find((w) => w.id === current!.parent_workspace_id)
 		if (!parent) break
+		const crossedNestedDev = !!current.is_dev_workspace && !!parent.is_dev_workspace
 		current = parent
+		if (crossedNestedDev) break
 	}
 	return current
+}
+
+/**
+ * Every reachable ancestor of a workspace, nearest first. Unlike `findWorkspaceRoot` this never stops
+ * at a dev-of-dev boundary — it answers "is X above me in the real tree?", e.g. to keep an ancestor
+ * out of a dev-workspace attach list, where reparenting it below would close a cycle.
+ */
+export function findWorkspaceAncestors(
+	workspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): UserWorkspace[] {
+	const ancestors: UserWorkspace[] = []
+	let current = workspaceId ? allWorkspaces.find((w) => w.id === workspaceId) : undefined
+	const seen = new Set<string>(current ? [current.id] : [])
+	while (current?.parent_workspace_id) {
+		const parent = allWorkspaces.find((w) => w.id === current!.parent_workspace_id)
+		if (!parent || seen.has(parent.id)) break
+		seen.add(parent.id)
+		ancestors.push(parent)
+		current = parent
+	}
+	return ancestors
+}
+
+/**
+ * The dev workspaces at or above `workspaceId`. A dev workspace placed under it joins their
+ * promotion chain, so their environment labels are the ones it cannot reuse — dev workspaces in a
+ * chain inherit the same git-sync repositories, and an equal label means one shared deploy branch.
+ * `disabled` is not filtered out, unlike elsewhere: it means the caller has no seat in that
+ * workspace, which does not free the branch it deploys to. Ancestors the caller cannot see end the
+ * walk, so this can under-report; the backend rejects on the full tree either way.
+ */
+export function devWorkspacesInChainAbove(
+	workspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): UserWorkspace[] {
+	const self = workspaceId ? allWorkspaces.find((w) => w.id === workspaceId) : undefined
+	return [...(self ? [self] : []), ...findWorkspaceAncestors(workspaceId, allWorkspaces)].filter(
+		(w) => w.is_dev_workspace
+	)
 }
 
 /**
@@ -166,6 +214,31 @@ export function findCanonicalDevWorkspace(
 	return allWorkspaces.find(
 		(w) => w.parent_workspace_id === prodWorkspaceId && w.is_dev_workspace && !w.disabled
 	)
+}
+
+/**
+ * The workspace a new fork should branch from by default. Inside a dev workspace's subtree the base is
+ * that dev workspace, not the family root: the dev workspace carries the changes being worked on, and
+ * a prod locked against forking (`lock_prod_forking`) rejects a root-based fork outright. Anywhere
+ * else it is the family root, so an ad-hoc fork branches from prod rather than from whichever
+ * throwaway fork happens to be open. A dev workspace the user is disabled in is skipped — forking from
+ * it would fail — and the walk continues upwards.
+ */
+export function findDefaultForkBase(
+	currentWorkspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): UserWorkspace | undefined {
+	let current = allWorkspaces.find((w) => w.id === currentWorkspaceId)
+	while (current) {
+		if (current.is_dev_workspace && !current.disabled) return current
+		if (!current.parent_workspace_id) break
+		const parent: UserWorkspace | undefined = allWorkspaces.find(
+			(w) => w.id === current!.parent_workspace_id
+		)
+		if (!parent) break
+		current = parent
+	}
+	return findWorkspaceRoot(currentWorkspaceId, allWorkspaces)
 }
 
 /**

@@ -6,8 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::LazyLock;
 
 use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
@@ -18,7 +21,10 @@ use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
-use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
+use windmill_common::utils::{
+    check_proper_path, check_proper_type_name, escape_ilike_pattern, sanitize_db_error,
+    BulkDeleteRequest,
+};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -71,6 +77,15 @@ pub fn workspaced_service() -> Router {
         )
         .route("/update/{*path}", post(update_resource))
         .route("/update_value/{*path}", post(update_resource_value))
+        .route(
+            "/history/p/{*path}",
+            get(get_resource_history).delete(clear_resource_history),
+        )
+        .route("/history/v/{version}", get(get_resource_version))
+        .route(
+            "/history/restore/v/{version}",
+            post(restore_resource_version),
+        )
         .route("/delete/{*path}", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
@@ -1009,6 +1024,79 @@ async fn check_path_conflict<'c>(
     return Ok(());
 }
 
+/// Resource types the platform writes on its own behalf rather than users editing them:
+/// `state` backs `setState` and `cache` backs cached job results, so both are rewritten on
+/// every job run. Workspace export skips them for the same reason the `record_resource_version`
+/// trigger does; that trigger repeats this list in SQL, so the two have to move together.
+pub const INTERNAL_RESOURCE_TYPES: [&str; 2] = ["state", "cache"];
+
+/// Versions retained per resource path. The monitor sweep enforces it eventually; the history
+/// endpoint caps its own read at the same number so a burst of writes between two sweeps cannot
+/// make the drawer fetch an unbounded list.
+pub const MAX_RESOURCE_VERSIONS: i64 = 100;
+
+/// Above any plausible hand-editing cadence, and the rate at which the retained history stops
+/// being useful: at this many writes a minute, MAX_RESOURCE_VERSIONS covers only five minutes.
+/// Counting is per process, so N servers raise the effective threshold to N times this; erring
+/// low is the safe direction for something that only ever logs.
+const RESOURCE_WRITE_ADVISORY_PER_MIN: u32 = 20;
+
+struct ResourceWriteRate {
+    count: u32,
+    minute_bucket: i64,
+}
+
+/// Writes seen per (workspace, path) per minute. Purely advisory, and deliberately so: nothing
+/// is throttled, the count is per process and resets on restart, so it undercounts across
+/// servers. That is affordable for a log line and is what keeps this off the write path proper.
+static RESOURCE_WRITE_RATES: LazyLock<DashMap<(String, String), ResourceWriteRate>> =
+    LazyLock::new(DashMap::new);
+static RESOURCE_WRITES_SEEN: AtomicU64 = AtomicU64::new(0);
+
+/// Notice a caller rewriting one resource in a loop and point them at a store meant for it.
+/// Counts writes rather than versions: an unchanged value records nothing, but it still costs a
+/// row rewrite, an audit entry and a webhook, and is still a caller who wants a different store.
+fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
+    // `state` and `cache` are rewritten once per job by design. Counting them would fire the
+    // advisory hardest on exactly the traffic it is not about, which is how a warning becomes
+    // noise people filter out.
+    if INTERNAL_RESOURCE_TYPES.contains(&resource_type) {
+        return;
+    }
+    let minute_bucket = chrono::Utc::now().timestamp() / 60;
+    // The entry guard holds a lock on its DashMap shard, and `retain` below takes every shard.
+    // Keeping the guard alive across that call deadlocks the request handler, so this block is
+    // load-bearing: it must end before the eviction, not be flattened into the function body.
+    let reached_cap = {
+        let mut rate = RESOURCE_WRITE_RATES
+            .entry((w_id.to_string(), path.to_string()))
+            .or_insert(ResourceWriteRate { count: 0, minute_bucket });
+        if rate.minute_bucket != minute_bucket {
+            rate.minute_bucket = minute_bucket;
+            rate.count = 0;
+        }
+        rate.count += 1;
+        rate.count == RESOURCE_WRITE_ADVISORY_PER_MIN
+    };
+    // Bounded without a background task: periodically drop what neither the current nor the
+    // previous minute can still need.
+    if RESOURCE_WRITES_SEEN.fetch_add(1, Ordering::Relaxed) % 256 == 0 {
+        RESOURCE_WRITE_RATES.retain(|_, rate| rate.minute_bucket >= minute_bucket - 1);
+    }
+    // Once per minute per path: `==` rather than `>=` so a sustained loop logs at the crossing
+    // and then stays quiet until the bucket rolls over.
+    if reached_cap {
+        tracing::warn!(
+            workspace_id = %w_id,
+            path = %path,
+            "resource written {} times in a minute; each write rewrites the whole value, and a \
+             changed one also records a version. High-frequency writes belong in a state resource, \
+             object storage, or a datatable.",
+            RESOURCE_WRITE_ADVISORY_PER_MIN
+        );
+    }
+}
+
 #[derive(Deserialize)]
 struct CreateResourceQuery {
     update_if_exists: Option<bool>,
@@ -1023,6 +1111,8 @@ async fn create_resource(
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
+    check_proper_path(&resource.path)?;
+    check_proper_type_name(&resource.resource_type)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1100,7 +1190,8 @@ async fn create_resource(
             resource.labels.as_deref() as Option<&[String]>
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(sanitize_db_error)?;
     } else {
         // Create-only (the default): DO NOTHING + a row-count guard, so a path that appears between
         // check_path_conflict above and this insert is rejected rather than overwritten. A plain
@@ -1119,7 +1210,8 @@ async fn create_resource(
             resource.labels.as_deref() as Option<&[String]>
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(sanitize_db_error)?;
         if inserted.rows_affected() == 0 {
             return Err(Error::BadRequest(format!(
                 "Resource {} already exists",
@@ -1691,6 +1783,10 @@ async fn update_resource(
     // source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("resources:write:{}", npath))?;
+        check_proper_path(npath)?;
+    }
+    if let Some(nrt) = ns.resource_type.as_deref() {
+        check_proper_type_name(nrt)?;
     }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -1810,7 +1906,10 @@ async fn update_resource(
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(sanitize_db_error)?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
 
@@ -1961,44 +2060,79 @@ async fn update_resource_value(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
-    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+    set_resource_value(
+        &authed,
+        &db,
+        &user_db,
+        &webhook,
         &w_id,
-        AuditAuthorable::username(&authed),
+        path,
+        nv.value,
+        "resources.update",
+    )
+    .await?;
+    Ok(format!("value of resource {} updated", path))
+}
+
+/// Write a resource's value and run everything that has to follow it: a version row, the audit
+/// entry, deployment metadata, the webhook, and dependent CI tests. Shared with version restore
+/// so a restored value is indistinguishable downstream from any other edit.
+async fn set_resource_value(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    webhook: &WebhookShared,
+    w_id: &str,
+    path: &str,
+    value: Option<serde_json::Value>,
+    audit_action: &str,
+) -> Result<()> {
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        w_id,
+        AuditAuthorable::username(authed),
         &authed.groups,
         authed.is_admin,
-        &db,
+        db,
     )
     .await?
     {
         return Err(Error::PermissionDenied(msg));
     }
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(authed).await?;
 
-    sqlx::query!(
-        "UPDATE resource SET value = $1, edited_at = now() WHERE path = $2 AND workspace_id = $3",
-        nv.value,
+    // `RETURNING resource_type` rather than a second lookup: the advisory below has to know the
+    // type to leave `state` and `cache` alone, and this statement already runs.
+    let updated = sqlx::query_scalar!(
+        "UPDATE resource SET value = $1, edited_at = now() WHERE path = $2 AND workspace_id = $3
+         RETURNING resource_type",
+        value,
         path,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+    let Some(resource_type) = updated else {
+        return Err(Error::NotFound(format!("Resource {} not found", path)));
+    };
     audit_log(
         &mut *tx,
-        &authed,
-        "resources.update",
+        authed,
+        audit_action,
         ActionKind::Update,
-        &w_id,
+        w_id,
         Some(path),
         None,
     )
     .await?;
     tx.commit().await?;
 
+    note_resource_write(w_id, path, &resource_type);
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
-        &db,
-        &w_id,
+        db,
+        w_id,
         DeployedObject::Resource { path: path.to_string(), parent_path: Some(path.to_string()) },
         None,
         true,
@@ -2007,9 +2141,9 @@ async fn update_resource_value(
     .await?;
 
     webhook.send_message(
-        w_id.clone(),
+        w_id.to_string(),
         WebhookMessage::UpdateResource {
-            workspace: w_id.clone(),
+            workspace: w_id.to_string(),
             old_path: path.to_owned(),
             new_path: path.to_owned(),
         },
@@ -2018,12 +2152,13 @@ async fn update_resource_value(
     // Trigger CI tests for items that reference this resource
     {
         let db2 = db.clone();
+        let w_id2 = w_id.to_string();
         let path2 = path.to_string();
         let email2 = authed.email.clone();
         let username2 = authed.username.clone();
         tokio::spawn(async move {
             if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
-                &db2, &w_id, &path2, "resource", &email2, &username2,
+                &db2, &w_id2, &path2, "resource", &email2, &username2,
             )
             .await
             {
@@ -2032,7 +2167,299 @@ async fn update_resource_value(
         });
     }
 
-    Ok(format!("value of resource {} updated", path))
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct ResourceVersion {
+    id: i64,
+    created_at: chrono::DateTime<chrono::Utc>,
+    created_by: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ResourceVersionWithValue {
+    id: i64,
+    created_at: chrono::DateTime<chrono::Utc>,
+    created_by: Option<String>,
+    value: Option<serde_json::Value>,
+    /// `$var:`/`$res:` paths in this version that no longer resolve. Restoring is still allowed —
+    /// the reference may be about to be recreated, and refusing would make a version unrestorable
+    /// for a reason outside the resource — but the caller should say so before confirming.
+    missing_references: Vec<String>,
+}
+
+/// Deliberately does not carry the resource's live value. Every write mints a version, so the
+/// newest one already holds it, and `resource_version` rows are immutable — reading the live
+/// value from `resource` instead would mean comparing a mutable row against this list, which at
+/// READ COMMITTED can disagree with it. The drawer reads only versions, and by id, so there is
+/// nothing for a concurrent write to make incoherent.
+#[derive(Serialize)]
+pub struct ResourceHistory {
+    versions: Vec<ResourceVersion>,
+    /// Whether this resource's history can ever fill, so the drawer can say an empty one is
+    /// permanent rather than promising versions from the next edit. Decided here rather than by
+    /// shipping the type out, so INTERNAL_RESOURCE_TYPES is not restated in TypeScript too.
+    /// Compared against nothing, so unlike the value it carries no coherence risk.
+    versioned: bool,
+}
+
+async fn get_resource_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<ResourceHistory> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
+
+    let versions = sqlx::query_as!(
+        ResourceVersion,
+        "SELECT id, created_at, created_by FROM resource_version
+         WHERE workspace_id = $1 AND path = $2 ORDER BY id DESC LIMIT $3",
+        w_id,
+        path,
+        MAX_RESOURCE_VERSIONS
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let resource_type = sqlx::query_scalar!(
+        "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(ResourceHistory {
+        versions,
+        versioned: resource_type
+            .map(|t| !INTERNAL_RESOURCE_TYPES.contains(&t.as_str()))
+            .unwrap_or(true),
+    }))
+}
+
+/// Collect the references in `value` that no longer point at anything. Covers the three
+/// path-addressed forms — `$var:` and `$jsonvar:` resolve against `variable`, `$res:` against
+/// `resource`. `$encrypted:` carries its payload inline so there is nothing to look up, and
+/// neither resolution nor this check follows references transitively.
+///
+/// Runs on the caller's RLS-scoped transaction, so a referenced item the caller cannot read is
+/// reported as missing. That errs towards warning rather than staying silent, and the reference
+/// is unusable to them either way.
+async fn missing_references(
+    tx: &mut sqlx::PgConnection,
+    w_id: &str,
+    value: Option<&serde_json::Value>,
+) -> Result<Vec<String>> {
+    const VAR_PREFIXES: [&str; 2] = ["$var:", "$jsonvar:"];
+    const RES_PREFIX: &str = "$res:";
+
+    let mut refs: Vec<String> = vec![];
+    fn collect(v: &serde_json::Value, out: &mut Vec<String>) {
+        match v {
+            // Stated once: adding a form to the consts above must not need a second edit here,
+            // or the new form would be collected but never checked (or the reverse).
+            serde_json::Value::String(s)
+                if VAR_PREFIXES.iter().any(|p| s.starts_with(p)) || s.starts_with(RES_PREFIX) =>
+            {
+                out.push(s.clone())
+            }
+            serde_json::Value::Array(a) => a.iter().for_each(|x| collect(x, out)),
+            serde_json::Value::Object(o) => o.values().for_each(|x| collect(x, out)),
+            _ => {}
+        }
+    }
+    if let Some(v) = value {
+        collect(v, &mut refs);
+    }
+    refs.sort();
+    refs.dedup();
+
+    let mut var_paths: Vec<String> = vec![];
+    let mut res_paths: Vec<String> = vec![];
+    for r in &refs {
+        match VAR_PREFIXES.iter().find_map(|p| r.strip_prefix(p)) {
+            Some(p) => var_paths.push(p.to_string()),
+            None => {
+                if let Some(p) = r.strip_prefix(RES_PREFIX) {
+                    res_paths.push(p.to_string())
+                }
+            }
+        }
+    }
+
+    // Sets, not Vecs: a value carries as many references as its author put in it, and a linear
+    // scan per reference would make the cost of one version fetch quadratic in caller-controlled
+    // input.
+    let existing_vars: std::collections::HashSet<String> = sqlx::query_scalar!(
+        "SELECT path FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
+        w_id,
+        &var_paths[..]
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect();
+    let existing_res: std::collections::HashSet<String> = sqlx::query_scalar!(
+        "SELECT path FROM resource WHERE workspace_id = $1 AND path = ANY($2)",
+        w_id,
+        &res_paths[..]
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect();
+
+    Ok(refs
+        .into_iter()
+        .filter(
+            |r| match VAR_PREFIXES.iter().find_map(|p| r.strip_prefix(p)) {
+                Some(p) => !existing_vars.contains(p),
+                None => match r.strip_prefix(RES_PREFIX) {
+                    Some(p) => !existing_res.contains(p),
+                    None => false,
+                },
+            },
+        )
+        .collect())
+}
+
+async fn get_resource_version(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, version)): Path<(String, i64)>,
+) -> JsonResult<ResourceVersionWithValue> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let row = sqlx::query!(
+        "SELECT id, path, created_at, created_by, value FROM resource_version
+         WHERE workspace_id = $1 AND id = $2",
+        w_id,
+        version
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    check_scopes(&authed, || format!("resources:read:{}", row.path))?;
+
+    let missing = missing_references(&mut tx, &w_id, row.value.as_ref()).await?;
+    tx.commit().await?;
+
+    Ok(Json(ResourceVersionWithValue {
+        id: row.id,
+        created_at: row.created_at,
+        created_by: row.created_by,
+        value: row.value,
+        missing_references: missing,
+    }))
+}
+
+/// Drop every version of a resource except the one matching its current value.
+///
+/// The remediation for a credential that was stored inline in a resource value (which `wmill`
+/// pushes and `setResource` writes can do, unlike the UI form) and has since been rotated:
+/// without this, rotating leaves the old secret readable in the history by anyone who can read
+/// the resource. All-but-current rather than per-version because such a secret sits in every
+/// version from its introduction to the rotation, so deleting them one at a time would silently
+/// leave copies behind.
+async fn clear_resource_history(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
+    require_owner_of_path(&authed, path)?;
+
+    // Confirm the caller can see the resource under their own RLS before deleting anything with
+    // the unrestricted pool — resource_version grants users SELECT only, so the delete cannot run
+    // through user_db.
+    let mut tx = user_db.begin(&authed).await?;
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)",
+        w_id,
+        path
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    if !exists.unwrap_or(false) {
+        return Err(Error::NotFound(format!("Resource {} not found", path)));
+    }
+
+    let mut tx = db.begin().await?;
+    let deleted = sqlx::query!(
+        "DELETE FROM resource_version rv
+         WHERE rv.workspace_id = $1 AND rv.path = $2
+           AND rv.id != (
+               SELECT max(id) FROM resource_version l
+               WHERE l.workspace_id = rv.workspace_id AND l.path = rv.path
+           )",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resources.clear_history",
+        ActionKind::Delete,
+        &w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!(
+        "cleared {} past versions of resource {}",
+        deleted.rows_affected(),
+        path
+    ))
+}
+
+async fn restore_resource_version(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, version)): Path<(String, i64)>,
+) -> Result<String> {
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let row = sqlx::query!(
+        "SELECT path, value FROM resource_version WHERE workspace_id = $1 AND id = $2",
+        w_id,
+        version
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    tx.commit().await?;
+
+    check_scopes(&authed, || format!("resources:write:{}", row.path))?;
+
+    // Writes the old value forward as a new version rather than rewinding, so the history stays
+    // append-only, the restore is itself attributable, and the restore can be undone in turn.
+    set_resource_value(
+        &authed,
+        &db,
+        &user_db,
+        &webhook,
+        &w_id,
+        &row.path,
+        row.value,
+        "resources.restore_version",
+    )
+    .await?;
+
+    Ok(format!(
+        "resource {} restored to version {}",
+        row.path, version
+    ))
 }
 
 #[derive(Serialize)]
@@ -2160,6 +2587,8 @@ async fn create_resource_type(
     {
         return Err(Error::PermissionDenied(msg));
     }
+
+    check_proper_type_name(&resource_type.name)?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -2449,7 +2878,10 @@ fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
             v4.is_loopback()
                 || v4.is_private()
                 || v4.is_link_local()
-                || v4.is_unspecified()
+                // RFC 1122 "this network": the whole /8, not just the
+                // unspecified address `is_unspecified()` matches — stacks that
+                // map 0.x.y.z onto the local host make `0.0.0.1` a bypass.
+                || v4.octets()[0] == 0 // 0.0.0.0/8
                 || v4.is_broadcast()
                 // 100.64.0.0/10 (Carrier-grade NAT / CGNAT)
                 || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
@@ -3400,9 +3832,12 @@ mod tests {
         assert!(is_private_or_reserved_ip(
             &"100.64.0.1".parse::<IpAddr>().unwrap()
         ));
-        // Unspecified
+        // "This network" 0.0.0.0/8, not just the unspecified address
         assert!(is_private_or_reserved_ip(
             &"0.0.0.0".parse::<IpAddr>().unwrap()
+        ));
+        assert!(is_private_or_reserved_ip(
+            &"0.0.0.1".parse::<IpAddr>().unwrap()
         ));
         // IPv6 loopback
         assert!(is_private_or_reserved_ip(&"::1".parse::<IpAddr>().unwrap()));

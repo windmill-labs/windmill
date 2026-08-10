@@ -70,6 +70,7 @@ bitflags::bitflags! {
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
+        const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
     }
 }
 
@@ -81,6 +82,7 @@ pub enum ProtectionRuleKind {
     DisableWorkspaceForking,
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
+    RestrictPublicRunSharing,
 }
 
 impl ProtectionRuleKind {
@@ -98,6 +100,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 ProtectionRules::RESTRICT_ANONYMOUS_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
+            }
         }
     }
 
@@ -112,6 +117,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 "Making an app publicly accessible without login (anonymous execution mode) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                "Sharing a run publicly (readable without login) is restricted in this workspace"
             }
         }
     }
@@ -167,7 +175,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28809/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28871/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -175,7 +183,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28809/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28808/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28890/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -310,7 +318,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitRepositorySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_types_override: Option<Vec<ObjectType>>,
@@ -508,7 +516,7 @@ impl AutoPullSettings {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitSyncSettings {
     pub include_path: Vec<String>,
     pub include_type: Vec<ObjectType>,
@@ -1525,10 +1533,12 @@ pub async fn resolve_fork_branch_target(
         .fetch_optional(db)
         .await?
     } else if branch != expected_base {
-        // Environment-label branch (`dev`/`staging`) of a dev-workspace child.
-        // Dev workspaces only exist directly under a root, so no recursion here.
-        // The tracked-branch guard keeps a label that collides with the tracked
-        // branch from double-routing (the parent's own pull already covers it).
+        // Environment-label branch (`dev`, `staging`, ...) of a dev-workspace child.
+        // Direct children only: a dev nested under another dev is parent-managed
+        // by that dev, which holds no auto-pull config of its own, so no branch
+        // pushed to this repo routes to it. The tracked-branch guard keeps a
+        // label that collides with the tracked branch from double-routing (the
+        // parent's own pull already covers it).
         sqlx::query_scalar!(
             "SELECT id FROM workspace \
              WHERE parent_workspace_id = $1 AND NOT deleted AND is_dev_workspace \
@@ -2477,4 +2487,144 @@ mod tests {
         assert!(msg.contains("staging"), "{msg}");
         assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
     }
+
+    #[test]
+    fn test_dbt_warehouse_name_length_bound() {
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN)).is_ok());
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN + 1)).is_err());
+    }
+}
+
+/// Whether a workspace configures this warehouse, without resolving it.
+///
+/// For the one caller that needs the NAME and nothing else: a project bringing
+/// its own `profiles.yml` names a warehouse to say where its assets belong, and
+/// decrypting a connection it will never open to answer that would be waste.
+///
+/// NO AUTHORIZATION, like the resolver it delegates to: it reads workspace
+/// settings for whatever `w_id` it is given, so callers MUST already be scoped
+/// to that workspace.
+pub async fn dbt_warehouse_exists(db: &DB, w_id: &str, warehouse: &str) -> Result<()> {
+    dbt_warehouse_resource(db, w_id, warehouse)
+        .await
+        .map(|_| ())
+}
+
+/// The longest warehouse name a workspace may configure.
+///
+/// It is the first segment of every `dbt://<warehouse>/<schema>/<name>` key, and
+/// those land in `asset.path`, a VARCHAR(255). A name near that width would push
+/// ordinary relations past the column, and the ingest's own bound would then
+/// skip them — a graph quietly missing models. 64 leaves room for two 63-char
+/// identifiers, which is Postgres's own limit; warehouses that allow longer ones
+/// still rely on that ingest bound as the backstop.
+pub const MAX_DBT_WAREHOUSE_NAME_LEN: usize = 64;
+
+/// A warehouse name is a URL path segment for a worker with no database, so a
+/// name that could re-cut the path (or the query) is refused — at every place a
+/// name enters, not only where one is written, since a descriptor names one too.
+pub fn validate_dbt_warehouse_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is not a usable dbt warehouse name: use letters, digits, `_` and `-`"
+        )));
+    }
+    if name.chars().count() > MAX_DBT_WAREHOUSE_NAME_LEN {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is too long for a dbt warehouse name (max {MAX_DBT_WAREHOUSE_NAME_LEN}): it \
+             prefixes every asset path this warehouse's models are keyed on"
+        )));
+    }
+    Ok(())
+}
+
+/// A dbt warehouse's resolved connection: the value a `profiles.yml` is rendered
+/// from, and the target the workspace names for it.
+///
+/// Carries CREDENTIALS. dbt is unpermissioned by design (docs/dbt-runtime.md,
+/// Decision 24), so this is served to a running job rather than gated on the
+/// runner's access to the resource — but it must never reach a route a user can
+/// browse.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DbtWarehouseConnection {
+    pub value: serde_json::Value,
+    /// Omitted rather than null when absent, so the wire shape matches the
+    /// schema generated clients validate against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// What the value IS, which its shape cannot say: a `dbt_profile`'s value is a
+    /// `profiles.yml` output block and every other type's is a connection to translate,
+    /// and both are objects carrying a `type`. Defaulted so a worker still resolves
+    /// against a server predating the field — which serves no `dbt_profile` anyway.
+    #[serde(default)]
+    pub resource_type: String,
+}
+
+/// The resource type whose value is a `profiles.yml` output block, taken as it
+/// is rather than translated.
+pub const DBT_PROFILE_RESOURCE_TYPE: &str = "dbt_profile";
+
+/// The warehouse a dbt project runs against, by name — `main` when the
+/// descriptor names none.
+///
+/// NO AUTHORIZATION: reads workspace settings for whatever `w_id` it is given.
+/// Callers MUST already be scoped to that workspace — a running job, or a route
+/// that checked its token. What it returns is a POINTER; resolving it is a
+/// separate step, and dbt warehouses are unpermissioned there (Decision 24), so
+/// the pointer is not the last line of defence. A descriptor cannot name a
+/// resource at all, which is what makes the workspace the only place a
+/// warehouse is configured — and
+/// what lets asset identity key on the NAME (`dbt://main/analytics/orders`),
+/// one spelling every project on that warehouse shares.
+pub async fn dbt_warehouse_resource(
+    db: &DB,
+    w_id: &str,
+    warehouse: &str,
+) -> Result<(String, Option<String>)> {
+    let cfg = sqlx::query_scalar!(
+        "SELECT dbt_warehouses FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(serde_json::Value::Null);
+    let entry = cfg.get(warehouse).cloned().ok_or_else(|| {
+        let configured = cfg
+            .as_object()
+            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        Error::NotFound(if configured.is_empty() {
+            format!(
+                "no dbt warehouse is configured for this workspace — an admin adds one under \
+                 Settings → dbt, and a project reaches it by name (`{warehouse}` here)"
+            )
+        } else {
+            format!(
+                "dbt warehouse `{warehouse}` is not configured for this workspace (configured: \
+                 {})",
+                configured.join(", ")
+            )
+        })
+    })?;
+    let path = entry
+        .get("resource_path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "dbt warehouse `{warehouse}` names no resource_path"
+            ))
+        })?;
+    // Stored with or without the prefix, like the storage configs; the caller
+    // resolves a bare path.
+    let path = path.strip_prefix("$res:").unwrap_or(path).to_string();
+    let target = entry
+        .get("target")
+        .and_then(|t| t.as_str())
+        .map(|t| t.to_string());
+    Ok((path, target))
 }

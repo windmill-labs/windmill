@@ -35,6 +35,13 @@
 				startOnLoad: false,
 				theme: dark ? 'dark' : 'default',
 				securityLevel: 'strict',
+				// Mermaid writes this stack into a <style> block inside the SVG, so the app's font
+				// never reaches a diagram: the bundled vector emoji font has to be named here or
+				// emoji fall back to the platform bitmap one, which ignores the zoom transform
+				// (app.css). Inter sits last before it because the emoji font also covers digits,
+				// # and *; on a box without the MS core fonts those would otherwise render as its
+				// keycap glyphs. Keeping Inter behind them leaves diagram typography unchanged.
+				fontFamily: '"trebuchet ms", verdana, arial, Inter, "Noto Color Emoji", sans-serif',
 				// Throw on parse errors instead of injecting an orphan error diagram into the DOM.
 				suppressErrorRendering: true
 			})
@@ -43,6 +50,17 @@
 			if (seq !== renderSeq) return
 			svg = result.svg
 			renderedCode = source
+			// Mermaid sizes each node by measuring its label, so a font still in flight yields
+			// boxes cut to fallback metrics that the real glyphs then overflow. Drawing the
+			// diagram is itself what asks for the fonts its glyphs need — including the emoji
+			// subsets — so let them settle and lay it out again against the true metrics.
+			if (document.fonts?.status === 'loading') {
+				await document.fonts.ready
+				if (seq !== renderSeq) return
+				const settled = await mermaid.render(`mermaid-${randomUUID()}`, source)
+				if (seq !== renderSeq) return
+				svg = settled.svg
+			}
 		} catch {
 			// Parse failure (often a partial block still streaming in): fall back to the
 			// raw source. `showSvg` already hides any previous diagram since `renderedCode`
@@ -145,7 +163,7 @@
 		</div>
 	</div>
 
-	<Modal bind:open={expanded} title="Diagram" kind="X" class="sm:max-w-none w-[92vw]">
+	<Modal bind:open={expanded} title="Diagram" kind="X" fillHeight class="sm:max-w-none w-[92vw]">
 		{#snippet settings()}
 			<div class="flex flex-row gap-1 mr-8">
 				<Button
@@ -183,7 +201,7 @@
 			</div>
 		{/snippet}
 		<div
-			class="relative w-full h-[78vh] overflow-hidden rounded border cursor-grab bg-surface-secondary"
+			class="relative w-full h-full overflow-hidden rounded border cursor-grab bg-surface-secondary"
 		>
 			{#if expanded}
 				<div use:panzoomAction class="w-full h-full flex items-center justify-center">

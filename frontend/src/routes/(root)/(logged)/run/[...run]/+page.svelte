@@ -37,9 +37,10 @@
 		Code2,
 		ClipboardCopy,
 		GitBranch,
-		GitFork,
 		EllipsisVertical,
-		Share2
+		Share2,
+		Globe,
+		Users
 	} from 'lucide-svelte'
 
 	import { isJobResolvable } from '$lib/utils'
@@ -49,6 +50,7 @@
 		rememberRerunOrigin
 	} from '$lib/components/runs/rerunResolution.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
 	import UpstreamSnapshotsPanel from '$lib/components/runs/UpstreamSnapshotsPanel.svelte'
 	import {
@@ -102,8 +104,17 @@
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import { useNestedRestartState } from '$lib/components/useNestedRestartState.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+		canUserBypassRuleKind,
+		isRuleActive,
+		protectionRulesState
+	} from '$lib/workspaceProtectionRules.svelte'
+	import {
+		buildForkEditUrl,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
@@ -201,6 +212,22 @@
 			sendUserToast('Read-only share link copied to clipboard')
 		} catch (e) {
 			sendUserToast(`Failed to create share link: ${e}`, true)
+		}
+	}
+
+	async function sharePublicLink(id: string): Promise<void> {
+		try {
+			const workspace = $workspaceStore!
+			const token = (await JobService.getJobPublicViewToken({ workspace, id })).trim()
+			// The workspace is a path segment here: the public run page is outside the
+			// logged layout and has no workspace store to fall back on.
+			const url = `${window.location.origin}${base}/public_run/${encodeURIComponent(
+				workspace
+			)}/${id}?view_token=${encodeURIComponent(token)}`
+			copyToClipboard(url)
+			sendUserToast('Public link copied to clipboard — anyone with it can view this run')
+		} catch (e) {
+			sendUserToast(`Failed to create public link: ${e}`, true)
 		}
 	}
 
@@ -429,7 +456,10 @@
 	}
 
 	let runImmediatelyLoading = $state(false)
-	async function runImmediately() {
+	// An override may be a function, because the arguments it merges into are not
+	// known until they are here: a `WINDMILL_TOO_BIG` payload is a placeholder
+	// until fetched, and merging over that one drops what the fetch was for.
+	async function runImmediately(argsOverride?: ScriptArgs | ((args: ScriptArgs) => ScriptArgs)) {
 		runImmediatelyLoading = true
 		try {
 			let args = job?.args as ScriptArgs
@@ -439,6 +469,10 @@
 					id: job?.id!
 				})) as ScriptArgs
 			}
+			args =
+				typeof argsOverride === 'function'
+					? argsOverride(args ?? {})
+					: { ...args, ...(argsOverride ?? {}) }
 
 			const commonArgs = {
 				workspace: $workspaceStore!,
@@ -478,12 +512,64 @@
 			} else {
 				sendUserToast('Cannot run this job immediately', true)
 			}
+		} catch (err) {
+			// A refusal is the interesting case here: the worker rejects a `dbt
+			// retry` whose run is no longer the saved one, and a caller who saw
+			// nothing happen would just click again.
+			sendUserToast(`Could not create job: ${err}`, true)
 		} finally {
 			runImmediatelyLoading = false
 		}
 	}
 
+	// Whether a `dbt retry` submitted from here would resume THIS run: only the
+	// latest failure of a script is kept per principal, so a later run of it — or
+	// one that failed with nothing to rebuild — leaves this page's retry refused.
+	// Both entry points to it, the dropdown item and the graph's banner, ask.
+	let dbtResumable = $state(false)
+	$effect(() => {
+		const ws = $workspaceStore
+		const id = job?.id
+		const failed = job?.language === 'dbt' && job?.type === 'CompletedJob' && !job?.success
+		dbtResumable = false
+		if (!ws || !id || !failed) return
+		JobService.getDbtResumable({ workspace: ws, id })
+			.then((held) => {
+				// The page may have moved on, or the workspace changed, in flight.
+				if (job?.id === id && $workspaceStore === ws) dbtResumable = held === id
+			})
+			.catch(() => {})
+	})
+
+	// The retry goes through `runImmediately` so it carries the run's own arguments
+	// and resolved tag: worker tags, debounce and concurrency keys interpolate from
+	// the submitted arguments at enqueue, while the ones being resumed are restored
+	// later, inside the worker.
+	async function resumeDbtRun() {
+		// Merged INTO the run's own block, not put in its place: those fields are
+		// what a `$args[command.vars.tenant]` tag or concurrency key interpolates
+		// from at enqueue. The worker ignores them for a retry — it rebuilds with
+		// the arguments the failed run had — but the queue has already read them.
+		await runImmediately((args) => ({
+			...args,
+			command: {
+				...((args?.['command'] as Record<string, any> | undefined) ?? {}),
+				label: 'retry',
+				dbt_retry_job: job?.id
+			}
+		}))
+	}
+
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
+
+	// Admins always pass the backend gate. Everyone else fails closed while the rulesets
+	// are still loading, so the item is never briefly offered to a restricted user.
+	let canSharePublicly = $derived(
+		!!$userStore?.is_admin ||
+			!!$userStore?.is_super_admin ||
+			(protectionRulesState.rulesets !== undefined &&
+				canUserBypassRuleKind('RestrictPublicRunSharing', $userStore ?? undefined))
+	)
 
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
@@ -663,15 +749,33 @@
 				{/if}
 			{/if}
 			{#if job}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: Share2 }}
-					title="Copy a read-only share link to this run for another workspace member"
-					onclick={() => job && shareReadLink(job.id)}
+				<Dropdown
+					customWidth={280}
+					items={[
+						{
+							displayName: 'Copy link for members',
+							icon: Users,
+							tooltip:
+								'Read-only link to this run for another member of this workspace. They must be logged in.',
+							action: () => job && shareReadLink(job.id)
+						},
+						{
+							displayName: 'Copy public link',
+							icon: Globe,
+							disabled: !canSharePublicly,
+							tooltip: canSharePublicly
+								? "Read-only link that anyone on the internet can open, without logging in. It shows a minimal version of this page: this run's inputs, result and logs, and for a flow its graph plus every step's inputs, result, logs and code. The link cannot be revoked."
+								: 'Sharing a run publicly is restricted in this workspace. Ask an admin to share it, or to grant you a bypass on the ruleset.',
+							action: () => job && sharePublicLink(job.id)
+						}
+					]}
 				>
-					Share
-				</Button>
+					{#snippet buttonReplacement()}
+						<Button nonCaptureEvent variant="default" unifiedSize="md" startIcon={{ icon: Share2 }}>
+							Share
+						</Button>
+					{/snippet}
+				</Dropdown>
 			{/if}
 			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
@@ -794,8 +898,14 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={async () => {
+						// The form this lands on rebuilds the whole project. When resuming
+						// THIS run is the cheaper thing to do, name it so the form can
+						// offer that in one click rather than leaving the reader to know.
+						const from = dbtResumable ? `?dbt_retry_from=${job?.id}` : ''
 						goto(
-							viewHref + `#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
+							viewHref +
+								from +
+								`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
 						)
 					}}
 					unifiedSize="md"
@@ -803,6 +913,11 @@
 					startIcon={{ icon: RefreshCw }}
 					loading={runImmediatelyLoading}
 					dropdownItems={[
+						// A failed dbt run's cheap next step is resuming its failed and skipped
+						// nodes rather than rebuilding the project, and `dbt_command` is the
+						// only argument that differs. Offered first, and only while the saved
+						// failure is still this run — which is what `dbtResumable` answers.
+						...(dbtResumable ? [{ label: 'dbt retry with same args', onClick: resumeDbtRun }] : []),
 						{
 							label: 'Run immediately with same args',
 							onClick: () => runImmediately()
@@ -830,11 +945,14 @@
 					{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
+							onClick={(e) =>
+								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '', {
+									hasHref: true
+								})}
 							unifiedSize="md"
 							variant="default"
 							size="sm"
-							startIcon={{ icon: GitFork }}
-							>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
+							startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
 						>
 					{/if}
 				{/if}
@@ -899,7 +1017,6 @@
 						{job}
 						{isOwner}
 						{suspendStatus}
-						workspaceId={job?.workspace_id}
 						innerModules={job?.flow_status?.modules}
 					/>
 				{/if}
@@ -970,6 +1087,25 @@
 				{/if}
 				{#if scriptProgress}
 					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
+				{/if}
+
+				<!-- The models a dbt run touches, above its result: the run page is
+				     where you land on a running job, and the per-node table below
+				     only exists once the job has produced one. -->
+				{#if job?.language === 'dbt' && job?.script_path}
+					<div class="mr-2 sm:mr-0 mt-12">
+						<h3 class="text-xs font-semibold text-emphasis mb-1">Models</h3>
+						<DbtRunGraph
+							scriptPath={job.script_path}
+							jobId={job.id}
+							running={job.type !== 'CompletedJob'}
+							result={job.type === 'CompletedJob' ? job.result : undefined}
+							scriptHash={job.script_hash}
+							runArgs={job.args}
+							canResume={dbtResumable}
+							onResume={resumeDbtRun}
+						/>
+					</div>
 				{/if}
 
 				<!-- Result Section (moved outside tabs) -->

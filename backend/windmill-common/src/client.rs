@@ -115,6 +115,59 @@ impl AuthedClient {
         }
     }
 
+    /// Whether the workspace configures this dbt warehouse. Resolves nothing.
+    pub async fn dbt_warehouse_exists(&self, name: &str) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/api/w/{}/dbt/warehouse_exists/{}",
+            self.base_internal_url, self.workspace, name
+        );
+        let response = self.get(&url, vec![]).await?;
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    /// Record a run's settled dbt nodes, for a worker with no database.
+    ///
+    /// Posted with the JOB's token, not the agent's: the route takes the job
+    /// from the token, and the agent's own credential only authenticates
+    /// against the agent surface.
+    pub async fn record_dbt_run_progress(
+        &self,
+        req: &[crate::dbt_manifest::DbtRunProgressRequest],
+    ) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/api/w/{}/dbt/run_progress",
+            self.base_internal_url, self.workspace
+        );
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+            )
+            .json(req)
+            .send()
+            .await?;
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    /// Where a dbt warehouse name points, for a worker with no database.
+    pub async fn get_dbt_warehouse<T: DeserializeOwned>(&self, name: &str) -> anyhow::Result<T> {
+        let url = format!(
+            "{}/api/w/{}/dbt/warehouse/{}",
+            self.base_internal_url, self.workspace, name
+        );
+        make_basic_get_request(self, &url, None, Some("decoding the dbt warehouse ref")).await
+    }
+
     pub async fn get_completed_job_result<T: DeserializeOwned>(
         &self,
         path: &str,

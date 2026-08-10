@@ -43,6 +43,8 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import { notifyContractWarnings } from './assets/AssetGraph/schemaContracts'
 	import ScriptEditor from './ScriptEditor.svelte'
+	import DbtEditor from './dbt/DbtEditor.svelte'
+	import { findModulePathClash } from './scriptModulePath'
 	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage, Schema } from '$lib/common'
@@ -69,7 +71,7 @@
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
-	import { type Item } from '$lib/utils'
+	import { getLocalSetting, storeLocalSetting, type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -88,6 +90,8 @@
 	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
+	import Badge from './common/badge/Badge.svelte'
+	import Modal from './common/modal/Modal.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 
@@ -104,7 +108,7 @@
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -222,8 +226,10 @@
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
+	let originalOnBehalfOfPermissionedAs = $derived(savedScript?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
+	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -235,7 +241,33 @@
 	)
 
 	let editor: Editor | undefined = $state(undefined)
-	let scriptEditor: ScriptEditor | undefined = $state(undefined)
+	// A dbt script gets its own editor: the artifact is a project bundle — a file
+	// tree, a descriptor, run arguments and a model graph — not a body of code.
+	// Both answer to the same handful of calls below, so everything around them
+	// is unchanged.
+	let scriptEditor: ScriptEditor | DbtEditor | undefined = $state(undefined)
+	let isDbt = $derived(script.language === 'dbt')
+	// dbt hides Generated UI, but the initialiser picks a tab before the language is
+	// known, so `ui` can be selected. Fall back only to an ENABLED tab — the other
+	// TabContents are not gated on their disable flags — and otherwise stay on `ui`,
+	// whose content IS gated for dbt, so nothing renders rather than something hidden.
+	$effect(() => {
+		if (isDbt && selectedTab === 'ui') {
+			const first = (
+				[
+					['metadata', customUi?.settingsPanel?.disableMetadata],
+					['runtime', customUi?.settingsPanel?.disableRuntime],
+					['triggers', customUi?.settingsPanel?.disableTriggers]
+				] as const
+			).find(([, disabled]) => disabled !== true)?.[0]
+			if (first) selectedTab = first
+		}
+	})
+	// The version whose stored graph the dbt editor draws until a refresh replaces
+	// it. A script never deployed has none, and `NewScript` carries no hash.
+	let deployedScriptHash = $derived(
+		savedScript && 'hash' in savedScript ? (savedScript.hash as string) : undefined
+	)
 	let captureTable: CaptureTable | undefined = $state(undefined)
 	let wacExportDrawer: WacExportDrawer | undefined = $state(undefined)
 
@@ -454,6 +486,8 @@
 					language: 'bun'
 				}
 			}
+		} else if (script.language === 'dbt') {
+			seedDbtProject()
 		}
 		const restarter = scheduleRestartSync(userDraftPath, { waitForContent: true })
 		initContent(script.language, script.kind, template).finally(() => restarter.markContentReady())
@@ -673,6 +707,7 @@
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
+					on_behalf_of: script.on_behalf_of,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
 					modules: script.modules,
@@ -831,7 +866,7 @@
 												{
 													label: editInForkLabel(opWorkspace, $userWorkspaces),
 													onClick: () => {
-														window.open(buildForkEditUrl('script', initialPath))
+														openEditInFork('script', initialPath, opWorkspace)
 													}
 												}
 											]
@@ -883,15 +918,25 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		switch (event.key) {
+		// Lowercased so Caps Lock (which yields `S`) still saves. Shift excluded:
+		// Ctrl+Shift+S must reach the browser/OS.
+		switch (event.key.length === 1 ? event.key.toLowerCase() : event.key) {
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
 					saveDraft()
 					event.preventDefault()
 				}
 				break
 		}
 	}
+
+	// Monaco swallows the keydown, so a code editor with focus never reaches the
+	// window handler above; Editor/SimpleEditor/TemplateEditor re-broadcast it
+	// (untyped event, hence the manual listener).
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+	})
 
 	let path: Path | undefined = $state(undefined)
 	// Seed "path is already chosen" so the summary→path auto-slug (which only
@@ -971,7 +1016,48 @@
 
 	function handleDeployTrigger(_trigger: Trigger) {}
 
+	// A dbt script's modules ARE its dbt project, and the runtime refuses one
+	// without a `dbt_project.yml`. Seeded from BOTH entry points — the empty-script
+	// bootstrap and the language picker — because reaching dbt by switching an
+	// existing draft otherwise produces a script that cannot deploy or run.
+	// Existing modules are left alone: switching away and back must not discard a
+	// project the user has already grown.
+	function seedDbtProject() {
+		// Keyed on the project file rather than on "has any modules at all": a
+		// draft that grew modules under another language carries none of what dbt
+		// needs, and the worker refuses a bundle with no `dbt_project.yml` — so
+		// that draft reached dbt in a state it could neither deploy nor run.
+		// Matched on the canonical path: a bundle pushed with `./dbt_project.yml`
+		// already has the project file, and seeding a second spelling of it is the
+		// two-keys-one-file collision the editor's add-file checks refuse.
+		if (findModulePathClash(script.modules, 'dbt_project.yml')) return
+		script.modules = {
+			'dbt_project.yml': {
+				content:
+					'name: my_dbt_project\nversion: "1.0"\nprofile: my_dbt_project\nmodels:\n  my_dbt_project:\n    +materialized: view\n',
+				language: 'dbt'
+			},
+			'models/example.sql': {
+				content: 'select 1 as id\n',
+				language: 'dbt'
+			},
+			// Last, so anything already written wins: the previous language's
+			// helper files are inert to dbt and are the user's to remove.
+			...(script.modules ?? {})
+		}
+	}
+
+	/// Shown once, the first time dbt is chosen: the moment of choosing is when
+	/// "this is alpha and its details will move" is worth knowing, rather than
+	/// after a project has been built on it.
+	const DBT_ALPHA_SEEN = 'dbt_alpha_ack'
+	let dbtAlphaOpen = $state(false)
+
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
+		if (lang === 'dbt' && getLocalSetting(DBT_ALPHA_SEEN) !== 'true') {
+			dbtAlphaOpen = true
+			storeLocalSetting(DBT_ALPHA_SEEN, 'true')
+		}
 		if (lang == 'docker') {
 			template = 'docker'
 		} else if (lang == 'bunnative') {
@@ -980,9 +1066,19 @@
 			template = 'script'
 		}
 		let language = langToLanguage(lang)
+		if (language === 'dbt') {
+			// A project bundle only ever runs as an action, and the selector that
+			// would set this back is hidden for dbt — so a script arriving here as a
+			// trigger or approval would keep a kind it cannot fill and drop out of
+			// the action pickers, with nothing on screen to repair it.
+			script.kind = 'script'
+		}
 		//
 		initContent(language, script.kind, template)
 		script.language = language
+		if (language === 'dbt') {
+			seedDbtProject()
+		}
 	}
 
 	function onSummaryChange(value: string) {
@@ -1093,7 +1189,10 @@
 							label="Runtime"
 						/>
 					{/if}
-					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
+					<!-- Not for dbt: its run form is derived from the descriptor server-side
+					     (`dbt_arg_schema`), so anything refined here is overwritten by the
+					     next deploy. -->
+					{#if customUi?.settingsPanel?.disableGeneratedUi !== true && !isDbt}
 						<Tab
 							value="ui"
 							aiId="script-builder-ui"
@@ -1241,6 +1340,9 @@
 															} as ButtonType.Icon}
 														>
 															<span class="truncate">{label}</span>
+															{#if lang === 'dbt'}
+																<Badge color="orange" verySmall baseClass="ml-1">alpha</Badge>
+															{/if}
 														</Button>
 														{#snippet text()}
 															{label} is only available with an enterprise license
@@ -1350,7 +1452,10 @@
 											CI Test Python
 										</Button>
 									</div>
-									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
+									<!-- Not for dbt: each kind tags a script for a role in a flow that a project
+										     bundle cannot fill (approval, trigger, preprocessor), and the runtime only
+										     ever runs it as an action. -->
+									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true && !isDbt}
 										<Section label="Script kind">
 											{#snippet header()}
 												<Tooltip
@@ -1781,10 +1886,12 @@
 													on:change={() => {
 														if (script.on_behalf_of_email) {
 															script.on_behalf_of_email = undefined
+															script.on_behalf_of = undefined
 															preserveOnBehalfOf = false
 															onBehalfOfChoice = undefined
 														} else {
 															script.on_behalf_of_email = $userStore?.email
+															script.on_behalf_of = myPermissionedAs
 														}
 													}}
 													options={{
@@ -1800,14 +1907,19 @@
 															onBehalfOfChoice = choice
 															if (choice === 'me') {
 																script.on_behalf_of_email = $userStore?.email
+																script.on_behalf_of = myPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = false
 															} else if (choice === 'target') {
+																// Keep the saved pair. A script that has no recorded principal yet
+																// sends the email alone and the backend derives one from it.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
+																script.on_behalf_of = originalOnBehalfOfPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = true
 															} else if (choice === 'custom' && details) {
 																script.on_behalf_of_email = details.email
+																script.on_behalf_of = details.permissionedAs
 																customOnBehalfOfEmail = details.email
 																preserveOnBehalfOf = true
 															}
@@ -1892,12 +2004,14 @@
 									{/if}
 								</div>
 							</TabContent>
-							<TabContent value="ui" class="h-full p-4">
-								<ScriptSchema
-									bind:schema={script.schema}
-									customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
-								/>
-							</TabContent>
+							{#if !isDbt}
+								<TabContent value="ui" class="h-full p-4">
+									<ScriptSchema
+										bind:schema={script.schema}
+										customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
+									/>
+								</TabContent>
+							{/if}
 							<TabContent value="triggers" class="h-full">
 								<TriggersEditor
 									on:applyArgs={applyArgs}
@@ -2121,57 +2235,105 @@
 			</div>
 		{/if}
 
-		<ScriptEditor
-			{disableAi}
-			workspaceOverride={opWorkspace}
-			sessionOpen={userDraftPath
-				? {
-						// URL draft path the editor loads/saves by, not the friendly
-						// `script.path` (a new script's has no row → "not found").
-						target: { kind: 'script', path: userDraftPath },
-						workspaceId: opWorkspace ?? undefined,
-						beforeOpen: persistDraftForSession
-					}
-				: undefined}
-			bind:selectedTab={selectedInputTab}
-			{customUi}
-			{onTestJob}
-			collabMode
-			edit={initialPath != ''}
-			on:format={() => {
-				saveDraft()
-			}}
-			on:saveDraft={() => {
-				saveDraft()
-			}}
-			on:openTriggers={openTriggers}
-			on:applyArgs={applyArgs}
-			on:addPreprocessor={addPreprocessor}
-			bind:editor
-			bind:this={scriptEditor}
-			bind:schema={script.schema}
-			path={script.path}
-			stablePathForCaptures={initialPath || fakeInitialPath}
-			bind:code={script.content}
-			lang={script.language}
-			timeout={script.timeout}
-			kind={script.kind}
-			autoKind={script.auto_kind}
-			{template}
-			tag={script.tag}
-			lastSavedCode={savedScript?.content}
-			lastDeployedCode={savedScript?.content}
-			bind:args
-			bind:hasPreprocessor
-			bind:captureTable
-			bind:assets={script.assets}
-			bind:modules={script.modules}
-			enablePreprocessorSnippet
-			{testPanelCollapsed}
-		/>
+		{#if isDbt}
+			<DbtEditor
+				workspaceOverride={opWorkspace}
+				{customUi}
+				{onTestJob}
+				on:format={() => saveDraft()}
+				on:saveDraft={() => saveDraft()}
+				bind:editor
+				bind:this={scriptEditor}
+				bind:schema={script.schema}
+				path={script.path}
+				bind:code={script.content}
+				timeout={script.timeout}
+				tag={script.tag}
+				deployedHash={deployedScriptHash}
+				bind:args
+				bind:modules={script.modules}
+			/>
+		{:else}
+			<ScriptEditor
+				{disableAi}
+				workspaceOverride={opWorkspace}
+				sessionOpen={userDraftPath
+					? {
+							// URL draft path the editor loads/saves by, not the friendly
+							// `script.path` (a new script's has no row → "not found").
+							target: { kind: 'script', path: userDraftPath },
+							workspaceId: opWorkspace ?? undefined,
+							beforeOpen: persistDraftForSession
+						}
+					: undefined}
+				bind:selectedTab={selectedInputTab}
+				{customUi}
+				{onTestJob}
+				collabMode
+				edit={initialPath != ''}
+				on:format={() => {
+					saveDraft()
+				}}
+				on:saveDraft={() => {
+					saveDraft()
+				}}
+				on:openTriggers={openTriggers}
+				on:applyArgs={applyArgs}
+				on:addPreprocessor={addPreprocessor}
+				bind:editor
+				bind:this={scriptEditor}
+				bind:schema={script.schema}
+				path={script.path}
+				stablePathForCaptures={initialPath || fakeInitialPath}
+				bind:code={script.content}
+				lang={script.language}
+				timeout={script.timeout}
+				kind={script.kind}
+				autoKind={script.auto_kind}
+				{template}
+				tag={script.tag}
+				lastSavedCode={savedScript?.content}
+				lastDeployedCode={savedScript?.content}
+				bind:args
+				bind:hasPreprocessor
+				bind:captureTable
+				bind:assets={script.assets}
+				bind:modules={script.modules}
+				enablePreprocessorSnippet
+				{testPanelCollapsed}
+			/>
+		{/if}
 	</div>
 {:else}
 	Script Builder not available to operators
 {/if}
+
+<Modal title="dbt on Windmill is in alpha" bind:open={dbtAlphaOpen} cancelText="Got it">
+	<div class="flex flex-col gap-3 text-sm text-secondary">
+		<p>
+			A dbt script is a whole dbt project: the files are the script's module bundle, the content is
+			a <span class="font-mono text-xs">wm_dbt.yaml</span> descriptor, and the models become
+			<span class="font-mono text-xs">dbt://</span> assets in the graph.
+		</p>
+		<p>
+			Expect rough edges, and expect details to move: the descriptor's fields, what a run returns,
+			and how the graph is stored are all still settling.
+		</p>
+		<p>
+			Deploying and running work today, and an existing project needs no changes —
+			<span class="font-mono text-xs">cp -r</span> it into the script's folder and push. Nothing here
+			is load-bearing for other languages.
+		</p>
+		<p class="text-xs">
+			<a
+				href="https://www.windmill.dev/docs/getting_started/scripts_quickstart"
+				target="_blank"
+				rel="noreferrer"
+				class="text-blue-500 hover:underline">Docs</a
+			>
+			· report anything surprising, it is the most useful thing at this stage.
+		</p>
+	</div>
+</Modal>
 
 <WacExportDrawer bind:this={wacExportDrawer} />

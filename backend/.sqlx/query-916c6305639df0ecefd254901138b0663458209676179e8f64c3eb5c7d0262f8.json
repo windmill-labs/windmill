@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_diff (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, source_last_event_kind, source_last_event_origin)\n            SELECT $1, unnest($2::varchar[]), $3, $4, 0, 1, NULL, $5, $6\n            ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)\n            DO UPDATE SET\n                behind = workspace_diff.behind + 1,\n                has_changes = NULL,\n                source_last_event_kind = CASE WHEN $6::varchar IS NULL OR (NOT $7 AND workspace_diff.source_last_event_origin IS NOT NULL) THEN workspace_diff.source_last_event_kind ELSE $5 END,\n                source_last_event_origin = CASE WHEN $6::varchar IS NULL OR (NOT $7 AND workspace_diff.source_last_event_origin IS NOT NULL) THEN workspace_diff.source_last_event_origin ELSE $6 END",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "VarcharArray",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "916c6305639df0ecefd254901138b0663458209676179e8f64c3eb5c7d0262f8"
+}

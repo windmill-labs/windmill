@@ -46,7 +46,7 @@ use windmill_common::otel_oss::{
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
-    auth::create_token_for_owner,
+    auth::{create_token_for_owner, ephemeral_script_token_label},
     ee_oss::CriticalErrorChannel,
     email_oss::send_email_if_possible,
     error,
@@ -117,17 +117,18 @@ use windmill_queue::{
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
     SameWorkerPayload,
 };
+use windmill_store::resources::MAX_RESOURCE_VERSIONS;
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
-    OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
-    BUN_INSTALL_MIN_RELEASE_AGE, CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR,
-    JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML,
-    NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NSJAIL_TMPFS_SIZE_MB,
-    NSJAIL_TMP_BACKING, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, SANDBOX_IMAGE_CACHE_MAX_MB,
-    SANDBOX_IMAGE_DEFAULT_REGISTRY, SANDBOX_IMAGE_MAX_SIZE_MB, SANDBOX_IMAGE_PULL_POLICY,
-    SANDBOX_REGISTRY_AUTH, UNSHARE_PATH, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY,
-    UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
+    OtelTracingProxySettings, SameWorkerSender, StepFailureKind, WorkspaceRegistryMap,
+    BUNFIG_INSTALL_SCOPES, BUN_INSTALL_MIN_RELEASE_AGE, CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION,
+    JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS,
+    MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE,
+    NSJAIL_TMPFS_SIZE_MB, NSJAIL_TMP_BACKING, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS,
+    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
+    SANDBOX_IMAGE_CACHE_MAX_MB, SANDBOX_IMAGE_DEFAULT_REGISTRY, SANDBOX_IMAGE_MAX_SIZE_MB,
+    SANDBOX_IMAGE_PULL_POLICY, SANDBOX_REGISTRY_AUTH, UNSHARE_PATH, UV_EXCLUDE_NEWER,
+    UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -1255,6 +1256,39 @@ async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
     }
     if let Some(email) = &token.email {
         send_email_if_possible(email_subject, &email_body, email);
+    }
+}
+
+/// Trim resource version history down to the per-path cap.
+///
+/// Deliberately not part of `delete_expired_items` (which runs every monitor tick): this is a
+/// full pass over `resource_version`, and the cap only has to hold eventually, so the call site
+/// gates it to the same rare cadence as the other heavy sweeps.
+pub async fn trim_resource_versions(db: &DB) -> () {
+    let trimmed = sqlx::query_scalar!(
+        "DELETE FROM resource_version rv
+         USING (
+             SELECT id FROM (
+                 SELECT id, row_number() OVER (
+                     PARTITION BY workspace_id, path ORDER BY id DESC
+                 ) AS rn
+                 FROM resource_version
+             ) ranked WHERE rn > $1
+         ) over_cap
+         WHERE rv.id = over_cap.id
+         RETURNING rv.id",
+        MAX_RESOURCE_VERSIONS,
+    )
+    .fetch_all(db)
+    .await;
+
+    match trimmed {
+        Ok(ids) => {
+            if ids.len() > 0 {
+                tracing::info!("trimmed {} resource versions past the cap", ids.len())
+            }
+        }
+        Err(e) => tracing::error!("Error trimming resource versions: {}", e.to_string()),
     }
 }
 
@@ -3177,6 +3211,15 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 120 iterations (~20min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC)
+    let trim_resource_versions_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                trim_resource_versions(&db).await;
+            }
+        }
+    };
+
     // run every hour
     let vacuum_queue_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(60) {
@@ -3450,6 +3493,7 @@ pub async fn monitor_db(
         expired_items_f,
         zombie_jobs_f,
         stale_jobs_f,
+        trim_resource_versions_f,
         vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,
@@ -4662,13 +4706,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             continue;
         }
         if let Some(job) = job.unwrap() {
-            let label = if job.permissioned_as != format!("u/{}", job.created_by)
-                && job.permissioned_as != job.created_by
-            {
-                format!("ephemeral-script-end-user-{}", job.created_by)
-            } else {
-                "ephemeral-script".to_string()
-            };
+            let label = ephemeral_script_token_label(&job.permissioned_as, &job.created_by);
             let token = create_token_for_owner(
                 &db,
                 &job.workspace_id,
@@ -4706,7 +4744,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 memory_peak,
                 None,
                 error::Error::ExecutionErr(error_message.clone()),
-                matches!(error_kind, ErrorMessage::SameWorker), // unrecoverable if the job is a same worker zombie
+                // a same worker zombie means the worker itself is gone
+                if matches!(error_kind, ErrorMessage::SameWorker) {
+                    StepFailureKind::Unrecoverable
+                } else {
+                    StepFailureKind::Normal
+                },
                 Some(&same_worker_tx_never_used),
                 "",
                 node_name,

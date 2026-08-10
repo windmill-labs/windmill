@@ -22,7 +22,7 @@ import {
   FSFSElement,
   ignoreF,
 } from "../sync/sync.ts";
-import { exts } from "../script/script.ts";
+import { hasScriptExt } from "../script/script.ts";
 import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint, scriptPathToRemotePath } from "../../utils/resource_folders.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
@@ -51,7 +51,7 @@ async function walkLocalScripts(
   const elems = await elementsToMap(
     await FSFSElement(process.cwd(), codebases, false),
     (p, isD) =>
-      (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+      (!isD && !hasScriptExt(p)) ||
       ignore(p, isD) ||
       isFolderResourcePathAnyFormat(p) ||
       // Datatable migration `.sql` files aren't Windmill scripts.
@@ -221,7 +221,7 @@ function categorizeLocalFiles(
     ) {
       appPaths.push(p);
     } else if (
-      exts.some((ext) => p.endsWith(ext)) &&
+      hasScriptExt(p) &&
       !isFolderResourcePathAnyFormat(p) &&
       // Datatable migration `.sql` files aren't Windmill scripts.
       !isDatatableMigrationPath(p) &&

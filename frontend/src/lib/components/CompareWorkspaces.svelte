@@ -43,11 +43,15 @@
 		checkDeployPermission,
 		deployItem,
 		deleteItemInWorkspace,
+		diffActionableInDirection,
+		diffCreatesInTarget,
+		diffRemovesInTarget,
 		getItemValue,
 		getOnBehalfOf,
 		type DeployPermission,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
+	import { asSyncDeploy } from '$lib/deployOrigin'
 	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
 	import Tooltip from './Tooltip.svelte'
 	import OnBehalfOfSelector, {
@@ -64,6 +68,7 @@
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import CompareTargetPicker from './CompareTargetPicker.svelte'
 	import { displayDate } from '$lib/utils'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { diffInMask } from './sessions/modifiedItemsMask'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
@@ -114,6 +119,10 @@
 		/** False while the (async) chatMask is still loading. The select-all default
 		 * waits for this so it doesn't race the mask. Defaults to true. */
 		chatMaskReady?: boolean
+		/** Whether the mask also scopes the update direction (parent→fork). True only
+		 * for an explicit `?items=` deep link, which can legitimately name items to
+		 * pull in — a session's mask never can (see the preselect rule below). */
+		maskAppliesToUpdate?: boolean
 		/** Selecting `draft` asks the page to swap us out for CompareDrafts;
 		 * deploy_to/update are handled internally but reported so the page can
 		 * remember the direction. */
@@ -142,6 +151,7 @@
 		draftKeys = new Set<string>(),
 		chatMask,
 		chatMaskReady = true,
+		maskAppliesToUpdate = false,
 		onModeSelected,
 		onChanged
 	}: Props = $props()
@@ -391,6 +401,8 @@
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
 	let parentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == parentWorkspaceId))
 
+	let currentNoun = $derived(childWorkspaceNoun(currentWorkspaceInfo))
+
 	// An arbitrary target is one-way: the pair has no tally, so nothing distinguishes
 	// a change made here from one made there, and the "update current" direction
 	// would list every difference as an incoming change.
@@ -407,13 +419,9 @@
 	let canPreserveOnBehalfOf = $derived(mergeIntoParent ? canPreserveInParent : canPreserveInCurrent)
 
 	let selectableDiffs = $derived(
-		comparison?.diffs.filter((diff) => {
-			if (mergeIntoParent) {
-				return diff.ahead > 0
-			} else {
-				return diff.behind > 0
-			}
-		}) ?? []
+		comparison?.diffs.filter((diff) =>
+			diffActionableInDirection(diff, mergeIntoParent, isArbitraryTarget)
+		) ?? []
 	)
 
 	let selectedItems = $state<string[]>([])
@@ -443,7 +451,7 @@
 				? `No changes between this workspace and ${parentWorkspaceId}.`
 				: mergeIntoParent
 					? `Nothing to deploy — ${parentWorkspaceId} already has every change from this workspace.`
-					: `Nothing to update — this fork is up to date with ${parentWorkspaceId}.`
+					: `Nothing to update — this ${currentNoun} is up to date with ${parentWorkspaceId}.`
 	)
 
 	let conflictingDiffs = $derived(
@@ -457,10 +465,17 @@
 		}) ?? []
 	)
 
+	// Gates the "update before deploying" alert, so it counts what a merge would
+	// actually carry — not every row with an `ahead` counter, which includes the
+	// parent-only ones the merge direction leaves out.
 	let itemsWithAheadChanges = $derived(
 		comparison?.diffs.filter((diff) => {
 			const status = deploymentStatus[getItemKey(diff)]?.status
-			return diff && diff.ahead > 0 && !(status && status == 'deployed')
+			return (
+				diff &&
+				diffActionableInDirection(diff, true, isArbitraryTarget) &&
+				!(status && status == 'deployed')
+			)
 		}) ?? []
 	)
 
@@ -477,6 +492,7 @@
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
 	let customOnBehalfOf = $state<Record<string, OnBehalfOfDetails>>({})
 	let deployTargetWorkspace = $derived(mergeIntoParent ? parentWorkspaceId : currentWorkspaceId)
+	let deploySourceWorkspace = $derived(mergeIntoParent ? currentWorkspaceId : parentWorkspaceId)
 
 	function getItemKey(diff: WorkspaceItemDiff): string {
 		return `${diff.kind}:${diff.path}`
@@ -606,6 +622,17 @@
 		return undefined
 	}
 
+	/**
+	 * Authorization half of the on_behalf_of pair for flows/scripts. Only a custom pick
+	 * names one; for every other choice the backend derives it from the email, so
+	 * returning undefined clears the source item's value rather than keeping it.
+	 */
+	function getOnBehalfOfPermissionedAsForDeploy(itemKey: string, kind: Kind): string | undefined {
+		if (kind === 'trigger' || isTriggerOrScheduleKind(kind)) return undefined
+		if (onBehalfOfChoice[itemKey] !== 'custom') return undefined
+		return customOnBehalfOf[itemKey]?.permissionedAs
+	}
+
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(true)
 
@@ -630,12 +657,10 @@
 
 	// All *diff* items selected. Trigger items are opt-in and don't count
 	// toward "all selected" — see item merge below in deployableItems.
-	// Deploying a row the current workspace lacks deletes it in the target. Against
-	// the parent that is a real deletion to propagate and is selected like anything
-	// else; against an arbitrary target the two workspaces were simply never in sync,
-	// so it takes an explicit act on that row. No bulk action may sweep one in.
+	// A row whose deploy deletes in the target takes an explicit tick (see
+	// `diffRemovesInTarget`); no bulk action may sweep one in.
 	function removesInTarget(diff: WorkspaceItemDiff): boolean {
-		return isArbitraryTarget && diff.exists_in_fork === false
+		return diffRemovesInTarget(diff, mergeIntoParent)
 	}
 	let bulkSelectableDiffs = $derived(selectableDiffs.filter((d) => !removesInTarget(d)))
 
@@ -680,17 +705,14 @@
 	) {
 		deploymentStatus[statusKey] = { status: 'loading' }
 
-		// Check if the item was deleted in the source workspace.
-		// If so, archive/delete it in the target workspace instead of copying.
+		// The workspace this deploy reads from doesn't have the item: archive/delete
+		// it in the target instead of copying. Same predicate as the row's badge and
+		// its exclusion from bulk selection, so what the row says is what it does.
 		const diff = comparison?.diffs.find((d) => getItemKey(d) === statusKey)
-		const itemDeletedInSource = diff
-			? mergeIntoParent
-				? diff.exists_in_fork === false
-				: diff.exists_in_source === false
-			: false
+		const removes = diff ? removesInTarget(diff) : false
 
 		let result: DeployResult
-		if (itemDeletedInSource) {
+		if (removes) {
 			result = await deleteItemInWorkspace(kind, path, workspaceToDeployTo)
 		} else {
 			result = await deployItem({
@@ -698,7 +720,8 @@
 				path,
 				workspaceFrom,
 				workspaceTo: workspaceToDeployTo,
-				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind)
+				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
+				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind)
 			})
 		}
 
@@ -760,22 +783,29 @@
 		let anyFailed = false
 		// Datatables whose migrations deployed cleanly — candidates for a run prompt.
 		const deployedMigrationDatatables = new Set<string>()
-		for (const itemKey of sortedItems) {
-			const deployable = deployableItems.find((d) => d.key === itemKey)
+		const applyAll = async () => {
+			for (const itemKey of sortedItems) {
+				const deployable = deployableItems.find((d) => d.key === itemKey)
 
-			if (!deployable) {
-				sendUserToast(`Undeployable item: ${itemKey}`, true)
-				continue
-			}
+				if (!deployable) {
+					sendUserToast(`Undeployable item: ${itemKey}`, true)
+					continue
+				}
 
-			const from = mergeIntoParent ? current : parent
-			await deploy(deployable.kind, deployable.path, to, from, itemKey)
-			if (deploymentStatus[itemKey]?.status === 'failed') {
-				anyFailed = true
-			} else if (deployable.kind === 'datatable_migration') {
-				deployedMigrationDatatables.add(deployable.path.split('/')[0])
+				const from = mergeIntoParent ? current : parent
+				await deploy(deployable.kind, deployable.path, to, from, itemKey)
+				if (deploymentStatus[itemKey]?.status === 'failed') {
+					anyFailed = true
+				} else if (deployable.kind === 'datatable_migration') {
+					deployedMigrationDatatables.add(deployable.path.split('/')[0])
+				}
 			}
 		}
+		// Updating the fork copies the parent's state in, so the tally must not read
+		// the result as the fork authoring anything. Merging the other way is the
+		// opposite: someone chose those changes for the target, and a fork chain
+		// needs that to stay authored so it can be merged on again.
+		await (mergeIntoParent ? applyAll() : asSyncDeploy(applyAll))
 		deploying = false
 		deselectAll()
 
@@ -879,17 +909,25 @@
 		// Items with a pending draft are also left out by default: the deployed
 		// version (not the draft) is what moves, so we make the user opt in.
 		// The update direction (parent→fork) is never something the chat caused, so
-		// when scoped to a chat's items (chatMask set) preselect nothing there.
-		if (chatMask && !mergeIntoParent) {
+		// when scoped to a chat's items (chatMask set) preselect nothing there —
+		// unless the mask came in as an explicit `?items=` deep link, which names
+		// what to pull.
+		if (chatMask && !mergeIntoParent && !maskAppliesToUpdate) {
 			selectedItems = []
 			return
 		}
 		const filtered = bulkSelectableDiffs.filter(
 			(d) => !isTriggerOrScheduleKind(d.kind) && !hasDraft(d)
 		)
+		// The update direction leaves out two ambiguous shapes, both still one click
+		// away through "Select all": a conflict, and a parent-only row the fork has
+		// deploy events for — the fork may have dropped it on purpose, and a routine
+		// update must not silently bring it back.
 		const conflictSafe = mergeIntoParent
 			? filtered
-			: filtered.filter((d) => !(d.ahead > 0 && d.behind > 0))
+			: filtered.filter(
+					(d) => !(d.ahead > 0 && d.behind > 0) && !(d.ahead > 0 && diffCreatesInTarget(d, false))
+				)
 		// When reached from a session's Review, narrow the default to this chat's items.
 		const scoped = chatMask ? conflictSafe.filter((d) => diffInMask(d, chatMask)) : conflictSafe
 		selectedItems = scoped
@@ -975,6 +1013,10 @@
 	let removalKeys = new Set<string>()
 	$effect(() => {
 		const diffs = comparison?.diffs
+		// Removals are direction-dependent, so a flip must refresh the set: keeping the
+		// other direction's would make every row of the new one look freshly flipped
+		// and revoke the opt-in this guard protects.
+		;[mergeIntoParent]
 		if (!diffs) return
 		untrack(() => {
 			const current = new Set(diffs.filter(removesInTarget).map((d) => getItemKey(d)))
@@ -1374,7 +1416,10 @@
 									variant="accent"
 									unifiedSize="xs"
 									disabled={scanning}
-									startIcon={{ icon: scanning ? Loader2 : DiffIcon }}
+									startIcon={{
+										icon: scanning ? Loader2 : DiffIcon,
+										classes: scanning ? 'animate-spin' : undefined
+									}}
 									onClick={() => onScan?.()}
 								>
 									{scanning ? 'Computing diff…' : 'Compute diff'}
@@ -1395,7 +1440,8 @@
 								<span>
 									{#if mergeIntoParent}
 										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
-										Only deployed versions in this fork can be sent to {parentWorkspaceId} — deploy
+										Only deployed versions in this {currentNoun} can be sent to {parentWorkspaceId} —
+										deploy
 										{draftCount !== 1 ? 'them' : 'it'} first, otherwise those changes won't be included.
 									{:else}
 										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
@@ -1419,14 +1465,14 @@
 						<Alert title="Conflicting changes detected" type="warning" class="mt-2">
 							<span>
 								{conflictingDiffs.length} item{conflictingDiffs.length !== 1 ? 's have' : ' has'} conflicting
-								changes, it was modified on the original workspace while changes were made on this fork.
-								Make sure to resolve these before merging.
+								changes, it was modified on the original workspace while changes were made on this
+								{currentNoun}. Make sure to resolve these before merging.
 							</span>
 						</Alert>
 					{/if}
 					{#if hasBehindChanges && hasAheadChanges && !(mergeIntoParent && !canDeployToParent)}
 						<Alert
-							title="This fork is behind {parentWorkspaceId} and needs to be up to date before deploying"
+							title="This {currentNoun} is behind {parentWorkspaceId} and needs to be up to date before deploying"
 							type="warning"
 							class="my-2"
 						>
@@ -1553,39 +1599,23 @@
 							<AlertTriangle class="w-3 h-3 inline mr-0.5" />+Draft
 						</Badge>
 					{/if}
-					<!-- Status badges -->
-					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
+					<!-- Status badges. An item on one side only states the effect of
+					     deploying it; the row is offered at all only when the missing side
+					     recorded dropping it (see `diffForkDroppedItem`). -->
+					{#if diffCreatesInTarget(diff, mergeIntoParent)}
 						<Badge
-							title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
+							title="This item exists in '{deploySourceWorkspace}' but not in '{deployTargetWorkspace}' — deploying it creates it there"
 							color="indigo"
 							size="xs">New</Badge
 						>
-					{/if}
-					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-						<!-- Same row, two readings: against the parent the fork deleted the
-						     item, while against an arbitrary target it may simply never have
-						     existed here. Deploying removes it there either way — say that
-						     rather than asserting a deletion that may not have happened. -->
+					{:else if removesInTarget(diff)}
+						{@const renamedAway = mergeIntoParent && diff.fork_last_event_kind === 'rename_from'}
 						<Badge
-							title={isArbitraryTarget
-								? `This item exists only in '${parentWorkspaceId}' — deploying it removes it there`
-								: `This item was deleted in '${currentWorkspaceId}'`}
+							title={renamedAway
+								? `'${deploySourceWorkspace}' renamed this item to another path — deploying it removes the old path in '${deployTargetWorkspace}'`
+								: `This item exists in '${deployTargetWorkspace}' but not in '${deploySourceWorkspace}' — deploying it removes it there`}
 							color="red"
-							size="xs">{isArbitraryTarget ? 'Removes in target' : 'Deleted'}</Badge
-						>
-					{/if}
-					{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
-						<Badge
-							title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
-							color="red"
-							size="xs">Deleted</Badge
-						>
-					{/if}
-					{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
-						<Badge
-							title="This item was newly created in '{currentWorkspaceId}'"
-							color="indigo"
-							size="xs">New</Badge
+							size="xs">Removes in {deployTargetWorkspace}</Badge
 						>
 					{/if}
 					{@const ciStatus = getCiTestStatus(diff)}

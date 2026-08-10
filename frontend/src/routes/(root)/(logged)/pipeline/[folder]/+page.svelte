@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { workspaceStore, userStore } from '$lib/stores'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -36,6 +37,8 @@
 		type ColumnLineageGraph
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
+	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
 	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
 	import {
 		computeDownstreamClosure,
@@ -123,7 +126,7 @@
 	// layout without adding lineage information.
 	const DATA_KINDS = DATA_ASSET_KINDS
 
-	let folder = $derived(page.params.folder as string)
+	let folder = $derived(normalizePipelineFolder(page.params.folder as string))
 
 	// Externalized editor state (drafts, live overlays, selection), shared with
 	// the in-session pipeline preview via PipelineEditorState. Referenced as
@@ -188,7 +191,8 @@
 		resource: '$res:',
 		ducklake: 'ducklake://',
 		datatable: 'datatable://',
-		volume: 'volume://'
+		volume: 'volume://',
+		dbt: 'dbt://'
 	}
 
 	// Path-input split for the insert menu: a read-only `f/<folder>/` chip
@@ -252,7 +256,7 @@
 
 	// Draft autosave (the data_pipeline DraftService bundle) lives inside
 	// PipelineGraphEditor now; the route just supplies its path to the indicator.
-	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
+	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
 
 	// The live editor overlays (annotations / body assets / content for the open
 	// script) now live in `pe`. The canonical "empty" literals stay here — they
@@ -1412,12 +1416,12 @@
 	// other's storage writes.
 	let cascadeRunningRoot = $state<string | undefined>(undefined)
 
-	// Recorder: when armed, the next cascade run captures the resolved graph, the
-	// per-node status timeline and each node's job stream into a downloadable
-	// recording that the /pipeline_replay player can rerun offline (parity with the
-	// flow/script recorders). Job capture (`watchJob`) and status capture
-	// (`recordStatuses`) no-op unless the store is active, so the cascade run
-	// paths call them unconditionally.
+	// Recorder: when armed, the next cascade run captures the resolved graph and
+	// the per-node status timeline into a downloadable recording that the
+	// /pipeline_replay player can rerun offline (parity with the flow/script
+	// recorders); each node's completed job is fetched when the run finalizes.
+	// Status capture (`recordStatuses`) no-ops unless the store is active, so
+	// the cascade run paths call it unconditionally.
 	let pipelineRecording = createPipelineRecording()
 	let recordingMode = $state(false)
 	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
@@ -1787,8 +1791,6 @@
 				launch: async (path) => {
 					const jobId = await launchCascadeScript(path)
 					activeRunnables.arm(`script:${path}`)
-					// No-op unless a recording is active; captures the node's stream.
-					if ($workspaceStore) pipelineRecording.watchJob(jobId, $workspaceStore)
 					if (firstJobId === undefined) {
 						firstJobId = jobId
 						runsPendingJobId = jobId
@@ -1964,6 +1966,15 @@
 	// running a draft via runScriptPreview creates a `preview`-kind job at
 	// the same path, which the panel's listing query picks up.
 	let selectionProducers = $derived(assetProducers(graphWithDraft, pe.selection))
+	// dbt provenance of the selected relation: the details pane renders the
+	// model's own SQL from it. Looked up on the asset, not the producer — a
+	// relation carries one description whichever script materializes it.
+	let selectionDbt = $derived.by(() => {
+		const sel = pe.selection
+		if (sel?.kind !== 'asset') return undefined
+		return graphWithDraft?.assets?.find((a) => a.kind === sel.asset_kind && a.path === sel.path)
+			?.dbt
+	})
 
 	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
 	// or a draft is actively edited) so the pane blanks out like the other
@@ -2221,7 +2232,7 @@
 				signal
 			})
 			if (!res.ok) throw new Error(`GET /assets/graph → ${res.status}`)
-			return (await res.json()) as AssetGraphResponse
+			return hideDbtRunnables((await res.json()) as AssetGraphResponse)
 		}
 	)
 
@@ -2488,7 +2499,7 @@
 				{#if $workspaceStore}
 					<AutosaveIndicator
 						workspace={$workspaceStore}
-						itemKind="data_pipeline"
+						itemKind={PIPELINE_DRAFT_KIND}
 						path={pipelineDraftPath}
 						draftOnly
 						loadedFromDraft={pe.loadedFromDbDraft}
@@ -2585,6 +2596,7 @@
 				canRunByPath={openScriptHasDataUpload}
 				onRunByPath={runByPathLegit}
 				{selectionProducers}
+				{selectionDbt}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 				{schemaCanEvolve}
 				{selectionForkMaterialization}

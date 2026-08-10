@@ -9,16 +9,18 @@
 	} from './sessionState.svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
+	import { resolvePreviewTab, parsePreviewItemRoute, parsePreviewSelectedId } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import { createFrameFocusGuard } from './frameFocusGuard'
+	import { setOverlayHost } from '../common/overlayHost.svelte'
 
 	let {
 		tab,
 		session,
 		runtime,
 		active,
+		collapsed = false,
 		mounted,
 		label,
 		darkMode,
@@ -31,6 +33,11 @@
 		runtime: SessionRuntime | undefined
 		/** Visible tab — only one is at a time; the rest stay mounted but hidden. */
 		active: boolean
+		/** Preview panel is not on screen — collapsed, and not overridden by full screen.
+		 * The panel is never unmounted, so this is the difference between the active tab
+		 * and a tab the user can actually see. Resolved by the page, which owns the
+		 * collapse/full-screen precedence. */
+		collapsed?: boolean
 		/** Preview panel is in full screen — forwarded to editor views so a script
 		 * editor reopens its test pane when there's room. */
 		fullscreen?: boolean
@@ -51,6 +58,10 @@
 	// any editable item (script/flow/raw app) or a pipeline folder mounts its own
 	// live editor.
 	const slot = $derived(resolvePreviewTab(tab.url))
+	// Where inside the editor the tab was opened on ("open this flow step in a
+	// session"). Only the in-process editors need it handed over — an iframe tab
+	// loads the URL whole, params included.
+	const selectedId = $derived(parsePreviewSelectedId(tab.url))
 	const workspaceId = $derived(
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
@@ -134,10 +145,28 @@
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
 	)
 
+	// Overlays a tab opens (drawers, modals, popovers) anchor here rather than to the
+	// document, so they stay within this tab and hide with it when another tab takes over.
+	// Every branch that renders content in-realm must bind this — an unbound host makes the
+	// overlay fall back to viewport-`fixed`, spilling it across the whole app.
+	// The stack is per-tab for the same reason: this host stays mounted while hidden, and a
+	// shared stack would let its overlays arbitrate Escape for the tab the user is looking at.
+	let overlayHostEl: HTMLDivElement | undefined = $state()
+	let hostDrawers = $state({ val: [] as string[] })
+	setOverlayHost({
+		el: () => overlayHostEl,
+		drawers: hostDrawers,
+		// The panel is resized rather than unmounted, so the active tab of a panel that
+		// is off screen is as invisible as a background tab.
+		active: () => active && !collapsed
+	})
+
 	let flashing = $state(false)
 	let flashTimer: ReturnType<typeof setTimeout> | undefined
-	// Guard against the effect's non-pulse reruns (tab/runtime changes) firing a flash.
-	let lastPulseNonce = -1
+	// Guard against the effect's non-pulse reruns (tab/runtime changes) firing a
+	// flash. Seeded from the current nonce: a pulse from before this host mounted
+	// is moot, the tab appearing is itself the change the flash would point at.
+	let lastPulseNonce = runtime?.previewTabs.focusPulse.nonce ?? -1
 	$effect(() => {
 		const pulse = runtime?.previewTabs.focusPulse
 		if (!pulse || pulse.nonce === lastPulseNonce) return
@@ -170,7 +199,11 @@
 {/snippet}
 
 {#if slot.kind === 'editor' && mounted && runtime}
-	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
+	<div
+		bind:this={overlayHostEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
 		<!-- Dynamic imports: the live editors pull in the heaviest module graphs in
 		     the app (FlowBuilder, ScriptBuilder/Monaco, the raw-app editor, the
 		     pipeline graph). Loading them only when an editor tab first mounts keeps
@@ -186,6 +219,7 @@
 					{onNavigate}
 					{isActiveSession}
 					{active}
+					initialSelectedId={selectedId}
 				/>
 			{/await}
 		{:else if slot.editorKind === 'script'}
@@ -224,19 +258,16 @@
 		{/if}
 	</div>
 {:else if slot.kind === 'artifact' && mounted}
-	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
-		{#if artifact}
-			<ArtifactViewer {artifact} />
+	<div
+		bind:this={overlayHostEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
+		{#if artifact && runtime}
+			<ArtifactViewer {artifact} store={runtime.manager.artifacts} />
 		{:else if !runtime?.manager.artifacts.loading}
 			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
 		{/if}
-		<!-- Overlay: the source editor's opaque bg would cover a ring on the container. -->
-		<div
-			class="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-border-accent transition-opacity duration-300 {flashing
-				? 'opacity-100'
-				: 'opacity-0'}"
-			aria-hidden="true"
-		></div>
 	</div>
 {:else if mounted}
 	<iframe
@@ -253,3 +284,14 @@
 		class="absolute inset-0 w-full h-full border-0 bg-surface {visibility}"
 	></iframe>
 {/if}
+
+<!-- Flash ring, a sibling of every tab body rather than a child of one: an
+     editor's own opaque background (or an iframe's document) would paint over a
+     ring drawn inside it. -->
+<div
+	class="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-border-accent transition-opacity duration-300 {flashing &&
+	active
+		? 'opacity-100'
+		: 'opacity-0'}"
+	aria-hidden="true"
+></div>

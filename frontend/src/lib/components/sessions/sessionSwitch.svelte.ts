@@ -9,7 +9,7 @@ import {
 	setSessionPendingWorkspace,
 	type SessionTarget
 } from './sessionState.svelte'
-import { sessionTargetHref } from './sessionMode.svelte'
+import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -70,17 +70,19 @@ export async function exitSessionMode(): Promise<void> {
 // so the caller MUST persist any unsaved edits first (e.g. save a draft) for the
 // preview to reflect the live state. `workspaceId` scopes the session to the
 // editor's workspace (instead of createSession's root default) so it opens the
-// same flow/script the user was editing.
+// same flow/script the user was editing. `previewParams` ride on the tab URL to
+// tell the previewed editor where to open (a flow's `selected` step).
 export async function openEditorInSession(
 	target: SessionTarget,
-	workspaceId?: string
+	workspaceId?: string,
+	previewParams?: Record<string, string>
 ): Promise<void> {
 	// Seed the fresh session's preview with a single tab on `target` so it opens
 	// straight onto the editor the caller wants (resetSessionPreviewTabs also
 	// writes through a live runtime if one already exists for this id).
 	const session = createSession()
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
-	const url = sessionTargetHref(target)
+	const url = withPreviewParams(sessionTargetHref(target), previewParams)
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
 		// (chat manager → monaco) into this thin navigation seam, breaking its
