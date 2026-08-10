@@ -4588,6 +4588,18 @@ describe('session-only preview tools gating', () => {
 		}
 	})
 
+	// Only a session chat can ever receive an ACTIVE PREVIEW section, so the rule
+	// explaining it is dead weight (~100 prompt tokens per request) anywhere else.
+	it('carries the ACTIVE PREVIEW rule only in a chat that has a side panel', () => {
+		const off = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
+		const on = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
+		expect(off).not.toContain('ACTIVE PREVIEW')
+		expect(on).toContain('ACTIVE PREVIEW')
+		// The ACTIVE EDITOR rule is unconditional — live editors exist in both.
+		expect(off).toContain('ACTIVE EDITOR')
+		expect(on).toContain('ACTIVE EDITOR')
+	})
+
 	it('mentions open_preview / get_app_runtime_logs / list_app_runs in the system prompt only when preview tools are enabled', () => {
 		const off = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
 		const on = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string

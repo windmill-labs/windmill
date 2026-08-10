@@ -1188,6 +1188,15 @@ const buildGlobalSystemPrompt = (
 	const pipelineAlphaNote = previewTools
 		? ' Data pipeline support in this chat is in ALPHA: the first time the user asks for a data pipeline in this session, briefly tell them it is an alpha feature before you start building.'
 		: ''
+	// Only a session chat has a side panel that can show a page, so only there can
+	// an ACTIVE PREVIEW section ever appear — elsewhere this rule is ~100 prompt
+	// tokens of dead weight on every request. Gated on `previewTools` (constant per
+	// chat) rather than on whether a preview is open right now: the system prompt is
+	// the cached prefix, so a line that appears and disappears between turns would
+	// invalidate that cache far more often than it would save a tool call.
+	const activePreviewRule = previewTools
+		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the row the page is anchored at, whose drawer the user opened) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
+		: ''
 	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
 	return `You are Windmill's global workspace assistant.
 
@@ -1205,8 +1214,7 @@ Path conventions:
 Rules:
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
-- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
-- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against \`open\` (the row the page is anchored at, whose drawer the user opened) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel's *other* tabs.
+- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
