@@ -80,13 +80,7 @@ impl CompiledFilters {
     /// whole subtree it belongs to.
     pub fn validate(filters: &[Value]) -> windmill_common::error::Result<()> {
         for (index, filter) in filters.iter().enumerate() {
-            serde_json::from_value::<Filter>(filter.clone()).map_err(|err| {
-                windmill_common::error::Error::BadRequest(format!(
-                    "filter #{} is neither a {{key, value}} criterion nor an any_of/all_of group: {}",
-                    index + 1,
-                    err
-                ))
-            })?;
+            validate_filter(filter, &format!("filter #{}", index + 1))?;
         }
         Ok(())
     }
@@ -104,6 +98,41 @@ impl CompiledFilters {
 
         eval_all(&self.filters, self.use_or_logic, &values)
     }
+}
+
+/// Groups are descended into by hand so a bad entry is named on its own: serde's untagged
+/// error only reports that the outermost entry matched no variant, whatever depth is wrong.
+fn validate_filter(filter: &Value, path: &str) -> windmill_common::error::Result<()> {
+    let group = filter
+        .as_object()
+        .filter(|object| object.len() == 1)
+        .and_then(|object| {
+            ["any_of", "all_of"]
+                .into_iter()
+                .find_map(|key| object.get(key).map(|nested| (key, nested)))
+        });
+
+    if let Some((key, nested)) = group {
+        let nested = nested.as_array().ok_or_else(|| {
+            windmill_common::error::Error::BadRequest(format!(
+                "{}: {} must be an array of filters",
+                path, key
+            ))
+        })?;
+        for (index, child) in nested.iter().enumerate() {
+            validate_filter(child, &format!("{} -> {}[{}]", path, key, index))?;
+        }
+        return Ok(());
+    }
+
+    serde_json::from_value::<Filter>(filter.clone())
+        .map(|_| ())
+        .map_err(|err| {
+            windmill_common::error::Error::BadRequest(format!(
+                "{} is neither a {{key, value}} criterion nor an any_of/all_of group: {}",
+                path, err
+            ))
+        })
 }
 
 /// A group with no criterion cannot evaluate to a constant: `true` makes an `or` list
@@ -397,6 +426,21 @@ mod tests {
             CompiledFilters::validate(&[json!({"anyOf": [{"key": "a", "value": 1}]})]).is_err()
         );
         assert!(CompiledFilters::validate(&[json!({"key": "a"})]).is_err());
+    }
+
+    #[test]
+    fn test_validate_names_the_offending_nested_entry() {
+        let err = CompiledFilters::validate(&[
+            json!({"key": "a", "value": 1}),
+            json!({"all_of": [{"key": "b", "value": 2}, {"any_of": [{"key": "c"}]}]}),
+        ])
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("filter #2 -> all_of[1] -> any_of[0]"),
+            "error should point at the entry that is wrong, got: {}",
+            err
+        );
     }
 
     // --- is_superset unit tests ---

@@ -255,7 +255,7 @@
 		is_flow = cfg?.is_flow
 		path = cfg?.path
 		url = cfg?.url
-		filters = cfg?.filters
+		filters = cfg?.filters ?? []
 		filterLogic = cfg?.filter_logic ?? 'and'
 		initial_messages = cfg?.initial_messages ?? []
 		url_runnable_args = cfg?.url_runnable_args

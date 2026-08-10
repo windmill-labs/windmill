@@ -34,7 +34,7 @@
 	]
 
 	function add(node: FilterNode) {
-		filters = [...(Array.isArray(filters) ? filters : []), node]
+		filters = [...filters, node]
 	}
 </script>
 
