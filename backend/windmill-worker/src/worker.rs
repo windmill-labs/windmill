@@ -705,6 +705,26 @@ lazy_static::lazy_static! {
 }
 
 lazy_static::lazy_static! {
+    /// Registry TLS/timeout settings for uv. Env-only (they have no instance setting), and read
+    /// both by the job path and by the DB-less `prepare-deps` CLI, which has no other source of
+    /// registry configuration.
+    pub static ref TRUSTED_HOST: Option<String> = non_empty_env("PY_TRUSTED_HOST").or_else(|| non_empty_env("PIP_TRUSTED_HOST"));
+    pub static ref INDEX_CERT: Option<String> = non_empty_env("PY_INDEX_CERT").or_else(|| non_empty_env("PIP_INDEX_CERT"));
+    pub static ref NATIVE_CERT: bool = non_empty_env("PY_NATIVE_CERT").or_else(|| non_empty_env("UV_NATIVE_TLS")).map(|flag| flag == "true").unwrap_or(false);
+    /// uv's HTTP request timeout (seconds). The uv invocations use env_clear(), so a
+    /// UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
+    /// Only forwarded when set; otherwise uv keeps its own default. Lets operators
+    /// raise it for slow/contended private registries ("operation timed out").
+    pub static ref UV_HTTP_TIMEOUT: Option<String> = non_empty_env("UV_HTTP_TIMEOUT");
+}
+
+/// A variable declared but left empty (a common shape in compose/k8s manifests) must not
+/// shadow the fallback name it is checked against.
+pub(crate) fn non_empty_env(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|v| !v.is_empty())
+}
+
+lazy_static::lazy_static! {
     /// Optional override for the size of the `/tmp` tmpfs mount in nsjail sandboxes (in megabytes).
     /// When `None` (or non-positive), executors fall back to the unified
     /// `DEFAULT_NSJAIL_TMPFS_SIZE_BYTES` (800MB).
@@ -1727,7 +1747,7 @@ pub async fn handle_all_job_kind_error(
                 0,
                 None,
                 err,
-                false,
+                StepFailureKind::Normal,
                 same_worker_tx,
                 &worker_dir,
                 &worker_name,
@@ -3619,6 +3639,38 @@ pub struct UpdateFlow {
     pub worker_dir: String,
     pub stop_early_override: Option<bool>,
     pub token: String,
+    pub step_failure: StepFailureKind,
+}
+
+/// Why the step a flow is being resumed from failed, which bounds what the engine may do next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepFailureKind {
+    /// The step failed by running, or did not fail at all.
+    Normal,
+    /// A suspend gate was disapproved or timed out. The worker that ran the approval step is
+    /// still alive, but the failure is recorded against the step the gate was holding back,
+    /// which never ran — so that step's `retry` and `continue_on_error` describe nothing that
+    /// happened, and honouring them would re-open the gate or skip the step outright.
+    /// `suspend.continue_on_disapprove_timeout` is how a flow opts into continuing past a gate.
+    SuspendNotApproved,
+    /// The step's worker died (OOM/zombie), or the flow status update itself errored. Neither
+    /// leaves state worth pinning to: in the first case that worker is gone, in the second the
+    /// flow's own bookkeeping is what just broke.
+    Unrecoverable,
+}
+
+impl StepFailureKind {
+    /// Whether the failed module's own `retry` / `continue_on_error` still describe the
+    /// failure at hand. When they don't, the failure module is the only way forward.
+    pub fn honors_step_error_policy(self) -> bool {
+        matches!(self, Self::Normal)
+    }
+
+    /// Whether follow-up work may still be pinned to the worker that ran the previous step,
+    /// via `same_worker` or dedicated flow-module runners.
+    pub fn keeps_worker_pin(self) -> bool {
+        !matches!(self, Self::Unrecoverable)
+    }
 }
 
 async fn do_nativets(
@@ -3920,8 +3972,8 @@ pub async fn handle_queued_job(
                 flow_runners,
                 &killpill_rx,
                 // A freshly pulled flow job is being executed by a live worker; the prior
-                // step (if any) completed normally, so this is never unrecoverable here.
-                false,
+                // step (if any) completed normally.
+                StepFailureKind::Normal,
             ))
             .warn_after_seconds(10)
             .await?;

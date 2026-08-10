@@ -587,6 +587,69 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_same_worker_survives_empty_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server: ApiServer = ApiServer::start(db.clone()).await?;
+
+    // No branch matches and the default is empty, so `a` completes without spawning a job and
+    // hands the flow back over the UpdateFlow channel. `b` must still be pinned to the worker.
+    let flow: FlowValue = serde_json::from_value(json!({
+        "same_worker": true,
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "branchone",
+                    "branches": [{
+                        "expr": "false",
+                        "modules": [{
+                            "id": "c",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main(){ return 1 }",
+                            }
+                        }]
+                    }],
+                    "default": []
+                }
+            },
+            {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(){ return 42 }",
+                }
+            }
+        ]
+    }))
+    .unwrap();
+
+    let job = run_job_in_new_worker_until_complete(
+        &db,
+        false,
+        JobPayload::RawFlow { value: flow, path: None, restarted_from: None },
+        server.addr.port(),
+    )
+    .await;
+    assert_eq!(job.json_result().unwrap(), json!(42));
+
+    let same_worker: Option<bool> = sqlx::query_scalar(
+        "SELECT same_worker FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'b'",
+    )
+    .bind(job.id)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(same_worker, Some(true));
+
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_result_by_id(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -3992,7 +4055,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 /// Push `flow`, run it on a real worker until its first step is running, then simulate
 /// `monitor::handle_zombie_jobs` reaping that step unrecoverably (its worker crashed/OOM'd)
-/// by calling `handle_job_error(..., unrecoverable = true, ...)` exactly as the monitor does.
+/// by calling `handle_job_error(..., StepFailureKind::Unrecoverable, ...)` exactly as the monitor does.
 /// Returns the flow's completed result.
 #[cfg(feature = "deno_core")]
 async fn run_flow_until_step_running_then_fail_unrecoverably(
@@ -4007,7 +4070,7 @@ async fn run_flow_until_step_running_then_fail_unrecoverably(
     use windmill_common::client::AuthedClient;
     use windmill_common::KillpillSender;
     use windmill_queue::{get_queued_job_v2, MiniCompletedJob, SameWorkerPayload};
-    use windmill_worker::{JobCompletedSender, SameWorkerSender};
+    use windmill_worker::{JobCompletedSender, SameWorkerSender, StepFailureKind};
 
     let flow_id =
         RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
@@ -4072,7 +4135,7 @@ async fn run_flow_until_step_running_then_fail_unrecoverably(
                 windmill_common::error::Error::ExecutionErr(
                     "simulated worker OOM crash".to_string(),
                 ),
-                true, // unrecoverable
+                StepFailureKind::Unrecoverable,
                 Some(&sw_tx),
                 "",
                 "test-monitor",

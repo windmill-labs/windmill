@@ -1,6 +1,7 @@
 <script lang="ts">
 	import InsertModuleInner from './InsertModuleInner.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 
 	import type { Placement } from '@floating-ui/core'
 
@@ -23,6 +24,8 @@
 		gutter = 0
 	}: Props = $props()
 
+	const portalTarget = overlayPortalTarget('#flow-editor')
+
 	let popover: Popover
 
 	$effect(() => {
@@ -32,8 +35,8 @@
 
 <Popover
 	bind:this={popover}
-	portal="#flow-editor"
-	contentClasses="p-2 max-w-lg h-[400px] !resize bg-surface"
+	portal={portalTarget()}
+	contentClasses="p-2 max-w-lg h-[480px] bg-surface"
 	class="inline-block"
 	usePointerDownOutside
 	floatingConfig={{

@@ -11,6 +11,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
+	import type { RowSelection } from './rowSelection'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
@@ -34,7 +35,8 @@
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
+	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -48,6 +50,7 @@
 		menuOpen?: boolean
 		showEditButton?: boolean
 		keyboardSelected?: boolean
+		rowSelection?: RowSelection
 	}
 
 	let {
@@ -60,7 +63,8 @@
 		depth = 0,
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
-		keyboardSelected = false
+		keyboardSelected = false,
+		rowSelection = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -112,6 +116,7 @@
 	canFavorite={!app.draft_only}
 	{depth}
 	{keyboardSelected}
+	{rowSelection}
 >
 	{#snippet badges()}
 		{#if app.execution_mode == 'anonymous'}
@@ -170,17 +175,7 @@
 					</div>
 				{/if}
 				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
-					<div>
-						<Button
-							variant={!showEditButton ? 'default' : 'subtle'}
-							wrapperClasses="w-32"
-							unifiedSize="md"
-							startIcon={{ icon: GitFork }}
-							href={buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', app.path)}
-						>
-							{editInForkLabel($workspaceStore, $userWorkspaces)}
-						</Button>
-					</div>
+					<EditInForkButton itemType={app.raw_app ? 'raw_app' : 'app'} path={app.path} />
 				{/if}
 			{/if}
 		</span>
@@ -235,8 +230,10 @@
 					},
 					{
 						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
-						icon: GitFork,
-						href: buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', path),
+						icon: Pen,
+						// No `href`: the handler resolves the destination asynchronously, and a melt
+						// menu item's anchor navigates before a delegated onclick can preventDefault it.
+						action: (e) => onEditInForkClick(e, app.raw_app ? 'raw_app' : 'app', path),
 						hide:
 							$userStore?.operator ||
 							isCloudHosted() ||

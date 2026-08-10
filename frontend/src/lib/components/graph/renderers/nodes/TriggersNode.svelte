@@ -84,13 +84,15 @@
 				}}
 				on:select={() => data?.eventHandlers?.select('Trigger')}
 				onSelect={async (triggerIndex: number) => {
-					data?.eventHandlers?.select('Trigger')
+					data?.eventHandlers?.select('Trigger', { openPanel: true })
 					await tick()
 					triggersState.selectedTriggerIndex = triggerIndex
 				}}
 				onAddDraftTrigger={async (type: TriggerType) => {
 					const newTrigger = triggersState.addDraftTrigger(triggersCount, type)
-					data?.eventHandlers?.select('Trigger')
+					// A scheduled poll continues in the trigger-script picker that opens
+					// alongside this, so revealing the panel would cover it.
+					data?.eventHandlers?.select('Trigger', { openPanel: type !== 'poll' })
 					await tick()
 					triggersState.selectedTriggerIndex = newTrigger
 				}}

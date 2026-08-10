@@ -1597,6 +1597,10 @@ pub async fn do_duckdb(
         )
         .await?;
 
+        #[cfg(feature = "private")]
+        let query_block_list =
+            crate::duckdb_isolation_ee::apply_duckdb_isolation(query_block_list)?;
+
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
         let job_dir = job_dir.to_string();
@@ -2617,7 +2621,7 @@ fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<V
             esc(&res.host),
             res.port.unwrap_or(5432),
             esc(&res.dbname),
-            esc(res.user.as_deref().unwrap_or("postgres")),
+            esc(res.login_name()),
             esc(res.password.as_deref().unwrap_or("")),
         ),
         format!("ATTACH 'sslmode={sslmode}' AS {alias_name} (TYPE postgres, SECRET {secret_name});"),

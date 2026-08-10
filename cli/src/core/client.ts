@@ -1,5 +1,19 @@
 import { OpenAPI } from "../../gen/index.ts";
 
+/**
+ * Mark every subsequent request as applying a state computed elsewhere rather
+ * than authoring one in the target workspace (the fork tally reads the header to
+ * decide whether a removal was deliberate).
+ *
+ * Belongs to the commands that apply and nothing that authors: `sync push`
+ * (including the git-sync auto-pull, which runs it inside a job) and the
+ * parent-to-fork half of `workspace merge`.
+ */
+export function markRequestsAsSyncOrigin() {
+  const existing = typeof OpenAPI.HEADERS === "object" ? OpenAPI.HEADERS : {};
+  OpenAPI.HEADERS = { ...existing, "X-Windmill-Deploy-Origin": "sync" };
+}
+
 export function setClient(token?: string, baseUrl?: string) {
   if (baseUrl === undefined) {
     baseUrl = process.env["BASE_INTERNAL_URL"] ??

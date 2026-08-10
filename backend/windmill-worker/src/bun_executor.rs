@@ -571,12 +571,8 @@ async fn gen_bunfig(
         NPMRC.read().await.clone()
     };
 
-    if let Some(ref npmrc_content) = npmrc {
-        if !npmrc_content.trim().is_empty() {
-            tracing::debug!("Writing .npmrc for bun from npmrc setting");
-            write_file(job_dir, ".npmrc", npmrc_content)?;
-            return Ok(());
-        }
+    if npmrc.as_ref().is_some_and(|c| !c.trim().is_empty()) {
+        return write_bun_registry_config(job_dir, npmrc, None, None);
     }
 
     let (registry, bunfig_install_scopes) = if let Some(conn) = db {
@@ -606,6 +602,35 @@ async fn gen_bunfig(
             BUNFIG_INSTALL_SCOPES.read().await.clone(),
         )
     };
+    write_bun_registry_config(job_dir, None, registry, bunfig_install_scopes)
+}
+
+/// The files [`write_bun_registry_config`] may create in the directory bun installs from.
+/// Both can hold a registry auth token, so `prepare-deps` deletes them by these names once
+/// the install is over.
+pub(crate) const BUN_NPMRC_FILE: &str = ".npmrc";
+pub(crate) const BUN_CONFIG_FILE: &str = "bunfig.toml";
+
+/// Write the registry configuration `bun install` picks up from its working directory: the
+/// `npmrc` setting verbatim as `.npmrc` when set, otherwise a `bunfig.toml` holding the
+/// registry URL, its auth token and the install scopes.
+///
+/// Shared with the debugger's `prepare-deps`, which resolves the same settings without a
+/// database (see `prepare_deps.rs`), so the two install paths configure bun identically.
+pub(crate) fn write_bun_registry_config(
+    job_dir: &str,
+    npmrc: Option<String>,
+    registry: Option<String>,
+    bunfig_install_scopes: Option<String>,
+) -> Result<()> {
+    if let Some(ref npmrc_content) = npmrc {
+        if !npmrc_content.trim().is_empty() {
+            tracing::debug!("Writing .npmrc for bun from npmrc setting");
+            write_file(job_dir, BUN_NPMRC_FILE, npmrc_content)?;
+            return Ok(());
+        }
+    }
+
     if registry.is_some() || bunfig_install_scopes.is_some() {
         let (url, token_opt) = if let Some(ref s) = registry {
             let url = s.trim();
@@ -635,7 +660,7 @@ registry = {}
                 .unwrap_or("".to_string())
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
-        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml)?;
+        let _ = write_file(&job_dir, BUN_CONFIG_FILE, &bunfig_toml)?;
     }
     Ok(())
 }

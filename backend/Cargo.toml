@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.777.0"
+version = "1.783.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.777.0"
+version = "1.783.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -467,6 +467,7 @@ php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
+quick-xml = { version = "^0.37", features = ["serialize"] }
 url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "0.5.1"
 reqwest = { version = "^0.13", features = ["json", "stream", "gzip", "multipart", "query", "form"] }
@@ -567,7 +568,12 @@ dashmap = "6.1.0"
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "=0.2.103"
+# Not pinned exactly: the excluded `parsers/windmill-parser-wasm` workspace pins
+# =0.2.103 to match its vendored `cli/wasm/*` artifacts, yet path-depends on
+# sibling parser crates that inherit this requirement from here. Two exact pins
+# on the same semver range cannot both resolve, so keep this a range and let each
+# workspace's lockfile settle it (here, js-sys forces 0.2.108).
+wasm-bindgen = "0.2"
 serde-wasm-bindgen = "^0"
 wasm-bindgen-test = "^0"
 convert_case = "0.6.0"
@@ -611,7 +617,7 @@ nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 globset = "0.4.16"
 croner = "2.2.0"
-rmcp = { version = "=0.15.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "=3.1.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 rquickjs = { version = "0.11", features = ["futures", "parallel", "macro"] }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 

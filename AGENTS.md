@@ -23,6 +23,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi. For a Codex-driven pass that mirrors the `codex-pr-review` GitHub action against your unpushed work (committed + uncommitted) before you push, use `/local-review-codex` (`.agents/skills/local-review-codex/`) — same `REVIEW.md` policy, `gpt-5.6-sol`, `xhigh` reasoning; requires the `codex` CLI >= 0.144.1.
 - **Domain guides**: `.claude/skills/native-trigger/` and `frontend/tutorial-system-guide.mdc`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
+- **Domain vocabulary**: `CONTEXT.md` — the words this codebase uses for its own concepts (step, step setting, trigger step, …). Name things the way it does.
 - **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.
 - **Session recorder**: `frontend/src/lib/components/recording/` is also the recorder `wmill app dev --recording` serves, vendored into the CLI as `cli/src/commands/app/devRecorderBundle.gen.ts`. After changing `rawAppSnapshot.ts` or `rawAppRecording.svelte.ts`, run `bun run gen:dev-recorder` from `cli/` (`cli/test/dev_recorder_bundle_unit.test.ts` fails otherwise).
 
@@ -90,6 +91,11 @@ Typical flow:
 4. `mcp__playwright__browser_click` / `browser_fill_form` / `browser_type` to interact
 5. `mcp__playwright__browser_take_screenshot` for visual confirmation
 6. `mcp__playwright__browser_console_messages` / `browser_network_requests` to surface errors
+
+Write screenshots to an absolute path under `/tmp` (the MCP servers already do; standalone
+Playwright scripts must be told): moving a PNG out of the checkout afterwards needs a `mv` the
+permission hooks always prompt on. Same reason to run `rm`/`mv`/`cp` as one plain command per Bash
+call: those hooks defer on `&&`, `;`, redirects, quotes and `$VAR`.
 
 **Attach the screenshots to the PR.** For any change under `frontend/`, embed screenshots of the affected UI in the PR body — the `pr` skill requires this and carries the upload recipe.
 

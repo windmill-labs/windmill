@@ -6,6 +6,11 @@ import type { UserExt } from './stores'
 // UserExt store value.
 export type RuleBypassUser = Pick<UserExt, 'is_admin' | 'username' | 'groups'>
 
+// Mirrors DEV_WORKSPACE_LOCK_RULE_NAME in windmill-common. The pairing owns this rule by name:
+// attaching a dev workspace creates it, detaching deletes it. The API refuses to create or delete
+// it, so the UI must not offer those two actions on it; its restrictions stay editable.
+export const DEV_WORKSPACE_LOCK_RULE_NAME = 'dev_workspace_lock'
+
 /**
  * Internal reactive state using Svelte 5 $state rune
  */

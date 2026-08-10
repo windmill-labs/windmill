@@ -52,6 +52,7 @@
 	import { base } from '$lib/base'
 	import {
 		artifactKey,
+		itemDisplayName,
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
@@ -60,7 +61,12 @@
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
-	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
+	import {
+		leafKeyFor,
+		loadKind,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
 	const globalEnabled = isGlobalAiEnabled()
@@ -299,7 +305,11 @@
 	// Adapt the session tab model to DraggableTabs items (labels derived from the
 	// observed location; every tab closable, none pinned).
 	const previewTabItems = $derived<TabItem[]>(
-		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(t) }))
+		(owner?.tabs ?? []).map((t) => ({
+			id: t.id,
+			label: tabLabelFor(t, previewWorkspace ?? ''),
+			title: tabTitleFor(t, previewWorkspace ?? '')
+		}))
 	)
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
@@ -308,6 +318,12 @@
 	let emptyStateNewTabOpen = $state(false)
 
 	let fullscreen = $state(false)
+	// Fullscreen is page state, not per-session, so it outlives a session switch —
+	// tell the incoming session's model, whose own collapsed flag it overrides, or
+	// re-opening the item plainly on screen would be judged invisible and not flash.
+	$effect(() => {
+		owner?.setFullscreen(fullscreen)
+	})
 	// Collapse the preview panel to give the chat the full width. Per-session and
 	// owned by the runtime's previewTabs (restored on switch, written back on
 	// toggle) so it survives session switches with the rest of the tab model.
@@ -467,8 +483,7 @@
 	// (or focus, if already shown) the item's preview in the active session's panel —
 	// the visible chat is always the active session, so `owner` is its panel. Read
 	// `owner` lazily inside the handler (not in the effect body) so this registers
-	// once, not on every session switch. A 'focused' open leaves the tab where it is,
-	// so pulse it to make the click visibly land.
+	// once, not on every session switch.
 	$effect(() => {
 		return registerToolDisplayActionHandler('open_item_preview', (action) => {
 			if (action.type !== 'open_item_preview') return
@@ -476,8 +491,7 @@
 			if (!o) return
 			const target = previewTargetForSessionTarget(action.previewKind, action.path)
 			if (!target) return
-			const { status } = o.open(target)
-			if (status === 'focused') o.pulseFocus(o.activeId)
+			o.open(target)
 		})
 	})
 
@@ -547,12 +561,76 @@
 		owner?.navigate(target)
 	}
 
-	// Short tab label. A never-deployed item parked at `…/draft_<uuid>` carries a
-	// `friendlyLabel` its live editor stamped (the page can't read the runtime cell
-	// reactively; the editor mirrors the typed/auto name onto the tab model). Falls
-	// back to the plain location label for deployed items and non-item pages.
-	function tabLabelFor(tab: SessionPreviewTab): string {
-		return tab.friendlyLabel ?? previewLocationLabel(tab.loc)
+	// Names for the active session's item tabs, read from the same workspace
+	// listing the pickers use (module-cached, so an opened picker makes this free).
+	// The mounted editor's stamp is the live source, but it only fires for a tab
+	// the user has visited — without this, restoring a session shows a path leaf on
+	// every unvisited tab, each popping to its real name when first clicked.
+	// Requested keys are tracked outside the state so filling the map can't re-run
+	// the effect that fills it, and a key is released again on failure so a
+	// transient network error doesn't strand every unvisited tab on its path leaf
+	// for the lifetime of the page.
+	const listedItemsRequested = new Set<string>()
+	let listedItems = $state<Record<string, WorkspaceItem[]>>({})
+	const listedKey = (workspace: string, kind: WorkspaceItemKind) => `${workspace}:${kind}`
+	$effect(() => {
+		const ws = previewWorkspace
+		if (!ws) return
+		for (const tab of owner?.tabs ?? []) {
+			const route = parsePreviewItemRoute(tab.loc)
+			if (!route) continue
+			const key = listedKey(ws, route.kind)
+			if (listedItemsRequested.has(key)) continue
+			listedItemsRequested.add(key)
+			void loadKind(ws, route.kind)
+				.then((items) => {
+					listedItems = { ...listedItems, [key]: items }
+				})
+				.catch((e) => {
+					listedItemsRequested.delete(key)
+					console.error(`Failed to load workspace ${route.kind}s`, e)
+				})
+		}
+	})
+
+	// Keyed by the tab's OWN session workspace, never the active one: every warm
+	// session's tabs are labelled here, and two sessions on different forks can
+	// hold the same item path.
+	function listedItemFor(tab: SessionPreviewTab, workspace: string): WorkspaceItem | undefined {
+		// A loaded editor supersedes the listing for good — including when it names
+		// nothing, else clearing a summary would resurrect the listing's copy of it.
+		if (tab.editorNamed) return undefined
+		const route = parsePreviewItemRoute(tab.loc)
+		if (!route) return undefined
+		return listedItems[listedKey(workspace, route.kind)]?.find((i) => i.path === route.itemPath)
+	}
+
+	// Short tab label. An item whose live editor has loaded carries a
+	// `friendlyLabel` that editor stamped — its summary, or the typed/auto name of
+	// an item still parked at `…/draft_<uuid>` (the page can't read the runtime
+	// cell reactively, so the editor mirrors the name onto the tab model). Before
+	// that, the workspace listing names it. Falls back to the plain location label
+	// for summary-less items and non-item pages.
+	function tabLabelFor(tab: SessionPreviewTab, workspace: string): string {
+		const listed = listedItemFor(tab, workspace)
+		return (
+			tab.friendlyLabel ??
+			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
+			previewLocationLabel(tab.loc)
+		)
+	}
+
+	// Hover title for a tab. A summary label is free text the strip truncates, and
+	// it hides the path entirely, so the tooltip carries both. The path shown is
+	// the item's staged one when it has one — a draft's `…/draft_<uuid>` storage
+	// path names nothing to the reader.
+	function tabTitleFor(tab: SessionPreviewTab, workspace: string): string {
+		const label = tabLabelFor(tab, workspace)
+		const path =
+			tab.friendlyPath ??
+			listedItemFor(tab, workspace)?.draftPath ??
+			parsePreviewItemRoute(tab.loc)?.itemPath
+		return path && path !== label ? `${label}\n${path}` : label
 	}
 
 	// A link click inside a live editor (e.g. a subflow reference) re-points the
@@ -890,8 +968,9 @@
 											session={s}
 											runtime={rt}
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
+											collapsed={(tabs?.collapsed ?? false) && !fullscreen}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
-											label={tabLabelFor(tab)}
+											label={tabLabelFor(tab, s.workspace_id ?? '')}
 											darkMode={isDarkMode.val}
 											{fullscreen}
 											onNavigate={navigateEditorTo}

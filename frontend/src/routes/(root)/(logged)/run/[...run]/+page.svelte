@@ -37,9 +37,10 @@
 		Code2,
 		ClipboardCopy,
 		GitBranch,
-		GitFork,
 		EllipsisVertical,
-		Share2
+		Share2,
+		Globe,
+		Users
 	} from 'lucide-svelte'
 
 	import { isJobResolvable } from '$lib/utils'
@@ -103,8 +104,17 @@
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import { useNestedRestartState } from '$lib/components/useNestedRestartState.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+		canUserBypassRuleKind,
+		isRuleActive,
+		protectionRulesState
+	} from '$lib/workspaceProtectionRules.svelte'
+	import {
+		buildForkEditUrl,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
@@ -202,6 +212,22 @@
 			sendUserToast('Read-only share link copied to clipboard')
 		} catch (e) {
 			sendUserToast(`Failed to create share link: ${e}`, true)
+		}
+	}
+
+	async function sharePublicLink(id: string): Promise<void> {
+		try {
+			const workspace = $workspaceStore!
+			const token = (await JobService.getJobPublicViewToken({ workspace, id })).trim()
+			// The workspace is a path segment here: the public run page is outside the
+			// logged layout and has no workspace store to fall back on.
+			const url = `${window.location.origin}${base}/public_run/${encodeURIComponent(
+				workspace
+			)}/${id}?view_token=${encodeURIComponent(token)}`
+			copyToClipboard(url)
+			sendUserToast('Public link copied to clipboard — anyone with it can view this run')
+		} catch (e) {
+			sendUserToast(`Failed to create public link: ${e}`, true)
 		}
 	}
 
@@ -536,6 +562,15 @@
 
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
 
+	// Admins always pass the backend gate. Everyone else fails closed while the rulesets
+	// are still loading, so the item is never briefly offered to a restricted user.
+	let canSharePublicly = $derived(
+		!!$userStore?.is_admin ||
+			!!$userStore?.is_super_admin ||
+			(protectionRulesState.rulesets !== undefined &&
+				canUserBypassRuleKind('RestrictPublicRunSharing', $userStore ?? undefined))
+	)
+
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
 	})
@@ -714,15 +749,33 @@
 				{/if}
 			{/if}
 			{#if job}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: Share2 }}
-					title="Copy a read-only share link to this run for another workspace member"
-					onclick={() => job && shareReadLink(job.id)}
+				<Dropdown
+					customWidth={280}
+					items={[
+						{
+							displayName: 'Copy link for members',
+							icon: Users,
+							tooltip:
+								'Read-only link to this run for another member of this workspace. They must be logged in.',
+							action: () => job && shareReadLink(job.id)
+						},
+						{
+							displayName: 'Copy public link',
+							icon: Globe,
+							disabled: !canSharePublicly,
+							tooltip: canSharePublicly
+								? "Read-only link that anyone on the internet can open, without logging in. It shows a minimal version of this page: this run's inputs, result and logs, and for a flow its graph plus every step's inputs, result, logs and code. The link cannot be revoked."
+								: 'Sharing a run publicly is restricted in this workspace. Ask an admin to share it, or to grant you a bypass on the ruleset.',
+							action: () => job && sharePublicLink(job.id)
+						}
+					]}
 				>
-					Share
-				</Button>
+					{#snippet buttonReplacement()}
+						<Button nonCaptureEvent variant="default" unifiedSize="md" startIcon={{ icon: Share2 }}>
+							Share
+						</Button>
+					{/snippet}
+				</Dropdown>
 			{/if}
 			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
@@ -892,11 +945,14 @@
 					{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
+							onClick={(e) =>
+								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '', {
+									hasHref: true
+								})}
 							unifiedSize="md"
 							variant="default"
 							size="sm"
-							startIcon={{ icon: GitFork }}
-							>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
+							startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
 						>
 					{/if}
 				{/if}
@@ -961,7 +1017,6 @@
 						{job}
 						{isOwner}
 						{suspendStatus}
-						workspaceId={job?.workspace_id}
 						innerModules={job?.flow_status?.modules}
 					/>
 				{/if}

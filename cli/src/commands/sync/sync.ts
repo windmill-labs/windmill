@@ -1,4 +1,5 @@
 import { requireLogin } from "../../core/auth.ts";
+import { markRequestsAsSyncOrigin } from "../../core/client.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
 import {
   writeFile,
@@ -4126,6 +4127,7 @@ export async function push(
     },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
+  markRequestsAsSyncOrigin();
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
 
@@ -5003,6 +5005,10 @@ export async function push(
             if (deleteRawApp) {
               changes = [deleteRawApp];
             } else {
+              // The app is one bundle, so a single change re-pushes all of it.
+              // That leaves the loop exactly one change: any skip it takes for
+              // a raw-app path drops the whole app from the push, and nothing
+              // downstream records that as a failure.
               changes.splice(1, changes.length - 1);
             }
           }
@@ -5331,8 +5337,14 @@ export async function push(
               }
             } else if (change.name === "deleted") {
               // Same as the added branch: a dbt project's own `.lock` is one of
-              // its files, so deleting it has to reach the parent script.
-              if (change.path.endsWith(".lock") && !isDbtModulePath(change.path)) {
+              // its files, so deleting it has to reach the parent script. A raw
+              // app's `.lock` is part of its bundle, and a raw-app group is
+              // collapsed to one change, so skipping it drops the whole app.
+              if (
+                !isRawAppFile(change.path) &&
+                change.path.endsWith(".lock") &&
+                !isDbtModulePath(change.path)
+              ) {
                 continue;
               }
               if (isScriptModulePath(change.path)) {
@@ -6059,7 +6071,7 @@ const command = new Command()
   )
   .option(
     "--dev-workspace-label <label:string>",
-    "Environment label of a dev workspace (dev/staging); its deploys go to that branch",
+    "Environment label of a dev workspace (dev, staging, uat, ...); its deploys go to that branch",
   )
   .option(
     "--parent-dev-workspace-label <label:string>",

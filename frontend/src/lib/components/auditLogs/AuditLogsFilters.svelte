@@ -198,6 +198,7 @@
 		JOBS_FORCE_CANCEL: 'jobs.force_cancel',
 		JOBS_DISAPPROVAL: 'jobs.disapproval',
 		JOBS_DELETE: 'jobs.delete',
+		JOBS_SHARE_PUBLICLY: 'jobs.share_publicly',
 		ACCOUNT_DELETE: 'account.delete',
 		AI_REQUEST: 'ai.request',
 		RESOURCES_CREATE: 'resources.create',

@@ -276,6 +276,7 @@ export const APP_TO_ICON_COMPONENT = {
 	appwrite: AppwriteIcon,
 	linkding: LinkdingIconSvelte,
 	aws: AwsIcon,
+	redshift: AwsIcon,
 	microsoft: MicrosoftIcon,
 	bcrypt: BcryptIcon,
 	google: GoogleIcon,

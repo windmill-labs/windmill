@@ -18,7 +18,10 @@ use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
-use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
+use windmill_common::utils::{
+    check_proper_path, check_proper_type_name, escape_ilike_pattern, sanitize_db_error,
+    BulkDeleteRequest,
+};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -1023,6 +1026,8 @@ async fn create_resource(
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
+    check_proper_path(&resource.path)?;
+    check_proper_type_name(&resource.resource_type)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1100,7 +1105,8 @@ async fn create_resource(
             resource.labels.as_deref() as Option<&[String]>
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(sanitize_db_error)?;
     } else {
         // Create-only (the default): DO NOTHING + a row-count guard, so a path that appears between
         // check_path_conflict above and this insert is rejected rather than overwritten. A plain
@@ -1119,7 +1125,8 @@ async fn create_resource(
             resource.labels.as_deref() as Option<&[String]>
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(sanitize_db_error)?;
         if inserted.rows_affected() == 0 {
             return Err(Error::BadRequest(format!(
                 "Resource {} already exists",
@@ -1691,6 +1698,10 @@ async fn update_resource(
     // source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("resources:write:{}", npath))?;
+        check_proper_path(npath)?;
+    }
+    if let Some(nrt) = ns.resource_type.as_deref() {
+        check_proper_type_name(nrt)?;
     }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -1810,7 +1821,10 @@ async fn update_resource(
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(sanitize_db_error)?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
 
@@ -2160,6 +2174,8 @@ async fn create_resource_type(
     {
         return Err(Error::PermissionDenied(msg));
     }
+
+    check_proper_type_name(&resource_type.name)?;
 
     let mut tx = user_db.begin(&authed).await?;
 

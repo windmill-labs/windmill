@@ -12,6 +12,7 @@
 	import {
 		findWorkspaceDescendants,
 		findCanonicalDevWorkspace,
+		findDefaultForkBase,
 		findWorkspaceRoot,
 		buildWorkspaceHierarchy
 	} from '$lib/utils/workspaceHierarchy'
@@ -107,6 +108,9 @@
 	const devOfRoot = $derived(
 		root ? findCanonicalDevWorkspace(root.id, forkableWorkspaces) : undefined
 	)
+	// Base a new fork gets by default: the dev workspace when the selection sits in its subtree, the
+	// family root otherwise.
+	const defaultForkBase = $derived(findDefaultForkBase(effectiveId, forkableWorkspaces))
 	const createForkLabel = 'Create new fork…'
 	// Candidate bases ("targets") for a new fork: the root plus every fork/dev in the family, so a fork
 	// can itself be the base — i.e. a fork of a fork. Root first, matching the list order below.
@@ -205,8 +209,8 @@
 	// Bare fork id, without the wm-fork- prefix. Forks have no separate display
 	// name — the id is the name (it also becomes the git branch).
 	let newForkId = $state('')
-	// The base ("target") a new fork will branch from. Defaults to the root; the user can pick any fork
-	// in the family (via the inline target selector) to create a fork of a fork.
+	// The base ("target") a new fork will branch from. Defaults to `defaultForkBase`; the user can pick
+	// any fork in the family (via the inline target selector) to create a fork of a fork.
 	let createForkBaseId = $state<string | undefined>(undefined)
 
 	// Manual keyboard navigation, modelled after SelectDropdown. melt's
@@ -266,8 +270,8 @@
 	}
 
 	function enterCreateMode(initialId?: string, baseId?: string) {
-		// Default the target to the root; the user can switch to any fork in the family (fork of a fork).
-		createForkBaseId = baseId ?? root?.id
+		// The user can switch to any fork in the family (fork of a fork).
+		createForkBaseId = baseId ?? defaultForkBase?.id
 		creatingFork = true
 		newForkId = initialId ?? defaultForkId()
 		// Focus + select is handled by the input's own autofocus (it mounts with
@@ -338,8 +342,8 @@
 		const wasOpen = lastDropdownOpen
 		lastDropdownOpen = dropdownOpen
 		if (dropdownOpen && !wasOpen && pendingFork && !creatingFork && showCreateFork) {
-			// Preserve the base the fork was staged from; without this the re-entry defaults to the root
-			// and silently re-parents a fork that was staged off another fork.
+			// Preserve the base the fork was staged from; without this the re-entry falls back to the
+			// default base and silently re-parents a fork that was staged off another workspace.
 			void enterCreateMode(
 				pendingFork.id.startsWith(WM_FORK_PREFIX)
 					? pendingFork.id.slice(WM_FORK_PREFIX.length)
@@ -475,8 +479,8 @@
 			{#if showCreateFork}
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 				{#if creatingFork}
-					<!-- Small inline form with labels: fork id + base ("target") workspace. The base
-							     defaults to the root; picking a fork there creates a fork of a fork. -->
+					<!-- Small inline form with labels: fork id + base ("target") workspace. Picking a
+							     fork as the base creates a fork of a fork. -->
 					<div class="flex flex-col gap-2 px-2.5 py-2">
 						<div class="flex flex-col gap-0.5">
 							<span class="text-2xs font-normal text-hint">Fork ID</span>

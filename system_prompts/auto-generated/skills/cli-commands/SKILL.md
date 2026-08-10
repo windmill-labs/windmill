@@ -40,6 +40,9 @@ app related commands
   - `--recording` - Frame the app in a shell with a Record button, to capture a replayable session recording of the app under development
 - `app lint [app_folder:string]` - Lint a raw app folder to validate structure and buildability
   - `--fix` - Attempt to fix common issues (not implemented yet)
+- `app bundle [app_folder:string]` - Bundle a raw app folder to js/css without deploying it
+  - `--out <dir:string>` - Directory to write bundle.js and bundle.css into (default: <app_folder>/dist)
+  - `--no-minify` - Skip minification
 - `app new` - create a new raw app from a template
   - `--summary <summary:string>` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
   - `--path <path:string>` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.

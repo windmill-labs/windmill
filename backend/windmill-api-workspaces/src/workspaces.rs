@@ -247,6 +247,8 @@ struct Workspace {
     premium: bool,
     color: Option<String>,
     parent_workspace_id: Option<String>,
+    is_dev_workspace: bool,
+    dev_workspace_label: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -488,8 +490,8 @@ struct CreateWorkspaceFork {
     /// the team can work in it. Defaults off; the dev-workspace UI defaults it on.
     #[serde(default)]
     copy_members: bool,
-    /// Cosmetic display label for the dev workspace: 'dev' | 'staging'. Purely visual (badge text +
-    /// wording); ignored for non-dev forks. None defaults to 'dev'.
+    /// Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the
+    /// branch it deploys to. Ignored for non-dev forks. None defaults to 'dev'.
     #[serde(default)]
     dev_workspace_label: Option<String>,
 }
@@ -710,16 +712,84 @@ struct DevWorkspaceInfo {
     dev_workspace_label: Option<String>,
 }
 
-/// Normalize/validate the cosmetic dev-workspace display label. None or 'dev' both render as "dev";
-/// 'staging' renders as "stg". Anything else is rejected. Stored explicitly ('dev'/'staging') so it
-/// round-trips, but a NULL column is treated as 'dev' on the read side too.
+/// The environment labels a dev workspace may carry, ordered dev -> prod. Each names the git branch
+/// that workspace deploys to (`dev_workspace_branch`), and every dev workspace in a chain must
+/// carry a distinct one (`reject_dev_label_taken_in_chain`) — so the length of this list is also
+/// the deepest promotion chain. A fixed list rather than free text: the label has to be a usable
+/// single-segment branch name, must not collide with the `wm-fork/**` and `wm_deploy/**` namespaces
+/// git-sync already writes, and must not be a repository's default branch (`main`, `master`).
+pub const DEV_WORKSPACE_LABELS: [&str; 8] = [
+    "dev", "qa", "test", "uat", "staging", "demo", "sandbox", "preprod",
+];
+
+/// Normalize/validate the dev-workspace environment label. Unset defaults to 'dev', which is also
+/// what a NULL column reads as; any supplied value must be one of `DEV_WORKSPACE_LABELS` exactly,
+/// so the accepted set is what the OpenAPI enum advertises — no trimming, no empty-string alias.
 fn normalize_dev_workspace_label(label: Option<String>) -> Result<Option<String>> {
-    match label.as_deref() {
-        None | Some("dev") => Ok(Some("dev".to_string())),
-        Some("staging") => Ok(Some("staging".to_string())),
-        Some(other) => Err(Error::BadRequest(format!(
-            "invalid dev workspace label '{other}' (expected 'dev' or 'staging')"
-        ))),
+    let Some(label) = label else {
+        return Ok(Some("dev".to_string()));
+    };
+    if !DEV_WORKSPACE_LABELS.contains(&label.as_str()) {
+        return Err(Error::BadRequest(format!(
+            "invalid dev workspace label '{label}' (expected one of: {})",
+            DEV_WORKSPACE_LABELS.join(", ")
+        )));
+    }
+    Ok(Some(label))
+}
+
+#[cfg(test)]
+mod dev_workspace_label_tests {
+    use super::{normalize_dev_workspace_label, tracked_branch_blocks_dev_label};
+
+    #[test]
+    fn tracked_branch_blocks_its_own_name_and_its_namespace() {
+        assert!(tracked_branch_blocks_dev_label("uat", "uat"));
+        // The label would have to be a ref and a ref directory at once.
+        assert!(tracked_branch_blocks_dev_label("release", "release/main"));
+        assert!(!tracked_branch_blocks_dev_label("release", "release-main"));
+        assert!(!tracked_branch_blocks_dev_label("release", "main"));
+        assert!(!tracked_branch_blocks_dev_label("uat", "pre/uat"));
+    }
+
+    fn norm(label: &str) -> Option<String> {
+        normalize_dev_workspace_label(Some(label.to_string()))
+            .ok()
+            .flatten()
+    }
+
+    #[test]
+    fn unset_defaults_to_dev() {
+        assert_eq!(
+            normalize_dev_workspace_label(None).unwrap().as_deref(),
+            Some("dev")
+        );
+    }
+
+    #[test]
+    fn accepts_every_offered_label_and_nothing_else() {
+        for label in super::DEV_WORKSPACE_LABELS {
+            assert_eq!(norm(label).as_deref(), Some(label), "rejected '{label}'");
+        }
+        // Off-list names are refused whether or not they would make a usable branch: the list is
+        // what keeps a label off `main`/`master` and out of the `wm-fork/**` and `wm_deploy/**`
+        // namespaces git-sync writes. Padded and empty values are refused too, so the accepted set
+        // is exactly the OpenAPI enum rather than a superset a validating client would reject.
+        for label in [
+            " uat ",
+            "",
+            "main",
+            "master",
+            "wm-fork",
+            "wm_deploy",
+            "UAT",
+            "feature/uat",
+        ] {
+            assert!(
+                normalize_dev_workspace_label(Some(label.to_string())).is_err(),
+                "accepted '{label}'"
+            );
+        }
     }
 }
 
@@ -749,7 +819,7 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.is_dev_workspace, workspace.dev_workspace_label
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          JOIN usr ON usr.workspace_id = workspace.id
@@ -793,11 +863,23 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.last_pull_status = None;
 }
 
-/// A dev workspace deploys to a branch named after its environment label. If a
-/// git-sync repository's tracked branch carries that same name, dev deploys
-/// would write straight into the branch the workspace (or its prod) syncs
-/// from — the CLI refuses that push, so every deploy job would fail. Reject
-/// the label up front instead.
+/// Whether a git-sync repository tracking `tracked` rules out `label_branch` as a dev workspace's
+/// deploy branch. Two ways it can:
+///
+/// - the same name: dev deploys would write straight into the branch the workspace (or its prod)
+///   syncs from, and the CLI refuses that push;
+/// - `label_branch` is the namespace `tracked` sits under (label `release`, tracked
+///   `release/main`): git stores refs hierarchically, so `refs/heads/release` cannot exist
+///   alongside `refs/heads/release/main`.
+///
+/// Either way every deploy job from that workspace would fail.
+fn tracked_branch_blocks_dev_label(label_branch: &str, tracked: &str) -> bool {
+    tracked == label_branch || tracked.starts_with(&format!("{label_branch}/"))
+}
+
+/// Reject a label whose branch clashes with a tracked branch of any git-sync repository on
+/// `workspace_ids`, before the pairing is created. (`wm-fork` and `wm_deploy`, whose namespaces
+/// exist whatever a repo tracks, are reserved unconditionally in `normalize_dev_workspace_label`.)
 async fn reject_dev_label_matching_tracked_branch(
     db: &DB,
     label: Option<&str>,
@@ -825,14 +907,31 @@ async fn reject_dev_label_matching_tracked_branch(
             .fetch_optional(db)
             .await?
             .flatten();
-            if branch.as_deref() == Some(label_branch.as_str()) {
-                return Err(Error::BadRequest(format!(
+            // A repository that pins no branch tracks the remote's default, which cannot be
+            // resolved here without a network call — but no offered label is a plausible default
+            // (`main`/`master` are off the list), so there is nothing to compare against.
+            let Some(tracked) = branch.as_deref().filter(|b| !b.is_empty()) else {
+                continue;
+            };
+            if !tracked_branch_blocks_dev_label(&label_branch, tracked) {
+                continue;
+            }
+            return Err(Error::BadRequest(if tracked == label_branch {
+                format!(
                     "The environment label '{label_branch}' matches the tracked branch of git-sync \
                      repository '{path}' in workspace '{w_id}': deploys from the dev workspace go \
                      to the '{label_branch}' branch and would overwrite the branch that repository \
-                     syncs from. Use the other label or change the repository's tracked branch."
-                )));
-            }
+                     syncs from. Use a different label or change the repository's branch."
+                )
+            } else {
+                format!(
+                    "The environment label '{label_branch}' is the namespace of the tracked branch \
+                     '{tracked}' of git-sync repository '{path}' in workspace '{w_id}': git cannot \
+                     hold a branch named '{label_branch}' alongside '{tracked}', so every deploy \
+                     from the dev workspace would fail. Use a different label or change the \
+                     repository's branch."
+                )
+            }));
         }
     }
     Ok(())
@@ -2640,7 +2739,7 @@ pub(crate) async fn pg_dump_database(
 
     let host = &pg_db.host;
     let port = pg_db.port.unwrap_or(5432).to_string();
-    let user = pg_db.user.as_deref().unwrap_or("postgres");
+    let user = pg_db.login_name();
     let dbname = &pg_db.dbname;
 
     let mut cmd = tokio::process::Command::new("pg_dump");
@@ -2684,7 +2783,7 @@ pub(crate) async fn pg_dump_database(
 async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
     let host = &target_db.host;
     let port = target_db.port.unwrap_or(5432).to_string();
-    let user = target_db.user.as_deref().unwrap_or("postgres");
+    let user = target_db.login_name();
     let dbname = &target_db.dbname;
 
     let mut cmd = tokio::process::Command::new("psql");
@@ -4827,7 +4926,9 @@ async fn get_workspace_as_superadmin(
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
-            workspace.parent_workspace_id AS \"parent_workspace_id\"
+            workspace.parent_workspace_id AS \"parent_workspace_id\",
+            workspace.is_dev_workspace AS \"is_dev_workspace!\",
+            workspace.dev_workspace_label AS \"dev_workspace_label\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
         WHERE workspace.id = $1",
@@ -4861,7 +4962,9 @@ async fn list_workspaces_as_super_admin(
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
-            workspace.parent_workspace_id AS \"parent_workspace_id\"
+            workspace.parent_workspace_id AS \"parent_workspace_id\",
+            workspace.is_dev_workspace AS \"is_dev_workspace!\",
+            workspace.dev_workspace_label AS \"dev_workspace_label\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
@@ -4905,11 +5008,17 @@ struct SessionWorkspaceStatusRequest {
 
 /// Reconciliation support for client-side AI sessions, which the backend cannot touch
 /// directly. The client posts the workspace ids its sessions reference and uses the
-/// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row /
-/// no access → unresolvable) drops the sessions, `archived` (soft-deleted, still a
-/// member) archives them, `active` restores ones previously archived-by-workspace.
+/// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row, or
+/// no way for this caller to reach it) drops the sessions, `archived` (soft-deleted, still
+/// reachable) archives them, `active` restores ones previously archived-by-workspace.
 /// Archived and hard-deleted workspaces are absent from `user_workspaces`, so this is the
 /// only way the client learns about a change made while it was away or on another device.
+///
+/// Membership alone under-reports reachability: a superadmin is authed into any existing
+/// workspace without a `usr` row, and `admins` has no `usr` rows at all, so answering from
+/// `usr` destroys sessions that still work. It over-reports in one direction — a `usr` row
+/// with `disabled` counts here but not in the extractor — which only leaves a session
+/// lingering, so it is deliberately not treated as unreachable.
 async fn session_workspace_status(
     Extension(db): Extension<DB>,
     ApiAuthed { email, .. }: ApiAuthed,
@@ -4920,10 +5029,15 @@ async fn session_workspace_status(
             "Too many workspace ids (max 1000)".to_string(),
         ));
     }
+    let is_superadmin = windmill_common::auth::is_super_admin_email(&db, &email).await?;
     let rows = sqlx::query!(
+        // A missing workspace row must be caught before the membership arm: for a
+        // superadmin the two arms below both fall through, and a hard-deleted workspace
+        // would report `active` forever.
         "SELECT req.id AS \"id!\",
                 (CASE
-                    WHEN usr.email IS NULL THEN 'deleted'
+                    WHEN workspace.id IS NULL THEN 'deleted'
+                    WHEN usr.email IS NULL AND NOT $3 THEN 'deleted'
                     WHEN workspace.deleted THEN 'archived'
                     ELSE 'active'
                 END) AS \"status!\"
@@ -4932,6 +5046,7 @@ async fn session_workspace_status(
          LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2",
         &req.workspace_ids[..],
         email,
+        is_superadmin,
     )
     .fetch_all(&db)
     .await?;
@@ -5966,7 +6081,14 @@ async fn clone_scripts(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "script", "hash", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(
+        tx,
+        "script",
+        "hash",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .await?;
 
     Ok(())
 }
@@ -6204,7 +6326,8 @@ async fn clone_flows(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id)
+        .await?;
 
     // Then clone flow versions
     let flow_versions = sqlx::query!(
@@ -6674,10 +6797,18 @@ async fn create_workspace_fork_branch(
     // that second call. Validating early lets a bad request fail before any branch is created.
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
-        // Reject a bad cosmetic label before any git branch is created (acted on in create_workspace_fork).
+        // Reject a bad label before any git branch is created (acted on in create_workspace_fork).
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&w_id]).await?;
-        ensure_dev_parent_is_root(&db, &w_id).await?;
+        ensure_dev_parent_can_host_dev(&db, &w_id).await?;
+        reject_dev_label_taken_in_chain(
+            &mut *db.acquire().await?,
+            &w_id,
+            &nw.id,
+            false,
+            label.as_deref(),
+        )
+        .await?;
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
         ensure_no_existing_dev_workspace(&db, &w_id).await?;
@@ -6993,11 +7124,19 @@ async fn create_workspace_fork(
         validate_fork_workspace_id(&nw.id)?;
     }
     validate_workspace_name(&nw.name)?;
-    // Cosmetic label only applies to dev workspaces; a non-dev fork stores NULL.
+    // The environment label only applies to dev workspaces; a non-dev fork stores NULL.
     let dev_workspace_label = if nw.is_dev_workspace {
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&parent_workspace_id])
             .await?;
+        reject_dev_label_taken_in_chain(
+            &mut *db.acquire().await?,
+            &parent_workspace_id,
+            &nw.id,
+            false,
+            label.as_deref(),
+        )
+        .await?;
         label
     } else {
         None
@@ -7064,7 +7203,7 @@ async fn create_workspace_fork(
     }
 
     if nw.is_dev_workspace {
-        ensure_dev_parent_is_root(&db, &parent_workspace_id).await?;
+        ensure_dev_parent_can_host_dev(&db, &parent_workspace_id).await?;
         // Creating the canonical dev consumes the parent's one-dev-per-prod slot (and locking prod
         // mutates its protection rules), so require admin of the parent regardless of the lock flags —
         // mirrors attach/detach, which are prod-admin gated. Without this a non-admin forker could
@@ -7074,6 +7213,22 @@ async fn create_workspace_fork(
     }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    if nw.is_dev_workspace {
+        // The checks above ran outside a transaction, so the parent's eligibility and the chain's
+        // labels could have changed under us: re-decide both here, under the pairing lock.
+        lock_dev_pairing(&mut tx, &[&parent_workspace_id]).await?;
+        ensure_dev_parent_can_host_dev(&mut *tx, &parent_workspace_id).await?;
+        ensure_no_existing_dev_workspace(&mut *tx, &parent_workspace_id).await?;
+        reject_dev_label_taken_in_chain(
+            &mut *tx,
+            &parent_workspace_id,
+            &nw.id,
+            false,
+            dev_workspace_label.as_deref(),
+        )
+        .await?;
+    }
 
     let forked_id = nw.id;
 
@@ -7251,7 +7406,7 @@ struct AttachDevWorkspace {
     lock_prod_deploy: bool,
     #[serde(default)]
     lock_prod_forking: bool,
-    /// Cosmetic display label for the attached dev workspace: 'dev' | 'staging'. None defaults to 'dev'.
+    /// Environment label for the attached dev workspace, e.g. 'dev' or 'staging'. None defaults to 'dev'.
     #[serde(default)]
     dev_workspace_label: Option<String>,
 }
@@ -7308,15 +7463,6 @@ async fn attach_dev_workspace(
     // The id is interpolated into a `wm-fork/<branch>/<id>` branch name like any fork.
     validate_dev_workspace_id(&dev_w_id)?;
     let dev_workspace_label = normalize_dev_workspace_label(req.dev_workspace_label.clone())?;
-    // The attached workspace keeps its own sync repos and prod keeps its config;
-    // the label branch must not collide with either side's tracked branch.
-    reject_dev_label_matching_tracked_branch(
-        &db,
-        dev_workspace_label.as_deref(),
-        &[&prod_w_id, &dev_w_id],
-    )
-    .await?;
-
     let dev = sqlx::query!(
         r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
         &dev_w_id
@@ -7345,24 +7491,41 @@ async fn attach_dev_workspace(
             dev_w_id
         )));
     }
-    // The candidate can't itself be a prod with its own dev workspace (no nested dev chains).
-    ensure_no_existing_dev_workspace(&db, &dev_w_id).await?;
-
-    // Prod must be a root workspace, otherwise attaching could form a parent<->child cycle (e.g.
-    // attaching A as the dev of B when B is already the dev of A), which breaks hierarchy traversal.
-    let prod_has_parent = sqlx::query_scalar!(
-        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
+    let prod_exists = sqlx::query_scalar!(
+        r#"SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1) AS "exists!""#,
         &prod_w_id
     )
-    .fetch_optional(&db)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("Workspace {} not found", prod_w_id)))?;
-    if prod_has_parent {
-        return Err(Error::BadRequest(format!(
-            "Workspace {} is itself a fork or dev workspace and cannot be a prod workspace",
+    .fetch_one(&db)
+    .await?;
+    if !prod_exists {
+        return Err(Error::NotFound(format!(
+            "Workspace {} not found",
             prod_w_id
         )));
     }
+    // Prod may be a root workspace or another dev workspace (a dev of a dev); a throwaway fork
+    // can't host one.
+    ensure_dev_parent_can_host_dev(&db, &prod_w_id).await?;
+    reject_attach_cycle(&db, &prod_w_id, &dev_w_id).await?;
+
+    // The attached workspace keeps its own sync repos and prod keeps its config; the label branch
+    // must not collide with either side's tracked branch.
+    reject_dev_label_matching_tracked_branch(
+        &db,
+        dev_workspace_label.as_deref(),
+        &[&prod_w_id, &dev_w_id],
+    )
+    .await?;
+    // The candidate keeps its own subtree, so its dev descendants keep their labels and join the
+    // chain alongside it.
+    reject_dev_label_taken_in_chain(
+        &mut *db.acquire().await?,
+        &prod_w_id,
+        &dev_w_id,
+        true,
+        dev_workspace_label.as_deref(),
+    )
+    .await?;
 
     // The caller must be admin of the dev workspace too (or a superadmin).
     let is_admin_of_dev = sqlx::query_scalar!(
@@ -7379,9 +7542,47 @@ async fn attach_dev_workspace(
         )));
     }
 
-    ensure_no_existing_dev_workspace(&db, &prod_w_id).await?;
-
     let mut tx = db.begin().await?;
+    // Everything above ran outside a transaction, so prod's eligibility and the chain's labels could
+    // have changed under us: re-decide both here, under the pairing lock.
+    lock_dev_pairing(&mut tx, &[&prod_w_id, &dev_w_id]).await?;
+    // The candidate was read before the lock, and archiving it is one of the operations the lock
+    // serializes: re-read it, or the pairing lands on a workspace that is gone or has since been
+    // taken by another prod.
+    let dev = sqlx::query!(
+        r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
+        &dev_w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Workspace {} not found", dev_w_id)))?;
+    if dev.deleted {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is archived",
+            dev_w_id
+        )));
+    }
+    if dev
+        .parent_workspace_id
+        .as_deref()
+        .is_some_and(|p| p != prod_w_id)
+    {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is already a fork or dev workspace of another workspace",
+            dev_w_id
+        )));
+    }
+    ensure_dev_parent_can_host_dev(&mut *tx, &prod_w_id).await?;
+    reject_attach_cycle(&mut *tx, &prod_w_id, &dev_w_id).await?;
+    ensure_no_existing_dev_workspace(&mut *tx, &prod_w_id).await?;
+    reject_dev_label_taken_in_chain(
+        &mut *tx,
+        &prod_w_id,
+        &dev_w_id,
+        true,
+        dev_workspace_label.as_deref(),
+    )
+    .await?;
     sqlx::query!(
         "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true, dev_workspace_label = $3 WHERE id = $2",
         &prod_w_id,
@@ -7553,6 +7754,11 @@ async fn detach_dev_workspace(
     require_admin(authed.is_admin, &authed.username)?;
 
     let dev_w_id = req.dev_workspace_id;
+
+    let mut tx = db.begin().await?;
+    // Under the pairing lock, so a dev workspace cannot appear beneath this one between the check
+    // below and the update.
+    lock_dev_pairing(&mut tx, &[&prod_w_id, &dev_w_id]).await?;
     let is_dev_of_prod = sqlx::query_scalar!(
         r#"SELECT EXISTS(
             SELECT 1 FROM workspace
@@ -7561,7 +7767,7 @@ async fn detach_dev_workspace(
         &dev_w_id,
         &prod_w_id
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
     if !is_dev_of_prod {
@@ -7570,8 +7776,8 @@ async fn detach_dev_workspace(
             dev_w_id, prod_w_id
         )));
     }
+    reject_stranding_nested_dev(&mut *tx, &dev_w_id, DevTeardown::Detach).await?;
 
-    let mut tx = db.begin().await?;
     // A wm-fork- workspace re-designated as dev returns to being a plain fork
     // (keeps its parent); a standalone workspace that was attached returns to
     // being standalone — with the parent kept it would still classify as a
@@ -7679,6 +7885,30 @@ pub(crate) async fn archive_workspace_impl(
 ) -> Result<(usize, usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
+    // Unconditionally, before reading any pairing state: whether this workspace is a dev, and whether
+    // it has one, is exactly what a concurrent attach changes, so gating the lock on the caller's
+    // `dev_lock_parent` would skip it on the strength of the value the race invalidates.
+    lock_dev_pairing(&mut tx, &[w_id]).await?;
+    let dev_parent = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    // The caller resolved this before the lock and authorized against it — its prod admin check, and
+    // the pairing teardown below, are both answers to that value. Refuse rather than act on a pairing
+    // nobody checked.
+    if dev_parent.as_deref() != dev_lock_parent {
+        return Err(Error::BadRequest(format!(
+            "The dev pairing of {w_id} changed while it was being archived. Retry."
+        )));
+    }
+    if dev_parent.is_some() {
+        // Archiving a dev workspace clears its dev flag, so it must not strand a dev workspace of
+        // its own.
+        reject_stranding_nested_dev(&mut *tx, w_id, DevTeardown::Archive).await?;
+    }
     let disabled_schedules = sqlx::query_scalar!(
         "UPDATE schedule SET enabled = false WHERE workspace_id = $1 AND enabled = true RETURNING path",
         w_id
@@ -7819,7 +8049,9 @@ async fn archive_workspace(
     }
 
     // The dev pairing teardown (clear is_dev + drop the prod lock) runs inside archive_workspace_impl's
-    // transaction, atomically with `deleted = true`.
+    // transaction, atomically with `deleted = true` — including the guard that it strands no nested
+    // dev workspace, which only applies to a workspace that is itself a dev (`dev_lock_parent`): a
+    // root archived out from under its dev is the pre-existing shape and not this pairing's to police.
     let (schedules_count, canceled_count, deleted_tokens_count) =
         archive_workspace_impl(&db, &w_id, &authed.username, dev_lock_parent.as_deref()).await?;
 
@@ -8756,6 +8988,9 @@ struct CreateProtectionRuleRequest {
 
 #[derive(Deserialize)]
 struct UpdateProtectionRuleRequest {
+    /// Renames the rule when it differs from the path name. Absent means "leave the name alone",
+    /// which is what a client that never sends the field gets.
+    name: Option<String>,
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
     bypass_users: Vec<String>,
@@ -8868,7 +9103,10 @@ async fn lock_prod_workspace(
 
 /// Error out if `parent_w_id` already has an active (non-archived) dev workspace. Mirrors the
 /// partial unique index `workspace_canonical_dev_idx` with a friendly message.
-async fn ensure_no_existing_dev_workspace(db: &DB, parent_w_id: &str) -> Result<()> {
+async fn ensure_no_existing_dev_workspace<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
+    parent_w_id: &str,
+) -> Result<()> {
     let existing = sqlx::query_scalar!(
         "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
         parent_w_id
@@ -8884,29 +9122,271 @@ async fn ensure_no_existing_dev_workspace(db: &DB, parent_w_id: &str) -> Result<
     Ok(())
 }
 
-/// A dev workspace pairs with a root prod workspace; nesting dev workspaces (a dev of a dev) isn't
-/// supported and would muddle the prod<->dev relationship.
-async fn ensure_dev_parent_is_root(db: &DB, parent_w_id: &str) -> Result<()> {
-    let parent_is_fork = sqlx::query_scalar!(
-        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!" FROM workspace WHERE id = $1"#,
+/// A dev workspace pairs with a root workspace or — supported, though not the recommended shape —
+/// with another dev workspace, giving a promotion chain (dev of dev -> dev -> prod). A throwaway
+/// fork is never a valid prod: its deploys go to its own `wm-fork/**` branch and it is discarded
+/// with its subtree, so a dev pinned under it has nowhere to promote to. Nor is an archived one,
+/// which hosts nothing at all.
+async fn ensure_dev_parent_can_host_dev<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
+    parent_w_id: &str,
+) -> Result<()> {
+    let parent = sqlx::query!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!", is_dev_workspace, deleted
+           FROM workspace WHERE id = $1"#,
         parent_w_id
     )
     .fetch_optional(db)
-    .await?
-    .unwrap_or(false);
-    if parent_is_fork {
+    .await?;
+    let Some(parent) = parent else {
+        return Ok(());
+    };
+    if parent.deleted {
         return Err(Error::BadRequest(format!(
-            "Cannot create a dev workspace of '{}' because it is itself a fork or dev workspace.",
+            "Cannot create a dev workspace of '{}' because it is archived.",
+            parent_w_id
+        )));
+    }
+    if parent.is_fork && !parent.is_dev_workspace {
+        return Err(Error::BadRequest(format!(
+            "Cannot create a dev workspace of '{}' because it is a throwaway fork.",
             parent_w_id
         )));
     }
     Ok(())
 }
 
-/// `dev_workspace_lock` is owned by the dev-workspace feature (attach/detach/archive/delete create and
-/// remove it by name). Reserve it from the public protection-rule API so a user-managed rule can't
-/// collide: otherwise the feature's name-based cleanup would clobber the user's rule, or a manual edit
-/// could weaken the feature's lock.
+/// Prod may be a dev workspace, so the candidate can sit ABOVE it in the tree — reparenting it below
+/// prod would close a parent<->child cycle and hang every hierarchy walk. Prod itself is at depth 0
+/// of the chain, so callers must have rejected `dev_w_id == prod_w_id` first.
+///
+/// `reject_dev_label_taken_in_chain` would also reject a cyclic pairing, since a cycle puts one
+/// workspace in the chain twice and so always repeats a label. It reports it as a workspace clashing
+/// with itself, which describes nothing the caller can act on — hence this, first.
+async fn reject_attach_cycle<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
+    prod_w_id: &str,
+    dev_w_id: &str,
+) -> Result<()> {
+    let would_cycle = sqlx::query_scalar!(
+        r#"WITH RECURSIVE chain AS (
+               SELECT id, parent_workspace_id, 0 AS depth FROM workspace WHERE id = $1
+               UNION ALL
+               SELECT w.id, w.parent_workspace_id, chain.depth + 1 FROM workspace w
+               JOIN chain ON w.id = chain.parent_workspace_id
+               WHERE chain.depth < 20
+           )
+           SELECT EXISTS(SELECT 1 FROM chain WHERE id = $2) AS "cycle!""#,
+        prod_w_id,
+        dev_w_id,
+    )
+    .fetch_one(db)
+    .await?;
+    if would_cycle {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is an ancestor of {} and cannot become its dev workspace",
+            dev_w_id, prod_w_id
+        )));
+    }
+    Ok(())
+}
+
+/// Serialize everything that makes or breaks a dev pairing: giving a workspace a dev workspace
+/// (create, attach) and clearing one's dev flag (detach, archive). Each decides on state the others
+/// mutate — whether a workspace already has a dev, still has one, or leaves a label free — so
+/// unserialized they all pass their checks and commit a shape those checks exist to reject. Take it
+/// before re-running them inside the mutating transaction; it releases on commit or rollback.
+///
+/// Locks every workspace the operation's own checks read: each seed, its ancestors, and the dev
+/// workspaces beneath it. Locking just the endpoints is not enough — the label rule spans a whole
+/// chain, so two operations a couple of hops apart would hold disjoint keys and both commit. Reading
+/// the same set that is checked is what closes that: an attach splices two chains together and so
+/// holds nodes from both, and any operation that could collide with it necessarily touches the
+/// joined chain, hence shares a node. Acquired in id order, the only ordering rule that keeps two
+/// overlapping sets from deadlocking.
+///
+/// Recomputed inside the transaction, but from a set that may already be stale — harmless, because
+/// whoever made it stale is the operation holding the node this one is missing.
+pub(crate) async fn lock_dev_pairing(
+    tx: &mut Transaction<'_, Postgres>,
+    seeds: &[&str],
+) -> Result<()> {
+    let seeds: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
+    // Depth bounds are the cycle-safety backstop used by every other hierarchy walk.
+    let nodes = sqlx::query_scalar!(
+        r#"WITH RECURSIVE seeded AS (SELECT unnest($1::text[]) AS id),
+           up AS (
+               SELECT w.id, w.parent_workspace_id, 0 AS depth
+               FROM workspace w JOIN seeded s ON w.id = s.id
+               UNION ALL
+               SELECT w.id, w.parent_workspace_id, up.depth + 1
+               FROM workspace w JOIN up ON w.id = up.parent_workspace_id
+               WHERE up.depth < 20
+           ),
+           down AS (
+               SELECT w.id, 0 AS depth FROM workspace w JOIN seeded s ON w.id = s.id
+               UNION ALL
+               SELECT w.id, down.depth + 1
+               FROM workspace w JOIN down ON w.parent_workspace_id = down.id
+               WHERE down.depth < 20 AND w.is_dev_workspace
+           )
+           SELECT id AS "id!" FROM (
+               SELECT id FROM seeded UNION SELECT id FROM up UNION SELECT id FROM down
+           ) n ORDER BY id"#,
+        &seeds[..]
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    // One statement per node rather than a set-returning call: only a client-side loop actually
+    // guarantees the acquisition order the deadlock argument above rests on.
+    for node in nodes {
+        sqlx::query!(
+            "SELECT pg_advisory_xact_lock(hashtext('dev_workspace_pairing:' || $1))",
+            node
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// What is about to clear `is_dev_workspace` on a workspace, which decides whether the workspace can
+/// go on hosting a dev workspace of its own afterwards.
+enum DevTeardown {
+    /// Keeps `parent_workspace_id` only for a `wm-fork-` workspace, which then reads as a throwaway
+    /// fork. A prefix-less workspace returns to standalone and hosts its dev exactly as before.
+    Detach,
+    /// Soft-deletes the workspace whatever its id looks like, so it hosts nothing afterwards.
+    Archive,
+}
+
+/// A nested dev workspace outlives whatever clears its parent's dev flag, and the parent is then a
+/// shape that hosts no pairing: its settings tab offers no detach control, and `delete_workspace`
+/// refuses a workspace that still has a dev child, so the pairing could never be undone. Reject the
+/// teardown so it is done bottom-up instead.
+async fn reject_stranding_nested_dev<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
+    w_id: &str,
+    teardown: DevTeardown,
+) -> Result<()> {
+    let action = match teardown {
+        DevTeardown::Detach => {
+            if !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+                return Ok(());
+            }
+            "Detaching"
+        }
+        DevTeardown::Archive => "Archiving",
+    };
+    let nested = sqlx::query_scalar!(
+        "SELECT id FROM workspace
+         WHERE parent_workspace_id = $1 AND is_dev_workspace AND NOT deleted",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    if let Some(nested) = nested {
+        return Err(Error::BadRequest(format!(
+            "{action} {w_id} would leave it unable to host a pairing, but it is the prod workspace \
+             of '{nested}'. Detach '{nested}' first."
+        )));
+    }
+    Ok(())
+}
+
+/// A dev workspace deploys to the branch named by its environment label, and every dev workspace in
+/// a chain inherits the same git-sync repositories, so two of them sharing a label push to one
+/// branch: each deploy clobbers the other environment, and the root's auto-pull routes that branch
+/// to whichever dev it matches first. Require every dev workspace in the resulting chain to carry a
+/// distinct label — the dev ancestors `new_dev_id` lands under, `new_dev_id` with `label`, and (when
+/// it already exists and so keeps its own subtree) the dev workspaces it brings with it. Dev
+/// workspaces only ever hang off a root or another dev (`ensure_dev_parent_can_host_dev`), so that
+/// chain is linear and this is the whole of it.
+async fn reject_dev_label_taken_in_chain(
+    db: &mut sqlx::PgConnection,
+    parent_w_id: &str,
+    new_dev_id: &str,
+    keeps_own_subtree: bool,
+    label: Option<&str>,
+) -> Result<()> {
+    // Depth bounds are the cycle-safety backstop used by every other hierarchy walk.
+    let mut chain = sqlx::query!(
+        r#"WITH RECURSIVE ancestors AS (
+               SELECT id, parent_workspace_id, is_dev_workspace, dev_workspace_label, deleted,
+                      0 AS depth
+               FROM workspace WHERE id = $1
+               UNION ALL
+               SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, w.dev_workspace_label,
+                      w.deleted, ancestors.depth + 1
+               FROM workspace w JOIN ancestors ON w.id = ancestors.parent_workspace_id
+               WHERE ancestors.depth < 20
+           )
+           SELECT id AS "id!", dev_workspace_label FROM ancestors
+           WHERE is_dev_workspace AND NOT deleted"#,
+        parent_w_id
+    )
+    .fetch_all(&mut *db)
+    .await?
+    .into_iter()
+    .map(|r| {
+        (
+            r.id,
+            windmill_common::workspaces::dev_workspace_branch(r.dev_workspace_label.as_deref()),
+        )
+    })
+    .collect::<Vec<_>>();
+    chain.push((
+        new_dev_id.to_string(),
+        windmill_common::workspaces::dev_workspace_branch(label),
+    ));
+    if keeps_own_subtree {
+        // `depth > 0`: the candidate itself is already in the list above, carrying its new label.
+        chain.extend(
+            sqlx::query!(
+                r#"WITH RECURSIVE tree AS (
+                       SELECT id, is_dev_workspace, dev_workspace_label, deleted, 0 AS depth
+                       FROM workspace WHERE id = $1
+                       UNION ALL
+                       SELECT w.id, w.is_dev_workspace, w.dev_workspace_label, w.deleted,
+                              tree.depth + 1
+                       FROM workspace w JOIN tree ON w.parent_workspace_id = tree.id
+                       WHERE tree.depth < 20
+                   )
+                   SELECT id AS "id!", dev_workspace_label FROM tree
+                   WHERE depth > 0 AND is_dev_workspace AND NOT deleted"#,
+                new_dev_id
+            )
+            .fetch_all(&mut *db)
+            .await?
+            .into_iter()
+            .map(|r| {
+                (
+                    r.id,
+                    windmill_common::workspaces::dev_workspace_branch(
+                        r.dev_workspace_label.as_deref(),
+                    ),
+                )
+            }),
+        );
+    }
+    let mut by_branch: HashMap<String, String> = HashMap::new();
+    for (id, branch) in chain {
+        if let Some(other) = by_branch.insert(branch.clone(), id.clone()) {
+            return Err(Error::BadRequest(format!(
+                "'{other}' and '{id}' would both be '{branch}' workspaces in the same chain: dev \
+                 workspaces in a chain share their git-sync repositories, so both would deploy to \
+                 the '{branch}' branch. Use a different environment label."
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// `dev_workspace_lock` is owned by the dev-workspace feature, which creates and removes it by name
+/// (attach/detach/archive/delete). Reserve the name against creation and deletion so a user-managed
+/// rule can't collide with the feature's name-based cleanup, and so detach stays the way a pairing's
+/// lock is lifted. Updating it is deliberately allowed: relaxing the lock is an admin's call, and the
+/// name is immutable on update so no collision can arise.
 fn reject_reserved_rule_name(name: &str) -> Result<()> {
     if name == DEV_WORKSPACE_LOCK_RULE_NAME {
         return Err(Error::BadRequest(format!(
@@ -9000,7 +9480,28 @@ async fn update_protection_rule(
     Json(req): Json<UpdateProtectionRuleRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    reject_reserved_rule_name(&rule_name)?;
+
+    // A rename moves the row's primary key, so it needs the same name checks a create does. The
+    // reserved rule can be neither end of one: the dev-workspace feature finds it by name, so
+    // renaming it away would strand the lock and renaming onto it would collide with the feature.
+    // Names are stored verbatim, as creation stores them, so this comparison is raw: a rule called
+    // " prod-lock " survives an edit that submits its current name back untouched, and a name that
+    // differs only in surrounding whitespace is a real rename rather than a silent no-op.
+    let new_name = req.name.as_deref().filter(|n| *n != rule_name);
+    if let Some(new_name) = new_name {
+        if new_name.trim().is_empty() {
+            return Err(Error::BadRequest(
+                "Protection rule name cannot be empty".to_string(),
+            ));
+        }
+        if rule_name == DEV_WORKSPACE_LOCK_RULE_NAME {
+            return Err(Error::BadRequest(format!(
+                "'{}' cannot be renamed: the dev workspace feature locates it by name",
+                DEV_WORKSPACE_LOCK_RULE_NAME
+            )));
+        }
+        reject_reserved_rule_name(new_name)?;
+    }
 
     let mut tx = db.begin().await?;
 
@@ -9021,13 +9522,33 @@ async fn update_protection_rule(
         )));
     }
 
+    if let Some(new_name) = new_name {
+        let taken = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2)",
+            &w_id,
+            new_name
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if taken {
+            return Err(Error::BadRequest(format!(
+                "Protection rule with name '{}' already exists",
+                new_name
+            )));
+        }
+    }
+
+    let final_name = new_name.unwrap_or(&rule_name);
+
     // Update the rule
     sqlx::query!(
         r#"
             UPDATE workspace_protection_rule
-            SET rules = $1, bypass_groups = $2, bypass_users = $3
-            WHERE workspace_id = $4 AND name = $5
+            SET name = $1, rules = $2, bypass_groups = $3, bypass_users = $4
+            WHERE workspace_id = $5 AND name = $6
         "#,
+        final_name,
         ProtectionRules::from(&req.rules).bits(),
         &req.bypass_groups,
         &req.bypass_users,
@@ -9037,14 +9558,18 @@ async fn update_protection_rule(
     .execute(&mut *tx)
     .await?;
 
+    let mut audit_args = std::collections::HashMap::from([("name", final_name)]);
+    if new_name.is_some() {
+        audit_args.insert("previous_name", &rule_name[..]);
+    }
     audit_log(
         &mut *tx,
         &authed,
         "workspaces.update_protection_rule",
         ActionKind::Update,
         &w_id,
-        Some(&rule_name),
-        Some([("name", &rule_name[..])].into()),
+        Some(final_name),
+        Some(audit_args),
     )
     .await?;
 
@@ -9058,14 +9583,14 @@ async fn update_protection_rule(
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::Settings { setting_type: format!("protection_rule_{}", rule_name) },
+        DeployedObject::Settings { setting_type: format!("protection_rule_{}", final_name) },
         None,
         false,
         None,
     )
     .await?;
 
-    Ok(format!("Updated protection rule '{}'", rule_name))
+    Ok(format!("Updated protection rule '{}'", final_name))
 }
 
 /// Delete a protection rule
@@ -9219,6 +9744,24 @@ pub struct WorkspaceDiffRow {
     has_changes: Option<bool>,
     exists_in_source: Option<bool>,
     exists_in_fork: Option<bool>,
+    /// The last deploy event claimed on each side, per
+    /// `windmill_common::deploy_origin`. Omitted rather than null, as the schema
+    /// declares; absent means no evidence, which never justifies propagating a
+    /// removal.
+    ///
+    /// Only the fork half is consumed today, by the merge direction. The update
+    /// direction has the mirror shape (a parent-side removal it cannot attribute)
+    /// but writes to the fork rather than to prod, and gating it on evidence would
+    /// strand a row a legacy tally left without any — so the source half is
+    /// recorded and surfaced, unread, rather than left as a gap to backfill.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_last_event_origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_last_event_origin: Option<String>,
 }
 
 async fn compare_workspaces(
@@ -9310,7 +9853,9 @@ async fn compare_workspaces(
     // is left intact, so unpinning resurfaces it without a re-tally.
     let diff_items = sqlx::query_as!(
         WorkspaceDiffRow,
-        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
+        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork,
+            fork_last_event_kind, fork_last_event_origin, source_last_event_kind, source_last_event_origin
+        FROM workspace_diff
         WHERE source_workspace_id = $1 AND fork_workspace_id = $2
         AND NOT EXISTS (
             SELECT 1 FROM ws_specific ws
@@ -9571,16 +10116,39 @@ async fn compare_workspaces(
             .count(),
     };
 
-    let all_ahead_items_visible = summary.total_ahead
-        == confirmed_diffs
-            .iter()
+    // Each direction accounts for what it carries (see the frontend's
+    // `diffActionableInDirection`): a lineage merge leaves out a row the fork lacks
+    // unless the fork's own last event says it deleted or renamed it away, while the
+    // update takes it whatever the counters say — and since it can carry
+    // `behind = 0`, that side counts rows rather than sums.
+    let source_only = |d: &WorkspaceDiffRow| {
+        d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
+    };
+    // Through the enums rather than their wire values: renaming one otherwise
+    // compiles clean on both sides and silently makes this always false.
+    let fork_removed_it = |d: &WorkspaceDiffRow| {
+        use windmill_common::deploy_origin::{DeployEventKind, DeployOrigin};
+        d.fork_last_event_origin.as_deref() == Some(DeployOrigin::Authored.as_str())
+            && d.fork_last_event_kind.as_deref().is_some_and(|k| {
+                k == DeployEventKind::Delete.as_str() || k == DeployEventKind::RenameFrom.as_str()
+            })
+    };
+    let merge_carries =
+        |d: &WorkspaceDiffRow| !is_lineage_pair || !source_only(d) || fork_removed_it(d);
+    let ahead_sum = |rows: &[WorkspaceDiffRow]| {
+        rows.iter()
+            .filter(|d| merge_carries(d))
             .map(|s| s.ahead)
-            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+            .fold(0i64, |acc, s| acc + i64::from(s))
+    };
+    let all_ahead_items_visible = ahead_sum(&visible_diffs) == ahead_sum(&confirmed_diffs);
     let all_behind_items_visible = summary.total_behind
         == confirmed_diffs
             .iter()
             .map(|s| s.behind)
-            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0))
+        && visible_diffs.iter().filter(|d| source_only(d)).count()
+            == confirmed_diffs.iter().filter(|d| source_only(d)).count();
 
     // Blast-radius guard for the "changes not visible to your user" warning
     // (which hides the deploy button). The flag is a pure visibility guarantee —
@@ -9620,7 +10188,9 @@ async fn compare_workspaces(
         if visible_keys.contains(&(d.kind.as_str(), d.path.as_str())) {
             continue;
         }
-        if d.ahead > 0 {
+        // Both sides mirror the flags above: a row is only withheld from a direction
+        // that would have carried it.
+        if d.ahead > 0 && merge_carries(d) {
             hidden_ahead.total += 1;
             *hidden_ahead.by_kind.entry(d.kind.clone()).or_default() += 1;
             if sees_all_items {
@@ -9629,7 +10199,7 @@ async fn compare_workspaces(
                     .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
             }
         }
-        if d.behind > 0 {
+        if d.behind > 0 || source_only(d) {
             hidden_behind.total += 1;
             *hidden_behind.by_kind.entry(d.kind.clone()).or_default() += 1;
             if sees_all_items {
@@ -10869,6 +11439,7 @@ const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
     ("ai_chat", "message"),
     ("ai_chat", "model"),
     ("ai_chat", "tool"),
+    ("flow_editor", "panel_placement"),
 ];
 
 fn is_identifier_shaped(s: &str, max_len: usize) -> bool {

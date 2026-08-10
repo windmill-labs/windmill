@@ -29,6 +29,7 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 pub mod apps;
 pub mod assets;
+pub mod azure_workload_identity;
 pub mod dbt_manifest;
 pub mod audit;
 pub mod auth;
@@ -43,6 +44,7 @@ mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
 pub mod db_params;
+pub mod deploy_origin;
 #[cfg(feature = "private")]
 pub mod deployment_requests_ee;
 pub mod deployment_requests_oss;
@@ -792,6 +794,23 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
         assert!(pg(Some("allow"), None).to_uri().contains("sslmode=prefer"));
         assert!(pg(None, None).to_uri().contains("sslmode=prefer"));
     }
+
+    /// The other paths default a missing login to `postgres`; Entra must not, or the
+    /// server rejects a role the resource never named.
+    #[test]
+    fn entra_login_rejects_a_missing_user() {
+        let mut db = pg(None, None);
+        assert_eq!(db.entra_login().unwrap(), "u");
+        assert_eq!(db.login_name(), "u");
+
+        db.user = None;
+        assert_eq!(db.login_name(), "postgres");
+
+        for blank in [None, Some(""), Some("  ")] {
+            db.user = blank.map(|u: &str| u.to_string());
+            assert!(db.entra_login().is_err(), "{blank:?} is not a login");
+        }
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -858,6 +877,11 @@ impl Future for TokioPgConnection {
 }
 
 impl PgDatabase {
+    /// The role the connection logs in as, whichever way it authenticates.
+    pub fn login_name(&self) -> &str {
+        self.user.as_deref().unwrap_or("postgres")
+    }
+
     pub fn to_uri(&self) -> String {
         let sslmode = match self.sslmode.as_deref() {
             Some("allow") => "prefer".to_string(),
@@ -876,7 +900,7 @@ impl PgDatabase {
         };
         format!(
             "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-            user = urlencoding::encode(&self.user.as_deref().unwrap_or("postgres")),
+            user = urlencoding::encode(self.login_name()),
             password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
             host = host,
             port = self.port.unwrap_or(5432),
@@ -1053,9 +1077,6 @@ impl PgDatabase {
     pub async fn connect_with_iam(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
-        use native_tls::TlsConnector;
-        use postgres_native_tls::MakeTlsConnector;
-
         // Resolve region: resource field takes priority, then env var
         let region = match self.region.as_deref() {
             Some(r) => r.to_string(),
@@ -1067,7 +1088,7 @@ impl PgDatabase {
         };
 
         let port = self.port.unwrap_or(5432);
-        let user = self.user.as_deref().unwrap_or("postgres");
+        let user = self.login_name();
 
         let token = db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
             .await
@@ -1075,7 +1096,64 @@ impl PgDatabase {
                 error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
             })?;
 
-        // RDS IAM auth requires SSL.
+        self.connect_with_token("IAM RDS", user, &token).await
+    }
+
+    /// The role an Entra-authenticated connection logs in as. Azure maps each Entra
+    /// principal to a role of its own (`pgaadauth_create_principal`), so unlike the
+    /// other paths this one has no sensible default: `postgres` would send the server a
+    /// role name the resource never mentions, and the rejection then names a value the
+    /// user never configured.
+    pub fn entra_login(&self) -> error::Result<&str> {
+        self.user
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .ok_or_else(|| {
+                error::Error::BadRequest(
+                    "Azure workload identity authentication requires `user` on the resource. \
+                     Set it to the Postgres role the worker's Entra principal is mapped to, \
+                     as created by pgaadauth_create_principal."
+                        .to_string(),
+                )
+            })
+    }
+
+    /// Connect to Azure Database for PostgreSQL as the worker's federated identity.
+    /// The Entra ID access token replaces the password.
+    #[cfg(feature = "enterprise")]
+    pub async fn connect_with_workload_identity(
+        &self,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        // Before the token exchange: a missing login is worth reporting without first
+        // spending a round trip to Entra ID on it.
+        let user = self.entra_login()?;
+
+        let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve()?;
+        let token = workload_identity
+            .access_token(azure_workload_identity::AZURE_OSSRDBMS_SCOPE)
+            .await?;
+
+        self.connect_with_token("Azure workload identity", user, &token)
+            .await
+    }
+
+    /// Connect with an externally issued access token in place of the password.
+    /// Both issuers (AWS IAM, Entra ID) mandate TLS, so encryption is forced on
+    /// regardless of the resource's sslmode; the sslmode still selects how far the
+    /// server's certificate is verified.
+    #[cfg(feature = "enterprise")]
+    async fn connect_with_token(
+        &self,
+        auth_kind: &str,
+        user: &str,
+        token: &str,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        let port = self.port.unwrap_or(5432);
+
         let mut connector = TlsConnector::builder();
         let verified = Self::configure_pg_tls_verification(
             &mut connector,
@@ -1084,19 +1162,19 @@ impl PgDatabase {
             self.accept_invalid_certs,
         )?;
         if !verified {
-            tracing::warn!("IAM RDS auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
+            tracing::warn!("{auth_kind} auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
         }
 
-        tracing::info!("Creating new IAM RDS connection to {}", &self.host);
+        tracing::info!("Creating new {auth_kind} connection to {}", &self.host);
 
-        // Use Config builder directly to pass the IAM token as the password.
+        // Use Config builder directly to pass the token as the password.
         // This avoids needing to URL-encode the token into a connection string.
         let mut config = tokio_postgres::Config::new();
         config
             .host(&self.host)
             .port(port as u16)
             .user(user)
-            .password(&token)
+            .password(token)
             .dbname(&self.dbname)
             .ssl_mode(tokio_postgres::config::SslMode::Require);
 
