@@ -44,6 +44,8 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { pageHref } from '$lib/components/sessions/previewRouter'
+	import { RUNS_PATH } from '$lib/components/copilot/chat/global/pageNavigation'
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
@@ -847,11 +849,15 @@
 				autofocus
 			/>
 			<!-- Opens this exact view (filters included) as the new session's preview
-			     tab. The filters live in shallow-routed query params, so the href is
-			     read off `window.location` at click time — `page.url` never sees them. -->
+			     tab. The filters live in shallow-routed query params, so the search is
+			     read off `window.location` at click time — `page.url` never sees them.
+			     Always the canonical `/runs`, never the `/runs/<path>` route: only the
+			     former is a recognized preview page (so the tab is labelled "Runs" and
+			     a later open_page reuses it), and the route's path is mirrored into
+			     `?path=` anyway, so the scoping survives. -->
 			<OpenInSessionButton
 				source={{
-					page: () => window.location.pathname + window.location.search,
+					page: () => pageHref(RUNS_PATH) + window.location.search,
 					workspaceId: $workspaceStore ?? undefined
 				}}
 				btnProps={{ unifiedSize: 'md' }}

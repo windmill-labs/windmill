@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
 	artifactUrl,
 	draftFriendlyLeaf,
+	drawerAnchorFor,
 	itemDisplayName,
 	matchReusablePage,
 	parseArtifactRoute,
@@ -12,6 +13,23 @@ import {
 	stripBaseKeepingSuffix
 } from './previewRouter'
 import { base } from '$lib/base'
+
+describe('drawerAnchorFor', () => {
+	it('reads the anchored row on the pages that deep-link one', () => {
+		expect(drawerAnchorFor('/schedules#u/me/daily')).toBe('u/me/daily')
+		expect(drawerAnchorFor('/variables?owner=u#u/me/token')).toBe('u/me/token')
+		expect(drawerAnchorFor('/kafka_triggers#f/team/ingest')).toBe('f/team/ingest')
+		// Resources route theirs through an extra segment.
+		expect(drawerAnchorFor('/resources#/resource/u/me/db')).toBe('u/me/db')
+	})
+
+	it('ignores a hash on pages where it is not a row', () => {
+		// A legacy app hands its hash to the app as `context.hash`.
+		expect(drawerAnchorFor('/apps/get/u/me/dashboard#tab=2')).toBeUndefined()
+		expect(drawerAnchorFor('/runs?path=u/me/foo')).toBeUndefined()
+		expect(drawerAnchorFor('/schedules')).toBeUndefined()
+	})
+})
 
 describe('stripBaseKeepingSuffix', () => {
 	it('drops the deployment base but keeps the query and hash', () => {

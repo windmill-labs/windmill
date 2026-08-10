@@ -53,6 +53,7 @@ import {
 import {
 	matchReusablePage,
 	parsePreviewItemRoute,
+	drawerAnchorFor,
 	previewLocationLabel,
 	resolvePreviewTab,
 	stripBaseKeepingSuffix
@@ -373,16 +374,12 @@ function createRuntime(session: Session): SessionRuntime {
 		const where = tab.loc || tab.url
 		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
 		const location = stripBaseKeepingSuffix(where)
-		// Every page that deep-links a row does it through `#<path>` (schedules,
-		// the trigger lists, variables), so the hash names the row the page is
-		// anchored at. Resources route theirs through a `/resource/` segment;
-		// strip it so `open` is the item's path on every page.
-		const hash = location.indexOf('#')
-		const anchor = hash >= 0 ? location.slice(hash + 1) : ''
 		return {
 			label: previewLocationLabel(where),
 			location,
-			open: anchor.replace(/^\/resource\//, '') || undefined
+			// Only the list pages that deep-link a row — a hash means something else
+			// entirely on the other pages an iframe tab can host.
+			open: drawerAnchorFor(location)
 		}
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit

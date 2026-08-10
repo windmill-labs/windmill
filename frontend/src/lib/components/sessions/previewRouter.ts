@@ -101,6 +101,26 @@ export function stripBase(path: string): string {
 	return p || '/'
 }
 
+// Workspace list pages that deep-link one row through the hash. Resources route
+// theirs through an extra `/resource/` segment. Nothing else may be read that way:
+// a legacy drag-and-drop app hands its hash to the app itself as `context.hash`,
+// so treating that as a row would describe app state as a workspace item.
+const DRAWER_ANCHOR_PAGES = ['/schedules', '/variables', '/resources'] as const
+
+/** The workspace item whose drawer a preview location has open, or undefined when
+ * the page doesn't deep-link rows (or none is anchored). Takes the location with
+ * its suffix — `stripBaseKeepingSuffix` output or a raw href. */
+export function drawerAnchorFor(location: string): string | undefined {
+	const hashAt = location.indexOf('#')
+	if (hashAt < 0) return undefined
+	const route = stripBase(location)
+	const known =
+		(DRAWER_ANCHOR_PAGES as readonly string[]).includes(route) ||
+		Object.values(TRIGGER_PAGES).some((p) => p.path === route)
+	if (!known) return undefined
+	return location.slice(hashAt + 1).replace(/^\/resource\//, '') || undefined
+}
+
 /** Like `stripBase`, but keeps the query and hash: a list page's `?filters` and
  * its `#<path>` (the row whose drawer is open) are what the location says beyond
  * the page's name. Not for route matching — use `stripBase` for that. */
