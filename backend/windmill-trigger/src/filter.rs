@@ -2,7 +2,7 @@ use serde::{
     de::{self, MapAccess, Visitor},
     Deserialize, Deserializer,
 };
-use serde_json::Value;
+use serde_json::{value::RawValue, Value};
 use std::{collections::HashMap, fmt};
 
 #[derive(Debug, Deserialize)]
@@ -28,7 +28,7 @@ pub enum Filter {
 }
 
 /// Filters prepared for repeated evaluation against a stream of messages. The set of
-/// top-level keys the whole tree references is computed once, so each message is parsed
+/// top-level keys the whole tree references is computed once, so each message is scanned
 /// in a single pass instead of once per leaf filter.
 #[derive(Debug, Default)]
 pub struct CompiledFilters {
@@ -170,11 +170,14 @@ fn collect_keys(filters: &[Filter], keys: &mut Vec<String>) {
 
 /// `filters` is never empty: the top level is short-circuited by [`CompiledFilters::matches`],
 /// and [`drop_empty_groups`] removes empty groups.
-fn eval_all(filters: &[Filter], use_or_logic: bool, values: &HashMap<&str, Value>) -> bool {
+fn eval_all(filters: &[Filter], use_or_logic: bool, values: &HashMap<&str, &RawValue>) -> bool {
     let eval = |filter: &Filter| match filter {
+        // Parsed here rather than during the scan so that `any`/`all` short-circuiting keeps
+        // a large field the verdict never depends on from being materialized at all.
         Filter::JsonFilter(JsonFilter { key, value }) => values
             .get(key.as_str())
-            .map_or(false, |found| is_superset(found, value)),
+            .and_then(|raw| serde_json::from_str::<Value>(raw.get()).ok())
+            .map_or(false, |found| is_superset(&found, value)),
         Filter::Group(FilterGroup::AnyOf(nested)) => eval_all(nested, true, values),
         Filter::Group(FilterGroup::AllOf(nested)) => eval_all(nested, false, values),
     };
@@ -186,14 +189,15 @@ fn eval_all(filters: &[Filter], use_or_logic: bool, values: &HashMap<&str, Value
     }
 }
 
-/// Collects the values of the requested top-level keys in a single pass, skipping every
-/// other value instead of materializing the whole message.
+/// Locates the requested top-level keys in a single pass, skipping every other value. The
+/// ones it wants are borrowed as raw slices of the message rather than deserialized, so a
+/// key the boolean evaluation never reaches costs nothing beyond the scan.
 struct KeysVisitor<'k> {
     keys: &'k [String],
 }
 
 impl<'de, 'k> Visitor<'de> for KeysVisitor<'k> {
-    type Value = HashMap<&'k str, Value>;
+    type Value = HashMap<&'k str, &'de RawValue>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("a JSON object")
@@ -210,7 +214,7 @@ impl<'de, 'k> Visitor<'de> for KeysVisitor<'k> {
             match self.keys.iter().find(|k| k.as_str() == key) {
                 // On a duplicated key the first occurrence wins
                 Some(k) if !found.contains_key(k.as_str()) => {
-                    found.insert(k.as_str(), map.next_value::<Value>()?);
+                    found.insert(k.as_str(), map.next_value::<&'de RawValue>()?);
                 }
                 _ => {
                     // Skip values we don't need (cheaper than full deserialization)
@@ -358,6 +362,17 @@ mod tests {
             {"key": "missing", "value": true},
             {"all_of": [{"key": "a", "value": 1}, {"key": "b", "value": 2}]}
         ]);
+        assert!(matches(payload, filters.clone(), true));
+        assert!(!matches(payload, filters, false));
+    }
+
+    /// `1e400` overflows `Value`'s f64 and only fails to parse if something reads it, so a
+    /// match here means the short-circuit really did skip that field rather than
+    /// materializing every referenced key up front.
+    #[test]
+    fn test_unreached_branch_is_never_materialized() {
+        let payload = r#"{"gate": "match", "huge": 1e400}"#;
+        let filters = json!([{"key": "gate", "value": "match"}, {"key": "huge", "value": 1}]);
         assert!(matches(payload, filters.clone(), true));
         assert!(!matches(payload, filters, false));
     }
