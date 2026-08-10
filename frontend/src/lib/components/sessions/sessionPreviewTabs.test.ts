@@ -258,6 +258,24 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.open(routes('/routes')).status).toBe('focused')
 	})
 
+	// Re-commanding the URL a tab is already pointed at changes nothing the host can
+	// see, so the frame would stay wherever the user navigated it inside the page.
+	it('forces a reload when the request matches the command but the frame drifted', () => {
+		const o = owner()
+		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
+		o.open(routes('/routes#u/me/a'))
+		const id = o.tabs[0].id
+		// The user clicked another trigger inside the iframe.
+		o.observeLocation(id, '/routes#u/me/b')
+		const before = o.reloadPulse.nonce
+
+		const res = o.open(routes('/routes#u/me/a'))
+		expect(res.status).toBe('retargeted')
+		expect(o.tabs).toHaveLength(1)
+		expect(o.tabs[0].loc).toBe('/routes#u/me/a')
+		expect(o.reloadPulse.nonce).toBe(before + 1)
+	})
+
 	it('forceNewTab opts a page out of the location dedupe', () => {
 		const o = owner()
 		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })

@@ -254,6 +254,18 @@ export class SessionPreviewTabs {
 	// tab's exact current URL: nothing changes, so URL-driven behavior in the page
 	// (e.g. a #<path> hash opening an edit drawer the user has since closed) would
 	// never re-fire without a forced load.
+	// Point a tab at `url` and make sure the frame actually goes there. The host
+	// navigates off a change of the commanded `url`, so re-commanding the URL a tab
+	// is already pointed at moves nothing — and since `loc` follows navigation
+	// *inside* the frame, that is exactly the case where the frame has drifted
+	// somewhere else (the user opened another row) and must be pulled back.
+	#retarget(tab: SessionPreviewTab, url: string): void {
+		const commandUnchanged = tab.url === url
+		const drifted = canonicalizeObservedLoc(tab.loc) !== canonicalizeObservedLoc(url)
+		retargetTab(tab, url)
+		if (commandUnchanged && drifted) this.pulseReload(tab.id)
+	}
+
 	pulseReload(id: string): void {
 		this.#reloadPulse = { id, nonce: this.#reloadPulse.nonce + 1 }
 	}
@@ -359,7 +371,7 @@ export class SessionPreviewTabs {
 			const existing = this.#tabs.find((t) => parsePipelineRoute(t.url) !== null)
 			if (existing) {
 				const same = existing.url === url
-				retargetTab(existing, url)
+				this.#retarget(existing, url)
 				this.#activeId = existing.id
 				this.#flush()
 				return { status: same ? 'focused' : 'opened' }
@@ -395,7 +407,7 @@ export class SessionPreviewTabs {
 			: this.#tabs.find((t) => withoutHash(canonicalizeObservedLoc(t.loc)) === canonicalUrl)
 		if (shown) {
 			const same = canonicalizeObservedLoc(shown.loc) === canonicalizeObservedLoc(url)
-			if (!same) retargetTab(shown, url)
+			if (!same) this.#retarget(shown, url)
 			this.#activeId = shown.id
 			this.#flush()
 			return { status: same ? 'focused' : 'retargeted' }
@@ -438,7 +450,7 @@ export class SessionPreviewTabs {
 		if (pipelineFolder) {
 			const existing = this.#tabs.find((x) => parsePipelineRoute(x.url) !== null)
 			if (existing && existing.id !== t.id) {
-				retargetTab(existing, url)
+				this.#retarget(existing, url)
 				this.#activeId = existing.id
 				this.#flush()
 				return
@@ -450,13 +462,13 @@ export class SessionPreviewTabs {
 		if (target.type === 'artifact') {
 			const existing = this.#tabs.find((x) => parseArtifactRoute(x.url)?.id === target.id)
 			if (existing && existing.id !== t.id) {
-				retargetTab(existing, url)
+				this.#retarget(existing, url)
 				this.#activeId = existing.id
 				this.#flush()
 				return
 			}
 		}
-		retargetTab(t, url)
+		this.#retarget(t, url)
 		this.#flush()
 	}
 
