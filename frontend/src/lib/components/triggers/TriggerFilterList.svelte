@@ -45,7 +45,9 @@
 		</div>
 	{/if}
 
-	{#each filters as filter, i (i)}
+	<!-- Keyed by node, not index: the value editor seeds itself from `code` once, so reusing
+	     a row for a different filter after a deletion would leave the old value on screen. -->
+	{#each filters as filter, i (filter)}
 		<div class="flex w-full gap-2 items-start">
 			{#if isFilterGroup(filter)}
 				<div class="w-full border p-2 rounded-md bg-surface-secondary">
