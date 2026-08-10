@@ -481,7 +481,7 @@
 </CenteredPage>
 
 <ConfirmationModal
-	open={archiveConfirmOpen && !isDevWorkspace}
+	open={archiveConfirmOpen}
 	title="Archive fork"
 	confirmationText="Archive"
 	onConfirmed={confirmArchive}
@@ -497,7 +497,7 @@
 </ConfirmationModal>
 
 <ConfirmationModal
-	open={deleteConfirmOpen && !isDevWorkspace}
+	open={deleteConfirmOpen}
 	title="Delete fork"
 	confirmationText="Delete"
 	onConfirmed={confirmDelete}
