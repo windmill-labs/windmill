@@ -1277,3 +1277,79 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
         time.num_seconds_from_midnight() as i64,
     ))
 }
+
+// The bundled engine is not stock: windmill-labs/duckdb-rs carries a patch adding
+// `lock_temp_directory`, which is what lets the EE isolation transform fence local
+// file access with `disabled_filesystems='LocalFileSystem'` without also costing
+// out-of-core execution. Nothing else would notice the patch going missing on an
+// engine bump — the worker would just start failing every query that outgrows
+// `memory_limit`, and only for jobs on an isolating worker.
+#[cfg(test)]
+mod patched_engine_tests {
+    /// Small enough that the CREATE TABLE below cannot be answered in memory, so the
+    /// engine has to reach the temp directory to finish it.
+    const SPILLING_QUERY: &str = "CREATE TABLE t AS SELECT * FROM range(1000000)";
+
+    fn spill_attempt(temp_dir: &std::path::Path, lock: bool) -> Result<(), String> {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(&format!(
+            "SET threads=2; SET memory_limit='2MB'; SET temp_directory='{}';",
+            temp_dir.display()
+        ))
+        .unwrap();
+        if lock {
+            conn.execute_batch("SET lock_temp_directory=true;")
+                .map_err(|e| format!("lock_temp_directory rejected: {e}"))?;
+        }
+        conn.execute_batch("SET disabled_filesystems='LocalFileSystem';")
+            .unwrap();
+        conn.execute_batch(SPILLING_QUERY)
+            .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn locking_the_temp_directory_keeps_spilling_available() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "windmill_duckdb_spill_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Without the lock the fence reaches the buffer manager too, which is both the
+        // stock engine's behaviour and the proof that this query really does spill —
+        // otherwise the assertion below would pass on an unpatched engine.
+        let unlocked = spill_attempt(&temp_dir, false).expect_err("query did not need to spill");
+        assert!(
+            unlocked.contains("LocalFileSystem has been disabled"),
+            "expected the fence to stop the spill, got: {unlocked}"
+        );
+
+        let locked = spill_attempt(&temp_dir, true);
+        std::fs::remove_dir_all(&temp_dir).ok();
+        locked.expect("a locked temp directory must stay usable behind disabled_filesystems");
+    }
+
+    // The engine loads the *prebuilt* extensions from extensions.duckdb.org, which are
+    // compiled against the struct layouts of the release it claims to be. A patch that
+    // moves a member those extensions reach does not fail — the extension reads the
+    // neighbouring field and LOAD blocks forever — so this is a timeout, not an assertion.
+    #[test]
+    fn prebuilt_extensions_still_load() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let conn = duckdb::Connection::open_in_memory().unwrap();
+            tx.send(
+                conn.execute_batch("INSTALL httpfs; LOAD httpfs;")
+                    .map_err(|e| e.to_string()),
+            )
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(120)) {
+            Ok(r) => r.expect("could not load httpfs"),
+            Err(_) => panic!(
+                "LOAD httpfs did not return: the patched engine's struct layout no longer matches \
+                 the release the prebuilt extensions were built against"
+            ),
+        }
+    }
+}
