@@ -77,7 +77,7 @@ describe('userScopedDb', () => {
 		// A tab running a build older than the blocking handler: it holds v1 open and never
 		// hears versionchange, so nothing this side can do will make it let go.
 		const legacy = await openDB<TestSchema>('t::a@x.com', 1, { upgrade })
-		const dbh = userScopedDb<TestSchema>('t', { version: 2, upgrade, blockedGraceMs: 20 })
+		const dbh = userScopedDb<TestSchema>('t', { version: 2, upgrade, openGraceMs: 20 })
 
 		// Bounded, so callers degrade to in-memory instead of awaiting it forever.
 		expect(await dbh.whenReady()).toBeUndefined()
@@ -91,10 +91,35 @@ describe('userScopedDb', () => {
 		await vi.waitFor(async () => expect((await dbh.whenReady())?.version).toBe(2))
 	})
 
+	it('gives up on an open that is queued behind another and so hears nothing', async () => {
+		userStore.set(asUser('a@x.com'))
+		// What a second upgrading opener sees while a first one sits blocked: the browser
+		// processes a database's opens in order, so this request waits its turn without
+		// reaching `blocked` — or any other callback — of its own.
+		let arrive!: (db: IDBPDatabase<TestSchema>) => void
+		const queuedOpen = (() =>
+			new Promise((resolve) => (arrive = resolve as never))) as unknown as typeof openDB
+
+		const dbh = userScopedDb<TestSchema>('t', {
+			version: 2,
+			upgrade,
+			openGraceMs: 20,
+			openDB: queuedOpen
+		})
+
+		expect(await dbh.whenReady()).toBeUndefined()
+
+		// Giving up did not cancel it — nothing can. When its turn comes it is adopted.
+		const real = await openDB<TestSchema>('t::a@x.com', 2, { upgrade })
+		arrive(real)
+		await vi.waitFor(async () => expect(await dbh.whenReady()).toBe(real))
+		real.close()
+	})
+
 	it('keeps degrading, not hanging, across a user switch away and back', async () => {
 		userStore.set(asUser('a@x.com'))
 		const legacy = await openDB<TestSchema>('t::a@x.com', 1, { upgrade })
-		const dbh = userScopedDb<TestSchema>('t', { version: 2, upgrade, blockedGraceMs: 20 })
+		const dbh = userScopedDb<TestSchema>('t', { version: 2, upgrade, openGraceMs: 20 })
 		expect(await dbh.whenReady()).toBeUndefined()
 
 		// B is a different physical database, so it opens normally.
@@ -121,7 +146,7 @@ describe('userScopedDb', () => {
 		const dbh = userScopedDb<TestSchema>('t', {
 			version: 2,
 			upgrade,
-			blockedGraceMs: 20,
+			openGraceMs: 20,
 			openDB: countingOpen
 		})
 

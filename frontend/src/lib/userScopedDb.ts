@@ -29,22 +29,23 @@ export interface UserScopedDbOptions<Schema extends DBSchema> {
 	// Injectable for tests (defaults to the real idb implementations).
 	openDB?: typeof idbOpenDB
 	deleteDB?: typeof idbDeleteDB
-	// How long a blocked upgrade waits before giving up. Injectable for tests, which
+	// How long an open waits to settle before giving up. Injectable for tests, which
 	// cannot afford the real grace period.
-	blockedGraceMs?: number
+	openGraceMs?: number
 }
 
 export interface UserScopedDb<Schema extends DBSchema> {
 	// Resolves to the open DB for the current user, or undefined when no user is logged
-	// in yet, the open failed, or another connection is holding up a schema upgrade
+	// in yet, the open failed, or another connection is holding up a schema upgrade —
+	// directly, or by sitting ahead of this open in the browser's queue for the database
 	// (degrade to in-memory; never rejects, never hangs).
 	whenReady(): Promise<IDBPDatabase<Schema> | undefined>
 	close(): void
 }
 
-// How long a blocked upgrade waits before the opener gives up and degrades to in-memory.
-// Only a connection that ignores `versionchange` can block one this long.
-const BLOCKED_OPEN_GRACE_MS = 5000
+// How long an open waits to settle before the opener gives up and degrades to in-memory.
+// Only a connection that ignores `versionchange`, or an open queued behind one, takes this long.
+const OPEN_GRACE_MS = 5000
 
 export function userScopedDb<Schema extends DBSchema>(
 	baseName: string,
@@ -52,7 +53,7 @@ export function userScopedDb<Schema extends DBSchema>(
 ): UserScopedDb<Schema> {
 	const openDB = opts.openDB ?? idbOpenDB
 	const deleteDB = opts.deleteDB ?? idbDeleteDB
-	const blockedGraceMs = opts.blockedGraceMs ?? BLOCKED_OPEN_GRACE_MS
+	const openGraceMs = opts.openGraceMs ?? OPEN_GRACE_MS
 	const migratedNames = new Set<string>()
 
 	/**
@@ -71,7 +72,7 @@ export function userScopedDb<Schema extends DBSchema>(
 		outcome: Promise<IDBPDatabase<Schema> | undefined>
 		/** Set when `outcome` settles. Its presence, not its `db`, is what "settled" means. */
 		settled?: { db: IDBPDatabase<Schema> | undefined }
-		/** Resolves undefined when the grace period on a blocked upgrade runs out. */
+		/** Resolves undefined when the open has taken too long to settle. */
 		gaveUp: Promise<undefined>
 		timedOut: boolean
 		/** Handle yielded to another tab's upgrade, or force-closed by the browser. */
@@ -86,13 +87,23 @@ export function userScopedDb<Schema extends DBSchema>(
 	async function open(
 		name: string,
 		attempt: Attempt,
-		onBlockedTooLong: () => void
+		onTooLong: () => void
 	): Promise<IDBPDatabase<Schema> | undefined> {
-		let graceTimer: ReturnType<typeof setTimeout> | undefined
+		// Armed before the request is issued rather than from `blocked`, because an open
+		// queued behind another one is told nothing at all: it waits its turn in the
+		// browser's per-database queue, and a callback that never fires cannot bound it.
+		let graceTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(onTooLong, openGraceMs)
+		const stopWaiting = () => {
+			if (graceTimer) clearTimeout(graceTimer)
+			graceTimer = undefined
+		}
 		try {
 			let handle: IDBPDatabase<Schema> | undefined
 			const db = await openDB<Schema>(name, opts.version, {
 				upgrade(database) {
+					// The version-change transaction is ours: nothing is queued ahead of this
+					// open any more, and what remains is our own upgrade running.
+					stopWaiting()
 					opts.upgrade(database)
 				},
 				// Another tab is opening this database at a higher version, which our open
@@ -106,7 +117,6 @@ export function userScopedDb<Schema extends DBSchema>(
 					console.warn(
 						`userScopedDb(${baseName}): upgrade ${currentVersion}→${blockedVersion} waiting on another connection`
 					)
-					graceTimer ??= setTimeout(onBlockedTooLong, blockedGraceMs)
 				},
 				// The browser force-closed the connection (site data cleared, database
 				// dropped from devtools). Every request on this handle would now throw.
@@ -115,6 +125,8 @@ export function userScopedDb<Schema extends DBSchema>(
 				}
 			})
 			handle = db
+			// The handle is in hand; a slow migrate is not a hung open.
+			stopWaiting()
 			if (opts.migrate && !migratedNames.has(name)) {
 				migratedNames.add(name)
 				try {
@@ -133,7 +145,7 @@ export function userScopedDb<Schema extends DBSchema>(
 			console.error(`userScopedDb(${baseName}): could not open database`, e)
 			return undefined
 		} finally {
-			if (graceTimer) clearTimeout(graceTimer)
+			stopWaiting()
 		}
 	}
 
