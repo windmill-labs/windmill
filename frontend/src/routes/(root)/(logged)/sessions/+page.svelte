@@ -421,11 +421,28 @@
 	// land on the visible session's tabs.
 	function onTabLoad(tabs: SessionPreviewTabs, tab: SessionPreviewTab, frame: HTMLIFrameElement) {
 		try {
-			const loc = frame.contentWindow?.location
-			if (!loc) return
+			const win = frame.contentWindow
+			if (!win) return
 			// observeLocation canonicalizes away the injected nomenubar/workspace
 			// params so the tab's `loc` stays symmetric with `url` for dedupe/display.
-			tabs.observeLocation(tab.id, loc.pathname + loc.search)
+			// The hash is kept: on a list page it names the row whose drawer is open
+			// (`/schedules#u/me/daily`), which is what tells the chat what the user
+			// is looking at.
+			const observe = () => {
+				try {
+					const loc = win.location
+					tabs.observeLocation(tab.id, loc.pathname + loc.search + loc.hash)
+				} catch {
+					// Same best-effort as below.
+				}
+			}
+			observe()
+			// Opening a drawer only changes the hash — no reload — so `load` alone
+			// would leave `loc` frozen on the page the tab was seeded with. The
+			// listeners live on the framed document and die with it, so each load
+			// re-attaches exactly one pair.
+			win.addEventListener('hashchange', observe)
+			win.addEventListener('popstate', observe)
 		} catch {
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.

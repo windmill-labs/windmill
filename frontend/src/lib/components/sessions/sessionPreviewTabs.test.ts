@@ -650,6 +650,13 @@ describe('describePreview', () => {
 		expect(out).not.toContain('live editor')
 	})
 
+	it('appends the query and hash of a page tab, which name the open row', () => {
+		const tabs: SessionPreviewTab[] = [
+			{ id: 'a', url: '/schedules', loc: '/schedules#u/me/daily_report' }
+		]
+		expect(describePreview(tabs, 'a')).toContain('page "Schedules" (/schedules#u/me/daily_report)')
+	})
+
 	it('labels an artifact tab by name, not the raw artifact url', () => {
 		const url = artifactUrl('uuid-1', 'My Plan')
 		const out = describePreview([{ id: 'a', url, loc: url }], 'a')

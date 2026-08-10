@@ -120,7 +120,8 @@ import {
 	type ChatCommandItem,
 	type SessionPromptContext,
 	getSessionContextPromptSection,
-	type GlobalToolHelpers
+	type GlobalToolHelpers,
+	type GlobalActivePreviewContext
 } from './global/core'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
@@ -584,6 +585,12 @@ export class AIChatManager {
 	// sessions modules — and re-read on every system-message rebuild; the send
 	// path rebuilds after beforeSend, so a fork committed there is picked up.
 	sessionContextResolver: (() => SessionPromptContext | undefined) | undefined = undefined
+	// The page the session's side panel currently shows, stamped on each user
+	// message. Same seam as above (set by the session runtime): a page tab is an
+	// iframe in its own realm, so the tab model is the only place the chat can
+	// learn what the user is looking at. Undefined when the panel shows a live
+	// editor — ACTIVE EDITOR already covers those.
+	activePreviewResolver: (() => GlobalActivePreviewContext | undefined) | undefined = undefined
 	// Resolves the workspace this chat operates on. Session chats set it to their
 	// own (possibly forked) workspace so the chat targets it WITHOUT switching the
 	// global workspaceStore. Undefined for the global side-panel chat, which
@@ -2329,7 +2336,10 @@ export class AIChatManager {
 						return prepareGlobalUserMessage(
 							pendingPrompt,
 							this.contextManager.getSelectedContext(),
-							{ workspace: this.operatingWorkspace }
+							{
+								workspace: this.operatingWorkspace,
+								activePreview: this.activePreviewResolver?.()
+							}
 						)
 					}
 					return undefined
@@ -2936,6 +2946,7 @@ export class AIChatManager {
 				case AIMode.GLOBAL:
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
 						workspace: this.operatingWorkspace,
+						activePreview: this.activePreviewResolver?.(),
 						images: sentImages,
 						files: files
 					})

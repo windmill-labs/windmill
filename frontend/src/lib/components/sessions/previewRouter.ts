@@ -101,6 +101,14 @@ export function stripBase(path: string): string {
 	return p || '/'
 }
 
+/** Like `stripBase`, but keeps the query and hash: a list page's `?filters` and
+ * its `#<path>` (the row whose drawer is open) are what the location says beyond
+ * the page's name. Not for route matching — use `stripBase` for that. */
+export function stripBaseKeepingSuffix(path: string): string {
+	const bare = path.split('?')[0].split('#')[0]
+	return stripBase(bare) + path.slice(bare.length)
+}
+
 // Match a base-stripped preview pathname to a known page, for breadcrumb
 // labelling + picker highlight. Exact match; '/' only matches home.
 export function matchPreviewPage(path: string): PreviewPage | undefined {

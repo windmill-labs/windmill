@@ -4792,6 +4792,21 @@ describe('prepareGlobalUserMessage', () => {
 		expect(message.content).not.toContain('content')
 	})
 
+	it('injects the previewed page and the row its drawer has open', () => {
+		const message = prepareGlobalUserMessage('Disable it', [], {
+			activePreview: {
+				label: 'Schedules',
+				location: '/schedules#u/me/daily_report',
+				open: 'u/me/daily_report'
+			}
+		})
+
+		expect(message.content).toContain('## ACTIVE PREVIEW')
+		expect(message.content).toContain('page: Schedules')
+		expect(message.content).toContain('location: /schedules#u/me/daily_report')
+		expect(message.content).toContain('open: u/me/daily_report')
+	})
+
 	it('includes selected workspace item references without contents', () => {
 		const message = prepareGlobalUserMessage('Update these items', [
 			{

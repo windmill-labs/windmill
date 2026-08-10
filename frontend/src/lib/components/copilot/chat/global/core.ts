@@ -254,9 +254,22 @@ export type GlobalActiveEditorContext = {
 	isLiveDraft: true
 }
 
+/** The page the session's side panel is showing, when it isn't one of the live
+ * editors ACTIVE EDITOR already covers. A page tab is an iframe in its own realm,
+ * so the chat can only learn about it from the tab model the session owns. */
+export type GlobalActivePreviewContext = {
+	/** Page name as the tab strip shows it, e.g. "Schedules". */
+	label: string
+	/** Base-stripped location, query and hash included. */
+	location: string
+	/** Path of the item whose drawer the page has open, when it deep-links one. */
+	open?: string
+}
+
 export type GlobalUserMessageOptions = {
 	workspace?: string
 	activeEditor?: GlobalActiveEditorContext
+	activePreview?: GlobalActivePreviewContext
 	/** Images attached to this message; delivered as image_url content parts. */
 	images?: AttachedImage[]
 	/** Text files attached to this message; listed by reference below — the model
@@ -2954,9 +2967,7 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = writeScheduleSchema.parse(merged)
 			const dropped = droppedOptionKeys(merged, parsed)
 			if (dropped.length) {
-				throw new Error(
-					describeDroppedScheduleOptions(dropped)
-				)
+				throw new Error(describeDroppedScheduleOptions(dropped))
 			}
 			return writeScheduleDraft(parsed, ctx)
 		}
@@ -6982,6 +6993,16 @@ export function prepareGlobalUserMessage(
 		content += `type: ${activeEditor.type}\n`
 		content += `path: ${activeEditor.path}\n`
 		content += `isLiveDraft: true\n\n`
+	}
+
+	if (options.activePreview) {
+		content += '## ACTIVE PREVIEW\n'
+		content += `page: ${options.activePreview.label}\n`
+		content += `location: ${options.activePreview.location}\n`
+		if (options.activePreview.open) {
+			content += `open: ${options.activePreview.open}\n`
+		}
+		content += '\n'
 	}
 
 	if (selectedWorkspaceItems.length > 0) {

@@ -54,7 +54,8 @@ import {
 	matchReusablePage,
 	parsePreviewItemRoute,
 	previewLocationLabel,
-	resolvePreviewTab
+	resolvePreviewTab,
+	stripBaseKeepingSuffix
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -359,6 +360,26 @@ function createRuntime(session: Session): SessionRuntime {
 			// isForkSession) — the prompt must not call it the live workspace.
 			forkParentUnknown: !ws && !!s.workspace_id,
 			pendingForkOf: s.pending_fork?.parent_workspace_id
+		}
+	}
+	// What the side panel is showing, stamped on each user message so the chat
+	// knows the page (and the row whose drawer is open) without spending a
+	// get_preview_status round-trip. Live editors are skipped: they register
+	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry.
+	manager.activePreviewResolver = () => {
+		const owner = getRuntime(session.id)?.previewTabs
+		const tab = owner?.activeTab
+		if (!tab) return undefined
+		const where = tab.loc || tab.url
+		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
+		const location = stripBaseKeepingSuffix(where)
+		// Every page that deep-links a row does it through `#<path>` (schedules,
+		// the trigger lists, variables), so the hash IS the open item.
+		const hash = location.indexOf('#')
+		return {
+			label: previewLocationLabel(where),
+			location,
+			open: hash >= 0 ? location.slice(hash + 1) || undefined : undefined
 		}
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
