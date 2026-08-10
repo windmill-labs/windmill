@@ -1054,8 +1054,8 @@ static RESOURCE_WRITE_RATES: LazyLock<DashMap<(String, String), ResourceWriteRat
 static RESOURCE_WRITES_SEEN: AtomicU64 = AtomicU64::new(0);
 
 /// Notice a caller rewriting one resource in a loop and point them at a store meant for it.
-/// Every write copies the whole value into a new version row, so a resource used as scratch
-/// space costs far more than the equivalent state, S3 object or datatable row.
+/// Counts writes rather than versions: an unchanged value records nothing, but it still costs a
+/// row rewrite, an audit entry and a webhook, and is still a caller who wants a different store.
 fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
     // `state` and `cache` are rewritten once per job by design. Counting them would fire the
     // advisory hardest on exactly the traffic it is not about, which is how a warning becomes
@@ -1064,7 +1064,10 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
         return;
     }
     let minute = chrono::Utc::now().timestamp() / 60;
-    let crossed = {
+    // The entry guard holds a lock on its DashMap shard, and `retain` below takes every shard.
+    // Keeping the guard alive across that call deadlocks the request handler, so this block is
+    // load-bearing: it must end before the eviction, not be flattened into the function body.
+    let reached_cap = {
         let mut rate = RESOURCE_WRITE_RATES
             .entry((w_id.to_string(), path.to_string()))
             .or_insert(ResourceWriteRate { count: 0, minute });
@@ -1080,13 +1083,15 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
     if RESOURCE_WRITES_SEEN.fetch_add(1, Ordering::Relaxed) % 256 == 0 {
         RESOURCE_WRITE_RATES.retain(|_, rate| rate.minute >= minute - 1);
     }
-    if crossed {
+    // Once per minute per path: `==` rather than `>=` so a sustained loop logs at the crossing
+    // and then stays quiet until the bucket rolls over.
+    if reached_cap {
         tracing::warn!(
             workspace_id = %w_id,
             path = %path,
-            "resource written more than {} times in a minute; every write copies the whole value \
-             into a new version. High-frequency writes belong in a state resource, object storage, \
-             or a datatable.",
+            "resource written {} times in a minute; each write rewrites the whole value, and a \
+             changed one also records a version. High-frequency writes belong in a state resource, \
+             object storage, or a datatable.",
             RESOURCE_WRITE_ADVISORY_PER_MIN
         );
     }
