@@ -232,6 +232,39 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.activeId).toBe(firstId)
 	})
 
+	// A trigger list page is not a `matchReusablePage`, so the runtime's
+	// navigate-in-place path doesn't cover it: re-pointing the tab has to happen
+	// here or the panel keeps showing the previously opened row.
+	it('re-points a page tab whose hash target changed instead of only focusing it', () => {
+		const o = owner()
+		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
+		o.open(routes('/routes#u/me/a'))
+		const firstId = o.activeId
+
+		const res = o.open(routes('/routes#u/me/b'))
+		expect(res.status).toBe('opened')
+		expect(o.tabs).toHaveLength(1)
+		expect(o.activeId).toBe(firstId)
+		expect(o.tabs[0].url).toBe('/routes#u/me/b')
+
+		// Back to the bare list: still the same tab, no longer anchored at a row.
+		expect(o.open(routes('/routes')).status).toBe('opened')
+		expect(o.tabs).toHaveLength(1)
+		expect(o.tabs[0].url).toBe('/routes')
+
+		// ...and asking for the view it already shows is a plain focus.
+		expect(o.open(routes('/routes')).status).toBe('focused')
+	})
+
+	it('forceNewTab opts a page out of the location dedupe', () => {
+		const o = owner()
+		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
+		o.open(routes('/routes#u/me/a'))
+		const res = o.open(routes('/routes#u/me/b'), { forceNewTab: true })
+		expect(res.status).toBe('opened')
+		expect(o.tabs).toHaveLength(2)
+	})
+
 	it('opens a fresh page tab when the original navigated away', () => {
 		const o = owner()
 		o.open(pageTarget)

@@ -95,7 +95,12 @@
 	const MAX_VARIABLE_LENGTH = 10000
 	const edit = $derived(editPath !== undefined)
 	const initialPath = $derived(editPath ?? '')
-	const sessionSource = $derived(pageDrawerSessionSource(VARIABLES_PATH, editPath, curWs))
+	// `selected`, not `curWs`: WsSpecificVersions re-points this drawer at another
+	// workspace's version of the variable, and the session must act on the one the
+	// user is looking at.
+	const sessionSource = $derived(
+		pageDrawerSessionSource(VARIABLES_PATH, editPath, selected ?? curWs)
+	)
 	const current = $derived(selected ? states[selected]?.draft : undefined)
 	const can_write = $derived.by(() => {
 		if (!selected || !edit) return true

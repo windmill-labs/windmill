@@ -321,11 +321,14 @@ export class SessionPreviewTabs {
 	// Open — or focus, if already shown — a tab for a destination, and reveal the
 	// panel. An editable item dedupes against the tab already hosting that same
 	// (kind, path); anything else dedupes on the tab's observed location.
-	open(target: PreviewTarget): { status: 'opened' | 'focused' } {
-		return this.#pulsingIfUnchanged(() => this.#open(target))
+	// `forceNewTab` opts a page out of that location dedupe (open_page's `new_tab`).
+	// It deliberately does not reach the item, pipeline and artifact branches: those
+	// dedupe because a second tab would fight over one piece of shared state.
+	open(target: PreviewTarget, opts?: { forceNewTab?: boolean }): { status: 'opened' | 'focused' } {
+		return this.#pulsingIfUnchanged(() => this.#open(target, opts))
 	}
 
-	#open(target: PreviewTarget): { status: 'opened' | 'focused' } {
+	#open(target: PreviewTarget, opts?: { forceNewTab?: boolean }): { status: 'opened' | 'focused' } {
 		const editorTarget = editorTargetFor(target)
 		// A fresh session starts collapsed, so without this the tab opens behind a
 		// collapsed panel and the user sees nothing change.
@@ -374,17 +377,22 @@ export class SessionPreviewTabs {
 		// are canonicalized because a caller may bake `?workspace=` into the href
 		// (the frame re-injects it from the session anyway) while the observed loc
 		// has had it stripped — comparing raw would reopen the page as a duplicate.
-		// The hash is dropped from both sides: it is view state inside the page (the
+		// The hash is dropped from the match: it is view state inside the page (the
 		// row whose drawer is open), not part of what the tab is showing, so a tab
-		// the user has opened a row in must still count as showing that page.
+		// the user has opened a row in must still count as showing that page. The
+		// tab is then re-pointed at the requested URL rather than merely focused —
+		// matching loosely but not navigating would leave one trigger's drawer on
+		// screen while reporting that another one was opened.
 		const canonicalUrl = withoutHash(canonicalizeObservedLoc(url))
-		const shown = this.#tabs.find(
-			(t) => withoutHash(canonicalizeObservedLoc(t.loc)) === canonicalUrl
-		)
+		const shown = opts?.forceNewTab
+			? undefined
+			: this.#tabs.find((t) => withoutHash(canonicalizeObservedLoc(t.loc)) === canonicalUrl)
 		if (shown) {
+			const same = canonicalizeObservedLoc(shown.loc) === canonicalizeObservedLoc(url)
+			if (!same) retargetTab(shown, url)
 			this.#activeId = shown.id
 			this.#flush()
-			return { status: 'focused' }
+			return { status: same ? 'focused' : 'opened' }
 		}
 		const tab: SessionPreviewTab = { id: randomUUID(), url, loc: url }
 		this.#tabs.push(tab)

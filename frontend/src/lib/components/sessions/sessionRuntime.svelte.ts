@@ -1085,7 +1085,7 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 			return `Updated the ${label} preview tab with the new filters.`
 		}
 	}
-	const result = owner.open({ type: 'page', href, label })
+	const result = owner.open({ type: 'page', href, label }, { forceNewTab: newTab })
 	if (result.status === 'focused') {
 		// Same no-signal situation as above: open() only reports 'focused' when a
 		// tab already shows this exact URL.
