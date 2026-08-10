@@ -31993,6 +31993,7 @@ components:
               "S3Storage",
               "AzureBlobStorage",
               "AzureWorkloadIdentity",
+              "FilesystemStorage",
               "S3AwsOidc",
               "GoogleCloudStorage",
             ]
@@ -32002,6 +32003,9 @@ components:
           type: string
         gcs_resource_path:
           type: string
+        root_path:
+          type: string
+          description: Absolute path on the worker filesystem, for FilesystemStorage.
         public_resource:
           type: boolean
         advanced_permissions:
@@ -32020,6 +32024,7 @@ components:
                     "S3Storage",
                     "AzureBlobStorage",
                     "AzureWorkloadIdentity",
+                    "FilesystemStorage",
                     "S3AwsOidc",
                     "GoogleCloudStorage",
                   ]
@@ -32029,6 +32034,9 @@ components:
                 type: string
               gcs_resource_path:
                 type: string
+              root_path:
+                type: string
+                description: Absolute path on the worker filesystem, for FilesystemStorage.
               public_resource:
                 type: boolean
 
