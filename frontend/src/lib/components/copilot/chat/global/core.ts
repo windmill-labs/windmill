@@ -2348,11 +2348,14 @@ const openPageFullSchema = z.object({
 		.describe(
 			`Runs: filter by the user who created the job. ${RUNS_MULTI_VALUE_HINT} (e.g. 'admin' or '!admin')`
 		),
+	// Single positive folder only: the page turns this value into one `f/<folder>/` path
+	// prefix, so a comma list or a leading `!` would land inside the prefix and match
+	// nothing (`f/a,b/`, `f/!a/`). Excluding a folder isn't expressible here.
 	folder: z
 		.string()
 		.optional()
 		.describe(
-			`Runs: filter by the folder containing the script or flow (folder name, without the 'f/' prefix). ${RUNS_MULTI_VALUE_HINT}`
+			"Runs: filter by the folder containing the script or flow — one folder name, without the 'f/' prefix and without ! or commas (use path for anything finer)"
 		),
 	job_trigger_kind: z
 		.string()
@@ -2570,8 +2573,46 @@ type OpenPageUrlCtx = { workspaceId: string; chatItems?: readonly string[] }
 // silently ignore.
 function isoTimestamp(raw: string | undefined): string | undefined {
 	if (!raw) return undefined
-	const d = new Date(raw)
+	// A bare date means local midnight, as the page's own date picker writes it; parsed
+	// as-is it would be read as UTC and shift the bound by the viewer's offset.
+	const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00` : raw)
 	return isNaN(d.getTime()) ? undefined : d.toISOString()
+}
+
+// Runs filters the page can only fail silently on: it drops a malformed JSON filter and
+// an unparseable bound without a word, and an unknown trigger kind makes the jobs
+// request 400 behind a generic toast. Fail closed so the model can correct itself.
+function runsFilterError(a: OpenPageArgs): string | undefined {
+	for (const [field, raw] of [
+		['arg', a.arg],
+		['result', a.result]
+	] as const) {
+		if (raw === undefined) continue
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(raw)
+		} catch {
+			parsed = undefined
+		}
+		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+			return `The ${field} filter must be a JSON object of key/value pairs to match, e.g. {"key":"value"} — got ${raw}`
+		}
+	}
+	const unknownKinds = (a.job_trigger_kind?.split(',') ?? [])
+		.map((k) => k.trim().replace(/^!/, ''))
+		.filter((k) => k !== '' && !(jobTriggerKinds as string[]).includes(k))
+	if (unknownKinds.length) {
+		return `Unknown job_trigger_kind: ${unknownKinds.join(', ')}. Valid kinds are ${jobTriggerKinds.join(', ')}.`
+	}
+	for (const [field, raw] of [
+		['min_ts', a.min_ts],
+		['max_ts', a.max_ts]
+	] as const) {
+		if (raw !== undefined && isoTimestamp(raw) === undefined) {
+			return `${field} must be an ISO 8601 timestamp, e.g. 2026-08-01T09:00:00Z or 2026-08-01 — got ${raw}`
+		}
+	}
+	return undefined
 }
 
 export function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs, ctx: OpenPageUrlCtx): string {
@@ -2725,6 +2766,10 @@ export const openPageTool: Tool<{}> = {
 		// param the page would ignore anyway.
 		if (parsed.all_workspaces && !allowsAllWorkspacesRuns(workspaceId)) {
 			parsed.all_workspaces = undefined
+		}
+		if (page === 'runs') {
+			const filterError = runsFilterError(parsed)
+			if (filterError) return filterError
 		}
 		// Headless callers (ai_evals) have neither helpers.operatingWorkspace nor a
 		// populated workspaceStore; the chat loop's workspace is still correct there.

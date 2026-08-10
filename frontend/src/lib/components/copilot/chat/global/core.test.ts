@@ -4918,22 +4918,30 @@ describe('buildOpenPageUrl runs filters', () => {
 		)
 	})
 
-	it('normalizes the absolute bounds to ISO and drops the relative window they override', () => {
+	// The page applies neither a malformed JSON filter nor an unparseable bound, and 400s on
+	// an unknown trigger kind — all without saying so, hence the tool-level rejection.
+	it('rejects filter values the Runs page could only fail silently on', async () => {
+		await expect(
+			callGlobalTool('open_page', { page: 'runs', arg: 'customer_id=42' })
+		).resolves.toContain('must be a JSON object')
+		await expect(
+			callGlobalTool('open_page', { page: 'runs', job_trigger_kind: 'cron' })
+		).resolves.toContain('Unknown job_trigger_kind')
+		await expect(
+			callGlobalTool('open_page', { page: 'runs', min_ts: 'last tuesday' })
+		).resolves.toContain('ISO 8601')
+	})
+
+	it('reads a bare date as local midnight and drops the window an absolute bound overrides', () => {
 		const params = new URL(
 			buildOpenPageUrl(
 				'runs',
-				{
-					page: 'runs',
-					timeframe: 'Within last 24 hours',
-					min_ts: '2026-08-02',
-					max_ts: 'not a date'
-				},
+				{ page: 'runs', timeframe: 'Within last 24 hours', min_ts: '2026-08-02' },
 				{ workspaceId: 'ws' }
 			),
 			'http://x'
 		).searchParams
-		expect(params.get('min_ts')).toBe('2026-08-02T00:00:00.000Z')
-		expect(params.get('max_ts')).toBeNull()
+		expect(params.get('min_ts')).toBe(new Date('2026-08-02T00:00').toISOString())
 		expect(params.get('timeframe')).toBeNull()
 	})
 })
