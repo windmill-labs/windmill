@@ -30,12 +30,15 @@
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 
 	let versions = $state<ResourceVersion[] | undefined>(undefined)
-	// Which row is highlighted, updated on click. `loaded` lags it while the value is in
-	// flight, and the editor renders from `loaded` so it can never show one version's JSON
-	// under another version's label.
+	// Which row is highlighted, updated on click. `loaded` is dropped the moment the selection
+	// moves and only reinstated once its own fetch lands, so the pane can never show one version's
+	// JSON under another version's highlight.
 	let selectedId = $state<number | undefined>(undefined)
 	let loaded = $state<{ id: number; value: string; missing: string[] } | undefined>(undefined)
-	let currentValue = $state<string>('')
+	// Undefined until the newest version's value arrives, which is what "Diff with current" needs.
+	// Fetched without blocking the list, so an absent baseline disables the diff rather than
+	// holding up the drawer everyone else opened to read.
+	let currentValue = $state<string | undefined>(undefined)
 	// The backend decides this, rather than sending the resource type for the UI to test, so the
 	// list of never-versioned types stays stated once (INTERNAL_RESOURCE_TYPES) instead of being
 	// restated here in TypeScript as well as in the recording trigger's SQL.
@@ -63,27 +66,40 @@
 		versions = undefined
 		loaded = undefined
 		selectedId = undefined
-		currentValue = ''
+		currentValue = undefined
+		// Including the confirmation: it is armed for one resource and acts on whichever the
+		// drawer currently points at, so leaving it up across a retarget would let Confirm delete
+		// a history the user never asked to clear.
+		confirmingClear = false
 		const history = await ResourceService.getResourceHistory({
 			workspace: effectiveWorkspace,
 			path
 		})
 		if (generation !== loadGeneration) return
-		const list = history.versions ?? []
-		// The diff baseline is the newest version, not the resource's live value, even though the
-		// two hold the same thing. Versions are immutable and addressed by id, so this cannot
-		// disagree with the list it came from; reading `resource` instead would reintroduce a
-		// mutable second source that a concurrent write can move out from under the list.
-		const newest = list[0] === undefined ? undefined : await fetchVersion(list[0].id)
-		if (generation !== loadGeneration) return
-		// The list is published only once the baseline is in hand, so there is no window where a
-		// version can be selected and diffed against a baseline that never arrived.
-		currentValue = newest?.value ?? pretty(null)
 		neverVersioned = history.versioned === false
-		versions = list
 		// Nothing is selected on open, as in ScriptVersionHistory. Pre-selecting a version would
 		// fill the pane with JSON that reads as the resource's value without being it, since the
 		// drawer opens on the value view rather than the diff.
+		versions = history.versions ?? []
+		void loadDiffBaseline(versions[0]?.id, generation)
+	}
+
+	/// The diff baseline is the newest version, not the resource's live value, even though the two
+	/// hold the same thing: versions are immutable and addressed by id, so this cannot disagree
+	/// with the list it came from, where reading `resource` would reintroduce a mutable second
+	/// source. Deliberately not awaited by the caller — only the diff view needs it, which is two
+	/// interactions away, so the list paints as soon as it arrives.
+	async function loadDiffBaseline(newestId: number | undefined, generation: number) {
+		if (newestId === undefined) return
+		try {
+			const newest = await fetchVersion(newestId)
+			if (generation === loadGeneration) {
+				currentValue = newest.value
+			}
+		} catch {
+			// Leaves `currentValue` undefined, which hides the diff rather than offering one
+			// against nothing.
+		}
 	}
 
 	async function fetchVersion(id: number) {
@@ -96,15 +112,25 @@
 
 	async function selectVersion(id: number | undefined, generation = loadGeneration) {
 		selectedId = id
+		// Dropped up front rather than left in place while the new value is in flight: keeping it
+		// would highlight the clicked row while the pane still rendered the previous version, and
+		// a failed fetch would leave that mismatch on screen indefinitely.
+		loaded = undefined
 		if (id === undefined) {
-			loaded = undefined
 			return
 		}
-		const version = await fetchVersion(id)
-		// Assigned as one object so the id keying the editor and the value it displays can
-		// never be out of step, whatever order the requests come back in.
-		if (selectedId === id && generation === loadGeneration) {
-			loaded = version
+		try {
+			const version = await fetchVersion(id)
+			// Assigned as one object so the id keying the editor and the value it displays can
+			// never be out of step, whatever order the requests come back in.
+			if (selectedId === id && generation === loadGeneration) {
+				loaded = version
+			}
+		} catch (err) {
+			if (selectedId === id && generation === loadGeneration) {
+				selectedId = undefined
+				sendUserToast(`Could not load version ${id}`, true)
+			}
 		}
 	}
 
@@ -217,13 +243,17 @@
 		{/if}
 	</Pane>
 	<Pane size={80}>
-		{#if loaded === undefined}
+		{#if loaded === undefined && selectedId !== undefined}
+			<Loader2 class="animate-spin m-4" />
+		{:else if loaded === undefined}
 			<div class="p-4 text-tertiary text-xs">Select a version to inspect its value.</div>
 		{:else}
 			<div class="flex flex-col h-full">
 				<div class="flex flex-row justify-between items-center gap-2 p-2 border-b">
 					{#if isCurrent}
 						<span class="text-2xs text-tertiary">This is the current value</span>
+					{:else if currentValue === undefined}
+						<span class="text-2xs text-tertiary">Value</span>
 					{:else}
 						<ToggleButtonGroup bind:selected={view}>
 							{#snippet children({ item })}
@@ -253,7 +283,7 @@
 				{/if}
 
 				<div class="grow min-h-0">
-					{#if view === 'diff' && !isCurrent}
+					{#if view === 'diff' && !isCurrent && currentValue !== undefined}
 						<!-- Imported on demand: the diff is the only thing here that needs Monaco, and
 						     pulling it in on open would load the editor for everyone who just wants to
 						     read a value. -->
