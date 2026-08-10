@@ -2382,7 +2382,9 @@ const openPageFullSchema = z.object({
 	concurrency_key: z
 		.string()
 		.optional()
-		.describe('Runs: filter by concurrency limit key, e.g. custom-key or a full script path'),
+		.describe(
+			'Runs: filter by concurrency limit key, e.g. custom-key or a full script path. Cannot be combined with worker or search — that view has no way to apply them.'
+		),
 	arg: z
 		.string()
 		.optional()
@@ -2411,12 +2413,14 @@ const openPageFullSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Runs: only runs after this instant, as an ISO 8601 timestamp (e.g. 2026-08-01T09:00:00Z). Use it with max_ts for an absolute window; prefer timeframe for a relative one.'
+			'Runs: only runs after this instant, as an ISO 8601 timestamp (e.g. 2026-08-01T09:00:00Z); a bare 2026-08-01 means local midnight. Use it with max_ts for an absolute window; prefer timeframe for a relative one.'
 		),
 	max_ts: z
 		.string()
 		.optional()
-		.describe('Runs: only runs before this instant, as an ISO 8601 timestamp'),
+		.describe(
+			'Runs: only runs before this instant, as an ISO 8601 timestamp. A bare 2026-08-01 means local midnight, so it excludes that day — pass the next day, or an explicit time, to include it.'
+		),
 	resolved: z
 		.enum(['all', 'unresolved', 'resolved'])
 		.optional()
@@ -2579,10 +2583,28 @@ function isoTimestamp(raw: string | undefined): string | undefined {
 	return isNaN(d.getTime()) ? undefined : d.toISOString()
 }
 
-// Runs filters the page can only fail silently on: it drops a malformed JSON filter and
-// an unparseable bound without a word, and an unknown trigger kind makes the jobs
-// request 400 behind a generic toast. Fail closed so the model can correct itself.
-function runsFilterError(a: OpenPageArgs): string | undefined {
+// The Runs filters whose value is one comma-separated list, read back with the polarity of
+// its FIRST item: ` b` in "a, b" is matched with its space (and rejected outright for a
+// trigger kind), and a mixed "a,!b" quietly matches b as an inclusion. So trim the items
+// and refuse a mixed list instead of opening a page that filters by something else.
+const RUNS_LIST_FIELDS = ['path', 'user', 'label', 'tag', 'worker', 'job_trigger_kind'] as const
+
+function normalizeRunsList(raw: string): { value: string | undefined } | { mixed: true } {
+	const items = raw
+		.split(',')
+		.map((v) => v.trim())
+		.filter((v) => v !== '')
+	const excluded = items.filter((v) => v.startsWith('!'))
+	if (excluded.length && excluded.length !== items.length) return { mixed: true }
+	return { value: items.length ? items.join(',') : undefined }
+}
+
+// Normalizes the Runs filters in place and reports the values the page could only fail
+// silently on — it drops a malformed JSON filter and an unparseable bound without a word,
+// 400s behind a generic toast on an unknown trigger kind, and shows a chip for `worker` /
+// `search` that the concurrency view never applies. Fail closed so the model can correct
+// itself rather than hand the user a page filtered by something they didn't ask for.
+function prepareRunsFilters(a: OpenPageArgs): string | undefined {
 	for (const [field, raw] of [
 		['arg', a.arg],
 		['result', a.result]
@@ -2598,11 +2620,37 @@ function runsFilterError(a: OpenPageArgs): string | undefined {
 			return `The ${field} filter must be a JSON object of key/value pairs to match, e.g. {"key":"value"} — got ${raw}`
 		}
 	}
+	// One positive folder only — the page wraps this value into a single `f/<folder>/` path
+	// prefix, so a comma or a `!` ends up inside the prefix and matches nothing.
+	if (a.folder !== undefined) {
+		a.folder = a.folder.trim()
+		if (/[!,]/.test(a.folder)) {
+			return `The folder filter takes one folder name, without ! or commas — got ${a.folder}. Use path to name several runnables or to exclude some.`
+		}
+	}
+	const fields = a as Record<(typeof RUNS_LIST_FIELDS)[number], string | undefined>
+	for (const field of RUNS_LIST_FIELDS) {
+		const raw = fields[field]
+		if (raw === undefined) continue
+		const normalized = normalizeRunsList(raw)
+		if ('mixed' in normalized) {
+			return `The ${field} filter cannot mix included and excluded values (got ${raw}) — prefix every value with ! to exclude them all, or none to include them all.`
+		}
+		fields[field] = normalized.value
+	}
 	const unknownKinds = (a.job_trigger_kind?.split(',') ?? [])
-		.map((k) => k.trim().replace(/^!/, ''))
-		.filter((k) => k !== '' && !(jobTriggerKinds as string[]).includes(k))
+		.map((k) => k.replace(/^!/, ''))
+		.filter((k) => !(jobTriggerKinds as string[]).includes(k))
 	if (unknownKinds.length) {
 		return `Unknown job_trigger_kind: ${unknownKinds.join(', ')}. Valid kinds are ${jobTriggerKinds.join(', ')}.`
+	}
+	// A concurrency key switches the page to its extended-jobs query, which has no worker
+	// or free-text parameter at all — those chips would render and do nothing.
+	if (a.concurrency_key !== undefined) {
+		const ignored = (['worker', 'search'] as const).filter((f) => a[f] !== undefined)
+		if (ignored.length) {
+			return `The Runs page ignores ${ignored.join(' and ')} when concurrency_key is set (that view can't filter on ${ignored.length > 1 ? 'them' : 'it'}). Open the page with either concurrency_key or ${ignored.join('/')}, not both.`
+		}
 	}
 	for (const [field, raw] of [
 		['min_ts', a.min_ts],
@@ -2768,7 +2816,7 @@ export const openPageTool: Tool<{}> = {
 			parsed.all_workspaces = undefined
 		}
 		if (page === 'runs') {
-			const filterError = runsFilterError(parsed)
+			const filterError = prepareRunsFilters(parsed)
 			if (filterError) return filterError
 		}
 		// Headless callers (ai_evals) have neither helpers.operatingWorkspace nor a
