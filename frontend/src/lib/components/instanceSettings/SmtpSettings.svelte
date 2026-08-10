@@ -30,11 +30,18 @@
 
 	let testEmail = $state('')
 	let testing = $state(false)
-	let testError: string | undefined = $state(undefined)
+	let lastFailure = $state<{ settings: string; message: string } | undefined>(undefined)
+
+	// The failure describes one exact set of settings, so editing any of them retires it. The
+	// settings object is mutated in place, hence comparing content rather than identity.
+	let smtpSettingsKey = $derived(JSON.stringify($values['smtp_settings'] ?? {}))
+	let testError = $derived(
+		lastFailure?.settings === smtpSettingsKey ? lastFailure.message : undefined
+	)
 
 	async function testSmtpSettings() {
 		testing = true
-		testError = undefined
+		lastFailure = undefined
 		try {
 			await SettingService.testSmtp({
 				requestBody: {
@@ -54,7 +61,10 @@
 		} catch (error) {
 			// The backend spells out which SMTP step failed and which setting to change, so it goes
 			// in a persistent alert rather than a toast that scrolls away while it is read.
-			testError = error.body || error.message || 'Unknown error'
+			lastFailure = {
+				settings: smtpSettingsKey,
+				message: error.body || error.message || 'Unknown error'
+			}
 			sendUserToast('Failed to send test email', true)
 		} finally {
 			testing = false

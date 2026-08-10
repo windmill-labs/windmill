@@ -258,16 +258,13 @@ pub async fn test_email(
         Some(client_timeout),
     )
     .await
-    // The SMTP layer already phrases its failures for an instance admin; the generic wrappers
-    // would bury that behind "Internal: ... @<source location>".
-    .map_err(|e| {
-        error::Error::Generic(
-            axum::http::StatusCode::BAD_REQUEST,
-            match e {
-                error::Error::Anyhow { error, .. } => format!("{error:#}"),
-                e => e.to_string(),
-            },
-        )
+    // The SMTP layer already phrases its failures for an instance admin; the anyhow wrapper it
+    // comes back in would bury that behind "Internal: ... @<source location>".
+    .map_err(|e| match e {
+        error::Error::Anyhow { error, .. } => {
+            error::Error::Generic(axum::http::StatusCode::BAD_REQUEST, format!("{error:#}"))
+        }
+        e => e,
     })?;
 
     Ok("Sent test email".to_string())
