@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
-import type { PersistedArtifact } from './artifactsDB'
+import type { ArtifactVersion, PersistedArtifact } from './artifactsDB'
 
 // The user-scoping subscription is BROWSER-gated; the node test env reports false.
 vi.mock('esm-env', async (orig) => ({
@@ -47,6 +47,17 @@ beforeEach(async () => {
 	db = await freshDb()
 })
 
+function version(v: number, artifactId = 'a1'): ArtifactVersion {
+	return {
+		key: `${artifactId}:${v}`,
+		artifactId,
+		version: v,
+		name: 'Doc',
+		content: `body ${v}`,
+		savedAt: v
+	}
+}
+
 describe('artifactsDB', () => {
 	it('derives filename and mime type from the artifact kind', () => {
 		expect(db.artifactFilename({ name: 'Plan', kind: 'md' })).toBe('Plan.md')
@@ -92,6 +103,81 @@ describe('artifactsDB', () => {
 		await db.deleteArtifactsForSession('s1')
 		expect(await db.listArtifactsForSession('s1')).toEqual([])
 		expect((await db.listArtifactsForSession('s2')).map((a) => a.id)).toEqual(['c'])
+	})
+
+	it('upgrades a version-1 database in place, keeping the artifacts already in it', async () => {
+		vi.resetModules()
+		;(globalThis as any).indexedDB = new IDBFactory()
+		const store = (await import('$lib/stores')).userStore as unknown as {
+			set: (v: unknown) => void
+		}
+		store.set({ email: 'a@x.com' })
+
+		// The schema exactly as it shipped before version history: `items` and nothing else.
+		// Every existing user's database looks like this, and the upgrade runs over it — the
+		// path no other test reaches, because they all start from an empty IDBFactory.
+		const { openDB } = await import('idb')
+		const v1 = (await openDB('copilot-artifacts::a@x.com', 1, {
+			upgrade(database) {
+				const items = (database as any).createObjectStore('items', { keyPath: 'id' })
+				items.createIndex('by-session', 'sessionId')
+			}
+		})) as any
+		await v1.put('items', artifact({ id: 'old', sessionId: 's1', content: 'written at v1' }))
+		v1.close()
+
+		const upgraded = await import('./artifactsDB')
+		// A ConstraintError here would reject the open, and a rejected open degrades silently
+		// — every pre-existing artifact would just quietly stop existing.
+		expect((await upgraded.getArtifact('old'))?.content).toBe('written at v1')
+		expect((await upgraded.listArtifactsForSession('s1')).map((a) => a.id)).toEqual(['old'])
+		// The store the upgrade added works on the upgraded database, not just a fresh one.
+		await upgraded.putArtifactWithVersions(artifact({ id: 'old' }), [version(1, 'old')])
+		expect((await upgraded.listArtifactVersions('old')).map((v) => v.version)).toEqual([1])
+	})
+
+	it('keeps only the most recent versions of an artifact', async () => {
+		const total = db.MAX_VERSIONS_PER_ARTIFACT + 5
+		for (let v = 1; v <= total; v++)
+			await db.putArtifactWithVersions(artifact({ id: 'a1' }), [version(v)])
+
+		const kept = await db.listArtifactVersions('a1')
+		expect(kept).toHaveLength(db.MAX_VERSIONS_PER_ARTIFACT)
+		// Newest first, and the pruned tail is the numerically — not lexicographically —
+		// oldest, which is what separates v9 from v10 surviving.
+		expect(kept[0].version).toBe(total)
+		expect(kept.at(-1)?.version).toBe(total - db.MAX_VERSIONS_PER_ARTIFACT + 1)
+	})
+
+	it('keeps fewer versions of a large artifact, but never fewer than the minimum', async () => {
+		// Big enough that the char budget, not the count, decides — a plain count cap would
+		// let one document's history run to several MB.
+		const big = 'x'.repeat(db.MAX_VERSION_CHARS_PER_ARTIFACT / 4)
+		for (let v = 1; v <= 8; v++)
+			await db.putArtifactWithVersions(artifact({ id: 'a1' }), [{ ...version(v), content: big }])
+
+		const kept = await db.listArtifactVersions('a1')
+		expect(kept).toHaveLength(4)
+		expect(kept[0].version).toBe(8)
+
+		// A single snapshot larger than the whole budget still leaves a usable history.
+		const huge = 'x'.repeat(db.MAX_VERSION_CHARS_PER_ARTIFACT * 2)
+		await db.putArtifactWithVersions(artifact({ id: 'a1' }), [{ ...version(9), content: huge }])
+		expect(await db.listArtifactVersions('a1')).toHaveLength(db.MIN_VERSIONS_PER_ARTIFACT)
+	})
+
+	it('deleting an artifact, or a whole session, drops the versions with it', async () => {
+		await db.putArtifact(artifact({ id: 'a1', sessionId: 's1' }))
+		await db.putArtifact(artifact({ id: 'a2', sessionId: 's1' }))
+		await db.putArtifactWithVersions(artifact({ id: 'a1', sessionId: 's1' }), [version(1)])
+		await db.putArtifactWithVersions(artifact({ id: 'a2', sessionId: 's1' }), [version(1, 'a2')])
+
+		await db.deleteArtifact('a1')
+		expect(await db.listArtifactVersions('a1')).toEqual([])
+		expect(await db.listArtifactVersions('a2')).toHaveLength(1)
+
+		await db.deleteArtifactsForSession('s1')
+		expect(await db.listArtifactVersions('a2')).toEqual([])
 	})
 
 	it('isolates artifacts between users on the same browser', async () => {
