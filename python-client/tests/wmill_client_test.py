@@ -168,54 +168,5 @@ class TestParseS3Object(unittest.TestCase):
     def test_s3object_passes_through(self):
         self.assertEqual(wmill.parse_s3_object(S3Object(s3="x")), S3Object(s3="x"))
 
-class TestS3BufferedReaderRead(unittest.TestCase):
-    """Pure-unit tests for S3BufferedReader.read — no network/env needed.
-
-    iter_bytes() yields whole HTTP chunks (~64KB), so read(size) must slice
-    the last chunk and buffer the leftover for the next call.
-    """
-
-    def make_reader(self, chunks):
-        from wmill.s3_reader import S3BufferedReader
-
-        reader = object.__new__(S3BufferedReader)
-        reader._iterator = iter(chunks)
-        reader._buffer = bytearray()
-        return reader
-
-    def test_read_size_returns_exact_bytes(self):
-        reader = self.make_reader([b"AAAAAAAAAA", b"BBBBBBBBBB", b"CCCCCCCCCC"])
-        self.assertEqual(reader.read(5), b"AAAAA")
-
-    def test_read_size_preserves_leftover_across_calls(self):
-        reader = self.make_reader([b"AAAAAAAAAA", b"BBBBBBBBBB", b"CCCCCCCCCC"])
-        self.assertEqual(reader.read(5), b"AAAAA")
-        self.assertEqual(reader.read(5), b"AAAAA")
-        self.assertEqual(reader.read(10), b"BBBBBBBBBB")
-        self.assertEqual(reader.read(7), b"CCCCCCC")
-        self.assertEqual(reader.read(5), b"CCC")
-        self.assertEqual(reader.read(5), b"")
-
-    def test_read_all_returns_everything(self):
-        reader = self.make_reader([b"AAAAAAAAAA", b"BBBBBBBBBB", b"CCCCCCCCCC"])
-        self.assertEqual(reader.read(-1), b"AAAAAAAAAABBBBBBBBBBCCCCCCCCCC")
-
-    def test_read_all_after_partial_read(self):
-        reader = self.make_reader([b"AAAAAAAAAA", b"BBBBBBBBBB", b"CCCCCCCCCC"])
-        self.assertEqual(reader.read(5), b"AAAAA")
-        self.assertEqual(reader.read(-1), b"AAAAABBBBBBBBBBCCCCCCCCCC")
-
-    def test_bytes_generator_never_exceeds_50kb_chunk(self):
-        reader = self.make_reader([b"x" * 65536] * 5)
-        total = 0
-        while True:
-            byte = reader.read(50 * 1024)
-            if not byte:
-                break
-            self.assertLessEqual(len(byte), 50 * 1024)
-            total += len(byte)
-        self.assertEqual(total, 5 * 65536)
-
-
 if __name__ == "__main__":
     unittest.main()

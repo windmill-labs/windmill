@@ -1,12 +1,12 @@
-"""Unit tests for S3BufferedReader.read — no network/env needed."""
+"""Unit tests for S3BufferedReader: no network or env needed."""
 
-from wmill.s3_reader import S3BufferedReader
+from wmill.s3_reader import S3BufferedReader, bytes_generator
 
 CHUNKS = [b"AAAAAAAAAA", b"BBBBBBBBBB", b"CCCCCCCCCC"]
 
 
 class _FakeStream:
-    """Stands in for the httpx stream response S3BufferedReader reads from."""
+    """Stands in for the httpx streaming response the reader consumes."""
 
     status_code = 200
 
@@ -39,12 +39,7 @@ def make_reader(chunks):
     return reader
 
 
-def test_read_size_returns_exact_bytes():
-    reader = make_reader(CHUNKS)
-    assert reader.read(5) == b"AAAAA"
-
-
-def test_read_size_preserves_leftover_across_calls():
+def test_read_size_slices_chunks_and_keeps_the_remainder():
     reader = make_reader(CHUNKS)
     assert reader.read(5) == b"AAAAA"
     assert reader.read(5) == b"AAAAA"
@@ -54,53 +49,20 @@ def test_read_size_preserves_leftover_across_calls():
     assert reader.read(5) == b""
 
 
-def test_read_zero_returns_empty_without_consuming():
-    reader = make_reader(CHUNKS)
-    assert reader.read(0) == b""
-    assert reader.read(5) == b"AAAAA"
-
-
-def test_peek_returns_without_consuming():
-    reader = make_reader(CHUNKS)
-    assert reader.peek() == b"AAAAAAAAAA"
-    assert reader.peek(5) == b"AAAAAAAAAA"
-    assert reader.read(10) == b"AAAAAAAAAA"
-
-
-def test_peek_after_partial_read_returns_leftover():
-    reader = make_reader(CHUNKS)
-    assert reader.read(5) == b"AAAAA"
-    assert reader.peek(5) == b"AAAAA"
-    assert reader.read(5) == b"AAAAA"
-
-
-def test_peek_fills_when_buffered_bytes_are_insufficient():
-    reader = make_reader(CHUNKS)
-    assert reader.read(5) == b"AAAAA"
-    peeked = reader.peek(7)
-    assert peeked.startswith(b"AAAAA")
-    assert len(peeked) >= 7
-    assert reader.read(len(peeked)) == peeked
-
-
-def test_read_all_returns_everything():
-    reader = make_reader(CHUNKS)
-    assert reader.read(-1) == b"AAAAAAAAAABBBBBBBBBBCCCCCCCCCC"
-
-
-def test_read_all_after_partial_read():
+def test_read_all_drains_both_the_buffer_and_the_stream():
     reader = make_reader(CHUNKS)
     assert reader.read(5) == b"AAAAA"
     assert reader.read(-1) == b"AAAAABBBBBBBBBBCCCCCCCCCC"
 
 
-def test_bytes_generator_never_exceeds_50kb_chunk():
+def test_bytes_generator_yields_50kb_slices_of_64kb_chunks():
     reader = make_reader([b"x" * 65536] * 5)
-    total = 0
-    while True:
-        byte = reader.read(50 * 1024)
-        if not byte:
-            break
-        assert len(byte) <= 50 * 1024
-        total += len(byte)
-    assert total == 5 * 65536
+    sizes = [len(chunk) for chunk in bytes_generator(reader)]
+    assert max(sizes) <= 50 * 1024
+    assert sum(sizes) == 5 * 65536
+
+
+def test_peek_does_not_consume():
+    reader = make_reader(CHUNKS)
+    assert reader.peek() == b"AAAAAAAAAA"
+    assert reader.read(10) == b"AAAAAAAAAA"

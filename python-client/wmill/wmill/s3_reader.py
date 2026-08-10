@@ -47,17 +47,20 @@ class S3BufferedReader(BufferedReader):
         return self
 
     def peek(self, size=0):
-        # Return buffered bytes without consuming them; fill to the
-        # requested amount first (one chunk when size is unset).
-        self._fill(size if size > 0 else 1)
+        # io.BufferedReader.peek: hand back buffered bytes without consuming
+        # them, doing at most one read on the underlying stream — so the amount
+        # returned may be more or less than `size`.
+        if not self._buffer:
+            self._fill(1)
         return bytes(self._buffer)
 
     def _fill(self, limit):
-        # iter_bytes() yields whole HTTP chunks (~64KB), so read(size) must
-        # slice the last chunk and buffer the leftover for the next call.
+        # iter_bytes() yields whole HTTP chunks (~64KB), so serving `limit`
+        # bytes means accumulating until the buffer holds enough and keeping
+        # the remainder of the final chunk for the next call.
         while limit < 0 or len(self._buffer) < limit:
             try:
-                self._buffer.extend(self._iterator.__next__())
+                self._buffer.extend(next(self._iterator))
             except StopIteration:
                 break
 
