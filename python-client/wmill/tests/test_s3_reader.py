@@ -23,6 +23,19 @@ class _FakeStream:
         return iter(self._chunks)
 
 
+class CountingIterator:
+    """Chunk source that records how many times the reader pulled from it."""
+
+    def __init__(self, chunks):
+        self._chunks = chunks
+        self.pulls = 0
+
+    def __iter__(self):
+        for chunk in self._chunks:
+            self.pulls += 1
+            yield chunk
+
+
 class _FakeClient:
     """Stands in for the httpx client, so construction never touches the network."""
 
@@ -73,7 +86,12 @@ def test_peek_does_not_consume():
 
 
 def test_read1_stops_after_one_chunk():
-    reader = make_reader(CHUNKS)
+    counting = CountingIterator(CHUNKS)
+    reader = make_reader(counting)
+    # A zero-length read must not touch the stream at all.
+    assert reader.read1(0) == b""
+    assert counting.pulls == 0
     # read1(-1) must not drain the stream the way read(-1) does.
     assert reader.read1(-1) == b"AAAAAAAAAA"
     assert reader.read1(4) == b"BBBB"
+    assert counting.pulls == 2

@@ -85,6 +85,8 @@ class S3BufferedReader(BufferedReader):
         Unlike `read`, a negative `size` returns only what is already buffered
         rather than draining the whole object.
         """
+        if size == 0:
+            return b""
         if not self._buffer:
             self._fill(1)
         if size is None or size < 0:
