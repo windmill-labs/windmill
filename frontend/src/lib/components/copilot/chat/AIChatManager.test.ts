@@ -73,8 +73,10 @@ vi.mock('$lib/stores', () => {
 		},
 		userStore: readable({ username: 'admin', email: 'admin@test', is_admin: true }),
 		// Read eagerly at module load by the open_page tool's allowedOpenPages /
-		// allowedTriggerKinds (global/core.ts) as the manager's tools are built.
+		// allowedTriggerKinds / allowsAllWorkspacesRuns (global/core.ts) as the manager's
+		// tools are built.
 		superadmin: readable(false),
+		devopsRole: readable(false),
 		userWorkspaces: readable([] as unknown[]),
 		enterpriseLicense: readable(undefined)
 	}

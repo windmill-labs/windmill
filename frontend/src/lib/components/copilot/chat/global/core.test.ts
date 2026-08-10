@@ -295,6 +295,7 @@ vi.mock('$lib/infer', async () => ({
 	inferArgs: vi.fn(async () => {})
 }))
 
+import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
 import {
 	buildOpenPageUrl,
 	globalTools,
@@ -4859,6 +4860,81 @@ describe('prepareGlobalUserMessage', () => {
 		const message = prepareGlobalUserMessage('Create a draft')
 
 		expect(message.content).toBe('## INSTRUCTIONS:\nCreate a draft')
+	})
+})
+
+describe('buildOpenPageUrl runs filters', () => {
+	const runsArgs = {
+		page: 'runs' as const,
+		status: 'failure' as const,
+		path: 'f/foo/bar',
+		schedule_path: 'f/foo/nightly',
+		job_kinds: 'all' as const,
+		user: 'admin',
+		folder: 'foo',
+		job_trigger_kind: '!schedule',
+		label: 'my-label',
+		tag: 'flow',
+		worker: 'wk-1',
+		concurrency_key: 'custom-key',
+		arg: '{"a":1}',
+		result: '{"b":2}',
+		search: 'timeout',
+		resolved: 'unresolved' as const,
+		show_skipped: true,
+		show_future_jobs: false,
+		all_workspaces: true
+	}
+	const keysOf = (url: string) => [...new URL(url, 'http://x').searchParams.keys()]
+
+	// Guards the whole mapping at once: buildRunsUrl silently drops any param that isn't a
+	// real Runs filter key, so a renamed or added page filter must show up here.
+	it('covers every filter the Runs page reads', () => {
+		const relative = keysOf(
+			buildOpenPageUrl(
+				'runs',
+				{ ...runsArgs, timeframe: 'Within last 24 hours' },
+				{ workspaceId: 'ws' }
+			)
+		)
+		const absolute = keysOf(
+			buildOpenPageUrl(
+				'runs',
+				{ ...runsArgs, min_ts: '2026-08-01T09:00:00Z', max_ts: '2026-08-02' },
+				{ workspaceId: 'ws' }
+			)
+		)
+		expect([...new Set([...relative, ...absolute])].sort()).toEqual(
+			Object.keys(
+				buildRunsFilterSearchbarSchema({
+					paths: [],
+					usernames: [],
+					folders: [],
+					jobTriggerKinds: [],
+					isSuperAdminOrDevops: true,
+					isAdminsWorkspace: true
+				})
+			).sort()
+		)
+	})
+
+	it('normalizes the absolute bounds to ISO and drops the relative window they override', () => {
+		const params = new URL(
+			buildOpenPageUrl(
+				'runs',
+				{
+					page: 'runs',
+					timeframe: 'Within last 24 hours',
+					min_ts: '2026-08-02',
+					max_ts: 'not a date'
+				},
+				{ workspaceId: 'ws' }
+			),
+			'http://x'
+		).searchParams
+		expect(params.get('min_ts')).toBe('2026-08-02T00:00:00.000Z')
+		expect(params.get('max_ts')).toBeNull()
+		expect(params.get('timeframe')).toBeNull()
 	})
 })
 
