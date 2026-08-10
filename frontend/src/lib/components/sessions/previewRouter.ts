@@ -119,7 +119,8 @@ export function matchPreviewPage(path: string): PreviewPage | undefined {
 /** Match a preview href to a page whose tab should be re-pointed in place when
  * only its query params change (the open_page filter-change behavior): the
  * curated pages plus the compare page. Trigger pages are deliberately not
- * matched — their tabs dedupe on the exact URL instead. */
+ * matched — they take the generic path in `SessionPreviewTabs.open`, which
+ * dedupes on the location ignoring the hash and re-points the tab it finds. */
 export function matchReusablePage(href: string): PreviewPage | undefined {
 	if (stripBase(href) === COMPARE_PAGE.path) return COMPARE_PAGE
 	return matchPreviewPage(href)

@@ -31,7 +31,7 @@ describe('matchReusablePage', () => {
 		expect(previewLocationLabel('/forks/compare?workspace_id=ws')).toBe('Compare & Deploy')
 	})
 
-	it('does not match trigger pages (they dedupe on exact URL)', () => {
+	it('does not match trigger pages (they re-point via the generic open path)', () => {
 		expect(matchReusablePage('/kafka_triggers')).toBeUndefined()
 	})
 })
