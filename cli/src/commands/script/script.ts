@@ -1,6 +1,11 @@
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import {
+  assertRemotePath,
+  resolveWorkspace,
+  toSyncRootRelativePath,
+  validatePath,
+} from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
@@ -1808,13 +1813,16 @@ async function preview(
   if (opts.silent) {
     log.setSilent(true);
   }
+  // Captured before the config read, which chdirs to the wmill.yaml root.
+  const cwdBeforeConfig = process.cwd();
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  if (!validatePath(filePath)) {
-    return;
-  }
+  const argPath = filePath;
+  filePath = toSyncRootRelativePath(filePath, cwdBeforeConfig);
+  const remotePath = scriptPathToRemotePath(filePath);
+  assertRemotePath(remotePath, argPath);
 
   // Same as push: a descriptor-less dbt project's content path is deliberately
   // absent, and the project beside it is what says the script is real.
@@ -1869,11 +1877,7 @@ async function preview(
   const { extractRelativeImports } = await import(
     "../../utils/relative_imports.ts"
   );
-  const relImports = await extractRelativeImports(
-    content,
-    scriptPathToRemotePath(filePath),
-    language
-  );
+  const relImports = await extractRelativeImports(content, remotePath, language);
   if (relImports.length > 0) {
     const { buildPreviewTempScriptRefs } = await import(
       "../generate-metadata/generate-metadata.ts"
@@ -1976,7 +1980,7 @@ async function preview(
     const form = new FormData();
     const previewPayload = {
       content: content, // Pass the original content (frontend does this too)
-      path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+      path: remotePath,
       args: input,
       language: language,
       tag: opts.tag,
@@ -2046,7 +2050,7 @@ async function preview(
       workspace: workspace.workspaceId,
       requestBody: {
         content,
-        path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+        path: remotePath,
         args: input,
         language: language as any,
         tag: opts.tag,
