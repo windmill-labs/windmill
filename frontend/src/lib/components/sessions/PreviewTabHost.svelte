@@ -222,15 +222,28 @@
 		}
 		function onKeyDown(e: KeyboardEvent) {
 			// Tab out of the field is the user steering focus, and the frame may well be
-			// the next stop — nothing to reclaim.
-			if (e.key === 'Tab' && e.target === reclaimTarget) userMovedFocus = true
+			// the next stop — nothing to reclaim. This runs before the field decides
+			// whether to consume the key (the composer's @-mention and /-command pickers
+			// take Tab to accept an item), so take the mark back once the dust settles
+			// and the field still has focus.
+			const target = reclaimTarget
+			if (e.key !== 'Tab' || e.target !== target) return
+			userMovedFocus = true
+			setTimeout(() => {
+				if (document.activeElement === target) userMovedFocus = false
+			}, 0)
 		}
 		function onFocusOut(e: FocusEvent) {
 			const target = reclaimTarget
 			if (!target || e.target !== target || Date.now() > reclaimUntil) return
-			// Once the frame is hooked, `userMovedFocus` below is the whole answer.
-			// Until then, read the frame's focus now, while it still reflects the move
-			// that just happened — a page autofocuses its own field a tick later.
+			// Read both verdicts at the moment focus leaves, not when the reclaim
+			// resolves: what the user did *before* that is what says whether they meant
+			// to leave, while a keystroke that lands in the frame in the gap is a
+			// symptom of the steal.
+			// Once the frame is hooked, `userMovedFocus` is the whole answer. Until
+			// then, its focus still reflects the move that just happened — a page
+			// autofocuses its own field a tick later.
+			const userLeft = userMovedFocus
 			const looksAutomatic = frameIsHooked() || frameFocusIsRouterReset()
 			// The verdict on this document waits a task, because the transfer into the
 			// frame is still in flight here — Chrome still reports the body as
@@ -239,7 +252,7 @@
 			// last, leaving the caret drawn here and the keystrokes going to the frame.
 			setTimeout(() => {
 				if (reclaimTarget !== target || !frame || document.activeElement !== frame) return
-				if (userMovedFocus || Date.now() > reclaimUntil || !target.isConnected) return
+				if (userLeft || Date.now() > reclaimUntil || !target.isConnected) return
 				if (!looksAutomatic) return
 				target.focus({ preventScroll: true })
 			}, 0)
