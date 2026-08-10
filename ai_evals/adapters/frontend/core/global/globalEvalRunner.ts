@@ -14,6 +14,7 @@ import {
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
 import { UserDraft } from "../../../../../frontend/src/lib/userDraft.svelte";
+import { createEvalArtifactHelpers } from "./evalArtifactStore";
 import type { ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
@@ -42,67 +43,6 @@ const LIVE_EDITOR_ITEM_KINDS = {
   flow: "flow",
   app: "raw_app",
 } as const;
-
-// SessionArtifactsStore can't run here (bun has no IndexedDB, nor the compiled $state runes),
-// so mirror only its tool-facing shape; its own logic (scoping, race guard) is unit-tested.
-const EVAL_SESSION_ID = "eval-session";
-function createEvalArtifactHelpers() {
-  const items = new Map<string, Record<string, unknown>>();
-  let seq = 0;
-  const store = {
-    create: async (sessionId: string, input: Record<string, any>) => {
-      const now = seq++;
-      const artifact = {
-        id: `eval-artifact-${now}`,
-        sessionId,
-        chatId: input.chatId,
-        kind: input.kind ?? "md",
-        name: input.name,
-        content: input.content,
-        createdAt: now,
-        updatedAt: now,
-      };
-      items.set(artifact.id, artifact);
-      return artifact;
-    },
-    get: async (id: string) => items.get(id),
-    update: async (
-      id: string,
-      input: Record<string, any>,
-      opts?: { sessionId?: string },
-    ) => {
-      const existing = items.get(id);
-      if (!existing) return undefined;
-      if (
-        opts?.sessionId !== undefined &&
-        existing.sessionId !== opts.sessionId
-      )
-        return undefined;
-      const updated = {
-        ...existing,
-        name: input.name ?? existing.name,
-        content: input.content ?? existing.content,
-        updatedAt: seq++,
-      };
-      items.set(id, updated);
-      return updated;
-    },
-    remove: async (id: string) => {
-      items.delete(id);
-    },
-    listForSession: async (sessionId: string) =>
-      [...items.values()].filter((a) => a.sessionId === sessionId),
-  };
-  return {
-    helpers: {
-      artifacts: store,
-      sessionId: EVAL_SESSION_ID,
-      getChatId: () => "eval-chat",
-      openArtifact: () => {},
-    },
-    snapshot: () => [...items.values()],
-  };
-}
 
 export interface GlobalLiveEditorDraftFixture {
   type: keyof typeof LIVE_EDITOR_ITEM_KINDS;

@@ -233,6 +233,19 @@ export function validateToolExpectations(input: {
       );
     }
 
+    if (rule.nonEmpty) {
+      const blankValues = values.filter(
+        (value) => typeof value !== "string" || value.trim().length === 0
+      );
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} is filled in on every call`,
+          blankValues.length === 0,
+          `blank on ${blankValues.length} of ${values.length} call(s); values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
     if (rule.stringIncludesAnyOf && rule.stringIncludesAnyOf.length > 0) {
       // Existential: at least one call must contain one of the substrings.
       // Other calls to the same tool may do anything — this suits SQL, where a
