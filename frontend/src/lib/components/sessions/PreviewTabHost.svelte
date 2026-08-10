@@ -124,8 +124,16 @@
 	// The frame's document has to be hooked before its app hydrates — which is well
 	// before the frame's load event — so poll for it instead of waiting for load.
 	const FRAME_HOOK_INTERVAL_MS = 50
-	let focusReclaim: { target: HTMLElement; until: number } | undefined
-	let frameInteracted = false
+	// How long a load this host triggered may hand focus back. Independent of the
+	// field below, so leaving the composer and coming back re-arms within the window.
+	let reclaimUntil = 0
+	// The field to hand focus back to; re-pointed as focus moves around this
+	// document, and undefined whenever it rests somewhere untypable.
+	let reclaimTarget: HTMLElement | undefined
+	// The user moved focus into the frame themselves — clicked or typed in there, or
+	// tabbed out of the field — so the frame holding focus is their doing, not the
+	// previewed page's.
+	let userMovedFocus = false
 	const hookedDocs = new WeakSet<Document>()
 	let hookTimer: ReturnType<typeof setInterval> | undefined
 
@@ -136,15 +144,14 @@
 	}
 
 	function armFocusReclaim() {
-		const target = textEntry(document.activeElement)
-		frameInteracted = false
-		focusReclaim = target ? { target, until: Date.now() + FOCUS_RECLAIM_WINDOW_MS } : undefined
-		if (!focusReclaim) return
+		reclaimTarget = textEntry(document.activeElement)
+		reclaimUntil = Date.now() + FOCUS_RECLAIM_WINDOW_MS
+		userMovedFocus = false
 		hookFrameDocument()
 		clearInterval(hookTimer)
 		hookTimer = setInterval(() => {
 			hookFrameDocument()
-			if (!focusReclaim || Date.now() > focusReclaim.until) {
+			if (Date.now() > reclaimUntil) {
 				clearInterval(hookTimer)
 				hookTimer = undefined
 			}
@@ -160,7 +167,7 @@
 			const doc = frame?.contentDocument
 			if (!doc || hookedDocs.has(doc)) return
 			hookedDocs.add(doc)
-			const mark = () => (frameInteracted = true)
+			const mark = () => (userMovedFocus = true)
 			doc.addEventListener('pointerdown', mark, true)
 			doc.addEventListener('keydown', mark, true)
 		} catch {
@@ -200,26 +207,28 @@
 		armFocusReclaim()
 	})
 
-	// Focus the user moves elsewhere in this document supersedes the armed target,
-	// so a reclaim that lands late can never drag them back to the field they left.
+	// Follow focus around this document: it decides which field a reclaim would
+	// hand focus back to, and whether the user moved out of it themselves. The
+	// armed field losing focus is also the only event this document gets out of a
+	// transfer into the frame — nothing fires once focus is inside it, and Firefox
+	// does not even blur the window for it.
 	$effect(() => {
 		function onFocusIn(e: FocusEvent) {
-			if (!focusReclaim) return
-			const target = textEntry(e.target)
-			focusReclaim = target ? { ...focusReclaim, target } : undefined
+			// Focus entering the frame is never the user picking another field out here
+			// (and per spec the frame element is in the new focus chain).
+			if (Date.now() > reclaimUntil || e.target === frame) return
+			reclaimTarget = textEntry(e.target)
+			if (reclaimTarget) userMovedFocus = false
 		}
-		document.addEventListener('focusin', onFocusIn, true)
-		return () => document.removeEventListener('focusin', onFocusIn, true)
-	})
-
-	// The armed field losing focus is the only event this document gets out of the
-	// transfer — nothing fires once focus is inside the frame, and Firefox does not
-	// even blur the window for it.
-	$effect(() => {
+		function onKeyDown(e: KeyboardEvent) {
+			// Tab out of the field is the user steering focus, and the frame may well be
+			// the next stop — nothing to reclaim.
+			if (e.key === 'Tab' && e.target === reclaimTarget) userMovedFocus = true
+		}
 		function onFocusOut(e: FocusEvent) {
-			const reclaim = focusReclaim
-			if (!reclaim || e.target !== reclaim.target) return
-			// Once the frame is hooked, `frameInteracted` below is the whole answer.
+			const target = reclaimTarget
+			if (!target || e.target !== target || Date.now() > reclaimUntil) return
+			// Once the frame is hooked, `userMovedFocus` below is the whole answer.
 			// Until then, read the frame's focus now, while it still reflects the move
 			// that just happened — a page autofocuses its own field a tick later.
 			const looksAutomatic = frameIsHooked() || frameFocusIsRouterReset()
@@ -229,17 +238,20 @@
 			// moves activeElement but not the keyboard: the in-flight transfer lands
 			// last, leaving the caret drawn here and the keystrokes going to the frame.
 			setTimeout(() => {
-				if (focusReclaim !== reclaim || !frame || document.activeElement !== frame) return
-				if (frameInteracted || Date.now() > reclaim.until || !reclaim.target.isConnected) {
-					focusReclaim = undefined
-					return
-				}
+				if (reclaimTarget !== target || !frame || document.activeElement !== frame) return
+				if (userMovedFocus || Date.now() > reclaimUntil || !target.isConnected) return
 				if (!looksAutomatic) return
-				reclaim.target.focus({ preventScroll: true })
+				target.focus({ preventScroll: true })
 			}, 0)
 		}
+		document.addEventListener('focusin', onFocusIn, true)
+		document.addEventListener('keydown', onKeyDown, true)
 		document.addEventListener('focusout', onFocusOut, true)
-		return () => document.removeEventListener('focusout', onFocusOut, true)
+		return () => {
+			document.removeEventListener('focusin', onFocusIn, true)
+			document.removeEventListener('keydown', onKeyDown, true)
+			document.removeEventListener('focusout', onFocusOut, true)
+		}
 	})
 	$effect(() => () => clearInterval(hookTimer))
 
