@@ -1035,8 +1035,11 @@ pub const INTERNAL_RESOURCE_TYPES: [&str; 2] = ["state", "cache"];
 /// make the drawer fetch an unbounded list.
 pub const MAX_RESOURCE_VERSIONS: i64 = 100;
 
-/// High enough that only a loop reaches it: someone iterating on a resource by hand never will.
-const RESOURCE_WRITE_ADVISORY_PER_MIN: u32 = 60;
+/// Above any plausible hand-editing cadence, and the rate at which the retained history stops
+/// being useful: at this many writes a minute, MAX_RESOURCE_VERSIONS covers only five minutes.
+/// Counting is per process, so N servers raise the effective threshold to N times this; erring
+/// low is the safe direction for something that only ever logs.
+const RESOURCE_WRITE_ADVISORY_PER_MIN: u32 = 20;
 
 struct ResourceWriteRate {
     count: u32,
