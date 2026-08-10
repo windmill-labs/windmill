@@ -12,6 +12,7 @@
 	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
+	import { createFrameFocusGuard } from './frameFocusGuard'
 
 	let {
 		tab,
@@ -90,10 +91,10 @@
 		// each editor view's onDeploy → runtime.syncPreviewWithDeployed. So only the
 		// iframe fallback (a separate page) has to be told to refresh.
 		if (slot.kind === 'editor') return
-		armFocusReclaim()
 		try {
 			const win = frame?.contentWindow
 			if (!win) return
+			focusGuard.arm()
 			// Reload the page the user is actually viewing (observed `loc`, canonical
 			// with nomenubar/workspace stripped), re-injecting nomenubar + workspace.
 			// A plain location.reload() would reload the iframe's current URL, which
@@ -115,158 +116,19 @@
 
 	const iframeSrc = $derived(withMenuHidden(tab.url, workspaceId || undefined))
 
-	// A preview frame boots the whole app, and SvelteKit's router focuses the
-	// frame's document body on every navigation — which drags focus off whatever
-	// the user is typing in (the chat composer, mid-message, while the assistant
-	// opens or reloads previews). Hand it back, bounded to the load the session
-	// itself triggered: a click into the frame is the user's own move to make.
-	const FOCUS_RECLAIM_WINDOW_MS = 10_000
-	// The frame's document has to be hooked before its app hydrates — which is well
-	// before the frame's load event — so poll for it instead of waiting for load.
-	const FRAME_HOOK_INTERVAL_MS = 50
-	// How long a load this host triggered may hand focus back. Independent of the
-	// field below, so leaving the composer and coming back re-arms within the window.
-	let reclaimUntil = 0
-	// The field to hand focus back to; re-pointed as focus moves around this
-	// document, and undefined whenever it rests somewhere untypable.
-	let reclaimTarget: HTMLElement | undefined
-	// The user moved focus into the frame themselves — clicked or typed in there, or
-	// tabbed out of the field — so the frame holding focus is their doing, not the
-	// previewed page's.
-	let userMovedFocus = false
-	const hookedDocs = new WeakSet<Document>()
-	let hookTimer: ReturnType<typeof setInterval> | undefined
-
-	function textEntry(el: EventTarget | null): HTMLElement | undefined {
-		if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) return el
-		if (el instanceof HTMLElement && el.isContentEditable) return el
-		return undefined
-	}
-
-	function armFocusReclaim() {
-		reclaimTarget = textEntry(document.activeElement)
-		reclaimUntil = Date.now() + FOCUS_RECLAIM_WINDOW_MS
-		userMovedFocus = false
-		hookFrameDocument()
-		clearInterval(hookTimer)
-		hookTimer = setInterval(() => {
-			hookFrameDocument()
-			if (Date.now() > reclaimUntil) {
-				clearInterval(hookTimer)
-				hookTimer = undefined
-			}
-		}, FRAME_HOOK_INTERVAL_MS)
-	}
-
-	// Whether the user has acted inside the frame is the whole question, and a click
-	// or keypress in there reaches no listener out here — so read it off the frame's
-	// own document (same-origin). These fire ahead of the focus move they cause,
-	// which is what separates a user's click from focus the page took by itself.
-	function hookFrameDocument() {
-		try {
-			const doc = frame?.contentDocument
-			if (!doc || hookedDocs.has(doc)) return
-			hookedDocs.add(doc)
-			const mark = () => (userMovedFocus = true)
-			doc.addEventListener('pointerdown', mark, true)
-			doc.addEventListener('keydown', mark, true)
-		} catch {
-			// Defensively cross-origin; the fallback below decides instead.
-		}
-	}
-
-	function frameIsHooked(): boolean {
-		try {
-			const doc = frame?.contentDocument
-			return !!doc && hookedDocs.has(doc)
-		} catch {
-			return false
-		}
-	}
-
-	// Fallback for a document not hooked yet (one poll tick, or cross-origin): the
-	// router parks focus on the frame's body, so anything else focused in there was
-	// more likely clicked. Too coarse to rely on once the frame is hooked — a
-	// previewed page that autofocuses a field of its own (Runs does) would read as a
-	// user's click. An unreadable frame is not reclaimable, as in the catch.
-	function frameFocusIsRouterReset(): boolean {
-		try {
-			const doc = frame?.contentDocument
-			if (!doc) return false
-			return !doc.activeElement || doc.activeElement === doc.body
-		} catch {
-			return false
-		}
-	}
-
+	// Loads this host drives steal focus from whatever the user is typing in — the
+	// frame boots the whole app, and its router focuses the frame's body. The guard
+	// hands it back; see frameFocusGuard.ts for why it can only be undone, not
+	// prevented.
+	const focusGuard = createFrameFocusGuard(() => frame)
 	// Arms on mount and on every src change (a tab opened or re-pointed by the
 	// assistant); reload() arms for the in-frame navigations it drives.
 	$effect(() => {
 		void iframeSrc
 		if (!frame) return
-		armFocusReclaim()
+		focusGuard.arm()
 	})
-
-	// Follow focus around this document: it decides which field a reclaim would
-	// hand focus back to, and whether the user moved out of it themselves. The
-	// armed field losing focus is also the only event this document gets out of a
-	// transfer into the frame — nothing fires once focus is inside it, and Firefox
-	// does not even blur the window for it.
-	$effect(() => {
-		function onFocusIn(e: FocusEvent) {
-			// Focus entering the frame is never the user picking another field out here
-			// (and per spec the frame element is in the new focus chain).
-			if (Date.now() > reclaimUntil || e.target === frame) return
-			reclaimTarget = textEntry(e.target)
-			if (reclaimTarget) userMovedFocus = false
-		}
-		function onKeyDown(e: KeyboardEvent) {
-			// Tab out of the field is the user steering focus, and the frame may well be
-			// the next stop — nothing to reclaim. This runs before the field decides
-			// whether to consume the key (the composer's @-mention and /-command pickers
-			// take Tab to accept an item), so take the mark back once the dust settles
-			// and the field still has focus.
-			const target = reclaimTarget
-			if (e.key !== 'Tab' || e.target !== target) return
-			userMovedFocus = true
-			setTimeout(() => {
-				if (document.activeElement === target) userMovedFocus = false
-			}, 0)
-		}
-		function onFocusOut(e: FocusEvent) {
-			const target = reclaimTarget
-			if (!target || e.target !== target || Date.now() > reclaimUntil) return
-			// Read both verdicts at the moment focus leaves, not when the reclaim
-			// resolves: what the user did *before* that is what says whether they meant
-			// to leave, while a keystroke that lands in the frame in the gap is a
-			// symptom of the steal.
-			// Once the frame is hooked, `userMovedFocus` is the whole answer. Until
-			// then, its focus still reflects the move that just happened — a page
-			// autofocuses its own field a tick later.
-			const userLeft = userMovedFocus
-			const looksAutomatic = frameIsHooked() || frameFocusIsRouterReset()
-			// The verdict on this document waits a task, because the transfer into the
-			// frame is still in flight here — Chrome still reports the body as
-			// document.activeElement — and because focusing from inside the handler
-			// moves activeElement but not the keyboard: the in-flight transfer lands
-			// last, leaving the caret drawn here and the keystrokes going to the frame.
-			setTimeout(() => {
-				if (reclaimTarget !== target || !frame || document.activeElement !== frame) return
-				if (userLeft || Date.now() > reclaimUntil || !target.isConnected) return
-				if (!looksAutomatic) return
-				target.focus({ preventScroll: true })
-			}, 0)
-		}
-		document.addEventListener('focusin', onFocusIn, true)
-		document.addEventListener('keydown', onKeyDown, true)
-		document.addEventListener('focusout', onFocusOut, true)
-		return () => {
-			document.removeEventListener('focusin', onFocusIn, true)
-			document.removeEventListener('keydown', onKeyDown, true)
-			document.removeEventListener('focusout', onFocusOut, true)
-		}
-	})
-	$effect(() => () => clearInterval(hookTimer))
+	$effect(() => () => focusGuard.destroy())
 
 	const visibility = $derived(
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
@@ -385,7 +247,6 @@
 			// Re-apply after load so a toggle that happened while the frame was
 			// loading (its layout read the pre-toggle preference) isn't lost.
 			applyPageIframeTheme(darkMode, f)
-			hookFrameDocument()
 			onLoad(f)
 		}}
 		title="Session preview: {label}"
