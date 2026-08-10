@@ -75,13 +75,13 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 	tab.loc = url
 }
 
+const withoutHash = (loc: string) => loc.split('#')[0]
+
 // Strip the query params the sessions preview injects into iframe URLs
 // (`nomenubar` to hide the nav, `workspace` to scope the page): they aren't part
 // of the canonical page URL. The observed `loc` must drop them to stay symmetric
 // with `url` (targetUrl, which never carries them), else reopening the same page
 // spawns a duplicate tab instead of focusing the existing one.
-const withoutHash = (loc: string) => loc.split('#')[0]
-
 export function canonicalizeObservedLoc(loc: string): string {
 	try {
 		const u = new URL(loc, 'http://_')
@@ -324,11 +324,17 @@ export class SessionPreviewTabs {
 	// `forceNewTab` opts a page out of that location dedupe (open_page's `new_tab`).
 	// It deliberately does not reach the item, pipeline and artifact branches: those
 	// dedupe because a second tab would fight over one piece of shared state.
-	open(target: PreviewTarget, opts?: { forceNewTab?: boolean }): { status: 'opened' | 'focused' } {
+	open(
+		target: PreviewTarget,
+		opts?: { forceNewTab?: boolean }
+	): { status: 'opened' | 'focused' | 'retargeted' } {
 		return this.#pulsingIfUnchanged(() => this.#open(target, opts))
 	}
 
-	#open(target: PreviewTarget, opts?: { forceNewTab?: boolean }): { status: 'opened' | 'focused' } {
+	#open(
+		target: PreviewTarget,
+		opts?: { forceNewTab?: boolean }
+	): { status: 'opened' | 'focused' | 'retargeted' } {
 		const editorTarget = editorTargetFor(target)
 		// A fresh session starts collapsed, so without this the tab opens behind a
 		// collapsed panel and the user sees nothing change.
@@ -392,7 +398,7 @@ export class SessionPreviewTabs {
 			if (!same) retargetTab(shown, url)
 			this.#activeId = shown.id
 			this.#flush()
-			return { status: same ? 'focused' : 'opened' }
+			return { status: same ? 'focused' : 'retargeted' }
 		}
 		const tab: SessionPreviewTab = { id: randomUUID(), url, loc: url }
 		this.#tabs.push(tab)

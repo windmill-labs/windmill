@@ -241,14 +241,16 @@ describe('SessionPreviewTabs.open', () => {
 		o.open(routes('/routes#u/me/a'))
 		const firstId = o.activeId
 
+		// 'retargeted', not 'opened': the tab count is unchanged, and the caller
+		// reports that to the model.
 		const res = o.open(routes('/routes#u/me/b'))
-		expect(res.status).toBe('opened')
+		expect(res.status).toBe('retargeted')
 		expect(o.tabs).toHaveLength(1)
 		expect(o.activeId).toBe(firstId)
 		expect(o.tabs[0].url).toBe('/routes#u/me/b')
 
 		// Back to the bare list: still the same tab, no longer anchored at a row.
-		expect(o.open(routes('/routes')).status).toBe('opened')
+		expect(o.open(routes('/routes')).status).toBe('retargeted')
 		expect(o.tabs).toHaveLength(1)
 		expect(o.tabs[0].url).toBe('/routes')
 

@@ -1095,6 +1095,11 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 		}
 		return `A preview tab is already showing ${label} — focused it and applied the filters.`
 	}
+	// The tab count did not change: saying "opened a new tab" would leave the model
+	// believing in a tab that does not exist, and offering to close it.
+	if (result.status === 'retargeted') {
+		return `Re-pointed the existing ${label} preview tab at the requested view.`
+	}
 	return `Opened ${label} in a new preview tab in the side panel.`
 })
 
