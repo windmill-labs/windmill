@@ -766,8 +766,11 @@ function syncRoot(): string {
  * command read wmill.yaml: reading it chdirs into the directory holding it, and
  * a relative argument was written against the directory the user was in.
  * Arguments are resolved against that directory first and the sync root second,
- * so both readings work; one that exists under neither resolves against the
- * sync root and is left for the caller to reject.
+ * so both readings work.
+ *
+ * Resolving the sync root leaves the process in it, which is what makes the
+ * returned path readable by the caller — keep that in step if this ever stops
+ * going through `getWmillYamlPath`.
  */
 export function toSyncRootRelativePath(
   arg: string,
@@ -777,7 +780,14 @@ export function toSyncRootRelativePath(
   const candidates = isAbsolute(arg)
     ? [arg]
     : [resolve(cwdBeforeConfig, arg), resolve(root, arg)];
-  const abs = candidates.find((c) => existsSync(c)) ?? candidates.at(-1)!;
+  // A descriptor-less dbt project is named by a file that is deliberately not
+  // there, so an argument existing under neither reading is still a real one if
+  // the directory holding it is; only a path whose directory is missing too
+  // falls through to the sync-root reading for the caller to reject.
+  const abs =
+    candidates.find((c) => existsSync(c)) ??
+    candidates.find((c) => existsSync(dirname(c))) ??
+    candidates.at(-1)!;
   const rel = relative(root, abs);
   if (rel === "") return ".";
   if (!rel.startsWith("..")) return rel;

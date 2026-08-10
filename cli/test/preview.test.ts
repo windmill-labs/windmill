@@ -591,16 +591,20 @@ test("flow preview: step job path is anchored on the flow's Windmill path", asyn
       scriptContent: `export function main() { return process.env.WM_JOB_PATH; }`,
     });
 
-    const invocations: Array<[string, string]> = [
-      ["f/test/job_path_flow.flow", tempDir],
-      ["./f/test/job_path_flow.flow", tempDir],
-      [`${tempDir}/f/test/job_path_flow.flow`, tempDir],
-      ["job_path_flow.flow", `${tempDir}/f/test`],
+    // The last one is `--remote` from a subdirectory: that combination reads
+    // no config of its own, so it is the one shape where nothing but the path
+    // resolution can put the process in the sync root.
+    const invocations: Array<[string[], string]> = [
+      [["f/test/job_path_flow.flow"], tempDir],
+      [["./f/test/job_path_flow.flow"], tempDir],
+      [[`${tempDir}/f/test/job_path_flow.flow`], tempDir],
+      [["job_path_flow.flow"], `${tempDir}/f/test`],
+      [["--remote", "job_path_flow.flow"], `${tempDir}/f/test`],
     ];
 
-    for (const [arg, workingDir] of invocations) {
+    for (const [args, workingDir] of invocations) {
       const result = await backend.runCLICommand(
-        ["flow", "preview", arg, "--silent"],
+        ["flow", "preview", ...args, "--silent"],
         workingDir
       );
 
