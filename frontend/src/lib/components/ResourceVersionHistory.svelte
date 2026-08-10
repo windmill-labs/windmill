@@ -64,27 +64,26 @@
 		loaded = undefined
 		selectedId = undefined
 		currentValue = ''
-		// One request, and one statement behind it, so the list and the live value cannot disagree:
-		// labelling the newest version "Current" and diffing against the live value are only
-		// coherent if no write can have landed between the two reads.
 		const history = await ResourceService.getResourceHistory({
 			workspace: effectiveWorkspace,
 			path
 		})
 		if (generation !== loadGeneration) return
 		const list = history.versions ?? []
-		neverVersioned = history.versioned === false
-		versions = list
 		// The diff baseline is the newest version, not the resource's live value, even though the
 		// two hold the same thing. Versions are immutable and addressed by id, so this cannot
 		// disagree with the list it came from; reading `resource` instead would reintroduce a
 		// mutable second source that a concurrent write can move out from under the list.
-		const [newest] = await Promise.all([
-			list[0] === undefined ? undefined : fetchVersion(list[0].id),
-			selectVersion(list[1]?.id ?? list[0]?.id, generation)
-		])
+		const newest = list[0] === undefined ? undefined : await fetchVersion(list[0].id)
 		if (generation !== loadGeneration) return
+		// The list is published only once the baseline is in hand, so there is no window where a
+		// version can be selected and diffed against a baseline that never arrived.
 		currentValue = newest?.value ?? pretty(null)
+		neverVersioned = history.versioned === false
+		versions = list
+		// Nothing is selected on open, as in ScriptVersionHistory. Pre-selecting a version would
+		// fill the pane with JSON that reads as the resource's value without being it, since the
+		// drawer opens on the value view rather than the diff.
 	}
 
 	async function fetchVersion(id: number) {
