@@ -659,7 +659,8 @@ async fn list_pending_invites(
             workspace_invite.operator,
             workspace.parent_workspace_id
         FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id
-        WHERE workspace_id = $1",
+        WHERE workspace_id = $1
+        ORDER BY workspace_invite.email",
         w_id
     )
     .fetch_all(&mut *tx)
@@ -11439,6 +11440,7 @@ const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
     ("ai_chat", "message"),
     ("ai_chat", "model"),
     ("ai_chat", "tool"),
+    ("flow_editor", "panel_placement"),
 ];
 
 fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
@@ -11582,6 +11584,16 @@ async fn get_cloud_quotas(
     .await?
     .unwrap_or(0);
 
+    // Every path keeps exactly one current version, so the prunable count is the total minus
+    // the number of distinct paths — one scan rather than a probe per row.
+    let resources_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) - COUNT(DISTINCT path) FROM resource_version WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
     let variables_used = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
         &w_id
@@ -11622,7 +11634,7 @@ async fn get_cloud_quotas(
         flows: QuotaInfo { used: flows_used, limit: 1000, prunable: flows_prunable },
         apps: QuotaInfo { used: apps_used, limit: 1000, prunable: apps_prunable },
         variables: QuotaInfo { used: variables_used, limit: 10000, prunable: 0 },
-        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: 0 },
+        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: resources_prunable },
         forks,
     }))
 }
@@ -11709,9 +11721,25 @@ async fn prune_versions(
 
             deleted.rows_affected()
         }
+        "resources" => {
+            // No `versions` array to rewrite afterwards, unlike flows and apps: the latest
+            // version is whichever row has the highest id for the path.
+            let deleted = sqlx::query(
+                "DELETE FROM resource_version
+                WHERE workspace_id = $1
+                AND id NOT IN (
+                    SELECT max(id) FROM resource_version
+                    WHERE workspace_id = $1 GROUP BY path
+                )",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+            deleted.rows_affected()
+        }
         _ => {
             return Err(Error::BadRequest(format!(
-                "Invalid resource type '{}'. Must be 'scripts', 'flows', or 'apps'",
+                "Invalid resource type '{}'. Must be 'scripts', 'flows', 'apps', or 'resources'",
                 req.resource_type
             )));
         }

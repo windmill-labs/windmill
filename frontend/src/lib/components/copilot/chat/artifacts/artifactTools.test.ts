@@ -107,13 +107,21 @@ describe('artifact tools', () => {
 
 	it('update_artifact overwrites content and persists', async () => {
 		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'v1' }))
-		const res = JSON.parse(await ctx.call('update_artifact', { id: a.id, content: 'v2' }))
+		const res = JSON.parse(
+			await ctx.call('update_artifact', {
+				id: a.id,
+				content: 'v2',
+				change_note: 'Reworded the intro'
+			})
+		)
 		expect(res.success).toBe(true)
 		expect((await ctx.dbMod.getArtifact(a.id))?.content).toBe('v2')
 	})
 
 	it('update_artifact reports a missing id', async () => {
-		const res = JSON.parse(await ctx.call('update_artifact', { id: 'nope', content: 'x' }))
+		const res = JSON.parse(
+			await ctx.call('update_artifact', { id: 'nope', content: 'x', change_note: 'n/a' })
+		)
 		expect(res.success).toBe(false)
 		expect(res.error).toMatch(/No artifact/)
 	})
@@ -121,6 +129,55 @@ describe('artifact tools', () => {
 	it('read_artifact reports a missing id', async () => {
 		const res = JSON.parse(await ctx.call('read_artifact', { id: 'nope' }))
 		expect(res.success).toBe(false)
+	})
+
+	it('exposes the version history and reads an earlier version by number', async () => {
+		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'v1' }))
+		await ctx.call('update_artifact', {
+			id: a.id,
+			content: 'v2',
+			change_note: 'Reworded the intro'
+		})
+
+		const versions = JSON.parse(await ctx.call('list_artifact_versions', { id: a.id }))
+		expect(versions.map((v: any) => [v.version, v.current, v.note])).toEqual([
+			[2, true, 'Reworded the intro'],
+			// A first version has no note — the picker labels it itself.
+			[1, false, undefined]
+		])
+		expect(JSON.parse(await ctx.call('read_artifact', { id: a.id, version: 1 })).content).toBe('v1')
+		// Omitting the version, and naming the current one, both read the live content.
+		expect(JSON.parse(await ctx.call('read_artifact', { id: a.id })).content).toBe('v2')
+		expect(JSON.parse(await ctx.call('read_artifact', { id: a.id, version: 2 })).content).toBe('v2')
+	})
+
+	it('stores an overlong change note truncated rather than failing the update', async () => {
+		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'v1' }))
+		const res = JSON.parse(
+			await ctx.call('update_artifact', { id: a.id, content: 'v2', change_note: 'x'.repeat(300) })
+		)
+		// The content edit must land: the note is a label, not a reason to reject the write.
+		expect(res.success).toBe(true)
+		expect((await ctx.dbMod.getArtifact(a.id))?.content).toBe('v2')
+		const [latest] = await ctx.store.listVersions(a.id)
+		expect(latest.note).toHaveLength(120)
+	})
+
+	it('stores a blank change note as absent so the picker can label it', async () => {
+		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'v1' }))
+		// Whitespace-only survives zod's `z.string()`; "" is not nullish, so it would slip
+		// past the picker's fallback and render a row with no label at all.
+		await ctx.call('update_artifact', { id: a.id, content: 'v2', change_note: '   ' })
+
+		const [latest] = await ctx.store.listVersions(a.id)
+		expect(latest.note).toBeUndefined()
+	})
+
+	it('read_artifact reports a version that was never saved or has been pruned', async () => {
+		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'v1' }))
+		const res = JSON.parse(await ctx.call('read_artifact', { id: a.id, version: 7 }))
+		expect(res.success).toBe(false)
+		expect(res.error).toMatch(/list_artifact_versions/)
 	})
 
 	it('rejects content over the size cap without persisting', async () => {
@@ -133,8 +190,16 @@ describe('artifact tools', () => {
 
 	it('reports unavailable when there is no session', async () => {
 		const noSession = await fresh(undefined)
-		for (const name of ['create_artifact', 'list_artifacts', 'update_artifact', 'read_artifact']) {
-			const res = JSON.parse(await noSession.call(name, { id: 'x', name: 'A', content: 'a' }))
+		for (const name of [
+			'create_artifact',
+			'list_artifacts',
+			'update_artifact',
+			'read_artifact',
+			'list_artifact_versions'
+		]) {
+			const res = JSON.parse(
+				await noSession.call(name, { id: 'x', name: 'A', content: 'a', change_note: 'n/a' })
+			)
 			expect(res.success).toBe(false)
 			expect(res.error).toMatch(/inside an AI session/)
 		}
@@ -154,7 +219,9 @@ describe('artifact tools', () => {
 		})
 		const read = JSON.parse(await ctx.call('read_artifact', { id: 'other' }))
 		expect(read.success).toBe(false)
-		const updated = JSON.parse(await ctx.call('update_artifact', { id: 'other', content: 'x' }))
+		const updated = JSON.parse(
+			await ctx.call('update_artifact', { id: 'other', content: 'x', change_note: 'n/a' })
+		)
 		expect(updated.success).toBe(false)
 		// The other session's content is untouched.
 		expect((await ctx.dbMod.getArtifact('other'))?.content).toBe('secret')

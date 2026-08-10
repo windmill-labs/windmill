@@ -6975,7 +6975,7 @@ paths:
 
   /w/{workspace}/workspaces/prune_versions:
     post:
-      summary: prune old versions of scripts, flows, or apps
+      summary: prune old versions of scripts, flows, apps, or resources
       operationId: pruneVersions
       tags:
         - workspace
@@ -6994,6 +6994,7 @@ paths:
                     - scripts
                     - flows
                     - apps
+                    - resources
               required:
                 - resource_type
       responses:
@@ -7728,6 +7729,102 @@ paths:
       responses:
         "200":
           description: resource value updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/resources/history/p/{path}:
+    get:
+      summary: get resource version history
+      operationId: getResourceHistory
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: resource version history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ResourceVersion"
+                  versioned:
+                    type: boolean
+                required:
+                  - versions
+                  - versioned
+    delete:
+      summary: clear a resource's past versions, keeping only the current value
+      operationId: clearResourceHistory
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: history cleared
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/resources/history/v/{version}:
+    get:
+      summary: get a single resource version, with its value
+      operationId: getResourceVersion
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: resource version
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ResourceVersion"
+                  - type: object
+                    properties:
+                      value: {}
+                      missing_references:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - missing_references
+
+  /w/{workspace}/resources/history/restore/v/{version}:
+    post:
+      summary: restore a resource to a previous version
+      operationId: restoreResourceVersion
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: resource restored
           content:
             text/plain:
               schema:
@@ -27963,6 +28060,21 @@ components:
         - path
         - resource_type
         - is_oauth
+
+    ResourceVersion:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+      required:
+        - id
+        - created_at
 
     ListableResource:
       type: object

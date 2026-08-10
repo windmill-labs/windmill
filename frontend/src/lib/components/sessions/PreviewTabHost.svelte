@@ -245,8 +245,8 @@
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
 	>
-		{#if artifact}
-			<ArtifactViewer {artifact} />
+		{#if artifact && runtime}
+			<ArtifactViewer {artifact} store={runtime.manager.artifacts} />
 		{:else if !runtime?.manager.artifacts.loading}
 			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
 		{/if}

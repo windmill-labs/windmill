@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, emptyString } from '$lib/utils'
+	import { emptyString } from '$lib/utils'
 	import { ScriptService, type ScriptHistory } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
@@ -10,6 +10,7 @@
 	import { ExternalLink, Pencil, ArrowRight, X, Diff, Code } from 'lucide-svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import VersionListItem from './VersionListItem.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -66,14 +67,8 @@
 				{#if versions && versions.length > 0}
 					<div class="flex gap-2 flex-col">
 						{#each versions ?? [] as version, versionIndex}
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div
-								class={classNames(
-									'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer ',
-									selectedVersion?.script_hash == version.script_hash ? 'bg-surface-selected' : '',
-									'hover:bg-surface-hover'
-								)}
+							<VersionListItem
+								selected={selectedVersion?.script_hash == version.script_hash}
 								onclick={() => {
 									selectedVersion = version
 									selectedVersionIndex = versionIndex
@@ -98,20 +93,22 @@
 								<span class="text-xs truncate">
 									{#if emptyString(version.deployment_msg)}Version {version.script_hash}{:else}{version.deployment_msg}{/if}
 								</span>
-								{#if openDetails}
-									<Button
-										on:click={() => {
-											dispatch('openDetails', { version: version.script_hash })
-										}}
-										class="ml-2 inline-flex gap-1 text-xs items-center"
-										size="xs"
-										color="light"
-										variant="border"
-									>
-										Run page<ExternalLink size={14} />
-									</Button>
-								{/if}
-							</div>
+								{#snippet action()}
+									{#if openDetails}
+										<Button
+											on:click={() => {
+												dispatch('openDetails', { version: version.script_hash })
+											}}
+											class="mr-2 shrink-0 inline-flex gap-1 text-xs items-center"
+											size="xs"
+											color="light"
+											variant="border"
+										>
+											Run page<ExternalLink size={14} />
+										</Button>
+									{/if}
+								{/snippet}
+							</VersionListItem>
 						{/each}
 					</div>
 				{:else}
