@@ -4253,8 +4253,7 @@ function finishDraftWrite(
 // Per-draft-kind knowledge for the shared write skeleton. `fetchDeployed` returns
 // the deployed item already shaped as a draft value (e.g. script with parent_hash)
 // so `buildDraft` treats a draft base and a deployed base identically; a `base` of
-// undefined is the create-from-scratch case. `beforePersist` is a kind-local side
-// effect run after the value is built (only variable, for its in-memory secret).
+// undefined is the create-from-scratch case.
 type WriteSpec<T, A> = {
 	probe: (workspace: string, path: string) => Promise<boolean>
 	fetchDeployed: (workspace: string, path: string) => Promise<T>

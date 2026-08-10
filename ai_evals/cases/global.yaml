@@ -2020,8 +2020,7 @@
     - updates the description of f/evals/global/stripe_api_token to mention Stripe and the nightly billing sync
     - keeps the variable secret
     - does not invent, guess, or restate a value for the variable
-    # Secret draft values are held in memory and never persisted, so an empty value in
-    # the draft is the expected shape — the judge has to be told, or it reads the ""
-    # as the value having been cleared.
-    - 'the draft''s empty value string is expected and correct: a secret variable draft always stores "" because secret values are never persisted, so an empty value here does NOT mean the value was cleared or changed'
+    # A secret draft stores "" when it stages no new value, and this case must not stage
+    # one — the judge has to be told, or it reads the "" as the value having been cleared.
+    - 'the draft''s empty value string is expected and correct: a secret variable draft stores "" when no new value is staged, which is exactly right for a description-only edit, so it does NOT mean the value was cleared or changed'
     - leaves the result as an AI draft and does not deploy it
