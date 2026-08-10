@@ -8,8 +8,19 @@ import {
 	parsePreviewItemRoute,
 	parsePreviewSelectedId,
 	previewLocationLabel,
-	resolvePreviewTab
+	resolvePreviewTab,
+	stripBaseKeepingSuffix
 } from './previewRouter'
+import { base } from '$lib/base'
+
+describe('stripBaseKeepingSuffix', () => {
+	it('drops the deployment base but keeps the query and hash', () => {
+		expect(stripBaseKeepingSuffix(`${base}/schedules?path=f/a#u/me/daily`)).toBe(
+			'/schedules?path=f/a#u/me/daily'
+		)
+		expect(stripBaseKeepingSuffix(`${base}/schedules`)).toBe('/schedules')
+	})
+})
 
 describe('matchReusablePage', () => {
 	it('matches curated pages and the compare page, ignoring query params', () => {

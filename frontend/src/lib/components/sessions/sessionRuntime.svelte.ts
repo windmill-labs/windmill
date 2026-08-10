@@ -374,7 +374,8 @@ function createRuntime(session: Session): SessionRuntime {
 		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
 		const location = stripBaseKeepingSuffix(where)
 		// Every page that deep-links a row does it through `#<path>` (schedules,
-		// the trigger lists, variables), so the hash IS the open item.
+		// the trigger lists, variables), so the hash names the row the page is
+		// anchored at.
 		const hash = location.indexOf('#')
 		return {
 			label: previewLocationLabel(where),

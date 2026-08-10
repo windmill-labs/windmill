@@ -437,12 +437,30 @@
 				}
 			}
 			observe()
-			// Opening a drawer only changes the hash — no reload — so `load` alone
+			// Opening a drawer only changes the hash and a filter change only
+			// rewrites the query, neither of which reloads the frame — `load` alone
 			// would leave `loc` frozen on the page the tab was seeded with. The
 			// listeners live on the framed document and die with it, so each load
-			// re-attaches exactly one pair.
+			// re-attaches exactly one set.
 			win.addEventListener('hashchange', observe)
 			win.addEventListener('popstate', observe)
+			// Filters write their params with `replaceState` (useSearchParams'
+			// shallow routing), which fires no event at all: the only way to see
+			// them is from the history methods themselves. Patched on the framed
+			// window — same-origin, our own app — and guarded so a re-load that
+			// reuses the window can't wrap the wrapper.
+			const w = win as Window & { __wmObservedHistory?: boolean }
+			if (!w.__wmObservedHistory) {
+				w.__wmObservedHistory = true
+				for (const method of ['pushState', 'replaceState'] as const) {
+					const original = win.history[method]
+					win.history[method] = function (this: History, ...args: any[]) {
+						const result = original.apply(this, args as any)
+						observe()
+						return result
+					} as History[typeof method]
+				}
+			}
 		} catch {
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.

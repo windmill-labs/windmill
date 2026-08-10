@@ -262,7 +262,9 @@ export type GlobalActivePreviewContext = {
 	label: string
 	/** Base-stripped location, query and hash included. */
 	location: string
-	/** Path of the item whose drawer the page has open, when it deep-links one. */
+	/** The row the page's URL is anchored at — the one whose drawer the user
+	 * opened. The pages keep the anchor when a drawer is closed, so this says
+	 * where the page is pointed, not that a drawer is on screen right now. */
 	open?: string
 }
 
@@ -1204,6 +1206,7 @@ Rules:
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
+- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against \`open\` (the row the page is anchored at, whose drawer the user opened) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel's *other* tabs.
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.

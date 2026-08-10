@@ -80,6 +80,8 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 // of the canonical page URL. The observed `loc` must drop them to stay symmetric
 // with `url` (targetUrl, which never carries them), else reopening the same page
 // spawns a duplicate tab instead of focusing the existing one.
+const withoutHash = (loc: string) => loc.split('#')[0]
+
 export function canonicalizeObservedLoc(loc: string): string {
 	try {
 		const u = new URL(loc, 'http://_')
@@ -372,8 +374,13 @@ export class SessionPreviewTabs {
 		// are canonicalized because a caller may bake `?workspace=` into the href
 		// (the frame re-injects it from the session anyway) while the observed loc
 		// has had it stripped — comparing raw would reopen the page as a duplicate.
-		const canonicalUrl = canonicalizeObservedLoc(url)
-		const shown = this.#tabs.find((t) => canonicalizeObservedLoc(t.loc) === canonicalUrl)
+		// The hash is dropped from both sides: it is view state inside the page (the
+		// row whose drawer is open), not part of what the tab is showing, so a tab
+		// the user has opened a row in must still count as showing that page.
+		const canonicalUrl = withoutHash(canonicalizeObservedLoc(url))
+		const shown = this.#tabs.find(
+			(t) => withoutHash(canonicalizeObservedLoc(t.loc)) === canonicalUrl
+		)
 		if (shown) {
 			this.#activeId = shown.id
 			this.#flush()

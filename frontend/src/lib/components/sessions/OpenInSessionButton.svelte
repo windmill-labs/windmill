@@ -4,21 +4,26 @@
 	// What an editor hands over for "Open in AI session": the session target it
 	// maps to, the workspace it lives in, and a persist hook run before routing
 	// so the session preview opens the item exactly as currently edited.
-	export type OpenInSessionSource = {
-		/** The item the preview opens on. Surfaces that aren't editable items pass
-		 * `page` instead; exactly one of the two is set. */
-		target?: SessionTarget
-		/** Base-prefixed href of a workspace page the preview opens as a tab (Runs,
-		 * a trigger list). Resolved on click, not at render: a page whose filters
-		 * live in shallow-routed query params never reflects them in `page.url`, so
-		 * only `window.location` read at that moment matches what the user sees. */
-		page?: () => string | undefined
+	type OpenInSessionCommon = {
 		workspaceId?: string
 		beforeOpen?: () => void | Promise<void>
 		/** Where inside the item the preview should open (a flow's `selected`
 		 * step). Steers the editor only — tab identity is (kind, path). */
 		previewParams?: Record<string, string>
 	}
+
+	// A destination is either an editable item or a page, never both and never
+	// neither — the union is what makes that a compile error rather than a button
+	// that silently does nothing.
+	export type OpenInSessionSource = OpenInSessionCommon &
+		(
+			| { target: SessionTarget; page?: never }
+			/** Base-prefixed href of a workspace page the preview opens as a tab (Runs,
+			 * a trigger list). Resolved on click, not at render: a page whose filters
+			 * live in shallow-routed query params never reflects them in `page.url`, so
+			 * only `window.location` read at that moment matches what the user sees. */
+			| { page: () => string | undefined; target?: never }
+		)
 </script>
 
 <script lang="ts">

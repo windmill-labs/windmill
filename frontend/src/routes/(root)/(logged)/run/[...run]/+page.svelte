@@ -943,8 +943,8 @@
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 						{#if showEditButton}
-							<!-- Opens the runnable this job ran in a fresh session, so the chat
-							     starts on the code the user is looking at a run of. Same gate as
+							<!-- Opens the deployed runnable at this job's path, like Edit — unlike
+							     "View script", which pins the hash this run executed. Same gate as
 							     Edit: where direct deployment is off, the way in is "Edit in fork". -->
 							<OpenInSessionButton
 								source={{
