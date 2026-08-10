@@ -104,14 +104,10 @@ export type VariableDraftState = {
 	account?: number
 	is_oauth?: boolean
 	expires_at?: string
-	/** THE invariant for secret variable drafts: `variable.value` is `''` when nothing
-	 * is staged, so any non-empty value is a staged one — either an `$encrypted:`
-	 * marker the draft endpoint encrypted at rest, or plaintext still only in the
-	 * in-tab cell. A value the chat itself wrote is redacted to `''` and kept in
-	 * memory instead, which is what this flag exists for: it records that a rotation
-	 * IS staged, so a lost in-memory value is distinguishable from a metadata-only
-	 * edit and cannot deploy as a rotation that never happened. Sticky until the
-	 * draft is deployed or discarded. */
+	/** Secret drafts store `''` unless a value is staged, so any non-empty value is a
+	 * staged one. A chat-written value is redacted to `''` and held in memory instead —
+	 * this flag records that it exists, so losing it fails loudly rather than deploying
+	 * as a metadata-only edit. Sticky until the draft is deployed or discarded. */
 	pendingSecretValue?: boolean
 }
 
