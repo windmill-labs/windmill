@@ -14,9 +14,10 @@ chrono = "0.4.41"
 # Not crates.io: windmill-labs/duckdb-rs is duckdb-rs 1.10505.0 (DuckDB 1.5.5) plus one
 # patch to the bundled engine, adding the `lock_temp_directory` setting the isolation
 # transform needs to keep out-of-core execution working behind
-# `disabled_filesystems='LocalFileSystem'`. The patch is proposed upstream; when it lands
-# in a released DuckDB this goes back to the crates.io crate. Pinned by rev rather than
-# branch so `cargo update` cannot move the engine. See
+# `disabled_filesystems='LocalFileSystem'`. The patch is written in the shape duckdb/duckdb
+# takes changes but has not been filed there; if it ever lands in a released DuckDB this
+# goes back to the crates.io crate. Pinned by rev rather than branch so `cargo update`
+# cannot move the engine. See
 # https://github.com/windmill-labs/duckdb-rs/blob/windmill/duckdb-1.5.5/crates/libduckdb-sys/windmill/README.md
 duckdb = { git = "https://github.com/windmill-labs/duckdb-rs", rev = "9f2d604fe6054dfc63898c137768bf6c0fb92328", features = [
     "bundled",
