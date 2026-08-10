@@ -36,6 +36,13 @@
 	let selectedId = $state<number | undefined>(undefined)
 	let loaded = $state<{ id: number; value: string; missing: string[] } | undefined>(undefined)
 	let currentValue = $state<string>('')
+	// Distinguishes "the live value is null" from "it could not be read". Conflating them would
+	// diff a version against a value the resource never held.
+	let currentKnown = $state(false)
+	// Bumped per load so a response for a path the drawer has since moved off cannot land. The
+	// component is reused rather than remounted when `path` changes, and `loaded` is what Restore
+	// acts on, so a late response could otherwise restore the previous resource's version.
+	let loadGeneration = 0
 	let view = $state<'value' | 'diff'>('value')
 	let restoring = $state(false)
 	// The newest version holds the live value — recording is a database trigger, so every write
@@ -49,19 +56,30 @@
 	}
 
 	async function loadVersions() {
+		const generation = ++loadGeneration
+		// Cleared before the first await, not after: everything below is actionable state, and
+		// leaving it pointing at the previous resource is what lets Restore act on the wrong one.
 		versions = undefined
+		loaded = undefined
+		selectedId = undefined
+		currentKnown = false
+		currentValue = ''
 		const [list, current] = await Promise.all([
 			ResourceService.getResourceHistory({ workspace: effectiveWorkspace, path }),
-			ResourceService.getResourceValue({ workspace: effectiveWorkspace, path }).catch(() => null)
+			ResourceService.getResourceValue({ workspace: effectiveWorkspace, path })
+				.then((value) => ({ value }))
+				.catch(() => undefined)
 		])
-		currentValue = pretty(current)
+		if (generation !== loadGeneration) return
+		currentKnown = current !== undefined
+		currentValue = pretty(current?.value)
 		versions = list
 		// The newest version mirrors the live value, so the first entry a user can usefully
 		// compare against is the one below it.
-		await selectVersion(list[1]?.id ?? list[0]?.id)
+		await selectVersion(list[1]?.id ?? list[0]?.id, generation)
 	}
 
-	async function selectVersion(id: number | undefined) {
+	async function selectVersion(id: number | undefined, generation = loadGeneration) {
 		selectedId = id
 		if (id === undefined) {
 			loaded = undefined
@@ -73,7 +91,7 @@
 		})
 		// Assigned as one object so the id keying the editor and the value it displays can
 		// never be out of step, whatever order the requests come back in.
-		if (selectedId === id) {
+		if (selectedId === id && generation === loadGeneration) {
 			loaded = { id, value: pretty(version.value), missing: version.missing_references ?? [] }
 		}
 	}
@@ -134,8 +152,8 @@
 				<div class="px-3 py-2 border-b">
 					{#if confirmingClear}
 						<p class="text-2xs text-tertiary mb-2">
-							Delete every past version, keeping only the current value? Past values can no
-							longer be compared or restored.
+							Delete every past version, keeping only the current value? Past values can no longer
+							be compared or restored.
 						</p>
 						<div class="flex flex-row gap-2">
 							<Button size="xs" variant="accent" disabled={clearing} onclick={clearHistory}>
@@ -189,6 +207,10 @@
 				<div class="flex flex-row justify-between items-center gap-2 p-2 border-b">
 					{#if isCurrent}
 						<span class="text-2xs text-tertiary">This is the current value</span>
+					{:else if !currentKnown}
+						<span class="text-2xs text-tertiary">
+							The current value could not be loaded, so there is nothing to compare against
+						</span>
 					{:else}
 						<ToggleButtonGroup bind:selected={view}>
 							{#snippet children({ item })}
@@ -211,14 +233,14 @@
 				{#if loaded.missing.length > 0}
 					<div class="px-3 py-2">
 						<Alert type="warning" size="xs" title="References something that no longer exists">
-							This version references {loaded.missing.join(', ')}. Restoring it leaves the
-							resource pointing at something unresolvable until you recreate it.
+							This version references {loaded.missing.join(', ')}. Restoring it leaves the resource
+							pointing at something unresolvable until you recreate it.
 						</Alert>
 					</div>
 				{/if}
 
 				<div class="grow min-h-0">
-					{#if view === 'diff' && !isCurrent}
+					{#if view === 'diff' && !isCurrent && currentKnown}
 						<!-- Imported on demand: the diff is the only thing here that needs Monaco, and
 						     pulling it in on open would load the editor for everyone who just wants to
 						     read a value. -->
