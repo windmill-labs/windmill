@@ -36,6 +36,9 @@
 	let selectedId = $state<number | undefined>(undefined)
 	let loaded = $state<{ id: number; value: string; missing: string[] } | undefined>(undefined)
 	let currentValue = $state<string>('')
+	// The backend decides this, rather than sending the resource type for the UI to test, so the
+	// list of never-versioned types stays stated once (INTERNAL_RESOURCE_TYPES) instead of being
+	// restated here in TypeScript as well as in the recording trigger's SQL.
 	let neverVersioned = $state(false)
 	// Bumped per load so a response for a path the drawer has since moved off cannot land. The
 	// component is reused rather than remounted when `path` changes, and `loaded` is what Restore
@@ -61,24 +64,35 @@
 		loaded = undefined
 		selectedId = undefined
 		currentValue = ''
-		// One request, so the list and the live value are read from the same snapshot: labelling
-		// the newest version "Current" and diffing against the live value are only coherent if a
-		// write cannot have landed between the two reads.
+		// One request, and one statement behind it, so the list and the live value cannot disagree:
+		// labelling the newest version "Current" and diffing against the live value are only
+		// coherent if no write can have landed between the two reads.
 		const history = await ResourceService.getResourceHistory({
 			workspace: effectiveWorkspace,
 			path
 		})
 		if (generation !== loadGeneration) return
 		const list = history.versions ?? []
-		currentValue = pretty(history.current_value)
-		// Mirrors INTERNAL_RESOURCE_TYPES in windmill-store/src/resources.rs, which the recording
-		// trigger repeats in SQL. These are rewritten by every job and deliberately never versioned,
-		// so their history is permanently empty rather than waiting on a first edit.
-		neverVersioned = history.resource_type === 'state' || history.resource_type === 'cache'
+		neverVersioned = history.versioned === false
 		versions = list
-		// The newest version mirrors the live value, so the first entry a user can usefully
-		// compare against is the one below it.
-		await selectVersion(list[1]?.id ?? list[0]?.id, generation)
+		// The diff baseline is the newest version, not the resource's live value, even though the
+		// two hold the same thing. Versions are immutable and addressed by id, so this cannot
+		// disagree with the list it came from; reading `resource` instead would reintroduce a
+		// mutable second source that a concurrent write can move out from under the list.
+		const [newest] = await Promise.all([
+			list[0] === undefined ? undefined : fetchVersion(list[0].id),
+			selectVersion(list[1]?.id ?? list[0]?.id, generation)
+		])
+		if (generation !== loadGeneration) return
+		currentValue = newest?.value ?? pretty(null)
+	}
+
+	async function fetchVersion(id: number) {
+		const version = await ResourceService.getResourceVersion({
+			workspace: effectiveWorkspace,
+			version: id
+		})
+		return { id, value: pretty(version.value), missing: version.missing_references ?? [] }
 	}
 
 	async function selectVersion(id: number | undefined, generation = loadGeneration) {
@@ -87,14 +101,11 @@
 			loaded = undefined
 			return
 		}
-		const version = await ResourceService.getResourceVersion({
-			workspace: effectiveWorkspace,
-			version: id
-		})
+		const version = await fetchVersion(id)
 		// Assigned as one object so the id keying the editor and the value it displays can
 		// never be out of step, whatever order the requests come back in.
 		if (selectedId === id && generation === loadGeneration) {
-			loaded = { id, value: pretty(version.value), missing: version.missing_references ?? [] }
+			loaded = version
 		}
 	}
 

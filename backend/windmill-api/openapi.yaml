@@ -7755,11 +7755,11 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/ResourceVersion"
-                  current_value: {}
-                  resource_type:
-                    type: string
+                  versioned:
+                    type: boolean
                 required:
                   - versions
+                  - versioned
     delete:
       summary: clear a resource's past versions, keeping only the current value
       operationId: clearResourceHistory

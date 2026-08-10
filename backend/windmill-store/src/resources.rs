@@ -2189,18 +2189,19 @@ struct ResourceVersionWithValue {
     missing_references: Vec<String>,
 }
 
-/// The version list together with the value the resource holds right now. They are returned
-/// together, and read in one transaction, because the drawer compares them: labelling a version
-/// "Current" or diffing against the live value is only coherent if neither can have moved
-/// relative to the other. Fetched as two requests they straddle any concurrent write, and the
-/// drawer would then diff a version against a value its own list contradicts.
+/// Deliberately does not carry the resource's live value. Every write mints a version, so the
+/// newest one already holds it, and `resource_version` rows are immutable — reading the live
+/// value from `resource` instead would mean comparing a mutable row against this list, which at
+/// READ COMMITTED can disagree with it. The drawer reads only versions, and by id, so there is
+/// nothing for a concurrent write to make incoherent.
 #[derive(Serialize)]
 pub struct ResourceHistory {
     versions: Vec<ResourceVersion>,
-    current_value: Option<serde_json::Value>,
-    /// Lets the drawer say that an empty history is permanent rather than promising versions from
-    /// the next edit: INTERNAL_RESOURCE_TYPES are never recorded, so theirs can never fill up.
-    resource_type: Option<String>,
+    /// Whether this resource's history can ever fill, so the drawer can say an empty one is
+    /// permanent rather than promising versions from the next edit. Decided here rather than by
+    /// shipping the type out, so INTERNAL_RESOURCE_TYPES is not restated in TypeScript too.
+    /// Compared against nothing, so unlike the value it carries no coherence risk.
+    versioned: bool,
 }
 
 async fn get_resource_history(
@@ -2222,8 +2223,8 @@ async fn get_resource_history(
     )
     .fetch_all(&mut *tx)
     .await?;
-    let resource = sqlx::query!(
-        "SELECT value, resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+    let resource_type = sqlx::query_scalar!(
+        "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
         w_id,
         path
     )
@@ -2231,14 +2232,11 @@ async fn get_resource_history(
     .await?;
     tx.commit().await?;
 
-    let (current_value, resource_type) = match resource {
-        Some(r) => (r.value, Some(r.resource_type)),
-        None => (None, None),
-    };
     Ok(Json(ResourceHistory {
         versions,
-        current_value,
-        resource_type,
+        versioned: resource_type
+            .map(|t| !INTERNAL_RESOURCE_TYPES.contains(&t.as_str()))
+            .unwrap_or(true),
     }))
 }
 
