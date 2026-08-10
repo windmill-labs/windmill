@@ -456,7 +456,9 @@
 		error && sendUserToast(escapeHtml(error), true)
 	})
 
-	let loginOptionCount = $derived((logins?.length ?? 0) + (saml ? 1 : 0))
+	// Read inside a closure: at this scope TS narrows `logins` to its initializer's
+	// `undefined`, which makes `logins?.length` an access on `never`.
+	let loginOptionCount = $derived.by(() => (logins?.length ?? 0) + (saml ? 1 : 0))
 </script>
 
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
