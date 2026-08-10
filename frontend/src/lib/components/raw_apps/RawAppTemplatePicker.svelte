@@ -374,6 +374,14 @@
 									>instance settings <ExternalLinkIcon size={16} />
 								</a>
 							{/if} to enable this feature.
+						{:else if $superadmin}
+							Configure AI in
+							<a
+								href="{base}/?workspace=admins#superadmin-settings"
+								target="_blank"
+								class="inline-flex items-center gap-1 font-semibold"
+								>instance settings <ExternalLinkIcon size={16} />
+							</a> to enable this feature.
 						{:else}
 							Ask your workspace admin to configure AI in workspace settings to enable this feature.
 						{/if}
