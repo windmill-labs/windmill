@@ -123,7 +123,7 @@
 	// `enabled` alone cannot tell "no providers" from "not loaded yet" and the modal
 	// would announce AI as unconfigured while it is merely unknown. Gate on the
 	// config describing opWs, and load it here so the claim owns its own evidence.
-	const aiConfigLoaded = $derived($copilotWorkspace === opWs)
+	const aiConfigLoaded = $derived(!!opWs && $copilotWorkspace === opWs)
 	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
 
 	$effect(() => {
