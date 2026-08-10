@@ -38,8 +38,8 @@ describe('loadCopilot', () => {
 	it('lets a re-requested workspace win back over the one that superseded it', async () => {
 		const a1 = loadCopilot('a')
 		const b = loadCopilot('b')
-		// Sharing `a1` here would leave `a` unapplied: only the newest request's
-		// result is written, and `a1` already lost that race to `b`.
+		// A per-workspace cache would hand back `a1` here — which has already lost the
+		// apply race to `b`, so `a` would silently never be written.
 		const a2 = loadCopilot('a')
 		expect(requests.map((r) => r.workspace)).toEqual(['a', 'b', 'a'])
 

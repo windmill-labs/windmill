@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Loader2 } from 'lucide-svelte'
 	import type { Policy } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
@@ -359,11 +360,20 @@
 						{#if $userStore?.is_admin}
 							Configure AI in
 							<a
-								href="/workspace_settings?tab=ai"
+								href="{base}/workspace_settings?tab=ai"
 								target="_blank"
 								class="inline-flex items-center gap-1 font-semibold"
 								>workspace settings <ExternalLinkIcon size={16} />
-							</a> to enable this feature.
+							</a>
+							{#if $superadmin}
+								or
+								<a
+									href="{base}/?workspace=admins#superadmin-settings"
+									target="_blank"
+									class="inline-flex items-center gap-1 font-semibold"
+									>instance settings <ExternalLinkIcon size={16} />
+								</a>
+							{/if} to enable this feature.
 						{:else}
 							Ask your workspace admin to configure AI in workspace settings to enable this feature.
 						{/if}

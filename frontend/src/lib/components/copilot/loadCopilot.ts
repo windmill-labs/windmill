@@ -15,21 +15,20 @@ let loadCopilotToken = 0
 
 // Consumers load the config for the workspace they operate on rather than trusting an
 // ancestor to have done it, and they mount together — so share the in-flight request
-// instead of firing one GET each. Only the newest load applies its result, hence only
-// the newest is shareable: a superseded workspace needs a fresh request to win again.
-let inFlight: { workspace: string; token: number; promise: Promise<void> } | undefined
+// instead of firing one GET each. Only ever hold the newest request here: an older one
+// has lost the token, so handing it back would leave its workspace never applied.
+let inFlight: { workspace: string; promise: Promise<void> } | undefined
 
 export function loadCopilot(workspace: string): Promise<void> {
-	if (inFlight && inFlight.workspace === workspace && inFlight.token === loadCopilotToken) {
+	if (inFlight?.workspace === workspace) {
 		return inFlight.promise
 	}
-	const token = ++loadCopilotToken
-	const promise = fetchAndApply(workspace, token).finally(() => {
-		if (inFlight?.token === token) {
+	const promise = fetchAndApply(workspace, ++loadCopilotToken).finally(() => {
+		if (inFlight?.promise === promise) {
 			inFlight = undefined
 		}
 	})
-	inFlight = { workspace, token, promise }
+	inFlight = { workspace, promise }
 	return promise
 }
 
