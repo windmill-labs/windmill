@@ -5378,16 +5378,16 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
-// `authed_email` is the forker's email — `clone_drafts` only carries this
-// user's per-user drafts (and the legacy NULL-email workspace draft, if any)
-// across, since other users aren't added to the fork's `usr` table and
-// their drafts would dangle as orphans.
+// `authed` is the forker — `clone_drafts` only carries this user's per-user
+// drafts (and the legacy NULL-email workspace draft, if any) across, since other
+// users aren't added to the fork's `usr` table and their drafts would dangle as
+// orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    authed_email: &str,
+    authed: &ApiAuthed,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -5441,7 +5441,7 @@ async fn clone_workspace_data(
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone apps with new IDs and app scripts
-    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id).await?;
+    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
@@ -5452,7 +5452,7 @@ async fn clone_workspace_data(
     // own a `usr` row in the fork (see `clone_workspace_full`) so their
     // drafts would dangle and the home-page `draft_users` aggregate would
     // surface them as duplicate legacy entries.
-    clone_drafts(tx, source_workspace_id, target_workspace_id, authed_email).await?;
+    clone_drafts(tx, source_workspace_id, target_workspace_id, &authed.email).await?;
 
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
@@ -6393,11 +6393,35 @@ async fn clone_flow_nodes(
     Ok(())
 }
 
+/// Re-point a cloned app policy at the fork's creator, the way `create_app` / `update_app`
+/// do for a caller who may not preserve someone else's identity: `on_behalf_of` is what
+/// anonymous and publisher executions queue jobs under, and the fork's endpoint outlives
+/// any revocation in the parent.
+fn repoint_cloned_app_identity(policy: &mut serde_json::Value, authed: &ApiAuthed) {
+    let Some(obj) = policy.as_object_mut() else {
+        return;
+    };
+    obj.insert(
+        "on_behalf_of".to_string(),
+        serde_json::Value::String(username_to_permissioned_as(&authed.username)),
+    );
+    obj.insert(
+        "on_behalf_of_email".to_string(),
+        serde_json::Value::String(authed.email.clone()),
+    );
+}
+
 async fn clone_apps(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed: &ApiAuthed,
 ) -> Result<HashMap<i64, i64>> {
+    // `execution_mode` is cloned as-is: protection rules are workspace-scoped and not cloned, so
+    // forcing `publisher` is only a speed bump (the creator can publish an anonymous app in the
+    // fork freely), and it is the one policy field a deploy back to the parent carries verbatim —
+    // `update_app` recomputes the identity but writes the policy wholesale.
+    let preserve_identity = windmill_common::can_preserve_on_behalf_of(authed);
     // Get all apps from source workspace
     let apps = sqlx::query!(
         "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
@@ -6417,10 +6441,25 @@ async fn clone_apps(
     let mut latest_version_ids: HashSet<i64> = HashSet::new();
 
     // Clone apps with new IDs
-    for app in apps {
+    for mut app in apps {
         if let Some(&current_version) = app.versions.last() {
             latest_version_ids.insert(current_version);
         }
+        if !preserve_identity {
+            repoint_cloned_app_identity(&mut app.policy, authed);
+        }
+        // Both halves of what `create_app` demands to set a custom path: admin, and — unless
+        // paths are scoped per workspace — that nobody else holds it. Cloning one instance-wide
+        // would leave the parent's live public URL, resolved with no workspace filter and no
+        // ordering, answering from either row.
+        let scoped = *CLOUD_HOSTED
+            || windmill_common::apps::APP_WORKSPACED_ROUTE
+                .load(std::sync::atomic::Ordering::Relaxed);
+        let custom_path = if scoped && authed.is_admin {
+            app.custom_path
+        } else {
+            None
+        };
         let new_app_id = sqlx::query_scalar!(
             "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -6431,7 +6470,7 @@ async fn clone_apps(
             app.policy,
             &Vec::<i64>::new(), // Start with empty versions array
             app.extra_perms,
-            app.custom_path,
+            custom_path,
         )
         .fetch_one(&mut **tx)
         .await?;
@@ -7284,14 +7323,8 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    if let Err(e) = clone_workspace_data(
-        &mut tx,
-        &db,
-        &parent_workspace_id,
-        &forked_id,
-        &authed.email,
-    )
-    .await
+    if let Err(e) =
+        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed).await
     {
         // A genuine `\u0000` in a source `json` value (`app_version.value` /
         // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
@@ -10988,6 +11021,19 @@ async fn compare_two_flows(
     });
 }
 
+/// The policy minus the identity pair. Deploying cannot converge a difference there — the
+/// target recomputes the identity from the deployer's own choice, which offers its current
+/// value, the deployer, or a typed-in one, never the source's — so listing an app for it
+/// alone leaves an entry no deploy can clear. `script` and `flow` compare no identity either.
+fn policy_without_identity(policy: &serde_json::Value) -> serde_json::Value {
+    let mut policy = policy.clone();
+    if let Some(obj) = policy.as_object_mut() {
+        obj.remove("on_behalf_of");
+        obj.remove("on_behalf_of_email");
+    }
+    policy
+}
+
 async fn compare_two_apps(
     db: &DB,
     source_workspace_id: &str,
@@ -11028,7 +11074,7 @@ async fn compare_two_apps(
     // Check metadata and content differences
     if let (Some(source), Some(target)) = (&source_app, &target_app) {
         if source.summary != target.summary
-            || source.policy != target.policy
+            || policy_without_identity(&source.policy) != policy_without_identity(&target.policy)
             || source.value != target.value
             || source.raw_app != target.raw_app
         {
