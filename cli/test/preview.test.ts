@@ -185,6 +185,60 @@ test("script preview: regular script (non-codebase)", async () => {
   });
 });
 
+test("script preview: job path is the script's Windmill path for every argument shape", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+    await createScript(
+      tempDir,
+      "f/test/job_path_script.ts",
+      `export function main() {
+  return process.env.WM_JOB_PATH;
+}`
+    );
+
+    const invocations: Array<[string, string]> = [
+      ["f/test/job_path_script.ts", tempDir],
+      ["./f/test/job_path_script.ts", tempDir],
+      [`${tempDir}/f/test/job_path_script.ts`, tempDir],
+      ["job_path_script.ts", `${tempDir}/f/test`],
+    ];
+
+    for (const [arg, workingDir] of invocations) {
+      const result = await backend.runCLICommand(
+        ["script", "preview", arg, "--silent"],
+        workingDir
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout.trim()).toEqual(`"f/test/job_path_script"`);
+    }
+
+    // Folder layout: the job runs under the script's path, not the entry file's.
+    await createScript(
+      tempDir,
+      "f/test/job_path_module__mod/script.ts",
+      `export function main() {
+  return process.env.WM_JOB_PATH;
+}`
+    );
+    const moduleResult = await backend.runCLICommand(
+      ["script", "preview", "f/test/job_path_module__mod/script.ts", "--silent"],
+      tempDir
+    );
+    expect(moduleResult.code).toEqual(0);
+    expect(moduleResult.stdout.trim()).toEqual(`"f/test/job_path_module"`);
+
+    // A file outside the workspace tree has no Windmill path to run under, so
+    // the run is refused rather than pushed with a made-up one.
+    await writeFile(`${tempDir}/stray.ts`, `export function main() {}`, "utf-8");
+    const strayResult = await backend.runCLICommand(
+      ["script", "preview", "stray.ts", "--silent"],
+      tempDir
+    );
+    expect(strayResult.code).toEqual(1);
+  });
+});
+
 test("script preview: codebase script (CJS)", async () => {
   await withTestBackend(async (backend, tempDir) => {
     await createWmillConfig(tempDir, {
@@ -526,6 +580,33 @@ test("flow preview: simple flow", async () => {
 
     expect(result.code).toEqual(0);
     expect(result.stdout + result.stderr).toContain("Flow says: Hello, World!");
+  });
+});
+
+test("flow preview: step job path is anchored on the flow's Windmill path", async () => {
+  await withTestBackend(async (backend, tempDir) => {
+    await createWmillConfig(tempDir, { defaultTs: "bun" });
+    await createFlow(tempDir, "f/test/job_path_flow.flow", {
+      summary: "Test flow",
+      scriptContent: `export function main() { return process.env.WM_JOB_PATH; }`,
+    });
+
+    const invocations: Array<[string, string]> = [
+      ["f/test/job_path_flow.flow", tempDir],
+      ["./f/test/job_path_flow.flow", tempDir],
+      [`${tempDir}/f/test/job_path_flow.flow`, tempDir],
+      ["job_path_flow.flow", `${tempDir}/f/test`],
+    ];
+
+    for (const [arg, workingDir] of invocations) {
+      const result = await backend.runCLICommand(
+        ["flow", "preview", arg, "--silent"],
+        workingDir
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout.trim()).toEqual(`"f/test/job_path_flow/a"`);
+    }
   });
 });
 
