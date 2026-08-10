@@ -135,9 +135,9 @@
 	}
 
 	async function restore() {
-		// loaded.id, never selectedId: the two diverge while a version is in flight, and restoring
-		// the clicked row while the pane still shows the previous one would write a value the user
-		// never saw.
+		// loaded.id, never selectedId: restoring what the pane is showing. A selection whose value
+		// has not arrived leaves `loaded` undefined, so this writes nothing rather than restoring a
+		// version the user has not seen.
 		const id = loaded?.id
 		if (id === undefined) return
 		restoring = true
@@ -253,7 +253,9 @@
 					{#if isCurrent}
 						<span class="text-2xs text-tertiary">This is the current value</span>
 					{:else if currentValue === undefined}
-						<span class="text-2xs text-tertiary">Value</span>
+						<span class="text-2xs text-tertiary">
+							The current value could not be loaded, so there is no diff to show
+						</span>
 					{:else}
 						<ToggleButtonGroup bind:selected={view}>
 							{#snippet children({ item })}
@@ -266,7 +268,7 @@
 						size="xs"
 						variant="default"
 						startIcon={{ icon: RotateCcw }}
-						disabled={restoring || !canRestore || loaded.id !== selectedId || isCurrent}
+						disabled={restoring || !canRestore || isCurrent}
 						onclick={restore}
 					>
 						Restore this version
