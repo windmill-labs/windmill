@@ -44,7 +44,31 @@ properties:
   filters:
     type: array
     items:
-      type: object
+      oneOf:
+      - type: object
+        properties:
+          key:
+            type: string
+          value: {}
+        required:
+        - key
+        - value
+      - type: object
+        properties:
+          any_of:
+            type: array
+            items:
+              type: object
+        required:
+        - any_of
+      - type: object
+        properties:
+          all_of:
+            type: array
+            items:
+              type: object
+        required:
+        - all_of
     description: 'Filters to match incoming messages (only matching messages trigger
       the script). Each entry is either a leaf `{key, value}` matching a top-level
       field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of:

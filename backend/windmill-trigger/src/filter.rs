@@ -39,6 +39,7 @@ pub struct CompiledFilters {
 
 impl CompiledFilters {
     pub fn new(filters: Vec<Filter>, use_or_logic: bool) -> Self {
+        let filters = drop_empty_groups(filters);
         let mut keys = Vec::new();
         collect_keys(&filters, &mut keys);
         Self { filters, use_or_logic, keys }
@@ -74,6 +75,22 @@ impl CompiledFilters {
         self.filters.is_empty()
     }
 
+    /// Reject at save time what [`Self::parse`] would drop at listen time. A group nests
+    /// arbitrarily many criteria, so one mistyped entry silently widens the trigger by the
+    /// whole subtree it belongs to.
+    pub fn validate(filters: &[Value]) -> windmill_common::error::Result<()> {
+        for (index, filter) in filters.iter().enumerate() {
+            serde_json::from_value::<Filter>(filter.clone()).map_err(|err| {
+                windmill_common::error::Error::BadRequest(format!(
+                    "filter #{} is neither a {{key, value}} criterion nor an any_of/all_of group: {}",
+                    index + 1,
+                    err
+                ))
+            })?;
+        }
+        Ok(())
+    }
+
     /// Whether `text`, parsed as a JSON object, satisfies the filters.
     pub fn matches(&self, text: &str) -> bool {
         if self.filters.is_empty() {
@@ -87,6 +104,24 @@ impl CompiledFilters {
 
         eval_all(&self.filters, self.use_or_logic, &values)
     }
+}
+
+/// A group with no criterion cannot evaluate to a constant: `true` makes an `or` list
+/// accept every message, `false` mutes an `and` list. Dropping it instead leaves its
+/// siblings in force, which is what a group left empty in the editor should mean.
+fn drop_empty_groups(filters: Vec<Filter>) -> Vec<Filter> {
+    filters
+        .into_iter()
+        .filter_map(|filter| {
+            let (rebuild, nested): (fn(Vec<Filter>) -> FilterGroup, _) = match filter {
+                Filter::Group(FilterGroup::AnyOf(nested)) => (FilterGroup::AnyOf, nested),
+                Filter::Group(FilterGroup::AllOf(nested)) => (FilterGroup::AllOf, nested),
+                leaf => return Some(leaf),
+            };
+            let nested = drop_empty_groups(nested);
+            (!nested.is_empty()).then(|| Filter::Group(rebuild(nested)))
+        })
+        .collect()
 }
 
 fn collect_keys(filters: &[Filter], keys: &mut Vec<String>) {
@@ -104,13 +139,9 @@ fn collect_keys(filters: &[Filter], keys: &mut Vec<String>) {
     }
 }
 
+/// `filters` is never empty: the top level is short-circuited by [`CompiledFilters::matches`],
+/// and [`drop_empty_groups`] removes empty groups.
 fn eval_all(filters: &[Filter], use_or_logic: bool, values: &HashMap<&str, Value>) -> bool {
-    // An empty group adds no constraint, as an empty top-level filter list does: an
-    // `any_of: []` evaluating to false would silently mute the trigger.
-    if filters.is_empty() {
-        return true;
-    }
-
     let eval = |filter: &Filter| match filter {
         Filter::JsonFilter(JsonFilter { key, value }) => values
             .get(key.as_str())
@@ -318,10 +349,54 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_group_adds_no_constraint() {
+    fn test_empty_group_is_dropped_not_constant() {
         let payload = r#"{"a": 1}"#;
+        // On its own it leaves the trigger unfiltered, like an empty filter list
         assert!(matches(payload, json!([{"any_of": []}]), false));
-        assert!(matches(payload, json!([{"all_of": []}]), false));
+        assert!(matches(
+            payload,
+            json!([{"all_of": []}, {"any_of": [{"all_of": []}]}]),
+            true
+        ));
+        // Alongside a real criterion it must not decide the outcome either way
+        let with_failing_leaf = json!([{"any_of": []}, {"key": "a", "value": 99}]);
+        assert!(!matches(payload, with_failing_leaf.clone(), true));
+        assert!(!matches(payload, with_failing_leaf, false));
+    }
+
+    #[test]
+    fn test_parses_legacy_and_group_entries_side_by_side() {
+        let filters = CompiledFilters::parse(
+            [
+                r#"{"key": "event", "value": "created"}"#,
+                r#"{"any_of": [{"key": "a", "value": 1}, {"key": "b", "value": 2}]}"#,
+            ],
+            false,
+            "u/admin/trigger",
+        );
+        assert!(filters.matches(r#"{"event": "created", "b": 2}"#));
+        assert!(!filters.matches(r#"{"event": "created", "b": 3}"#));
+        assert!(!filters.matches(r#"{"event": "other", "a": 1}"#));
+    }
+
+    #[test]
+    fn test_duplicated_payload_key_resolves_to_first_occurrence() {
+        let filters = json!([{"key": "a", "value": 1}]);
+        assert!(matches(r#"{"a": 1, "a": 2}"#, filters.clone(), false));
+        assert!(!matches(r#"{"a": 2, "a": 1}"#, filters, false));
+    }
+
+    #[test]
+    fn test_validate_rejects_entries_the_listener_would_drop() {
+        assert!(CompiledFilters::validate(&[
+            json!({"key": "a", "value": 1}),
+            json!({"all_of": []})
+        ])
+        .is_ok());
+        assert!(
+            CompiledFilters::validate(&[json!({"anyOf": [{"key": "a", "value": 1}]})]).is_err()
+        );
+        assert!(CompiledFilters::validate(&[json!({"key": "a"})]).is_err());
     }
 
     // --- is_superset unit tests ---

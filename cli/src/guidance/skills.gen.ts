@@ -8263,7 +8263,31 @@ properties:
   filters:
     type: array
     items:
-      type: object
+      oneOf:
+      - type: object
+        properties:
+          key:
+            type: string
+          value: {}
+        required:
+        - key
+        - value
+      - type: object
+        properties:
+          any_of:
+            type: array
+            items:
+              type: object
+        required:
+        - any_of
+      - type: object
+        properties:
+          all_of:
+            type: array
+            items:
+              type: object
+        required:
+        - all_of
     description: 'Filters to match incoming messages (only matching messages trigger
       the script). Each entry is either a leaf \`{key, value}\` matching a top-level
       field of the message parsed as JSON, or a group \`{any_of: [...]}\` / \`{all_of:
@@ -8376,6 +8400,18 @@ properties:
     type: array
     items:
       type: object
+      properties:
+        qos:
+          type: string
+          enum:
+          - qos0
+          - qos1
+          - qos2
+        topic:
+          type: string
+      required:
+      - qos
+      - topic
     description: Array of MQTT topics to subscribe to, each with topic name and QoS
       level
   v3_config:
@@ -8920,7 +8956,31 @@ properties:
   filters:
     type: array
     items:
-      type: object
+      oneOf:
+      - type: object
+        properties:
+          key:
+            type: string
+          value: {}
+        required:
+        - key
+        - value
+      - type: object
+        properties:
+          any_of:
+            type: array
+            items:
+              type: object
+        required:
+        - any_of
+      - type: object
+        properties:
+          all_of:
+            type: array
+            items:
+              type: object
+        required:
+        - all_of
     description: 'Filters to match incoming messages (only matching messages trigger
       the script). Each entry is either a leaf \`{key, value}\` matching a top-level
       field of the message parsed as JSON, or a group \`{any_of: [...]}\` / \`{all_of:
@@ -8936,7 +8996,32 @@ properties:
   initial_messages:
     type: array
     items:
-      type: object
+      oneOf:
+      - type: object
+        properties:
+          raw_message:
+            type: string
+        required:
+        - raw_message
+      - type: object
+        properties:
+          runnable_result:
+            type: object
+            properties:
+              path:
+                type: string
+              args:
+                type: object
+                description: The arguments to pass to the script or flow
+                additionalProperties: true
+              is_flow:
+                type: boolean
+            required:
+            - path
+            - args
+            - is_flow
+        required:
+        - runnable_result
     description: Messages to send immediately after connecting (can be raw strings
       or computed by runnables)
   url_runnable_args:
