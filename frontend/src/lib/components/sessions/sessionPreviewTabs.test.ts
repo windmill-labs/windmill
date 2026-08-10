@@ -258,6 +258,22 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.open(routes('/routes')).status).toBe('focused')
 	})
 
+	// The list pages rewrite their own filter defaults into the URL after mount,
+	// and `loc` follows that rewrite. Matching on anything but the path made a tab
+	// stop recognizing itself, so every later open spawned a duplicate.
+	it('still recognizes a tab after the page rewrote its own filter params', () => {
+		const o = owner()
+		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
+		o.open(routes('/routes#u/me/a'))
+		const id = o.tabs[0].id
+		o.observeLocation(id, '/routes?filter_path_of=trigger&user_and_folders_only=false#u/me/a')
+
+		const res = o.open(routes('/routes#u/me/b'))
+		expect(res.status).toBe('retargeted')
+		expect(o.tabs).toHaveLength(1)
+		expect(o.tabs[0].url).toBe('/routes#u/me/b')
+	})
+
 	// Re-commanding the URL a tab is already pointed at changes nothing the host can
 	// see, so the frame would stay wherever the user navigated it inside the page.
 	it('forces a reload when the request matches the command but the frame drifted', () => {

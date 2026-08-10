@@ -75,7 +75,24 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 	tab.loc = url
 }
 
-const withoutHash = (loc: string) => loc.split('#')[0]
+// Identity of a page tab, for the dedupe in `open`: the path alone.
+//
+// Neither the query nor the hash is part of it. A list page rewrites its own
+// defaults into the URL shortly after mount (`/routes` becomes
+// `/routes?filter_path_of=trigger&user_and_folders_only=false`), and `loc`
+// follows those rewrites, so a query-sensitive match stops recognizing the very
+// tab it just opened and every later open spawns a duplicate. The hash is view
+// state inside the page — the row whose drawer is open — not what the tab shows.
+//
+// Pages where the query *is* the view (Runs, Compare) never reach this dedupe:
+// matchReusablePage takes them down a branch that re-points on a query change.
+const pageIdentity = (loc: string) => canonicalizeObservedLoc(loc).split('?')[0].split('#')[0]
+
+// Where inside the page a location points — the row whose drawer is open.
+const pageAnchor = (loc: string) => {
+	const at = loc.indexOf('#')
+	return at < 0 ? '' : loc.slice(at + 1)
+}
 
 // Strip the query params the sessions preview injects into iframe URLs
 // (`nomenubar` to hide the nav, `workspace` to scope the page): they aren't part
@@ -395,18 +412,17 @@ export class SessionPreviewTabs {
 		// are canonicalized because a caller may bake `?workspace=` into the href
 		// (the frame re-injects it from the session anyway) while the observed loc
 		// has had it stripped — comparing raw would reopen the page as a duplicate.
-		// The hash is dropped from the match: it is view state inside the page (the
-		// row whose drawer is open), not part of what the tab is showing, so a tab
-		// the user has opened a row in must still count as showing that page. The
-		// tab is then re-pointed at the requested URL rather than merely focused —
-		// matching loosely but not navigating would leave one trigger's drawer on
-		// screen while reporting that another one was opened.
-		const canonicalUrl = withoutHash(canonicalizeObservedLoc(url))
+		// Matched on `pageIdentity` — the path — so a tab still counts as showing
+		// the page after the user has opened a row in it and after the page has
+		// rewritten its own filter defaults into the URL. The tab is then
+		// re-pointed at the requested URL rather than merely focused: matching
+		// loosely but not navigating would leave one trigger's drawer on screen
+		// while reporting that another one was opened.
 		const shown = opts?.forceNewTab
 			? undefined
-			: this.#tabs.find((t) => withoutHash(canonicalizeObservedLoc(t.loc)) === canonicalUrl)
+			: this.#tabs.find((t) => pageIdentity(t.loc) === pageIdentity(url))
 		if (shown) {
-			const same = canonicalizeObservedLoc(shown.loc) === canonicalizeObservedLoc(url)
+			const same = pageAnchor(shown.loc) === pageAnchor(url)
 			if (!same) this.#retarget(shown, url)
 			this.#activeId = shown.id
 			this.#flush()
