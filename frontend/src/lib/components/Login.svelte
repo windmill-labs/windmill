@@ -91,7 +91,9 @@
 	const providersType = providers.map((p) => p.type as string)
 
 	let showPassword = $state(false)
-	let logins: OAuthLogin[] | undefined = $state(undefined)
+	// Type argument rather than annotation: annotating narrows the declaration to the
+	// initializer's `undefined`, so a top-level read sees `never` instead of the array.
+	let logins = $state<OAuthLogin[] | undefined>(undefined)
 	let saml: string | undefined = $state(undefined)
 	let smtpConfigured: boolean | undefined = $state(undefined)
 	let disablePasswordLogin = $state(false)
@@ -456,9 +458,7 @@
 		error && sendUserToast(escapeHtml(error), true)
 	})
 
-	// Read inside a closure: at this scope TS narrows `logins` to its initializer's
-	// `undefined`, which makes `logins?.length` an access on `never`.
-	let loginOptionCount = $derived.by(() => (logins?.length ?? 0) + (saml ? 1 : 0))
+	let loginOptionCount = $derived((logins?.length ?? 0) + (saml ? 1 : 0))
 </script>
 
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
