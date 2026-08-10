@@ -1085,12 +1085,12 @@ describe('global AI tools', () => {
 		).rejects.toThrow('without a value')
 	})
 
-	// A secret draft whose value is readable plaintext: in production that is the
-	// variable drawer's in-tab cell, which `readGlobalDraftValue` prefers over the
-	// encrypted row (only a Svelte context can acquire such a cell, so the draft store
-	// stands in for it here). A metadata-only chat edit redacts it, so the plaintext has
-	// to be captured in memory first or the rotation is silently dropped and deploy
-	// keeps the old secret.
+	// A secret draft whose value is readable plaintext: in production that is the variable
+	// drawer's in-tab cell, which `readGlobalDraftValue` prefers over the encrypted row
+	// (only a Svelte context can acquire such a cell, so the draft store stands in for it
+	// here). A metadata-only chat edit must leave it in place — the drawer reads its own
+	// staged value back from that same cell, so blanking it would break the drawer's save
+	// as well as the chat's deploy.
 	it('carries a locally staged plaintext secret through a metadata-only write', async () => {
 		seedBackendDraft(
 			'variable',
@@ -1114,12 +1114,16 @@ describe('global AI tools', () => {
 			description: 'described by the chat'
 		})
 
-		// Redacted where it persists, remembered in memory.
+		// Left in the shared draft (the endpoint encrypts it at rest), not moved into the
+		// chat's memory-only map.
 		expect(
 			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
 		).toMatchObject({
-			variable: { value: '', is_secret: true, description: 'described by the chat' },
-			pendingSecretValue: true
+			variable: {
+				value: 'typed-in-the-drawer',
+				is_secret: true,
+				description: 'described by the chat'
+			}
 		})
 		expect(localStorageSnapshot()).not.toContain('typed-in-the-drawer')
 
@@ -1189,8 +1193,7 @@ describe('global AI tools', () => {
 		expect(
 			getBackendDraft<any>('variable', 'u/admin/config', { workspace: WORKSPACE })
 		).toMatchObject({
-			variable: { value: '', is_secret: true, description: 'plain config' },
-			pendingSecretValue: true
+			variable: { value: 'was-readable', is_secret: true, description: 'plain config' }
 		})
 
 		await callGlobalTool('deploy_workspace_item', { type: 'variable', path: 'u/admin/config' })
@@ -1199,6 +1202,59 @@ describe('global AI tools', () => {
 			value: 'was-readable',
 			is_secret: true
 		})
+	})
+
+	// '' is the draft's sentinel for "no value staged", so it cannot also mean "set the
+	// secret to empty" — accepting it would wipe the secret, which is the placeholder
+	// habit this schema change is meant to remove.
+	it('refuses an empty value for a secret variable', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true)
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			value: undefined,
+			is_secret: true,
+			description: 'old description',
+			ws_specific: false
+		} as any)
+
+		await expect(
+			callGlobalTool('write_variable', { path: 'f/secrets/api_key', value: '' })
+		).rejects.toThrow('not a valid value for secret variable')
+		expect(
+			getBackendDraft('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	// `get_variable` refreshes and returns a LIVE token for an expired OAuth variable even
+	// under decryptSecret: false, so the carry path must leave OAuth variables alone
+	// rather than pinning a rotating value to a static one.
+	it('never carries the value of an oauth-managed variable', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'u/admin/gh_token',
+			value: 'live-refreshed-access-token',
+			is_secret: true,
+			is_oauth: true,
+			account: 7,
+			description: 'github oauth',
+			ws_specific: false
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'u/admin/gh_token',
+			description: 'github oauth for the sync job'
+		})
+
+		const draft = getBackendDraft<any>('variable', 'u/admin/gh_token', { workspace: WORKSPACE })
+		expect(draft.variable.value).toBe('')
+		expect(draft.pendingSecretValue).toBeUndefined()
+
+		await callGlobalTool('deploy_workspace_item', { type: 'variable', path: 'u/admin/gh_token' })
+
+		const requestBody = vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody
+		expect(requestBody).not.toHaveProperty('value')
+		expect(JSON.stringify(requestBody)).not.toContain('live-refreshed-access-token')
 	})
 
 	// A draft accumulates: omitting `value` means "this write does not touch the value",

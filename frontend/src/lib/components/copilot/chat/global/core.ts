@@ -2981,7 +2981,9 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = writeScheduleSchema.parse(merged)
 			const dropped = droppedOptionKeys(merged, parsed)
 			if (dropped.length) {
-				throw new Error(describeDroppedScheduleOptions(dropped))
+				throw new Error(
+					describeDroppedScheduleOptions(dropped)
+				)
 			}
 			return writeScheduleDraft(parsed, ctx)
 		}
@@ -4044,21 +4046,21 @@ function variableToDraftState(variable: ListableVariable): VariableDraftState {
 	}
 }
 
-// A readable value already sitting on the base that this write must not lose, since
-// the redaction in `createVariableToDraftState` would erase it. Two sources: a
-// plain -> secret flip, where the old value becomes the secret (matching the drawer's
-// is_secret toggle), and readable plaintext in the in-tab draft cell, which
-// `readGlobalDraftValue` prefers over the encrypted row. The cell's plaintext may be a
-// value the drawer is staging OR just the deployed secret it revealed (`loadSecret` in
-// VariableEditor.svelte decrypts into the same cell) — the two are indistinguishable
-// here, so both are carried: re-deploying a revealed secret is a no-op, while dropping
-// a staged one would lose it.
+// A readable value already on the base that must survive this write rather than be
+// redacted: a plain -> secret flip's old value, or plaintext the drawer put in the
+// shared draft cell. Kept in the draft (the endpoint encrypts it at rest), because
+// blanking the cell would also break the drawer's own save.
 function carriedSecretValue(
 	args: WriteVariableArgs,
 	base: VariableDraftState | undefined,
 	is_secret: boolean
 ): string | undefined {
 	if (!is_secret || args.value !== undefined || base === undefined) return undefined
+	// An OAuth variable's value is owned by the refresh flow, and `get_variable` returns a
+	// freshly refreshed LIVE token for an expired one even under decryptSecret: false
+	// (variables.rs checks is_expired before decrypt_secret). Carrying that would copy a
+	// live token into memory and pin a rotating value to a static one.
+	if (base.is_oauth || base.account != null) return undefined
 	const stored = base.variable.value
 	// Already unreadable and safe at rest: kept in the draft itself, not in memory.
 	if (isEncryptedDraftValue(stored)) return undefined
@@ -4082,6 +4084,14 @@ function resolveVariableWrite(
 		)
 	}
 	const is_secret = args.is_secret ?? base?.variable.is_secret ?? false
+	// '' is the sentinel for "nothing staged" in a secret draft, so it cannot also mean
+	// "set the secret to empty". Refusing it matters because a model reaching for a
+	// placeholder — the habit this schema change removes — would otherwise wipe the secret.
+	if (is_secret && args.value === '') {
+		throw new Error(
+			`An empty string is not a valid value for secret variable "${args.path}". Omit value to keep the stored secret, or pass the real new one.`
+		)
+	}
 	// Un-securing always needs a new plaintext value. An `$encrypted:` marker is no
 	// help: the deploy endpoints only decrypt it while the target stays secret, so
 	// carrying it into a non-secret variable would store the marker as the value.
@@ -4096,11 +4106,9 @@ function resolveVariableWrite(
 		value: args.value ?? base?.variable.value ?? '',
 		description: args.description ?? base?.variable.description ?? '',
 		carried,
-		// Sticky: a metadata-only edit on top of an already-staged rotation must not
-		// downgrade the draft to "value unchanged" and drop that rotation at deploy.
-		stagesSecretValue:
-			is_secret &&
-			(args.value !== undefined || carried !== undefined || base?.pendingSecretValue === true)
+		// Only for a value held in memory — a carried one lives in the draft. Sticky, so a
+		// metadata-only edit on top of a staged rotation does not drop it at deploy.
+		stagesSecretValue: is_secret && (args.value !== undefined || base?.pendingSecretValue === true)
 	}
 }
 
@@ -4108,14 +4116,18 @@ function createVariableToDraftState(
 	args: WriteVariableArgs,
 	base?: VariableDraftState
 ): VariableDraftState {
-	const { is_secret, value, description, stagesSecretValue } = resolveVariableWrite(args, base)
+	const { is_secret, value, description, carried, stagesSecretValue } = resolveVariableWrite(
+		args,
+		base
+	)
 	return {
 		...base,
 		path: args.path,
 		variable: {
-			// Redact: a secret's value never persists in plaintext. A marker is already
-			// ciphertext, and dropping it would discard a secret staged in the drawer.
-			value: is_secret ? (isEncryptedDraftValue(value) ? value : '') : value,
+			// A value THIS write supplied is redacted (kept in memory, never at rest);
+			// anything already on the base is preserved, ciphertext or not, since the
+			// drawer shares this cell and reads its own staged value back from it.
+			value: is_secret ? (carried ?? (isEncryptedDraftValue(value) ? value : '')) : value,
 			is_secret,
 			description
 		},
@@ -4134,22 +4146,13 @@ function syncEphemeralSecretVariableDraftValue(
 	base?: VariableDraftState
 ): void {
 	const storagePath = getGlobalDraftStoragePath(workspace, 'variable', args.path)
-	const { is_secret, carried } = resolveVariableWrite(args, base)
-	if (!is_secret) {
-		clearEphemeralSecretVariableDraftValue(workspace, storagePath)
-		return
-	}
-	if (args.value !== undefined) {
+	const { is_secret } = resolveVariableWrite(args, base)
+	if (is_secret && args.value !== undefined) {
 		setEphemeralSecretVariableDraftValue(workspace, storagePath, args.value)
-	} else if (carried !== undefined) {
-		setEphemeralSecretVariableDraftValue(workspace, storagePath, carried)
-	} else if (base?.pendingSecretValue === true) {
-		// The draft still stages the rotation this session captured — keep it rather than
-		// overwriting it with the '' the row holds for a secret.
-	} else {
-		// The draft stages nothing, so a leftover entry belongs to a draft discarded
-		// elsewhere (the drawer, another tab). Deploying it would install an abandoned
-		// value, since the map is consulted before the draft.
+	} else if (!is_secret || base?.pendingSecretValue !== true) {
+		// Nothing staged in memory any more, so any leftover entry is unreachable (see
+		// `resolveStagedSecretValue`) — drop it rather than holding a secret for the
+		// rest of the session.
 		clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 	}
 }
@@ -4157,24 +4160,24 @@ function syncEphemeralSecretVariableDraftValue(
 const LOST_SECRET_VALUE_HINT =
 	'is no longer available because secret draft values are kept only in memory. Run write_variable again before deploying this secret.'
 
-// The new secret value a draft stages, if any. Three places it can live, in order: this
-// session's in-memory value; an `$encrypted:` marker, which the deploy endpoints
-// decrypt; or readable plaintext, which they encrypt. A non-empty stored value is always
-// the staged one, per the `pendingSecretValue` invariant. `undefined` means no new value:
-// the caller must leave the deployed secret alone. Throws when a value WAS staged but is
-// no longer recoverable — deploying without it would report a rotation that never
-// happened.
+// The new secret value a draft stages, or `undefined` to leave the deployed secret alone.
+// Throws when one WAS staged but is no longer recoverable: deploying without it would
+// report a rotation that never happened.
 function resolveStagedSecretValue(
 	workspace: string,
 	path: string,
 	draftState: VariableDraftState | undefined
 ): string | undefined {
-	const storagePath = getGlobalDraftStoragePath(workspace, 'variable', path)
-	const ephemeral = getEphemeralSecretVariableDraftValue(workspace, storagePath)
-	if (ephemeral !== undefined) return ephemeral
 	const stored = draftState?.variable.value
 	if (stored !== undefined && stored !== '') return stored
+	// The draft is the source of truth for whether a rotation is staged; the in-memory
+	// map is only trusted when the draft vouches for it. Consulting it unconditionally
+	// would deploy a value belonging to a draft that was overwritten or discarded
+	// elsewhere (the drawer, another tab) long after the user moved on.
 	if (draftState?.pendingSecretValue) {
+		const storagePath = getGlobalDraftStoragePath(workspace, 'variable', path)
+		const ephemeral = getEphemeralSecretVariableDraftValue(workspace, storagePath)
+		if (ephemeral !== undefined) return ephemeral
 		throw new Error(`Secret value for draft variable "${path}" ${LOST_SECRET_VALUE_HINT}`)
 	}
 	return undefined
