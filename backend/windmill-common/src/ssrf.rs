@@ -280,7 +280,10 @@ fn is_private_ipv4(ip: &Ipv4Addr) -> bool {
         || ip.is_private()        // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
         || ip.is_link_local()     // 169.254.0.0/16 (AWS IMDS lives here)
         || ip.is_broadcast()      // 255.255.255.255
-        || ip.is_unspecified()    // 0.0.0.0
+        // RFC 1122 "this network": the whole /8, not just the unspecified
+        // address `is_unspecified()` matches — stacks that map 0.x.y.z onto the
+        // local host make `0.0.0.1` a bypass.
+        || ip.octets()[0] == 0    // 0.0.0.0/8
         || ip.is_documentation()  // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24
         // CGNAT / shared address space
         || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xC0) == 64) // 100.64.0.0/10
@@ -362,6 +365,9 @@ mod tests {
         assert!(is_private_ipv4(&"192.168.1.1".parse().unwrap()));
         assert!(is_private_ipv4(&"169.254.169.254".parse().unwrap()));
         assert!(is_private_ipv4(&"0.0.0.0".parse().unwrap()));
+        // The whole 0.0.0.0/8 block, not just the unspecified address.
+        assert!(is_private_ipv4(&"0.0.0.1".parse().unwrap()));
+        assert!(is_private_ipv4(&"0.255.255.255".parse().unwrap()));
         assert!(is_private_ipv4(&"100.64.0.1".parse().unwrap()));
         assert!(!is_private_ipv4(&"8.8.8.8".parse().unwrap()));
         assert!(!is_private_ipv4(&"1.1.1.1".parse().unwrap()));

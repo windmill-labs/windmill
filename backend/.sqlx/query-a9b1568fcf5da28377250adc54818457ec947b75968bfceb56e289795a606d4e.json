@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app SET summary = 'edited'\n         WHERE workspace_id = 'wm-fork-cmp' AND path = 'u/test-user/summary_too'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a9b1568fcf5da28377250adc54818457ec947b75968bfceb56e289795a606d4e"
+}
