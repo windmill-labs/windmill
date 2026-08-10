@@ -26,7 +26,7 @@ import {
   WorkspaceEntryConfig,
 } from "./conf.ts";
 import { existsSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   getCurrentGitBranch,
   getOriginalBranchForWorkspaceForks,
@@ -796,11 +796,21 @@ export function toSyncRootRelativePath(
   // like it escapes the tree. Resolve links only then, so a symlinked file
   // *inside* the tree keeps the path it is filed under.
   try {
-    const resolved = relative(realpathSync(root), realpathSync(abs));
+    const resolved = relative(realpathSync(root), realpathOfNamed(abs));
     return resolved === "" ? "." : resolved;
   } catch {
     return rel;
   }
+}
+
+/**
+ * `realpathSync` needs its target to exist, and a dbt descriptor deliberately
+ * does not. The directory naming it does, so resolve that and reattach.
+ */
+function realpathOfNamed(p: string): string {
+  return existsSync(p)
+    ? realpathSync(p)
+    : join(realpathSync(dirname(p)), basename(p));
 }
 
 /** Windmill workspace path: `u|f|g` followed by at least a folder and a name. */

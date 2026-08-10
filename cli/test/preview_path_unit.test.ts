@@ -16,14 +16,17 @@ import {
 describe("toSyncRootRelativePath", () => {
   let root: string;
   let previousCwd: string;
+  let temps: string[];
 
   beforeEach(() => {
     previousCwd = process.cwd();
+    temps = [];
     // realpath: macOS' tmpdir is /var -> /private/var, and the assertions
     // compare against what the process reports as its own directory.
     root = fs.realpathSync(
       fs.mkdtempSync(path.join(os.tmpdir(), "wmill_preview_path_")),
     );
+    temps.push(root);
     fs.writeFileSync(path.join(root, "wmill.yaml"), "defaultTs: bun\n");
     fs.mkdirSync(path.join(root, "f", "test"), { recursive: true });
     fs.writeFileSync(path.join(root, "f", "test", "script.ts"), "");
@@ -32,10 +35,18 @@ describe("toSyncRootRelativePath", () => {
 
   afterEach(() => {
     process.chdir(previousCwd);
-    fs.rmSync(root, { recursive: true, force: true });
+    for (const dir of temps) fs.rmSync(dir, { recursive: true, force: true });
   });
 
   const normalized = (p: string) => p.replaceAll("\\", "/");
+
+  /** A dbt project whose descriptor is deliberately not written. */
+  function dbtProject(): string {
+    const project = path.join(root, "f", "test", "proj__dbt");
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(path.join(project, "dbt_project.yml"), "name: proj\n");
+    return project;
+  }
 
   test("every spelling of the same file lands on the same path", () => {
     const fromRoot = ["f/test/script.ts", "./f/test/script.ts"].map((arg) =>
@@ -58,14 +69,29 @@ describe("toSyncRootRelativePath", () => {
   test("a file that is deliberately absent keeps the directory it was named in", () => {
     // A dbt project's descriptor is optional; `wmill script preview
     // wm_dbt.yaml` from inside the project must still resolve to the project.
-    const project = path.join(root, "f", "test", "proj__dbt");
-    fs.mkdirSync(project, { recursive: true });
-    fs.writeFileSync(path.join(project, "dbt_project.yml"), "name: proj\n");
+    const project = dbtProject();
 
     expect(normalized(toSyncRootRelativePath("wm_dbt.yaml", project))).toEqual(
       "f/test/proj__dbt/wm_dbt.yaml",
     );
   });
+
+  // Windows only creates symlinks for a privileged process.
+  test.skipIf(process.platform === "win32")(
+    "an absent file reached through a symlinked root still lands in the tree",
+    () => {
+      dbtProject();
+      const aliasDir = fs.mkdtempSync(path.join(os.tmpdir(), "wmill_alias_"));
+      temps.push(aliasDir);
+      const alias = path.join(aliasDir, "link");
+      fs.symlinkSync(root, alias, "dir");
+
+      const arg = path.join(alias, "f", "test", "proj__dbt", "wm_dbt.yaml");
+      expect(normalized(toSyncRootRelativePath(arg, root))).toEqual(
+        "f/test/proj__dbt/wm_dbt.yaml",
+      );
+    },
+  );
 
   test("a file outside the tree stays outside it", () => {
     const outside = path.join(root, "..", "elsewhere.ts");
