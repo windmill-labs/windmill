@@ -524,6 +524,27 @@ fn cols_to_simple(cols: &[ColumnDef]) -> Vec<SimpleColumn> {
         .collect()
 }
 
+/// DuckDB's `CONCAT` implicitly casts scalars — `VARCHAR`, `BIGINT`, `DOUBLE`,
+/// `BOOLEAN`, `DATE` and `TIMESTAMPTZ` all concatenate — but rejects nested
+/// types:
+///
+/// ```text
+/// D SELECT CONCAT(' ', ['a','b']);
+/// Binder Error: Cannot concatenate types VARCHAR and VARCHAR[] - an explicit
+/// cast is required
+/// ```
+///
+/// Quicksearch concatenates every visible column, so a single LIST, STRUCT or
+/// MAP column makes the whole table impossible to preview. Casting each column
+/// is also what a text search wants: the comparison is textual either way.
+fn duckdb_searchable_columns(columns: &[String]) -> String {
+    columns
+        .iter()
+        .map(|col| format!("CAST({} AS VARCHAR)", col))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// MSSQL `text`, `ntext`, and `image` types cannot be used with the `=` operator.
 /// This function wraps the column/param in CAST(...) when needed.
 fn mssql_needs_cast_for_eq(datatype: &str) -> bool {
@@ -1019,7 +1040,7 @@ pub fn make_select_query(
 
             let quicksearch = format!(
                 "($quicksearch = '' OR CONCAT({}) ILIKE '%' || $quicksearch || '%')",
-                filtered_columns.join(", ")
+                duckdb_searchable_columns(&filtered_columns)
             );
 
             query.push_str(&format!(
@@ -1188,7 +1209,7 @@ pub fn make_count_query(
             if !filtered_columns.is_empty() {
                 quicksearch_condition.push_str(&format!(
                     " ($quicksearch = '' OR CONCAT(' ', {}) LIKE CONCAT('%', $quicksearch, '%'))",
-                    filtered_columns.join(", ")
+                    duckdb_searchable_columns(&filtered_columns)
                 ));
             } else {
                 quicksearch_condition.push_str(" ($quicksearch = '' OR 1 = 1)");
@@ -3126,8 +3147,103 @@ mod tests {
 
         assert!(result.starts_with("-- $limit (int)\n-- $offset (int)\n-- $quicksearch (text)\n-- $order_by (text)\n-- $is_desc (boolean)\n"));
         assert!(result.contains("SELECT \"id\", \"name\" FROM \"my_table\"\n"));
-        assert!(result.contains("CONCAT(\"id\", \"name\") ILIKE '%' || $quicksearch || '%'"));
+        // Columns are cast for the search but NOT for the projection.
+        assert!(result.contains(
+            "CONCAT(CAST(\"id\" AS VARCHAR), CAST(\"name\" AS VARCHAR)) ILIKE '%' || $quicksearch || '%'"
+        ));
         assert!(result.contains("LIMIT $limit::INT OFFSET $offset::INT"));
+    }
+
+    /// DuckDB's CONCAT implicitly casts scalars but rejects nested types, so a
+    /// single LIST column used to make a whole table impossible to preview:
+    ///
+    /// ```text
+    /// Binder Error: Cannot concatenate types VARCHAR and VARCHAR[] - an
+    /// explicit cast is required
+    /// ```
+    /// The live path: the frontend sends a `WM_INTERNAL_DB_SELECT` marker and the
+    /// backend expands it. Column definitions below are the real ones captured
+    /// from a failing job on a DuckLake table — 27 columns, one of them
+    /// `sync_id VARCHAR[]`, which is what made the expansion produce SQL DuckDB
+    /// refused:
+    ///
+    /// ```text
+    /// Binder Error: Cannot concatenate types VARCHAR, VARCHAR, BIGINT, ...,
+    /// VARCHAR[], ... and TIMESTAMP WITH TIME ZONE - an explicit cast is required
+    /// ```
+    #[test]
+    fn test_duckdb_marker_expansion_casts_nested_types() {
+        let cols = vec![
+            col("id", "VARCHAR"),
+            col("changed", "BIGINT"),
+            col("user_id", "INTEGER"),
+            col("role", "INTEGER"),
+            col("instrument", "INTEGER"),
+            col("company", "INTEGER"),
+            col("type", "VARCHAR"),
+            col("title", "VARCHAR"),
+            col("sync_id", "VARCHAR[]"),
+            col("balance", "DOUBLE"),
+            col("start_balance", "DOUBLE"),
+            col("credit_limit", "DOUBLE"),
+            col("in_balance", "BOOLEAN"),
+            col("savings", "BOOLEAN"),
+            col("enable_correction", "BOOLEAN"),
+            col("enable_sms", "BOOLEAN"),
+            col("archive", "BOOLEAN"),
+            col("capitalization", "BOOLEAN"),
+            col("percent", "DOUBLE"),
+            col("start_date", "DATE"),
+            col("end_date_offset", "INTEGER"),
+            col("end_date_offset_interval", "VARCHAR"),
+            col("payoff_step", "INTEGER"),
+            col("payoff_interval", "VARCHAR"),
+            col("balance_correction_type", "VARCHAR"),
+            col("private", "BOOLEAN"),
+            col("_loaded_at", "TIMESTAMP WITH TIME ZONE")
+        ];
+        let result =
+            make_select_query("raw.zenmoney__accounts", &cols, None, DbType::Duckdb, None, None)
+                .unwrap();
+
+        assert!(
+            result.contains("CAST(\"sync_id\" AS VARCHAR)"),
+            "the array column must be cast in quicksearch, got:\n{}",
+            result
+        );
+        // Every column is cast, not just the nested one — a partial cast would
+        // still fail the moment the types are mixed.
+        for (field, _) in [("id", ""), ("changed", ""), ("balance", "")] {
+            assert!(
+                result.contains(&format!("CAST(\"{}\" AS VARCHAR)", field)),
+                "column {} not cast",
+                field
+            );
+        }
+    }
+
+    #[test]
+    fn test_select_duckdb_quicksearch_casts_nested_types() {
+        let cols = vec![
+            col("id", "text"),
+            col("tag", "VARCHAR[]"),
+            col("points", "BIGINT[]"),
+            col("ts", "TIMESTAMP WITH TIME ZONE"),
+        ];
+        let result =
+            make_select_query("my_table", &cols, None, DbType::Duckdb, None, None).unwrap();
+
+        for column in ["\"id\"", "\"tag\"", "\"points\"", "\"ts\""] {
+            assert!(
+                result.contains(&format!("CAST({} AS VARCHAR)", column)),
+                "quicksearch must cast {}, got:\n{}",
+                column,
+                result
+            );
+        }
+        // The projection stays untouched: casting there would change the types
+        // the caller reads back.
+        assert!(result.contains("SELECT \"id\", \"tag\", \"points\", \"ts\" FROM \"my_table\""));
     }
 
     // -----------------------------------------------------------------------
@@ -3275,9 +3391,21 @@ mod tests {
 
         assert!(result.contains("-- $quicksearch (text)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM \"my_table\""));
-        assert!(
-            result.contains("CONCAT(' ', \"id\", \"name\") LIKE CONCAT('%', $quicksearch, '%')")
-        );
+        assert!(result.contains(
+            "CONCAT(' ', CAST(\"id\" AS VARCHAR), CAST(\"name\" AS VARCHAR)) LIKE CONCAT('%', $quicksearch, '%')"
+        ));
+    }
+
+    /// COUNT shares the quicksearch predicate with SELECT, so a nested-type
+    /// column has to be cast here too — otherwise the row count fails while
+    /// the page itself renders.
+    #[test]
+    fn test_count_duckdb_quicksearch_casts_nested_types() {
+        let cols = vec![col("id", "text"), col("tag", "VARCHAR[]")];
+        let result = make_count_query(DbType::Duckdb, "my_table", None, &cols, None).unwrap();
+
+        assert!(result.contains("CAST(\"tag\" AS VARCHAR)"), "got:\n{}", result);
+        assert!(result.contains("CAST(\"id\" AS VARCHAR)"), "got:\n{}", result);
     }
 
     // -----------------------------------------------------------------------
