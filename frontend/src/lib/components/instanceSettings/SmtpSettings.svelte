@@ -12,7 +12,7 @@
 </script>
 
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Password from '../Password.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { SettingService } from '$lib/gen'
@@ -29,8 +29,12 @@
 	let { values, disabled = false }: Props = $props()
 
 	let testEmail = $state('')
+	let testing = $state(false)
+	let testError: string | undefined = $state(undefined)
 
 	async function testSmtpSettings() {
+		testing = true
+		testError = undefined
 		try {
 			await SettingService.testSmtp({
 				requestBody: {
@@ -48,7 +52,12 @@
 			})
 			sendUserToast('Test email sent successfully')
 		} catch (error) {
-			sendUserToast('Failed to send test email: ' + error.message, true)
+			// The backend spells out which SMTP step failed and which setting to change, so it goes
+			// in a persistent alert rather than a toast that scrolls away while it is read.
+			testError = error.body || error.message || 'Unknown error'
+			sendUserToast('Failed to send test email', true)
+		} finally {
+			testing = false
 		}
 	}
 </script>
@@ -171,6 +180,7 @@
 					unifiedSize="md"
 					variant="accent"
 					onclick={testSmtpSettings}
+					loading={testing}
 					disabled={!testEmail || !isSmtpSettingsValid($values['smtp_settings']) || disabled}
 					btnClasses="text-xs"
 					startIcon={{ icon: Mail }}
@@ -178,6 +188,11 @@
 					Send test email
 				</Button>
 			</div>
+			{#if testError}
+				<Alert type="error" title="Test email failed" size="xs" class="mt-1">
+					<span class="whitespace-pre-wrap break-words">{testError}</span>
+				</Alert>
+			{/if}
 		</div>
 	</div>
 </div>
