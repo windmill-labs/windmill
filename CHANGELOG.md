@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.783.0](https://github.com/windmill-labs/windmill/compare/v1.782.0...v1.783.0) (2026-08-07)
+
+
+### Features
+
+* add public sharing option for job pages ([#10573](https://github.com/windmill-labs/windmill/issues/10573)) ([5ce29b3](https://github.com/windmill-labs/windmill/commit/5ce29b34364d6429411621752c64e306426aa2dd))
+* offer more dev workspace environment labels ([#10570](https://github.com/windmill-labs/windmill/issues/10570)) ([8c6211c](https://github.com/windmill-labs/windmill/commit/8c6211c27718912ad1e1a29f770747ea07fdb161))
+* open a session edit in the preview panel from the edits list ([#10486](https://github.com/windmill-labs/windmill/issues/10486)) ([d008975](https://github.com/windmill-labs/windmill/commit/d0089758e6091b07009dee5b8387f3f4b6d97455))
+* preview merge result in git-sync PR diff check ([#10542](https://github.com/windmill-labs/windmill/issues/10542)) ([c61404a](https://github.com/windmill-labs/windmill/commit/c61404a0f4008cd1de3c977c653c712ef3d9e0a3))
+
+
+### Bug Fixes
+
+* **frontend:** collapse the dev-workspace edit notice into a badge ([#10576](https://github.com/windmill-labs/windmill/issues/10576)) ([fdd76a6](https://github.com/windmill-labs/windmill/commit/fdd76a6f1358404b13326c68eed1eac14097bd88))
+* **frontend:** hide the fork workspace banner from operators ([#10575](https://github.com/windmill-labs/windmill/issues/10575)) ([57ed0f7](https://github.com/windmill-labs/windmill/commit/57ed0f77e1f83751ea04820b365fb53f098d38bf))
+* scope a fork's cloned app policy and custom path to its creator ([#10589](https://github.com/windmill-labs/windmill/issues/10589)) ([8e95bfe](https://github.com/windmill-labs/windmill/commit/8e95bfe6157ebe4f8fc5f6e13c36a6f0bdb9969d))
+
 ## [1.782.0](https://github.com/windmill-labs/windmill/compare/v1.781.3...v1.782.0) (2026-08-06)
 
 

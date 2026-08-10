@@ -659,7 +659,8 @@ async fn list_pending_invites(
             workspace_invite.operator,
             workspace.parent_workspace_id
         FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id
-        WHERE workspace_id = $1",
+        WHERE workspace_id = $1
+        ORDER BY workspace_invite.email",
         w_id
     )
     .fetch_all(&mut *tx)
@@ -11439,6 +11440,7 @@ const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
     ("ai_chat", "message"),
     ("ai_chat", "model"),
     ("ai_chat", "tool"),
+    ("flow_editor", "panel_placement"),
 ];
 
 fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
