@@ -90,6 +90,7 @@
 		// each editor view's onDeploy → runtime.syncPreviewWithDeployed. So only the
 		// iframe fallback (a separate page) has to be told to refresh.
 		if (slot.kind === 'editor') return
+		armFocusReclaim()
 		try {
 			const win = frame?.contentWindow
 			if (!win) return
@@ -111,6 +112,88 @@
 			// Cross-navigation timing — skip; the next mutation reloads again.
 		}
 	}
+
+	const iframeSrc = $derived(withMenuHidden(tab.url, workspaceId || undefined))
+
+	// A preview frame boots the whole app, and SvelteKit's router focuses the
+	// frame's document body on every navigation — which drags focus off whatever
+	// the user is typing in (the chat composer, mid-message, while the assistant
+	// opens or reloads previews). Hand it back, bounded to the load the session
+	// itself triggered: a click into the frame is the user's own move to make.
+	const FOCUS_RECLAIM_WINDOW_MS = 10_000
+	let focusReclaim: { target: HTMLElement; until: number } | undefined
+	let frameInteracted = false
+
+	function armFocusReclaim() {
+		const active = document.activeElement
+		const isTextEntry =
+			active instanceof HTMLTextAreaElement ||
+			active instanceof HTMLInputElement ||
+			(active instanceof HTMLElement && active.isContentEditable)
+		frameInteracted = false
+		focusReclaim = isTextEntry
+			? { target: active as HTMLElement, until: Date.now() + FOCUS_RECLAIM_WINDOW_MS }
+			: undefined
+	}
+
+	// A click or keypress inside the frame reaches no listener out here, so read it
+	// off the frame's own document (same-origin) — it fires ahead of the focus move
+	// it causes, which is what separates a user's click from the router's reset.
+	function trackFrameInteraction(target: HTMLIFrameElement) {
+		try {
+			const doc = target.contentDocument
+			if (!doc) return
+			const mark = () => (frameInteracted = true)
+			doc.addEventListener('pointerdown', mark, true)
+			doc.addEventListener('keydown', mark, true)
+		} catch {
+			// Defensively cross-origin; the reclaim window expiring is the fallback.
+		}
+	}
+
+	// The router parks focus on the frame's body, so anything else focused in there
+	// was clicked. Second line of defence: the listeners above only exist from the
+	// load event on, and a slow frame hydrates (and resets focus) well before that.
+	function frameFocusIsRouterReset(): boolean {
+		try {
+			const doc = frame?.contentDocument
+			const inner = doc?.activeElement
+			return !inner || inner === doc?.body
+		} catch {
+			return false
+		}
+	}
+
+	// Arms on mount and on every src change (a tab opened or re-pointed by the
+	// assistant); reload() arms for the in-frame navigations it drives.
+	$effect(() => {
+		void iframeSrc
+		if (!frame) return
+		armFocusReclaim()
+	})
+
+	// Focus entering the frame blurs the top window with the frame as
+	// document.activeElement — no event reaches the parent once it is inside.
+	$effect(() => {
+		function onWindowBlur() {
+			const reclaim = focusReclaim
+			if (!reclaim || !frame || document.activeElement !== frame) return
+			if (frameInteracted || Date.now() > reclaim.until || !reclaim.target.isConnected) {
+				focusReclaim = undefined
+				return
+			}
+			if (!frameFocusIsRouterReset()) return
+			// Deferred: focusing from inside the blur handler moves activeElement but
+			// not the keyboard — the transfer into the frame is still in flight, and
+			// it lands last, leaving the caret drawn here and the keys going nowhere.
+			setTimeout(() => {
+				if (frameInteracted || !reclaim.target.isConnected) return
+				reclaim.target.focus({ preventScroll: true })
+			}, 0)
+		}
+		window.addEventListener('blur', onWindowBlur)
+		return () => window.removeEventListener('blur', onWindowBlur)
+	})
 
 	const visibility = $derived(
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
@@ -223,12 +306,13 @@
 {:else if mounted}
 	<iframe
 		bind:this={frame}
-		src={withMenuHidden(tab.url, workspaceId || undefined)}
+		src={iframeSrc}
 		onload={(e) => {
 			const f = e.currentTarget as HTMLIFrameElement
 			// Re-apply after load so a toggle that happened while the frame was
 			// loading (its layout read the pre-toggle preference) isn't lost.
 			applyPageIframeTheme(darkMode, f)
+			trackFrameInteraction(f)
 			onLoad(f)
 		}}
 		title="Session preview: {label}"
