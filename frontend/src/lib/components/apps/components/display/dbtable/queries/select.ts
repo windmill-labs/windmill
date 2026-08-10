@@ -11,7 +11,12 @@ import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { wrapDucklakeQuery } from '../../../../../ducklake'
 import type { DbType, DbInput } from '$lib/components/dbTypes'
 import { buildParameters } from '../utils'
-import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
+import {
+	getLanguageByResourceType,
+	type ColumnDef,
+	buildVisibleFieldList,
+	duckdbQuicksearchColumns
+} from '../utils'
 
 function makeSnowflakeSelectQuery(
 	table: string,
@@ -88,17 +93,6 @@ function makeSnowflakeSelectQuery(
 	query = buildParameters(headers, 'snowflake') + '\n' + query
 
 	return query
-}
-
-/**
- * DuckDB's CONCAT implicitly casts scalars but rejects nested types:
- * `CONCAT(' ', ['a','b'])` fails with "Cannot concatenate types VARCHAR and
- * VARCHAR[] - an explicit cast is required". Quicksearch concatenates every
- * visible column, so one LIST, STRUCT or MAP column makes the whole table
- * impossible to preview. Casting is also what a text search wants.
- */
-export function duckdbSearchableColumns(columns: string[]): string {
-	return columns.map((column) => `CAST(${column} AS VARCHAR)`).join(', ')
 }
 
 export function makeSelectQuery(
@@ -309,8 +303,8 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				)
 				.join(',\n')}`
 
-			quicksearchCondition = `($quicksearch = '' OR CONCAT(${duckdbSearchableColumns(
-				filteredColumns
+			quicksearchCondition = `($quicksearch = '' OR CONCAT(${duckdbQuicksearchColumns(
+				columnDefs
 			)}) ILIKE '%' || $quicksearch || '%')`
 
 			query += `SELECT ${filteredColumns.join(', ')} FROM ${table}\n`
