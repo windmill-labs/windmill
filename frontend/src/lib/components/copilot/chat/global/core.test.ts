@@ -1085,12 +1085,9 @@ describe('global AI tools', () => {
 		).rejects.toThrow('without a value')
 	})
 
-	// A secret draft whose value is readable plaintext: in production that is the variable
-	// drawer's in-tab cell, which `readGlobalDraftValue` prefers over the encrypted row
-	// (only a Svelte context can acquire such a cell, so the draft store stands in for it
-	// here). A metadata-only chat edit must leave it in place — the drawer reads its own
-	// staged value back from that same cell, so blanking it would break the drawer's save
-	// as well as the chat's deploy.
+	// Readable plaintext in a secret draft comes from the drawer's shared cell (stood in for
+	// by the draft store here, since only a Svelte context can hold a cell). Leave it in
+	// place: the drawer reads its own staged value back from there.
 	it('carries a locally staged plaintext secret through a metadata-only write', async () => {
 		seedBackendDraft(
 			'variable',
@@ -1201,6 +1198,44 @@ describe('global AI tools', () => {
 		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
 			value: 'was-readable',
 			is_secret: true
+		})
+	})
+
+	// Revealing a secret in the drawer writes the DEPLOYED value into the shared cell, so a
+	// chat-staged rotation has to outrank it — otherwise deploying re-installs the old
+	// secret and silently drops the rotation.
+	it('prefers a chat-staged rotation over a value revealed afterwards', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			value: undefined,
+			is_secret: true,
+			description: 'old description',
+			ws_specific: false
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value: 'rotated-secret-99'
+		})
+
+		// The drawer's reveal lands the deployed secret in the same draft row.
+		const draft = getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+		seedBackendDraft(
+			'variable',
+			'f/secrets/api_key',
+			{ ...draft, variable: { ...draft.variable, value: 'the-old-deployed-secret' } },
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
+			value: 'rotated-secret-99'
 		})
 	})
 

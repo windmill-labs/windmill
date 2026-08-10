@@ -2825,7 +2825,9 @@ export const globalTools: Tool<{}>[] = [
 					draftCountByType.set(draft.type, count + 1)
 					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 						...draft,
-						value: undefined
+						value: undefined,
+						// Internal deploy bookkeeping, not something the model should reason about.
+						pendingSecretValue: undefined
 					})
 				}
 			}
@@ -2981,9 +2983,7 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = writeScheduleSchema.parse(merged)
 			const dropped = droppedOptionKeys(merged, parsed)
 			if (dropped.length) {
-				throw new Error(
-					describeDroppedScheduleOptions(dropped)
-				)
+				throw new Error(describeDroppedScheduleOptions(dropped))
 			}
 			return writeScheduleDraft(parsed, ctx)
 		}
@@ -4166,21 +4166,20 @@ const LOST_SECRET_VALUE_HINT =
 function resolveStagedSecretValue(
 	workspace: string,
 	path: string,
-	draftState: VariableDraftState | undefined
+	stored: string | undefined,
+	pendingSecretValue: boolean | undefined
 ): string | undefined {
-	const stored = draftState?.variable.value
-	if (stored !== undefined && stored !== '') return stored
-	// The draft is the source of truth for whether a rotation is staged; the in-memory
-	// map is only trusted when the draft vouches for it. Consulting it unconditionally
-	// would deploy a value belonging to a draft that was overwritten or discarded
-	// elsewhere (the drawer, another tab) long after the user moved on.
-	if (draftState?.pendingSecretValue) {
+	// A chat-written rotation wins over `stored`: the drawer's reveal writes the DEPLOYED
+	// secret into the same cell, which would otherwise re-deploy the old value over it.
+	// Only `pendingSecretValue` licenses reading the map, so a value left behind by a
+	// draft discarded elsewhere stays unreachable.
+	if (pendingSecretValue) {
 		const storagePath = getGlobalDraftStoragePath(workspace, 'variable', path)
 		const ephemeral = getEphemeralSecretVariableDraftValue(workspace, storagePath)
 		if (ephemeral !== undefined) return ephemeral
 		throw new Error(`Secret value for draft variable "${path}" ${LOST_SECRET_VALUE_HINT}`)
 	}
-	return undefined
+	return stored !== undefined && stored !== '' ? stored : undefined
 }
 
 // The deploy body for a variable that does not exist yet. Creating a secret always
@@ -4189,12 +4188,17 @@ function buildVariableCreateRequestBody(
 	workspace: string,
 	path: string,
 	draftValue: CreateVariable,
-	draftState: VariableDraftState | undefined
+	pendingSecretValue: boolean | undefined
 ): CreateVariable {
 	const requestBody = structuredClone(draftValue)
 	if (!requestBody.is_secret) return requestBody
 
-	const secretValue = resolveStagedSecretValue(workspace, path, draftState)
+	const secretValue = resolveStagedSecretValue(
+		workspace,
+		path,
+		draftValue.value,
+		pendingSecretValue
+	)
 	if (secretValue === undefined) {
 		throw new Error(`Secret value for draft variable "${path}" ${LOST_SECRET_VALUE_HINT}`)
 	}
@@ -4209,12 +4213,12 @@ function buildVariableUpdateRequestBody(
 	workspace: string,
 	path: string,
 	draftValue: CreateVariable,
-	draftState: VariableDraftState | undefined
+	pendingSecretValue: boolean | undefined
 ): Omit<CreateVariable, 'value'> & { value?: string } {
 	const { value, ...rest } = structuredClone(draftValue)
 	if (!rest.is_secret) return { ...rest, value }
 
-	const secretValue = resolveStagedSecretValue(workspace, path, draftState)
+	const secretValue = resolveStagedSecretValue(workspace, path, value, pendingSecretValue)
 	return secretValue === undefined ? rest : { ...rest, value: secretValue }
 }
 
@@ -6730,24 +6734,30 @@ async function deployDraft(
 			case 'variable': {
 				// Can't go through the DB-reading shared deployer: a secret's value is
 				// resolved from memory or omitted entirely (see `resolveStagedSecretValue`).
+				// Everything comes off this one snapshot — re-reading the draft here would
+				// move the conflict baseline onto a row this deploy never checked.
 				const draftValue = draft.value as CreateVariable
-				// The persisted state, not the flattened item value: only it carries
-				// `pendingSecretValue`.
-				const draftState = await readGlobalDraftValue<VariableDraftState>(
-					workspace,
-					'variable',
-					path
-				)
+				const { pendingSecretValue } = draft
 				if (await VariableService.existsVariable({ workspace, path })) {
 					await VariableService.updateVariable({
 						workspace,
 						path,
-						requestBody: buildVariableUpdateRequestBody(workspace, path, draftValue, draftState)
+						requestBody: buildVariableUpdateRequestBody(
+							workspace,
+							path,
+							draftValue,
+							pendingSecretValue
+						)
 					})
 				} else {
 					await VariableService.createVariable({
 						workspace,
-						requestBody: buildVariableCreateRequestBody(workspace, path, draftValue, draftState)
+						requestBody: buildVariableCreateRequestBody(
+							workspace,
+							path,
+							draftValue,
+							pendingSecretValue
+						)
 					})
 				}
 				actions = [createOpenVariableAction(path)]

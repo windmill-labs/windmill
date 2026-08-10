@@ -140,6 +140,10 @@ export type WorkspaceItem = {
 	 * without it a reader cannot tell a secret from a plain variable, since the
 	 * value is always redacted. */
 	isSecret?: boolean
+	/** Variable drafts only: mirrors `VariableDraftState.pendingSecretValue` so the
+	 * deploy path resolves the secret from the same snapshot it deploys, instead of
+	 * re-reading the draft and moving the conflict baseline off the row it checked. */
+	pendingSecretValue?: boolean
 	isDraft: boolean
 	isLiveDraft?: boolean
 }
