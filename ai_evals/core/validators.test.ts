@@ -280,6 +280,35 @@ describe("validateToolExpectations", () => {
     });
   });
 
+  // Absence has to mean absence: a partial-update tool is only proven correct if the
+  // field was never passed, and an explicit null IS passing it.
+  it("fieldMustBeAbsent accepts an omitted field and rejects a supplied or null one", () => {
+    const run = (args: Record<string, unknown>) =>
+      validateToolExpectations({
+        run: {
+          success: true,
+          actual: {},
+          assistantMessageCount: 1,
+          toolCallCount: 1,
+          toolsUsed: ["write_variable"],
+          toolCallDetails: [{ name: "write_variable", arguments: args }],
+          skillsInvoked: [],
+        },
+        toolExpect: {
+          toolCallArgs: [
+            { tool: "write_variable", field: "value", fieldMustBeAbsent: true },
+          ],
+        },
+      });
+    const absent = (checks: Array<{ name: string; passed: boolean }>) =>
+      checks.find((check) => check.name === "write_variable.value is not supplied")
+        ?.passed;
+
+    expect(absent(run({ path: "u/a/b", description: "only metadata" }))).toBe(true);
+    expect(absent(run({ path: "u/a/b", value: "****" }))).toBe(false);
+    expect(absent(run({ path: "u/a/b", value: null }))).toBe(false);
+  });
+
   it("passes requiredToolsAnyOf when any alternative in the group is used", () => {
     const checks = validateToolExpectations({
       run: {

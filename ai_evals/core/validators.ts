@@ -233,6 +233,19 @@ export function validateToolExpectations(input: {
       );
     }
 
+    if (rule.fieldMustBeAbsent) {
+      // Anything other than `undefined` was supplied — an explicit `null` is the
+      // model passing the field, not omitting it.
+      const suppliedValues = values.filter((value) => value !== undefined);
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} is not supplied`,
+          suppliedValues.length === 0,
+          `values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
     if (rule.stringIncludesAnyOf && rule.stringIncludesAnyOf.length > 0) {
       // Existential: at least one call must contain one of the substrings.
       // Other calls to the same tool may do anything — this suits SQL, where a

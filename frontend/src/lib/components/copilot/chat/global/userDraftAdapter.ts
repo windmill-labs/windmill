@@ -259,6 +259,7 @@ function variableDraftToWorkspaceItem(path: string, draft: VariableDraftState): 
 		type: 'variable',
 		path,
 		summary: draft.variable.description || undefined,
+		isSecret: draft.variable.is_secret,
 		value: {
 			path,
 			value: draft.variable.value,

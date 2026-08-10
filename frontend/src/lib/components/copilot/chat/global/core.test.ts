@@ -794,6 +794,7 @@ describe('global AI tools', () => {
 			type: 'variable',
 			path: 'f/secrets/api_key',
 			summary: 'API key',
+			isSecret: true,
 			isDraft: true
 		})
 	})
@@ -860,7 +861,10 @@ describe('global AI tools', () => {
 				wsSpecific: true,
 				account: 123,
 				is_oauth: true,
-				expires_at: '2026-06-22T09:30:00Z'
+				expires_at: '2026-06-22T09:30:00Z',
+				// This write supplies a secret value, so the draft records that it stages a
+				// rotation — the value itself stays in memory.
+				pendingSecretValue: true
 			}
 		)
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
@@ -933,6 +937,234 @@ describe('global AI tools', () => {
 		).rejects.toThrow('secret draft values are kept only in memory')
 		expect(VariableService.createVariable).not.toHaveBeenCalled()
 		expect(VariableService.updateVariable).not.toHaveBeenCalled()
+	})
+
+	// A secret's value is unreadable, so an edit that does not set one must leave it
+	// alone end to end: keep is_secret, and omit `value` from the update body rather
+	// than deploying a placeholder over the stored secret.
+	it('keeps an existing secret intact when a write only changes the description', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			// decryptSecret=false never returns a secret's value
+			value: undefined,
+			is_secret: true,
+			description: 'old description',
+			labels: ['prod'],
+			ws_specific: false
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			description: 'new description'
+		})
+
+		expect(
+			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+		).toMatchObject({
+			variable: { value: '', is_secret: true, description: 'new description' }
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(VariableService.createVariable).not.toHaveBeenCalled()
+		const requestBody = vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody
+		expect(requestBody).toMatchObject({ is_secret: true, description: 'new description' })
+		expect(requestBody).not.toHaveProperty('value')
+	})
+
+	// The mirror of the test above: a draft that DID stage a new secret must never
+	// deploy as a metadata-only edit once its in-memory value is gone (reload, other
+	// tab), or the chat reports a rotation that never happened.
+	it('refuses to deploy a staged secret rotation whose in-memory value was lost', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			value: undefined,
+			is_secret: true,
+			description: 'old description',
+			ws_specific: false
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value: 'rotated-secret-99'
+		})
+
+		// Reload: the in-memory secret map and the in-tab cells go, the draft row stays.
+		clearGlobalDrafts(WORKSPACE)
+
+		await expect(
+			callGlobalTool('deploy_workspace_item', {
+				type: 'variable',
+				path: 'f/secrets/api_key'
+			})
+		).rejects.toThrow('secret draft values are kept only in memory')
+		expect(VariableService.updateVariable).not.toHaveBeenCalled()
+	})
+
+	// The variable drawer shares this draft row and stores a secret it staged as an
+	// `$encrypted:` marker (encrypted at rest by the draft endpoint, decrypted by the
+	// deploy endpoints). A metadata-only chat edit must carry it through: blanking it
+	// would drop the user's pending secret with nothing to replace it.
+	it('preserves an encrypted secret draft value through a metadata-only write', async () => {
+		seedBackendDraft(
+			'variable',
+			'f/secrets/api_key',
+			{
+				path: 'f/secrets/api_key',
+				variable: {
+					value: '$encrypted:Zm9vYmFy',
+					is_secret: true,
+					description: 'staged in the drawer'
+				},
+				labels: undefined,
+				wsSpecific: false
+			},
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			description: 'described by the chat'
+		})
+
+		expect(
+			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+		).toMatchObject({
+			variable: {
+				value: '$encrypted:Zm9vYmFy',
+				is_secret: true,
+				description: 'described by the chat'
+			}
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
+			value: '$encrypted:Zm9vYmFy',
+			is_secret: true,
+			description: 'described by the chat'
+		})
+	})
+
+	// An `$encrypted:` marker is only decryptable while the variable stays secret, so
+	// un-securing still needs a real plaintext value — carrying the marker over would
+	// store the marker itself as the variable's value.
+	it('refuses to un-secret a variable with an encrypted draft value and no new value', async () => {
+		seedBackendDraft(
+			'variable',
+			'f/secrets/api_key',
+			{
+				path: 'f/secrets/api_key',
+				variable: {
+					value: '$encrypted:Zm9vYmFy',
+					is_secret: true,
+					description: 'staged in the drawer'
+				},
+				labels: undefined,
+				wsSpecific: false
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await expect(
+			callGlobalTool('write_variable', {
+				path: 'f/secrets/api_key',
+				is_secret: false
+			})
+		).rejects.toThrow('without a value')
+	})
+
+	// A secret draft whose value is readable plaintext: in production that is the
+	// variable drawer's in-tab cell, which `readGlobalDraftValue` prefers over the
+	// encrypted row (only a Svelte context can acquire such a cell, so the draft store
+	// stands in for it here). A metadata-only chat edit redacts it, so the plaintext has
+	// to be captured in memory first or the rotation is silently dropped and deploy
+	// keeps the old secret.
+	it('carries a locally staged plaintext secret through a metadata-only write', async () => {
+		seedBackendDraft(
+			'variable',
+			'f/secrets/api_key',
+			{
+				path: 'f/secrets/api_key',
+				variable: {
+					value: 'typed-in-the-drawer',
+					is_secret: true,
+					description: 'staged in the drawer'
+				},
+				labels: undefined,
+				wsSpecific: false
+			},
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			description: 'described by the chat'
+		})
+
+		// Redacted where it persists, remembered in memory.
+		expect(
+			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+		).toMatchObject({
+			variable: { value: '', is_secret: true, description: 'described by the chat' },
+			pendingSecretValue: true
+		})
+		expect(localStorageSnapshot()).not.toContain('typed-in-the-drawer')
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
+			value: 'typed-in-the-drawer',
+			is_secret: true,
+			description: 'described by the chat'
+		})
+	})
+
+	// Deploying a drawer-staged secret with no chat write in between: the draft carries
+	// the value but no `pendingSecretValue`, so it must still be sent rather than
+	// omitted as if only metadata had changed.
+	it('deploys a secret value staged outside the chat', async () => {
+		seedBackendDraft(
+			'variable',
+			'f/secrets/api_key',
+			{
+				path: 'f/secrets/api_key',
+				variable: {
+					value: 'typed-in-the-drawer',
+					is_secret: true,
+					description: 'staged in the drawer'
+				},
+				labels: undefined,
+				wsSpecific: false
+			},
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true)
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
+			value: 'typed-in-the-drawer',
+			is_secret: true
+		})
 	})
 
 	it('deploys every field of a script draft (not just content/summary)', async () => {

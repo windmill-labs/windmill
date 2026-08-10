@@ -104,6 +104,12 @@ export type VariableDraftState = {
 	account?: number
 	is_oauth?: boolean
 	expires_at?: string
+	/** Whether this draft stages a NEW secret value, as opposed to only touching a
+	 * secret's metadata. A chat-written secret value lives in memory only (the row
+	 * stores `''`), so without this flag a rotation whose in-memory value was lost
+	 * is indistinguishable from a metadata-only edit — and deploying it would
+	 * report a rotation that never happened. */
+	pendingSecretValue?: boolean
 }
 
 export type WorkspaceItem = {
@@ -131,6 +137,10 @@ export type WorkspaceItem = {
 		| AppDraftValue
 	/** Input schema of a script read (flows carry theirs inside `value`). */
 	schema?: unknown
+	/** Variables only. The one piece of a secret variable that is safe to report:
+	 * without it a reader cannot tell a secret from a plain variable, since the
+	 * value is always redacted. */
+	isSecret?: boolean
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

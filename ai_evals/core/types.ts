@@ -166,6 +166,12 @@ export interface ToolCallArgumentRule {
    * tool — e.g. SQL where a mutation is mixed with verification SELECTs.
    */
   stringIncludesAnyOf?: string[];
+  /**
+   * Universal over calls: no recorded call to `tool` may pass `field` at all.
+   * For partial-update tools, where supplying a field the model could not have
+   * read is itself the failure — e.g. `write_variable.value` on a secret.
+   */
+  fieldMustBeAbsent?: boolean;
 }
 
 export interface ToolValidationSpec {
