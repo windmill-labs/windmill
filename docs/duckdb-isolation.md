@@ -82,12 +82,18 @@ DuckDB job hangs until its timeout.
 
 The first revision of this patch declared its new `DatabaseInstance` member next to
 `local_db_file_system`, which pushed `create_api_v1` — the extension C-API entry point —
-8 bytes along, and every extension load hung. It is declared last for that reason.
-Adding `lock_temp_directory` to `DBConfigOptions` happened to be free because the `bool`
-fits in that struct's existing tail padding (`sizeof` stays 920, and `DBConfig` stays
-1408); a rebase must re-check that rather than assume it. `prebuilt_extensions_still_load`
-in the FFI crate is the end-to-end guard — it is a timeout, not an assertion, because the
-failure mode is a hang.
+8 bytes along, and every extension load hung. It is declared last for that reason, and
+`lock_temp_directory` is declared at the end of `DBConfigOptions`' run of bools so it takes
+a byte of padding the struct already had.
+
+The invariant is **no pre-existing member changes offset**, which is strictly stronger than
+`sizeof` holding — the first attempt at that field went in next to `temporary_directory`,
+kept `sizeof(DBConfigOptions)` at 920 by consuming interior padding, and still slid four
+bools along by a byte each. A rebase must diff the full record layouts
+(`clang++ -Xclang -fdump-record-layouts`, recipe in the fork's README), not the sizes.
+`prebuilt_extensions_still_load` in the FFI crate is the end-to-end guard — a timeout, not
+an assertion, because the failure mode is a hang — but it covers extension *entry*, not
+every field an extension reads, so it does not substitute for the layout diff.
 
 Alternatives considered and rejected: vendoring a patched `libduckdb-sys` in this repo
 would put a 6 MB binary tarball into windmill's history on every engine bump and would
@@ -113,11 +119,14 @@ An unpatched engine compiles, links and passes every existing test. Three things
 
 ## Upstream
 
-The patch is written against `duckdb/duckdb` `v1.5.5` in the shape upstream takes changes
-— it carries `src/common/settings.json` (the settings generator's input, regenerated with
-`scripts/generate_settings.py` and formatted with clang-format 11.0.1) and two
-sqllogictests under `test/sql/settings/`. It is a `git format-patch` file, so it applies
-with `git am`:
+The patch is written against `duckdb/duckdb` `v1.5.5` in the shape upstream takes changes.
+Besides the engine sources it carries `src/common/settings.json` (the settings generator's
+input, regenerated with `scripts/generate_settings.py` and formatted with clang-format
+11.0.1), two sqllogictests under `test/sql/settings/`, and one line in
+`test/api/test_reset.cpp` — that test requires every setting to survive a `RESET`, so an
+irreversible one has to join the exclusion list `disabled_filesystems` and
+`lock_configuration` are already on. It is a `git format-patch` file, so it applies with
+`git am`:
 
 ```bash
 git clone https://github.com/duckdb/duckdb.git && cd duckdb && git checkout v1.5.5
