@@ -1278,12 +1278,8 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
     ))
 }
 
-// The bundled engine is not stock: windmill-labs/duckdb-rs carries a patch adding
-// `lock_temp_directory`, which is what lets the EE isolation transform fence local
-// file access with `disabled_filesystems='LocalFileSystem'` without also costing
-// out-of-core execution. Nothing else would notice the patch going missing on an
-// engine bump — the worker would just start failing every query that outgrows
-// `memory_limit`, and only for jobs on an isolating worker.
+// The bundled engine is not stock (docs/duckdb-isolation.md). These two guard the ways an
+// engine bump can drop the patch without anything else noticing.
 #[cfg(test)]
 mod patched_engine_tests {
     /// Too large to be answered within the `memory_limit` `spill_attempt` sets, so the engine
@@ -1337,10 +1333,15 @@ mod patched_engine_tests {
     #[test]
     fn prebuilt_extensions_still_load() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
-        // Fetching the extension needs egress, which loading it back does not. Only the load
-        // is what this guards, so an unreachable repository skips rather than fails.
+        // Fetching the extension needs egress, which loading it back — the part this guards —
+        // does not. Skipping keeps a developer offline from seeing a failure they can't act on,
+        // but never in CI, where a skip and a pass would be indistinguishable.
         if let Err(e) = conn.execute_batch("INSTALL httpfs;") {
-            eprintln!("skipping: cannot reach the duckdb extension repository ({e})");
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "could not install httpfs, so the extension-load guard did not run: {e}"
+            );
+            eprintln!("skipping: INSTALL httpfs failed ({e})");
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
