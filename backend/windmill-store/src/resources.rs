@@ -6,8 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::LazyLock;
 
 use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
@@ -1032,6 +1035,60 @@ pub const INTERNAL_RESOURCE_TYPES: [&str; 2] = ["state", "cache"];
 /// make the drawer fetch an unbounded list.
 pub const MAX_RESOURCE_VERSIONS: i64 = 100;
 
+/// High enough that only a loop reaches it: someone iterating on a resource by hand never will.
+const RESOURCE_WRITE_ADVISORY_PER_MIN: u32 = 60;
+
+struct ResourceWriteRate {
+    count: u32,
+    minute: i64,
+}
+
+/// Writes seen per (workspace, path) per minute. Purely advisory, and deliberately so: nothing
+/// is throttled, the count is per process and resets on restart, so it undercounts across
+/// servers. That is affordable for a log line and is what keeps this off the write path proper.
+static RESOURCE_WRITE_RATES: LazyLock<DashMap<(String, String), ResourceWriteRate>> =
+    LazyLock::new(DashMap::new);
+static RESOURCE_WRITES_SEEN: AtomicU64 = AtomicU64::new(0);
+
+/// Notice a caller rewriting one resource in a loop and point them at a store meant for it.
+/// Every write copies the whole value into a new version row, so a resource used as scratch
+/// space costs far more than the equivalent state, S3 object or datatable row.
+fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
+    // `state` and `cache` are rewritten once per job by design. Counting them would fire the
+    // advisory hardest on exactly the traffic it is not about, which is how a warning becomes
+    // noise people filter out.
+    if INTERNAL_RESOURCE_TYPES.contains(&resource_type) {
+        return;
+    }
+    let minute = chrono::Utc::now().timestamp() / 60;
+    let crossed = {
+        let mut rate = RESOURCE_WRITE_RATES
+            .entry((w_id.to_string(), path.to_string()))
+            .or_insert(ResourceWriteRate { count: 0, minute });
+        if rate.minute != minute {
+            rate.minute = minute;
+            rate.count = 0;
+        }
+        rate.count += 1;
+        rate.count == RESOURCE_WRITE_ADVISORY_PER_MIN
+    };
+    // Bounded without a background task: periodically drop what neither the current nor the
+    // previous minute can still need.
+    if RESOURCE_WRITES_SEEN.fetch_add(1, Ordering::Relaxed) % 256 == 0 {
+        RESOURCE_WRITE_RATES.retain(|_, rate| rate.minute >= minute - 1);
+    }
+    if crossed {
+        tracing::warn!(
+            workspace_id = %w_id,
+            path = %path,
+            "resource written more than {} times in a minute; every write copies the whole value \
+             into a new version. High-frequency writes belong in a state resource, object storage, \
+             or a datatable.",
+            RESOURCE_WRITE_ADVISORY_PER_MIN
+        );
+    }
+}
+
 #[derive(Deserialize)]
 struct CreateResourceQuery {
     update_if_exists: Option<bool>,
@@ -2035,17 +2092,20 @@ async fn set_resource_value(
     }
     let mut tx = user_db.clone().begin(authed).await?;
 
-    let updated = sqlx::query!(
-        "UPDATE resource SET value = $1, edited_at = now() WHERE path = $2 AND workspace_id = $3",
+    // `RETURNING resource_type` rather than a second lookup: the advisory below has to know the
+    // type to leave `state` and `cache` alone, and this statement already runs.
+    let updated = sqlx::query_scalar!(
+        "UPDATE resource SET value = $1, edited_at = now() WHERE path = $2 AND workspace_id = $3
+         RETURNING resource_type",
         value,
         path,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
-    if updated.rows_affected() == 0 {
+    let Some(resource_type) = updated else {
         return Err(Error::NotFound(format!("Resource {} not found", path)));
-    }
+    };
     audit_log(
         &mut *tx,
         authed,
@@ -2057,6 +2117,8 @@ async fn set_resource_value(
     )
     .await?;
     tx.commit().await?;
+
+    note_resource_write(w_id, path, &resource_type);
 
     handle_deployment_metadata(
         &authed.email,
