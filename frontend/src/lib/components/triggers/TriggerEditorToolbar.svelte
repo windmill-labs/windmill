@@ -10,12 +10,9 @@
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
-	import { pageHref, stripBase, TRIGGER_PAGES, type TriggerKind } from '../sessions/previewRouter'
-	import {
-		buildSchedulesUrl,
-		buildTriggersUrl,
-		SCHEDULES_PATH
-	} from '$lib/components/copilot/chat/global/pageNavigation'
+	import { stripBase, TRIGGER_PAGES } from '../sessions/previewRouter'
+	import { pageDrawerSessionSource } from '../sessions/pageDrawerSession'
+	import { SCHEDULES_PATH } from '$lib/components/copilot/chat/global/pageNavigation'
 	import { page } from '$app/state'
 	import { workspaceStore } from '$lib/stores'
 
@@ -63,24 +60,22 @@
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
 
-	// "Open in AI session" only on the standalone trigger list pages, whose route
-	// IS the page the session should open — the same toolbar rendered inside a
-	// script/flow editor's Triggers panel is covered by that editor's own button.
-	// A trigger being created has no path to deep-link at yet.
-	const sessionPageHref = $derived.by(() => {
-		const path = triggerPath || trigger?.path
-		if (!path || trigger?.isDraft) return undefined
+	// "Open in AI session", on the standalone trigger list pages only: the route
+	// gate inside pageDrawerSessionSource is what keeps it off this same toolbar
+	// when it renders in a script/flow editor's Triggers panel, which has the
+	// editor's own button. A trigger being created has no path to deep-link at.
+	const triggerPagePath = $derived.by(() => {
 		const route = stripBase(page.url.pathname)
-		const kind = (Object.keys(TRIGGER_PAGES) as TriggerKind[]).find(
-			(k) => TRIGGER_PAGES[k].path === route
-		)
-		if (kind) return pageHref(buildTriggersUrl({ trigger_kind: kind, open: path }))
-		if (route === SCHEDULES_PATH) return pageHref(buildSchedulesUrl({ open: path }))
-		return undefined
+		if (route === SCHEDULES_PATH) return route
+		return Object.values(TRIGGER_PAGES).some((p) => p.path === route) ? route : undefined
 	})
 	const sessionSource = $derived(
-		sessionPageHref
-			? { page: () => sessionPageHref, workspaceId: $workspaceStore ?? undefined }
+		triggerPagePath
+			? pageDrawerSessionSource(
+					triggerPagePath,
+					trigger?.isDraft ? undefined : triggerPath || trigger?.path,
+					$workspaceStore ?? undefined
+				)
 			: undefined
 	)
 </script>

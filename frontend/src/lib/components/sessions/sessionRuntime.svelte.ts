@@ -375,12 +375,14 @@ function createRuntime(session: Session): SessionRuntime {
 		const location = stripBaseKeepingSuffix(where)
 		// Every page that deep-links a row does it through `#<path>` (schedules,
 		// the trigger lists, variables), so the hash names the row the page is
-		// anchored at.
+		// anchored at. Resources route theirs through a `/resource/` segment;
+		// strip it so `open` is the item's path on every page.
 		const hash = location.indexOf('#')
+		const anchor = hash >= 0 ? location.slice(hash + 1) : ''
 		return {
 			label: previewLocationLabel(where),
 			location,
-			open: hash >= 0 ? location.slice(hash + 1) || undefined : undefined
+			open: anchor.replace(/^\/resource\//, '') || undefined
 		}
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit

@@ -7,6 +7,9 @@
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
+	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
+	import { pageDrawerSessionSource } from './sessions/pageDrawerSession'
+	import { RESOURCES_PATH } from './copilot/chat/global/pageNavigation'
 
 	let {
 		workspace = undefined,
@@ -53,6 +56,15 @@
 	}
 
 	let mode: 'edit' | 'new' = $derived(!path ? 'new' : 'edit')
+
+	// The Resources page deep-links a row as `#/resource/<path>`, not the bare path.
+	const sessionSource = $derived(
+		pageDrawerSessionSource(
+			RESOURCES_PATH,
+			path ? `/resource/${path}` : undefined,
+			effectiveWorkspace
+		)
+	)
 </script>
 
 <Drawer bind:this={drawer} size="50rem" {disableChatOffset}>
@@ -88,6 +100,7 @@
 			/>
 		{/snippet}
 		{#snippet actions()}
+			<OpenInSessionButton source={sessionSource} />
 			{#if mode == 'edit' && path && effectiveWorkspace}
 				<WsSpecificVersions
 					kind="resource"
