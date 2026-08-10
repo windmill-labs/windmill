@@ -5440,8 +5440,7 @@ async fn clone_workspace_data(
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone apps with new IDs and app scripts
-    let _app_id_mapping =
-        clone_apps(tx, db, source_workspace_id, target_workspace_id, authed).await?;
+    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
@@ -6411,54 +6410,17 @@ fn repoint_cloned_app_identity(policy: &mut serde_json::Value, authed: &ApiAuthe
     );
 }
 
-/// Close a cloned app's unauthenticated endpoint. `publisher` is the smallest step that does
-/// it: the app still runs under `on_behalf_of`, it just requires a session. Re-publishing
-/// goes back through the app API, which does consult the anonymous-deployment rule.
-fn force_authenticated_execution(policy: &mut serde_json::Value) {
-    let Some(obj) = policy.as_object_mut() else {
-        return;
-    };
-    // A policy without `execution_mode` gets one too: `Policy` declares no serde default
-    // for the field, so such a row does not read back as a policy until something writes it.
-    let anonymous = obj
-        .get("execution_mode")
-        .and_then(|m| m.as_str())
-        .unwrap_or("anonymous")
-        == "anonymous";
-    if anonymous {
-        obj.insert(
-            "execution_mode".to_string(),
-            serde_json::Value::String("publisher".to_string()),
-        );
-    }
-}
-
 async fn clone_apps(
     tx: &mut Transaction<'_, Postgres>,
-    db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
     authed: &ApiAuthed,
 ) -> Result<HashMap<i64, i64>> {
+    // `execution_mode` is cloned as-is: protection rules are workspace-scoped and not cloned, so
+    // forcing `publisher` is only a speed bump (the creator can publish an anonymous app in the
+    // fork freely), and it is the one policy field a deploy back to the parent carries verbatim —
+    // `update_app` recomputes the identity but writes the policy wholesale.
     let preserve_identity = windmill_common::can_preserve_on_behalf_of(authed);
-    // Two conditions, deliberately stricter than `create_app`, which consults the rule alone.
-    // The parent's rule must allow publishing — it exempts admins, not `wm_deployers`, so it is
-    // not answered by `preserve_identity`. And an unprivileged creator loses the anonymous
-    // endpoint either way: the identity below is rewritten, so it is no longer what the parent
-    // published.
-    let may_publish_anonymous = preserve_identity
-        && !matches!(
-            check_user_against_rule(
-                source_workspace_id,
-                &ProtectionRuleKind::RestrictAnonymousAppDeployment,
-                AuditAuthorable::username(authed),
-                &authed.groups,
-                authed.is_admin,
-                db,
-            )
-            .await?,
-            RuleCheckResult::Blocked(_)
-        );
     // Get all apps from source workspace
     let apps = sqlx::query!(
         "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
@@ -6484,9 +6446,6 @@ async fn clone_apps(
         }
         if !preserve_identity {
             repoint_cloned_app_identity(&mut app.policy, authed);
-        }
-        if !may_publish_anonymous {
-            force_authenticated_execution(&mut app.policy);
         }
         // Both halves of what `create_app` demands to set a custom path: admin, and — unless
         // paths are scoped per workspace — that nobody else holds it. Cloning one instance-wide

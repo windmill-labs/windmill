@@ -65,14 +65,15 @@ async fn fork_with_public_app(
 /// not preserve someone else's identity must not receive one by forking. `test-user-2` is a
 /// plain member of the parent.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_fork_downgrades_app_policy_for_unprivileged_creator(
+async fn test_fork_repoints_app_identity_for_unprivileged_creator(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     let (policy, custom_path) = fork_with_public_app(&db, "SECRET_TOKEN_2").await?;
 
     assert_eq!(policy["on_behalf_of"], json!("u/test-user-2"));
     assert_eq!(policy["on_behalf_of_email"], json!("test2@windmill.dev"));
-    assert_eq!(policy["execution_mode"], json!("publisher"));
+    // `execution_mode` rides along untouched — see `clone_apps`.
+    assert_eq!(policy["execution_mode"], json!("anonymous"));
     assert_eq!(custom_path, None);
 
     Ok(())
