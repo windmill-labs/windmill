@@ -4,8 +4,9 @@
 //! into MCP tools.
 
 use rmcp::model::{Tool, ToolAnnotations};
+use serde_json::{Map, Value};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::common::schema::{convert_schema_to_schema_type, make_schema_compatible};
@@ -124,6 +125,48 @@ impl ToolableItem for HubScriptInfo {
     }
 }
 
+/// Spell out, in the tool's own description, which parameters may be left out.
+///
+/// A tool schema that does not opt into strict function calling lets the model omit
+/// anything outside `required`, but models routinely fill every advertised property
+/// with a placeholder (`""`, `[]`, `false`, `0`) instead, which the script then reads
+/// as an explicit empty value rather than an absent one. The tool description carries
+/// far more weight for that decision than the caller's system prompt, so the rule has
+/// to live here rather than being left to whoever configures the client.
+///
+/// Returns `None` when there is no optional parameter to mention.
+fn optional_params_hint(input_schema: &Map<String, Value>) -> Option<String> {
+    let properties = input_schema.get("properties")?.as_object()?;
+
+    let required: HashSet<&str> = input_schema
+        .get("required")
+        .and_then(|r| r.as_array())
+        .map(|names| names.iter().filter_map(|n| n.as_str()).collect())
+        .unwrap_or_default();
+
+    let mut optional: Vec<&str> = properties
+        .keys()
+        .map(String::as_str)
+        .filter(|name| !required.contains(name))
+        .collect();
+    if optional.is_empty() {
+        return None;
+    }
+    // `properties` comes from an unordered map, so sort for a stable description.
+    optional.sort_unstable();
+
+    let names = optional
+        .iter()
+        .map(|name| format!("`{}`", name))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    Some(format!(
+        " Optional parameters: {}. Omit any parameter the request does not call for, and it falls back to its default. Never pass an empty string, empty array, empty object, `false`, or `0` as a placeholder for a value you were not given.",
+        names
+    ))
+}
+
 /// Create an MCP Tool from a ToolableItem
 ///
 /// The resources_cache should be pre-populated with all resource types
@@ -137,7 +180,7 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     let is_hub = item.is_hub();
     let path = item.get_transformed_path();
     let item_type = item.item_type();
-    let description = format!(
+    let mut description = format!(
         "This is a {} named `{}` with the following description: `{}`.{}",
         item_type,
         item.get_summary(),
@@ -181,6 +224,10 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
         }
     };
 
+    if let Some(hint) = optional_params_hint(&input_schema_map) {
+        description.push_str(&hint);
+    }
+
     let title = {
         let summary = item.get_summary();
         if summary == "No summary" {
@@ -203,4 +250,44 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
             .idempotent(false) // Are not guaranteed to be idempotent
             .open_world(true), // Can interact with external services
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn input_schema(raw: Value) -> Map<String, Value> {
+        raw.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn hint_lists_optional_params_and_never_a_required_one() {
+        let hint = optional_params_hint(&input_schema(json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" },
+                "page": { "type": "number", "default": 1 },
+                "filters": { "type": "object" },
+            },
+            "required": ["query"],
+        })))
+        .expect("a schema with optional params gets a hint");
+
+        assert!(
+            hint.contains("Optional parameters: `filters`, `page`."),
+            "{hint}"
+        );
+        assert!(!hint.contains("`query`"), "{hint}");
+    }
+
+    #[test]
+    fn no_hint_when_every_param_is_required() {
+        assert!(optional_params_hint(&input_schema(json!({
+            "type": "object",
+            "properties": { "query": { "type": "string" } },
+            "required": ["query"],
+        })))
+        .is_none());
+    }
 }
