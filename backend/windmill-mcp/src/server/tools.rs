@@ -135,6 +135,11 @@ const PLACEHOLDERS: &str = "`\"\"`, `[]`, `{}`, `false`, or `0`";
 /// runs, and they weigh a tool's own description far more heavily than the caller's
 /// system prompt. Kept terse: this repeats on every tool in the list.
 fn omission_hint(input_schema: &Map<String, Value>, item_type: &str) -> Option<String> {
+    let properties = input_schema.get("properties")?.as_object()?;
+    if properties.is_empty() {
+        return None;
+    }
+
     // A script's `required` is derived from its signature, so "not required" means the
     // parameter has a default and may genuinely be left out. A flow's is a per-input
     // toggle that defaults to off, so naming its inputs optional would invite the model
@@ -144,8 +149,6 @@ fn omission_hint(input_schema: &Map<String, Value>, item_type: &str) -> Option<S
             " Never send {PLACEHOLDERS} as a placeholder for a parameter you were not given a value for."
         ));
     }
-
-    let properties = input_schema.get("properties")?.as_object()?;
 
     let required: HashSet<&str> = input_schema
         .get("required")
@@ -304,6 +307,16 @@ mod tests {
         .clone();
 
         assert!(omission_hint(&all_required, "script").is_none());
+    }
+
+    #[test]
+    fn no_hint_for_a_parameterless_tool() {
+        let empty = json!({ "type": "object", "properties": {}, "required": [] })
+            .as_object()
+            .unwrap()
+            .clone();
+
+        assert!(omission_hint(&empty, "flow").is_none());
     }
 
     #[test]

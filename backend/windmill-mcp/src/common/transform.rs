@@ -474,4 +474,18 @@ mod tests {
         assert!(schema.properties.contains_key("my_param"));
         assert_eq!(schema.required, vec!["my_param".to_string()]);
     }
+
+    #[test]
+    fn transform_property_keys_does_not_repeat_a_collided_required_name() {
+        let mut schema: SchemaType = serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": { "a.b": { "type": "string" }, "ab": { "type": "string" } },
+            "required": ["a.b", "ab"],
+        }))
+        .unwrap();
+
+        transform_property_keys(&mut schema);
+
+        assert_eq!(schema.required, vec!["ab".to_string()]);
+    }
 }
