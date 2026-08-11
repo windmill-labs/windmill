@@ -312,6 +312,34 @@
 		onDone()
 	}
 
+	/**
+	 * Whether closing would throw away work. Nothing is written before Finish, so the loss is
+	 * only what was typed -- but that includes a pasted database password and a project about
+	 * to be created, and a backdrop click is easy to do by accident. Once a run has produced a
+	 * result there is nothing left to lose: it either finished, or left a row to resume from.
+	 */
+	function hasUnfinishedIntent(): boolean {
+		return wiz.provider !== undefined && !run.running && !run.result
+	}
+
+	/** Backdrop, Escape and the close button all arrive here. */
+	async function requestClose() {
+		if (preventClose) return
+		if (!hasUnfinishedIntent()) {
+			close()
+			return
+		}
+		// Held while the dialog is up so a second dismissal cannot stack another one.
+		preventClose = true
+		const confirmed = await confirmationModal.ask({
+			title: 'Leave without adding a database?',
+			children: 'Nothing has been created yet, and what you have filled in here will be lost.',
+			confirmationText: 'Discard'
+		})
+		preventClose = false
+		if (confirmed) close()
+	}
+
 	function close() {
 		opened = false
 		if (rowCreated && !run.result?.ok) {
@@ -389,8 +417,7 @@
 	bind:isOpen={
 		() => opened,
 		(v) => {
-			if (!v && preventClose) return
-			if (!v) close()
+			if (!v) requestClose()
 			else opened = v
 		}
 	}
