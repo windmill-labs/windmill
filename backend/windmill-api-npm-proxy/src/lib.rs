@@ -373,12 +373,13 @@ fn resolve_version_spec(package_json: &JsonValue, spec: &str) -> Option<String> 
     }
 
     let versions = package_json.get("versions").and_then(|v| v.as_object())?;
-    if versions.contains_key(spec) {
-        return Some(spec.to_string());
+    // A spec that pins one version, `v` prefix and all, is exact to npm. It has to be
+    // recognised here rather than left to the range path, where `1.2.3` reads as `^1.2.3`.
+    let pinned = strip_version_prefix(spec);
+    if versions.contains_key(pinned) {
+        return Some(pinned.to_string());
     }
-    // A bare version npm would require exactly must not widen into a range: `1.2.3`
-    // means `=1.2.3` to npm but `^1.2.3` to the semver crate.
-    if spec.parse::<semver::Version>().is_ok() {
+    if pinned.parse::<semver::Version>().is_ok() {
         return None;
     }
 
@@ -420,29 +421,42 @@ fn normalize_comparator_set(set: &str) -> String {
     }
 }
 
-/// Split on whitespace, keeping an operator attached to the version it applies to and
-/// dropping the `v` npm allows in front of a version.
+/// Split on whitespace, keeping an operator attached to the version it applies to.
 fn split_comparators(set: &str) -> Vec<String> {
     let mut comparators: Vec<String> = Vec::new();
     for token in set.split_whitespace() {
-        let token = match token.split_once('v') {
-            Some((operator, rest))
-                if !rest.is_empty()
-                    && rest.starts_with(|c: char| c.is_ascii_digit())
-                    && operator.chars().all(|c| "><=^~".contains(c)) =>
-            {
-                format!("{}{}", operator, rest)
-            }
-            _ => token.to_string(),
-        };
         match comparators.last_mut() {
-            Some(pending) if pending.chars().all(|c| "><=^~".contains(c)) && token != "-" => {
-                pending.push_str(&token)
+            Some(pending) if is_operator(pending) && token != "-" => {
+                pending.push_str(strip_version_prefix(token))
             }
-            _ => comparators.push(token),
+            _ => comparators.push(if is_operator(token) {
+                token.to_string()
+            } else {
+                strip_operator_and_version_prefix(token)
+            }),
         }
     }
     comparators
+}
+
+fn is_operator(token: &str) -> bool {
+    !token.is_empty() && token.chars().all(|c| "><=^~".contains(c))
+}
+
+/// npm accepts a `v` in front of a version (`v1.2.3`, `^v1.2.3`); the semver crate does not.
+fn strip_version_prefix(version: &str) -> &str {
+    version
+        .strip_prefix('v')
+        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+        .unwrap_or(version)
+}
+
+fn strip_operator_and_version_prefix(comparator: &str) -> String {
+    let operator_len = comparator
+        .find(|c: char| !"><=^~".contains(c))
+        .unwrap_or(comparator.len());
+    let (operator, version) = comparator.split_at(operator_len);
+    format!("{}{}", operator, strip_version_prefix(version))
 }
 
 /// `1.2` bounds npm to the `1.2.x` line; the crate would read it as `^1.2`.
@@ -476,13 +490,10 @@ async fn get_package_filetree(
     )
     .await?;
 
-    // Extract file list from tarball
-    let files = extract_tarball_files(&tarball_bytes)?;
-
-    // Find the main entry point. It comes from the packaged manifest rather than the
-    // registry document, which carries no `main` in its abbreviated form.
-    let main = extract_file_from_tarball(&tarball_bytes, "package.json")
-        .ok()
+    // The entry point comes from the packaged manifest rather than the registry document,
+    // which carries no `main` in its abbreviated form.
+    let (files, manifest) = extract_tarball_files_and_manifest(&tarball_bytes)?;
+    let main = manifest
         .and_then(|manifest| serde_json::from_str::<JsonValue>(&manifest).ok())
         .and_then(|manifest| {
             manifest
@@ -618,21 +629,25 @@ fn format_registry_url(
     }
 }
 
-/// Extract file list from a tarball
-fn extract_tarball_files(tarball_bytes: &[u8]) -> Result<Vec<FileEntry>> {
+/// Extract the file list and the manifest from a tarball, in one pass over the archive
+fn extract_tarball_files_and_manifest(
+    tarball_bytes: &[u8],
+) -> Result<(Vec<FileEntry>, Option<String>)> {
     use flate2::read::GzDecoder;
+    use std::io::Read;
     use tar::Archive;
 
     let gz = GzDecoder::new(tarball_bytes);
     let mut archive = Archive::new(gz);
 
     let mut files = Vec::new();
+    let mut manifest = None;
 
     for entry in archive
         .entries()
         .map_err(|e| Error::InternalErr(format!("Failed to read tarball entries: {}", e)))?
     {
-        let entry = entry
+        let mut entry = entry
             .map_err(|e| Error::InternalErr(format!("Failed to read tarball entry: {}", e)))?;
         let path = entry
             .path()
@@ -642,10 +657,16 @@ fn extract_tarball_files(tarball_bytes: &[u8]) -> Result<Vec<FileEntry>> {
         let path_str = path.to_string_lossy().to_string();
         if let Some(stripped) = path_str.strip_prefix("package/") {
             files.push(FileEntry { name: format!("/{}", stripped) });
+            if stripped == "package.json" {
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_ok() {
+                    manifest = Some(content);
+                }
+            }
         }
     }
 
-    Ok(files)
+    Ok((files, manifest))
 }
 
 /// Extract a specific file from a tarball
@@ -721,6 +742,9 @@ mod tests {
         assert_eq!(resolve("18.3.1 - 19.1.5").as_deref(), Some("19.1.5"));
         assert_eq!(resolve(">= 18 < 19").as_deref(), Some("18.3.1"));
         assert_eq!(resolve("^v19.0.0").as_deref(), Some("19.2.0"));
+        // A `v` prefix does not turn a pinned version into a range
+        assert_eq!(resolve("v19.0.0").as_deref(), Some("19.0.0"));
+        assert_eq!(resolve("v19.0.1"), None);
         // npm reads a bare partial as an x-range, the crate as a caret
         assert_eq!(resolve("19.1").as_deref(), Some("19.1.5"));
         assert_eq!(resolve("19").as_deref(), Some("19.2.0"));
