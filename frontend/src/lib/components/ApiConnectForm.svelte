@@ -20,8 +20,7 @@
 	import SupabaseProjectStep from './workspaceSettings/SupabaseProjectStep.svelte'
 	import { newWizardState } from './workspaceSettings/addDataTableModel'
 	import {
-		getSupabasePooler,
-		projectRef,
+		resolveSupabaseConnection,
 		supabaseResourceValue
 	} from './workspaceSettings/supabaseProvisioning'
 	import { useSupabaseOauth } from './workspaceSettings/supabaseOauth.svelte'
@@ -170,22 +169,25 @@
 		if (!project || !supaIntent.password) return
 		supaBusy = true
 		try {
-			const pooler =
-				supaIntent.connectionMode === 'session'
-					? await getSupabasePooler(supaOauth.token!, projectRef(project))
-					: undefined
+			const connection = await resolveSupabaseConnection(
+				supaOauth.token!,
+				project,
+				supaIntent.connectionMode
+			)
 			args = {
 				...(args ?? {}),
-				...supabaseResourceValue(project, '', {
-					mode: supaIntent.connectionMode,
-					pooler
-				}),
+				...supabaseResourceValue(project, '', connection),
 				password: supaIntent.password
 			}
 			rawCode = JSON.stringify(args, null, 2)
 			rawCodeEditor?.setCode(rawCode)
 			supabaseOpen = false
-			sendUserToast(`Filled in the connection for ${project.name}`)
+			sendUserToast(
+				connection.unavailable
+					? `Filled in a direct connection for ${project.name}: ${connection.unavailable}`
+					: `Filled in the connection for ${project.name}`,
+				!!connection.unavailable
+			)
 		} catch (err) {
 			sendUserToast(String(err), true)
 		} finally {

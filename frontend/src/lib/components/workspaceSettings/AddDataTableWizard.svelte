@@ -67,7 +67,7 @@
 		type WizardState
 	} from './addDataTableModel'
 	import {
-		getSupabasePooler,
+		resolveSupabaseConnection,
 		projectRef,
 		supabaseResourceValue,
 		DEFAULT_SUPABASE_REGION
@@ -114,6 +114,8 @@
 	let run: { steps: SetupStep[]; running: boolean; result?: Awaited<ReturnType<typeof runSetup>> } =
 		$state({ steps: [], running: false })
 	let rowCreated = $state(false)
+	/** Why the session pooler could not be used, once something has tried to read it. */
+	let poolerUnavailable: string | undefined = $state(undefined)
 
 	let folders: string[] = $state([])
 
@@ -241,15 +243,15 @@
 		try {
 			let value = probeValue(wiz)
 			if (!value && wiz.provider === 'supabase' && wiz.supabase.project) {
-				const pooler =
-					wiz.supabase.connectionMode === 'session'
-						? await getSupabasePooler(supaOauth.token!, projectRef(wiz.supabase.project))
-						: undefined
+				const connection = await resolveSupabaseConnection(
+					supaOauth.token!,
+					wiz.supabase.project,
+					wiz.supabase.connectionMode
+				)
+				wiz.supabase.connectionMode = connection.mode
+				poolerUnavailable = connection.unavailable
 				value = {
-					...supabaseResourceValue(wiz.supabase.project, '', {
-						mode: wiz.supabase.connectionMode,
-						pooler
-					}),
+					...supabaseResourceValue(wiz.supabase.project, '', connection),
 					password: wiz.supabase.password
 				}
 			}
@@ -302,7 +304,8 @@
 				await customInstanceDbs.refetch()
 			},
 			onProgress: (steps) => (run.steps = steps),
-			onRowCreated: () => (rowCreated = true)
+			onRowCreated: () => (rowCreated = true),
+			onPoolerUnavailable: (reason) => (poolerUnavailable = reason)
 		})
 		preventClose = false
 		run = { ...run, running: false, result }
@@ -709,6 +712,19 @@
 				{wiz.supabase.connectionMode === 'session' ? 'Session pooler' : 'Direct (IPv6)'}
 			</dd>
 		</dl>
+		{#if poolerUnavailable}
+			<Alert type="warning" size="xs" title="Session pooling is not available">
+				<div class="flex flex-col gap-1">
+					<span>{poolerUnavailable}</span>
+					<span>
+						Windmill connects directly instead, which needs IPv6 from the workers, or the IPv4
+						add-on on the project. Granting the Supabase OAuth app
+						<span class="font-mono">database_pooling_config_read</span> and connecting again restores
+						the pooler.
+					</span>
+				</div>
+			</Alert>
+		{/if}
 	{:else if wiz.provider === 'instance'}
 		<dl
 			class="grid grid-cols-[9rem_1fr] gap-y-1 gap-x-3 text-xs border rounded-md p-3 border-border-light"

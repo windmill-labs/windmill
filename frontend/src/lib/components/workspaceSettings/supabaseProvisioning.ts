@@ -181,6 +181,34 @@ export async function getSupabasePooler(token: string, projectId: string): Promi
 	return pooler
 }
 
+export type SupabaseConnection = {
+	mode: SupabaseConnectionMode
+	pooler?: SupabasePooler
+	/** Why session pooling was asked for and not used. Absent when nothing was given up. */
+	unavailable?: string
+}
+
+/**
+ * The endpoint a project should be reached through, degrading rather than failing.
+ *
+ * Reading the pooler config needs the `database_pooling_config_read` scope, which an
+ * instance's Supabase OAuth app may not have been granted -- and no amount of retrying
+ * fixes that. A direct connection still works for anyone whose workers have IPv6, so
+ * fall back to it and say so, instead of leaving the user with no way through.
+ */
+export async function resolveSupabaseConnection(
+	token: string,
+	project: SupabaseProject,
+	mode: SupabaseConnectionMode
+): Promise<SupabaseConnection> {
+	if (mode !== 'session') return { mode }
+	try {
+		return { mode, pooler: await getSupabasePooler(token, projectRef(project)) }
+	} catch (err) {
+		return { mode: 'direct', unavailable: err instanceof Error ? err.message : String(err) }
+	}
+}
+
 /** The resource value for a project, given the endpoint it should connect through. */
 export function supabaseResourceValue(
 	project: SupabaseProject,

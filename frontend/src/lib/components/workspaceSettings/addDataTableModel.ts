@@ -24,7 +24,7 @@ import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionStri
 import {
 	createSupabaseProject,
 	generateDbPassword,
-	getSupabasePooler,
+	resolveSupabaseConnection,
 	listSupabaseProjects,
 	projectOrg,
 	projectRef,
@@ -198,6 +198,8 @@ export type RunDeps = {
 	/** Called as soon as the data table row exists, so the caller can offer to leave. */
 	onRowCreated?: () => void
 	onStatus?: (status: string | undefined) => void
+	/** Session pooling was asked for but could not be read; a direct host was written. */
+	onPoolerUnavailable?: (reason: string) => void
 }
 
 export type RunResult = {
@@ -370,17 +372,32 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 							state.supabase.password,
 							`Password for the ${project!.name} Supabase database`
 						)
-					const pooler =
-						state.supabase.connectionMode === 'session'
-							? await getSupabasePooler(deps.supabaseToken!, projectRef(project!))
-							: undefined
+					const connection = await resolveSupabaseConnection(
+						deps.supabaseToken!,
+						project!,
+						state.supabase.connectionMode
+					)
+					// The row was recorded before this step ran, so an origin claiming session
+					// pooling has to be corrected once a direct host is what gets written.
+					if (connection.mode !== state.supabase.connectionMode) {
+						state.supabase.connectionMode = connection.mode
+						await WorkspaceService.setDataTableSetup({
+							workspace: deps.workspace,
+							datatableName: name,
+							requestBody: {
+								origin: {
+									...origin,
+									connection_mode: connection.mode,
+									...(project ? { project_ref: projectRef(project) } : {})
+								}
+							}
+						})
+					}
+					if (connection.unavailable) deps.onPoolerUnavailable?.(connection.unavailable)
 					await writeResource(
 						deps.workspace,
 						path,
-						supabaseResourceValue(project!, path, {
-							mode: state.supabase.connectionMode,
-							pooler
-						}),
+						supabaseResourceValue(project!, path, connection),
 						`Supabase project ${project!.name}`
 					)
 				} else {
