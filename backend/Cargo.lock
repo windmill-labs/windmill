@@ -15117,6 +15117,7 @@ dependencies = [
  "axum 0.8.9",
  "flate2",
  "lazy_static",
+ "quick_cache",
  "reqwest 0.13.4",
  "semver 1.0.28",
  "serde",

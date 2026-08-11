@@ -4,19 +4,21 @@
  */
 
 use axum::{
+    body::Body,
     extract::{Path, Query},
     http::header,
     response::{IntoResponse, Response},
     routing::get,
     Extension, Json, Router,
 };
+use quick_cache::{sync::Cache, Weighter};
 use serde::{Deserialize, Serialize};
 use sqlx::types::JsonValue;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tower_http::cors::{Any, CorsLayer};
 use windmill_common::{
-    cache::Cache,
     error::{Error, JsonResult, Result},
     global_settings::{
         load_value_from_global_settings, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
@@ -167,13 +169,38 @@ fn build_registry_request(
     Ok(req)
 }
 
-/// Every endpoint here needs the whole registry document, and an install resolves then
-/// downloads each package, so without this each dependency of an app being edited would
-/// re-download a packument (megabytes, for popular packages) several times over.
+/// npm's abbreviated packument: same `dist-tags` and `versions` keys, same
+/// `versions[v].dist`, without the per-version prose that makes a full document run to
+/// tens of megabytes. Registries that do not implement it answer with the full document.
+const ABBREVIATED_PACKUMENT: &str = "application/vnd.npm.install-v1+json";
+
+/// An install resolves and then downloads every package, so without a cache each
+/// dependency of the app being edited costs several packument round trips.
 const PACKAGE_JSON_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Bounded by bytes rather than documents: packument size varies by orders of magnitude
+/// between packages, so a count-based bound puts no ceiling on resident memory.
+const PACKAGE_JSON_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+
+#[derive(Clone)]
+struct CachedPackageJson {
+    document: Arc<JsonValue>,
+    /// Encoded length of the registry response, standing in for the parsed tree's size.
+    bytes: u64,
+    fetched_at: Instant,
+}
+
+#[derive(Clone)]
+struct PackageJsonWeighter;
+
+impl Weighter<(String, String), CachedPackageJson> for PackageJsonWeighter {
+    fn weight(&self, _key: &(String, String), cached: &CachedPackageJson) -> u64 {
+        cached.bytes.max(1)
+    }
+}
 
 lazy_static::lazy_static! {
-    static ref PACKAGE_JSON_CACHE: Cache<(String, String), (JsonValue, Instant)> = Cache::new(500);
+    static ref PACKAGE_JSON_CACHE: Cache<(String, String), CachedPackageJson, PackageJsonWeighter> =
+        Cache::with_weighter(500, PACKAGE_JSON_CACHE_BYTES, PackageJsonWeighter);
 }
 
 /// Fetch a package's registry document, together with the registry it came from so
@@ -181,15 +208,15 @@ lazy_static::lazy_static! {
 async fn fetch_package_json(
     db: &sqlx::Pool<sqlx::Postgres>,
     package: &str,
-) -> Result<(JsonValue, String, Option<String>)> {
+) -> Result<(Arc<JsonValue>, String, Option<String>)> {
     let (registry_url, auth_token) = get_npm_registry(db)
         .await?
         .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
 
     let cache_key = (registry_url.clone(), package.to_string());
-    if let Some((package_json, fetched_at)) = PACKAGE_JSON_CACHE.get(&cache_key) {
-        if fetched_at.elapsed() < PACKAGE_JSON_CACHE_TTL {
-            return Ok((package_json, registry_url, auth_token));
+    if let Some(cached) = PACKAGE_JSON_CACHE.get(&cache_key) {
+        if cached.fetched_at.elapsed() < PACKAGE_JSON_CACHE_TTL {
+            return Ok((cached.document, registry_url, auth_token));
         }
     }
 
@@ -198,6 +225,7 @@ async fn fetch_package_json(
     tracing::info!("Fetching package metadata from: {}", package_url);
 
     let response = build_registry_request(&package_url, &auth_token, &registry_url)?
+        .header(header::ACCEPT, ABBREVIATED_PACKUMENT)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -209,24 +237,35 @@ async fn fetch_package_json(
         )));
     }
 
-    let package_json: JsonValue = response
-        .json()
+    let body = response
+        .bytes()
         .await
-        .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?;
+        .map_err(|e| Error::InternalErr(format!("Failed to read package metadata: {}", e)))?;
+    let package_json: Arc<JsonValue> = Arc::new(
+        serde_json::from_slice(&body)
+            .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?,
+    );
 
-    PACKAGE_JSON_CACHE.insert(cache_key, (package_json.clone(), Instant::now()));
+    PACKAGE_JSON_CACHE.insert(
+        cache_key,
+        CachedPackageJson {
+            document: package_json.clone(),
+            bytes: body.len() as u64,
+            fetched_at: Instant::now(),
+        },
+    );
 
     Ok((package_json, registry_url, auth_token))
 }
 
-/// Download the tarball of a resolved package version from the private registry
-async fn fetch_tarball(
+/// Open the tarball of a resolved package version on the private registry
+async fn tarball_response(
     package_json: &JsonValue,
     package: &str,
     version: &str,
     registry_url: &str,
     auth_token: &Option<String>,
-) -> Result<axum::body::Bytes> {
+) -> Result<reqwest::Response> {
     let tarball_url = package_json
         .get("versions")
         .and_then(|v| v.get(version))
@@ -235,19 +274,31 @@ async fn fetch_tarball(
         .and_then(|t| t.as_str())
         .ok_or_else(|| Error::NotFound(format!("Tarball not found for {}@{}", package, version)))?;
 
-    let tarball_response = build_registry_request(tarball_url, auth_token, registry_url)?
+    let response = build_registry_request(tarball_url, auth_token, registry_url)?
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
 
-    if !tarball_response.status().is_success() {
+    if !response.status().is_success() {
         return Err(Error::NotFound(format!(
             "Failed to download tarball for {}@{}",
             package, version
         )));
     }
 
-    tarball_response
+    Ok(response)
+}
+
+/// Download the tarball of a resolved package version, for the handlers that unpack it here
+async fn fetch_tarball(
+    package_json: &JsonValue,
+    package: &str,
+    version: &str,
+    registry_url: &str,
+    auth_token: &Option<String>,
+) -> Result<axum::body::Bytes> {
+    tarball_response(package_json, package, version, registry_url, auth_token)
+        .await?
         .bytes()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to read tarball: {}", e)))
@@ -352,30 +403,59 @@ fn parse_npm_range(spec: &str) -> Option<Vec<semver::VersionReq>> {
     (!requirements.is_empty()).then_some(requirements)
 }
 
-/// Rewrite one npm comparator set into the crate's syntax: AND-ed comparators are
-/// space-separated rather than comma-separated, hyphen ranges have no equivalent, and a
-/// bare partial reads as an x-range to npm (`1.2` is `1.2.x`) but as a caret to the crate.
+/// Rewrite one npm comparator set into the crate's syntax. npm additionally accepts an
+/// operator detached from its version (`>= 1.0.0`), a `v` prefix, hyphen ranges, and
+/// AND-ed comparators separated by spaces rather than commas; and it reads a bare partial
+/// as an x-range (`1.2` is `1.2.x`) where the crate reads it as a caret.
 fn normalize_comparator_set(set: &str) -> String {
-    let comparators = set.split_whitespace().collect::<Vec<_>>();
+    let comparators = split_comparators(set);
     match comparators.as_slice() {
         [] => "*".to_string(),
-        [low, "-", high] => format!(">={},<={}", low, high),
+        [low, hyphen, high] if hyphen == "-" => format!(">={},<={}", low, high),
         _ => comparators
             .iter()
-            .map(|comparator| {
-                let components = comparator.split('.').collect::<Vec<_>>();
-                if components.len() < 3
-                    && components
-                        .iter()
-                        .all(|c| !c.is_empty() && c.chars().all(|c| c.is_ascii_digit()))
-                {
-                    format!("{}.*", comparator)
-                } else {
-                    comparator.to_string()
-                }
-            })
+            .map(|comparator| widen_bare_partial(comparator))
             .collect::<Vec<_>>()
             .join(","),
+    }
+}
+
+/// Split on whitespace, keeping an operator attached to the version it applies to and
+/// dropping the `v` npm allows in front of a version.
+fn split_comparators(set: &str) -> Vec<String> {
+    let mut comparators: Vec<String> = Vec::new();
+    for token in set.split_whitespace() {
+        let token = match token.split_once('v') {
+            Some((operator, rest))
+                if !rest.is_empty()
+                    && rest.starts_with(|c: char| c.is_ascii_digit())
+                    && operator.chars().all(|c| "><=^~".contains(c)) =>
+            {
+                format!("{}{}", operator, rest)
+            }
+            _ => token.to_string(),
+        };
+        match comparators.last_mut() {
+            Some(pending) if pending.chars().all(|c| "><=^~".contains(c)) && token != "-" => {
+                pending.push_str(&token)
+            }
+            _ => comparators.push(token),
+        }
+    }
+    comparators
+}
+
+/// `1.2` bounds npm to the `1.2.x` line; the crate would read it as `^1.2`.
+fn widen_bare_partial(comparator: &str) -> String {
+    let components = comparator.split('.').collect::<Vec<_>>();
+    if components.len() < 3
+        && components
+            .iter()
+            .all(|c| !c.is_empty() && c.chars().all(|c| c.is_ascii_digit()))
+    {
+        format!("{}.*", comparator)
+    } else {
+        comparator.to_string()
     }
 }
 
@@ -399,14 +479,18 @@ async fn get_package_filetree(
     // Extract file list from tarball
     let files = extract_tarball_files(&tarball_bytes)?;
 
-    // Find the main entry point
-    let main = package_json
-        .get("versions")
-        .and_then(|v| v.get(&version))
-        .and_then(|v| v.get("main"))
-        .and_then(|m| m.as_str())
-        .unwrap_or("index.js")
-        .to_string();
+    // Find the main entry point. It comes from the packaged manifest rather than the
+    // registry document, which carries no `main` in its abbreviated form.
+    let main = extract_file_from_tarball(&tarball_bytes, "package.json")
+        .ok()
+        .and_then(|manifest| serde_json::from_str::<JsonValue>(&manifest).ok())
+        .and_then(|manifest| {
+            manifest
+                .get("main")
+                .and_then(|m| m.as_str())
+                .map(String::from)
+        })
+        .unwrap_or_else(|| "index.js".to_string());
 
     Ok(Json(PackageFiletree { default: main, files }))
 }
@@ -443,7 +527,7 @@ async fn get_package_tarball(
 ) -> Result<Response> {
     let (package, version) = parse_package_and_version(package_version_path.to_path())?;
     let (package_json, registry_url, auth_token) = fetch_package_json(&db, &package).await?;
-    let tarball_bytes = fetch_tarball(
+    let response = tarball_response(
         &package_json,
         &package,
         &version,
@@ -453,8 +537,16 @@ async fn get_package_tarball(
     .await?;
 
     Ok((
-        [(header::CONTENT_TYPE, "application/octet-stream")],
-        tarball_bytes,
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            // A published version's tarball never changes, and the response is
+            // registry-credentialed, so it is the viewer's cache to keep.
+            (
+                header::CACHE_CONTROL,
+                "private, max-age=31536000, immutable",
+            ),
+        ],
+        Body::from_stream(response.bytes_stream()),
     )
         .into_response())
 }
@@ -627,6 +719,8 @@ mod tests {
         assert_eq!(resolve("*").as_deref(), Some("19.2.0"));
         assert_eq!(resolve("19.x").as_deref(), Some("19.2.0"));
         assert_eq!(resolve("18.3.1 - 19.1.5").as_deref(), Some("19.1.5"));
+        assert_eq!(resolve(">= 18 < 19").as_deref(), Some("18.3.1"));
+        assert_eq!(resolve("^v19.0.0").as_deref(), Some("19.2.0"));
         // npm reads a bare partial as an x-range, the crate as a caret
         assert_eq!(resolve("19.1").as_deref(), Some("19.1.5"));
         assert_eq!(resolve("19").as_deref(), Some("19.2.0"));

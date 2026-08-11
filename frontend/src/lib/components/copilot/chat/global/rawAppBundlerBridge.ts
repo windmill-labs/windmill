@@ -141,7 +141,9 @@ export function bundleRawAppFiles({
 		iframe.style.border = '0'
 		iframe.style.opacity = '0'
 		iframe.style.pointerEvents = 'none'
-		iframe.src = `/ui_builder/index.html?mode=bundle&workspace=${encodeURIComponent(workspace ?? '')}`
+		const params = new URLSearchParams({ mode: 'bundle' })
+		if (workspace) params.set('workspace', workspace)
+		iframe.src = `/ui_builder/index.html?${params}`
 
 		window.addEventListener('message', onMessage)
 		document.body.appendChild(iframe)

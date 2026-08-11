@@ -1859,7 +1859,7 @@
 		const variant = getAppliedDarkModeVariant()
 		// `workspace` lets the in-browser npm installer reach /api/w/<ws>/npm_proxy so
 		// package installs honour the instance's .npmrc instead of the public registry.
-		const workspace = encodeURIComponent($workspaceStore ?? '')
+		const workspace = encodeURIComponent(opWorkspace ?? '')
 		return `/ui_builder/index.html?dark=${dark}&variant=${variant}&workspace=${workspace}`
 	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
