@@ -472,7 +472,7 @@ dependencies = [
 [[package]]
 name = "duckdb"
 version = "1.10505.0"
-source = "git+https://github.com/windmill-labs/duckdb-rs?rev=7d0e3ba34ea855c103893d939b8810155c0babd6#7d0e3ba34ea855c103893d939b8810155c0babd6"
+source = "git+https://github.com/windmill-labs/duckdb-rs?rev=475383b71cde3d009ca6eaa0cd733faa52bc7393#475383b71cde3d009ca6eaa0cd733faa52bc7393"
 dependencies = [
  "arrow",
  "cast",
@@ -814,7 +814,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 [[package]]
 name = "libduckdb-sys"
 version = "1.10505.0"
-source = "git+https://github.com/windmill-labs/duckdb-rs?rev=7d0e3ba34ea855c103893d939b8810155c0babd6#7d0e3ba34ea855c103893d939b8810155c0babd6"
+source = "git+https://github.com/windmill-labs/duckdb-rs?rev=475383b71cde3d009ca6eaa0cd733faa52bc7393#475383b71cde3d009ca6eaa0cd733faa52bc7393"
 dependencies = [
  "cc",
  "diffy",
