@@ -90,8 +90,14 @@
 	$effect(() => {
 		loadResults(dataset, selectedId)
 	})
+	// A baseline is only meaningful among the loaded experiments: it must drop both when it becomes
+	// the selected run and when the dataset changes underneath it, or comparison mode stays on with
+	// nothing to compare and every mean reads as missing.
 	$effect(() => {
-		if (baselineId && baselineId === selectedId) baselineId = undefined
+		if (!baselineId) return
+		if (baselineId === selectedId || !experiments.some((e) => e.id === baselineId)) {
+			baselineId = undefined
+		}
 	})
 
 	let baselineGeneration = 0
@@ -157,7 +163,10 @@
 	// cases as its delta — otherwise the two numbers beside each other describe different sets.
 	let means = $derived(
 		scorerLabels.map((_, index) => {
-			const values = (baselineId ? pairedRows(index) : rows)
+			// Paired rows only while there is something to compare this scorer against; a scorer the
+			// baseline never ran still shows its own mean rather than blanking a column of numbers.
+			const paired = baselineId ? pairedRows(index) : []
+			const values = (paired.length > 0 ? paired : rows)
 				.map((r) => r.scores?.[index])
 				.filter((v): v is number => typeof v === 'number')
 			if (values.length === 0) return undefined

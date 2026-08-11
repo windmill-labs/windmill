@@ -411,9 +411,10 @@ mod with_storage {
         tx: &mut sqlx::Transaction<'_, Postgres>,
         w_id: &str,
         path: &str,
+        attempts: u32,
     ) -> Result<()> {
         let key = format!("ai_eval_dataset:{}/{}", w_id, path);
-        for attempt in 0..LOCK_ATTEMPTS {
+        for attempt in 0..attempts {
             let acquired = sqlx::query_scalar!(
                 "SELECT pg_try_advisory_xact_lock(hashtext($1)) AS \"acquired!\"",
                 key
@@ -423,7 +424,7 @@ mod with_storage {
             if acquired {
                 return Ok(());
             }
-            if attempt + 1 < LOCK_ATTEMPTS {
+            if attempt + 1 < attempts {
                 tokio::time::sleep(LOCK_RETRY_DELAY).await;
             }
         }
@@ -437,6 +438,9 @@ mod with_storage {
     }
 
     const LOCK_ATTEMPTS: u32 = 20;
+    /// Recording an experiment waits longer than a case edit: its jobs are already queued, so
+    /// giving up here leaves them running with nothing to attribute them to.
+    const LOCK_ATTEMPTS_LAUNCH: u32 = 100;
     const LOCK_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
     /// Take the dataset's write lock, then read-modify-write its cases. The transaction is only
@@ -456,7 +460,7 @@ mod with_storage {
         require_can_write(authed, path)?;
         let client = object_store(authed, db, user_db, w_id).await?;
         let mut tx = db.begin().await?;
-        lock_dataset(&mut tx, w_id, path).await?;
+        lock_dataset(&mut tx, w_id, path, LOCK_ATTEMPTS).await?;
         // Reading the metadata under the lock is what makes "the dataset exists" hold for the
         // whole mutation, so a concurrent delete cannot resurrect the cases object.
         read_dataset(&client, path).await?;
@@ -536,7 +540,7 @@ mod with_storage {
         // straddle a concurrent delete, or the delete's second DELETE lands on a dataset this
         // request just created.
         let mut tx = db.begin().await?;
-        lock_dataset(&mut tx, &w_id, &payload.path).await?;
+        lock_dataset(&mut tx, &w_id, &payload.path, LOCK_ATTEMPTS).await?;
         if get_object(&client, &meta_key(&payload.path))
             .await?
             .is_some()
@@ -588,7 +592,7 @@ mod with_storage {
         require_can_write(&authed, &path)?;
         let client = object_store(&authed, &db, user_db, &w_id).await?;
         let mut tx = db.begin().await?;
-        lock_dataset(&mut tx, &w_id, &path).await?;
+        lock_dataset(&mut tx, &w_id, &path, LOCK_ATTEMPTS).await?;
         let mut dataset = read_dataset(&client, &path).await?;
         dataset.summary = payload.summary;
         dataset.description = payload.description;
@@ -609,7 +613,7 @@ mod with_storage {
         require_can_write(&authed, &path)?;
         let client = object_store(&authed, &db, user_db, &w_id).await?;
         let mut tx = db.begin().await?;
-        lock_dataset(&mut tx, &w_id, &path).await?;
+        lock_dataset(&mut tx, &w_id, &path, LOCK_ATTEMPTS).await?;
         // Experiments, then cases, then metadata. The metadata is what `create_dataset` checks
         // for, so deleting it first would let a failure partway through leave case copies behind
         // *and* unblock recreating the path — the new dataset would open holding the old one's
@@ -1226,12 +1230,13 @@ mod with_storage {
         // Read the case set under the lock, then release it for the pushes: holding it across the
         // whole launch would 409 every capture and case edit on this dataset until the last job
         // was queued. The write below retakes it.
-        let cases = {
+        let (cases, launched_against) = {
             let mut tx = db.begin().await?;
-            lock_dataset(&mut tx, &w_id, &payload.dataset).await?;
+            lock_dataset(&mut tx, &w_id, &payload.dataset, LOCK_ATTEMPTS).await?;
+            let dataset = read_dataset(&client, &payload.dataset).await?;
             let cases = read_cases(&client, &payload.dataset).await?;
             tx.commit().await?;
-            cases
+            (cases, dataset.created_at)
         };
         if cases.is_empty() {
             return Err(Error::BadRequest(format!(
@@ -1296,17 +1301,21 @@ mod with_storage {
             created_at: Utc::now(),
             created_by: authed.username.clone(),
         };
-        // Retaken for the write, and the dataset is re-checked under it: a delete that completed
-        // while the jobs were being pushed must not have this experiment — which holds copies of
-        // its cases — appear after it.
+        // Retaken for the write, and the dataset re-checked under it. Identity, not existence:
+        // the path can have been deleted and recreated while the jobs were pushed, and this
+        // experiment holds copies of the *old* dataset's cases. A longer lock budget than a case
+        // edit gets, because the jobs are already queued and failing here strands them.
         let mut tx = db.begin().await?;
-        lock_dataset(&mut tx, &w_id, &payload.dataset).await?;
-        read_dataset(&client, &payload.dataset).await.map_err(|_| {
-            Error::BadRequest(format!(
-                "Eval dataset {} was deleted while the experiment was starting",
-                payload.dataset
-            ))
-        })?;
+        lock_dataset(&mut tx, &w_id, &payload.dataset, LOCK_ATTEMPTS_LAUNCH).await?;
+        let still_there = read_dataset(&client, &payload.dataset).await.ok();
+        if still_there.map(|d| d.created_at) != Some(launched_against) {
+            return Err(Error::BadRequest(format!(
+                "Eval dataset {} was deleted or recreated while the experiment was starting; its \
+                 {} jobs are running but no experiment was recorded",
+                payload.dataset,
+                experiment.cases.len()
+            )));
+        }
         put_object(
             &client,
             &experiment_key(&payload.dataset, experiment_id),
@@ -1469,10 +1478,12 @@ mod with_storage {
                 .ok()
                 .and_then(|(r, _)| agent_answer(&r));
 
-                let scores = futures::stream::iter((0..scorer_count).map(|index| {
-                    let db = db.clone();
-                    let w_id = w_id.clone();
-                    async move {
+                // Sequential within a case, concurrent across cases: nesting a second bounded
+                // stream here would multiply the two bounds into 32 in-flight queries against a
+                // 50-connection pool.
+                let mut scores = Vec::with_capacity(scorer_count);
+                for index in 0..scorer_count {
+                    scores.push(
                         windmill_queue::get_result_and_success_by_id_from_flow(
                             &db,
                             &w_id,
@@ -1482,12 +1493,9 @@ mod with_storage {
                         )
                         .await
                         .ok()
-                        .and_then(|(r, _)| extract_score(&r))
-                    }
-                }))
-                .buffered(4)
-                .collect::<Vec<_>>()
-                .await;
+                        .and_then(|(r, _)| extract_score(&r)),
+                    );
+                }
 
                 (case, output, scores)
             }
@@ -1530,8 +1538,8 @@ mod with_storage {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub tool_inputs: Option<Box<RawValue>>,
         /// What the captured run actually answered, kept as the reference a rerun is compared
-        /// against. Nothing scores it yet; it is recorded now because it is only available at
-        /// capture time.
+        /// against, and what a scorer compares a rerun to. Capture time is the only moment it
+        /// exists.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub expected: Option<Box<RawValue>>,
         pub source: EvalCaseSource,
