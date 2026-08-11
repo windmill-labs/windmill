@@ -11942,7 +11942,9 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: experiments, newest first
+          description: >
+            Experiments, newest first. `cases` is empty here — the list is for picking a run; read
+            an experiment's results to get its case set.
           content:
             application/json:
               schema:

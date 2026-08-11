@@ -840,7 +840,7 @@ mod with_storage {
                         "user_message": {
                             "type": "javascript",
                             "expr": format!(
-                                "JSON.stringify({{ input: flow_input.user_message, output: {}, expected: flow_input.expected }})",
+                                "JSON.stringify({{ input: flow_input._eval_input, output: {}, expected: flow_input.expected }})",
                                 output_expr
                             ),
                         }
@@ -850,7 +850,7 @@ mod with_storage {
                     "type": if scorer.kind == ScorerKind::Script { "script" } else { "flow" },
                     "path": scorer.path,
                     "input_transforms": {
-                        "input": { "type": "javascript", "expr": "flow_input.user_message" },
+                        "input": { "type": "javascript", "expr": "flow_input._eval_input" },
                         "output": { "type": "javascript", "expr": output_expr },
                         "expected": { "type": "javascript", "expr": "flow_input.expected" },
                     }
@@ -1000,6 +1000,12 @@ mod with_storage {
         if let Some(expected) = &case.expected {
             args.insert("expected".to_string(), expected.clone());
         }
+        // The whole case input, for scorers: the message alone cannot explain an answer that came
+        // from attachments or a replayed conversation.
+        args.insert(
+            "_eval_input".to_string(),
+            serde_json::value::to_raw_value(&case.input)?,
+        );
         // Self-describing run: opened cold from the runs page, the job says what it was evaluating.
         // Extra flow inputs are inert — the agent step reads only user_message/user_attachments.
         args.insert(
@@ -1254,8 +1260,13 @@ mod with_storage {
             None => None,
         };
 
+        let case_count = cases.len();
         let experiment_id = Uuid::new_v4();
         let mut experiment_cases = Vec::with_capacity(cases.len());
+        // A push that fails partway leaves the earlier jobs running. They are recorded anyway
+        // below, so they stay attributable and a retry is a visibly separate experiment rather
+        // than a silent second run of the same cases.
+        let mut push_error: Option<Error> = None;
         for case in cases {
             let new_case = NewEvalCase {
                 name: case.name.clone(),
@@ -1266,7 +1277,7 @@ mod with_storage {
                 tags: case.tags.clone(),
                 source: case.source.clone(),
             };
-            let job_id = push_case_run(
+            let job_id = match push_case_run(
                 &authed,
                 &db,
                 &user_db,
@@ -1280,7 +1291,14 @@ mod with_storage {
                 Some(case.id),
                 Some(experiment_id),
             )
-            .await?;
+            .await
+            {
+                Ok(job_id) => job_id,
+                Err(e) => {
+                    push_error = Some(e);
+                    break;
+                }
+            };
             experiment_cases.push(ExperimentCase {
                 case_id: case.id,
                 name: case.name,
@@ -1310,14 +1328,17 @@ mod with_storage {
         let mut tx = db.begin().await?;
         lock_dataset(&mut tx, &w_id, &payload.dataset, LOCK_ATTEMPTS_LAUNCH)
             .await
-            .map_err(|_| {
-                Error::internal_err(format!(
+            .map_err(|e| match e {
+                // Only a lock timeout means another writer held it; anything else is a database
+                // failure and must not be reported as contention.
+                Error::Generic(axum::http::StatusCode::CONFLICT, _) => Error::internal_err(format!(
                     "Eval dataset {} stayed locked by another writer; this experiment's {} jobs are \
                      running but no experiment was recorded for them. Do not retry — that would run \
                      the dataset again on top of them.",
                     payload.dataset,
                     experiment.cases.len()
-                ))
+                )),
+                other => other,
             })?;
         let still_there = match read_dataset(&client, &payload.dataset).await {
             Ok(dataset) => Some(dataset.created_at),
@@ -1341,6 +1362,17 @@ mod with_storage {
         )
         .await?;
         tx.commit().await?;
+
+        if let Some(e) = push_error {
+            return Err(Error::internal_err(format!(
+                "Experiment {} launched {} of {} cases before failing: {}. The launched cases are \
+                 recorded under that experiment; rerunning starts a new one.",
+                experiment_id,
+                experiment.cases.len(),
+                case_count,
+                e
+            )));
+        }
         Ok(experiment_id.to_string())
     }
 
@@ -1374,6 +1406,11 @@ mod with_storage {
         .collect::<Vec<_>>()
         .await;
         experiments.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        // The list is for the picker: shipping every experiment's whole case set would send the
+        // dataset back once per run.
+        for experiment in &mut experiments {
+            experiment.cases.clear();
+        }
         Ok(Json(experiments))
     }
 
@@ -1432,15 +1469,21 @@ mod with_storage {
                 Some(serde_json::Value::Number(n)) => n.as_f64(),
                 Some(serde_json::Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
                 // An agent scorer answers in `output`, which is itself often a JSON string.
+                // An agent scorer wraps its answer in `output`, which is itself a number, a
+                // boolean, a structured {score}, or a string holding any of those.
                 _ => match map.get("output") {
                     Some(serde_json::Value::Number(n)) => n.as_f64(),
-                    Some(serde_json::Value::String(s)) => s
-                        .trim()
-                        .parse::<f64>()
-                        .ok()
-                        .or_else(|| serde_json::from_str::<serde_json::Value>(s).ok().and_then(
-                            |v| v.get("score").and_then(|s| s.as_f64()),
-                        )),
+                    Some(serde_json::Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
+                    Some(serde_json::Value::Object(inner)) => match inner.get("score") {
+                        Some(serde_json::Value::Number(n)) => n.as_f64(),
+                        Some(serde_json::Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
+                        _ => None,
+                    },
+                    Some(serde_json::Value::String(s)) => s.trim().parse::<f64>().ok().or_else(|| {
+                        serde_json::from_str::<serde_json::Value>(s)
+                            .ok()
+                            .and_then(|v| extract_score(&serde_json::value::to_raw_value(&v).ok()?))
+                    }),
                     _ => None,
                 },
             },
@@ -1657,7 +1700,13 @@ mod with_storage {
             .fetch_optional(&mut *tx)
             .await?;
             if let Some(parent) = parent {
-                host_flow_path = parent.runnable_path.clone();
+                // Only a real flow can be resolved again. A preview parent — which is what every
+                // eval run and module test is — has a synthetic `runnable_path`, and recording it
+                // would make the captured case fail to rerun.
+                host_flow_path = match parent.kind.as_str() {
+                    "flow" | "flownode" => parent.runnable_path.clone(),
+                    _ => None,
+                };
                 let value = match parent.raw_flow {
                     Some(raw_flow) => Some(raw_flow.0),
                     None => match (parent.kind.as_str(), parent.runnable_id) {
@@ -1817,6 +1866,35 @@ mod with_storage {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        fn raw(json: &str) -> Box<RawValue> {
+            serde_json::from_str(json).unwrap()
+        }
+
+        /// A scorer is any runnable, so its answer arrives in whatever shape that runnable returns:
+        /// a script's bare value, or an agent's answer wrapped in `output` and often stringified.
+        /// A shape that goes unrecognised is a silently empty column, not an error.
+        #[test]
+        fn extract_score_reads_every_documented_scorer_shape() {
+            assert_eq!(extract_score(&raw("0.75")), Some(0.75));
+            assert_eq!(extract_score(&raw("true")), Some(1.0));
+            assert_eq!(extract_score(&raw(r#"{"score": 0.5}"#)), Some(0.5));
+            assert_eq!(extract_score(&raw(r#"{"score": false}"#)), Some(0.0));
+
+            // agent scorers: the answer is under `output`
+            assert_eq!(extract_score(&raw(r#"{"output": 0.25}"#)), Some(0.25));
+            assert_eq!(extract_score(&raw(r#"{"output": true}"#)), Some(1.0));
+            assert_eq!(extract_score(&raw(r#"{"output": "0.9"}"#)), Some(0.9));
+            assert_eq!(extract_score(&raw(r#"{"output": {"score": 0.8}}"#)), Some(0.8));
+            assert_eq!(
+                extract_score(&raw(r#"{"output": "{\"score\": 0.4}"}"#)),
+                Some(0.4)
+            );
+
+            // nothing numeric to plot: left empty rather than guessed at
+            assert_eq!(extract_score(&raw(r#"{"output": "not a score"}"#)), None);
+            assert_eq!(extract_score(&raw(r#"{"verdict": "good"}"#)), None);
+        }
 
         /// The stamp is what makes a run findable again, and overflowing `runnable_path`'s
         /// varchar(255) would truncate it into a path that matches nothing.

@@ -33,6 +33,7 @@
 	let rows = $state<ExperimentRow[]>([])
 	let scorerLabels = $state<string[]>([])
 	let loading = $state(false)
+	let shownExperimentId: string | undefined = undefined
 	// The comparison is the point of the table: one experiment's numbers say little, the delta
 	// against the run before the change says whether the change helped.
 	let baselineId = $state<string | undefined>(undefined)
@@ -73,12 +74,15 @@
 	let resultsGeneration = 0
 	async function loadResults(path: string | undefined, id: string | undefined) {
 		const generation = ++resultsGeneration
-		// Cleared up front, not on arrival: the header names the new selection as soon as it
-		// changes, so leaving the old rows up labels one experiment's numbers as another's — and a
-		// request that fails would leave them there for good.
-		rows = []
-		scorerLabels = []
-		scorers = []
+		// Cleared up front when the selection changes, so the header never names one experiment
+		// over another's numbers and a failed request cannot leave them there. A refresh of the
+		// same experiment keeps its rows rather than flashing a skeleton.
+		if (id !== shownExperimentId) {
+			rows = []
+			scorerLabels = []
+			scorers = []
+		}
+		shownExperimentId = id
 		if (!ws || !path || !id) {
 			loading = false
 			return

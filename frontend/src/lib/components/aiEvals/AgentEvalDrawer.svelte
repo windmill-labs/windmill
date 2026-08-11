@@ -104,6 +104,12 @@
 			loadingCases = false
 			return
 		}
+		if (page === 1) {
+			// Cleared before the request, not after it: a failed load would otherwise leave the
+			// previous dataset's cases rendered under the newly selected one.
+			cases = []
+			totalCases = 0
+		}
 		loadingCases = true
 		try {
 			const res = await AiEvalsService.listEvalCases({
@@ -115,6 +121,10 @@
 			if (generation !== caseLoadGeneration) return
 			cases = page === 1 ? (res.cases ?? []) : [...cases, ...(res.cases ?? [])]
 			totalCases = res.total ?? cases.length
+		} catch (err) {
+			if (generation === caseLoadGeneration) {
+				sendUserToast((err as any)?.body ?? String(err), true)
+			}
 		} finally {
 			if (generation === caseLoadGeneration) {
 				loadingCases = false
@@ -369,6 +379,7 @@
 			const jobs = await JobService.listJobs({
 				workspace: ws,
 				scriptPathStart: prefix,
+				isFlowStep: false,
 				perPage: 200
 			})
 			if (generation !== runsGeneration) return
