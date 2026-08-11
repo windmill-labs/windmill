@@ -95,6 +95,7 @@
 	// Switching datasets leaves the previous request in flight; only the newest may write, or a
 	// slow response for the dataset you just left replaces the one you are looking at.
 	let caseLoadGeneration = 0
+	let shownDataset: string | undefined = undefined
 
 	async function loadCases(path: string | undefined, page = 1) {
 		const generation = ++caseLoadGeneration
@@ -104,12 +105,14 @@
 			loadingCases = false
 			return
 		}
-		if (page === 1) {
+		if (page === 1 && path !== shownDataset) {
 			// Cleared before the request, not after it: a failed load would otherwise leave the
-			// previous dataset's cases rendered under the newly selected one.
+			// previous dataset's cases rendered under the newly selected one. Reloading the same
+			// dataset after a save keeps its rows rather than flashing a skeleton.
 			cases = []
 			totalCases = 0
 		}
+		shownDataset = path
 		loadingCases = true
 		try {
 			const res = await AiEvalsService.listEvalCases({
@@ -375,19 +378,35 @@
 		lastRunByCase = {}
 		if (!ws || !dataset || !agent) return
 		const prefix = `${agent}/${dataset}/`
+		const RUNS_PAGE_SIZE = 200
+		// Paged until every loaded case has been seen, because one newest-first page covers only
+		// the most recent runs: a dataset with more history than that would report cases as never
+		// run. Bounded, so a long history cannot turn opening a dataset into a crawl — cases still
+		// unseen at the bound keep their honest "never seen in recent runs" blank.
+		const MAX_RUN_PAGES = 5
+		const wanted = new Set(cases.map((c) => c.id))
 		try {
-			const jobs = await JobService.listJobs({
-				workspace: ws,
-				scriptPathStart: prefix,
-				isFlowStep: false,
-				perPage: 200
-			})
-			if (generation !== runsGeneration) return
 			const byCase: Record<string, Job> = {}
-			for (const job of jobs) {
-				const caseId = job.script_path?.slice(prefix.length)
-				// listJobs is newest first, so the first hit per case is its latest run.
-				if (caseId && !caseId.includes('/') && !byCase[caseId]) byCase[caseId] = job
+			// listJobs pages by a created_before cursor, not a page number.
+			let before: string | undefined = undefined
+			for (let page = 0; page < MAX_RUN_PAGES; page++) {
+				const jobs: Job[] = await JobService.listJobs({
+					workspace: ws,
+					scriptPathStart: prefix,
+					isFlowStep: false,
+					createdBefore: before,
+					perPage: RUNS_PAGE_SIZE
+				})
+				if (generation !== runsGeneration) return
+				for (const job of jobs) {
+					const caseId = job.script_path?.slice(prefix.length)
+					// listJobs is newest first, so the first hit per case is its latest run.
+					if (caseId && !caseId.includes('/') && !byCase[caseId]) byCase[caseId] = job
+				}
+				const covered = [...wanted].every((id) => byCase[id])
+				if (covered || jobs.length < RUNS_PAGE_SIZE) break
+				before = jobs[jobs.length - 1]?.created_at
+				if (!before) break
 			}
 			lastRunByCase = byCase
 		} catch {

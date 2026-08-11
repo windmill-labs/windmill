@@ -1001,11 +1001,13 @@ mod with_storage {
             args.insert("expected".to_string(), expected.clone());
         }
         // The whole case input, for scorers: the message alone cannot explain an answer that came
-        // from attachments or a replayed conversation.
-        args.insert(
-            "_eval_input".to_string(),
-            serde_json::value::to_raw_value(&case.input)?,
-        );
+        // from attachments or a replayed conversation. Only when something will read it.
+        if !scorers.is_empty() {
+            args.insert(
+                "_eval_input".to_string(),
+                serde_json::value::to_raw_value(&case.input)?,
+            );
+        }
         // Self-describing run: opened cold from the runs page, the job says what it was evaluating.
         // Extra flow inputs are inert — the agent step reads only user_message/user_attachments.
         args.insert(
@@ -1308,6 +1310,12 @@ mod with_storage {
             });
         }
 
+        if experiment_cases.is_empty() {
+            return Err(push_error.unwrap_or_else(|| {
+                Error::internal_err("No eval case could be launched".to_string())
+            }));
+        }
+
         let experiment = EvalExperiment {
             id: experiment_id,
             dataset: payload.dataset.clone(),
@@ -1469,8 +1477,6 @@ mod with_storage {
                 Some(serde_json::Value::Number(n)) => n.as_f64(),
                 Some(serde_json::Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
                 // An agent scorer answers in `output`, which is itself often a JSON string.
-                // An agent scorer wraps its answer in `output`, which is itself a number, a
-                // boolean, a structured {score}, or a string holding any of those.
                 _ => match map.get("output") {
                     Some(serde_json::Value::Number(n)) => n.as_f64(),
                     Some(serde_json::Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
@@ -1700,12 +1706,21 @@ mod with_storage {
             .fetch_optional(&mut *tx)
             .await?;
             if let Some(parent) = parent {
-                // Only a real flow can be resolved again. A preview parent — which is what every
-                // eval run and module test is — has a synthetic `runnable_path`, and recording it
-                // would make the captured case fail to rerun.
-                host_flow_path = match parent.kind.as_str() {
-                    "flow" | "flownode" => parent.runnable_path.clone(),
-                    _ => None,
+                // Only a path that resolves to a flow is a host flow. A preview parent may
+                // carry either: the flow editor's step test uses the real flow path, while an
+                // eval run uses a synthetic stamp that would fail to rerun.
+                host_flow_path = match parent.runnable_path.clone() {
+                    Some(path) => {
+                        let exists = sqlx::query_scalar!(
+                            "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2) AS \"exists!\"",
+                            &w_id,
+                            &path
+                        )
+                        .fetch_one(&mut *tx)
+                        .await?;
+                        exists.then_some(path)
+                    }
+                    None => None,
                 };
                 let value = match parent.raw_flow {
                     Some(raw_flow) => Some(raw_flow.0),
@@ -1713,6 +1728,16 @@ mod with_storage {
                         ("flow", Some(id)) => {
                             sqlx::query_scalar!(
                                 "SELECT value AS \"value!\" FROM flow_version WHERE id = $1",
+                                id
+                            )
+                            .fetch_optional(&mut *tx)
+                            .await?
+                        }
+                        // A branch or loop body runs under a `flownode` parent, which carries
+                        // no raw_flow: its definition lives in flow_node.
+                        ("flownode", Some(id)) => {
+                            sqlx::query_scalar!(
+                                "SELECT flow AS \"flow!\" FROM flow_node WHERE id = $1",
                                 id
                             )
                             .fetch_optional(&mut *tx)
