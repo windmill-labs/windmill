@@ -201,6 +201,32 @@ pub fn apply_key_transformation(key: &str) -> String {
         .collect::<String>()
 }
 
+/// Rename every property key that MCP argument names cannot carry, in both
+/// `properties` and `required`.
+///
+/// `required` names properties, so it has to follow the rename: an entry left
+/// pointing at the original key names a property that no longer exists, which reads
+/// to a client as "this parameter is optional".
+pub fn transform_property_keys(schema_obj: &mut SchemaType) {
+    let renames: Vec<(String, String)> = schema_obj
+        .properties
+        .keys()
+        .filter(|key| key.chars().any(|c| !c.is_alphanumeric() && c != '_'))
+        .map(|key| (key.clone(), apply_key_transformation(key)))
+        .collect();
+
+    for (old_key, new_key) in renames {
+        if let Some(value) = schema_obj.properties.remove(&old_key) {
+            schema_obj.properties.insert(new_key.clone(), value);
+        }
+        for name in schema_obj.required.iter_mut() {
+            if *name == old_key {
+                *name = new_key.clone();
+            }
+        }
+    }
+}
+
 /// Reverse the transformation of a key
 ///
 /// This function takes a transformed key and a schema object and reverses
@@ -422,5 +448,20 @@ mod tests {
         assert_eq!(apply_key_transformation("my key"), "my_key");
         assert_eq!(apply_key_transformation("key!@#"), "key");
         assert_eq!(apply_key_transformation("key_123"), "key_123");
+    }
+
+    #[test]
+    fn transform_property_keys_renames_required_alongside_properties() {
+        let mut schema: SchemaType = serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": { "my param": { "type": "string" }, "kept": { "type": "string" } },
+            "required": ["my param"],
+        }))
+        .unwrap();
+
+        transform_property_keys(&mut schema);
+
+        assert!(schema.properties.contains_key("my_param"));
+        assert_eq!(schema.required, vec!["my_param".to_string()]);
     }
 }

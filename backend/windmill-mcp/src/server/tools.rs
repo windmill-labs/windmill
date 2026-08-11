@@ -134,6 +134,10 @@ impl ToolableItem for HubScriptInfo {
 /// far more weight for that decision than the caller's system prompt, so the rule has
 /// to live here rather than being left to whoever configures the client.
 ///
+/// Kept terse: it repeats on every tool in the list. It also promises nothing about
+/// what an omitted parameter becomes -- a script falls back to its signature default,
+/// a flow input is simply absent.
+///
 /// Returns `None` when there is no optional parameter to mention.
 fn optional_params_hint(input_schema: &Map<String, Value>) -> Option<String> {
     let properties = input_schema.get("properties")?.as_object()?;
@@ -162,7 +166,7 @@ fn optional_params_hint(input_schema: &Map<String, Value>) -> Option<String> {
         .join(", ");
 
     Some(format!(
-        " Optional parameters: {}. Omit any parameter the request does not call for, and it falls back to its default. Never pass an empty string, empty array, empty object, `false`, or `0` as a placeholder for a value you were not given.",
+        " Optional parameters: {}. Omit any you were not given a value for rather than sending `\"\"`, `[]`, `{{}}`, `false`, or `0` as a placeholder.",
         names
     ))
 }

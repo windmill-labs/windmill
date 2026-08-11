@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use windmill_common::{db::UserDB, utils::StripPath, DB};
 use windmill_mcp::common::schema::enrich_resource_schemas;
-use windmill_mcp::common::transform::apply_key_transformation;
+use windmill_mcp::common::transform::transform_property_keys;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
@@ -194,31 +194,7 @@ impl McpBackend for WindmillBackend {
         let mut schema_obj = schema.clone();
 
         // Replace invalid char in property key with underscore
-        let replacements: Vec<(String, String, Value)> = schema_obj
-            .properties
-            .iter()
-            .filter_map(|(key, value)| {
-                if key.chars().any(|c| !c.is_alphanumeric() && c != '_') {
-                    let new_key = apply_key_transformation(key);
-                    Some((key.clone(), new_key, value.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for (old_key, new_key, value) in replacements {
-            schema_obj.properties.remove(&old_key);
-            // `required` names properties, so it has to follow the rename -- an entry
-            // left pointing at the original key names a property that no longer exists,
-            // which reads as "this parameter is optional".
-            for name in schema_obj.required.iter_mut() {
-                if *name == old_key {
-                    *name = new_key.clone();
-                }
-            }
-            schema_obj.properties.insert(new_key, value);
-        }
+        transform_property_keys(&mut schema_obj);
 
         // Enrich every resource reference in the schema — including those
         // inside `items`, nested `properties`, etc. — with a description
