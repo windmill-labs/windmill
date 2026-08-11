@@ -8354,6 +8354,160 @@ paths:
                   required:
                     - name
 
+  /integrations/hub/{app}/meta:
+    get:
+      summary: get hub integration metadata
+      operationId: getHubIntegrationMeta
+      tags:
+        - integration
+      parameters:
+        - name: app
+          description: integration slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: integration metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: string
+                  display_name:
+                    type: string
+                  description:
+                    type: string
+                    nullable: true
+                  docs_url:
+                    type: string
+                    nullable: true
+                  curated:
+                    description: >-
+                      the script set was pruned to idiomatic actions rather than
+                      generated one per endpoint
+                    type: boolean
+                  metadata_source:
+                    description: >-
+                      whether the provider knowledge was authored (curated) or
+                      inferred from the shipped scripts (derived)
+                    type: string
+                    enum:
+                      - curated
+                      - derived
+                  meta:
+                    description: >-
+                      the integration's authored meta.json verbatim; the content
+                      repo owns its schema, so it is passed through unvalidated
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                  meta_updated_at:
+                    type: string
+                    nullable: true
+                  derived:
+                    description: facts computed from the integration's shipped scripts
+                    type: object
+                    properties:
+                      api_hosts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            host:
+                              type: string
+                            count:
+                              type: number
+                          required:
+                            - host
+                            - count
+                      style:
+                        type: string
+                        enum:
+                          - fetch
+                          - sdk
+                          - mixed
+                          - unknown
+                      languages:
+                        type: object
+                        additionalProperties:
+                          type: number
+                      script_counts:
+                        type: object
+                        properties:
+                          total:
+                            type: number
+                          by_kind:
+                            type: object
+                            additionalProperties:
+                              type: number
+                        required:
+                          - total
+                          - by_kind
+                      top_scripts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            path:
+                              type: string
+                            ask_id:
+                              type: number
+                            version_id:
+                              type: number
+                            summary:
+                              type: string
+                            description:
+                              type: string
+                              nullable: true
+                            kind:
+                              type: string
+                            language:
+                              type: string
+                              nullable: true
+                            views:
+                              type: number
+                            votes:
+                              type: number
+                          required:
+                            - path
+                            - summary
+                            - kind
+                    required:
+                      - api_hosts
+                      - style
+                      - languages
+                      - script_counts
+                      - top_scripts
+                  resource_types:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        name:
+                          type: string
+                        description:
+                          type: string
+                          nullable: true
+                        schema:
+                          type: object
+                          additionalProperties: true
+                      required:
+                        - name
+                        - schema
+                required:
+                  - app
+                  - display_name
+                  - curated
+                  - metadata_source
+                  - derived
+                  - resource_types
+
   /flows/hub/list:
     get:
       summary: list all hub flows
@@ -8730,6 +8884,8 @@ paths:
                     version_id:
                       type: number
                     summary:
+                      type: string
+                    description:
                       type: string
                     app:
                       type: string

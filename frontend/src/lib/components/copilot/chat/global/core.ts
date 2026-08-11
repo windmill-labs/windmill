@@ -94,6 +94,7 @@ import {
 	createToolDef,
 	droppedOptionKeys,
 	createSearchHubScriptsTool,
+	getHubIntegrationTool,
 	executeFlowStepTestRun,
 	executeTestRun,
 	findAndReplace,
@@ -1206,7 +1207,8 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
-- Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (record the source hub path in the draft's description), or treat it as a worked example of that integration — which SDK or endpoint it calls, how it authenticates, which resource type it takes — and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.${webSearchBullet}
+- Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (record the source hub path in the draft's description), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
+- Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, the auth, pagination, enums, error codes and known gotchas in one call, which beats inferring them from script bodies.${webSearchBullet}
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
@@ -2625,6 +2627,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	getHubIntegrationTool,
 	searchNpmPackagesTool,
 	searchDocsTool,
 	readDocsPageTool,

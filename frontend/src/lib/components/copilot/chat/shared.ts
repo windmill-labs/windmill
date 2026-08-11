@@ -1247,8 +1247,8 @@ export function isHubPath(path: string): boolean {
 const MAX_BROWSED_HUB_SCRIPTS = 20
 const MAX_SUGGESTED_INTEGRATIONS = 5
 
-/** Common shape of the two hub listings. Only the top-scripts one carries a
- * description; the semantic search response has no field for it. */
+/** Common shape of the two hub listings. Both carry a description, but the hub
+ * has none for roughly a fifth of its scripts. */
 type HubScriptHit = { version_id: number; app: string; summary: string; description?: string }
 
 /** The integration slugs are a large but static list, so one fetch per session
@@ -1284,6 +1284,91 @@ export const clearHubIntegrationsCache = () => {
 	hubIntegrationsCache = undefined
 }
 
+const getHubIntegrationSchema = z.object({
+	integration: z
+		.string()
+		.describe(
+			'Integration slug, e.g. "stripe". Take it from a search_hub_scripts result\'s `integration`, or guess the vendor name: a wrong guess comes back with the closest real slugs.'
+		)
+})
+
+const getHubIntegrationToolDef = createToolDef(
+	getHubIntegrationSchema,
+	'get_hub_integration',
+	'Read how one integration works before writing code against it: which resource type it takes, its auth, pagination, enums, error codes and gotchas, plus its most-used scripts as examples.'
+)
+
+/** Enough to show the integration's idiom; search_hub_scripts is the way to find
+ * a specific one. */
+const MAX_INTEGRATION_EXAMPLES = 5
+
+export const getHubIntegrationTool = {
+	def: getHubIntegrationToolDef,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		const { integration } = getHubIntegrationSchema.parse(args)
+		toolCallbacks.setToolStatus(toolId, { content: `Reading the ${integration} integration...` })
+
+		let doc: Awaited<ReturnType<typeof IntegrationService.getHubIntegrationMeta>>
+		try {
+			doc = await IntegrationService.getHubIntegrationMeta({ app: integration })
+		} catch {
+			// An unknown slug and a hub predating the endpoint both answer 404, and the
+			// response is the same either way: hand back real slugs so the model can
+			// retry or fall back to reading scripts.
+			toolCallbacks.setToolStatus(toolId, { content: `No hub integration named ${integration}` })
+			const suggested = await suggestHubIntegrations(integration)
+			return JSON.stringify({
+				error: `No hub metadata for "${integration}".`,
+				suggested_integrations: suggested
+			})
+		}
+
+		toolCallbacks.setToolStatus(toolId, { content: `Read the ${doc.display_name} integration` })
+		// The hub owns this response's shape and can be older than this client, so
+		// every section is read as optional: a hub that sends less should return less,
+		// not fail the call.
+		const derived = doc.derived
+		return JSON.stringify({
+			integration: doc.app,
+			display_name: doc.display_name,
+			...(doc.description ? { description: doc.description } : {}),
+			...(doc.docs_url ? { docs_url: doc.docs_url } : {}),
+			// Authored provider knowledge and facts inferred from the scripts stay
+			// separate: only the former was checked against the live API.
+			...(doc.meta ? { verified_provider_notes: doc.meta } : {}),
+			...(derived
+				? {
+						observed_from_scripts: {
+							api_hosts: derived.api_hosts?.map((h) => h.host) ?? [],
+							style: derived.style,
+							languages: Object.keys(derived.languages ?? {}),
+							script_counts: derived.script_counts
+						}
+					}
+				: {}),
+			// Said in the payload rather than the system prompt: it is only true of some
+			// integrations, and only matters once the model has asked about one.
+			...(doc.curated
+				? {}
+				: {
+						scripts_note:
+							'These scripts were generated one per API endpoint from a spec: good for the endpoint shapes, weak as style examples.'
+					}),
+			resource_types: (doc.resource_types ?? []).map((rt) => ({
+				name: rt.name,
+				...(rt.description ? { description: rt.description } : {}),
+				schema: rt.schema
+			})),
+			example_scripts: (derived?.top_scripts ?? []).slice(0, MAX_INTEGRATION_EXAMPLES).map((s) => ({
+				path: s.path,
+				summary: s.summary,
+				...(s.description ? { description: s.description } : {}),
+				...(s.language ? { language: s.language } : {})
+			}))
+		})
+	}
+} satisfies Tool<{}>
+
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -1298,9 +1383,9 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		toolCallbacks.setToolStatus(toolId, { content: `Searching hub scripts for ${subject}...` })
 
 		// Listing an integration goes through the hub's top-scripts endpoint rather
-		// than the semantic one: it is the only one carrying each script's
-		// description, and it has no similarity floor to drop the near-misses that
-		// are worth reading as examples of how the integration is used.
+		// than the semantic one: it takes no query, and it applies no similarity
+		// floor, so the near-misses worth reading as examples of how the integration
+		// is used survive instead of being cut.
 		const scripts: HubScriptHit[] = query
 			? await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
 			: ((
