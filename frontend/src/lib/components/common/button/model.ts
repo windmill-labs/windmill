@@ -194,9 +194,9 @@ export namespace ButtonType {
 		accent:
 			'bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
 		default:
-			'border border-border-light bg-transparent hover:bg-red-500 dark:hover:bg-red-600 hover:text-white dark:hover:bg-red-600 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
+			'border border-red-600/30 hover:border-red-600/60 dark:border-red-400/30 dark:hover:border-red-400/60 bg-transparent hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 focus-visible:bg-red-50 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
 		subtle:
-			'bg-transparent hover:bg-red-500 hover:text-white dark:hover:bg-red-600 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
+			'bg-transparent hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 focus-visible:bg-red-50 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
 	}
 
 	export const VariantSpacingClasses: Record<ButtonType.Size, string> = {

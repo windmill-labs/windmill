@@ -481,7 +481,7 @@
 								variant="subtle"
 								size="xs"
 								iconOnly
-								color="red"
+								destructive
 								startIcon={{ icon: Trash2 }}
 								title="Delete migration"
 								disabled={busy}
@@ -566,7 +566,7 @@
 			</Button>
 			<Button
 				variant="default"
-				color="red"
+				destructive
 				size="sm"
 				disabled={busy}
 				on:click={() => {
