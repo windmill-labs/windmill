@@ -1,5 +1,5 @@
 /**
- * Everything the "add a database" wizard collects, and the one function that acts on it.
+ * Everything the "add a data table" wizard collects, and the one function that acts on it.
  *
  * The wizard writes nothing until the user finishes: steps 1 and 2 gather intent, step 3
  * reviews it, and `runSetup` performs it. That ordering is what lets the review step show

@@ -40,7 +40,8 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
-	import Select from '../select/Select.svelte'
+	import Path from '../Path.svelte'
+	import Label from '../Label.svelte'
 	import SupabaseIcon from '../icons/SupabaseIcon.svelte'
 	import { FolderService, OauthService, WorkspaceService } from '$lib/gen'
 	import type { ListCustomInstanceDbsResponse } from '$lib/gen'
@@ -116,6 +117,8 @@
 	let rowCreated = $state(false)
 	/** Why the session pooler could not be used, once something has tried to read it. */
 	let poolerUnavailable: string | undefined = $state(undefined)
+	let initialResourcePath = $state('')
+	let resourcePathError = $state('')
 
 	let folders: string[] = $state([])
 
@@ -230,6 +233,9 @@
 
 	function enterReview() {
 		if (!wiz.review.resourceName) wiz.review.resourceName = suggestedResourceName()
+		// Path seeds itself from initialPath, so it has to be the suggestion as it stood when
+		// the step opened, not a live view of it -- a moving initialPath fights the typing.
+		initialResourcePath = resourcePathOf(wiz)
 		wiz.step = 3
 	}
 
@@ -332,7 +338,7 @@
 		// Held while the dialog is up so a second dismissal cannot stack another one.
 		preventClose = true
 		const confirmed = await confirmationModal.ask({
-			title: 'Leave without adding a database?',
+			title: 'Leave without adding a data table?',
 			children: 'Nothing has been created yet, and what you have filled in here will be lost.',
 			confirmationText: 'Discard'
 		})
@@ -394,18 +400,14 @@
 				wiz.provider === 'supabase' && wiz.supabase.mode === 'create'
 					? 'Create project and data table'
 					: 'Create data table',
-			disabled: !wiz.review.name.trim() || nameTaken || !wiz.review.resourceName.trim(),
+			disabled:
+				!wiz.review.name.trim() ||
+				nameTaken ||
+				!wiz.review.resourceName.trim() ||
+				!!resourcePathError,
 			act: finish
 		}
 	})
-
-	let folderItems = $derived([
-		{
-			label: `Only me (u/${$userStore?.username ?? 'admin'})`,
-			value: `u/${$userStore?.username ?? 'admin'}`
-		},
-		...folders.map((f) => ({ label: `Anyone with access to f/${f}`, value: `f/${f}` }))
-	])
 
 	/** The review step only mints a resource when the wizard is the one creating it. */
 	let mintsResource = $derived(
@@ -422,7 +424,7 @@
 		}
 	}
 	target="#content"
-	title="Add a database"
+	title="Add a data table"
 	contentClasses="flex flex-col"
 	fixedWidth="md"
 	fixedHeight="lg"
@@ -769,20 +771,30 @@
 	{/if}
 
 	{#if mintsResource}
-		<div class="grid grid-cols-2 gap-2">
-			<div>
-				<span class="text-xs font-semibold text-emphasis">Who can use this database</span>
-				<Select items={folderItems} bind:value={wiz.review.folder} placeholder="Select" />
-			</div>
-			<div>
-				<span class="text-xs font-semibold text-emphasis">Resource name</span>
-				<TextInput bind:value={wiz.review.resourceName} />
-			</div>
-		</div>
-		<p class="text-2xs text-secondary">
-			Saved as a Postgres resource at <span class="font-mono">{resourcePath}</span> — usable in any
-			SQL step{wiz.review.folder.startsWith('u/') ? ', by you only' : ''}.
-		</p>
+		<Label label="Resource path" class="gap-2">
+			<Path
+				bind:path={
+					() => resourcePath,
+					(p) => {
+						const cut = p.lastIndexOf('/')
+						wiz.review.folder = cut > 0 ? p.slice(0, cut) : p
+						wiz.review.resourceName = cut > 0 ? p.slice(cut + 1) : ''
+					}
+				}
+				bind:error={resourcePathError}
+				initialPath={initialResourcePath}
+				namePlaceholder="database"
+				kind="resource"
+				autofocus={false}
+			/>
+			<p class="text-2xs text-secondary">
+				The connection is saved here as a Postgres resource, with its password in a secret variable
+				beside it. Every script in the workspace can use
+				<span class="font-mono">datatable://{wiz.review.name.trim()}</span> wherever you put it — the
+				folder decides who can see and edit the connection itself, and who can reference the resource
+				directly in a SQL step.
+			</p>
+		</Label>
 	{/if}
 
 	{#if sharesDatabaseWith}

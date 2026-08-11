@@ -288,9 +288,7 @@
 			<Row>
 				<Cell colspan={tableHeadNames.length} class="py-8">
 					<div class="flex flex-col items-center gap-3 text-center">
-						<div class="w-9 h-9 rounded-lg bg-surface-secondary border grid place-items-center">
-							<Database size={18} class="text-secondary" />
-						</div>
+						<Database size={24} class="text-secondary" />
 						<div class="flex flex-col gap-1 items-center">
 							<span class="font-semibold text-sm">No data table yet</span>
 							<p class="text-xs text-secondary max-w-sm">
@@ -303,7 +301,7 @@
 							</p>
 						</div>
 						<Button size="sm" variant="accent" on:click={() => (wizardOpen = true)}>
-							Add a database
+							Add a data table
 						</Button>
 					</div>
 				</Cell>
@@ -424,7 +422,7 @@
 							variant="default"
 							on:click={() => (wizardOpen = true)}
 						>
-							<Plus /> Add a database
+							<Plus /> Add a data table
 						</Button>
 					</div>
 				</Cell>
