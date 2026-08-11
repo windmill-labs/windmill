@@ -957,19 +957,23 @@ async fn cached_package(
         // memory only on that path: doing it always would put back the per-request heap
         // this module exists to remove.
         let mut written = 0u64;
+        // Which sink failed, not which error it produced: an unreadable archive and a full
+        // volume both surface as `InternalErr`, and only one of them is worth retrying
+        // without the disk.
+        let mut disk_failed = false;
         let to_disk = (|| {
-            let pending = PendingPackage::new(&target)?;
+            let pending = PendingPackage::new(&target).inspect_err(|_| disk_failed = true)?;
             let manifest = extract_to(
                 &archive,
                 &mut |path, content| {
                     // A block minimum, because the sweep measures blocks: a package of many
                     // tiny declarations would otherwise never trip the early sweep.
                     written += (content.len() as u64).max(DISK_BLOCK_BYTES);
-                    pending.write_file(path, content)
+                    pending.write_file(path, content).inspect_err(|_| disk_failed = true)
                 },
                 Retention::PRODUCTION,
             )?;
-            pending.publish(&manifest)
+            pending.publish(&manifest).inspect_err(|_| disk_failed = true)
         })();
 
         match to_disk {
@@ -980,7 +984,7 @@ async fn cached_package(
             // The archive is the problem, not the cache: extracting it again would fail the
             // same way, and reporting it as an unwritable cache misdirects whoever reads
             // the log to decide whether their volume is full.
-            Err(e @ Error::BadRequest(_)) => Err(e),
+            Err(e) if !disk_failed => Err(e),
             Err(e) => {
                 tracing::warn!("npm proxy cache is not usable, serving without it: {e:?}");
                 let mut kept = HashMap::new();

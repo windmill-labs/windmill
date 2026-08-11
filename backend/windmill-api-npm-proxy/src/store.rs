@@ -211,25 +211,51 @@ impl PendingPackage {
             .map_err(|e| Error::InternalErr(format!("Failed to write manifest: {e}")))?;
 
         let final_dir = self.final_dir.clone();
-        if let Some(parent) = final_dir.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        // Losing the race is success: the other writer published the same immutable
-        // content, so keep theirs and drop ours.
         let tmp = self.scratch.into_published();
-        match std::fs::rename(&tmp, &final_dir) {
-            Ok(()) => {}
-            Err(_) if final_dir.join(MANIFEST_FILE).exists() => {
-                let _ = std::fs::remove_dir_all(&tmp);
-            }
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&tmp);
-                return Err(Error::InternalErr(format!(
-                    "Failed to publish {final_dir:?}: {e}"
-                )));
-            }
-        }
+        publish_dir(&tmp, &final_dir)?;
         Ok((final_dir, manifest_bytes))
+    }
+}
+
+/// Move a finished tree onto its final path.
+///
+/// A destination that already holds a manifest is another writer publishing the same
+/// immutable content, so theirs wins and this tree is dropped. A destination *without* one
+/// is debris, left by an eviction or a writer killed between the two, and it has to be
+/// replaced rather than deferred to: `rename` refuses a non-empty directory, so treating
+/// the failure as a concurrent publish would discard this valid tree and leave the path
+/// permanently unreadable, with nothing on the read side able to repair it.
+///
+/// The debris is renamed aside rather than deleted in place so the final path is never
+/// absent for longer than a rename, and it carries the scratch name so a process that dies
+/// here still leaves something the sweep accounts for and reclaims.
+fn publish_dir(tmp: &Path, final_dir: &Path) -> Result<()> {
+    if let Some(parent) = final_dir.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if std::fs::rename(tmp, final_dir).is_ok() {
+        return Ok(());
+    }
+    if final_dir.join(MANIFEST_FILE).exists() {
+        let _ = std::fs::remove_dir_all(tmp);
+        return Ok(());
+    }
+
+    let debris = Scratch::beside(final_dir);
+    let _ = std::fs::rename(final_dir, &debris.path);
+    match std::fs::rename(tmp, final_dir) {
+        Ok(()) => Ok(()),
+        // Another writer got there in the window above, which is still the same content.
+        Err(_) if final_dir.join(MANIFEST_FILE).exists() => {
+            let _ = std::fs::remove_dir_all(tmp);
+            Ok(())
+        }
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(tmp);
+            Err(Error::InternalErr(format!(
+                "Failed to publish {final_dir:?}: {e}"
+            )))
+        }
     }
 }
 
@@ -305,12 +331,15 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<Op
                 return Ok(None);
             }
             let unpacked = measure(&unpack_to).map(|(bytes, _)| bytes).unwrap_or(0);
-            windmill_common::worker::atomic_publish_dir(
-                &unpack_to.to_string_lossy(),
-                &destination.to_string_lossy(),
-            )?;
+            publish_dir(&unpack_to, &destination)?;
             // The download is still in the scratch directory, which goes with this drop.
             drop(scratch);
+            // A miss rather than a hit if the destination is somehow still not a package:
+            // reporting a hit here hands the caller a directory whose manifest cannot be
+            // read, which is a failed request every time instead of one registry fetch.
+            if !destination.join(MANIFEST_FILE).exists() {
+                return Ok(None);
+            }
             Ok(Some(unpacked))
         })
         .await
@@ -645,6 +674,29 @@ mod tests {
         sweep(&root, 0).unwrap();
 
         assert!(pending.scratch.path.exists(), "a live writer's scratch must survive");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// An eviction killed partway through leaves a directory that is not a package. Reads
+    /// skip it, so only a publish can clear it, and `rename` refuses a non-empty
+    /// destination: deferring to it instead would discard every tree published afterwards
+    /// and leave the path unreadable for good.
+    #[test]
+    fn a_destination_left_without_a_manifest_is_replaced() {
+        let root = std::env::temp_dir().join(format!("npm-proxy-{}", uuid::Uuid::new_v4()));
+        let dir = root.join("pkg").join("1.0.0");
+        std::fs::create_dir_all(dir.join(FILES_DIR)).unwrap();
+        std::fs::write(dir.join(FILES_DIR).join("half-deleted.d.ts"), b"stale").unwrap();
+
+        let pending = PendingPackage::new(&dir).unwrap();
+        pending.write_file("index.d.ts", b"declare const x: number").unwrap();
+        pending
+            .publish(&Manifest { names: vec!["/index.d.ts".into()], main: "index.js".into() })
+            .unwrap();
+
+        assert!(dir.join(MANIFEST_FILE).exists(), "the valid tree must win");
+        assert!(dir.join(FILES_DIR).join("index.d.ts").exists());
+        assert!(!dir.join(FILES_DIR).join("half-deleted.d.ts").exists(), "debris must go");
         let _ = std::fs::remove_dir_all(&root);
     }
 
