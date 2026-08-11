@@ -124,15 +124,29 @@ impl ToolableItem for HubScriptInfo {
     }
 }
 
+/// OpenAI rejects a chat-completions request outright when any `tools[].function.description`
+/// exceeds this, and the agent step copies an MCP tool's description into that field verbatim.
+/// One over-long tool would fail the request for every tool in the step, so the hint below is
+/// only ever appended when it fits in what the base description leaves.
+const MAX_TOOL_DESCRIPTION_CHARS: usize = 1024;
+
 /// Spell out, in the tool description, that optional parameters may be left out.
 ///
-/// A runnable applies its own defaults for every argument the caller omits, so an
-/// optional parameter never needs a placeholder. Models given a non-strict tool schema
-/// otherwise tend to fill in every property with a type-zero value (`""`, `[]`, `0`,
-/// `false`); those reach the runnable as real arguments and override its defaults.
-/// `required` alone does not deter this, and a client-side system prompt is weighed far
-/// less than the tool's own description.
-fn optional_params_hint(schema: &SchemaType) -> Option<String> {
+/// Models given a non-strict tool schema tend to fill every property with a type-zero
+/// value (`""`, `[]`, `0`, `false`), which reaches the runnable as a real argument rather
+/// than as the absent value it stands in for. `required` alone does not deter this, and a
+/// client-side system prompt is weighed far less than the tool's own description.
+///
+/// The wording must not promise that an omitted parameter falls back to a default: only a
+/// script gets that, from its own language-level default. Nothing applies schema defaults
+/// server-side, so an omitted flow input is simply absent.
+///
+/// Returns the longest form that fits `budget` characters: naming the parameters is worth
+/// more than the generic sentence alone, but the names are the unbounded part and are
+/// already in the schema, so they are the first thing dropped.
+fn optional_params_hint(schema: &SchemaType, budget: usize) -> Option<String> {
+    const INSTRUCTION: &str = "Omit any parameter the request does not call for; leaving one out is always valid and is not the same as passing an empty value. Never pass an empty string, empty array, empty object, `false`, or `0` as a placeholder for a value you were not given.";
+
     let mut optional = schema
         .properties
         .keys()
@@ -148,10 +162,21 @@ fn optional_params_hint(schema: &SchemaType) -> Option<String> {
     // in the cached prefix of a provider request, which only matches when byte-identical.
     optional.sort_unstable();
 
-    Some(format!(
-        " Optional parameters: {}. Omit any parameter the request does not call for, and it falls back to its default. Never pass an empty string, empty array, empty object, `false`, or `0` as a placeholder for a value you were not given.",
-        optional.join(", ")
-    ))
+    let enumerated = format!(
+        " Optional parameters: {}. {}",
+        optional.join(", "),
+        INSTRUCTION
+    );
+    if enumerated.chars().count() <= budget {
+        return Some(enumerated);
+    }
+
+    let generic = format!(" {}", INSTRUCTION);
+    if generic.chars().count() <= budget {
+        return Some(generic);
+    }
+
+    None
 }
 
 /// Create an MCP Tool from a ToolableItem
@@ -172,9 +197,8 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     let schema_obj =
         backend.transform_schema_for_resources(&schema, resources_cache, resources_types);
 
-    // Derived from the transformed schema, so the names match the ones the client sees.
-    let description = format!(
-        "This is a {} named `{}` with the following description: `{}`.{}{}",
+    let base_description = format!(
+        "This is a {} named `{}` with the following description: `{}`.{}",
         item_type,
         item.get_summary(),
         item.get_description(),
@@ -186,9 +210,16 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
             )
         } else {
             "".to_string()
-        },
-        optional_params_hint(&schema_obj).unwrap_or_default()
+        }
     );
+
+    // The hint is derived from the transformed schema, so the names it lists are the ones
+    // the client receives, and it only gets appended if it fits alongside the base.
+    let budget = MAX_TOOL_DESCRIPTION_CHARS.saturating_sub(base_description.chars().count());
+    let description = match optional_params_hint(&schema_obj, budget) {
+        Some(hint) => format!("{}{}", base_description, hint),
+        None => base_description,
+    };
 
     let input_schema_map = match serde_json::to_value(schema_obj) {
         Ok(mut value) => {
@@ -255,8 +286,11 @@ mod tests {
 
     #[test]
     fn hint_lists_every_optional_param_sorted() {
-        let hint = optional_params_hint(&schema(&["query", "sort", "filters", "page"], &["query"]))
-            .expect("a schema with optional params must produce a hint");
+        let hint = optional_params_hint(
+            &schema(&["query", "sort", "filters", "page"], &["query"]),
+            MAX_TOOL_DESCRIPTION_CHARS,
+        )
+        .expect("a schema with optional params must produce a hint");
 
         assert!(
             hint.starts_with(" Optional parameters: `filters`, `page`, `sort`."),
@@ -265,9 +299,37 @@ mod tests {
         assert!(!hint.contains("`query`"), "required param listed: {hint}");
     }
 
+    /// OpenAI 400s the whole request over a 1024-char tool description, taking every other
+    /// tool in the step down with it, so the hint sheds the parameter names and then itself
+    /// rather than overrun the budget.
+    #[test]
+    fn hint_degrades_then_disappears_as_the_budget_shrinks() {
+        let many = (0..200).map(|i| format!("param_{i}")).collect::<Vec<_>>();
+        let names = many.iter().map(String::as_str).collect::<Vec<_>>();
+        let wide = schema(&names, &[]);
+
+        let full = optional_params_hint(&wide, usize::MAX).expect("unbounded budget lists names");
+        assert!(full.contains("`param_0`"), "expected names: {full}");
+
+        let generic = optional_params_hint(&wide, 400).expect("a tight budget keeps the sentence");
+        assert!(
+            !generic.contains("`param_0`"),
+            "names not dropped: {generic}"
+        );
+        assert!(generic.chars().count() <= 400, "over budget: {generic}");
+
+        assert_eq!(optional_params_hint(&wide, 10), None);
+    }
+
     #[test]
     fn no_hint_when_every_param_is_required() {
-        assert_eq!(optional_params_hint(&schema(&["query"], &["query"])), None);
-        assert_eq!(optional_params_hint(&schema(&[], &[])), None);
+        assert_eq!(
+            optional_params_hint(&schema(&["query"], &["query"]), MAX_TOOL_DESCRIPTION_CHARS),
+            None
+        );
+        assert_eq!(
+            optional_params_hint(&schema(&[], &[]), MAX_TOOL_DESCRIPTION_CHARS),
+            None
+        );
     }
 }

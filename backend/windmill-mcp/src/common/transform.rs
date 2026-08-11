@@ -3,6 +3,8 @@
 //! Contains functions for transforming paths, keys, and other identifiers
 //! to make them compatible with MCP tool naming requirements.
 
+use serde_json::Value;
+
 use super::types::SchemaType;
 use windmill_common::utils::calculate_hash;
 
@@ -68,7 +70,11 @@ pub fn transform_hub_path(version_id: u64, summary: &str) -> String {
 /// Returns `(type_str, is_hub, is_hashed)`.
 /// Hashed names use an uppercase first character as the signal.
 pub fn parse_tool_prefix(name: &str) -> Result<(&str, bool, bool), String> {
-    let is_hashed = name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false);
+    let is_hashed = name
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_uppercase())
+        .unwrap_or(false);
     let lower = name.to_ascii_lowercase();
     let (type_str, is_hub) = if lower.starts_with("hs-") {
         ("script", true)
@@ -199,6 +205,31 @@ pub fn apply_key_transformation(key: &str) -> String {
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '_')
         .collect::<String>()
+}
+
+/// Rename every schema property whose key is not a valid identifier, in place.
+///
+/// `required` names properties, so it has to follow the rename: left alone, it marks a
+/// property that no longer exists as required and drops the real one from the required set.
+/// `reverse_transform_key` maps arguments back at call time and consults only `properties`,
+/// so it is unaffected either way.
+pub fn sanitize_schema_property_keys(schema_obj: &mut SchemaType) {
+    let replacements: Vec<(String, String, Value)> = schema_obj
+        .properties
+        .iter()
+        .filter(|(key, _)| key.chars().any(|c| !c.is_alphanumeric() && c != '_'))
+        .map(|(key, value)| (key.clone(), apply_key_transformation(key), value.clone()))
+        .collect();
+
+    for (old_key, new_key, value) in replacements {
+        schema_obj.properties.remove(&old_key);
+        for name in schema_obj.required.iter_mut() {
+            if *name == old_key {
+                *name = new_key.clone();
+            }
+        }
+        schema_obj.properties.insert(new_key, value);
+    }
 }
 
 /// Reverse the transformation of a key
@@ -394,7 +425,10 @@ mod tests {
     #[test]
     fn test_extract_path_prefix_handles_hs_prefix() {
         // Hs- is 3 chars, not 2 — ensure the prefix is stripped correctly
-        let hashed = transform_hub_path(12345, "a]very long hub script summary that exceeds the limit");
+        let hashed = transform_hub_path(
+            12345,
+            "a]very long hub script summary that exceeds the limit",
+        );
         let (_, is_hub, is_hashed) = parse_tool_prefix(&hashed).unwrap();
         assert!(is_hub);
         assert!(is_hashed);
@@ -422,5 +456,28 @@ mod tests {
         assert_eq!(apply_key_transformation("my key"), "my_key");
         assert_eq!(apply_key_transformation("key!@#"), "key");
         assert_eq!(apply_key_transformation("key_123"), "key_123");
+    }
+
+    #[test]
+    fn sanitizing_a_property_key_renames_it_in_required_too() {
+        let mut schema = SchemaType {
+            r#type: "object".to_string(),
+            properties: [
+                ("my key".to_string(), serde_json::json!({"type": "string"})),
+                ("plain".to_string(), serde_json::json!({"type": "string"})),
+            ]
+            .into_iter()
+            .collect(),
+            required: vec!["my key".to_string(), "plain".to_string()],
+        };
+
+        sanitize_schema_property_keys(&mut schema);
+
+        assert!(schema.properties.contains_key("my_key"));
+        assert!(!schema.properties.contains_key("my key"));
+        // Stale entry would mark a nonexistent property required and drop the real one.
+        assert!(schema.required.contains(&"my_key".to_string()));
+        assert!(!schema.required.contains(&"my key".to_string()));
+        assert!(schema.required.contains(&"plain".to_string()));
     }
 }
