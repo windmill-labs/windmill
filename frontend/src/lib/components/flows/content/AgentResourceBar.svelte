@@ -8,7 +8,8 @@
 	import { ResourceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, Save, Unlink, Pencil } from 'lucide-svelte'
+	import { Bot, Save, Unlink, Pencil, FlaskConical } from 'lucide-svelte'
+	import AgentEvalDrawer from '$lib/components/aiEvals/AgentEvalDrawer.svelte'
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
@@ -424,7 +425,10 @@
 		toolInputs = {}
 		setAgentEditingPath(tools, undefined)
 	}
+	let evalsOpen = $state(false)
 </script>
+
+<AgentEvalDrawer agentPath={agent} bind:open={evalsOpen} />
 
 <div class="px-2 xl:px-4 pt-2">
 	{#if agent}
@@ -447,6 +451,14 @@
 					</Tooltip>
 				</span>
 				<div class="ml-auto flex items-center gap-1 shrink-0">
+					<Button
+						size="xs2"
+						variant="default"
+						startIcon={{ icon: FlaskConical }}
+						iconOnly
+						title="Evals (run this agent on its own against a dataset of cases)"
+						onclick={() => (evalsOpen = true)}
+					/>
 					<Button
 						size="xs2"
 						variant="default"

@@ -10,7 +10,9 @@
 		ConcurrencyGroupsService,
 		MetricsService,
 		WorkerService,
-		type ScriptArgs
+		type ScriptArgs,
+		AiEvalsService,
+		type EvalCaseDraft
 	} from '$lib/gen'
 	import {
 		canWrite,
@@ -25,6 +27,7 @@
 		isScriptPreview
 	} from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import AgentEvalDrawer from '$lib/components/aiEvals/AgentEvalDrawer.svelte'
 
 	import {
 		Activity,
@@ -40,7 +43,8 @@
 		EllipsisVertical,
 		Share2,
 		Globe,
-		Users
+		Users,
+		FlaskConical
 	} from 'lucide-svelte'
 
 	import { isJobResolvable } from '$lib/utils'
@@ -228,6 +232,24 @@
 			sendUserToast('Public link copied to clipboard — anyone with it can view this run')
 		} catch (e) {
 			sendUserToast(`Failed to create public link: ${e}`, true)
+		}
+	}
+
+	let evalsOpen = $state(false)
+	let evalCapture = $state<EvalCaseDraft | undefined>(undefined)
+
+	// Capturing a run is the highest-leverage way to build a dataset: production traffic is where
+	// the cases that actually break an agent come from.
+	async function captureEvalCase() {
+		if (!job || !$workspaceStore) return
+		try {
+			evalCapture = await AiEvalsService.evalCaseDraftFromJob({
+				workspace: $workspaceStore,
+				jobId: job.id
+			})
+			evalsOpen = true
+		} catch (err) {
+			sendUserToast(err.body ?? String(err), true)
 		}
 	}
 
@@ -596,6 +618,8 @@
 
 <HighlightTheme />
 
+<AgentEvalDrawer bind:open={evalsOpen} capture={evalCapture} />
+
 <ScheduleEditor bind:this={scheduleEditor} />
 
 {#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
@@ -747,6 +771,16 @@
 						View runs
 					</Button>
 				{/if}
+			{/if}
+			{#if job?.job_kind === 'aiagent'}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: FlaskConical }}
+					onclick={captureEvalCase}
+				>
+					Add to eval dataset
+				</Button>
 			{/if}
 			{#if job}
 				<Dropdown

@@ -1,6 +1,17 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { MessageCircle, Plus, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
+	import {
+		MessageCircle,
+		Plus,
+		Trash2,
+		PanelLeftClose,
+		PanelLeftOpen,
+		FlaskConical
+	} from 'lucide-svelte'
+	import AgentEvalDrawer from '$lib/components/aiEvals/AgentEvalDrawer.svelte'
+	import { AiEvalsService, type EvalCaseDraft } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
 	import { type FlowConversation } from '$lib/gen'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
@@ -17,7 +28,27 @@
 	function getConversationTitle(conversation: FlowConversation): string {
 		return conversation.title || `Conversation ${conversation.created_at.slice(0, 10)}`
 	}
+
+	let evalsOpen = $state(false)
+	let evalCapture = $state<EvalCaseDraft | undefined>(undefined)
+
+	// The case re-asks the conversation's last user turn, with everything before it replayed as the
+	// agent's memory and the answer production gave kept as the reference.
+	async function captureConversation(conversationId: string) {
+		if (!$workspaceStore) return
+		try {
+			evalCapture = await AiEvalsService.evalCaseDraftFromConversation({
+				workspace: $workspaceStore,
+				conversationId
+			})
+			evalsOpen = true
+		} catch (err) {
+			sendUserToast(err.body ?? String(err), true)
+		}
+	}
 </script>
+
+<AgentEvalDrawer bind:open={evalsOpen} capture={evalCapture} />
 
 <div
 	class="flex flex-col h-full bg-surface border-r transition-all duration-300 {manager.isSidebarExpanded
@@ -105,6 +136,20 @@
 							<span class="flex-1 text-left truncate">
 								{getConversationTitle(conversation)}
 							</span>
+							{#if !conversation.isDraft}
+								<Button
+									wrapperClasses="ml-2 transition-all duration-100 opacity-0 group-hover:opacity-100"
+									onClick={(e) => {
+										e?.stopPropagation()
+										captureConversation(conversation.id)
+									}}
+									title="Add this conversation to an eval dataset"
+									unifiedSize="xs"
+									variant="subtle"
+									iconOnly
+									startIcon={{ icon: FlaskConical }}
+								/>
+							{/if}
 							<Button
 								wrapperClasses={twMerge(
 									'ml-2 transition-all duration-100  opacity-0 group-hover:opacity-100',
