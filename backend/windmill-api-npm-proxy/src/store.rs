@@ -343,6 +343,16 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<Op
             if !unpack_to.join(MANIFEST_FILE).exists() {
                 return Ok(None);
             }
+            // `unpack` restores the mtimes the archive was built with, so a pulled tree
+            // carries the time it was first filled somewhere else. The sweep reads the
+            // newest mtime in a package as its recency, which would make a package pulled
+            // because something just asked for it the first candidate for eviction.
+            if let Ok(file) = std::fs::OpenOptions::new()
+                .append(true)
+                .open(unpack_to.join(MANIFEST_FILE))
+            {
+                let _ = file.set_modified(SystemTime::now());
+            }
             let unpacked = measure(&unpack_to).map(|(bytes, _)| bytes).unwrap_or(0);
             publish_dir(&unpack_to, &destination)?;
             // The download is still in the scratch directory, which goes with this drop.

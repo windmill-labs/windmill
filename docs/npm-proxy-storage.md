@@ -85,6 +85,12 @@ The cache key must include the registry identity, not just package and version. 
 instance setting can be changed to point at a different registry that serves a different
 artifact under the same name and version. Hash the resolved registry URL into the path.
 
+Hashing it in is only half of it: a miss has to resolve the setting once and use that one
+snapshot for the key, the packument and the tarball. Resolving a second time lets the
+setting change in between, and since the tarball's origin is only checked by host, two
+repositories on one host will write the second registry's files under the first one's key,
+where immutability then keeps them.
+
 Immutability means the archive tiers need no TTL. The packument cache still does, since
 that is what discovers new versions.
 
