@@ -119,6 +119,8 @@
 	let poolerUnavailable: string | undefined = $state(undefined)
 	let initialResourcePath = $state('')
 	let resourcePathError = $state('')
+	/** Furthest step reached, so going back to check something does not cost the progress. */
+	let maxStep = $state(1)
 
 	let folders: string[] = $state([])
 
@@ -204,16 +206,17 @@
 		wiz.supabase.region = resume?.region ?? DEFAULT_SUPABASE_REGION
 		run = { steps: [], running: false }
 		rowCreated = false
+		maxStep = 1
 		if (resume) {
 			wiz.provider = 'supabase'
-			wiz.step = 2
+			enterStep(2)
 		}
 	}
 
 	function selectProvider(key: Provider) {
 		if (key === wiz.provider) return
 		wiz.provider = key
-		clearProbe(wiz)
+		invalidate()
 		if (key === 'instance') wiz.instance.dbName ??= defaultInstanceDbName()
 	}
 
@@ -231,12 +234,35 @@
 			.replace(/^_|_$/g, '')}`
 	}
 
+	/** Moving forward through the primary action, which is what validated the step. */
+	function enterStep(step: 1 | 2 | 3) {
+		wiz.step = step
+		if (step > maxStep) maxStep = step
+	}
+
+	/**
+	 * The stepper reaches any step already passed, in either direction -- going back to check
+	 * something should not cost the progress. It cannot reach past `maxStep`: the primary
+	 * action is what validates a step, and on step 2 what probes the connection.
+	 */
+	function goToStep(index: number) {
+		const target = index + 1
+		if (run.steps.length || target > maxStep || target === wiz.step) return
+		wiz.step = target as 1 | 2 | 3
+	}
+
+	/** Intent changed, so the review built from it is stale and stops being reachable. */
+	function invalidate() {
+		clearProbe(wiz)
+		if (maxStep > wiz.step) maxStep = wiz.step
+	}
+
 	function enterReview() {
 		if (!wiz.review.resourceName) wiz.review.resourceName = suggestedResourceName()
 		// Path seeds itself from initialPath, so it has to be the suggestion as it stood when
 		// the step opened, not a live view of it -- a moving initialPath fights the typing.
 		initialResourcePath = resourcePathOf(wiz)
-		wiz.step = 3
+		enterStep(3)
 	}
 
 	/**
@@ -372,13 +398,13 @@
 					busy: supaOauth.pending,
 					act: () => {
 						supaOauth.connect()
-						wiz.step = 2
+						enterStep(2)
 					}
 				}
 			return {
 				label: 'Continue',
 				disabled: !wiz.provider,
-				act: () => (wiz.step = 2)
+				act: () => enterStep(2)
 			}
 		}
 		if (wiz.step === 2) {
@@ -430,7 +456,13 @@
 	fixedHeight="lg"
 >
 	<div class="flex h-full flex-col gap-4">
-		<Stepper tabs={STEPS} selectedIndex={wiz.step - 1} maxReachedIndex={wiz.step - 1} small />
+		<Stepper
+			tabs={STEPS}
+			selectedIndex={wiz.step - 1}
+			maxReachedIndex={run.steps.length ? -1 : maxStep - 1}
+			small
+			on:click={(e) => goToStep(e.detail.index)}
+		/>
 
 		<div class="flex-1 flex flex-col min-h-0">
 			<div class="flex-1 overflow-y-auto flex flex-col gap-3">
@@ -504,7 +536,7 @@
 							<SupabaseProjectStep
 								bind:intent={wiz.supabase}
 								token={supaOauth.token!}
-								onIntentChange={() => clearProbe(wiz)}
+								onIntentChange={() => invalidate()}
 							/>
 						{/if}
 					{:else if wiz.provider === 'instance'}
@@ -657,7 +689,7 @@
 			() => wiz.own.mode,
 			(v) => {
 				wiz.own.mode = v
-				clearProbe(wiz)
+				invalidate()
 			}
 		}
 	>
@@ -673,7 +705,7 @@
 				bind:value={
 					() => wiz.own.resourcePath,
 					(v) => {
-						if (v !== wiz.own.resourcePath) clearProbe(wiz)
+						if (v !== wiz.own.resourcePath) invalidate()
 						wiz.own.resourcePath = v
 					}
 				}
@@ -688,7 +720,7 @@
 					() => wiz.own.connectionString,
 					(v) => {
 						wiz.own.connectionString = v
-						clearProbe(wiz)
+						invalidate()
 					}
 				}
 				inputProps={{ placeholder: 'postgres://user:password@host:5432/database' }}
