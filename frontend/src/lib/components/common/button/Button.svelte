@@ -191,9 +191,7 @@
 				((typeof dropdownItems === 'function' && dropdownItems().length > 0) ||
 					dropdownItems.length > 0)
 			) {
-				// The border colour differs between the plain and destructive styles, so match
-				// whichever resting border the variant declared rather than one literal class.
-				style = style.replace(/\bborder border-[^\s]+/, '')
+				style = style.replace('border border-border-light', '')
 			}
 			return style
 		}

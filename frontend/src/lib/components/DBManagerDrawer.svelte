@@ -323,8 +323,7 @@
 			<Button
 				disabled={!importSource}
 				loading={importLoading}
-				variant="default"
-				destructive
+				color="red"
 				on:click={handleImportDatabase}
 			>
 				Import {importBehavior === 'schema_and_data' ? 'schemas and data' : 'schemas'} into current database
