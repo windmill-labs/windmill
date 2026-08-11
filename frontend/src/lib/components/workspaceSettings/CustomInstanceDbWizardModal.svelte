@@ -28,8 +28,6 @@
 		bottomHint?: Snippet | undefined
 		opened: { status: CustomInstanceDb | undefined; dbname: string } | undefined
 		tag?: CustomInstanceDbTag
-		/** Openers that live inside a drawer must portal to the body, or the drawer covers this. */
-		target?: string
 	}
 
 	let {
@@ -37,8 +35,7 @@
 		confirmationModal,
 		bottomHint,
 		opened = $bindable(),
-		tag,
-		target = '#content'
+		tag
 	}: Props = $props()
 
 	let customInstanceDbSetupIsRunning = $state(false)
@@ -48,7 +45,7 @@
 
 <Modal2
 	bind:isOpen={() => !!opened, (v) => !v && !preventClose && (opened = undefined)}
-	{target}
+	target="#content"
 	title={'Custom Instance Database Setup'}
 	contentClasses="flex flex-col"
 	fixedWidth="md"
