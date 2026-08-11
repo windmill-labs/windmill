@@ -202,6 +202,9 @@ const MAX_ENTRIES: usize = 100_000;
 /// Ceiling on one entry kept. Past it the entry is read back on demand, which costs a walk
 /// of the archive per read, so it sits above what real packages hold rather than tightly.
 const RETAINED_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
+/// The manifest's own ceiling, above the entry one: it is the only file whose absence
+/// changes an answer rather than the speed of one.
+const MANIFEST_BYTES: u64 = 64 * 1024 * 1024;
 /// Ceiling on the entries one package keeps. Declarations past it are left to a read on
 /// demand rather than refused, so this bounds the cache without bounding what is servable.
 /// `aws-sdk` is the heaviest package known here at ~51 MB across 442 declarations.
@@ -243,6 +246,7 @@ const MANIFEST: &str = "package.json";
 struct Retention {
     max_entries: usize,
     entry_bytes: u64,
+    manifest_bytes: u64,
     total_bytes: u64,
     path_bytes: u64,
 }
@@ -251,6 +255,7 @@ impl Retention {
     const PRODUCTION: Self = Self {
         max_entries: MAX_ENTRIES,
         entry_bytes: RETAINED_ENTRY_BYTES,
+        manifest_bytes: MANIFEST_BYTES,
         total_bytes: RETAINED_BYTES,
         path_bytes: RETAINED_PATH_BYTES,
     };
@@ -820,20 +825,24 @@ fn extract_to(
         if !worth_retaining(&stripped) {
             continue;
         }
-        // Read through a cap rather than sizing from the header, which an archive is free
+        // The manifest has its own ceiling: skipping an oversized one for the entry cap
+        // would default the entry point, which is a wrong answer rather than a slow one.
+        let is_manifest = stripped == MANIFEST;
+        let cap = if is_manifest { retention.manifest_bytes } else { retention.entry_bytes };
+        // Read through the cap rather than sizing from the header, which an archive is free
         // to lie about, and one byte past it so an overrun is detectable.
         let mut content = Vec::new();
         (&mut entry)
-            .take(retention.entry_bytes + 1)
+            .take(cap + 1)
             .read_to_end(&mut content)
             .map_err(|e| Error::InternalErr(format!("Failed to read {}: {}", stripped, e)))?;
-        if content.len() as u64 > retention.entry_bytes {
+        if content.len() as u64 > cap {
             continue;
         }
         // The manifest is exempt from the budget: it is one small file, and defaulting the
         // entry point because a package's declarations came first is a wrong answer rather
         // than a slower one. `next` orders its manifest 3748th.
-        if stripped == MANIFEST {
+        if is_manifest {
             main = serde_json::from_slice::<JsonValue>(&content)
                 .ok()
                 .and_then(|m| m.get("main").and_then(|m| m.as_str()).map(String::from));
@@ -912,18 +921,18 @@ async fn cached_package(
         .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
 
     let dir = store::package_dir(&registry_url, package, version);
-    if tokio::fs::metadata(dir.join("manifest.json")).await.is_ok() {
+    if store::has_manifest(&dir).await {
         store::touch(&dir);
         return Ok(PackageFiles::Disk(dir));
     }
 
     let key = store::object_key(&registry_url, package, version);
     match store::pull_from_object_store(&dir, &key).await {
-        Ok(true) => {
-            store::sweep_if_due(0);
+        Ok(Some(unpacked)) => {
+            store::sweep_if_due(unpacked);
             return Ok(PackageFiles::Disk(dir));
         }
-        Ok(false) => {}
+        Ok(None) => {}
         // A cache that cannot be read is a reason to fetch, not to fail
         Err(e) => tracing::warn!("could not pull {key} from the object store: {e:?}"),
     }
@@ -1059,8 +1068,13 @@ mod tests {
         builder.into_inner().unwrap().finish().unwrap()
     }
 
-    const TINY: Retention =
-        Retention { max_entries: 16, entry_bytes: 128, total_bytes: 4096, path_bytes: 4096 };
+    const TINY: Retention = Retention {
+        max_entries: 16,
+        entry_bytes: 128,
+        manifest_bytes: 4096,
+        total_bytes: 4096,
+        path_bytes: 4096,
+    };
 
     /// Extract into a throwaway directory and report what landed where.
     fn extract(archive: &[u8], retention: Retention) -> Result<(super::store::Manifest, PathBuf)> {
@@ -1165,6 +1179,11 @@ mod tests {
 
         // the declaration ahead of it consumes the whole budget
         let (manifest, _) = extract(&archive, Retention { total_bytes: 20, ..TINY }).unwrap();
+        assert_eq!(manifest.main, "lib/index.js");
+
+        // and a manifest past the per-entry ceiling still sets it, since that ceiling is
+        // about how much to keep rather than about which answer is right
+        let (manifest, _) = extract(&archive, Retention { entry_bytes: 4, ..TINY }).unwrap();
         assert_eq!(manifest.main, "lib/index.js");
 
         // and a package that genuinely declares none still gets the default

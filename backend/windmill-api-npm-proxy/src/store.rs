@@ -75,7 +75,13 @@ fn registry_key(registry_url: &str) -> String {
 }
 
 fn escape_segment(segment: &str) -> String {
-    segment.replace(['/', '\\'], "%2F")
+    let escaped = segment.replace(['/', '\\'], "%2F");
+    // A segment of only dots is a traversal, not a name: `..` would resolve the package
+    // directory to its own parent, which the comment above claims cannot happen.
+    if escaped.chars().all(|c| c == '.') {
+        return escaped.replace('.', "%2E");
+    }
+    escaped
 }
 
 /// Reject anything that would land outside the package directory. Archive entry paths are
@@ -90,6 +96,12 @@ fn safe_relative_path(dir: &Path, relative: &str) -> Option<PathBuf> {
         return None;
     }
     Some(dir.join(FILES_DIR).join(relative))
+}
+
+/// Whether a package directory is complete. The manifest is written last, so its presence
+/// is what distinguishes a published package from anything else at that path.
+pub(crate) async fn has_manifest(dir: &Path) -> bool {
+    tokio::fs::metadata(dir.join(MANIFEST_FILE)).await.is_ok()
 }
 
 pub(crate) async fn read_manifest(dir: &Path) -> Option<Manifest> {
@@ -211,18 +223,18 @@ impl PendingPackage {
 /// a package's worth of bytes per concurrent miss would put back the request-scaled heap
 /// this module exists to remove, and unpacking is synchronous work whatever its signature
 /// says.
-pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<bool> {
+pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<Option<u64>> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     {
         use futures::StreamExt;
         use tokio::io::AsyncWriteExt;
 
         let Some(os) = windmill_object_store::get_object_store().await else {
-            return Ok(false);
+            return Ok(None);
         };
         let path = windmill_object_store::object_store_reexports::Path::from(_key);
         let Ok(result) = os.get(&path).await else {
-            return Ok(false);
+            return Ok(None);
         };
 
         // The temp file is a sibling of the package directory, so its parent has to exist
@@ -269,18 +281,26 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<bo
         .map_err(|e| Error::InternalErr(format!("Failed to unpack {_key}: {e}")))?;
         unpacked.map_err(|e| Error::InternalErr(format!("Failed to unpack {_key}: {e}")))?;
 
+        // An object that unpacks without a manifest is not a package. Publishing it would
+        // make every later pull short-circuit the registry against a tree nothing can read.
+        let content = scratch.path.join("content");
+        if !content.join(MANIFEST_FILE).exists() {
+            tracing::warn!("{_key} unpacked without a manifest, ignoring it");
+            return Ok(None);
+        }
+        let unpacked = measure(&content).map(|(bytes, _)| bytes).unwrap_or(0);
+
         // The scratch directory still holds the download, so only the unpacked tree moves
         // and the rest goes with the drop.
-        let content = scratch.path.join("content");
         windmill_common::worker::atomic_publish_dir(
             &content.to_string_lossy(),
             &_dir.to_string_lossy(),
         )?;
         drop(scratch);
-        return Ok(true);
+        return Ok(Some(unpacked));
     }
     #[allow(unreachable_code)]
-    Ok(false)
+    Ok(None)
 }
 
 /// Publish a freshly extracted package version to the instance object store so the other
@@ -311,7 +331,13 @@ async fn push_inner(dir: &Path, key: &str) -> Result<()> {
         return Ok(());
     };
 
-    let tar_path = PathBuf::from(format!("{}.upload.{}.tar", dir.display(), uuid::Uuid::new_v4()));
+    // Inside a scratch directory rather than beside the package: a sibling file survives
+    // both the early returns below and the sweep, which only ever walks directories.
+    let scratch = Scratch::beside(dir);
+    tokio::fs::create_dir_all(&scratch.path)
+        .await
+        .map_err(|e| Error::InternalErr(format!("Failed to create {:?}: {e}", scratch.path)))?;
+    let tar_path = scratch.path.join("archive.tar");
     let source = dir.to_path_buf();
     let build_at = tar_path.clone();
     tokio::task::spawn_blocking(move || {
@@ -324,29 +350,38 @@ async fn push_inner(dir: &Path, key: &str) -> Result<()> {
     .map_err(|e| Error::InternalErr(format!("Failed to tar {key}: {e}")))?
     .map_err(|e| Error::InternalErr(format!("Failed to tar {key}: {e}")))?;
 
-    let upload = async {
-        let mut file = tokio::fs::File::open(&tar_path).await?;
-        let path = windmill_object_store::object_store_reexports::Path::from(key);
-        let mut writer = WriteMultipart::new(
-            os.put_multipart(&path)
-                .await
-                .map_err(std::io::Error::other)?,
-        );
-        let mut chunk = vec![0u8; 8 * 1024 * 1024];
-        loop {
-            let read = file.read(&mut chunk).await?;
-            if read == 0 {
-                break;
-            }
-            writer.write(&chunk[..read]);
+    const CHUNK: usize = 8 * 1024 * 1024;
+    let mut file = tokio::fs::File::open(&tar_path)
+        .await
+        .map_err(|e| Error::InternalErr(format!("Failed to open {tar_path:?}: {e}")))?;
+    let path = windmill_object_store::object_store_reexports::Path::from(key);
+    let mut writer = WriteMultipart::new(
+        os.put_multipart(&path)
+            .await
+            .map_err(|e| Error::InternalErr(format!("Failed to start upload of {key}: {e}")))?,
+    );
+    let mut chunk = vec![0u8; CHUNK];
+    loop {
+        let read = file
+            .read(&mut chunk)
+            .await
+            .map_err(|e| Error::InternalErr(format!("Failed to read {tar_path:?}: {e}")))?;
+        if read == 0 {
+            break;
         }
-        writer.finish().await.map_err(std::io::Error::other)?;
-        Ok::<_, std::io::Error>(())
+        // `write` queues without waiting, so a slow store would leave the whole tar
+        // outstanding in upload tasks. This is the bound the doc comment claims.
+        writer
+            .wait_for_capacity(CHUNK)
+            .await
+            .map_err(|e| Error::InternalErr(format!("Failed to upload {key}: {e}")))?;
+        writer.write(&chunk[..read]);
     }
-    .await;
-
-    let _ = tokio::fs::remove_file(&tar_path).await;
-    upload.map_err(|e| Error::InternalErr(format!("Failed to upload {key}: {e}")))
+    writer
+        .finish()
+        .await
+        .map_err(|e| Error::InternalErr(format!("Failed to upload {key}: {e}")))?;
+    Ok(())
 }
 
 /// Remove least-recently-used package directories until the cache is back under its bound.
@@ -488,6 +523,17 @@ mod tests {
     fn a_scoped_package_stays_one_directory() {
         let scoped = package_dir("https://registry.example.com", "@types/node", "20.0.0");
         assert!(scoped.ends_with("@types%2Fnode/20.0.0"));
+    }
+
+    /// A registry that answered for a package called `..` would otherwise resolve the
+    /// package directory to its own parent.
+    #[test]
+    fn a_traversal_cannot_be_a_package_name() {
+        let root = package_dir("https://registry.example.com", "lodash", "1.0.0");
+        let traversal = package_dir("https://registry.example.com", "..", "..");
+
+        assert!(traversal.starts_with(root.parent().unwrap().parent().unwrap()));
+        assert!(traversal.ends_with("%2E%2E/%2E%2E"));
     }
 
     #[test]
