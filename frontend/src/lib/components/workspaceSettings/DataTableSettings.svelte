@@ -36,7 +36,8 @@
 
 <script lang="ts">
 	import { Plus, Settings, Loader2 } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+	import CustomInstanceDbWizardModal from './CustomInstanceDbWizardModal.svelte'
 
 	import Button from '../common/button/Button.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
@@ -66,6 +67,7 @@
 		type WizardResume
 	} from './AddDataTableWizard.svelte'
 	import DataTableSettingsPanel from './DataTableSettingsPanel.svelte'
+	import { fullyPrivileged } from './DataTableConnectionReport.svelte'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import { dataTableProvider, dataTableSubtitle } from './dataTableOrigin'
 	import { useDataTableHealth } from './dataTableHealth.svelte'
@@ -82,6 +84,8 @@
 
 	let confirmationModal = createAsyncConfirmationModal()
 	let panel: DataTableSettingsPanel | undefined = $state(undefined)
+	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
+	let openedInstanceDb: string | undefined = $state(undefined)
 	let wizardOpen = $state(false)
 	let wizardResume: WizardResume | undefined = $state(undefined)
 
@@ -184,13 +188,17 @@
 		{#each dataTableSettings.dataTables as dataTable (dataTable.id)}
 			{@const provider = dataTableProvider(dataTable.database, dataTable.origin)}
 			{@const status = health.current?.[dataTable.name]}
-			<!-- Instance data tables have no resource to open: Windmill holds those credentials. -->
-			{@const resourceHref =
-				dataTable.database.resource_type === 'postgresql' && dataTable.database.resource_path
-					? `${base}/resources?workspace=${$workspaceStore}#/resource/${
-							dataTable.database.resource_path
-						}`
+			<!-- Instance data tables have no resource: Windmill holds those credentials, and
+			their setup, password rotation and drop live in the instance database modal. -->
+			{@const resourcePath =
+				dataTable.database.resource_type === 'postgresql'
+					? dataTable.database.resource_path
 					: undefined}
+			{@const instanceDb =
+				dataTable.database.resource_type === 'instance'
+					? dataTable.database.resource_path
+					: undefined}
+			{@const icon = provider === 'supabase' ? SupabaseIcon : Database}
 			<Row>
 				<Cell first class="w-48">
 					<!-- Managing the data is the daily action, so it is the row's own click.
@@ -206,21 +214,37 @@
 				</Cell>
 				<Cell>
 					<div class="flex items-center gap-2 min-w-0 text-xs text-secondary">
-						{#if provider === 'supabase'}
-							<SupabaseIcon height="14px" width="14px" />
-						{:else}
-							<Database size={14} class="text-secondary shrink-0" />
-						{/if}
-						{#if resourceHref}
-							<a
-								href={resourceHref}
-								target="_blank"
-								rel="noreferrer"
-								class="truncate font-mono hover:text-blue-500 hover:underline"
+						{#if resourcePath}
+							<Button
+								size="xs2"
+								variant="subtle"
+								wrapperClasses="min-w-0"
+								btnClasses="min-w-0 font-mono text-secondary"
+								startIcon={{ icon }}
+								title="Edit {resourcePath}"
+								on:click={() => resourceEditor?.initEdit(resourcePath)}
 							>
-								{dataTableSubtitle(dataTable.database, dataTable.origin)}
-							</a>
+								<span class="truncate">
+									{dataTableSubtitle(dataTable.database, dataTable.origin)}
+								</span>
+							</Button>
+						{:else if instanceDb}
+							<Button
+								size="xs2"
+								variant="subtle"
+								wrapperClasses="min-w-0"
+								btnClasses="min-w-0 font-mono text-secondary"
+								startIcon={{ icon }}
+								title="Instance database setup for {instanceDb}"
+								on:click={() => (openedInstanceDb = instanceDb)}
+							>
+								<span class="truncate">
+									{dataTableSubtitle(dataTable.database, dataTable.origin)}
+								</span>
+							</Button>
 						{:else}
+							{@const Icon = icon}
+							<Icon size={14} class="shrink-0" />
 							<span class="truncate font-mono">
 								{dataTableSubtitle(dataTable.database, dataTable.origin)}
 							</span>
@@ -236,6 +260,15 @@
 						<span class="inline-flex items-center gap-2 text-xs text-secondary">
 							<Loader2 size={14} class="animate-spin" /> Checking
 						</span>
+					{:else if status?.ok && !fullyPrivileged(status.report)}
+						<!-- Reachable, but the first migration is what would discover the missing
+						grant. The panel opens on the report, which carries the GRANTs to run. -->
+						<button
+							class="inline-flex items-center gap-2 text-xs text-yellow-600 hover:underline"
+							onclick={() => panel?.open(dataTable, status?.report)}
+						>
+							<span class="w-2 h-2 rounded-full bg-yellow-500 shrink-0"></span> Limited permissions
+						</button>
 					{:else if status?.ok}
 						<span class="inline-flex items-center gap-2 text-xs text-green-600">
 							<span class="w-2 h-2 rounded-full bg-green-500 shrink-0"></span> Connected
@@ -258,7 +291,7 @@
 							startIcon={{ icon: Settings }}
 							iconOnly
 							title="Connection settings"
-							on:click={() => panel?.open(dataTable)}
+							on:click={() => panel?.open(dataTable, status?.report)}
 						/>
 					</div>
 				</Cell>
@@ -291,6 +324,27 @@
 {/if}
 
 <ConfirmationModal {...confirmationModal.props} />
+
+<!-- Editing the connection can fix or break a data table, so re-probe when it closes. -->
+<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={() => health.refetch()} />
+
+<CustomInstanceDbWizardModal
+	{customInstanceDbs}
+	{confirmationModal}
+	tag="datatable"
+	bind:opened={
+		() =>
+			openedInstanceDb
+				? { dbname: openedInstanceDb, status: customInstanceDbs.current?.[openedInstanceDb] }
+				: undefined,
+		(v) => {
+			if (!v) {
+				openedInstanceDb = undefined
+				health.refetch()
+			}
+		}
+	}
+/>
 
 <DataTableSettingsPanel
 	bind:this={panel}

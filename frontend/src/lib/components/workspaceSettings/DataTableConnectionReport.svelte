@@ -1,6 +1,14 @@
+<script lang="ts" module>
+	import type { TestDataTableConnectionResponse } from '$lib/gen'
+
+	/** Reachable is not enough: without both, the first migration is what discovers it. */
+	export function fullyPrivileged(report: TestDataTableConnectionResponse | undefined): boolean {
+		return !!report?.can_create_table && !!report?.can_create_schema
+	}
+</script>
+
 <script lang="ts">
 	import Alert from '../common/alert/Alert.svelte'
-	import type { TestDataTableConnectionResponse } from '$lib/gen'
 
 	type Props = {
 		/** What the report is about: a data table, a Supabase project, a database name. */
@@ -13,7 +21,7 @@
 
 	let { name, report, error, bgClass, class: className }: Props = $props()
 
-	let fullyPrivileged = $derived(!!report?.can_create_table && !!report?.can_create_schema)
+	let privileged = $derived(fullyPrivileged(report))
 </script>
 
 {#if error}
@@ -22,8 +30,8 @@
 	</Alert>
 {:else if report}
 	<Alert
-		type={fullyPrivileged ? 'success' : 'warning'}
-		title={fullyPrivileged
+		type={privileged ? 'success' : 'warning'}
+		title={privileged
 			? `${name} is reachable and its user can create tables and schemas`
 			: `${name} is reachable but its user is missing privileges`}
 		size="xs"

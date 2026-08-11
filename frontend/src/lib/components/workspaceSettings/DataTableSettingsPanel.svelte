@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+	import CustomInstanceDbWizardModal from './CustomInstanceDbWizardModal.svelte'
 	import Button from '../common/button/Button.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
@@ -66,17 +67,24 @@
 
 	let newPassword = $state('')
 	let resourceValue = $state<any>(undefined)
+	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
+	let openedInstanceDb: string | undefined = $state(undefined)
 
 	/** Finish setup, for a data table whose wizard run never completed. */
 	let resume = $state<{ steps: SetupStep[]; running: boolean } | undefined>(undefined)
 
 	const supaOauth = useSupabaseOauth()
 
-	export function open(target: PanelDataTable) {
+	/**
+	 * `knownReport` is the settings page's own probe of this data table. Showing it straight
+	 * away is what lets a row say "limited permissions" and land on the grants that fix it,
+	 * rather than on a Test connection button that repeats work already done.
+	 */
+	export function open(target: PanelDataTable, knownReport?: TestDataTableConnectionResponse) {
 		dt = target
 		renameTo = target.name
 		database = { ...target.database }
-		check = { loading: false }
+		check = { loading: false, report: knownReport }
 		newPassword = ''
 		resourceValue = undefined
 		resume = undefined
@@ -256,6 +264,8 @@
 					await customInstanceDbs.refetch()
 				},
 				onProgress: (steps) => (resume = { steps, running: true }),
+				onPoolerUnavailable: (reason) =>
+					sendUserToast(`Connected directly instead of through the pooler: ${reason}`, true),
 				resumeFrom
 			})
 			resume = { steps: resume?.steps ?? [], running: false }
@@ -384,17 +394,29 @@
 						</dt>
 						<dd class="text-emphasis font-mono">
 							{#if dt.database.resource_type === 'postgresql' && dt.database.resource_path}
-								<!-- New tab: the drawer sits on the settings page, so navigating in place
-								would close everything the reader is in the middle of. -->
-								<a
-									href="{base}/resources?workspace={$workspaceStore}#/resource/{dt.database
-										.resource_path}"
-									target="_blank"
-									rel="noreferrer"
-									class="text-blue-500 hover:underline inline-flex items-center gap-1 break-all"
+								{@const resourcePath = dt.database.resource_path}
+								<Button
+									size="xs2"
+									variant="subtle"
+									wrapperClasses="min-w-0 w-fit"
+									btnClasses="font-mono text-emphasis"
+									title="Edit {resourcePath}"
+									on:click={() => resourceEditor?.initEdit(resourcePath)}
 								>
-									{dt.database.resource_path}<ExternalLink size={12} class="shrink-0" />
-								</a>
+									<span class="break-all">{resourcePath}</span>
+								</Button>
+							{:else if dt.database.resource_type === 'instance' && dt.database.resource_path}
+								{@const instanceDb = dt.database.resource_path}
+								<Button
+									size="xs2"
+									variant="subtle"
+									wrapperClasses="min-w-0 w-fit"
+									btnClasses="font-mono text-emphasis"
+									title="Instance database setup for {instanceDb}"
+									on:click={() => (openedInstanceDb = instanceDb)}
+								>
+									<span class="break-all">{instanceDb}</span>
+								</Button>
 							{:else}
 								{dt.database.resource_path ?? '—'}
 							{/if}
@@ -552,3 +574,26 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
+
+<!-- Editing the resource can change the host this panel reports, so read it back. -->
+<ResourceEditorDrawer
+	bind:this={resourceEditor}
+	on:refresh={() => {
+		if (dt) loadResource(dt)
+	}}
+/>
+
+<!-- Opened from inside this drawer, so it has to portal past it. -->
+<CustomInstanceDbWizardModal
+	{customInstanceDbs}
+	{confirmationModal}
+	tag="datatable"
+	target="body"
+	bind:opened={
+		() =>
+			openedInstanceDb
+				? { dbname: openedInstanceDb, status: customInstanceDbs.current?.[openedInstanceDb] }
+				: undefined,
+		(v) => !v && (openedInstanceDb = undefined)
+	}
+/>
