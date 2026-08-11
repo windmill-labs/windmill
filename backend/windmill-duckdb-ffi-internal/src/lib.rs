@@ -1326,6 +1326,33 @@ mod patched_engine_tests {
         locked.expect("a locked temp directory must stay usable behind disabled_filesystems");
     }
 
+    /// The exemption above is only sound while the directory cannot be moved: a script that
+    /// repointed it would get a write primitive through the very fence it is exempt from. A
+    /// rebase can drop that half of the patch while leaving the spill test green, so pin it.
+    #[test]
+    fn locking_the_temp_directory_makes_it_immutable() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch("SET temp_directory='/tmp/windmill_duckdb_lock_probe';")
+            .unwrap();
+        conn.execute_batch("SET lock_temp_directory=true;")
+            .expect("the patched engine must accept lock_temp_directory");
+
+        for stmt in [
+            "SET temp_directory='/tmp/windmill_duckdb_elsewhere';",
+            "RESET temp_directory;",
+            "SET lock_temp_directory=false;",
+            "RESET lock_temp_directory;",
+        ] {
+            let err = conn.execute_batch(stmt).expect_err(&format!(
+                "`{stmt}` must be refused once the directory is locked"
+            ));
+            assert!(
+                err.to_string().contains("locked"),
+                "expected a lock refusal for `{stmt}`, got: {err}"
+            );
+        }
+    }
+
     // The engine loads the *prebuilt* extensions from extensions.duckdb.org, which are
     // compiled against the struct layouts of the release it claims to be. A patch that
     // moves a member those extensions reach does not fail — the extension reads the
