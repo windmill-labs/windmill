@@ -48,43 +48,80 @@ const backendProxyApi = async <T>(endpoint: string, resLimit: ResLimit): Promise
 	}
 }
 
-export const getNPMVersionsForModule = async (moduleName: string, resLimit: ResLimit) => {
-	const url = `https://data.jsdelivr.com/v1/package/npm/${moduleName}`
-	const result = await api<{ tags: Record<string, string>; versions: string[] }>(url, resLimit, {
-		cache: 'no-store'
-	})
+let registryConfigured: Promise<boolean> | undefined
 
-	// If jsdelivr fails, try backend proxy
-	if (result instanceof Error) {
-		console.log('jsdelivr failed for', moduleName, 'trying backend proxy')
-		return backendProxyApi<{ tags: Record<string, string>; versions: string[] }>(
-			`/metadata/${encodeURIComponent(moduleName)}`,
-			resLimit
-		)
-	}
-
-	return result
+/**
+ * Whether the instance points npm at a registry of its own. Asked once per session: it is
+ * an instance setting, and every module acquired would otherwise re-ask. Only a definitive
+ * answer is kept — a transient failure, or no workspace to ask under yet, would otherwise
+ * pin the whole session to the public CDN, which is the wrong source on such an instance.
+ */
+async function isRegistryConfigured(): Promise<boolean> {
+	if (!get(workspaceStore)) return false
+	registryConfigured ??= (async () => {
+		try {
+			const res = await fetch(`${getBackendProxyUrl()}/config`, { credentials: 'include' })
+			if (!res.ok) throw new Error(`${res.status} from the npm proxy`)
+			return !!(await res.json())?.registry_configured
+		} catch (e) {
+			console.warn('Could not read the npm proxy configuration, using the public CDN', e)
+			registryConfigured = undefined
+			return false
+		}
+	})()
+	return registryConfigured
 }
 
-export const getNPMVersionForModuleReference = async (
+/**
+ * Run the two sources in the order the instance's configuration calls for. With a private
+ * registry set it is authoritative: jsdelivr does not carry internal packages, asking it
+ * discloses their names, and a public package sharing a name answers with the wrong types.
+ * Either way the other source stays as fallback, so neither a CDN outage nor a misconfigured
+ * proxy leaves the editor with no types at all.
+ */
+async function fromPreferredSource<T>(
+	viaCdn: () => Promise<T | Error>,
+	viaProxy: () => Promise<T | Error>
+): Promise<T | Error> {
+	// Both sources signal failure by resolving to `Error`. Anything else — a rejected fetch,
+	// or `getBackendProxyUrl` throwing for want of a workspace — would otherwise skip the
+	// second attempt entirely and propagate out of type acquisition.
+	const settled = async (source: () => Promise<T | Error>) => {
+		try {
+			return await source()
+		} catch (e) {
+			return new Error(`Type acquisition request failed: ${e}`)
+		}
+	}
+
+	const [first, second] = (await isRegistryConfigured()) ? [viaProxy, viaCdn] : [viaCdn, viaProxy]
+	const result = await settled(first)
+	return result instanceof Error ? await settled(second) : result
+}
+
+export const getNPMVersionsForModule = (moduleName: string, resLimit: ResLimit) =>
+	fromPreferredSource<{ tags: Record<string, string>; versions: string[] }>(
+		() =>
+			api(`https://data.jsdelivr.com/v1/package/npm/${moduleName}`, resLimit, {
+				cache: 'no-store'
+			}),
+		() => backendProxyApi(`/metadata/${encodeURIComponent(moduleName)}`, resLimit)
+	)
+
+export const getNPMVersionForModuleReference = (
 	moduleName: string,
 	reference: string,
 	resLimit: ResLimit
-) => {
-	const url = `https://data.jsdelivr.com/v1/package/resolve/npm/${moduleName}@${reference}`
-	const result = await api<{ version: string | null }>(url, resLimit)
-
-	// If jsdelivr fails, try backend proxy
-	if (result instanceof Error) {
-		console.log('jsdelivr failed for', moduleName, reference, 'trying backend proxy')
-		return backendProxyApi<{ version: string | null }>(
-			`/resolve/${encodeURIComponent(moduleName)}?tag=${encodeURIComponent(reference)}`,
-			resLimit
-		)
-	}
-
-	return result
-}
+) =>
+	fromPreferredSource<{ version: string | null }>(
+		() =>
+			api(`https://data.jsdelivr.com/v1/package/resolve/npm/${moduleName}@${reference}`, resLimit),
+		() =>
+			backendProxyApi(
+				`/resolve/${encodeURIComponent(moduleName)}?tag=${encodeURIComponent(reference)}`,
+				resLimit
+			)
+	)
 
 export type NPMTreeMeta = {
 	default: string
@@ -100,62 +137,34 @@ export const getFiletreeForModuleWithVersion = async (
 	raw: string,
 	resLimit: ResLimit
 ) => {
-	const url = `https://data.jsdelivr.com/v1/package/npm/${moduleName}@${version}/flat`
-	const res = await api<NPMTreeMeta>(url, resLimit)
-	if (res instanceof Error) {
-		// Try backend proxy
-		console.log('jsdelivr failed for', moduleName, version, 'trying backend proxy')
-		const backendRes = await backendProxyApi<NPMTreeMeta>(
-			`/filetree/${encodeURIComponent(moduleName)}/${encodeURIComponent(version)}`,
-			resLimit
-		)
-		if (backendRes instanceof Error) {
-			return res
-		} else {
-			return {
-				...backendRes,
-				moduleName,
-				version,
-				raw
-			}
-		}
-	} else {
-		return {
-			...res,
-			moduleName,
-			version,
-			raw
-		}
-	}
+	const res = await fromPreferredSource<NPMTreeMeta>(
+		() => api(`https://data.jsdelivr.com/v1/package/npm/${moduleName}@${version}/flat`, resLimit),
+		() =>
+			backendProxyApi(
+				`/filetree/${encodeURIComponent(moduleName)}/${encodeURIComponent(version)}`,
+				resLimit
+			)
+	)
+	return res instanceof Error ? res : { ...res, moduleName, version, raw }
 }
 
-export const getDTSFileForModuleWithVersion = async (
+export const getDTSFileForModuleWithVersion = (
 	moduleName: string,
 	version: string,
-	file: string
-) => {
 	// file comes with a prefix /
-	const url = `https://cdn.jsdelivr.net/npm/${moduleName}@${version}${file}`
-	const res = await text(url)
-	if (typeof res === 'string') {
-		return res
-	}
-
-	// Try backend proxy
-	console.log('jsdelivr failed for file', moduleName, version, file, 'trying backend proxy')
-	try {
-		const baseUrl = getBackendProxyUrl()
-		const proxyUrl = `${baseUrl}/file/${encodeURIComponent(moduleName)}/${encodeURIComponent(version)}${file}`
-		const proxied = await text(proxyUrl, { credentials: 'include' })
-		// The callers in ata/index.ts log a fixed message and drop the value, so a cause
-		// left inside the returned `Error` is a cause nothing ever prints.
-		if (proxied instanceof Error) console.warn('Backend proxy failed for file', proxied)
-		return proxied
-	} catch (e) {
-		console.warn('Backend proxy failed for file', e)
-		return new Error(`Backend proxy not available: ${e}`)
-	}
-}
+	file: string
+) =>
+	fromPreferredSource<string>(
+		() => text(`https://cdn.jsdelivr.net/npm/${moduleName}@${version}${file}`),
+		async () => {
+			const proxyUrl = `${getBackendProxyUrl()}/file/${encodeURIComponent(moduleName)}/${encodeURIComponent(version)}${file}`
+			const proxied = await text(proxyUrl, { credentials: 'include' })
+			// The callers in ata/index.ts log a fixed message and drop the value, so a cause
+			// left inside the returned `Error` is a cause nothing ever prints.
+			if (proxied instanceof Error) console.warn('Backend proxy failed for file', proxied)
+			return proxied
+		}
+	)
 
 /**
  * Reading the body can fail as readily as connecting, and both have to surface as a value

@@ -189,18 +189,46 @@ struct CachedPackageJson {
     fetched_at: Instant,
 }
 
-#[derive(Clone)]
-struct PackageJsonWeighter;
+/// Type acquisition asks for a package's file tree and then for each `.d.ts` in it, all
+/// out of the same archive, so without this one package costs a download and an inflate
+/// per file rather than per package.
+const TARBALL_CACHE_TTL: Duration = Duration::from_secs(300);
+const TARBALL_CACHE_BYTES: u64 = 128 * 1024 * 1024;
 
-impl Weighter<(String, String), CachedPackageJson> for PackageJsonWeighter {
+/// A package tarball, inflated once. Paths have the `package/` prefix stripped.
+struct ExtractedTarball {
+    /// In archive order, `/`-prefixed, for the file tree listing.
+    names: Vec<String>,
+    contents: HashMap<String, Vec<u8>>,
+}
+
+#[derive(Clone)]
+struct CachedTarball {
+    extracted: Arc<ExtractedTarball>,
+    bytes: u64,
+    fetched_at: Instant,
+}
+
+#[derive(Clone)]
+struct CacheWeighter;
+
+impl Weighter<(String, String), CachedPackageJson> for CacheWeighter {
     fn weight(&self, _key: &(String, String), cached: &CachedPackageJson) -> u64 {
         cached.bytes.max(1)
     }
 }
 
+impl Weighter<(String, String, String), CachedTarball> for CacheWeighter {
+    fn weight(&self, _key: &(String, String, String), cached: &CachedTarball) -> u64 {
+        cached.bytes.max(1)
+    }
+}
+
 lazy_static::lazy_static! {
-    static ref PACKAGE_JSON_CACHE: Cache<(String, String), CachedPackageJson, PackageJsonWeighter> =
-        Cache::with_weighter(500, PACKAGE_JSON_CACHE_BYTES, PackageJsonWeighter);
+    static ref PACKAGE_JSON_CACHE: Cache<(String, String), CachedPackageJson, CacheWeighter> =
+        Cache::with_weighter(500, PACKAGE_JSON_CACHE_BYTES, CacheWeighter);
+    static ref TARBALL_CACHE: Cache<(String, String, String), CachedTarball, CacheWeighter> =
+        Cache::with_weighter(200, TARBALL_CACHE_BYTES, CacheWeighter);
 }
 
 /// Fetch a package's registry document, together with the registry it came from so
@@ -481,7 +509,7 @@ async fn get_package_filetree(
 ) -> JsonResult<PackageFiletree> {
     let (package, version) = parse_package_and_version(package_version_path.to_path())?;
     let (package_json, registry_url, auth_token) = fetch_package_json(&db, &package).await?;
-    let tarball_bytes = fetch_tarball(
+    let extracted = extracted_tarball(
         &package_json,
         &package,
         &version,
@@ -492,9 +520,10 @@ async fn get_package_filetree(
 
     // The entry point comes from the packaged manifest rather than the registry document,
     // which carries no `main` in its abbreviated form.
-    let (files, manifest) = extract_tarball_files_and_manifest(&tarball_bytes)?;
-    let main = manifest
-        .and_then(|manifest| serde_json::from_str::<JsonValue>(&manifest).ok())
+    let main = extracted
+        .contents
+        .get("package.json")
+        .and_then(|manifest| serde_json::from_slice::<JsonValue>(manifest).ok())
         .and_then(|manifest| {
             manifest
                 .get("main")
@@ -502,6 +531,12 @@ async fn get_package_filetree(
                 .map(String::from)
         })
         .unwrap_or_else(|| "index.js".to_string());
+
+    let files = extracted
+        .names
+        .iter()
+        .map(|name| FileEntry { name: name.clone() })
+        .collect();
 
     Ok(Json(PackageFiletree { default: main, files }))
 }
@@ -514,7 +549,7 @@ async fn get_package_file(
 ) -> Result<String> {
     let (package, version, filepath) = parse_package_version_and_file(full_path.to_path())?;
     let (package_json, registry_url, auth_token) = fetch_package_json(&db, &package).await?;
-    let tarball_bytes = fetch_tarball(
+    let extracted = extracted_tarball(
         &package_json,
         &package,
         &version,
@@ -523,10 +558,13 @@ async fn get_package_file(
     )
     .await?;
 
-    // Extract the specific file from the tarball
-    let file_content = extract_file_from_tarball(&tarball_bytes, &filepath)?;
+    let content = extracted
+        .contents
+        .get(filepath.trim_start_matches('/'))
+        .ok_or_else(|| Error::NotFound(format!("File {} not found in tarball", filepath)))?;
 
-    Ok(file_content)
+    String::from_utf8(content.clone())
+        .map_err(|_| Error::BadRequest(format!("File {} is not valid UTF-8", filepath)))
 }
 
 /// Stream a package version's tarball, so in-browser installers can unpack it
@@ -629,10 +667,8 @@ fn format_registry_url(
     }
 }
 
-/// Extract the file list and the manifest from a tarball, in one pass over the archive
-fn extract_tarball_files_and_manifest(
-    tarball_bytes: &[u8],
-) -> Result<(Vec<FileEntry>, Option<String>)> {
+/// Inflate a tarball in one pass over the archive
+fn extract_tarball(tarball_bytes: &[u8]) -> Result<ExtractedTarball> {
     use flate2::read::GzDecoder;
     use std::io::Read;
     use tar::Archive;
@@ -640,8 +676,8 @@ fn extract_tarball_files_and_manifest(
     let gz = GzDecoder::new(tarball_bytes);
     let mut archive = Archive::new(gz);
 
-    let mut files = Vec::new();
-    let mut manifest = None;
+    let mut names = Vec::new();
+    let mut contents = HashMap::new();
 
     for entry in archive
         .entries()
@@ -656,59 +692,51 @@ fn extract_tarball_files_and_manifest(
         // Remove the package/ prefix that npm tarballs have
         let path_str = path.to_string_lossy().to_string();
         if let Some(stripped) = path_str.strip_prefix("package/") {
-            files.push(FileEntry { name: format!("/{}", stripped) });
-            if stripped == "package.json" {
-                let mut content = String::new();
-                if entry.read_to_string(&mut content).is_ok() {
-                    manifest = Some(content);
-                }
+            let stripped = stripped.to_string();
+            names.push(format!("/{}", stripped));
+            let mut content = Vec::new();
+            if entry.read_to_end(&mut content).is_ok() {
+                contents.insert(stripped, content);
             }
         }
     }
 
-    Ok((files, manifest))
+    Ok(ExtractedTarball { names, contents })
 }
 
-/// Extract a specific file from a tarball
-fn extract_file_from_tarball(tarball_bytes: &[u8], target_file: &str) -> Result<String> {
-    use flate2::read::GzDecoder;
-    use std::io::Read;
-    use tar::Archive;
-
-    let gz = GzDecoder::new(tarball_bytes);
-    let mut archive = Archive::new(gz);
-
-    // Normalize the target file path
-    let target = target_file.trim_start_matches('/');
-
-    for entry in archive
-        .entries()
-        .map_err(|e| Error::InternalErr(format!("Failed to read tarball entries: {}", e)))?
-    {
-        let mut entry = entry
-            .map_err(|e| Error::InternalErr(format!("Failed to read tarball entry: {}", e)))?;
-        let path = entry
-            .path()
-            .map_err(|e| Error::InternalErr(format!("Failed to read entry path: {}", e)))?;
-
-        let path_str = path.to_string_lossy().to_string();
-
-        // Check if this is the file we're looking for
-        if let Some(stripped) = path_str.strip_prefix("package/") {
-            if stripped == target {
-                let mut content = String::new();
-                entry.read_to_string(&mut content).map_err(|e| {
-                    Error::InternalErr(format!("Failed to read file content: {}", e))
-                })?;
-                return Ok(content);
-            }
+/// Download and inflate a package version's tarball, reusing a recent extraction
+async fn extracted_tarball(
+    package_json: &JsonValue,
+    package: &str,
+    version: &str,
+    registry_url: &str,
+    auth_token: &Option<String>,
+) -> Result<Arc<ExtractedTarball>> {
+    let cache_key = (
+        registry_url.to_string(),
+        package.to_string(),
+        version.to_string(),
+    );
+    if let Some(cached) = TARBALL_CACHE.get(&cache_key) {
+        if cached.fetched_at.elapsed() < TARBALL_CACHE_TTL {
+            return Ok(cached.extracted);
         }
     }
 
-    Err(Error::NotFound(format!(
-        "File {} not found in tarball",
-        target_file
-    )))
+    let tarball_bytes =
+        fetch_tarball(package_json, package, version, registry_url, auth_token).await?;
+    let extracted = Arc::new(extract_tarball(&tarball_bytes)?);
+
+    TARBALL_CACHE.insert(
+        cache_key,
+        CachedTarball {
+            extracted: extracted.clone(),
+            bytes: extracted.contents.values().map(|c| c.len() as u64).sum(),
+            fetched_at: Instant::now(),
+        },
+    );
+
+    Ok(extracted)
 }
 
 #[cfg(test)]
