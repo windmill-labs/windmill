@@ -6552,6 +6552,9 @@ async function deployDraft(
 	// Where the deploy actually lands — the app branch can resolve a different
 	// target from the draft's own path fields; the mask rename below must track it.
 	let deployedPath = path
+	// Appended to the success message when the deploy deliberately left something alone,
+	// so "deployed" is never read as "everything in the draft was applied".
+	let deployNote: string | undefined
 
 	if (type === 'script' || type === 'flow') {
 		// Promote the full persisted draft via the shared deploy module — the same
@@ -6639,11 +6642,16 @@ async function deployDraft(
 				// omitted when the draft stages none (see `buildVariableUpdateRequestBody`).
 				const draftValue = draft.value as CreateVariable
 				if (await VariableService.existsVariable({ workspace, path })) {
-					await VariableService.updateVariable({
-						workspace,
-						path,
-						requestBody: buildVariableUpdateRequestBody(draftValue)
-					})
+					const requestBody = buildVariableUpdateRequestBody(draftValue)
+					await VariableService.updateVariable({ workspace, path, requestBody })
+					// Say when the secret was left alone. A draft written by a build that kept
+					// secret values in memory is indistinguishable from a metadata-only edit
+					// here — both store '' — so without this the deploy would report a rotation
+					// it never performed.
+					if (draftValue.is_secret && !('value' in requestBody)) {
+						deployNote =
+							'Its secret value was left unchanged, because the draft staged only metadata. If a new value was meant to be set, run write_variable again with it.'
+					}
 				} else {
 					await VariableService.createVariable({
 						workspace,
@@ -6832,7 +6840,9 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.`,
+			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
+				deployNote ? ` ${deployNote}` : ''
+			}`,
 			type,
 			path,
 			triggerKind

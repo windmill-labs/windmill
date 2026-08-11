@@ -966,15 +966,21 @@ describe('global AI tools', () => {
 			variable: { value: '', is_secret: true, description: 'new description' }
 		})
 
-		await callGlobalTool('deploy_workspace_item', {
-			type: 'variable',
-			path: 'f/secrets/api_key'
-		})
+		const deployed = JSON.parse(
+			await callGlobalTool('deploy_workspace_item', {
+				type: 'variable',
+				path: 'f/secrets/api_key'
+			})
+		)
 
 		expect(VariableService.createVariable).not.toHaveBeenCalled()
 		const requestBody = vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody
 		expect(requestBody).toMatchObject({ is_secret: true, description: 'new description' })
 		expect(requestBody).not.toHaveProperty('value')
+		// Deploying without `value` must say so. A draft from a build that held secret values
+		// in memory looks identical to this one, so silence here would report a rotation that
+		// never happened.
+		expect(deployed.message).toContain('secret value was left unchanged')
 	})
 
 	// The drawer stages a secret in this same row as an `$encrypted:` marker (the draft
@@ -1325,16 +1331,20 @@ describe('global AI tools', () => {
 			description: 'also fix the description'
 		})
 
-		await callGlobalTool('deploy_workspace_item', {
-			type: 'variable',
-			path: 'f/secrets/api_key'
-		})
+		const deployed = JSON.parse(
+			await callGlobalTool('deploy_workspace_item', {
+				type: 'variable',
+				path: 'f/secrets/api_key'
+			})
+		)
 
 		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
 			value: 'rotated-secret-99',
 			is_secret: true,
 			description: 'also fix the description'
 		})
+		// The value WAS deployed here, so the "left unchanged" note must stay away.
+		expect(deployed.message).not.toContain('left unchanged')
 	})
 
 	it('deploys every field of a script draft (not just content/summary)', async () => {
