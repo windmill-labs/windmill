@@ -68,7 +68,7 @@ pub extern "C" fn run_duckdb_ffi(
     collect_first_row_only: bool,
 ) -> *mut c_char {
     let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
-        (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
+        (Ok(m), Ok(t)) => Ok(ResourceLimits::from_ffi(m, t)),
         (Err(e), _) | (_, Err(e)) => Err(e),
     };
     let (r, column_order) = match convert_args(
@@ -195,7 +195,7 @@ pub extern "C" fn prepare_duckdb_ffi(
     temp_directory: *const c_char,
 ) -> *mut c_char {
     let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
-        (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
+        (Ok(m), Ok(t)) => Ok(ResourceLimits::from_ffi(m, t)),
         (Err(e), _) | (_, Err(e)) => Err(e),
     };
     let r = match convert_prepare_args(
@@ -229,16 +229,31 @@ pub extern "C" fn prepare_duckdb_ffi(
 struct ResourceLimits {
     memory_limit: Option<String>,
     temp_directory: Option<String>,
+    max_temp_directory_size: Option<String>,
+}
+
+impl ResourceLimits {
+    // The spill cap comes from the environment rather than from an FFI parameter: this
+    // cdylib is versioned separately from the worker and agent workers ship it out of band,
+    // so a signature change costs an ABI bump and a coordinated redeploy for what is a
+    // config value. Unset keeps DuckDB's default of 90% of the temp volume's free space.
+    fn from_ffi(memory_limit: Option<String>, temp_directory: Option<String>) -> Self {
+        let max_temp_directory_size = std::env::var("DUCKDB_MAX_TEMP_DIRECTORY_SIZE")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        ResourceLimits { memory_limit, temp_directory, max_temp_directory_size }
+    }
 }
 
 fn sql_single_quote(s: &str) -> String {
     s.replace('\'', "''")
 }
 
-// Bounds memory so DuckDB spills to disk before blowing the cgroup cap and
-// getting the worker SIGKILLed. Spill goes to the job dir (when set) so it is
-// cleaned up with the job, otherwise DuckDB's default temp_directory is kept —
-// and either way the directory is then locked for the rest of the connection.
+// Bounds memory so DuckDB spills before blowing the cgroup cap and getting the worker
+// SIGKILLed, and bounds the spill so one query cannot fill its disk. Spill goes to the job
+// dir when set, so it is cleaned up with the job; either way the directory and its cap are
+// then locked for the rest of the connection.
 fn configure_duckdb_resource_limits(
     conn: &duckdb::Connection,
     limits: &ResourceLimits,
@@ -258,17 +273,36 @@ fn configure_duckdb_resource_limits(
             sql_single_quote(tmp)
         ));
     }
-    // Freeze it before any script statement can move it: on a remote directory
-    // `~TemporaryDirectoryHandle` throws out of a `noexcept` destructor, which is
-    // `std::terminate` — an abort taking this in-process worker and every job
-    // colocated on it down, uncatchable from Rust.
-    config_sql.push_str("SET lock_temp_directory=true;\n");
-    conn.execute_batch(&config_sql).map_err(|e| {
-        format!(
-            "Error configuring DuckDB resource limits: {}",
-            e.to_string()
-        )
-    })
+    let run = |sql: &str| {
+        conn.execute_batch(sql).map_err(|e| {
+            format!(
+                "Error configuring DuckDB resource limits: {}",
+                e.to_string()
+            )
+        })
+    };
+    run(&config_sql)?;
+    // Applied on its own rather than batched with the rest so an unparseable value names the
+    // knob to fix: it is spelled in the same units as DUCKDB_MEMORY_LIMIT and DuckDB's parse
+    // error says only "memory", so together the two are indistinguishable to whoever set them.
+    if let Some(max) = limits.max_temp_directory_size.as_deref() {
+        conn.execute_batch(&format!(
+            "SET max_temp_directory_size='{}';\n",
+            sql_single_quote(max)
+        ))
+        .map_err(|e| {
+            format!(
+                "Error applying DUCKDB_MAX_TEMP_DIRECTORY_SIZE='{}': {}",
+                max,
+                e.to_string()
+            )
+        })?;
+    }
+    // Freeze both before any script statement can touch them. A remote temp directory makes
+    // `~TemporaryDirectoryHandle` throw out of a `noexcept` destructor — `std::terminate`,
+    // taking this in-process worker and every job on it down, uncatchable from Rust — and a
+    // cap a script can raise bounds nothing.
+    run("SET lock_temp_directory=true;\n")
 }
 
 fn setup_duckdb_connection(
@@ -1281,8 +1315,8 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
     ))
 }
 
-// The bundled engine is not stock (docs/duckdb-isolation.md). These two guard the ways an
-// engine bump can drop the patch without anything else noticing.
+// The bundled engine is not stock (docs/duckdb-isolation.md). These guard the ways an engine
+// bump can drop the patches without anything else noticing.
 #[cfg(test)]
 mod patched_engine_tests {
     use super::*;
@@ -1310,6 +1344,7 @@ mod patched_engine_tests {
             &ResourceLimits {
                 memory_limit: Some("2MB".to_string()),
                 temp_directory: Some(temp_dir.display().to_string()),
+                max_temp_directory_size: None,
             },
         )
         .unwrap();
@@ -1333,6 +1368,57 @@ mod patched_engine_tests {
         let spilled = conn.execute_batch(SPILLING_QUERY);
         std::fs::remove_dir_all(&temp_dir).ok();
         spilled.expect("a locked temp directory must still be usable for spilling");
+    }
+
+    /// `DUCKDB_MAX_TEMP_DIRECTORY_SIZE` is the only thing standing between one query and the
+    /// worker's whole disk, so pin that a configured connection really does stop at it, names
+    /// the setting when it does, and leaves nothing behind for the next job to trip over.
+    #[test]
+    fn spilling_past_the_configured_cap_fails_the_query_and_cleans_up() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "windmill_duckdb_capped_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let spill_under_cap = |cap: &str| {
+            let conn = duckdb::Connection::open_in_memory().unwrap();
+            configure_duckdb_resource_limits(
+                &conn,
+                &ResourceLimits {
+                    memory_limit: Some("2MB".to_string()),
+                    temp_directory: Some(temp_dir.display().to_string()),
+                    max_temp_directory_size: Some(cap.to_string()),
+                },
+            )
+            .unwrap();
+            conn.execute_batch(SPILLING_QUERY)
+                .map_err(|e| e.to_string())
+        };
+
+        let err = spill_under_cap("1MB").expect_err("the cap did not stop the spill");
+        // Verbatim because the worker matches on it (`SPILL_CAP_ENGINE_MARKER` in
+        // `duckdb_executor.rs`) to correct the engine's advice to raise the cap, which the
+        // lock refuses. An engine bump that rewords this has to update that too.
+        assert!(
+            err.contains("This limit was set by the 'max_temp_directory_size' setting"),
+            "the refusal must name the setting an operator can act on, got: {err}"
+        );
+        let leftover: Vec<_> = std::fs::read_dir(&temp_dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        assert!(
+            leftover.is_empty(),
+            "a query killed by the cap must not leave its spill behind: {leftover:?}"
+        );
+
+        // DuckDB compresses temp files, so the failure above is only evidence of the cap if
+        // the same query gets through once the cap is out of the way.
+        let generous = spill_under_cap("1GB");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        generous.expect("the query must still spill and finish under a cap that fits it");
     }
 
     fn spill_attempt(temp_dir: &std::path::Path, lock: bool) -> Result<(), String> {
@@ -1375,9 +1461,10 @@ mod patched_engine_tests {
         locked.expect("a locked temp directory must stay usable behind disabled_filesystems");
     }
 
-    /// The exemption above is only sound while the directory cannot be moved: a script that
-    /// repointed it would get a write primitive through the very fence it is exempt from. A
-    /// rebase can drop that half of the patch while leaving the spill test green, so pin it.
+    /// The exemption above is only sound while neither the spill's destination nor its size
+    /// can be changed: repointing the directory is a write primitive through the very fence
+    /// it is exempt from, and raising the cap leaves the disk unbounded. A rebase can drop
+    /// either half while leaving the spill test green, so pin both.
     #[test]
     fn locking_the_temp_directory_makes_it_immutable() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -1389,6 +1476,8 @@ mod patched_engine_tests {
         for stmt in [
             "SET temp_directory='/tmp/windmill_duckdb_elsewhere';",
             "RESET temp_directory;",
+            "SET max_temp_directory_size='100GB';",
+            "RESET max_temp_directory_size;",
             "SET lock_temp_directory=false;",
             "RESET lock_temp_directory;",
         ] {
