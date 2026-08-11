@@ -25,6 +25,7 @@ import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import { deleteTasksForSession } from '../copilot/chat/tasks/tasksDB'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -540,6 +541,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
 				void deleteArtifactsForSession(s.id)
+				void deleteTasksForSession(s.id)
 				deletedIds.add(s.id)
 				continue
 			}
@@ -632,6 +634,7 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 		// doesn't leave the sessions' attached-file blobs/handles orphaned.
 		void deleteItemsForSession(id)
 		void deleteArtifactsForSession(id)
+		void deleteTasksForSession(id)
 	}
 	sessionState.sessions = sessionState.sessions.filter((s) => !ids.has(s.id))
 	if (sessionState.currentSessionId && ids.has(sessionState.currentSessionId)) {
@@ -1031,6 +1034,7 @@ export function deleteSession(id: string) {
 	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
 	void deleteArtifactsForSession(id)
+	void deleteTasksForSession(id)
 	logFeatureUsage('ai_session', 'deleted', { entityId: id, workspace: s.workspace_id })
 }
 

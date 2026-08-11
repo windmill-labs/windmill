@@ -133,6 +133,7 @@ import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userSco
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
+import { SessionTasksStore } from './tasks/tasksState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
 
 // SSR and users who prefer reduced motion get no typewriter pacing.
@@ -348,6 +349,8 @@ export class AIChatManager {
 	attachedFiles = new AttachedFilesStore()
 	/** Markdown artifacts the copilot created for the current session. */
 	artifacts = new SessionArtifactsStore()
+	/** The task list the copilot is working through for the current session. */
+	tasks = new SessionTasksStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
@@ -1890,7 +1893,7 @@ export class AIChatManager {
 			this.helpers = baseHelpers
 		}
 		this.systemMessage = systemMessage
-		this.syncArtifactsSession()
+		this.syncSessionStores()
 	}
 
 	refreshGlobalSkills = async (workspace = this.operatingWorkspace ?? '') => {
@@ -3526,7 +3529,7 @@ export class AIChatManager {
 		if (!this.isSessionChat) this.attachedFiles.clear()
 		// Message-attached rows belong to the conversation just left in every case.
 		this.#syncMessageFiles()
-		this.syncArtifactsSession()
+		this.syncSessionStores()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
@@ -3568,13 +3571,15 @@ export class AIChatManager {
 			// readable (and the previous chat's are pruned).
 			this.#syncMessageFiles()
 			this.#automaticScroll = true
-			this.syncArtifactsSession()
+			this.syncSessionStores()
 			this.onChatRotated?.(id)
 		}
 	}
 
-	private syncArtifactsSession = () => {
-		void this.artifacts.setSession(this.isSessionChat ? this.sessionId : undefined)
+	private syncSessionStores = () => {
+		const sessionId = this.isSessionChat ? this.sessionId : undefined
+		void this.artifacts.setSession(sessionId)
+		void this.tasks.setSession(sessionId)
 	}
 
 	get automaticScroll() {

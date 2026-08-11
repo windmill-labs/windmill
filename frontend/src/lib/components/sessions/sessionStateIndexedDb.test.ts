@@ -23,6 +23,15 @@ vi.mock('../copilot/chat/artifacts/artifactsDB', async (orig) => ({
 	deleteArtifactsForSession: deleteArtifactsForSessionMock
 }))
 
+const { deleteTasksForSessionMock } = vi.hoisted(() => ({
+	deleteTasksForSessionMock: vi.fn()
+}))
+// Bare (no `orig()` spread): sessionState imports only this one symbol, and pulling the
+// real module in would drag $lib/userScopedDb's store graph into this suite.
+vi.mock('../copilot/chat/tasks/tasksDB', () => ({
+	deleteTasksForSession: deleteTasksForSessionMock
+}))
+
 // sessionState imports WorkspaceService; these tests don't touch the network.
 vi.mock('$lib/gen', async (orig) => {
 	const actual = await orig<typeof import('$lib/gen')>()
@@ -444,13 +453,17 @@ describe('sessionState IndexedDB persistence', () => {
 
 		deleteItemsForSessionMock.mockClear()
 		deleteArtifactsForSessionMock.mockClear()
+		deleteTasksForSessionMock.mockClear()
 		await deleteSessionsForWorkspace('wsX')
 
-		// Both deleted sessions' linked files and artifacts must be GC'd, not just their records.
+		// Both deleted sessions' linked files, artifacts and task plans must be GC'd,
+		// not just their records.
 		const cleaned = deleteItemsForSessionMock.mock.calls.map((c) => c[0]).sort()
 		expect(cleaned).toEqual(['f1', 'f2'])
 		const cleanedArtifacts = deleteArtifactsForSessionMock.mock.calls.map((c) => c[0]).sort()
 		expect(cleanedArtifacts).toEqual(['f1', 'f2'])
+		const cleanedTasks = deleteTasksForSessionMock.mock.calls.map((c) => c[0]).sort()
+		expect(cleanedTasks).toEqual(['f1', 'f2'])
 	})
 
 	it('does not persist a per-session unarchive when the workspace is gone (resurrection guard)', async () => {
