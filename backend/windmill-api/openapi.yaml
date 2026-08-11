@@ -4815,6 +4815,80 @@ paths:
               schema:
                 $ref: "#/components/schemas/DataTableConnectionCheck"
 
+  /w/{workspace}/workspaces/test_datatable_connection_value:
+    post:
+      summary: check what a postgres connection lets its role do, before it is saved as a resource
+      operationId: testDataTableConnectionValue
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: a postgresql resource value
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: connection and privilege report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataTableConnectionCheck"
+
+  /w/{workspace}/workspaces/datatable_health:
+    get:
+      summary: connection health of every data table in the workspace
+      operationId: dataTableHealth
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: health by data table name
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/DataTableHealth"
+
+  /w/{workspace}/workspaces/set_datatable_setup/{datatable_name}:
+    post:
+      summary: set a data table's origin and setup-incomplete flag
+      operationId: setDataTableSetup
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                origin:
+                  $ref: "#/components/schemas/DataTableOrigin"
+                setup_incomplete:
+                  type: boolean
+      responses:
+        "200":
+          description: setup updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/list_datatable_tables:
     get:
       summary: list tables of all connected Datatables
@@ -32087,6 +32161,13 @@ components:
               migrations_enabled:
                 type: boolean
                 description: Whether the SQL migrations feature is opted in for this data table
+              origin:
+                $ref: "#/components/schemas/DataTableOrigin"
+              setup_incomplete:
+                type: boolean
+                description: >-
+                  Set while the setup wizard has not finished, in which case
+                  database.resource_path may name a resource that does not exist yet
               forked_from:
                 type: object
                 description: Fork origin info with schema snapshot
@@ -32156,6 +32237,54 @@ components:
         - can_create_schema
         - migrations_table_exists
         - suggested_grants
+
+    DataTableOrigin:
+      type: object
+      description: >-
+        Where a data table's connection came from. Vendor-neutral: Neon, Railway and
+        Render have the identical shape. project_name and org identify the provider-side
+        project on their own, because the data table is recorded before that project
+        exists and project_ref is only known once creation returns.
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          enum:
+            - supabase
+            - instance
+            - resource
+        project_name:
+          type: string
+        project_ref:
+          type: string
+        org:
+          type: string
+        region:
+          type: string
+        connection_mode:
+          type: string
+          enum:
+            - session
+            - direct
+        connected_by:
+          type: string
+        connected_at:
+          type: string
+          format: date-time
+
+    DataTableHealth:
+      type: object
+      required: [ok, setup_incomplete]
+      properties:
+        ok:
+          type: boolean
+        error:
+          type: string
+        report:
+          $ref: "#/components/schemas/DataTableConnectionCheck"
+        setup_incomplete:
+          type: boolean
+          description: True when setup never finished, in which case nothing was probed
 
     DataTableSchema:
       type: object

@@ -46,8 +46,9 @@ use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db_unchecked,
     validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
-    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    DataTableCatalogResourceType, DataTableForkBehavior, DataTableOrigin, ProtectionRuleKind,
+    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -141,6 +142,15 @@ pub fn workspaced_service() -> Router {
         .route(
             "/test_datatable_connection/{datatable_name}",
             get(test_datatable_connection),
+        )
+        .route(
+            "/test_datatable_connection_value",
+            post(test_datatable_connection_value),
+        )
+        .route("/datatable_health", get(datatable_health))
+        .route(
+            "/set_datatable_setup/{datatable_name}",
+            post(set_datatable_setup),
         )
         .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
@@ -2163,6 +2173,201 @@ async fn check_datatable_connection(
     }))
 }
 
+/// Same check again, against a connection value that has not been saved as a
+/// resource yet. The wizard validates what the user typed before it mints
+/// anything, so a wrong Supabase password fails on the field that holds it
+/// rather than after a variable and a resource have been written.
+///
+/// Admin-only like the other two, and no wider: an admin can already create a
+/// resource and test it, so this adds a shortcut, not a capability.
+async fn test_datatable_connection_value(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(value): Json<serde_json::Value>,
+) -> JsonResult<DataTableConnectionCheck> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let db_resource =
+        windmill_common::workspaces::transform_json_value_unchecked(&value, &w_id, &db).await?;
+    check_datatable_connection(&db, db_resource).await
+}
+
+#[derive(Serialize)]
+struct DataTableHealth {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    report: Option<DataTableConnectionCheck>,
+    /// True when the wizard never finished, in which case nothing was probed:
+    /// `resource_path` may name a resource that does not exist yet.
+    setup_incomplete: bool,
+}
+
+/// A dead database holds its connection attempt open for as long as the driver
+/// lets it, and the settings page shows every data table at once. Cap each probe
+/// so one unreachable host cannot decide how long the whole page waits.
+const DATATABLE_HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// Connection health for every data table in the workspace, probed concurrently.
+/// The settings row needs this on load; asking per row would open the same
+/// connections one after another.
+async fn datatable_health(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<HashMap<String, DataTableHealth>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let datatables: HashMap<String, DataTable> = serde_json::from_value(
+        sqlx::query_scalar!(
+            "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(serde_json::Value::Null),
+    )
+    .unwrap_or_default();
+
+    let mut set = tokio::task::JoinSet::new();
+    let mut health: HashMap<String, DataTableHealth> = HashMap::new();
+
+    for (name, dt) in datatables {
+        if dt.setup_incomplete == Some(true) {
+            health.insert(
+                name,
+                DataTableHealth { ok: false, error: None, report: None, setup_incomplete: true },
+            );
+            continue;
+        }
+        let (db, w_id) = (db.clone(), w_id.clone());
+        set.spawn(async move {
+            let probe = async {
+                let resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &name).await?;
+                check_datatable_connection(&db, resource).await
+            };
+            let result = match tokio::time::timeout(DATATABLE_HEALTH_TIMEOUT, probe).await {
+                Ok(Ok(Json(report))) => DataTableHealth {
+                    ok: true,
+                    error: None,
+                    report: Some(report),
+                    setup_incomplete: false,
+                },
+                Ok(Err(err)) => DataTableHealth {
+                    ok: false,
+                    error: Some(err.to_string()),
+                    report: None,
+                    setup_incomplete: false,
+                },
+                Err(_) => DataTableHealth {
+                    ok: false,
+                    error: Some(format!(
+                        "The database did not answer within {}s",
+                        DATATABLE_HEALTH_TIMEOUT.as_secs()
+                    )),
+                    report: None,
+                    setup_incomplete: false,
+                },
+            };
+            (name, result)
+        });
+    }
+
+    while let Some(joined) = set.join_next().await {
+        let (name, result) =
+            joined.map_err(|e| Error::internal_err(format!("health probe panicked: {e}")))?;
+        health.insert(name, result);
+    }
+
+    Ok(Json(health))
+}
+
+#[derive(Deserialize)]
+struct SetDataTableSetup {
+    /// Replaces the stored origin when present; left alone when absent.
+    #[serde(default)]
+    origin: Option<DataTableOrigin>,
+    #[serde(default)]
+    setup_incomplete: Option<bool>,
+}
+
+/// Sets the two fields `edit_datatable_config` refuses to take from a client on
+/// an existing data table.
+///
+/// It exists so the wizard can record a project ref, and clear the incomplete
+/// flag at the end of its run, without reading the whole datatables map back and
+/// writing it out again — a read-modify-write of every data table in the
+/// workspace to change one boolean loses whatever another admin saved in
+/// between.
+async fn set_datatable_setup(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+    Json(body): Json<SetDataTableSetup>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut patch = serde_json::Map::new();
+    if let Some(origin) = body.origin {
+        patch.insert(
+            "origin".to_string(),
+            serde_json::to_value(origin).map_err(|e| Error::internal_err(e.to_string()))?,
+        );
+    }
+    if let Some(incomplete) = body.setup_incomplete {
+        patch.insert("setup_incomplete".to_string(), incomplete.into());
+    }
+    if patch.is_empty() {
+        return Ok(format!("Nothing to change on {datatable_name}"));
+    }
+
+    let mut tx = db.begin().await?;
+
+    // Merged into the one entry rather than rewritten wholesale, so a concurrent
+    // save of a sibling data table survives. `-> $2 IS NOT NULL` rather than the
+    // `?` containment operator, which collides with sqlx's parameter parsing.
+    let updated = sqlx::query!(
+        r#"
+            UPDATE workspace_settings
+            SET datatable = jsonb_set(
+                datatable,
+                ARRAY['datatables', $2],
+                (datatable->'datatables'->$2) || $3::jsonb
+            )
+            WHERE workspace_id = $1 AND datatable->'datatables'->$2 IS NOT NULL
+        "#,
+        &w_id,
+        &datatable_name,
+        serde_json::Value::Object(patch)
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    if updated == 0 {
+        return Err(Error::NotFound(format!(
+            "No data table named {datatable_name} in workspace {w_id}"
+        )));
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.set_datatable_setup",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("datatable", datatable_name.as_str())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("Updated setup of data table {datatable_name}"))
+}
+
 async fn list_datatable_schemas(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3104,27 +3309,19 @@ async fn edit_datatable_config(
         crate::datatable_migrations::validate_new_datatable_name(&r.to)?;
     }
 
-    // Map new name -> old name so a renamed data table inherits the previous
-    // flag instead of being treated as brand new.
-    let rename_src: HashMap<&str, &str> = new_config
+    // Map new name -> old name so a renamed data table inherits its previous
+    // fields instead of being treated as brand new.
+    let rename_src: HashMap<String, String> = new_config
         .renames
         .iter()
-        .map(|r| (r.to.as_str(), r.from.as_str()))
+        .map(|r| (r.to.clone(), r.from.clone()))
         .collect();
 
-    // Migrations opt-in is owned by the enable/disable endpoints, not this config
-    // form: preserve each existing data table's flag, and default brand-new data
-    // tables to enabled.
-    for (name, dt) in new_config.settings.datatables.iter_mut() {
-        let lookup = rename_src
-            .get(name.as_str())
-            .copied()
-            .unwrap_or(name.as_str());
-        dt.migrations_enabled = match old_datatables.get(lookup) {
-            Some(old) => old.migrations_enabled,
-            None => Some(true),
-        };
-    }
+    windmill_common::workspaces::preserve_unmanaged_datatable_fields(
+        &mut new_config.settings.datatables,
+        &old_datatables,
+        &rename_src,
+    );
 
     let args_for_audit = format!("{:?}", new_config.settings);
     audit_log(
