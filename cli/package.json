@@ -36,7 +36,7 @@
     "windmill-parser-wasm-java": "1.510.1",
     "windmill-parser-wasm-nu": "1.510.1",
     "windmill-parser-wasm-php": "1.647.1",
-    "windmill-parser-wasm-py": "1.693.1",
+    "windmill-parser-wasm-py": "1.782.0",
     "windmill-parser-wasm-py-imports": "1.693.1",
     "windmill-parser-wasm-r": "1.668.1",
     "windmill-parser-wasm-regex": "1.764.0",
