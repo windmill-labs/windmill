@@ -31,6 +31,9 @@ pub fn workspaced_service() -> Router {
             .route("/cases/update/{*path}", post(update_case))
             .route("/cases/delete/{*path}", post(delete_case))
             .route("/run", post(run_eval))
+            .route("/experiments/run", post(run_experiment))
+            .route("/experiments/list/{*path}", get(list_experiments))
+            .route("/experiments/results", post(experiment_results))
             .route("/case_draft/from_job/{job_id}", get(case_draft_from_job))
             .route(
                 "/case_draft/from_conversation/{conversation_id}",
@@ -720,9 +723,131 @@ mod with_storage {
     // Standalone runs
     // -------------------------------------------------------------------------------------------
 
+    /// A scorer is any runnable. Built-ins are hub scripts, and LLM-as-judge is a reusable agent
+    /// used here — none of it needs a scoring engine of its own.
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct ScorerRef {
+        pub kind: ScorerKind,
+        pub path: String,
+        /// Shown as the column header. Defaults to the last segment of the path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub name: Option<String>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+    #[serde(rename_all = "lowercase")]
+    pub enum ScorerKind {
+        Script,
+        Flow,
+        Agent,
+    }
+
+    impl ScorerRef {
+        pub fn label(&self) -> String {
+            self.name.clone().unwrap_or_else(|| {
+                self.path.rsplit('/').next().unwrap_or(&self.path).to_string()
+            })
+        }
+    }
+
+    /// Node id of the agent step; scorers are `score_0`, `score_1`… Results are read back by these
+    /// ids, so they are part of the stored shape, not an implementation detail.
+    pub const AGENT_NODE_ID: &str = "a";
+
+    pub fn scorer_node_id(index: usize) -> String {
+        format!("score_{}", index)
+    }
+
+    /// The flow one case runs as: the agent, then a step per scorer. One job per case, so every
+    /// case keeps the run stamp, history query and trajectory view that a single run already has.
+    fn build_case_flow(
+        agent_path: &str,
+        case: &NewEvalCase,
+        tool_inputs: Option<Box<RawValue>>,
+        scorers: &[ScorerRef],
+    ) -> Result<windmill_common::flows::FlowValue> {
+        let mut input_transforms = serde_json::Map::new();
+        for key in ["user_message", "user_attachments"] {
+            input_transforms.insert(
+                key.to_string(),
+                serde_json::json!({ "type": "javascript", "expr": format!("flow_input.{}", key) }),
+            );
+        }
+        // Replaying a recorded conversation goes through `Memory::Manual`, which takes the message
+        // list verbatim and bypasses stored memory — so a replay is deterministic and does not
+        // write back into the memory a production conversation is using.
+        if let Some(messages) = &case.input.messages {
+            input_transforms.insert(
+                "memory".to_string(),
+                serde_json::json!({
+                    "type": "static",
+                    "value": { "kind": "manual", "messages": messages }
+                }),
+            );
+        }
+
+        let mut agent_value = serde_json::Map::new();
+        agent_value.insert("type".to_string(), serde_json::json!("aiagent"));
+        agent_value.insert("agent".to_string(), serde_json::json!(agent_path));
+        agent_value.insert("tools".to_string(), serde_json::json!([]));
+        agent_value.insert(
+            "input_transforms".to_string(),
+            serde_json::Value::Object(input_transforms),
+        );
+        if let Some(tool_inputs) = tool_inputs {
+            agent_value.insert(
+                "tool_inputs".to_string(),
+                serde_json::from_str(tool_inputs.get())?,
+            );
+        }
+
+        let mut modules = vec![serde_json::json!({
+            "id": AGENT_NODE_ID,
+            "value": serde_json::Value::Object(agent_value),
+        })];
+
+        for (index, scorer) in scorers.iter().enumerate() {
+            let output_expr = format!("results.{}.output", AGENT_NODE_ID);
+            let value = match scorer.kind {
+                // A judge agent is prompted with the case and the answer as one JSON message; a
+                // script or flow receives them as named arguments.
+                ScorerKind::Agent => serde_json::json!({
+                    "type": "aiagent",
+                    "agent": scorer.path,
+                    "tools": [],
+                    "input_transforms": {
+                        "user_message": {
+                            "type": "javascript",
+                            "expr": format!(
+                                "JSON.stringify({{ input: flow_input.user_message, output: {}, expected: flow_input.expected }})",
+                                output_expr
+                            ),
+                        }
+                    }
+                }),
+                ScorerKind::Script | ScorerKind::Flow => serde_json::json!({
+                    "type": if scorer.kind == ScorerKind::Script { "script" } else { "flow" },
+                    "path": scorer.path,
+                    "input_transforms": {
+                        "input": { "type": "javascript", "expr": "flow_input.user_message" },
+                        "output": { "type": "javascript", "expr": output_expr },
+                        "expected": { "type": "javascript", "expr": "flow_input.expected" },
+                    }
+                }),
+            };
+            modules.push(serde_json::json!({ "id": scorer_node_id(index), "value": value }));
+        }
+
+        Ok(serde_json::from_value(
+            serde_json::json!({ "modules": modules }),
+        )?)
+    }
+
     #[derive(Deserialize)]
     pub struct RunEval {
         pub subject: EvalSubject,
+        #[serde(default)]
+        pub scorers: Vec<ScorerRef>,
         /// The case to run. Either supplied inline (the playground) or loaded from `dataset` +
         /// `case_id`, which additionally stamps the run so it can be found again.
         #[serde(default)]
@@ -820,6 +945,116 @@ mod with_storage {
             .trim_start_matches("res://")
     }
 
+    /// Push one case as its own job. Shared by a single run and by every case of an experiment,
+    /// so both produce the same stamped, self-describing job.
+    async fn push_case_run(
+        authed: &ApiAuthed,
+        db: &DB,
+        user_db: &UserDB,
+        w_id: &str,
+        agent_path: &str,
+        version: Option<i64>,
+        case: &NewEvalCase,
+        tool_inputs: Option<Box<RawValue>>,
+        scorers: &[ScorerRef],
+        dataset: Option<&str>,
+        case_id: Option<Uuid>,
+        experiment_id: Option<Uuid>,
+    ) -> Result<Uuid> {
+        use windmill_common::{jobs::JobPayload, users::username_to_permissioned_as};
+        use windmill_queue::{push, PushArgs, PushIsolationLevel};
+
+        let flow_value = build_case_flow(agent_path, case, tool_inputs, scorers)?;
+
+        let mut args = std::collections::HashMap::new();
+        if let Some(user_message) = &case.input.user_message {
+            args.insert(
+                "user_message".to_string(),
+                serde_json::value::to_raw_value(user_message)?,
+            );
+        }
+        if let Some(user_attachments) = &case.input.user_attachments {
+            args.insert("user_attachments".to_string(), user_attachments.clone());
+        }
+        if let Some(expected) = &case.expected {
+            args.insert("expected".to_string(), expected.clone());
+        }
+        // Self-describing run: opened cold from the runs page, the job says what it was evaluating.
+        // Extra flow inputs are inert — the agent step reads only user_message/user_attachments.
+        args.insert(
+            "_eval".to_string(),
+            serde_json::value::to_raw_value(&serde_json::json!({
+                "subject": { "kind": "agent", "path": agent_path, "version": version },
+                "dataset": dataset,
+                "case_id": case_id,
+                "experiment_id": experiment_id,
+            }))?,
+        );
+
+        let path = run_path(agent_path, dataset, case_id);
+        let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+        let (uuid, tx) = push(
+            db,
+            tx,
+            w_id,
+            JobPayload::RawFlow { value: flow_value, path: Some(path), restarted_from: None },
+            PushArgs::from(&args),
+            authed.display_username(),
+            &authed.email,
+            username_to_permissioned_as(&authed.username),
+            authed.token_prefix.as_deref(),
+            authed.username_override.as_deref(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+            None,
+            None,
+            None,
+            None,
+            Some(&authed.clone().into()),
+            false,
+            None,
+            authed.trigger_or_fallback(None),
+            None,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(uuid)
+    }
+
+    /// Read the agent through `user_db` so a caller who cannot read the resource cannot run it.
+    async fn require_agent(
+        authed: &ApiAuthed,
+        user_db: &UserDB,
+        w_id: &str,
+        agent_path: &str,
+    ) -> Result<()> {
+        let mut tx = user_db.clone().begin(authed).await?;
+        let resource_type = sqlx::query_scalar!(
+            "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+            w_id,
+            agent_path
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        match resource_type.as_deref() {
+            Some("ai_agent") => Ok(()),
+            Some(other) => Err(Error::BadRequest(format!(
+                "Resource {} is a {}, not an ai_agent",
+                agent_path, other
+            ))),
+            None => Err(Error::NotFound(format!("Agent {} not found", agent_path))),
+        }
+    }
+
     pub async fn run_eval(
         authed: ApiAuthed,
         Extension(db): Extension<DB>,
@@ -827,9 +1062,6 @@ mod with_storage {
         Path(w_id): Path<String>,
         Json(payload): Json<RunEval>,
     ) -> Result<(axum::http::StatusCode, String)> {
-        use windmill_common::{jobs::JobPayload, users::username_to_permissioned_as};
-        use windmill_queue::{push, PushArgs, PushIsolationLevel};
-
         if authed.is_operator {
             return Err(Error::NotAuthorized(
                 "Operators cannot run eval jobs".to_string(),
@@ -872,26 +1104,7 @@ mod with_storage {
             }
         };
 
-        // Read the agent through user_db so a caller who cannot read the resource cannot run it.
-        let mut tx = user_db.clone().begin(&authed).await?;
-        let resource_type = sqlx::query_scalar!(
-            "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
-            &w_id,
-            &agent_path
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        match resource_type.as_deref() {
-            Some("ai_agent") => {}
-            Some(other) => {
-                return Err(Error::BadRequest(format!(
-                    "Resource {} is a {}, not an ai_agent",
-                    agent_path, other
-                )))
-            }
-            None => return Err(Error::NotFound(format!("Agent {} not found", agent_path))),
-        }
+        require_agent(&authed, &user_db, &w_id, &agent_path).await?;
 
         // The version the agent is at now. Recorded so the run stays attributable to a prompt
         // state later; it does not pin execution, which stays live.
@@ -905,103 +1118,321 @@ mod with_storage {
             (None, None) => None,
         };
 
-        let mut input_transforms = serde_json::Map::new();
-        for key in ["user_message", "user_attachments"] {
-            input_transforms.insert(
-                key.to_string(),
-                serde_json::json!({ "type": "javascript", "expr": format!("flow_input.{}", key) }),
-            );
-        }
-        // Replaying a recorded conversation goes through `Memory::Manual`, which takes the message
-        // list verbatim and bypasses stored memory — so a replay is deterministic and does not
-        // write back into the memory a production conversation is using.
-        if let Some(messages) = &case.input.messages {
-            input_transforms.insert(
-                "memory".to_string(),
-                serde_json::json!({
-                    "type": "static",
-                    "value": { "kind": "manual", "messages": messages }
-                }),
-            );
-        }
-
-        let mut module_value = serde_json::Map::new();
-        module_value.insert("type".to_string(), serde_json::json!("aiagent"));
-        module_value.insert("agent".to_string(), serde_json::json!(agent_path));
-        module_value.insert("tools".to_string(), serde_json::json!([]));
-        module_value.insert(
-            "input_transforms".to_string(),
-            serde_json::Value::Object(input_transforms),
-        );
-        if let Some(tool_inputs) = tool_inputs {
-            module_value.insert(
-                "tool_inputs".to_string(),
-                serde_json::from_str(tool_inputs.get())?,
-            );
-        }
-
-        let flow_value: windmill_common::flows::FlowValue =
-            serde_json::from_value(serde_json::json!({
-                "modules": [{ "id": "a", "value": serde_json::Value::Object(module_value) }],
-            }))?;
-
-        let mut args = std::collections::HashMap::new();
-        if let Some(user_message) = &case.input.user_message {
-            args.insert(
-                "user_message".to_string(),
-                serde_json::value::to_raw_value(user_message)?,
-            );
-        }
-        if let Some(user_attachments) = &case.input.user_attachments {
-            args.insert("user_attachments".to_string(), user_attachments.clone());
-        }
-        // Self-describing run: opened cold from the runs page, the job says what it was evaluating.
-        // Extra flow inputs are inert — the module only reads user_message/user_attachments.
-        args.insert(
-            "_eval".to_string(),
-            serde_json::value::to_raw_value(&serde_json::json!({
-                "subject": { "kind": "agent", "path": agent_path, "version": version },
-                "dataset": payload.dataset,
-                "case_id": payload.case_id,
-            }))?,
-        );
-
-        let path = run_path(&agent_path, payload.dataset.as_deref(), payload.case_id);
-        let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
-        let (uuid, tx) = push(
+        let uuid = push_case_run(
+            &authed,
             &db,
-            tx,
+            &user_db,
             &w_id,
-            JobPayload::RawFlow { value: flow_value, path: Some(path), restarted_from: None },
-            PushArgs::from(&args),
-            authed.display_username(),
-            &authed.email,
-            username_to_permissioned_as(&authed.username),
-            authed.token_prefix.as_deref(),
-            authed.username_override.as_deref(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            true,
-            None,
-            None,
-            None,
-            None,
-            Some(&authed.clone().into()),
-            false,
-            None,
-            authed.trigger_or_fallback(None),
+            &agent_path,
+            version,
+            &case,
+            tool_inputs,
+            &payload.scorers,
+            payload.dataset.as_deref(),
+            payload.case_id,
             None,
         )
         .await?;
-        tx.commit().await?;
         Ok((axum::http::StatusCode::CREATED, uuid.to_string()))
+    }
+
+
+    // -------------------------------------------------------------------------------------------
+    // Experiments
+    // -------------------------------------------------------------------------------------------
+
+    const EXPERIMENTS_PREFIX: &str = "wmill_eval_datasets/experiments";
+
+    fn experiment_key(dataset: &str, id: Uuid) -> String {
+        format!("{}/{}/{}.json", EXPERIMENTS_PREFIX, dataset, id)
+    }
+
+    /// One run of a dataset. The cases are stored by value, not by reference: a dataset keeps
+    /// changing, and a result set that cannot say which inputs produced it is not reproducible.
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct EvalExperiment {
+        pub id: Uuid,
+        pub dataset: String,
+        pub subject: EvalSubject,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub scorers: Vec<ScorerRef>,
+        /// The exact case set that ran, and the job each one produced.
+        pub cases: Vec<ExperimentCase>,
+        pub created_at: DateTime<Utc>,
+        pub created_by: String,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct ExperimentCase {
+        pub case_id: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub name: Option<String>,
+        pub input: EvalCaseInput,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub expected: Option<Box<RawValue>>,
+        pub job_id: Uuid,
+    }
+
+    #[derive(Deserialize)]
+    pub struct RunExperiment {
+        pub dataset: String,
+        pub subject: EvalSubject,
+        #[serde(default)]
+        pub scorers: Vec<ScorerRef>,
+        /// Applies one host flow's tool bindings to every case. Per-case `host_flow_path` is only
+        /// honoured by a single run: one experiment runs one wiring, or its rows would not be
+        /// comparable with each other.
+        #[serde(default)]
+        pub host_flow_path: Option<String>,
+    }
+
+    pub async fn run_experiment(
+        authed: ApiAuthed,
+        Extension(db): Extension<DB>,
+        Extension(user_db): Extension<UserDB>,
+        Path(w_id): Path<String>,
+        Json(payload): Json<RunExperiment>,
+    ) -> Result<String> {
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run experiments".to_string(),
+            ));
+        }
+        check_scopes(&authed, || "jobs:run".to_string())?;
+        require_can_read(&authed, &payload.dataset)?;
+
+        let agent_path = payload.subject.path.clone();
+        require_agent(&authed, &user_db, &w_id, &agent_path).await?;
+        let version = current_resource_version(&db, &w_id, &agent_path).await?;
+
+        let client = object_store(&authed, &db, user_db.clone(), &w_id).await?;
+        let cases = read_cases(&client, &payload.dataset).await?;
+        if cases.is_empty() {
+            return Err(Error::BadRequest(format!(
+                "Eval dataset {} has no case to run",
+                payload.dataset
+            )));
+        }
+
+        let tool_inputs = match &payload.host_flow_path {
+            Some(flow_path) => {
+                tool_inputs_from_host_flow(&authed, &user_db, &w_id, flow_path, &agent_path).await?
+            }
+            None => None,
+        };
+
+        let experiment_id = Uuid::new_v4();
+        let mut experiment_cases = Vec::with_capacity(cases.len());
+        for case in cases {
+            let new_case = NewEvalCase {
+                name: case.name.clone(),
+                input: case.input.clone(),
+                host_flow_path: case.host_flow_path.clone(),
+                tool_inputs: case.tool_inputs.clone(),
+                expected: case.expected.clone(),
+                tags: case.tags.clone(),
+                source: case.source.clone(),
+            };
+            let job_id = push_case_run(
+                &authed,
+                &db,
+                &user_db,
+                &w_id,
+                &agent_path,
+                version,
+                &new_case,
+                tool_inputs.clone(),
+                &payload.scorers,
+                Some(&payload.dataset),
+                Some(case.id),
+                Some(experiment_id),
+            )
+            .await?;
+            experiment_cases.push(ExperimentCase {
+                case_id: case.id,
+                name: case.name,
+                input: case.input,
+                expected: case.expected,
+                job_id,
+            });
+        }
+
+        let experiment = EvalExperiment {
+            id: experiment_id,
+            dataset: payload.dataset.clone(),
+            subject: EvalSubject {
+                kind: EvalSubjectKind::Agent,
+                path: agent_path,
+                version,
+            },
+            scorers: payload.scorers,
+            cases: experiment_cases,
+            created_at: Utc::now(),
+            created_by: authed.username.clone(),
+        };
+        put_object(
+            &client,
+            &experiment_key(&payload.dataset, experiment_id),
+            serde_json::to_vec(&experiment)?,
+        )
+        .await?;
+        Ok(experiment_id.to_string())
+    }
+
+    pub async fn list_experiments(
+        authed: ApiAuthed,
+        Extension(db): Extension<DB>,
+        Extension(user_db): Extension<UserDB>,
+        Path((w_id, dataset)): Path<(String, String)>,
+    ) -> JsonResult<Vec<EvalExperiment>> {
+        use futures::{StreamExt, TryStreamExt};
+
+        require_can_read(&authed, &dataset)?;
+        let client = object_store(&authed, &db, user_db, &w_id).await?;
+        let prefix = format!("{}/{}", EXPERIMENTS_PREFIX, dataset);
+        let keys: Vec<String> = client
+            .list(Some(&ObjectPath::from(prefix.as_str())))
+            .map_ok(|meta| meta.location.to_string())
+            .try_collect()
+            .await
+            .map_err(object_store_error_to_error)?;
+
+        let mut experiments = futures::stream::iter(keys.into_iter().map(|key| {
+            let client = client.clone();
+            async move {
+                let bytes = get_object(&client, &key).await.ok().flatten()?;
+                serde_json::from_slice::<EvalExperiment>(&bytes).ok()
+            }
+        }))
+        .buffer_unordered(16)
+        .filter_map(|e| async move { e })
+        .collect::<Vec<_>>()
+        .await;
+        experiments.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(Json(experiments))
+    }
+
+    #[derive(Deserialize)]
+    pub struct ExperimentRef {
+        pub dataset: String,
+        pub id: Uuid,
+    }
+
+    /// One row per case: what it was asked, what the agent answered, and each scorer's number.
+    #[derive(Serialize)]
+    pub struct ExperimentRow {
+        pub case_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub name: Option<String>,
+        pub input: EvalCaseInput,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub expected: Option<Box<RawValue>>,
+        pub job_id: Uuid,
+        /// `running` until the job completes, then `success` or `failure`.
+        pub status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub output: Option<Box<RawValue>>,
+        /// One entry per scorer, in the experiment's scorer order; `None` where it has not
+        /// produced a number yet.
+        pub scores: Vec<Option<f64>>,
+    }
+
+    #[derive(Serialize)]
+    pub struct ExperimentResults {
+        pub experiment: EvalExperiment,
+        pub rows: Vec<ExperimentRow>,
+        pub scorer_labels: Vec<String>,
+    }
+
+    /// A scorer may return a bare number, a boolean, or `{score, label}`; anything else has no
+    /// number to plot and is left empty rather than guessed at.
+    fn extract_score(value: &RawValue) -> Option<f64> {
+        let parsed: serde_json::Value = serde_json::from_str(value.get()).ok()?;
+        match parsed {
+            serde_json::Value::Number(n) => n.as_f64(),
+            serde_json::Value::Bool(b) => Some(if b { 1.0 } else { 0.0 }),
+            serde_json::Value::Object(map) => match map.get("score") {
+                Some(serde_json::Value::Number(n)) => n.as_f64(),
+                Some(serde_json::Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
+                // An agent scorer answers in `output`, which is itself often a JSON string.
+                _ => match map.get("output") {
+                    Some(serde_json::Value::Number(n)) => n.as_f64(),
+                    Some(serde_json::Value::String(s)) => s
+                        .trim()
+                        .parse::<f64>()
+                        .ok()
+                        .or_else(|| serde_json::from_str::<serde_json::Value>(s).ok().and_then(
+                            |v| v.get("score").and_then(|s| s.as_f64()),
+                        )),
+                    _ => None,
+                },
+            },
+            _ => None,
+        }
+    }
+
+    pub async fn experiment_results(
+        authed: ApiAuthed,
+        Extension(db): Extension<DB>,
+        Extension(user_db): Extension<UserDB>,
+        Path(w_id): Path<String>,
+        Json(payload): Json<ExperimentRef>,
+    ) -> JsonResult<ExperimentResults> {
+        require_can_read(&authed, &payload.dataset)?;
+        let client = object_store(&authed, &db, user_db, &w_id).await?;
+        let bytes = get_object(&client, &experiment_key(&payload.dataset, payload.id))
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Experiment {} not found", payload.id)))?;
+        let experiment: EvalExperiment = serde_json::from_slice(&bytes)?;
+
+        let mut rows = Vec::with_capacity(experiment.cases.len());
+        for case in &experiment.cases {
+            // Each case is its own flow, so its steps are read back by node id rather than by
+            // walking a nested loop's status.
+            let (output, success) = windmill_queue::get_result_and_success_by_id_from_flow(
+                &db,
+                &w_id,
+                &case.job_id,
+                AGENT_NODE_ID,
+                None,
+            )
+            .await
+            .map(|(r, s)| (Some(r), Some(s)))
+            .unwrap_or((None, None));
+
+            let mut scores = Vec::with_capacity(experiment.scorers.len());
+            for index in 0..experiment.scorers.len() {
+                let score = windmill_queue::get_result_and_success_by_id_from_flow(
+                    &db,
+                    &w_id,
+                    &case.job_id,
+                    &scorer_node_id(index),
+                    None,
+                )
+                .await
+                .ok()
+                .and_then(|(r, _)| extract_score(&r));
+                scores.push(score);
+            }
+
+            rows.push(ExperimentRow {
+                case_id: case.case_id,
+                name: case.name.clone(),
+                input: case.input.clone(),
+                expected: case.expected.clone(),
+                job_id: case.job_id,
+                status: match success {
+                    Some(true) => "success".to_string(),
+                    Some(false) => "failure".to_string(),
+                    None => "running".to_string(),
+                },
+                output,
+                scores,
+            });
+        }
+
+        let scorer_labels = experiment.scorers.iter().map(|s| s.label()).collect();
+        Ok(Json(ExperimentResults { experiment, rows, scorer_labels }))
     }
 
     // -------------------------------------------------------------------------------------------

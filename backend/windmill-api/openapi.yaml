@@ -11876,6 +11876,105 @@ paths:
               schema:
                 $ref: "#/components/schemas/EvalCaseDraft"
 
+  /w/{workspace}/ai_evals/experiments/run:
+    post:
+      summary: run a dataset against a subject as one experiment
+      operationId: runExperiment
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: what to run
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset, subject]
+              properties:
+                dataset:
+                  type: string
+                subject:
+                  $ref: "#/components/schemas/EvalSubject"
+                scorers:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ScorerRef"
+                host_flow_path:
+                  type: string
+                  description: >
+                    Applies one host flow's tool bindings to every case; per-case host_flow_path is
+                    only honoured by a single run, so an experiment's rows stay comparable.
+      responses:
+        "200":
+          description: id of the created experiment
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/experiments/list/{path}:
+    get:
+      summary: list a dataset's experiments
+      operationId: listExperiments
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: experiments, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvalExperiment"
+
+  /w/{workspace}/ai_evals/experiments/results:
+    post:
+      summary: read an experiment's results, one row per case
+      operationId: experimentResults
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: which experiment
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset, id]
+              properties:
+                dataset:
+                  type: string
+                id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: experiment results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [experiment, rows, scorer_labels]
+                properties:
+                  experiment:
+                    $ref: "#/components/schemas/EvalExperiment"
+                  rows:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExperimentRow"
+                  scorer_labels:
+                    type: array
+                    items:
+                      type: string
+
   /w/{workspace}/path_autocomplete/list_paths:
     get:
       summary: list all paths in a workspace for client-side autocomplete
@@ -26190,6 +26289,92 @@ components:
         agent_path:
           type: string
           description: The agent the capture ran against, to preselect the subject.
+
+    ScorerRef:
+      type: object
+      description: >
+        A scorer is any runnable taking (input, output, expected). Built-ins are hub scripts and
+        LLM-as-judge is a reusable agent, so scoring needs no engine of its own.
+      required: [kind, path]
+      properties:
+        kind:
+          type: string
+          enum: [script, flow, agent]
+        path:
+          type: string
+        name:
+          type: string
+          description: Column header; defaults to the last segment of the path.
+
+    ExperimentCase:
+      type: object
+      required: [case_id, input, job_id]
+      properties:
+        case_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        input:
+          $ref: "#/components/schemas/EvalCaseInput"
+        expected: {}
+        job_id:
+          type: string
+          format: uuid
+
+    EvalExperiment:
+      type: object
+      description: One run of a dataset, holding the exact case set it executed.
+      required: [id, dataset, subject, cases, created_at, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+        dataset:
+          type: string
+        subject:
+          $ref: "#/components/schemas/EvalSubject"
+        scorers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScorerRef"
+        cases:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExperimentCase"
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+
+    ExperimentRow:
+      type: object
+      required: [case_id, input, job_id, status, scores]
+      properties:
+        case_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        input:
+          $ref: "#/components/schemas/EvalCaseInput"
+        expected: {}
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [running, success, failure]
+        output:
+          type: string
+          description: The agent's answer. The full trajectory stays reachable through job_id.
+        scores:
+          type: array
+          description: One entry per scorer in the experiment's order; null where there is no number yet.
+          items:
+            type: number
+            nullable: true
 
     FlowConversation:
       type: object
