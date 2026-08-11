@@ -13,14 +13,12 @@ cp "${script_dirpath}/client.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/wacError.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/sqlUtils.ts" "${script_dirpath}/src/"
-# Two rules the JSR package must satisfy that the npm one does not, both
-# enforced by `jsr publish` (which publish.jsr.sh runs without
-# --allow-slow-types), and neither reachable before a release tag:
-#   - a type has to be re-exported as `type X`, or deno fails with TS1205
-#     under isolatedModules;
-#   - anything listed here needs an explicit return type, or it is rejected
-#     as a "slow type".
-# `cd typescript-client && ./build.jsr.sh && deno publish --dry-run` checks both.
+# Two JSR-only rules, enforced by `jsr publish` (which publish.jsr.sh runs
+# without --allow-slow-types) and so not reachable before a release tag:
+# a type must be re-exported as `type X`, or deno fails with TS1205 under
+# isolatedModules; and an exported function whose return type deno cannot
+# trivially infer needs an explicit annotation, or it is a "slow type".
+# `./build.jsr.sh && deno publish --dry-run` checks both.
 echo "" >> "${script_dirpath}/src/index.ts"
 echo 'export type { DenoS3LightClientSettings } from "./s3Types";' >> "${script_dirpath}/src/index.ts"
 echo "" >> "${script_dirpath}/src/index.ts"
