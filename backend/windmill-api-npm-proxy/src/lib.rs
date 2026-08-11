@@ -202,9 +202,11 @@ const MAX_ENTRIES: usize = 100_000;
 /// Ceiling on one entry kept. Past it the entry is read back on demand, which costs a walk
 /// of the archive per read, so it sits above what real packages hold rather than tightly.
 const RETAINED_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
-/// The manifest's own ceiling, above the entry one: it is the only file whose absence
-/// changes an answer rather than the speed of one.
-const MANIFEST_BYTES: u64 = 64 * 1024 * 1024;
+/// The manifest's own ceiling, above the entry one because it is the only file whose
+/// absence changes an answer rather than the speed of one. It is also the one entry read
+/// whole into the heap in a single `read_to_end`, from registry-supplied content, so it
+/// stays close to what a real manifest is: kilobytes, with orders of magnitude of room.
+const MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 /// Ceiling on the entries one package keeps. Declarations past it are left to a read on
 /// demand rather than refused, so this bounds the cache without bounding what is servable.
 /// `aws-sdk` is the heaviest package known here at ~51 MB across 442 declarations.
@@ -975,6 +977,10 @@ async fn cached_package(
                 PackageFiles::Disk(published),
                 written + manifest_bytes.max(DISK_BLOCK_BYTES),
             )),
+            // The archive is the problem, not the cache: extracting it again would fail the
+            // same way, and reporting it as an unwritable cache misdirects whoever reads
+            // the log to decide whether their volume is full.
+            Err(e @ Error::BadRequest(_)) => Err(e),
             Err(e) => {
                 tracing::warn!("npm proxy cache is not usable, serving without it: {e:?}");
                 let mut kept = HashMap::new();

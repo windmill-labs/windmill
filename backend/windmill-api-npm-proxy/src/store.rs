@@ -270,7 +270,6 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<Op
             Error::InternalErr(format!("Failed to create {:?}: {e}", scratch.path))
         })?;
         let tar_path = scratch.path.join("archive.tar");
-        let unpack_to = scratch.path.join("content");
         let mut file = tokio::fs::File::create(&tar_path)
             .await
             .map_err(|e| Error::InternalErr(format!("Failed to create {tar_path:?}: {e}")))?;
@@ -287,41 +286,36 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<Op
             .map_err(|e| Error::InternalErr(format!("Failed to flush {tar_path:?}: {e}")))?;
         drop(file);
 
-        let unpacked = tokio::task::spawn_blocking(move || {
-            let file = std::fs::File::open(&tar_path)?;
-            let mut archive = tar::Archive::new(file);
-            let result = archive.unpack(&unpack_to);
-            let _ = std::fs::remove_file(&tar_path);
-            result
-        })
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to unpack {_key}: {e}")))?;
-        unpacked.map_err(|e| Error::InternalErr(format!("Failed to unpack {_key}: {e}")))?;
-
-        // Measuring walks the tree and publishing can recursively remove the loser's, both
-        // of which scale with a package's file count, so neither belongs on a runtime worker.
-        let content = scratch.path.join("content");
+        // The scratch guard moves into the blocking task: leaving it in the request future
+        // means cancelling the request drops it, recursively removing the directory while
+        // this is still unpacking into it or renaming out of it.
         let destination = _dir.to_path_buf();
-        let published = tokio::task::spawn_blocking(move || {
+        let published = tokio::task::spawn_blocking(move || -> Result<Option<u64>> {
+            let unpack_to = scratch.path.join("content");
+            let file = std::fs::File::open(&tar_path)
+                .map_err(|e| Error::InternalErr(format!("Failed to open {tar_path:?}: {e}")))?;
+            tar::Archive::new(file)
+                .unpack(&unpack_to)
+                .map_err(|e| Error::InternalErr(format!("Failed to unpack: {e}")))?;
+
             // An object that unpacks without a manifest is not a package. Publishing it
             // would make every later pull short-circuit the registry against a tree nothing
             // can read.
-            if !content.join(MANIFEST_FILE).exists() {
+            if !unpack_to.join(MANIFEST_FILE).exists() {
                 return Ok(None);
             }
-            let unpacked = measure(&content).map(|(bytes, _)| bytes).unwrap_or(0);
+            let unpacked = measure(&unpack_to).map(|(bytes, _)| bytes).unwrap_or(0);
             windmill_common::worker::atomic_publish_dir(
-                &content.to_string_lossy(),
+                &unpack_to.to_string_lossy(),
                 &destination.to_string_lossy(),
-            )
-            .map(|()| Some(unpacked))
+            )?;
+            // The download is still in the scratch directory, which goes with this drop.
+            drop(scratch);
+            Ok(Some(unpacked))
         })
         .await
-        .map_err(|e| Error::InternalErr(format!("Failed to publish {_key}: {e}")))?;
+        .map_err(|e| Error::InternalErr(format!("Failed to unpack {_key}: {e}")))??;
 
-        // The scratch directory still holds the download, so it goes with the drop.
-        drop(scratch);
-        let published = published?;
         if published.is_none() {
             tracing::warn!("{_key} unpacked without a manifest, ignoring it");
         }
@@ -451,11 +445,14 @@ fn sweep(root: &Path, budget: u64) -> std::io::Result<()> {
     for registry in child_dirs(root)? {
         for package in child_dirs(&registry)? {
             for version in child_dirs(&package)? {
-                // Never an eviction candidate: a scratch directory is either a live write,
-                // which must not be deleted underneath its writer, or abandoned debris.
+                // A scratch directory is either a live write, which must not be deleted
+                // underneath its writer, or abandoned debris. Never an eviction candidate,
+                // but its bytes are on the disk either way and have to count.
                 if is_scratch(&version) {
                     if is_stale(&version) {
                         let _ = std::fs::remove_dir_all(&version);
+                    } else {
+                        total += measure(&version).map(|(size, _)| size).unwrap_or(0);
                     }
                     continue;
                 }
@@ -486,9 +483,13 @@ fn sweep(root: &Path, budget: u64) -> std::io::Result<()> {
 /// in flight or one that died. Age is what separates them: concurrent cold fills are
 /// exactly when the sweep is most likely to run, and a live scratch must survive it.
 fn is_scratch(dir: &Path) -> bool {
+    // The exact shape `Scratch` writes, not any name containing the marker: a version
+    // string is registry-supplied, and one like `1.0.0-alpha.tmp.1` would otherwise be
+    // re-fetched forever and never counted against the cap.
     dir.file_name()
         .and_then(|n| n.to_str())
-        .is_some_and(|n| n.contains(".tmp."))
+        .and_then(|n| n.rsplit_once(".tmp."))
+        .is_some_and(|(_, suffix)| uuid::Uuid::parse_str(suffix).is_ok())
 }
 
 fn is_stale(dir: &Path) -> bool {
@@ -610,8 +611,9 @@ mod tests {
         };
 
         // a writer that died mid-flight long enough ago to be abandoned, and two packages
-        make("ghost", "1.0.0.tmp.abandoned", 1024);
-        let ghost = root.join("registry").join("ghost").join("1.0.0.tmp.abandoned");
+        let debris = format!("1.0.0.tmp.{}", uuid::Uuid::new_v4());
+        make("ghost", &debris, 1024);
+        let ghost = root.join("registry").join("ghost").join(&debris);
         let long_ago = SystemTime::now() - std::time::Duration::from_secs(SCRATCH_STALE_SECS * 2);
         std::fs::File::open(&ghost)
             .and_then(|f| f.set_modified(long_ago))
@@ -623,6 +625,8 @@ mod tests {
         sweep(&root, 96 * 1024).unwrap();
 
         assert!(!ghost.exists(), "an abandoned scratch directory should be removed");
+        // a version is registry-supplied: one shaped like debris is still a package
+        assert!(!is_scratch(&root.join("registry").join("pkg").join("1.0.0-alpha.tmp.1")));
         assert!(fresh.exists(), "the more recently used package should survive");
         assert!(!old.exists(), "the least recently used should go first");
 
