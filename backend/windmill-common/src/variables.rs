@@ -47,13 +47,16 @@ pub fn is_valid_js_identifier(name: &str) -> bool {
     chars.all(|c| c == '_' || c == '$' || c.is_ascii_alphanumeric())
 }
 
-/// Reserved words that cannot be used as a binding name — `const {word} = ...`
-/// is a SyntaxError. Includes the strict-mode/module reserved set since the
-/// generated prologue runs as a module.
+/// Names that cannot be used as a binding — `const {word} = ...` is a
+/// SyntaxError. The generated prologue runs as an ES module (always strict), so
+/// this includes the strict-mode reserved words and the two names that strict
+/// mode additionally forbids as bindings: `eval` and `arguments`.
 fn is_js_reserved_word(name: &str) -> bool {
     matches!(
         name,
-        "break"
+        "arguments"
+            | "eval"
+            | "break"
             | "case"
             | "catch"
             | "class"
@@ -762,12 +765,15 @@ mod tests {
             assert!(can_bind_as_prologue_const(ok), "{ok} should be bindable");
         }
         // Valid identifiers that would still break `const {name}`: reserved words
-        // (SyntaxError) and names the prologue already binds (redeclaration).
+        // (SyntaxError), the two names strict mode forbids as bindings (`eval`,
+        // `arguments`), and names the prologue already binds (redeclaration).
         for bad in [
             "class",
             "const",
             "await",
             "return",
+            "eval",
+            "arguments",
             "process",
             "BASE_URL",
             "BASE_INTERNAL_URL",

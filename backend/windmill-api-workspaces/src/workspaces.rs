@@ -4677,26 +4677,26 @@ async fn set_environment_variable(
 
     match value {
         Some(value) => {
-            // The name is spliced into the NativeTS/Bun worker prologue. The
-            // worker escapes it regardless, so this write-time check is a friendly
-            // guard against new non-identifier names, not the injection defense.
-            // Enforce it only for names that don't already exist so a value edit of
-            // a grandfathered non-identifier name (the edit UI resubmits the name)
-            // isn't rejected with no in-product way to fix it. Deletion (the None
-            // branch) stays unrestricted so already-planted names remain removable.
-            let already_exists = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM workspace_env WHERE workspace_id = $1 AND name = $2)",
-                &w_id,
-                name
-            )
-            .fetch_one(&mut *tx)
-            .await?
-            .unwrap_or(false);
+            // The worker escapes the name when it splices it into the NativeTS/Bun
+            // prologue, so this is a friendly guard against new non-identifier
+            // names, not the injection defense. Skip it for names that already
+            // exist so a value edit of a grandfathered name (the edit UI resubmits
+            // the name) isn't rejected with no in-product way to fix it.
+            if !windmill_common::variables::is_valid_js_identifier(&name) {
+                let already_exists = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM workspace_env WHERE workspace_id = $1 AND name = $2)",
+                    &w_id,
+                    name
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false);
 
-            if !already_exists && !windmill_common::variables::is_valid_js_identifier(&name) {
-                return Err(Error::BadRequest(format!(
-                    "Invalid environment variable name '{name}': must start with a letter, underscore or '$' and contain only letters, digits, underscores or '$'"
-                )));
+                if !already_exists {
+                    return Err(Error::BadRequest(format!(
+                        "Invalid environment variable name '{name}': must start with a letter, underscore or '$' and contain only letters, digits, underscores or '$'"
+                    )));
+                }
             }
 
             sqlx::query!(
