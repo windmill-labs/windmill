@@ -41,7 +41,10 @@ const backendProxyApi = async <T>(endpoint: string, resLimit: ResLimit): Promise
 			})
 		)
 	} catch (e) {
-		return new Error('Backend proxy not available')
+		// Reachable for a failed request only now that the `await` above is there. On an
+		// instance with no route to the CDN this is the only error an operator gets.
+		console.warn(`Backend proxy request to ${endpoint} failed`, e)
+		return new Error(`Backend proxy not available: ${e}`)
 	}
 }
 
@@ -133,23 +136,33 @@ export const getDTSFileForModuleWithVersion = async (
 ) => {
 	// file comes with a prefix /
 	const url = `https://cdn.jsdelivr.net/npm/${moduleName}@${version}${file}`
-	const res = await limit(() => fetch(url).catch(() => undefined))
-	if (res?.ok) {
-		return res.text()
-	} else {
-		// Try backend proxy
-		console.log('jsdelivr failed for file', moduleName, version, file, 'trying backend proxy')
-		try {
-			const baseUrl = getBackendProxyUrl()
-			const proxyUrl = `${baseUrl}/file/${encodeURIComponent(moduleName)}/${encodeURIComponent(version)}${file}`
-			const proxyRes = await limit(() => fetch(proxyUrl, { credentials: 'include' }))
-			if (proxyRes.ok) {
-				return proxyRes.text()
-			}
-		} catch (e) {
-			console.log('Backend proxy failed for file', e)
-		}
-		return new Error('OK')
+	const res = await text(url)
+	if (typeof res === 'string') {
+		return res
+	}
+
+	// Try backend proxy
+	console.log('jsdelivr failed for file', moduleName, version, file, 'trying backend proxy')
+	try {
+		const baseUrl = getBackendProxyUrl()
+		const proxyUrl = `${baseUrl}/file/${encodeURIComponent(moduleName)}/${encodeURIComponent(version)}${file}`
+		return await text(proxyUrl, { credentials: 'include' })
+	} catch (e) {
+		console.log('Backend proxy failed for file', e)
+		return new Error(`Backend proxy not available: ${e}`)
+	}
+}
+
+/**
+ * Reading the body can fail as readily as connecting, and both have to surface as a value
+ * rather than a rejection for the caller's fallback to run.
+ */
+async function text(url: string, init?: RequestInit): Promise<string | Error> {
+	try {
+		const res = await limit(() => fetch(url, init))
+		return res.ok ? await res.text() : new Error(`${res.status} for ${url}`)
+	} catch (e) {
+		return new Error(`Request to ${url} failed: ${e}`)
 	}
 }
 
