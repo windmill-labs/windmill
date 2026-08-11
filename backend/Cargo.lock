@@ -15116,6 +15116,7 @@ version = "1.783.0"
 dependencies = [
  "axum 0.8.9",
  "flate2",
+ "lazy_static",
  "reqwest 0.13.4",
  "semver 1.0.28",
  "serde",

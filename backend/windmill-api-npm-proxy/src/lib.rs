@@ -13,8 +13,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::types::JsonValue;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use tower_http::cors::{Any, CorsLayer};
 use windmill_common::{
+    cache::Cache,
     error::{Error, JsonResult, Result},
     global_settings::{
         load_value_from_global_settings, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
@@ -165,6 +167,15 @@ fn build_registry_request(
     Ok(req)
 }
 
+/// Every endpoint here needs the whole registry document, and an install resolves then
+/// downloads each package, so without this each dependency of an app being edited would
+/// re-download a packument (megabytes, for popular packages) several times over.
+const PACKAGE_JSON_CACHE_TTL: Duration = Duration::from_secs(60);
+
+lazy_static::lazy_static! {
+    static ref PACKAGE_JSON_CACHE: Cache<(String, String), (JsonValue, Instant)> = Cache::new(500);
+}
+
 /// Fetch a package's registry document, together with the registry it came from so
 /// callers can validate tarball URLs against it.
 async fn fetch_package_json(
@@ -174,6 +185,14 @@ async fn fetch_package_json(
     let (registry_url, auth_token) = get_npm_registry(db)
         .await?
         .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
+
+    let cache_key = (registry_url.clone(), package.to_string());
+    if let Some((package_json, fetched_at)) = PACKAGE_JSON_CACHE.get(&cache_key) {
+        if fetched_at.elapsed() < PACKAGE_JSON_CACHE_TTL {
+            return Ok((package_json, registry_url, auth_token));
+        }
+    }
+
     let package_url = format_registry_url(&registry_url, package, None, None);
 
     tracing::info!("Fetching package metadata from: {}", package_url);
@@ -194,6 +213,8 @@ async fn fetch_package_json(
         .json()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?;
+
+    PACKAGE_JSON_CACHE.insert(cache_key, (package_json.clone(), Instant::now()));
 
     Ok((package_json, registry_url, auth_token))
 }
@@ -319,23 +340,43 @@ fn resolve_version_spec(package_json: &JsonValue, spec: &str) -> Option<String> 
         .map(|(_, raw)| raw.clone())
 }
 
-/// npm ranges separate AND-ed comparators with spaces and OR-ed comparator sets with
-/// `||`; the semver crate wants commas and one set per `VersionReq`.
+/// npm ranges OR comparator sets together with `||`; the semver crate takes one set per
+/// `VersionReq`. Sets it cannot parse are dropped, so an unsupported alternative narrows
+/// the match rather than failing the whole range.
 fn parse_npm_range(spec: &str) -> Option<Vec<semver::VersionReq>> {
     let requirements = spec
         .split("||")
-        .map(|set| {
-            let set = set.trim();
-            if set.is_empty() {
-                "*".to_string()
-            } else {
-                set.split_whitespace().collect::<Vec<_>>().join(",")
-            }
-        })
-        .filter_map(|set| semver::VersionReq::parse(&set).ok())
+        .filter_map(|set| semver::VersionReq::parse(&normalize_comparator_set(set)).ok())
         .collect::<Vec<_>>();
 
     (!requirements.is_empty()).then_some(requirements)
+}
+
+/// Rewrite one npm comparator set into the crate's syntax: AND-ed comparators are
+/// space-separated rather than comma-separated, hyphen ranges have no equivalent, and a
+/// bare partial reads as an x-range to npm (`1.2` is `1.2.x`) but as a caret to the crate.
+fn normalize_comparator_set(set: &str) -> String {
+    let comparators = set.split_whitespace().collect::<Vec<_>>();
+    match comparators.as_slice() {
+        [] => "*".to_string(),
+        [low, "-", high] => format!(">={},<={}", low, high),
+        _ => comparators
+            .iter()
+            .map(|comparator| {
+                let components = comparator.split('.').collect::<Vec<_>>();
+                if components.len() < 3
+                    && components
+                        .iter()
+                        .all(|c| !c.is_empty() && c.chars().all(|c| c.is_ascii_digit()))
+                {
+                    format!("{}.*", comparator)
+                } else {
+                    comparator.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+    }
 }
 
 /// Get the file tree for a specific package version
@@ -565,7 +606,7 @@ mod tests {
         serde_json::json!({
             "dist-tags": { "latest": "19.2.0", "next": "20.0.0-rc.1" },
             "versions": {
-                "18.3.1": {}, "19.0.0": {}, "19.2.0": {}, "20.0.0-rc.1": {}
+                "18.3.1": {}, "19.0.0": {}, "19.1.5": {}, "19.2.0": {}, "20.0.0-rc.1": {}
             }
         })
     }
@@ -577,14 +618,20 @@ mod tests {
 
         assert_eq!(resolve("latest").as_deref(), Some("19.2.0"));
         assert_eq!(resolve("19.0.0").as_deref(), Some("19.0.0"));
-        // Ranges are what package.json dependencies actually hold
+        // Ranges are what package.json dependencies actually hold, and each of these
+        // forms means something different to npm than to the semver crate's parser
         assert_eq!(resolve("^19.0.0").as_deref(), Some("19.2.0"));
         assert_eq!(resolve("~19.0.0").as_deref(), Some("19.0.0"));
         assert_eq!(resolve(">=18 <19").as_deref(), Some("18.3.1"));
         assert_eq!(resolve("^18.0.0 || ^19.0.0").as_deref(), Some("19.2.0"));
         assert_eq!(resolve("*").as_deref(), Some("19.2.0"));
+        assert_eq!(resolve("19.x").as_deref(), Some("19.2.0"));
+        assert_eq!(resolve("18.3.1 - 19.1.5").as_deref(), Some("19.1.5"));
+        // npm reads a bare partial as an x-range, the crate as a caret
+        assert_eq!(resolve("19.1").as_deref(), Some("19.1.5"));
+        assert_eq!(resolve("19").as_deref(), Some("19.2.0"));
         // A pinned version the registry does not carry must not widen to a caret range
-        assert_eq!(resolve("19.1.0"), None);
+        assert_eq!(resolve("19.0.1"), None);
         assert_eq!(resolve("^21.0.0"), None);
     }
 }
