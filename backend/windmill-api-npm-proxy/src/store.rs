@@ -226,9 +226,23 @@ impl PendingPackage {
 /// the failure as a concurrent publish would discard this valid tree and leave the path
 /// permanently unreadable, with nothing on the read side able to repair it.
 ///
-/// The debris is renamed aside rather than deleted in place so the final path is never
-/// absent for longer than a rename, and it carries the scratch name so a process that dies
-/// here still leaves something the sweep accounts for and reclaims.
+/// The debris is detached rather than deleted in place so the final path is never absent
+/// for longer than a rename.
+/// Take a directory off the live cache path in one step, returning a guard that removes it
+/// on drop.
+///
+/// Deleting a package directory where it stands is not safe to interrupt: `remove_dir_all`
+/// unlinks in readdir order, so a process that stops partway can leave `manifest.json`
+/// standing over files that are already gone. Reads take that for a complete package
+/// forever after, and since the manifest short-circuits the lookup, the object store is
+/// never consulted to repair it. A rename is atomic, so the live path only ever holds a
+/// whole package or nothing, and the detached copy carries the scratch name: if this
+/// process dies before the guard runs, the sweep accounts for it and reclaims it.
+fn detach(dir: &Path) -> Option<Scratch> {
+    let aside = Scratch::beside(dir);
+    std::fs::rename(dir, &aside.path).ok().map(|()| aside)
+}
+
 fn publish_dir(tmp: &Path, final_dir: &Path) -> Result<()> {
     if let Some(parent) = final_dir.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -241,8 +255,7 @@ fn publish_dir(tmp: &Path, final_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let debris = Scratch::beside(final_dir);
-    let _ = std::fs::rename(final_dir, &debris.path);
+    let _debris = detach(final_dir);
     match std::fs::rename(tmp, final_dir) {
         Ok(()) => Ok(()),
         // Another writer got there in the window above, which is still the same content.
@@ -259,7 +272,7 @@ fn publish_dir(tmp: &Path, final_dir: &Path) -> Result<()> {
     }
 }
 
-/// Pull a package version out of the instance object store into the local cache. `Ok(false)`
+/// Pull a package version out of the instance object store into the local cache. `Ok(None)`
 /// means "not there", which is a miss rather than a failure.
 ///
 /// The object streams to a temp file and is unpacked from it on a blocking thread: holding
@@ -501,8 +514,19 @@ fn sweep(root: &Path, budget: u64) -> std::io::Result<()> {
         if total <= budget {
             break;
         }
-        if std::fs::remove_dir_all(&dir).is_ok() {
-            total = total.saturating_sub(size);
+        // Detached, not deleted in place: an eviction is exactly the long unlink that gets
+        // interrupted, and one that stops after the declarations but before the manifest
+        // leaves a directory every later read trusts and nothing repairs.
+        match detach(&dir) {
+            // The guard removes it, off the live path.
+            Some(_aside) => total = total.saturating_sub(size),
+            // Nothing can be renamed aside, so the path itself is the problem: deleting in
+            // place is the only remaining way to get back under the cap.
+            None => {
+                if std::fs::remove_dir_all(&dir).is_ok() {
+                    total = total.saturating_sub(size);
+                }
+            }
         }
     }
     Ok(())
@@ -674,6 +698,28 @@ mod tests {
         sweep(&root, 0).unwrap();
 
         assert!(pending.scratch.path.exists(), "a live writer's scratch must survive");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The live path holds a whole package or nothing. A directory recursively deleted where
+    /// it stands passes through states that are neither, and the one where the manifest
+    /// outlives the files it describes is read as valid for as long as the cache exists.
+    #[test]
+    fn a_package_leaves_the_live_path_in_one_step() {
+        let root = std::env::temp_dir().join(format!("npm-proxy-{}", uuid::Uuid::new_v4()));
+        let dir = root.join("pkg").join("1.0.0");
+        std::fs::create_dir_all(dir.join(FILES_DIR)).unwrap();
+        std::fs::write(dir.join(FILES_DIR).join("index.d.ts"), b"declare const x: number").unwrap();
+        std::fs::write(dir.join(MANIFEST_FILE), b"{}").unwrap();
+
+        let aside = detach(&dir).expect("a package directory can be detached");
+
+        assert!(!dir.exists(), "the live path is gone the moment it is detached");
+        assert!(aside.path.join(MANIFEST_FILE).exists(), "the whole tree went with it");
+        assert!(is_scratch(&aside.path), "and dying here leaves debris the sweep reclaims");
+        let detached = aside.path.clone();
+        drop(aside);
+        assert!(!detached.exists(), "the guard removes it");
         let _ = std::fs::remove_dir_all(&root);
     }
 

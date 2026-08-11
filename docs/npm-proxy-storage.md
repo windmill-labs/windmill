@@ -132,8 +132,11 @@ store has to be a pure addition on top.
   never treats one as an eviction candidate: concurrent cold fills are exactly when a sweep
   is most likely to run, and deleting a scratch directory underneath its writer would
   publish a package missing whatever it had already written.
-- **Restart hygiene.** Publishing renames a fully written temp directory into place, so a
-  partial one never looks complete, and losing the rename race is success.
+- **The live path holds a whole package or nothing.** Publishing renames a fully written
+  temp directory into place, so a partial one never looks complete. Losing that rename is
+  success only when the destination has a manifest, which means another writer published the
+  same immutable content; a destination without one is debris, and it is renamed aside and
+  replaced. Eviction is the same rename in reverse rather than a recursive delete in place.
 - **Transfers stream, and everything that scales with a package stays off the runtime.**
   Pulls go to a temp file, and unpacking, measuring and publishing all run on a blocking
   thread; pushes build a tar on disk and upload it with a bound on parts in flight, not
@@ -146,8 +149,22 @@ store has to be a pure addition on top.
   read, so a missing manifest is treated as a miss and repopulated rather than raised. A
   missing file already falls through to the on-demand walk.
 
+- **An eviction can be interrupted; a recursive delete has no atomic point.**
+  `remove_dir_all` unlinks in readdir order, so stopping partway can leave either half of a
+  package. Both halves are load bearing and neither is self-correcting, which is why both
+  sides of the cache move whole directories with `rename` instead:
+  - *Files gone, manifest left.* Every later read takes the tree for a complete package, and
+    because the manifest short-circuits the lookup, the object store is never consulted.
+    Each missing declaration falls through to the on-demand walk, re-fetching and inflating
+    the archive per request, indefinitely.
+  - *Manifest gone, files left.* Reads treat it as a miss, but `rename` refuses a non-empty
+    destination, so every tree published afterwards is discarded in favour of the debris.
+    Measured before the fix: `/filetree` answered 500 on every attempt with a valid copy
+    sitting in the bucket, and no request could repair it. Afterwards, 200 on the first
+    attempt, repaired from the bucket with no registry request.
+
 Still open: **single flight**. Concurrent misses for the same package each fetch and
-extract. `atomic_publish_dir` and per-pull scratch directories make that safe, just
+extract. Publishing by rename and per-pull scratch directories make that safe, just
 wasteful.
 
 ## Alternative considered: just lower the budgets
