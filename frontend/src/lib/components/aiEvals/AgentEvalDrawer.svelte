@@ -46,6 +46,7 @@
 	let datasets = $state<EvalDataset[]>([])
 	let selectedDataset = $state<string | undefined>(undefined)
 	let cases = $state<EvalCase[]>([])
+	let totalCases = $state(0)
 	let loadingCases = $state(false)
 	let draft = $state<CaseDraft>(emptyCase())
 	let agentVersion = $state<number | undefined>(undefined)
@@ -65,6 +66,7 @@
 	async function loadCases(path: string | undefined) {
 		if (!$workspaceStore || !path) {
 			cases = []
+			totalCases = 0
 			return
 		}
 		loadingCases = true
@@ -75,6 +77,7 @@
 				perPage: 100
 			})
 			cases = res.cases ?? []
+			totalCases = res.total ?? cases.length
 		} finally {
 			loadingCases = false
 		}
@@ -369,6 +372,11 @@
 									</div>
 								{/each}
 							</div>
+							{#if totalCases > cases.length}
+								<div class="text-2xs text-tertiary px-2 py-1">
+									Showing {cases.length} of {totalCases} cases
+								</div>
+							{/if}
 						{/if}
 					</div>
 				</div>
