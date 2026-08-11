@@ -8,15 +8,27 @@ edition.workspace = true
 name = "windmill_api_npm_proxy"
 path = "src/lib.rs"
 
+[features]
+default = []
+enterprise = ["windmill-common/enterprise"]
+private = ["windmill-common/private"]
+parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
+
 [dependencies]
 windmill-api-auth.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-object-store.workspace = true
 axum.workspace = true
 flate2.workspace = true
+futures.workspace = true
 lazy_static.workspace = true
 quick_cache.workspace = true
 reqwest.workspace = true
+chrono.workspace = true
+hex.workspace = true
 semver.workspace = true
+sha2.workspace = true
+uuid.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
