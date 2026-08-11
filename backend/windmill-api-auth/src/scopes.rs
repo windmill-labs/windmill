@@ -892,11 +892,11 @@ fn scope_grants_access(
     Ok(true)
 }
 
-/// The workspace-less routes a job token (`$WM_TOKEN`) may still reach: each returns
+/// The workspace-less routes a job token (`$WM_TOKEN`) may still read: each returns
 /// only the caller's own identity or content identical for every workspace (the Hub
 /// proxy, the documentation). Read methods only — a mutating handler added on one of
 /// these paths must be reconsidered rather than inherit the grant.
-fn is_global_route_open_to_job_token(route_path: &str) -> bool {
+fn is_global_read_open_to_job_token(route_path: &str) -> bool {
     matches!(
         route_path,
         "/api/users/whoami"
@@ -909,6 +909,13 @@ fn is_global_route_open_to_job_token(route_path: &str) -> bool {
         || route_path.starts_with("/api/apps/hub/")
 }
 
+/// The one write a job token keeps. A resource editor's "Test connection" for an
+/// object-storage resource runs as a preview job that POSTs the storage config here
+/// (`TestConnection.svelte`), so this must stay reachable. The handler probes only the
+/// configuration in the request body and persists nothing, so it reads no state
+/// belonging to another workspace.
+const OBJECT_STORAGE_TEST_ROUTE: &str = "/api/settings/test_object_storage_config";
+
 /// Confines a job token (`$WM_TOKEN`) to routes that name a workspace. It is minted
 /// for one job in one workspace yet carries that job's full user privileges, so on an
 /// instance-wide route it would mint a permanent workspace-less API token, read
@@ -920,8 +927,9 @@ fn is_global_route_open_to_job_token(route_path: &str) -> bool {
 /// deliberately publishes instance-wide tools. Callers pass only routes whose path
 /// carries no workspace.
 pub fn check_job_token_for_global_route(route_path: &str, http_method: &str) -> Result<()> {
-    if map_http_method_to_action(http_method, route_path) == ScopeAction::Read
-        && is_global_route_open_to_job_token(route_path)
+    let is_read = map_http_method_to_action(http_method, route_path) == ScopeAction::Read;
+    if (is_read && is_global_read_open_to_job_token(route_path))
+        || (http_method.eq_ignore_ascii_case("POST") && route_path == OBJECT_STORAGE_TEST_ROUTE)
     {
         Ok(())
     } else {

@@ -250,5 +250,28 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
         resp.text().await?
     );
 
+    // 9. ...and the one write it keeps: the resource editor's object-storage "Test
+    //    connection" runs as a preview job that POSTs its config here. The route only
+    //    exists under `parquet`; without it every status would be a 404 and the
+    //    assertion would hold for the wrong reason. The body is deliberately not a
+    //    valid `ObjectSettings` — what matters is that the request reaches the
+    //    handler's own extractors (422) rather than the confinement guard.
+    #[cfg(feature = "parquet")]
+    {
+        let resp = authed(
+            client().post(format!("{api}/settings/test_object_storage_config")),
+            &user_wm,
+        )
+        .json(&json!({}))
+        .send()
+        .await?;
+        assert_ne!(
+            resp.status(),
+            403,
+            "WM_TOKEN must still reach the object-storage connection test: {}",
+            resp.text().await?
+        );
+    }
+
     Ok(())
 }
