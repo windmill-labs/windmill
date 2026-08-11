@@ -203,10 +203,12 @@ const TARBALL_CACHE_BYTES: u64 = 256 * 1024 * 1024;
 /// policy — a package is never refused for being large.
 const MAX_INFLATED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
-/// Backstops on what one package retains. Type declarations and manifests sit far below
-/// both; anything larger is read back on demand instead.
-const RETAINED_ENTRY_BYTES: u64 = 512 * 1024;
-const RETAINED_BYTES: u64 = 32 * 1024 * 1024;
+/// Backstops on what one package retains. Anything past them is read back on demand, which
+/// costs a walk of the archive per read, so they are set above what real packages hold
+/// rather than tightly: `aws-sdk` carries ~51 MB across 442 declarations, the heaviest
+/// known, and the cache's own byte budget is what bounds the total across packages.
+const RETAINED_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
+const RETAINED_BYTES: u64 = 128 * 1024 * 1024;
 /// Charged per entry on top of its bytes, for the `String`/`Vec` headers, their heap
 /// allocations and the map bucket. Deliberately generous: the point is that an archive of
 /// empty files cannot be free, not that the figure is exact.
@@ -228,7 +230,26 @@ fn strip_archive_root(path: &str) -> Option<&str> {
 }
 
 fn worth_retaining(path: &str) -> bool {
-    path == "package.json" || path.ends_with(".d.ts")
+    path == MANIFEST || path.ends_with(".d.ts")
+}
+
+const MANIFEST: &str = "package.json";
+
+/// What one read of an archive will hold on to. Parameterised so the bounds can be
+/// exercised without building an archive the size of the production ones.
+#[derive(Clone, Copy)]
+struct Retention {
+    max_entries: usize,
+    entry_bytes: u64,
+    total_bytes: u64,
+}
+
+impl Retention {
+    const PRODUCTION: Self = Self {
+        max_entries: MAX_ENTRIES,
+        entry_bytes: RETAINED_ENTRY_BYTES,
+        total_bytes: RETAINED_BYTES,
+    };
 }
 
 /// A package version's archive, and the small files read out of it on the way in.
@@ -606,11 +627,18 @@ async fn get_package_filetree(
     .await?;
 
     // The entry point comes from the packaged manifest rather than the registry document,
-    // which carries no `main` in its abbreviated form.
-    let main = archive
-        .small_files
-        .get("package.json")
-        .and_then(|manifest| serde_json::from_slice::<JsonValue>(manifest).ok())
+    // which carries no `main` in its abbreviated form. A manifest past the retention
+    // bounds is read back rather than assumed absent: falling through to a default would
+    // report the wrong entry point for a package that does declare one.
+    let manifest = match archive.small_files.get(MANIFEST) {
+        Some(manifest) => Some(manifest.clone()),
+        None => {
+            let archive = archive.clone();
+            blocking(move || read_one_entry(&archive.archive, MANIFEST)).await?
+        }
+    };
+    let main = manifest
+        .and_then(|manifest| serde_json::from_slice::<JsonValue>(&manifest).ok())
         .and_then(|manifest| {
             manifest
                 .get("main")
@@ -789,7 +817,10 @@ impl<R: std::io::Read> std::io::Read for BoundedRead<R> {
 
 /// Read a package archive once, keeping its file list and the entries small enough to
 /// retain. Blocking work: gunzip plus a full walk, so callers hand it to a blocking thread.
-fn read_package_archive(archive: axum::body::Bytes, max_entries: usize) -> Result<PackageArchive> {
+fn read_package_archive(
+    archive: axum::body::Bytes,
+    retention: Retention,
+) -> Result<PackageArchive> {
     use flate2::read::GzDecoder;
     use std::io::Read;
     use tar::Archive;
@@ -819,25 +850,25 @@ fn read_package_archive(archive: axum::body::Bytes, max_entries: usize) -> Resul
         let Some(stripped) = strip_archive_root(&path).map(str::to_string) else {
             continue;
         };
-        if names.len() >= max_entries {
+        if names.len() >= retention.max_entries {
             return Err(Error::BadRequest(format!(
                 "Package archive holds more than {} files",
-                max_entries
+                retention.max_entries
             )));
         }
         names.push(format!("/{}", stripped));
 
-        if !worth_retaining(&stripped) || retained >= RETAINED_BYTES {
+        if !worth_retaining(&stripped) || retained >= retention.total_bytes {
             continue;
         }
         // Read through a cap rather than sizing from the header, which an archive is free
         // to lie about, and one byte past it so an overrun is detectable.
         let mut content = Vec::new();
         (&mut entry)
-            .take(RETAINED_ENTRY_BYTES + 1)
+            .take(retention.entry_bytes + 1)
             .read_to_end(&mut content)
             .map_err(|e| Error::InternalErr(format!("Failed to read {}: {}", stripped, e)))?;
-        if content.len() as u64 <= RETAINED_ENTRY_BYTES {
+        if content.len() as u64 <= retention.entry_bytes {
             // The overhead counts against the budget too, so many empty files exhaust it
             // rather than being retained without limit.
             retained += content.len() as u64 + RETAINED_FILE_OVERHEAD;
@@ -902,7 +933,7 @@ async fn cached_package(
     }
 
     let archive = fetch_tarball(package_json, package, version, registry_url, auth_token).await?;
-    let read = blocking(move || read_package_archive(archive, MAX_ENTRIES)).await?;
+    let read = blocking(move || read_package_archive(archive, Retention::PRODUCTION)).await?;
     let package = Arc::new(read);
 
     TARBALL_CACHE.insert(
@@ -931,7 +962,7 @@ async fn blocking<T: Send + 'static>(
 mod tests {
     use super::{
         byte_bounded_cache, read_one_entry, read_package_archive, resolve_version_spec,
-        CachedTarball, PackageArchive, NAME_OVERHEAD, RETAINED_ENTRY_BYTES,
+        CachedTarball, PackageArchive, Retention, MANIFEST, NAME_OVERHEAD,
         RETAINED_FILE_OVERHEAD,
     };
     use std::collections::HashMap;
@@ -992,19 +1023,21 @@ mod tests {
         builder.into_inner().unwrap().finish().unwrap()
     }
 
+    const TINY: Retention = Retention { max_entries: 16, entry_bytes: 128, total_bytes: 4096 };
+
     #[test]
     fn only_what_a_type_request_reads_is_retained() {
         // `next` orders its manifest 3748th, behind thousands of licences, and
         // DefinitelyTyped roots its archives at the type name rather than `package`
         let archive: axum::body::Bytes = tarball(&[
             ("express/dist/compiled/a/LICENSE", 64),
-            ("express/dist/bundle.js", RETAINED_ENTRY_BYTES as usize + 1),
+            ("express/dist/bundle.js", TINY.entry_bytes as usize + 1),
             ("express/package.json", 8),
             ("express/types/index.d.ts", 32),
         ])
         .into();
 
-        let read = read_package_archive(archive.clone(), 16).unwrap();
+        let read = read_package_archive(archive.clone(), TINY).unwrap();
 
         // Every file is listed, whatever its size or kind
         assert_eq!(read.names.len(), 4);
@@ -1015,12 +1048,40 @@ mod tests {
         // and the rest stays reachable
         assert_eq!(
             read_one_entry(&archive, "dist/bundle.js").unwrap().map(|c| c.len()),
-            Some(RETAINED_ENTRY_BYTES as usize + 1)
+            Some(TINY.entry_bytes as usize + 1)
         );
         assert_eq!(read_one_entry(&archive, "absent.js").unwrap(), None);
 
         // Entry count is the one hard bound; size is never a reason to refuse a package
-        assert!(read_package_archive(archive, 1).is_err());
+        let too_few = Retention { max_entries: 1, ..TINY };
+        assert!(read_package_archive(archive, too_few).is_err());
+    }
+
+    /// `/filetree` reads the manifest back rather than defaulting, or a package whose
+    /// manifest falls outside the retention bounds reports the wrong entry point.
+    #[test]
+    fn a_manifest_past_the_bounds_is_still_readable() {
+        let manifest = format!("{{\"main\":\"lib/index.js\",\"pad\":\"{}\"}}", "x".repeat(200));
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        let mut builder = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_size(manifest.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "package/package.json", manifest.as_bytes())
+            .unwrap();
+        let archive: axum::body::Bytes = builder.into_inner().unwrap().finish().unwrap().into();
+
+        let squeezed = Retention { entry_bytes: 16, ..TINY };
+        let read = read_package_archive(archive.clone(), squeezed).unwrap();
+
+        assert!(!read.small_files.contains_key(MANIFEST));
+        let found = read_one_entry(&archive, MANIFEST).unwrap().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&found).unwrap()["main"],
+            "lib/index.js"
+        );
     }
 
     /// Weighing contents alone would price an archive of empty declarations at nearly
@@ -1038,7 +1099,8 @@ mod tests {
         )
         .into();
 
-        let read = read_package_archive(archive.clone(), 10_000).unwrap();
+        let spacious = Retention { max_entries: 10_000, total_bytes: 1 << 30, ..TINY };
+        let read = read_package_archive(archive.clone(), spacious).unwrap();
 
         assert_eq!(read.small_files.len(), 2000);
         // Charged for what each entry actually owns, not for its zero bytes of content
