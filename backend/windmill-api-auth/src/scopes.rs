@@ -695,7 +695,7 @@ fn extract_domain_from_route(
 /// runnable. Workspace-wide enumeration (`jobs/list`, counts, exports) is deliberately
 /// absent — that is `jobs:read`. Keep by-id read routes here in sync as they are added,
 /// or a run token loses the ability to follow its own run through them.
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 27] = [
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
@@ -715,13 +715,18 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 27] = [
     "jobs_u/getupdate_sse/",
     "jobs_u/get_log_file/",
     "jobs/run_progress/",
+    "jobs/dbt_graph/",
+    "jobs/dbt_resumable/",
+    "jobs/dbt_resumable_script/p/",
     "jobs/result_by_id/",
     "jobs/resume_urls/",
     "jobs/flow/user_states/",
     "jobs/job_signature/",
+    "jobs/wac_approval_urls/",
     "jobs/completed/get/",
     "jobs/completed/get_result/",
     "jobs/completed/get_result_maybe/",
+    "jobs/completed/get_timing/",
     "jobs/get_otel_traces/",
 ];
 
