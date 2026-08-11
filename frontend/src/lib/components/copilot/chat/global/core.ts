@@ -111,6 +111,8 @@ import { getDucklakeTools } from '../ducklakeTools'
 import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
+import { taskTools } from '../tasks/taskTools'
+import type { SessionTasksStore } from '../tasks/tasksState.svelte'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
@@ -1229,7 +1231,8 @@ ${
 		: `- When the user raises how a raw app looks (something is off, or they want the design or layout improved) and their description alone isn't specific enough to pinpoint the problem, ask them to paste or drop a screenshot of it into the chat before changing anything.`
 }
 - open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.
-- create_artifact saves a persistent markdown document (a planning doc, design write-up, spec, or other longer structured output) shown in the session preview panel. Prefer it over a long inline reply for content the user will revisit; keep brief answers inline. To revise one, call list_artifacts then read_artifact for the current content, then update_artifact to overwrite it — never create a second artifact for the same document. Each content change is saved as a version, keeping the most recent ones: use list_artifact_versions and read_artifact's version argument to recover earlier wording the user asks to go back to, rather than rewriting it from memory. list_artifact_versions is the source of truth for what is still available — do not assume a version that is not listed.`
+- create_artifact saves a persistent markdown document (a planning doc, design write-up, spec, or other longer structured output) shown in the session preview panel. Prefer it over a long inline reply for content the user will revisit; keep brief answers inline. To revise one, call list_artifacts then read_artifact for the current content, then update_artifact to overwrite it — never create a second artifact for the same document. Each content change is saved as a version, keeping the most recent ones: use list_artifact_versions and read_artifact's version argument to recover earlier wording the user asks to go back to, rather than rewriting it from memory. list_artifact_versions is the source of truth for what is still available — do not assume a version that is not listed.
+- For work spanning three or more distinct steps, call create_tasks once up front with the whole plan, so the user can follow along. Skip it for a single straightforward change — a task list for trivial work is noise. Mark a task in_progress before you start it (update_task), and completed as soon as it is genuinely done: do not batch completions at the end, and do not mark a task completed if it is partial, its tests fail, or you hit an error you could not resolve — leave it in_progress and say what blocked you. Usually one task runs at a time and you should work in id order, but when you start something that keeps running without you — a test run you let detach into the background — leave it in_progress and mark the next task in_progress too, so the list shows everything actually in flight rather than hiding the backgrounded work. If the plan turns out wrong, revise it (update_task, including status "deleted") rather than silently abandoning it, and call list_tasks to re-read the plan when you have lost track of what is left.`
 			: ''
 	}
 
@@ -3452,6 +3455,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	...artifactTools,
+	...taskTools,
 	{
 		def: createToolDef(
 			openPreviewSchema,
@@ -3648,7 +3652,10 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'update_artifact',
 	'list_artifacts',
 	'read_artifact',
-	'list_artifact_versions'
+	'list_artifact_versions',
+	'create_tasks',
+	'update_task',
+	'list_tasks'
 ])
 
 /**
@@ -3708,6 +3715,8 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	operatingWorkspace?: string
 	// Wired only for session chats (see AIChatManager): the artifact tools are session-gated.
 	artifacts?: SessionArtifactsStore
+	// Wired only for session chats, like `artifacts`: the task tools are session-gated.
+	tasks?: SessionTasksStore
 	getChatId?: () => string | undefined
 	// Live snapshot of the items this chat modified (`kind:path` mask keys, see
 	// modifiedItemsMask.ts); undefined when the chat doesn't track them (the global
