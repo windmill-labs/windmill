@@ -72,10 +72,17 @@ settings, so a script can neither move the temp directory nor raise the cap on i
 self-hosted default — leaves DuckDB's own default of 90% of the temp volume's free space,
 so nothing changes for an install that does not opt in. The cloud sets `6GiB` per worker
 pod (`cloudee/cloud/cloud.yml` in `infra-aws`); those pods run a single worker each, so it
-is effectively a per-pod cap and is not divided by `NUM_WORKERS`. They carry no
-`ephemeral-storage` limit, so what the cap has to stay clear of is the node's eviction
-threshold, not a per-pod one — 6 GiB against ~89 GiB of allocatable node disk shared by at
-most a handful of worker pods.
+is effectively a per-pod cap and is not divided by `NUM_WORKERS`.
+
+Those pods carry no `ephemeral-storage` limit, so what the cap has to stay clear of is the
+node's eviction threshold rather than a per-pod one, and the budget is tighter than the
+node's size suggests: a worker pod already holds 4.7-6.9 GiB of language-runtime caches and
+job dirs before any spill, so a ~100 GB node running 5-6 of them sits at 45-60 GB used at
+rest. Every pod on the fullest node spilling to its cap at the same instant would land near
+the kubelet's default `nodefs.available<10%`. That is the tail, not the common case, and it
+is still bounded where the previous behaviour was not — one query could take all the free
+space by itself — but the cap is sized against a mostly-full node, not an empty one. Re-measure
+before raising it, and re-measure if the runtime-cache baseline grows.
 
 It is read from the environment rather than passed across the FFI: the cdylib is versioned
 separately from the worker and agent workers ship it out of band, so a signature change
