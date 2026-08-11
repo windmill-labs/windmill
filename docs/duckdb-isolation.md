@@ -134,9 +134,22 @@ git am < .../crates/libduckdb-sys/windmill/0001-lock-temp-directory.patch
 GEN=ninja make && ./build/release/test/unittest "test/sql/settings/lock_temp_directory*"
 ```
 
-It has **not** been proposed to duckdb/duckdb. Their `CONTRIBUTING.md` asks contributors
-not to submit LLM-generated pull requests, and asks outside contributors to discuss the
-change on GitHub first and to run CI on a fork before opening one. Filing it is a human
-decision; until it lands in a released DuckDB, the fork is the delivery mechanism, and
-the exit path is to delete `crates/libduckdb-sys/windmill/` and go back to the crates.io
-crate.
+It is filed as **[duckdb/duckdb#24694](https://github.com/duckdb/duckdb/pull/24694)**,
+against `main` rather than `v1.5.5`. Filing was a human decision on purpose: their
+`CONTRIBUTING.md` asks contributors not to submit LLM-generated pull requests, to discuss
+the change on GitHub first, and to run CI on a fork before opening one.
+
+**[duckdb/duckdb#24695](https://github.com/duckdb/duckdb/issues/24695)** states the
+underlying problem without prescribing a fix, and is where a different design would land:
+`lock_temp_directory` is one shape, and an enforceable `allowed_directories` would solve it
+equally well. Watch the issue rather than the PR for whether this fork can be retired.
+
+The vendored copy and #24694 are the same change and must stay that way. They differ only
+where the base version forces it: the `DUCKDB_SETTING_ALIAS` indices, `vfs` versus
+`db.config.file_system` in `FileSystem::GetLocal`, and the sqllogictest directory
+placeholder. Nothing else should diverge. Note that the build applies neither the `test/`
+hunks nor `settings.json` (`NOT_IN_TARBALL` in `build_windmill_patch.rs`), so drift in
+those is invisible here and only surfaces when #24694 is rebased.
+
+Until it lands in a released DuckDB the fork is the delivery mechanism, and the exit path
+is to delete `crates/libduckdb-sys/windmill/` and go back to the crates.io crate.
