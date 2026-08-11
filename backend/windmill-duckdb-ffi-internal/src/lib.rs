@@ -237,7 +237,8 @@ fn sql_single_quote(s: &str) -> String {
 
 // Bounds memory so DuckDB spills to disk before blowing the cgroup cap and
 // getting the worker SIGKILLed. Spill goes to the job dir (when set) so it is
-// cleaned up with the job, otherwise DuckDB's default temp_directory is kept.
+// cleaned up with the job, otherwise DuckDB's default temp_directory is kept —
+// and either way the directory is then locked for the rest of the connection.
 fn configure_duckdb_resource_limits(
     conn: &duckdb::Connection,
     limits: &ResourceLimits,
@@ -257,9 +258,11 @@ fn configure_duckdb_resource_limits(
             sql_single_quote(tmp)
         ));
     }
-    if config_sql.is_empty() {
-        return Ok(());
-    }
+    // Freeze it before any script statement can move it: on a remote directory
+    // `~TemporaryDirectoryHandle` throws out of a `noexcept` destructor, which is
+    // `std::terminate` — an abort taking this in-process worker and every job
+    // colocated on it down, uncatchable from Rust.
+    config_sql.push_str("SET lock_temp_directory=true;\n");
     conn.execute_batch(&config_sql).map_err(|e| {
         format!(
             "Error configuring DuckDB resource limits: {}",
@@ -621,7 +624,8 @@ fn row_to_value(
     for (i, key) in column_names.iter().enumerate() {
         let value: duckdb::types::Value = row.get(i).map_err(|e| e.to_string())?;
         let type_alias = &type_aliases[i];
-        let json_value = duckdb_value_to_json_value(value, type_alias)?;
+        let json_value = duckdb_value_to_json_value(value, type_alias)
+            .map_err(|e| format!("column \"{key}\": {e}"))?;
         obj.insert(key.clone(), json_value);
     }
     serde_json::value::to_raw_value(&obj).map_err(|e| e.to_string())
@@ -639,6 +643,7 @@ fn duckdb_value_to_json_value(
         duckdb::types::Value::Int(i) => serde_json::Value::Number(i.into()),
         duckdb::types::Value::BigInt(i) => serde_json::Value::Number(i.into()),
         duckdb::types::Value::HugeInt(i) => serde_json::Value::String(i.to_string()),
+        duckdb::types::Value::UHugeInt(u) => serde_json::Value::String(u.to_string()),
         duckdb::types::Value::UTinyInt(u) => serde_json::Value::Number(u.into()),
         duckdb::types::Value::USmallInt(u) => serde_json::Value::Number(u.into()),
         duckdb::types::Value::UInt(u) => serde_json::Value::Number(u.into()),
@@ -660,11 +665,14 @@ fn duckdb_value_to_json_value(
                 .map_err(|e| format!("Error parsing JSON text: {}", e.to_string()))?
         }
         duckdb::types::Value::Text(s) => serde_json::Value::String(s),
-        duckdb::types::Value::Blob(b) => serde_json::Value::Array(
-            b.into_iter()
-                .map(|byte| serde_json::Value::Number(byte.into()))
-                .collect(),
-        ),
+        // GEOMETRY surfaces as WKB bytes; render it like any other byte string.
+        duckdb::types::Value::Blob(b) | duckdb::types::Value::Geometry(b) => {
+            serde_json::Value::Array(
+                b.into_iter()
+                    .map(|byte| serde_json::Value::Number(byte.into()))
+                    .collect(),
+            )
+        }
         duckdb::types::Value::Date32(d) => {
             match chrono::DateTime::from_timestamp(i64::from(d) * 86_400, 0) {
                 Some(dt) => serde_json::Value::String(dt.date_naive().to_string()),
@@ -710,6 +718,18 @@ fn duckdb_value_to_json_value(
                 .collect::<Result<serde_json::Map<_, _>, _>>()?,
         ),
         duckdb::types::Value::Union(value) => serde_json::Value::String(format!("{:?}", *value)),
+        // `Value` is `#[non_exhaustive]`: a newer engine can hand back a variant this
+        // build has never seen. Name its type instead of emitting a plausible-looking
+        // rendering that silently misrepresents the column. The type, never the value:
+        // a row that reaches here is already unprintable, and it may be arbitrarily
+        // large or hold data that does not belong in a job's error message.
+        other => {
+            return Err(format!(
+                "DuckDB type {:?} is not supported by this worker's engine bindings; \
+                 cast the column to a supported type (e.g. VARCHAR) to return it",
+                other.data_type()
+            ))
+        }
     };
     Ok(json_value)
 }
@@ -810,6 +830,44 @@ mod temporal_json_tests {
         );
         assert_eq!(json_of(3), serde_json::json!("2026-07-01"));
         assert_eq!(json_of(4), serde_json::json!("10:30:00"));
+    }
+
+    // Numbers too wide for a JSON number are rendered as strings. DECIMAL runs to
+    // 38 digits and UHUGEINT to 2^128-1; rendering either through a type that
+    // cannot hold it aborts the whole worker rather than erroring, because the
+    // panic escapes an `extern "C"` frame and those cannot unwind.
+    #[test]
+    fn wide_numbers_render_as_strings_without_losing_precision() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT (-1.05)::DECIMAL(4, 2) AS neg,
+                        (1.50)::DECIMAL(4, 2) AS trailing_zero,
+                        '1234567890123456789012345678.9012345678'::DECIMAL(38, 10) AS wide,
+                        '-9999999999999999999999999999.9999999999'::DECIMAL(38, 10) AS wide_neg,
+                        '340282366920938463463374607431768211455'::UHUGEINT AS uhuge",
+            )
+            .unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let row = rows.next().unwrap().unwrap();
+        let json_of = |i: usize| {
+            let v: duckdb::types::Value = row.get(i).unwrap();
+            duckdb_value_to_json_value(v, &None).unwrap()
+        };
+        assert_eq!(json_of(0), serde_json::json!("-1.05"));
+        assert_eq!(json_of(1), serde_json::json!("1.50"));
+        assert_eq!(
+            json_of(2),
+            serde_json::json!("1234567890123456789012345678.9012345678")
+        );
+        assert_eq!(
+            json_of(3),
+            serde_json::json!("-9999999999999999999999999999.9999999999")
+        );
+        assert_eq!(
+            json_of(4),
+            serde_json::json!("340282366920938463463374607431768211455")
+        );
     }
 
     // The data-test sample probe shape emitted by
@@ -1174,7 +1232,8 @@ fn json_value_to_duckdb_value(
                 "double" | "float8" => duckdb::types::Value::Double(v),
                 "decimal" | "numeric" => duckdb::types::Value::Decimal(
                     Decimal::from_f64(v)
-                        .ok_or_else(|| "Could not convert f64 to Decimal".to_string())?,
+                        .ok_or_else(|| "Could not convert f64 to Decimal".to_string())?
+                        .into(),
                 ),
                 _ => duckdb::types::Value::Double(v), // default fallback
             }
@@ -1220,4 +1279,160 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
         TimeUnit::Microsecond,
         time.num_seconds_from_midnight() as i64,
     ))
+}
+
+// The bundled engine is not stock (docs/duckdb-isolation.md). These two guard the ways an
+// engine bump can drop the patch without anything else noticing.
+#[cfg(test)]
+mod patched_engine_tests {
+    use super::*;
+
+    /// Too large to be answered within the `memory_limit` `spill_attempt` sets, so the engine
+    /// has to reach the temp directory to finish it.
+    const SPILLING_QUERY: &str = "CREATE TABLE t AS SELECT * FROM range(1000000)";
+
+    /// Every connection is locked at setup, so no script statement can move the temp
+    /// directory onto a remote filesystem — where the spill fails and the
+    /// `~TemporaryDirectoryHandle` cleaning up throws out of a `noexcept` destructor,
+    /// aborting the worker and every job colocated on it.
+    #[test]
+    fn configured_connections_cannot_have_their_temp_directory_moved() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "windmill_duckdb_locked_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        configure_duckdb_resource_limits(
+            &conn,
+            &ResourceLimits {
+                memory_limit: Some("2MB".to_string()),
+                temp_directory: Some(temp_dir.display().to_string()),
+            },
+        )
+        .unwrap();
+
+        for stmt in [
+            "SET temp_directory='s3://bucket/tmp'",
+            "SET temp_directory TO 's3://bucket/tmp'",
+            "PRAGMA temp_directory='s3://bucket/tmp'",
+            "RESET temp_directory",
+        ] {
+            let err = conn
+                .execute_batch(stmt)
+                .expect_err(&format!("engine accepted `{stmt}` on a locked connection"));
+            assert!(
+                err.to_string().contains("temp directory has been locked"),
+                "unexpected refusal for `{stmt}`: {err}"
+            );
+        }
+
+        // The lock must not cost the spilling it exists to protect.
+        let spilled = conn.execute_batch(SPILLING_QUERY);
+        std::fs::remove_dir_all(&temp_dir).ok();
+        spilled.expect("a locked temp directory must still be usable for spilling");
+    }
+
+    fn spill_attempt(temp_dir: &std::path::Path, lock: bool) -> Result<(), String> {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(&format!(
+            "SET threads=2; SET memory_limit='2MB'; SET temp_directory='{}';",
+            temp_dir.display()
+        ))
+        .unwrap();
+        if lock {
+            conn.execute_batch("SET lock_temp_directory=true;")
+                .map_err(|e| format!("lock_temp_directory rejected: {e}"))?;
+        }
+        conn.execute_batch("SET disabled_filesystems='LocalFileSystem';")
+            .unwrap();
+        conn.execute_batch(SPILLING_QUERY)
+            .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn locking_the_temp_directory_keeps_spilling_available() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "windmill_duckdb_spill_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Without the lock the fence reaches the buffer manager too, which is both the
+        // stock engine's behaviour and the proof that this query really does spill —
+        // otherwise the assertion below would pass on an unpatched engine.
+        let unlocked = spill_attempt(&temp_dir, false).expect_err("query did not need to spill");
+        assert!(
+            unlocked.contains("LocalFileSystem has been disabled"),
+            "expected the fence to stop the spill, got: {unlocked}"
+        );
+
+        let locked = spill_attempt(&temp_dir, true);
+        std::fs::remove_dir_all(&temp_dir).ok();
+        locked.expect("a locked temp directory must stay usable behind disabled_filesystems");
+    }
+
+    /// The exemption above is only sound while the directory cannot be moved: a script that
+    /// repointed it would get a write primitive through the very fence it is exempt from. A
+    /// rebase can drop that half of the patch while leaving the spill test green, so pin it.
+    #[test]
+    fn locking_the_temp_directory_makes_it_immutable() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch("SET temp_directory='/tmp/windmill_duckdb_lock_probe';")
+            .unwrap();
+        conn.execute_batch("SET lock_temp_directory=true;")
+            .expect("the patched engine must accept lock_temp_directory");
+
+        for stmt in [
+            "SET temp_directory='/tmp/windmill_duckdb_elsewhere';",
+            "RESET temp_directory;",
+            "SET lock_temp_directory=false;",
+            "RESET lock_temp_directory;",
+        ] {
+            let err = conn.execute_batch(stmt).expect_err(&format!(
+                "`{stmt}` must be refused once the directory is locked"
+            ));
+            assert!(
+                err.to_string().contains("locked"),
+                "expected a lock refusal for `{stmt}`, got: {err}"
+            );
+        }
+    }
+
+    // The engine loads the *prebuilt* extensions from extensions.duckdb.org, which are
+    // compiled against the struct layouts of the release it claims to be. A patch that
+    // moves a member those extensions reach does not fail — the extension reads the
+    // neighbouring field and LOAD blocks forever — so this is a timeout, not an assertion.
+    #[test]
+    fn prebuilt_extensions_still_load() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        // Fetching the extension needs egress, which loading it back — the part this guards —
+        // does not. Skipping keeps a developer offline from seeing a failure they can't act on,
+        // but never in CI, where a skip and a pass would be indistinguishable.
+        if let Err(e) = conn.execute_batch("INSTALL httpfs;") {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "could not install httpfs, so the extension-load guard did not run: {e}"
+            );
+            eprintln!("skipping: INSTALL httpfs failed ({e})");
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            tx.send(
+                conn.execute_batch("LOAD httpfs;")
+                    .map_err(|e| e.to_string()),
+            )
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(120)) {
+            Ok(r) => r.expect("could not load httpfs"),
+            Err(_) => panic!(
+                "LOAD httpfs did not return: the patched engine's struct layout no longer matches \
+                 the release the prebuilt extensions were built against"
+            ),
+        }
+    }
 }

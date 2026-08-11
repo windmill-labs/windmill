@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE resource SET value = $1, edited_at = now() WHERE path = $2 AND workspace_id = $3\n         RETURNING resource_type",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_type",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c894582ce2be367edd09aa82cf1261ce9fde9657bb4fbcb37e9c14b63ae909af"
+}

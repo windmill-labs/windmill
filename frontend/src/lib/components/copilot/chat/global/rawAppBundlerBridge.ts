@@ -12,6 +12,8 @@ type BundleRawAppFilesParams = {
 	bundlerType?: 'esbuild' | 'rolldown'
 	timeoutMs?: number
 	onLog?: (delta: string) => void
+	/** Forwarded to the bundler so its npm installer can use the workspace npm proxy. */
+	workspace?: string
 }
 
 type BundleRawAppDraftParams = BundleRawAppFilesParams & {
@@ -49,7 +51,8 @@ export function bundleRawAppFiles({
 	sharedUiFiles = {},
 	bundlerType = 'esbuild',
 	timeoutMs = DEFAULT_TIMEOUT_MS,
-	onLog
+	onLog,
+	workspace
 }: BundleRawAppFilesParams): Promise<RawAppBundle> {
 	if (typeof window === 'undefined' || typeof document === 'undefined') {
 		return Promise.reject(new Error('Raw app bundling requires a browser environment.'))
@@ -129,15 +132,18 @@ export function bundleRawAppFiles({
 
 		iframe.title = 'Raw app bundler'
 		iframe.tabIndex = -1
-		// Windmill pages use COEP=require-corp; the static UI builder iframe must be credentialless.
-		iframe.setAttribute('credentialless', '')
+		// No `credentialless`: /ui_builder/* is itself served with COEP=require-corp, so it
+		// embeds in isolated pages as is, while a credentialless frame gets an empty cookie
+		// jar, which would leave its npm installer unauthenticated against /api/w/*.
 		iframe.style.position = 'fixed'
 		iframe.style.width = '0'
 		iframe.style.height = '0'
 		iframe.style.border = '0'
 		iframe.style.opacity = '0'
 		iframe.style.pointerEvents = 'none'
-		iframe.src = '/ui_builder/index.html?mode=bundle'
+		const params = new URLSearchParams({ mode: 'bundle' })
+		if (workspace) params.set('workspace', workspace)
+		iframe.src = `/ui_builder/index.html?${params}`
 
 		window.addEventListener('message', onMessage)
 		document.body.appendChild(iframe)

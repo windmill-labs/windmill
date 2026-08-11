@@ -608,9 +608,17 @@
 	onMount(() => {
 		loadWorkspaces()
 
-		WorkspaceService.isDomainAllowed().then((x) => {
-			isDomainAllowed = x
-		})
+		// Settle on a value rather than leaving the section stuck in its in-flight
+		// state, and settle on `false`: `createWorkspace` commits the workspace
+		// before `editAutoInvite`, so offering the toggle to a domain the backend
+		// then rejects leaves a created workspace behind a failed submit.
+		WorkspaceService.isDomainAllowed()
+			.then((x) => {
+				isDomainAllowed = x
+			})
+			.catch(() => {
+				isDomainAllowed = false
+			})
 	})
 
 	let isDomainAllowed: undefined | boolean = $state(undefined)
@@ -1013,64 +1021,61 @@
 						</div>
 					{/if}
 				</div>
-				<div class="flex flex-col gap-1">
-					<label for="auto-invite" class="text-xs font-semibold text-emphasis"
-						>{isCloudHosted()
-							? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${domain}`
-							: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`}</label
-					>
-					<Toggle
-						id="auto-invite"
-						disabled={isCloudHosted() && !isDomainAllowed}
-						bind:checked={auto_invite}
-					/>
-					{#if isCloudHosted() && isDomainAllowed == false}
-						<div class="text-secondary text-2xs">{domain} domain not allowed for auto-invite</div>
-					{/if}
+				<!-- Strict `=== true`: undefined means the domain check is still in flight,
+				     and rendering then is a section that flashes in and back out. -->
+				{#if !isCloudHosted() || isDomainAllowed === true}
+					<div class="flex flex-col gap-1">
+						<label for="auto-invite" class="text-xs font-semibold text-emphasis"
+							>{isCloudHosted()
+								? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${domain}`
+								: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`}</label
+						>
+						<Toggle id="auto-invite" bind:checked={auto_invite} />
 
-					{#if auto_invite}
-						<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
-							<!-- svelte-ignore a11y_label_has_associated_control -->
-							{#if isCloudHosted()}
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-emphasis">Mode</span>
+						{#if auto_invite}
+							<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
+								<!-- svelte-ignore a11y_label_has_associated_control -->
+								{#if isCloudHosted()}
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-semibold text-emphasis">Mode</span>
+										<span class="text-xs text-secondary font-normal"
+											>Whether to invite or add users directly to the workspace.</span
+										>
+										<ToggleButtonGroup
+											selected={autoAdd ? 'add' : 'invite'}
+											on:selected={async (e) => {
+												autoAdd = e.detail === 'add'
+											}}
+										>
+											{#snippet children({ item })}
+												<ToggleButton value="invite" label="Auto-invite" {item} />
+												<ToggleButton value="add" label="Auto-add" {item} />
+											{/snippet}
+										</ToggleButtonGroup>
+									</label>
+								{/if}
+
+								<label class="font-semibold flex flex-col gap-1">
+									<span class="text-xs font-semibold text-emphasis">Role</span>
 									<span class="text-xs text-secondary font-normal"
-										>Whether to invite or add users directly to the workspace.</span
+										>Role of the auto-invited users</span
 									>
 									<ToggleButtonGroup
-										selected={autoAdd ? 'add' : 'invite'}
-										on:selected={async (e) => {
-											autoAdd = e.detail === 'add'
+										selected={operatorOnly ? 'operator' : 'developer'}
+										on:selected={(e) => {
+											operatorOnly = e.detail == 'operator'
 										}}
 									>
 										{#snippet children({ item })}
-											<ToggleButton value="invite" label="Auto-invite" {item} />
-											<ToggleButton value="add" label="Auto-add" {item} />
+											<ToggleButton value="operator" label="Operator" {item} />
+											<ToggleButton value="developer" label="Developer" {item} />
 										{/snippet}
 									</ToggleButtonGroup>
 								</label>
-							{/if}
-
-							<label class="font-semibold flex flex-col gap-1">
-								<span class="text-xs font-semibold text-emphasis">Role</span>
-								<span class="text-xs text-secondary font-normal"
-									>Role of the auto-invited users</span
-								>
-								<ToggleButtonGroup
-									selected={operatorOnly ? 'operator' : 'developer'}
-									on:selected={(e) => {
-										operatorOnly = e.detail == 'operator'
-									}}
-								>
-									{#snippet children({ item })}
-										<ToggleButton value="operator" label="Operator" {item} />
-										<ToggleButton value="developer" label="Developer" {item} />
-									{/snippet}
-								</ToggleButtonGroup>
-							</label>
-						</div>
-					{/if}
-				</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>

@@ -25,7 +25,7 @@
         "windmill-parser-wasm-java": "1.510.1",
         "windmill-parser-wasm-nu": "1.510.1",
         "windmill-parser-wasm-php": "1.647.1",
-        "windmill-parser-wasm-py": "1.693.1",
+        "windmill-parser-wasm-py": "1.782.0",
         "windmill-parser-wasm-py-imports": "1.693.1",
         "windmill-parser-wasm-r": "1.668.1",
         "windmill-parser-wasm-regex": "1.764.0",
@@ -303,7 +303,7 @@
 
     "windmill-parser-wasm-php": ["windmill-parser-wasm-php@1.647.1", "", {}, "sha512-u2qaMkupSdhJibxvkLh3r/y36IARvnYNTLXWvOKxcQ0G/BPUB4+yF5o/yf47vv9zUV5WZv4mrdsKDt/pZDYeDg=="],
 
-    "windmill-parser-wasm-py": ["windmill-parser-wasm-py@1.693.1", "", {}, "sha512-qSXKxDsKjt1UOEK1NnpKJmDrXIx/sZaGHktC6+Sj6CfhLi1X/Qj37FalOq4Es5l2qzm2NPvk4jkCXsV1QdkcHA=="],
+    "windmill-parser-wasm-py": ["windmill-parser-wasm-py@1.782.0", "", {}, "sha512-ZnpEvhbffaJI+Uq7HH1mVO6kUgR4uiAIIxaLa30Pqb1/oz0h4abT6W7bFOApIE5X9SDOuycoaDBEr9Ogm6ZLzQ=="],
 
     "windmill-parser-wasm-py-imports": ["windmill-parser-wasm-py-imports@1.693.1", "", {}, "sha512-FC0KbREe2G/sa/9kYIR930wmWw+VL6PvEIqg12J3dsJes3A+0x5JIUPT/jeD+c24DrG0ko/Ub7yDnYs56Bem7g=="],
 
