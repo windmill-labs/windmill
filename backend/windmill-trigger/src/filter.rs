@@ -153,6 +153,14 @@ fn validate_filter(filter: &Value, path: &str) -> windmill_common::error::Result
         return Ok(());
     }
 
+    // The untagged enum would take such an entry as a `key` criterion and drop the `path`
+    if filter.get("key").is_some() && filter.get("path").is_some() {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "{} names its field with both key and path; use one or the other",
+            path
+        )));
+    }
+
     let parsed = serde_json::from_value::<Filter>(filter.clone()).map_err(|err| {
         windmill_common::error::Error::BadRequest(format!(
             "{} is neither a {{key, value}} / {{path, value}} criterion nor an any_of/all_of/none_of group: {}",
@@ -596,6 +604,15 @@ mod tests {
             CompiledFilters::validate(&[json!({"anyOf": [{"key": "a", "value": 1}]})]).is_err()
         );
         assert!(CompiledFilters::validate(&[json!({"key": "a"})]).is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_a_leaf_naming_both_key_and_path() {
+        // Untagged would take it as a `key` criterion and drop the `path` without a word
+        let err = CompiledFilters::validate(&[json!({"key": "a", "path": "b.c", "value": 1})])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("both key and path"), "got: {}", err);
     }
 
     #[test]
