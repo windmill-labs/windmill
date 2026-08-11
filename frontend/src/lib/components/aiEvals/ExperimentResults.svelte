@@ -7,6 +7,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import { AiEvalsService, type EvalExperiment, type ExperimentRow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
 	import { displayDate } from '$lib/utils'
 	import { ExternalLink, RefreshCw } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -63,9 +64,13 @@
 	let resultsGeneration = 0
 	async function loadResults(path: string | undefined, id: string | undefined) {
 		const generation = ++resultsGeneration
+		// Cleared up front, not on arrival: the header names the new selection as soon as it
+		// changes, so leaving the old rows up labels one experiment's numbers as another's — and a
+		// request that fails would leave them there for good.
+		rows = []
+		scorerLabels = []
+		scorers = []
 		if (!ws || !path || !id) {
-			rows = []
-			scorerLabels = []
 			loading = false
 			return
 		}
@@ -79,6 +84,10 @@
 			rows = res.rows ?? []
 			scorerLabels = res.scorer_labels ?? []
 			scorers = (res.experiment?.scorers ?? []).map((sc) => ({ kind: sc.kind, path: sc.path }))
+		} catch (err) {
+			if (generation === resultsGeneration) {
+				sendUserToast((err as any)?.body ?? String(err), true)
+			}
 		} finally {
 			if (generation === resultsGeneration) loading = false
 		}

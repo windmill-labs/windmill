@@ -151,10 +151,16 @@ The lock only covers writers that go through the API. Workspace object storage i
 reachable from scripts through the S3 helpers, so a script appending to the JSONL itself bypasses
 it.
 
+That same reachability is why an experiment's `job_id`s are not trusted. Results are read on the
+unrestricted pool, so a forged experiment object naming somebody else's flow job would otherwise
+hand back output the jobs API would refuse. Only jobs this server stamped with that experiment's
+id (in `_eval`) are read; anything else is reported as though it had not run.
+
 ### Permissions
 
 Object storage has no per-object ACL, so a dataset's permissions are the permissions of the
 Windmill path it is named by, enforced in the handlers: reading needs read on the folder (or
-`u/<self>`, or admin), writing needs write on it, and operators cannot write at all. There is no
+`u/<self>`, or admin), writing needs write on it, and operators cannot write at all. Recording an
+experiment counts as a write — it persists into the dataset's namespace. There is no
 per-dataset `extra_perms`, and anyone who can read the workspace bucket directly can read every
 dataset — as with any other workspace file.

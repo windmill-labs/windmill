@@ -1220,7 +1220,9 @@ mod with_storage {
             ));
         }
         check_scopes(&authed, || "jobs:run".to_string())?;
-        require_can_read(&authed, &payload.dataset)?;
+        // A write, not a read: it persists an experiment into the dataset's namespace and its
+        // shared list.
+        require_can_write(&authed, &payload.dataset)?;
 
         let agent_path = payload.subject.path.clone();
         require_agent(&authed, &user_db, &w_id, &agent_path).await?;
@@ -1306,12 +1308,28 @@ mod with_storage {
         // experiment holds copies of the *old* dataset's cases. A longer lock budget than a case
         // edit gets, because the jobs are already queued and failing here strands them.
         let mut tx = db.begin().await?;
-        lock_dataset(&mut tx, &w_id, &payload.dataset, LOCK_ATTEMPTS_LAUNCH).await?;
-        let still_there = read_dataset(&client, &payload.dataset).await.ok();
-        if still_there.map(|d| d.created_at) != Some(launched_against) {
+        lock_dataset(&mut tx, &w_id, &payload.dataset, LOCK_ATTEMPTS_LAUNCH)
+            .await
+            .map_err(|_| {
+                Error::internal_err(format!(
+                    "Eval dataset {} stayed locked by another writer; this experiment's {} jobs are \
+                     running but no experiment was recorded for them. Do not retry — that would run \
+                     the dataset again on top of them.",
+                    payload.dataset,
+                    experiment.cases.len()
+                ))
+            })?;
+        let still_there = match read_dataset(&client, &payload.dataset).await {
+            Ok(dataset) => Some(dataset.created_at),
+            // Only an absence means deleted. A storage fault must surface as itself rather than as
+            // a phantom delete.
+            Err(Error::NotFound(_)) => None,
+            Err(e) => return Err(e),
+        };
+        if still_there != Some(launched_against) {
             return Err(Error::BadRequest(format!(
                 "Eval dataset {} was deleted or recreated while the experiment was starting; its \
-                 {} jobs are running but no experiment was recorded",
+                 {} jobs are running but no experiment was recorded for them",
                 payload.dataset,
                 experiment.cases.len()
             )));
@@ -1375,7 +1393,8 @@ mod with_storage {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub expected: Option<Box<RawValue>>,
         pub job_id: Uuid,
-        /// `running` until the job completes, then `success` or `failure`.
+        /// The case job's own status: `running` until it completes, then `success`, `failure`,
+        /// `canceled` or `skipped`.
         pub status: String,
         /// The agent's answer, which is what a table cell shows. The whole trajectory stays
         /// reachable through `job_id`, so the row carries the text rather than the result object.
@@ -1444,9 +1463,27 @@ mod with_storage {
             .ok_or_else(|| Error::NotFound(format!("Experiment {} not found", payload.id)))?;
         let experiment: EvalExperiment = serde_json::from_slice(&bytes)?;
 
+        // The experiment object lives in workspace object storage, which a script can write
+        // directly — so its job ids are caller-controlled. Results below are read on the
+        // unrestricted pool, so a forged experiment naming someone else's flow job would hand back
+        // output the jobs API would refuse. Only jobs this server stamped for *this* experiment
+        // are read; anything else is reported as if it had not run.
+        let job_ids: Vec<Uuid> = experiment.cases.iter().map(|c| c.job_id).collect();
+        let ours = sqlx::query_scalar!(
+            "SELECT id FROM v2_job
+             WHERE id = ANY($1) AND workspace_id = $2
+               AND args->'_eval'->>'experiment_id' = $3",
+            &job_ids,
+            &w_id,
+            experiment.id.to_string()
+        )
+        .fetch_all(&db)
+        .await?
+        .into_iter()
+        .collect::<std::collections::HashSet<Uuid>>();
+
         // One query for every case job's own status: reading the agent step's success reported a
         // case as successful even when a scorer step had failed.
-        let job_ids: Vec<Uuid> = experiment.cases.iter().map(|c| c.job_id).collect();
         let statuses = sqlx::query!(
             "SELECT id, status::text AS \"status!\" FROM v2_job_completed
              WHERE id = ANY($1) AND workspace_id = $2",
@@ -1456,6 +1493,7 @@ mod with_storage {
         .fetch_all(&db)
         .await?
         .into_iter()
+        .filter(|r| ours.contains(&r.id))
         .map(|r| (r.id, r.status))
         .collect::<std::collections::HashMap<_, _>>();
 
@@ -1466,7 +1504,11 @@ mod with_storage {
         let rows = futures::stream::iter(experiment.cases.clone().into_iter().map(|case| {
             let db = db.clone();
             let w_id = w_id.clone();
+            let is_ours = ours.contains(&case.job_id);
             async move {
+                if !is_ours {
+                    return (case, None, vec![None; scorer_count]);
+                }
                 let output = windmill_queue::get_result_and_success_by_id_from_flow(
                     &db,
                     &w_id,
