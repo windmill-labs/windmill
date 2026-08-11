@@ -1249,7 +1249,7 @@ ${
 		: `- When the user raises how a raw app looks (something is off, or they want the design or layout improved) and their description alone isn't specific enough to pinpoint the problem, ask them to paste or drop a screenshot of it into the chat before changing anything.`
 }
 - open_page opens its page as a tab in the side-panel preview next to the chat — the only way to show one of these pages there (open_preview only handles editable items). Changing filters on a page already open updates that same tab; only pass new_tab when the user explicitly asks for a separate tab.
-- create_artifact saves a persistent markdown document (a planning doc, design write-up, spec, or other longer structured output) shown in the session preview panel. Prefer it over a long inline reply for content the user will revisit; keep brief answers inline. To revise one, call list_artifacts then read_artifact for the current content, then update_artifact to overwrite it — never create a second artifact for the same document.`
+- create_artifact saves a persistent markdown document (a planning doc, design write-up, spec, or other longer structured output) shown in the session preview panel. Prefer it over a long inline reply for content the user will revisit; keep brief answers inline. To revise one, call list_artifacts then read_artifact for the current content, then update_artifact to overwrite it — never create a second artifact for the same document. Each content change is saved as a version, keeping the most recent ones: use list_artifact_versions and read_artifact's version argument to recover earlier wording the user asks to go back to, rather than rewriting it from memory. list_artifact_versions is the source of truth for what is still available — do not assume a version that is not listed.`
 			: ''
 	}
 
@@ -3670,7 +3670,8 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'create_artifact',
 	'update_artifact',
 	'list_artifacts',
-	'read_artifact'
+	'read_artifact',
+	'list_artifact_versions'
 ])
 
 /**

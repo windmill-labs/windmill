@@ -233,6 +233,19 @@ export function validateToolExpectations(input: {
       );
     }
 
+    if (rule.nonEmpty) {
+      const blankValues = values.filter(
+        (value) => typeof value !== "string" || value.trim().length === 0
+      );
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} is filled in on every call`,
+          blankValues.length === 0,
+          `blank on ${blankValues.length} of ${values.length} call(s); values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
     if (rule.fieldMustBeAbsent) {
       // Anything other than `undefined` was supplied — an explicit `null` is the
       // model passing the field, not omitting it.

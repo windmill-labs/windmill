@@ -6191,7 +6191,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill-common"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -6274,7 +6274,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6286,7 +6286,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "convert_case",
  "serde",
@@ -6295,7 +6295,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6307,7 +6307,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -6319,7 +6319,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -6331,7 +6331,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6343,7 +6343,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -6355,7 +6355,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -6366,7 +6366,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -6377,7 +6377,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -6389,7 +6389,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-asset"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "rustpython-ast",
@@ -6400,7 +6400,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -6422,7 +6422,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-r"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -6434,7 +6434,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ruby"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6448,7 +6448,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "convert_case",
@@ -6465,7 +6465,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6478,7 +6478,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql-asset"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -6490,7 +6490,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6508,7 +6508,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts-asset"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "serde-wasm-bindgen",
@@ -6524,7 +6524,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wac"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "rustpython-ast",
@@ -6540,7 +6540,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.17",
@@ -6572,7 +6572,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -6586,7 +6586,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-types"
-version = "1.783.0"
+version = "1.784.0"
 dependencies = [
  "anyhow",
  "bitflags",

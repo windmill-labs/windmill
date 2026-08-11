@@ -174,6 +174,52 @@ describe("validateToolExpectations", () => {
     expect(checks.every((check) => check.passed)).toBe(true);
   });
 
+  it("fails nonEmpty when any call left the field blank", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 2,
+        toolsUsed: ["update_artifact"],
+        toolCallDetails: [
+          { name: "update_artifact", arguments: { change_note: "Added a rollback section" } },
+          // A whitespace-only note is as unreadable in the picker as a missing one.
+          { name: "update_artifact", arguments: { change_note: "   " } },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [{ tool: "update_artifact", field: "change_note", nonEmpty: true }],
+      },
+    });
+
+    const nonEmptyCheck = checks.find((c) => c.name.includes("is filled in on every call"));
+    expect(nonEmptyCheck?.passed).toBe(false);
+    expect(nonEmptyCheck?.details).toContain("blank on 1 of 2");
+  });
+
+  it("passes nonEmpty when every call filled the field", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["update_artifact"],
+        toolCallDetails: [
+          { name: "update_artifact", arguments: { change_note: "Tightened phase 2" } },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [{ tool: "update_artifact", field: "change_note", nonEmpty: true }],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
   it("accepts a stringIncludesAnyOf substring inside an array-valued field", () => {
     const checks = validateToolExpectations({
       run: {
