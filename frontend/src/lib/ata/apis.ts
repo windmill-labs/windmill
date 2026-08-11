@@ -25,7 +25,9 @@ const backendProxyApi = async <T>(endpoint: string, resLimit: ResLimit): Promise
 		const baseUrl = getBackendProxyUrl()
 		const url = `${baseUrl}${endpoint}`
 
-		return limit(() =>
+		// `await`, not a bare `return`: an async function adopts a returned promise after
+		// leaving the try block, so a rejection would escape the catch below.
+		return await limit(() =>
 			fetch(url, { credentials: 'include' }).then((res) => {
 				if (res.ok) {
 					return res.text().then((text) => {
@@ -39,7 +41,10 @@ const backendProxyApi = async <T>(endpoint: string, resLimit: ResLimit): Promise
 			})
 		)
 	} catch (e) {
-		return new Error('Backend proxy not available')
+		// Keep the cause: where the proxy is the only reachable source, this is the sole
+		// report of a failed acquisition, since callers only test the result for `Error`.
+		console.warn(`Backend proxy request to ${endpoint} failed`, e)
+		return new Error(`Backend proxy not available: ${e}`)
 	}
 }
 
@@ -131,23 +136,37 @@ export const getDTSFileForModuleWithVersion = async (
 ) => {
 	// file comes with a prefix /
 	const url = `https://cdn.jsdelivr.net/npm/${moduleName}@${version}${file}`
-	const res = await limit(() => fetch(url))
-	if (res.ok) {
-		return res.text()
-	} else {
-		// Try backend proxy
-		console.log('jsdelivr failed for file', moduleName, version, file, 'trying backend proxy')
-		try {
-			const baseUrl = getBackendProxyUrl()
-			const proxyUrl = `${baseUrl}/file/${encodeURIComponent(moduleName)}/${encodeURIComponent(version)}${file}`
-			const proxyRes = await limit(() => fetch(proxyUrl, { credentials: 'include' }))
-			if (proxyRes.ok) {
-				return proxyRes.text()
-			}
-		} catch (e) {
-			console.log('Backend proxy failed for file', e)
-		}
-		return new Error('OK')
+	const res = await text(url)
+	if (typeof res === 'string') {
+		return res
+	}
+
+	// Try backend proxy
+	console.log('jsdelivr failed for file', moduleName, version, file, 'trying backend proxy')
+	try {
+		const baseUrl = getBackendProxyUrl()
+		const proxyUrl = `${baseUrl}/file/${encodeURIComponent(moduleName)}/${encodeURIComponent(version)}${file}`
+		const proxied = await text(proxyUrl, { credentials: 'include' })
+		// The callers in ata/index.ts log a fixed message and drop the value, so a cause
+		// left inside the returned `Error` is a cause nothing ever prints.
+		if (proxied instanceof Error) console.warn('Backend proxy failed for file', proxied)
+		return proxied
+	} catch (e) {
+		console.warn('Backend proxy failed for file', e)
+		return new Error(`Backend proxy not available: ${e}`)
+	}
+}
+
+/**
+ * Reading the body can fail as readily as connecting, and both have to surface as a value
+ * rather than a rejection for the caller's fallback to run.
+ */
+async function text(url: string, init?: RequestInit): Promise<string | Error> {
+	try {
+		const res = await limit(() => fetch(url, init))
+		return res.ok ? await res.text() : new Error(`${res.status} for ${url}`)
+	} catch (e) {
+		return new Error(`Request to ${url} failed: ${e}`)
 	}
 }
 
@@ -166,21 +185,26 @@ function api<T>(url: string, resLimit: ResLimit, init?: RequestInit): Promise<T 
 		console.warn(
 			`Exceeded limit of types downloaded for the needs of the assistant fetching: ${url}, ${resLimit.usage}`
 		)
-		return new Promise(() => new Error('Exceeded limit of 100MB of data downloaded.'))
+		return Promise.resolve(new Error('Exceeded limit of 100MB of data downloaded.'))
 	}
 
+	// Every caller decides what to do next by testing the resolved value for `Error`, so a
+	// rejection here is not an alternative signal: it skips the backend-proxy fallback and
+	// propagates out of type acquisition entirely.
 	return limit(() =>
-		fetch(url, init).then((res) => {
-			if (res.ok) {
-				return res.text().then((text) => {
-					resLimit.usage += text.length
-					console.log('resLimit', url, resLimit.usage)
+		fetch(url, init)
+			.then((res) => {
+				if (res.ok) {
+					return res.text().then((text) => {
+						resLimit.usage += text.length
+						console.log('resLimit', url, resLimit.usage)
 
-					return JSON.parse(text) as T
-				}) as Promise<T | Error>
-			} else {
-				return new Error('OK')
-			}
-		})
+						return JSON.parse(text) as T
+					}) as Promise<T | Error>
+				} else {
+					return new Error('OK')
+				}
+			})
+			.catch((e) => new Error(`Request to ${url} failed: ${e}`))
 	)
 }
