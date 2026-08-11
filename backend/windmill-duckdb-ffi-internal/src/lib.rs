@@ -237,7 +237,8 @@ fn sql_single_quote(s: &str) -> String {
 
 // Bounds memory so DuckDB spills to disk before blowing the cgroup cap and
 // getting the worker SIGKILLed. Spill goes to the job dir (when set) so it is
-// cleaned up with the job, otherwise DuckDB's default temp_directory is kept.
+// cleaned up with the job, otherwise DuckDB's default temp_directory is kept —
+// and either way the directory is then locked for the rest of the connection.
 fn configure_duckdb_resource_limits(
     conn: &duckdb::Connection,
     limits: &ResourceLimits,
@@ -257,9 +258,11 @@ fn configure_duckdb_resource_limits(
             sql_single_quote(tmp)
         ));
     }
-    if config_sql.is_empty() {
-        return Ok(());
-    }
+    // Freeze it before any script statement can move it: on a remote directory
+    // `~TemporaryDirectoryHandle` throws out of a `noexcept` destructor, which is
+    // `std::terminate` — an abort taking this in-process worker and every job
+    // colocated on it down, uncatchable from Rust.
+    config_sql.push_str("SET lock_temp_directory=true;\n");
     conn.execute_batch(&config_sql).map_err(|e| {
         format!(
             "Error configuring DuckDB resource limits: {}",
@@ -1282,9 +1285,55 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
 // engine bump can drop the patch without anything else noticing.
 #[cfg(test)]
 mod patched_engine_tests {
+    use super::*;
+
     /// Too large to be answered within the `memory_limit` `spill_attempt` sets, so the engine
     /// has to reach the temp directory to finish it.
     const SPILLING_QUERY: &str = "CREATE TABLE t AS SELECT * FROM range(1000000)";
+
+    /// Every connection is locked at setup, so no script statement can move the temp
+    /// directory onto a remote filesystem — where the spill fails and the
+    /// `~TemporaryDirectoryHandle` cleaning up throws out of a `noexcept` destructor,
+    /// aborting the worker and every job colocated on it.
+    #[test]
+    fn configured_connections_cannot_have_their_temp_directory_moved() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "windmill_duckdb_locked_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        configure_duckdb_resource_limits(
+            &conn,
+            &ResourceLimits {
+                memory_limit: Some("2MB".to_string()),
+                temp_directory: Some(temp_dir.display().to_string()),
+            },
+        )
+        .unwrap();
+
+        for stmt in [
+            "SET temp_directory='s3://bucket/tmp'",
+            "SET temp_directory TO 's3://bucket/tmp'",
+            "PRAGMA temp_directory='s3://bucket/tmp'",
+            "RESET temp_directory",
+        ] {
+            let err = conn
+                .execute_batch(stmt)
+                .expect_err(&format!("engine accepted `{stmt}` on a locked connection"));
+            assert!(
+                err.to_string().contains("temp directory has been locked"),
+                "unexpected refusal for `{stmt}`: {err}"
+            );
+        }
+
+        // The lock must not cost the spilling it exists to protect.
+        let spilled = conn.execute_batch(SPILLING_QUERY);
+        std::fs::remove_dir_all(&temp_dir).ok();
+        spilled.expect("a locked temp directory must still be usable for spilling");
+    }
 
     fn spill_attempt(temp_dir: &std::path::Path, lock: bool) -> Result<(), String> {
         let conn = duckdb::Connection::open_in_memory().unwrap();
