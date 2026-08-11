@@ -207,11 +207,14 @@ const MAX_ENTRIES: usize = 100_000;
 /// costs a walk of the archive per read, so it sits above what real packages hold rather
 /// than tightly.
 const RETAINED_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
-/// Ceiling on everything one read holds: the file list and the retained entries together.
-/// Declarations past it are left to a read on demand rather than refused; only the file
-/// list, which has to be complete for `/filetree` to be right, refuses. `aws-sdk` is the
-/// heaviest package known here at ~51 MB across 442 declarations, well clear of it.
-const RETAINED_BYTES: u64 = 128 * 1024 * 1024;
+/// Ceiling on the entries one read keeps. Declarations past it are left to a read on
+/// demand rather than refused, so this bounds memory without bounding what is servable.
+/// `aws-sdk` is the heaviest package known here at ~51 MB across 442 declarations.
+const RETAINED_BYTES: u64 = 96 * 1024 * 1024;
+/// Ceiling on the file list, counted apart from the entries so that filling one cannot
+/// trip the other. Unlike the entries this one refuses when exceeded: a file tree missing
+/// entries is a wrong answer, not a slower one. `next` lists ~8.5k paths for ~1 MB.
+const RETAINED_PATH_BYTES: u64 = 32 * 1024 * 1024;
 /// Charged per entry on top of its bytes, for the `String`/`Vec` headers, their heap
 /// allocations and the map bucket. Deliberately generous: the point is that an archive of
 /// empty files cannot be free, not that the figure is exact.
@@ -222,7 +225,7 @@ const RETAINED_FILE_OVERHEAD: u64 = 160;
 /// builds its map before the cache ever weighs it. Keeping the per-read ceiling well under
 /// the cache budget also keeps a package clear of the single shard's admission ceiling
 /// (`budget × 0.97`), past which it would be served but silently never cached.
-const _: () = assert!(RETAINED_BYTES * 2 <= TARBALL_CACHE_BYTES);
+const _: () = assert!((RETAINED_BYTES + RETAINED_PATH_BYTES) * 2 <= TARBALL_CACHE_BYTES);
 
 /// npm roots its own tarballs at `package/`, but publishers vary — DefinitelyTyped roots
 /// at the type name — so the leading component is dropped whatever it is. Matching
@@ -251,6 +254,7 @@ struct Retention {
     max_entries: usize,
     entry_bytes: u64,
     total_bytes: u64,
+    path_bytes: u64,
 }
 
 impl Retention {
@@ -258,6 +262,7 @@ impl Retention {
         max_entries: MAX_ENTRIES,
         entry_bytes: RETAINED_ENTRY_BYTES,
         total_bytes: RETAINED_BYTES,
+        path_bytes: RETAINED_PATH_BYTES,
     };
 }
 
@@ -826,6 +831,9 @@ fn read_package_archive(
 
     let mut names = Vec::new();
     let mut small_files = HashMap::new();
+    // Counted apart: one overflow refuses, the other stops keeping entries, so sharing a
+    // counter would let a package full of declarations be refused by the path check.
+    let mut path_bytes = 0u64;
     let mut retained = 0u64;
 
     for entry in tar
@@ -853,11 +861,11 @@ fn read_package_archive(
         // an archive of long names would otherwise grow `names` without limit while
         // reporting almost no weight. This one has to refuse rather than skip — a file
         // tree missing entries is a wrong answer, not a slower one.
-        retained += stripped.len() as u64 + NAME_OVERHEAD;
-        if retained > retention.total_bytes {
+        path_bytes += stripped.len() as u64 + NAME_OVERHEAD;
+        if path_bytes > retention.path_bytes {
             return Err(Error::BadRequest(format!(
                 "Package archive holds more than {} bytes of file paths",
-                retention.total_bytes
+                retention.path_bytes
             )));
         }
         names.push(format!("/{}", stripped));
@@ -1054,7 +1062,8 @@ mod tests {
         builder.into_inner().unwrap().finish().unwrap()
     }
 
-    const TINY: Retention = Retention { max_entries: 16, entry_bytes: 128, total_bytes: 4096 };
+    const TINY: Retention =
+        Retention { max_entries: 16, entry_bytes: 128, total_bytes: 4096, path_bytes: 4096 };
 
     #[test]
     fn only_what_a_type_request_reads_is_retained() {
@@ -1088,10 +1097,27 @@ mod tests {
         let too_few = Retention { max_entries: 1, ..TINY };
         assert!(read_package_archive(archive.clone(), too_few).is_err());
         // room for the four paths, not for any file body
-        let squeezed = Retention { total_bytes: 400, ..TINY };
+        // Filling the entry budget leaves the file list alone: the package is still served
+        let squeezed = Retention { total_bytes: 8, ..TINY };
         let read = read_package_archive(archive, squeezed).unwrap();
         assert!(read.small_files.is_empty());
         assert_eq!(read.names.len(), 4);
+
+        // and a package whose declarations fill that budget is served too, rather than
+        // refused by the path check for bytes the declarations spent
+        let declarations: Vec<(String, usize)> = (0..20)
+            .map(|i| (format!("pkg/t{}.d.ts", i), TINY.entry_bytes as usize - 1))
+            .collect();
+        let heavy: axum::body::Bytes = tarball(
+            &declarations
+                .iter()
+                .map(|(path, size)| (path.as_str(), *size))
+                .collect::<Vec<_>>(),
+        )
+        .into();
+        let read = read_package_archive(heavy, Retention { max_entries: 32, ..TINY }).unwrap();
+        assert_eq!(read.names.len(), 20);
+        assert!(read.small_files.len() < 20, "the budget should have stopped retaining");
     }
 
     /// `/filetree` reads the manifest back rather than defaulting, or a package whose
@@ -1138,7 +1164,8 @@ mod tests {
         )
         .into();
 
-        let spacious = Retention { max_entries: 10_000, total_bytes: 1 << 30, ..TINY };
+        let spacious =
+            Retention { max_entries: 10_000, total_bytes: 1 << 30, path_bytes: 1 << 30, ..TINY };
         let read = read_package_archive(archive.clone(), spacious).unwrap();
 
         assert_eq!(read.small_files.len(), 2000);
@@ -1152,7 +1179,7 @@ mod tests {
         // so an archive of them is refused rather than silently truncated.
         let long = format!("package/{}.js", "p".repeat(2000));
         let padded: axum::body::Bytes = tarball(&[(long.as_str(), 0)]).into();
-        assert!(read_package_archive(padded, Retention { total_bytes: 512, ..TINY }).is_err());
+        assert!(read_package_archive(padded, Retention { path_bytes: 512, ..TINY }).is_err());
     }
 
     /// A cache that splits its budget across shards refuses anything heavier than one
