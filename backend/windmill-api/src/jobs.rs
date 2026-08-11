@@ -78,7 +78,7 @@ use crate::{
     users::{
         get_scope_tags, require_owner_of_path, require_path_read_access_for_preview, OptAuthed,
     },
-    utils::{check_scopes, content_plain, require_super_admin},
+    utils::{build_scope_path_predicate, check_scopes, content_plain, require_super_admin},
 };
 use anyhow::Context;
 use axum::{
@@ -1599,6 +1599,12 @@ async fn require_job_read_access(
 /// a flow step's `runnable_path` is the inner runnable's, so a `jobs:run:flows:<flow>`
 /// token inspecting its own run must still reach the steps beneath it.
 ///
+/// An `apps:run|write:<app>` scope is a start grant too, so a job an app launched
+/// (`trigger_kind = 'app'`, an app-provenance stamp `/jobs/run` cannot forge) satisfies
+/// the confinement for a token scoped to that app. Without this, a token holding both
+/// could start an app's inline-script component but not read the run back — those jobs
+/// are `AppScript`/`Preview` kinds that no `jobs:run` scope can name.
+///
 /// No-op — and no query — for every caller whose job reads are not run-confined (see
 /// `job_read_run_confinement`), which is all sessions, unscoped tokens and `jobs:read`
 /// tokens.
@@ -1637,7 +1643,8 @@ async fn require_job_within_run_scope(
                                     LIMIT 1),
                                 'script'
                             ) = 'flow' THEN 'flows' ELSE 'scripts' END
-                END AS scope_kind
+                END AS scope_kind,
+                CASE WHEN j.trigger_kind = 'app' THEN j.trigger END AS launched_by_app
             FROM v2_job j JOIN chain c ON c.id = j.id
             WHERE j.workspace_id = $2"#,
         job_id,
@@ -1646,12 +1653,19 @@ async fn require_job_within_run_scope(
     .fetch_all(db)
     .await?;
 
+    let runs_app = build_scope_path_predicate(authed, "apps", "run");
     let in_scope = chain.iter().any(|job| {
         match (job.runnable_path.as_deref(), job.scope_kind.as_deref()) {
-            (Some(runnable_path), Some(kind)) => {
-                windmill_api_auth::scopes::run_confinement_admits(&confinement, kind, runnable_path)
+            (Some(runnable_path), Some(kind))
+                if windmill_api_auth::scopes::run_confinement_admits(
+                    &confinement,
+                    kind,
+                    runnable_path,
+                ) =>
+            {
+                true
             }
-            _ => false,
+            _ => job.launched_by_app.as_deref().is_some_and(&runs_app),
         }
     });
 

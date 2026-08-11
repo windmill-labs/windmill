@@ -50,6 +50,8 @@ const EMBED_OWN_QUEUED: &str = "13131313-1313-1313-1313-131313131313";
 // SCRIPT and one around a FLOW.
 const WRAPPED_JOB: &str = "14141414-1414-1414-1414-141414141414";
 const WRAPPED_FLOW_JOB: &str = "15151515-1515-1515-1515-151515151515";
+// An inline-script component run of app `u/test-user-2/dash` (`trigger_kind = 'app'`).
+const APP_INLINE_JOB: &str = "16161616-1616-1616-1616-161616161616";
 // Queued sub-flow test-user-3 can see (folder `shared`), whose parent top flow they
 // cannot. Force cancel walks up to that parent.
 const QUEUED_VISIBLE_MID: &str = "55555555-5555-5555-5555-555555555555";
@@ -453,6 +455,31 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
             "{denied} must not read a wrapper around the other kind (got {status}): {body}"
         );
     }
+
+    // An `apps:run:<app>` scope is a start grant too: the inline-script component run it
+    // launched — a kind no `jobs:run` scope can name — stays readable to a token scoped
+    // to that app, and stays out of reach for one that is only scoped to run jobs.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{APP_INLINE_JOB}"),
+        Some("APP_RUNNER_TOKEN"),
+    )
+    .await;
+    assert!(
+        status.is_success() && body.contains("APP_INLINE_RESULT"),
+        "app-scoped token must read the component run its app launched (got {status}): {body}"
+    );
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{APP_INLINE_JOB}"),
+        Some("RUN_SCOPED_SCRIPT_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "a token with no scope on the app must not read its component run (got {status}): {body}"
+    );
 
     // And a run grant is not an enumeration grant: the whole listing surface is denied.
     let (status, body) = get(&authed_base, "list", Some("RUN_SCOPED_TOKEN")).await;
