@@ -200,6 +200,20 @@ export function isFileResource(path: string): boolean {
   );
 }
 
+/**
+ * Local resource path -> the resource's path on the server. The suffix is
+ * `.resource.<yaml|json>` on a metadata file but `.resource.file.<ext>` on a
+ * file resource, so its length depends on which of the two the path is.
+ */
+export function removeResourceSuffix(path: string): string {
+  if (isFileResource(path)) {
+    // isFileResource only matches a dotless extension, so the resource path is
+    // everything before the trailing `resource`, `file`, `<ext>` segments.
+    return path.split(".").slice(0, -3).join(".");
+  }
+  return path.replace(/\.resource\.(yaml|json)$/, "");
+}
+
 /** Matches children inside a .fileset/ directory, not the directory itself. */
 export function isFilesetResource(path: string): boolean {
   return path.includes(".fileset/") || path.includes(".fileset\\");
