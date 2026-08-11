@@ -13,26 +13,41 @@
 	let {
 		job,
 		tools = [],
-		historyPath
+		historyPath,
+		workspace = undefined
 	}: {
 		job: (Job & { result?: any }) | undefined
 		tools?: AgentTool[]
 		/** Exact job path of this case's runs. Absent for an unsaved case, which has no history. */
 		historyPath?: string
+		/** The workspace the drawer operates on, which differs from the nav workspace in fork and
+		 * session editors. */
+		workspace?: string
 	} = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let tab = $state<'result' | 'trajectory' | 'history'>('result')
 
 	// The run history is a plain jobs-list query on the path the run was stamped with — the runs
 	// are the stored result, so there is no separate record to keep in step with them.
 	let history = $state<Job[]>([])
+	// Switching case leaves the previous query in flight; only the newest may write, or the case
+	// you just left fills in the history of the one you are looking at.
+	let historyGeneration = 0
 	$effect(() => {
 		const path = historyPath
-		const workspace = $workspaceStore
-		if (!path || !workspace || tab !== 'history') return
-		JobService.listJobs({ workspace, scriptPathExact: path, perPage: 20 })
-			.then((jobs) => (history = jobs))
-			.catch(() => (history = []))
+		const w = ws
+		const generation = ++historyGeneration
+		history = []
+		if (!path || !w || tab !== 'history') return
+		JobService.listJobs({ workspace: w, scriptPathExact: path, perPage: 20 })
+			.then((jobs) => {
+				if (generation === historyGeneration) history = jobs
+			})
+			.catch(() => {
+				if (generation === historyGeneration) history = []
+			})
 	})
 
 	// The child AI agent job holds the trajectory; the wrapper flow job only holds the result.

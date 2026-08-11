@@ -26,6 +26,7 @@
 	import {
 		caseLabel,
 		caseRunPath,
+		comparableCase,
 		emptyCase,
 		fromCaptureDraft,
 		fromStoredCase,
@@ -253,7 +254,9 @@
 		// have to go inline instead — running the stored case while the editor shows something else
 		// would silently test the wrong thing — and such a run has no case to trace back to.
 		const savedCase = cases.find((c) => c.id === draft.id)
-		const edited = savedCase != undefined && !deepEqual(fromStoredCase(savedCase), draft)
+		const edited =
+			savedCase != undefined &&
+			!deepEqual(comparableCase(fromStoredCase(savedCase)), comparableCase(draft))
 		const stored = draft.id && selectedDataset && !edited
 		if (edited) {
 			sendUserToast('Running the unsaved edits; save the case to record the run against it')
@@ -453,7 +456,7 @@
 			</Pane>
 			<Pane size={37} minSize={25}>
 				<div class="h-full pl-2">
-					<EvalRunResult {job} tools={agentTools} {historyPath} />
+					<EvalRunResult {job} tools={agentTools} {historyPath} workspace={ws} />
 				</div>
 			</Pane>
 		</Splitpanes>

@@ -45,3 +45,28 @@ export function caseLabel(c: Pick<CaseDraft, 'name' | 'input'>): string {
 export function caseRunPath(agentPath: string, datasetPath: string, caseId: string): string {
 	return `${agentPath}/${datasetPath}/${caseId}`
 }
+
+/**
+ * A draft reduced to what a case actually is, for comparing an edited draft against the case it
+ * came from. The editor materializes keys the stored case omits (`messages: undefined` when there
+ * is no conversation), so comparing the raw objects reports an untouched case as edited — which
+ * would send it inline and strip the dataset/case stamp its run history depends on.
+ */
+export function comparableCase(draft: CaseDraft): unknown {
+	return JSON.parse(
+		JSON.stringify({
+			name: draft.name || undefined,
+			input: {
+				user_message: draft.input?.user_message || undefined,
+				user_attachments: draft.input?.user_attachments?.length
+					? draft.input.user_attachments
+					: undefined,
+				messages: draft.input?.messages?.length ? draft.input.messages : undefined
+			},
+			host_flow_path: draft.host_flow_path || undefined,
+			tool_inputs: draft.tool_inputs,
+			expected: draft.expected,
+			tags: draft.tags?.length ? draft.tags : undefined
+		})
+	)
+}
