@@ -5,6 +5,11 @@ pub use crate::email_ee::*;
 #[cfg(not(feature = "private"))]
 use crate::server::Smtp;
 
+/// Every send below is a no-op in this build, so callers that report success to a user (the
+/// instance-settings SMTP test) have to say so instead of claiming the email went out.
+#[cfg(not(feature = "private"))]
+pub const SMTP_ENABLED: bool = false;
+
 #[cfg(not(feature = "private"))]
 pub async fn send_email(
     _subject: &str,

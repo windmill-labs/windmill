@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { createToolDef, type Tool } from '../shared'
+import { currentVersion } from './artifactsDB'
 import type { SessionArtifactsStore } from './artifactsState.svelte'
 
 // The subset of GlobalToolHelpers these tools read. Kept local (not imported from
@@ -14,6 +15,11 @@ type ArtifactToolHelpers = {
 
 const MAX_ARTIFACT_BYTES = 256 * 1024
 
+// Bounds what a snapshot stores and replays to the model. Enforced by truncation rather
+// than by the schema: rejecting the call would throw away a real content update over a
+// cosmetic label, and the model would have to resend the whole document to recover.
+const MAX_NOTE_CHARS = 120
+
 const createArtifactSchema = z.object({
 	name: z.string().describe('Short display title for the artifact.'),
 	content: z.string().describe('Full markdown content of the artifact.')
@@ -22,13 +28,26 @@ const createArtifactSchema = z.object({
 const updateArtifactSchema = z.object({
 	id: z.string().describe('Id of the artifact to update, from create_artifact or list_artifacts.'),
 	content: z.string().describe('New full markdown content, replacing the previous content.'),
-	name: z.string().optional().describe('New display title. Omit to keep the current one.')
+	name: z.string().optional().describe('New display title. Omit to keep the current one.'),
+	change_note: z
+		.string()
+		.describe(
+			'What this edit changes, as a short label the user will read in the version picker: under 60 characters, no trailing period, starting with a verb — "Added rollback section", "Tightened the phase 2 wording".'
+		)
 })
 
 const listArtifactsSchema = z.object({})
 
 const readArtifactSchema = z.object({
-	id: z.string().describe('Id of the artifact to read.')
+	id: z.string().describe('Id of the artifact to read.'),
+	version: z
+		.number()
+		.optional()
+		.describe('Version to read, from list_artifact_versions. Omit for the current content.')
+})
+
+const listArtifactVersionsSchema = z.object({
+	id: z.string().describe('Id of the artifact whose history to list.')
 })
 
 function tooLarge(content: string): string | undefined {
@@ -93,7 +112,13 @@ export const artifactTools: Tool<{}>[] = [
 			}
 			const updated = await h.artifacts.update(
 				parsed.id,
-				{ content: parsed.content, name: parsed.name },
+				{
+					content: parsed.content,
+					name: parsed.name,
+					// Blank collapses to undefined, not "": an empty string is not nullish, so it
+					// would slip past the picker's fallback and render a row with no label.
+					note: parsed.change_note.trim().slice(0, MAX_NOTE_CHARS) || undefined
+				},
 				{ sessionId }
 			)
 			if (!updated) {
@@ -134,7 +159,7 @@ export const artifactTools: Tool<{}>[] = [
 		def: createToolDef(
 			readArtifactSchema,
 			'read_artifact',
-			"Read an artifact's full markdown content by id."
+			"Read an artifact's full markdown content by id, at its current or an earlier version."
 		),
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = readArtifactSchema.parse(args)
@@ -151,13 +176,70 @@ export const artifactTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: error, error })
 				return JSON.stringify({ success: false, error })
 			}
+			if (parsed.version !== undefined && parsed.version !== currentVersion(artifact)) {
+				const snapshot = await h.artifacts.getVersion(parsed.id, parsed.version, { sessionId })
+				if (!snapshot) {
+					// Pruned or never existed; either way the model should re-list rather than retry.
+					const error = `Artifact "${artifact.name}" has no version ${parsed.version}. Call list_artifact_versions for the versions still kept.`
+					toolCallbacks.setToolStatus(toolId, { content: error, error })
+					return JSON.stringify({ success: false, error })
+				}
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Read artifact "${artifact.name}" (v${snapshot.version})`
+				})
+				return JSON.stringify({
+					id: artifact.id,
+					name: snapshot.name,
+					kind: artifact.kind,
+					version: snapshot.version,
+					savedAt: new Date(snapshot.savedAt).toISOString(),
+					content: snapshot.content
+				})
+			}
 			toolCallbacks.setToolStatus(toolId, { content: `Read artifact "${artifact.name}"` })
 			return JSON.stringify({
 				id: artifact.id,
 				name: artifact.name,
 				kind: artifact.kind,
+				version: currentVersion(artifact),
 				content: artifact.content
 			})
+		}
+	},
+	{
+		def: createToolDef(
+			listArtifactVersionsSchema,
+			'list_artifact_versions',
+			"List an artifact's saved versions, newest first. Read one with read_artifact's version argument."
+		),
+		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
+			const parsed = listArtifactVersionsSchema.parse(args)
+			const h = helpers as ArtifactToolHelpers
+			const sessionId = h.sessionId
+			if (!h.artifacts || !sessionId) {
+				toolCallbacks.setToolStatus(toolId, { content: UNAVAILABLE, error: UNAVAILABLE })
+				return JSON.stringify({ success: false, error: UNAVAILABLE })
+			}
+			const artifact = await h.artifacts.get(parsed.id)
+			if (!artifact || artifact.sessionId !== sessionId) {
+				const error = `No artifact found with id "${parsed.id}".`
+				toolCallbacks.setToolStatus(toolId, { content: error, error })
+				return JSON.stringify({ success: false, error })
+			}
+			const versions = await h.artifacts.listVersions(parsed.id, { sessionId })
+			const current = currentVersion(artifact)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Listed ${versions.length} version${versions.length === 1 ? '' : 's'} of "${artifact.name}"`
+			})
+			return JSON.stringify(
+				versions.map((v) => ({
+					version: v.version,
+					current: v.version === current,
+					name: v.name,
+					savedAt: new Date(v.savedAt).toISOString(),
+					...(v.note ? { note: v.note } : {})
+				}))
+			)
 		}
 	}
 ]

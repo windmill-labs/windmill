@@ -29,7 +29,8 @@
 		useWorkspaceDrafts
 	} from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
-	import { userStore } from '$lib/stores'
+	import { userStore, userWorkspaces } from '$lib/stores'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -160,6 +161,10 @@
 	// On by default: a fork inherits the parent's drafts on creation, and those
 	// (unrelated to the fork's own work) are the common case worth hiding.
 	let hideUnchanged = $state(true)
+
+	const currentNoun = $derived(
+		childWorkspaceNoun($userWorkspaces.find((w) => w.id === currentWorkspaceId))
+	)
 
 	// The list (and, in the default view, the Draft Count) come from the Workspace
 	// Drafts module; deploy/discard invalidate the resource, so the list refetches
@@ -663,8 +668,7 @@
 							size="xs"
 							options={{
 								right: 'Hide unchanged drafts',
-								rightTooltip:
-									"Hide drafts identical to the parent workspace. A fork inherits the parent's drafts when it's created; those are unrelated to the changes made in this fork."
+								rightTooltip: `Hide drafts identical to the parent workspace. A ${currentNoun} inherits the parent's drafts when it's created; those are unrelated to the changes made in this ${currentNoun}.`
 							}}
 						/>
 					{/if}
