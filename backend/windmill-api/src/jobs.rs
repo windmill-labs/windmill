@@ -1613,15 +1613,33 @@ async fn require_job_within_run_scope(
     else {
         return Ok(());
     };
+    // `scope_kind` is the runnable kind a `jobs:run:<kind>:<path>` scope can name, or
+    // NULL for a job no such scope reaches directly (previews, dependency jobs,
+    // flow-inlined scripts) — those are still readable as a step of a matching flow,
+    // through their ancestors. A `singlestepflow` wraps either a script or a flow, so it
+    // projects onto the wrapped runnable the same way the batch-rerun query does.
     let chain = sqlx::query!(
-        r#"WITH RECURSIVE chain(id, parent_job, runnable_path, kind) AS (
-                SELECT id, parent_job, runnable_path, kind FROM v2_job
-                    WHERE id = $1 AND workspace_id = $2
+        r#"WITH RECURSIVE chain(id, parent_job) AS (
+                SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2
                 UNION ALL
-                SELECT j.id, j.parent_job, j.runnable_path, j.kind FROM v2_job j
+                SELECT j.id, j.parent_job FROM v2_job j
                     JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
             )
-            SELECT runnable_path, kind AS "kind!: JobKind" FROM chain"#,
+            SELECT j.runnable_path,
+                CASE
+                    WHEN j.kind IN ('script', 'script_hub', 'unassigned_script') THEN 'scripts'
+                    WHEN j.kind IN ('flow', 'unassigned_flow') THEN 'flows'
+                    WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN
+                        CASE WHEN COALESCE(
+                                (SELECT m->'value'->>'type'
+                                    FROM jsonb_array_elements(j.raw_flow->'modules') m
+                                    WHERE m->>'id' IN ('a', 'main')
+                                    LIMIT 1),
+                                'script'
+                            ) = 'flow' THEN 'flows' ELSE 'scripts' END
+                END AS scope_kind
+            FROM v2_job j JOIN chain c ON c.id = j.id
+            WHERE j.workspace_id = $2"#,
         job_id,
         w_id,
     )
@@ -1629,21 +1647,12 @@ async fn require_job_within_run_scope(
     .await?;
 
     let in_scope = chain.iter().any(|job| {
-        let Some(runnable_path) = job.runnable_path.as_deref() else {
-            return false;
-        };
-        // Only the kinds a `jobs:run:<kind>:<path>` scope can name. Anything else
-        // (previews, dependency jobs, flow-inlined scripts) can still be reached as a
-        // step of a matching flow, through its ancestors.
-        let kind = match job.kind {
-            JobKind::Script | JobKind::Script_Hub | JobKind::UnassignedScript => "scripts",
-            JobKind::Flow
-            | JobKind::SingleStepFlow
-            | JobKind::UnassignedFlow
-            | JobKind::UnassignedSinglestepFlow => "flows",
-            _ => return false,
-        };
-        windmill_api_auth::scopes::run_confinement_admits(&confinement, kind, runnable_path)
+        match (job.runnable_path.as_deref(), job.scope_kind.as_deref()) {
+            (Some(runnable_path), Some(kind)) => {
+                windmill_api_auth::scopes::run_confinement_admits(&confinement, kind, runnable_path)
+            }
+            _ => false,
+        }
     });
 
     if in_scope {

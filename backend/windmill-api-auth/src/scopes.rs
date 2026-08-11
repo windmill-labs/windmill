@@ -826,16 +826,21 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
         || suffix.starts_with("resources/type/")
 }
 
-/// The `jobs:run:<kind>:<path>` scopes a token's job reads are confined to, or `None`
-/// when they are not confined to particular runnables.
+/// The `jobs:run` scopes a token's job reads are confined to, or `None` when they are
+/// not confined to particular runnables.
 ///
-/// A path-scoped run token is what the trigger UI mints per script or flow and hands to
-/// a webhook caller / CI job: it may start that one runnable and follow that run, so its
-/// by-id job reads must stay within the runnables it can start (enforced by
-/// `require_job_read_access`). Returns `None` — unconfined — when the token is
-/// effectively unscoped, or carries a jobs scope that grants job reads in its own right:
-/// `jobs:read`/`jobs:write`, or a `jobs:run` naming no resource (it can start anything,
-/// so confining its reads to "what it may run" would restrict nothing).
+/// A run scope is what the trigger UI mints per script or flow and hands to a webhook
+/// caller / CI job: it may start the runnables it names and follow those runs, so its
+/// by-id job reads must stay within what it can start (enforced by
+/// `require_job_read_access`). Both the path (`jobs:run:flows:f/team/etl`) and the
+/// kind-only (`jobs:run:scripts`, which legacy `jobs:runscript` tokens carry) forms
+/// confine, since `ScopeDefinition::includes` already matches a candidate
+/// `jobs:run:<kind>:<path>` against either.
+///
+/// Returns `None` — unconfined — when the token is effectively unscoped, or carries a
+/// jobs scope that grants job reads in its own right: `jobs:read`/`jobs:write`, or a
+/// bare `jobs:run` (it can start anything, so confining its reads to "what it may run"
+/// would restrict nothing).
 pub fn job_read_run_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDefinition>> {
     let mut confinement = Vec::new();
     for scope in scopes?
@@ -849,7 +854,9 @@ pub fn job_read_run_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDe
             continue;
         }
         match ScopeAction::from_str(&scope.action) {
-            Some(ScopeAction::Run) if scope.resource.is_some() => confinement.push(scope),
+            Some(ScopeAction::Run) if scope.kind.is_some() || scope.resource.is_some() => {
+                confinement.push(scope)
+            }
             Some(_) => return None,
             None => continue,
         }
@@ -1177,7 +1184,7 @@ mod tests {
     }
 
     #[test]
-    fn only_resource_scoped_jobs_run_confines_job_reads() {
+    fn run_scopes_confine_job_reads_by_kind_and_path() {
         let confinement =
             job_read_run_confinement(Some(&["jobs:run:flows:f/team/*".to_string()])).unwrap();
         assert!(run_confinement_admits(&confinement, "flows", "f/team/etl"));
@@ -1193,11 +1200,15 @@ mod tests {
             "f/other/etl"
         ));
 
+        // A kind-only scope confines to that kind, at any path.
+        let kind_only = job_read_run_confinement(Some(&["jobs:run:scripts".to_string()])).unwrap();
+        assert!(run_confinement_admits(&kind_only, "scripts", "u/admin/anything"));
+        assert!(!run_confinement_admits(&kind_only, "flows", "f/team/etl"));
+
         // Scopes that grant job reads in their own right leave reads unconfined.
         for scopes in [
             vec!["jobs:read".to_string()],
             vec!["jobs:run".to_string()],
-            vec!["jobs:run:scripts".to_string()],
             vec![
                 "jobs:run:scripts:u/admin/script".to_string(),
                 "jobs:read".to_string(),

@@ -46,6 +46,8 @@ const RUNNING_JOB: &str = "77777777-7777-7777-7777-777777777777";
 const EMBED_OWN_JOB: &str = "12121212-1212-1212-1212-121212121212";
 // A QUEUED job launched by the embed viewer (created_by test-user) — cancelable by it.
 const EMBED_OWN_QUEUED: &str = "13131313-1313-1313-1313-131313131313";
+// A `singlestepflow` wrapping a SCRIPT (as native retry / scheduled runs produce).
+const WRAPPED_JOB: &str = "14141414-1414-1414-1414-141414141414";
 // Queued sub-flow test-user-3 can see (folder `shared`), whose parent top flow they
 // cannot. Force cancel walks up to that parent.
 const QUEUED_VISIBLE_MID: &str = "55555555-5555-5555-5555-555555555555";
@@ -426,6 +428,31 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
             );
         }
     }
+    // A `singlestepflow` wrapper (native retry / scheduled run) belongs to the runnable
+    // it wraps, not to the flow domain its `kind` suggests: the script-scoped token reads
+    // it, the flow-scoped one does not.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{WRAPPED_JOB}"),
+        Some("RUN_SCOPED_SCRIPT_TOKEN"),
+    )
+    .await;
+    assert!(
+        status.is_success() && body.contains("WRAPPED_RESULT"),
+        "script-scoped token must read its script's singlestepflow run (got {status}): {body}"
+    );
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{WRAPPED_JOB}"),
+        Some("RUN_SCOPED_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "flow-scoped token must not read a script-wrapped singlestepflow (got {status}): {body}"
+    );
+
     // And a run grant is not an enumeration grant: the whole listing surface is denied.
     let (status, body) = get(&authed_base, "list", Some("RUN_SCOPED_TOKEN")).await;
     assert_eq!(
