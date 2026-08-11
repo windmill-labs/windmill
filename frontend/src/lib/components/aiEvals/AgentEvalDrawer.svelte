@@ -82,6 +82,7 @@
 	let paneTab = $state<'cases' | 'results'>('cases')
 	let scorers = $state<{ kind: 'script' | 'flow' | 'agent'; path: string; name?: string }[]>([])
 	let experimentToken = $state(0)
+	let startedExperimentId = $state<string | undefined>(undefined)
 	let startingExperiment = $state(false)
 
 	async function loadDatasets() {
@@ -281,7 +282,7 @@
 		}
 		startingExperiment = true
 		try {
-			await AiEvalsService.runExperiment({
+			startedExperimentId = await AiEvalsService.runExperiment({
 				workspace: ws,
 				requestBody: {
 					dataset: selectedDataset,
@@ -602,6 +603,7 @@
 								dataset={selectedDataset}
 								workspace={ws}
 								refreshToken={experimentToken}
+								selectExperimentId={startedExperimentId}
 							/>
 						</div>
 					{/if}

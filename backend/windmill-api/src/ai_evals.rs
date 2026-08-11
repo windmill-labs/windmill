@@ -614,7 +614,23 @@ mod with_storage {
         // would let a failure between the two deletes leave the cases behind *and* unblock
         // recreating the path — the new dataset would open holding the old one's cases. This way
         // a failure leaves an empty dataset, which is visible and retryable.
-        for key in [cases_key(&path), meta_key(&path)] {
+        // Experiments first, for the same reason cases precede metadata: they hold copies of the
+        // cases, so a delete that stopped halfway must not leave them readable under a recreated
+        // dataset of the same path.
+        use futures::TryStreamExt;
+        let experiment_keys: Vec<String> = client
+            .list(Some(&ObjectPath::from(
+                format!("{}/{}", EXPERIMENTS_PREFIX, path).as_str(),
+            )))
+            .map_ok(|meta| meta.location.to_string())
+            .try_collect()
+            .await
+            .map_err(object_store_error_to_error)?;
+
+        for key in experiment_keys
+            .into_iter()
+            .chain([cases_key(&path), meta_key(&path)])
+        {
             match client.delete(&ObjectPath::from(key.as_str())).await {
                 Ok(()) => {}
                 Err(ObjectStoreError::NotFound { .. }) => {}
@@ -1397,11 +1413,26 @@ mod with_storage {
             .ok_or_else(|| Error::NotFound(format!("Experiment {} not found", payload.id)))?;
         let experiment: EvalExperiment = serde_json::from_slice(&bytes)?;
 
+        // One query for every case job's own status: reading the agent step's success reported a
+        // case as successful even when a scorer step had failed.
+        let job_ids: Vec<Uuid> = experiment.cases.iter().map(|c| c.job_id).collect();
+        let statuses = sqlx::query!(
+            "SELECT id, status::text AS \"status!\" FROM v2_job_completed
+             WHERE id = ANY($1) AND workspace_id = $2",
+            &job_ids,
+            &w_id
+        )
+        .fetch_all(&db)
+        .await?
+        .into_iter()
+        .map(|r| (r.id, r.status))
+        .collect::<std::collections::HashMap<_, _>>();
+
         let mut rows = Vec::with_capacity(experiment.cases.len());
         for case in &experiment.cases {
             // Each case is its own flow, so its steps are read back by node id rather than by
             // walking a nested loop's status.
-            let (output, success) = windmill_queue::get_result_and_success_by_id_from_flow(
+            let output = windmill_queue::get_result_and_success_by_id_from_flow(
                 &db,
                 &w_id,
                 &case.job_id,
@@ -1409,8 +1440,8 @@ mod with_storage {
                 None,
             )
             .await
-            .map(|(r, s)| (agent_answer(&r), Some(s)))
-            .unwrap_or((None, None));
+            .ok()
+            .and_then(|(r, _)| agent_answer(&r));
 
             let mut scores = Vec::with_capacity(experiment.scorers.len());
             for index in 0..experiment.scorers.len() {
@@ -1433,11 +1464,10 @@ mod with_storage {
                 input: case.input.clone(),
                 expected: case.expected.clone(),
                 job_id: case.job_id,
-                status: match success {
-                    Some(true) => "success".to_string(),
-                    Some(false) => "failure".to_string(),
-                    None => "running".to_string(),
-                },
+                status: statuses
+                    .get(&case.job_id)
+                    .cloned()
+                    .unwrap_or_else(|| "running".to_string()),
                 output,
                 scores,
             });

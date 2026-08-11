@@ -78,8 +78,8 @@ draft for review rather than writing anything:
   everything before it replayed as the agent's memory and whatever the agent answered after it
   kept as `expected`. Splitting there rather than at the end is what makes a finished
   conversation — which ends on the assistant — yield a runnable case. Tool messages are left out:
-  their content is keyed to call ids this replay will not reissue. `expected` has no consumer
-  yet; it is recorded now because it is only available at capture time.
+  their content is keyed to call ids this replay will not reissue. `expected` is what a scorer
+  compares a rerun against, and capture time is the only moment it exists.
 
 ## Experiments
 

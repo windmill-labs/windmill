@@ -26246,7 +26246,7 @@ components:
         tool_inputs:
           type: object
         expected:
-          description: Reference output. Recorded at capture time; nothing scores it yet.
+          description: Reference output a scorer compares a rerun against.
         tags:
           type: array
           items:
@@ -26283,7 +26283,7 @@ components:
         tool_inputs:
           type: object
         expected:
-          description: What the captured run answered.
+          description: What the captured run answered, kept as the reference to score against.
         source:
           $ref: "#/components/schemas/EvalCaseSource"
         agent_path:

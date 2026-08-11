@@ -14,12 +14,15 @@
 	let {
 		dataset,
 		workspace = undefined,
-		refreshToken = 0
+		refreshToken = 0,
+		selectExperimentId = undefined
 	}: {
 		dataset: string | undefined
 		workspace?: string
 		/** Bumped by the parent when it starts an experiment, to pick the new one up. */
 		refreshToken?: number
+		/** The experiment the parent just started, which becomes the selected one. */
+		selectExperimentId?: string
 	} = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
@@ -33,6 +36,7 @@
 	// against the run before the change says whether the change helped.
 	let baselineId = $state<string | undefined>(undefined)
 	let baselineRows = $state<ExperimentRow[]>([])
+	let baselineLabels = $state<string[]>([])
 	let onlyRegressions = $state(false)
 
 	let listGeneration = 0
@@ -46,8 +50,11 @@
 		const found = await AiEvalsService.listExperiments({ workspace: ws, path }).catch(() => [])
 		if (generation !== listGeneration) return
 		experiments = found
-		// Newest first from the API, so an unset or vanished selection lands on the latest run.
-		if (!selectedId || !found.some((e) => e.id === selectedId)) {
+		// A just-started experiment wins; otherwise, newest first from the API means an unset or
+		// vanished selection lands on the latest run.
+		if (selectExperimentId && found.some((e) => e.id === selectExperimentId)) {
+			selectedId = selectExperimentId
+		} else if (!selectedId || !found.some((e) => e.id === selectedId)) {
 			selectedId = found[0]?.id
 		}
 	}
@@ -88,13 +95,19 @@
 		const id = baselineId
 		const generation = ++baselineGeneration
 		baselineRows = []
+		baselineLabels = []
 		if (!ws || !path || !id) return
 		AiEvalsService.experimentResults({ workspace: ws, requestBody: { dataset: path, id } })
 			.then((res) => {
-				if (generation === baselineGeneration) baselineRows = res.rows ?? []
+				if (generation !== baselineGeneration) return
+				baselineRows = res.rows ?? []
+				baselineLabels = res.scorer_labels ?? []
 			})
 			.catch(() => {
-				if (generation === baselineGeneration) baselineRows = []
+				if (generation === baselineGeneration) {
+					baselineRows = []
+					baselineLabels = []
+				}
 			})
 	})
 
@@ -102,9 +115,17 @@
 		Object.fromEntries(baselineRows.map((r) => [r.case_id, r]))
 	)
 
+	// The two experiments' scorer lists can differ, so a delta is only meaningful between the same
+	// scorer — matched by label, not by its position in the array.
+	function baselineIndex(index: number): number {
+		return baselineLabels.indexOf(scorerLabels[index])
+	}
+
 	function delta(row: ExperimentRow, index: number): number | undefined {
+		const other = baselineIndex(index)
+		if (other < 0) return undefined
 		const now = row.scores?.[index]
-		const before = baselineByCase[row.case_id]?.scores?.[index]
+		const before = baselineByCase[row.case_id]?.scores?.[other]
 		if (typeof now !== 'number' || typeof before !== 'number') return undefined
 		return now - before
 	}
@@ -135,8 +156,10 @@
 	let regressionCount = $derived(baselineId ? rows.filter(isRegression).length : 0)
 	let meanDeltas = $derived(
 		scorerLabels.map((_, index) => {
+			const other = baselineIndex(index)
+			if (other < 0) return undefined
 			const before = baselineRows
-				.map((r) => r.scores?.[index])
+				.map((r) => r.scores?.[other])
 				.filter((v): v is number => typeof v === 'number')
 			if (before.length === 0 || means[index] == undefined) return undefined
 			return means[index]! - before.reduce((a, b) => a + b, 0) / before.length
