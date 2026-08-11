@@ -559,9 +559,10 @@ fn format_byte_size(bytes: usize) -> String {
 /// Rows whose destination is storage should never be collected at all, so lead
 /// with the way to keep them out of it.
 ///
-/// Only the limit is quoted. Collection stops on the row that crosses it, so the
-/// running total is just the threshold plus one row — naming it as the result
-/// size would be inventing a number nobody measured.
+/// Only the limit is quoted. Neither caller knows a number worth naming: the row
+/// loop stops on the row that crosses the threshold, so its total is the threshold
+/// plus one row, and the expansion guard refuses on a projection while the total
+/// can still be zero.
 fn result_too_large_message(max_result_size: usize) -> String {
     format!(
         "Query result too large: collecting it passed the {} limit.\n\
@@ -614,7 +615,7 @@ mod result_size_guard_tests {
     fn a_wide_blob_is_refused_before_it_is_expanded() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
         let mut collected = 0;
-        // 1MB of blob expands to ~24MB of `Value`, well past this budget, while the
+        // 1MB of blob expands to ~72MB of `Value`, well past this budget, while the
         // running total is still zero — nothing else in the loop would catch it.
         let err = do_duckdb_inner(
             &conn,
@@ -629,6 +630,32 @@ mod result_size_guard_tests {
         .expect_err("a blob expanding past the budget must be refused");
         assert!(err.contains("Query result too large"), "{err}");
         assert_eq!(collected, 0, "it was refused before being counted");
+    }
+
+    /// `Budget` charges expansions visible in the value tree, and escaping is not
+    /// one of them — it happens while the finished row is written, which is before
+    /// anything weighs it. Only bounding the writer catches that.
+    #[test]
+    fn escaping_cannot_outgrow_the_row_budget() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        // 100k control characters: ~100KB of `String`, ~600KB once escaped.
+        let attempt = |budget: usize| {
+            do_duckdb_inner(
+                &conn,
+                "SELECT repeat(chr(1), 100000) AS a",
+                &HashMap::new(),
+                false,
+                false,
+                &mut None,
+                budget,
+                &mut 0,
+            )
+        };
+
+        let err = attempt(300_000).expect_err("the escaped form does not fit 300KB");
+        assert!(err.contains("Query result too large"), "{err}");
+        // Room for the escaped form, so the same row goes through.
+        assert_eq!(attempt(2_000_000).unwrap().len(), 1);
     }
 
     /// The budget is per row, not per value: a blob nested in a container reaches
@@ -651,16 +678,16 @@ mod result_size_guard_tests {
             )
         };
 
-        // One 1MB blob expands to ~24MB, over the 8MB cap, but it is reached only
+        // One 1MB blob expands to ~72MB, over the 8MB cap, but it is reached only
         // by descending into the LIST.
         let nested = attempt("SELECT [repeat('a', 1000000)::BLOB] AS b")
             .expect_err("a blob inside a LIST must be charged too");
         assert!(nested.contains("Query result too large"), "{nested}");
 
-        // Four 100KB blobs are ~2.4MB each — each fits, the row does not.
+        // Four 30KB blobs are ~2.2MB each — every one fits on its own, the row does not.
         let siblings = attempt(
-            "SELECT repeat('a', 100000)::BLOB AS a, repeat('b', 100000)::BLOB AS b,
-                    repeat('c', 100000)::BLOB AS c, repeat('d', 100000)::BLOB AS d",
+            "SELECT repeat('a', 30000)::BLOB AS a, repeat('b', 30000)::BLOB AS b,
+                    repeat('c', 30000)::BLOB AS c, repeat('d', 30000)::BLOB AS d",
         )
         .expect_err("sibling blobs must be charged against one shared budget");
         assert!(siblings.contains("Query result too large"), "{siblings}");
@@ -812,6 +839,42 @@ fn interpolate_named_args<'a>(
     (query, values)
 }
 
+/// Serializes to JSON without letting the output outgrow `budget`.
+///
+/// The expansions the `Budget` charges are the ones visible in the value tree;
+/// escaping is not one of them. A control character becomes the six-byte
+/// `\u0001`, so a row that fit the budget as `Value`s can still allocate several
+/// times it while being written — and the write happens before the finished row
+/// is ever weighed. Bounding the writer keeps that inside the budget.
+fn to_raw_value_within<T: serde::Serialize>(value: &T, budget: usize) -> Option<Box<RawValue>> {
+    struct Budgeted {
+        buf: Vec<u8>,
+        left: usize,
+    }
+    impl std::io::Write for Budgeted {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.left {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "row over budget",
+                ));
+            }
+            self.left -= bytes.len();
+            self.buf.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut writer = Budgeted { buf: Vec::new(), left: budget };
+    serde_json::to_writer(&mut writer, value).ok()?;
+    String::from_utf8(writer.buf)
+        .ok()
+        .and_then(|s| RawValue::from_string(s).ok())
+}
+
 /// How much a row may still expand to, carried through every value it contains.
 ///
 /// Only weighed rows reach the running total, so anything that balloons *during*
@@ -851,7 +914,8 @@ fn row_to_value(
             .map_err(|e| format!("column \"{key}\": {e}"))?;
         obj.insert(key.clone(), json_value);
     }
-    serde_json::value::to_raw_value(&obj).map_err(|e| e.to_string())
+    to_raw_value_within(&obj, budget.remaining)
+        .ok_or_else(|| result_too_large_message(budget.limit))
 }
 
 fn duckdb_value_to_json_value(
