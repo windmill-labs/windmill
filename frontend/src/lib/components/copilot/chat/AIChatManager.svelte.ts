@@ -1846,7 +1846,8 @@ export class AIChatManager {
 	private configureGlobalMode = () => {
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
-			skills: this.globalSkills
+			skills: this.globalSkills,
+			webSearch: this.globalWebSearchAdvertised
 		})
 		const sessionCtx = this.sessionContextResolver?.()
 		if (sessionCtx) {
@@ -1905,6 +1906,21 @@ export class AIChatManager {
 		}
 	}
 
+	/** Web-search availability the GLOBAL system message was last built against. */
+	private globalWebSearchAdvertised: boolean | undefined = undefined
+
+	/** Keep the GLOBAL prompt's web-search guidance matching what the loop will
+	 * actually hand the model. `available` is the loop's effective value, so this
+	 * covers a mid-conversation provider switch and the runtime rejection probe
+	 * alike — neither of which the prompt could observe on its own. */
+	private syncGlobalWebSearchGuidance = (available: boolean) => {
+		if (this.mode !== AIMode.GLOBAL || available === this.globalWebSearchAdvertised) {
+			return
+		}
+		this.globalWebSearchAdvertised = available
+		this.rebuildGlobalSystemMessage()
+	}
+
 	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
 	// the update_user_instructions tool) is picked up on the next chat-loop iteration, which
 	// re-reads this.systemMessage via a getter.
@@ -1914,7 +1930,10 @@ export class AIChatManager {
 		}
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
-			skills: this.globalSkills
+			skills: this.globalSkills,
+			// Carry the loop's observed availability: re-deriving would lose a runtime
+			// rejection, which the static provider/settings gates cannot see.
+			webSearch: this.globalWebSearchAdvertised
 		})
 		// Preserve the session-state and active pipeline-editor augmentations that
 		// configureGlobalMode adds — otherwise update_user_instructions (which calls
@@ -2334,8 +2353,9 @@ export class AIChatManager {
 					}
 					return undefined
 				},
-				onBeforeIteration: async (tools, _helpers, modelProvider) => {
+				onBeforeIteration: async (tools, _helpers, modelProvider, webSearch) => {
 					this.lastIterationModel = modelProvider
+					this.syncGlobalWebSearchGuidance(webSearch)
 					for (const tool of tools) {
 						if (tool.setSchema) {
 							await tool.setSchema(this.helpers)
@@ -3135,6 +3155,9 @@ export class AIChatManager {
 				addedMessages: collectedMessages,
 				onWebSearchUnavailable: () => {
 					webSearchUnavailable = true
+					// The loop drops the tool for the rest of this workspace+model; drop the
+					// guidance with it so the retry and later turns stop advertising it.
+					this.syncGlobalWebSearchGuidance(false)
 				}
 			})
 			const wasAborted = this.abortController?.signal.aborted ?? false

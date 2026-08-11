@@ -977,7 +977,7 @@ Use \`patch_file\` for small, localized edits when you can copy an exact snippet
 ### Discovery
 - \`search_workspace(query, type)\`: Search workspace scripts and flows
 - \`get_runnable_details(path, type)\`: Get details (summary, description, schema, content) of a specific script or flow
-- \`search_hub_scripts(query)\`: Search hub scripts
+- \`search_hub_scripts(query, integration)\`: Search hub scripts, or list one integration's scripts by slug
 
 ### Data Tables
 - \`list_datatables()\`: List configured datatables with schema and table names only. Does not include columns. Use this directly for table-list or available-tables summaries.

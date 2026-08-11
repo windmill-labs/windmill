@@ -100,7 +100,9 @@ vi.mock('../lib', () => ({
 		getOpenaiClient: mocks.getOpenaiClient,
 		getAnthropicClient: mocks.getAnthropicClient
 	},
-	getNonStreamingCompletion: mocks.getNonStreamingCompletion
+	getNonStreamingCompletion: mocks.getNonStreamingCompletion,
+	providerSupportsWebSearch: (provider: string | undefined) =>
+		provider === 'openai' || provider === 'anthropic'
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -272,6 +274,41 @@ describe('AIChatManager global skills', () => {
 		expect(mocks.listAiSkills).toHaveBeenCalledWith({ workspace: 'child' })
 		expect(manager.systemMessage.content).toContain('child-skill')
 		expect(manager.systemMessage.content).not.toContain('parent-skill')
+	})
+
+	// The loop drops the web-search tool on a provider switch or a runtime rejection.
+	// Rebuilding the prompt from the static gates alone would re-advertise it, and the
+	// recorded flag then suppresses any further rebuild — so it would never come back.
+	it('tracks the loop web search availability, and keeps a rebuild from resurrecting it', async () => {
+		const sendWith = async (manager: AIChatManager, webSearch: boolean) => {
+			let sent = ''
+			mocks.runChatLoop.mockImplementation(async (config: any) => {
+				await config.onBeforeIteration?.(
+					[],
+					undefined,
+					{ provider: 'openai', model: 'gpt-5' },
+					webSearch
+				)
+				sent = config.systemMessage.content
+				const message = { role: 'assistant' as const, content: 'done' }
+				config.addedMessages?.push(message)
+				return {
+					addedMessages: [message],
+					tokenUsage: { prompt: 0, completion: 0, total: 0 },
+					hitMaxIterations: false
+				}
+			})
+			await manager.sendRequest({ instructions: 'go', mode: AIMode.GLOBAL })
+			return sent
+		}
+
+		const manager = new AIChatManager()
+		expect(await sendWith(manager, true)).toContain('search the web')
+		expect(await sendWith(manager, false)).not.toContain('search the web')
+
+		// A later rebuild for an unrelated reason must not resurrect the guidance.
+		manager.rebuildGlobalSystemMessage()
+		expect(manager.systemMessage.content).not.toContain('search the web')
 	})
 
 	it('expands a leading slash skill command for the model while preserving the displayed text', async () => {

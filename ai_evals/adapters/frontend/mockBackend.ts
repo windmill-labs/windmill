@@ -952,6 +952,85 @@ export async function main(discord_webhook: DiscordWebhook, message: string) {
 				message: { type: 'string' }
 			}
 		}
+	},
+	// Baremetrics carries no annotation script, on purpose: it stands for an
+	// integration whose conventions (an `apiKey` resource, bearer auth, the /v1
+	// base) are only learnable by reading a script that does something else.
+	{
+		version_id: 8995,
+		app: 'baremetrics',
+		summary: 'List Sources',
+		description: 'List all the sources attached to a Baremetrics account.',
+		terms: 'baremetrics sources list revenue metrics',
+		language: 'bunnative',
+		content: `//native
+type Baremetrics = {
+  apiKey: string;
+};
+export async function main(resource: Baremetrics) {
+  const response = await fetch("https://api.baremetrics.com/v1/sources", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: \`Bearer \${resource.apiKey}\`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(\`\${response.status} \${await response.text()}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['resource'],
+			properties: { resource: { type: 'object', format: 'resource-baremetrics' } }
+		}
+	},
+	{
+		version_id: 8996,
+		app: 'baremetrics',
+		summary: 'Create Customer',
+		description: 'Create a customer on a Baremetrics source.',
+		terms: 'baremetrics customer create source',
+		language: 'bunnative',
+		content: `//native
+type Baremetrics = {
+  apiKey: string;
+};
+export async function main(
+  resource: Baremetrics,
+  sourceId: string,
+  body: { oid: string; name?: string; email?: string },
+) {
+  const response = await fetch(
+    \`https://api.baremetrics.com/v1/\${sourceId}/customers\`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: \`Bearer \${resource.apiKey}\`,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(\`\${response.status} \${await response.text()}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['resource', 'sourceId', 'body'],
+			properties: {
+				resource: { type: 'object', format: 'resource-baremetrics' },
+				sourceId: { type: 'string' },
+				body: { type: 'object' }
+			}
+		}
 	}
 ]
 
@@ -961,20 +1040,23 @@ export async function main(discord_webhook: DiscordWebhook, message: string) {
  * integration, or overlapping on three meaningful words. A looser bar answers
  * "send a Slack message" with the Discord fixture, handing an unrelated case a
  * plausible-looking wrong integration. */
-function searchBenchmarkHubScripts(text: string) {
+function searchBenchmarkHubScripts(text: string, app: string | null) {
 	const tokens = new Set(
 		text
 			.toLowerCase()
 			.split(/[^a-z0-9]+/)
 			.filter((token) => token.length > 2)
 	)
-	return BENCHMARK_HUB_SCRIPTS.map((script) => {
-		const words = new Set(
-			`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
-		)
-		const score = [...tokens].filter((token) => words.has(token)).length
-		return { script, score, namesApp: tokens.has(script.app) }
-	})
+	// The real endpoint filters by app before ranking, so honour it here too —
+	// otherwise a narrowed search silently returns other integrations' scripts.
+	return BENCHMARK_HUB_SCRIPTS.filter((script) => !app || script.app === app)
+		.map((script) => {
+			const words = new Set(
+				`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
+			)
+			const score = [...tokens].filter((token) => words.has(token)).length
+			return { script, score, namesApp: tokens.has(script.app) }
+		})
 		.filter((entry) => entry.namesApp || entry.score >= 3)
 		.sort((a, b) => b.score - a.score)
 		.map(({ script }, index) => ({
@@ -986,6 +1068,23 @@ function searchBenchmarkHubScripts(text: string) {
 			kind: 'script',
 			score: 1 - index * 0.01
 		}))
+}
+
+/** Listing an integration is unranked and description-bearing, matching the hub's
+ * top-scripts endpoint — that asymmetry with the semantic search is the whole
+ * reason the chat browses by app when no script matches the task. */
+function listBenchmarkHubScriptsByApp(app: string | null) {
+	return BENCHMARK_HUB_SCRIPTS.filter((script) => !app || script.app === app).map((script) => ({
+		id: script.version_id,
+		ask_id: script.version_id,
+		version_id: script.version_id,
+		summary: script.summary,
+		description: script.description ?? '',
+		app: script.app,
+		kind: 'script',
+		views: 0,
+		votes: 0
+	}))
 }
 
 /** The hub keys a script by its version id; the app and slug segments that
@@ -1049,6 +1148,8 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 		BENCHMARK_RUN_BY_PATH.test(path) ||
 		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
+		path === '/api/scripts/hub/top' ||
+		path === '/api/integrations/hub/list' ||
 		path.startsWith('/api/scripts/hub/get_full/')
 	)
 }
@@ -1095,7 +1196,17 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
 		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''
-		return Response.json(searchBenchmarkHubScripts(text))
+		return Response.json(
+			searchBenchmarkHubScripts(text, new URLSearchParams(url.split('?')[1] ?? '').get('app'))
+		)
+	}
+	if (path === '/api/scripts/hub/top') {
+		const app = new URLSearchParams(url.split('?')[1] ?? '').get('app')
+		return Response.json({ asks: listBenchmarkHubScriptsByApp(app) })
+	}
+	if (path === '/api/integrations/hub/list') {
+		const apps = [...new Set(BENCHMARK_HUB_SCRIPTS.map((script) => script.app))].sort()
+		return Response.json(apps.map((name) => ({ name })))
 	}
 	if (path.startsWith('/api/scripts/hub/get_full/')) {
 		const script = getBenchmarkHubScript(path)

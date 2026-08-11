@@ -78,6 +78,8 @@ pub struct HubScriptResult {
     id: i64,
     version_id: i64,
     summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     app: String,
     kind: String,
     score: f32,
@@ -163,6 +165,9 @@ struct HubScript {
     id: i64,
     version_id: i64,
     summary: String,
+    // Nearly a fifth of hub scripts carry an explicit `"description": null`; a bare
+    // String here fails the whole blob and takes hub search down with it.
+    description: Option<String>,
     app: String,
     kind: String,
     embedding: Vec<f32>,
@@ -360,6 +365,10 @@ impl EmbeddingsDb {
             let mut hm = HashMap::new();
             hm.insert("ask_id".to_string(), script.ask_id.clone().to_string());
             hm.insert("summary".to_string(), script.summary.clone());
+            hm.insert(
+                "description".to_string(),
+                script.description.clone().unwrap_or_default(),
+            );
             hm.insert("app".to_string(), script.app.clone());
             hm.insert("kind".to_string(), script.kind.clone());
             hm.insert("id".to_string(), script.id.clone().to_string());
@@ -517,6 +526,10 @@ impl EmbeddingsDb {
                         .get("summary")
                         .ok_or(Error::msg("no summary"))?
                         .to_owned(),
+                    description: metadata
+                        .get("description")
+                        .filter(|d| !d.is_empty())
+                        .map(|d| d.to_owned()),
                     app: metadata.get("app").ok_or(Error::msg("no app"))?.to_owned(),
                     kind: metadata
                         .get("kind")
