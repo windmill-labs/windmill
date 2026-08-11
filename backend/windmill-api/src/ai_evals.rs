@@ -279,6 +279,11 @@ mod with_storage {
 
     fn require_can_write(authed: &ApiAuthed, path: &str) -> Result<()> {
         check_path(path)?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot modify eval datasets".to_string(),
+            ));
+        }
         if authed.is_admin {
             return Ok(());
         }
@@ -469,7 +474,7 @@ mod with_storage {
         Extension(user_db): Extension<UserDB>,
         Path(w_id): Path<String>,
     ) -> JsonResult<Vec<EvalDataset>> {
-        use futures::TryStreamExt;
+        use futures::{StreamExt, TryStreamExt};
 
         let client = object_store(&authed, &db, user_db, &w_id).await?;
         let keys: Vec<String> = client
@@ -479,23 +484,38 @@ mod with_storage {
             .await
             .map_err(object_store_error_to_error)?;
 
-        let mut datasets = Vec::new();
-        for key in keys {
-            let Some(path) = key
-                .strip_prefix(&format!("{}/", META_PREFIX))
-                .and_then(|p| p.strip_suffix(".json"))
-            else {
-                continue;
-            };
-            if require_can_read(&authed, path).is_err() {
-                continue;
+        let readable = keys
+            .iter()
+            .filter_map(|key| {
+                key.strip_prefix(&format!("{}/", META_PREFIX))
+                    .and_then(|p| p.strip_suffix(".json"))
+            })
+            .filter(|path| require_can_read(&authed, path).is_ok())
+            .map(|path| path.to_string())
+            .collect::<Vec<_>>();
+
+        // Fetched concurrently: the metadata is one object per dataset, and doing them in
+        // sequence makes listing cost a round-trip per dataset.
+        let mut datasets = futures::stream::iter(readable.into_iter().map(|path| {
+            let client = client.clone();
+            async move {
+                let result = read_dataset(&client, &path).await;
+                (path, result)
             }
-            match read_dataset(&client, path).await {
-                Ok(dataset) => datasets.push(dataset),
+        }))
+        .buffer_unordered(16)
+        .filter_map(|(path, result)| async move {
+            match result {
+                Ok(dataset) => Some(dataset),
                 // One unreadable object must not blank the whole list.
-                Err(e) => tracing::warn!("skipping eval dataset {}: {}", path, e),
+                Err(e) => {
+                    tracing::warn!("skipping eval dataset {}: {}", path, e);
+                    None
+                }
             }
-        }
+        })
+        .collect::<Vec<_>>()
+        .await;
         datasets.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(Json(datasets))
     }
@@ -840,11 +860,16 @@ mod with_storage {
                     source: stored.source,
                 }
             }
-            _ => payload.case.ok_or_else(|| {
+            (None, None) => payload.case.ok_or_else(|| {
                 Error::BadRequest(
                     "Either a case or a dataset and case_id must be supplied".to_string(),
                 )
             })?,
+            _ => {
+                return Err(Error::BadRequest(
+                    "dataset and case_id must be supplied together".to_string(),
+                ))
+            }
         };
 
         // Read the agent through user_db so a caller who cannot read the resource cannot run it.

@@ -102,10 +102,10 @@ it.
 ### Permissions
 
 Object storage has no per-object ACL, so a dataset's permissions are the permissions of the
-Windmill path it is named by, enforced in the handlers: reading needs the folder (or `u/<self>`,
-or admin), writing needs ownership of the path. There is no per-dataset `extra_perms`, and anyone
-who can read the workspace bucket directly can read every dataset — as with any other workspace
-file.
+Windmill path it is named by, enforced in the handlers: reading needs read on the folder (or
+`u/<self>`, or admin), writing needs write on it, and operators cannot write at all. There is no
+per-dataset `extra_perms`, and anyone who can read the workspace bucket directly can read every
+dataset — as with any other workspace file.
 
 ## Capturing a case from real traffic
 

@@ -428,7 +428,7 @@
 	let evalsOpen = $state(false)
 </script>
 
-<AgentEvalDrawer agentPath={agent} bind:open={evalsOpen} />
+<AgentEvalDrawer agentPath={agent} bind:open={evalsOpen} opWorkspace={ws} />
 
 <div class="px-2 xl:px-4 pt-2">
 	{#if agent}

@@ -62,8 +62,8 @@ as the reference, so two versions can be byte-identical while the agent behaves 
 because the referenced variable changed underneath them. Anything comparing agent runs across
 versions has to account for that.
 
-An eval run records the version its agent resolved to, which is what makes a result attributable
-to a prompt state — see `docs/ai-agent-evals.md`.
+An eval run records the version its agent was at when the run was enqueued, which is what makes a
+result attributable to a prompt state — see `docs/ai-agent-evals.md`.
 
 A superseded value is retained for up to 100 versions. Values written through the UI keep their
 secrets in linked variables, but one pushed by `wmill` or written by `setResource` can hold an

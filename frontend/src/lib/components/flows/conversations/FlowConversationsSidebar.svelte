@@ -34,11 +34,13 @@
 
 	// The case re-asks the conversation's last user turn, with everything before it replayed as the
 	// agent's memory and the answer production gave kept as the reference.
+	let opWorkspace = $derived(manager.operatingWorkspace?.() ?? $workspaceStore)
+
 	async function captureConversation(conversationId: string) {
-		if (!$workspaceStore) return
+		if (!opWorkspace) return
 		try {
 			evalCapture = await AiEvalsService.evalCaseDraftFromConversation({
-				workspace: $workspaceStore,
+				workspace: opWorkspace,
 				conversationId
 			})
 			evalsOpen = true
@@ -48,7 +50,7 @@
 	}
 </script>
 
-<AgentEvalDrawer bind:open={evalsOpen} capture={evalCapture} />
+<AgentEvalDrawer bind:open={evalsOpen} capture={evalCapture} {opWorkspace} />
 
 <div
 	class="flex flex-col h-full bg-surface border-r transition-all duration-300 {manager.isSidebarExpanded

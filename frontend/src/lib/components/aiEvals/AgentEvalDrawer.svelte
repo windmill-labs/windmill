@@ -22,6 +22,7 @@
 	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
 	import EvalCaseEditor from './EvalCaseEditor.svelte'
 	import EvalRunResult from './EvalRunResult.svelte'
+	import { deepEqual } from 'fast-equals'
 	import {
 		caseLabel,
 		caseRunPath,
@@ -32,9 +33,10 @@
 	} from './evalCaseUtils'
 
 	let {
-		agentPath = $bindable(undefined),
-		open = $bindable(false),
-		capture = undefined
+		agentPath = $bindable(),
+		open = $bindable(),
+		capture = undefined,
+		opWorkspace = undefined
 	}: {
 		/** The agent under test. Every entry point knows one, but it stays overridable so the same
 		 * dataset can be pointed at another agent. */
@@ -42,7 +44,13 @@
 		open?: boolean
 		/** A case captured from a run or a conversation, opened for review before saving. */
 		capture?: EvalCaseDraft
+		/** The workspace the opening editor operates on, which differs from the nav workspace in
+		 * fork and session editors. Every read and write targets it. */
+		opWorkspace?: string
 	} = $props()
+
+	let isOpen = $derived(open ?? false)
+	let ws = $derived(opWorkspace ?? $workspaceStore)
 
 	let datasets = $state<EvalDataset[]>([])
 	let selectedDataset = $state<string | undefined>(undefined)
@@ -64,14 +72,19 @@
 	let draftGeneration = $state(0)
 
 	async function loadDatasets() {
-		if (!$workspaceStore) return
-		datasets = await AiEvalsService.listEvalDatasets({ workspace: $workspaceStore })
+		if (!ws) return
+		datasets = await AiEvalsService.listEvalDatasets({ workspace: ws })
 	}
 
 	const CASE_PAGE_SIZE = 100
 
+	// Switching datasets leaves the previous request in flight; only the newest may write, or a
+	// slow response for the dataset you just left replaces the one you are looking at.
+	let caseLoadGeneration = 0
+
 	async function loadCases(path: string | undefined, page = 1) {
-		if (!$workspaceStore || !path) {
+		const generation = ++caseLoadGeneration
+		if (!ws || !path) {
 			cases = []
 			totalCases = 0
 			return
@@ -79,22 +92,25 @@
 		loadingCases = true
 		try {
 			const res = await AiEvalsService.listEvalCases({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path,
 				page,
 				perPage: CASE_PAGE_SIZE
 			})
+			if (generation !== caseLoadGeneration) return
 			cases = page === 1 ? (res.cases ?? []) : [...cases, ...(res.cases ?? [])]
 			totalCases = res.total ?? cases.length
 		} finally {
-			loadingCases = false
+			if (generation === caseLoadGeneration) {
+				loadingCases = false
+			}
 		}
 	}
 
 	async function loadAgents() {
-		if (!$workspaceStore) return
+		if (!ws) return
 		const resources = await ResourceService.listResource({
-			workspace: $workspaceStore,
+			workspace: ws,
 			resourceType: 'ai_agent',
 			perPage: 1000
 		})
@@ -106,19 +122,17 @@
 	async function loadAgent(path: string | undefined) {
 		agentTools = []
 		agentVersion = undefined
-		if (!$workspaceStore || !path) return
+		if (!ws || !path) return
 		const [resource, history] = await Promise.all([
-			ResourceService.getResource({ workspace: $workspaceStore, path }),
-			ResourceService.getResourceHistory({ workspace: $workspaceStore, path }).catch(
-				() => undefined
-			)
+			ResourceService.getResource({ workspace: ws, path }),
+			ResourceService.getResourceHistory({ workspace: ws, path }).catch(() => undefined)
 		])
 		agentTools = ((resource.value as any)?.tools ?? []) as AgentTool[]
 		agentVersion = history?.versions?.[0]?.id
 	}
 
 	$effect(() => {
-		if (open) {
+		if (isOpen) {
 			loadDatasets()
 			loadAgents()
 		}
@@ -126,7 +140,7 @@
 	// Gated on `open`: the drawer is mounted next to every AI agent step in the flow editor, and
 	// fetching each one's resource on mount would be a request per step for a panel nobody opened.
 	$effect(() => {
-		if (open) loadAgent(agentPath)
+		if (isOpen) loadAgent(agentPath)
 	})
 	// A case id belongs to one dataset. Keeping the draft across a dataset switch would aim Save
 	// and Run at a case the new dataset does not have, so the draft starts fresh — except for a
@@ -170,9 +184,9 @@
 	}
 
 	async function createDataset() {
-		if (!$workspaceStore || !newDatasetPath) return
+		if (!ws || !newDatasetPath) return
 		await AiEvalsService.createEvalDataset({
-			workspace: $workspaceStore,
+			workspace: ws,
 			requestBody: {
 				path: newDatasetPath,
 				default_subject: agentPath ? { kind: 'agent', path: agentPath } : undefined
@@ -185,7 +199,7 @@
 	}
 
 	async function saveCase() {
-		if (!$workspaceStore || !selectedDataset) {
+		if (!ws || !selectedDataset) {
 			sendUserToast('Select a dataset to save this case to', true)
 			return
 		}
@@ -200,14 +214,14 @@
 		}
 		if (draft.id) {
 			await AiEvalsService.updateEvalCase({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: selectedDataset,
 				requestBody: { id: draft.id, ...body }
 			})
 			sendUserToast('Case updated')
 		} else {
 			const id = await AiEvalsService.addEvalCase({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: selectedDataset,
 				requestBody: body
 			})
@@ -218,9 +232,9 @@
 	}
 
 	async function deleteCase(c: EvalCase) {
-		if (!$workspaceStore || !selectedDataset) return
+		if (!ws || !selectedDataset) return
 		await AiEvalsService.deleteEvalCase({
-			workspace: $workspaceStore,
+			workspace: ws,
 			path: selectedDataset,
 			requestBody: { id: c.id }
 		})
@@ -229,15 +243,21 @@
 	}
 
 	async function run() {
-		if (!$workspaceStore || !agentPath) {
+		if (!ws || !agentPath) {
 			sendUserToast('Pick an agent to run against', true)
 			return
 		}
-		const workspace = $workspaceStore
+		const workspace = ws
 		const path = agentPath
-		// A saved case is run by reference so the job records which case it executed; an unsaved one
-		// is sent inline and produces a run with no case to trace back to.
-		const stored = draft.id && selectedDataset
+		// A saved case is run by reference so the job records which case it executed. Unsaved edits
+		// have to go inline instead — running the stored case while the editor shows something else
+		// would silently test the wrong thing — and such a run has no case to trace back to.
+		const savedCase = cases.find((c) => c.id === draft.id)
+		const edited = savedCase != undefined && !deepEqual(fromStoredCase(savedCase), draft)
+		const stored = draft.id && selectedDataset && !edited
+		if (edited) {
+			sendUserToast('Running the unsaved edits; save the case to record the run against it')
+		}
 		const callbacks: Callbacks = {
 			done: (j) => {
 				job = j
@@ -245,7 +265,7 @@
 			},
 			doneError: ({ error }) => {
 				running = false
-				sendUserToast(String(error), true)
+				sendUserToast((error as any)?.body ?? error?.message ?? String(error), true)
 			}
 		}
 		running = true
