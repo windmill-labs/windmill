@@ -11,10 +11,10 @@ chrono = "0.4.41"
 # identical DECIMAL. Building one by hand would mean reimplementing that
 # f64 → (mantissa, scale) inference.
 #
-# Not crates.io: a fork of duckdb-rs 1.10505.0 carrying one patch to the bundled engine —
+# Not crates.io: a fork of duckdb-rs 1.10505.0 carrying two patches to the bundled engine —
 # see docs/duckdb-isolation.md for why, and for the exit path back to the crates.io crate.
 # Pinned by rev, not branch, so `cargo update` cannot move the engine under us.
-duckdb = { git = "https://github.com/windmill-labs/duckdb-rs", rev = "475383b71cde3d009ca6eaa0cd733faa52bc7393", features = [
+duckdb = { git = "https://github.com/windmill-labs/duckdb-rs", rev = "7190adfcf58624e7e9a7a2a1000bac18fed64c19", features = [
     "bundled",
     "rust_decimal",
 ] }
