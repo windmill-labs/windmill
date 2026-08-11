@@ -1337,9 +1337,9 @@ lazy_static::lazy_static! {
             parsed
         });
         match explicit {
-            // `0` turns the cap off. It is the sentinel the duckdb FFI already
-            // takes for unbounded, so both engines spell "no limit" the same way;
-            // anything else and one of them would reject every non-empty result.
+            // `0` turns the cap off, matching the sentinel the FFI takes for
+            // unbounded. Passing it through as a literal zero would instead reject
+            // every non-empty result, which is the opposite of what it reads as.
             Some(0) => usize::MAX,
             // The floor guards the derived value only. An explicit setting is
             // taken at face value, including one deliberately below it.

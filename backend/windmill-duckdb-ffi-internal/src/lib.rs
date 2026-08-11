@@ -607,6 +607,30 @@ mod result_size_guard_tests {
         assert_eq!(collect_into(0, &mut 0).unwrap(), ROWS);
     }
 
+    /// A blob expands to one `serde_json::Value` per byte on the way in, so it is
+    /// the one value that can exhaust the worker between two checks of the running
+    /// total. It has to be refused on its length, before that expansion is built.
+    #[test]
+    fn a_wide_blob_is_refused_before_it_is_expanded() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let mut collected = 0;
+        // 1MB of blob expands to ~24MB of `Value`, well past this budget, while the
+        // running total is still zero — nothing else in the loop would catch it.
+        let err = do_duckdb_inner(
+            &conn,
+            "SELECT repeat('a', 1000000)::BLOB AS b",
+            &HashMap::new(),
+            false,
+            false,
+            &mut None,
+            1024 * 1024,
+            &mut collected,
+        )
+        .expect_err("a blob expanding past the budget must be refused");
+        assert!(err.contains("Query result too large"), "{err}");
+        assert_eq!(collected, 0, "it was refused before being counted");
+    }
+
     /// A row costs far more than the JSON it serializes to, and small rows are
     /// almost entirely that overhead. Billing only the payload would let a cap
     /// admit several times the rows the worker can actually hold.
@@ -702,8 +726,14 @@ fn do_duckdb_inner(
 
                 // let type_aliases = (0..stmt.column_count()).map(|_| None).collect::<Vec<_>>();
 
-                let row = row_to_value(row, &column_names.as_slice(), &type_aliases.as_slice())
-                    .map_err(|e| e.to_string())?;
+                let row = row_to_value(
+                    row,
+                    &column_names.as_slice(),
+                    &type_aliases.as_slice(),
+                    max_result_size.saturating_sub(*collected),
+                    max_result_size,
+                )
+                .map_err(|e| e.to_string())?;
                 *collected += row_storage_cost(row.get().len());
                 if max_result_size > 0 && *collected > max_result_size {
                     return Err(result_too_large_message(max_result_size));
@@ -751,10 +781,25 @@ fn row_to_value(
     row: &Row<'_>,
     column_names: &[String],
     type_aliases: &[Option<String>],
+    budget: usize,
+    max_result_size: usize,
 ) -> Result<Box<RawValue>, String> {
     let mut obj = serde_json::Map::new();
     for (i, key) in column_names.iter().enumerate() {
         let value: duckdb::types::Value = row.get(i).map_err(|e| e.to_string())?;
+        // A blob renders one JSON number per byte, so its in-memory form is
+        // `size_of::<Value>()` times the blob and is entirely live before the row
+        // can be weighed. Weighed rows are the only thing the running total sees,
+        // so a single wide blob would exhaust the worker between two checks.
+        // The length is known now, which is the last moment refusing is cheap.
+        if let duckdb::types::Value::Blob(b) | duckdb::types::Value::Geometry(b) = &value {
+            let expanded = b
+                .len()
+                .saturating_mul(std::mem::size_of::<serde_json::Value>());
+            if max_result_size > 0 && expanded > budget {
+                return Err(result_too_large_message(max_result_size));
+            }
+        }
         let type_alias = &type_aliases[i];
         let json_value = duckdb_value_to_json_value(value, type_alias)
             .map_err(|e| format!("column \"{key}\": {e}"))?;
