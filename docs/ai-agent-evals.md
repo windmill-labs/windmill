@@ -10,7 +10,8 @@ It is reachable from everywhere an agent already is: the AI agent step in the fl
 agent it is about, so the drawer opens with the subject already set; the picker in its header
 exists for pointing the same dataset at a different agent.
 
-Scoring, experiment runs and comparison are not part of this. A run produces a job you read.
+Running the whole dataset is an **experiment**: every case against one subject, scored, in a
+table.
 
 ## What runs
 
@@ -66,17 +67,58 @@ A version captures the resource, not its transitive closure. Two byte-identical 
 behave differently because a `$var:`/`$res:` they reference changed underneath them, so a
 recorded version is necessary for attribution but not sufficient.
 
+## Capturing a case from real traffic
+
+Manufactured cases miss the edge cases that actually break agents, so both capture paths build a
+draft for review rather than writing anything:
+
+- **From an AI agent run** — the job's `user_message`/`user_attachments`, plus the host flow and
+  the `tool_inputs` that run actually used, lifted from the parent flow's step.
+- **From a flow conversation** — the case re-asks the conversation's *last user turn*, with
+  everything before it replayed as the agent's memory and whatever the agent answered after it
+  kept as `expected`. Splitting there rather than at the end is what makes a finished
+  conversation — which ends on the assistant — yield a runnable case. Tool messages are left out:
+  their content is keyed to call ids this replay will not reissue. `expected` has no consumer
+  yet; it is recorded now because it is only available at capture time.
+
+## Experiments
+
+Running a dataset produces an experiment: every case executed against one subject, with a row per
+case. The experiment records the **exact case set it ran**, by value — a dataset keeps changing,
+and a result set that cannot say which inputs produced it is not reproducible.
+
+Each case runs as its own job — a small flow of the agent followed by a step per scorer — rather
+than the whole dataset running as one loop. That keeps a case's run stamp, history query and
+trajectory view identical to a single run, and lets results be read back per step by node id
+(`get_result_and_success_by_id_from_flow`) instead of walking a nested loop's status.
+
+An experiment applies one tool binding to every case: `host_flow_path` is set per experiment, and
+a case's own `host_flow_path` is honoured only by a single run. Rows of one experiment would not
+otherwise be comparable with each other.
+
+### Scorers
+
+A scorer is any runnable taking `(input, output, expected)` and returning a number — a bare
+number, a boolean, or an object with a `score`. Deterministic built-ins are hub scripts, and
+LLM-as-judge is a reusable agent used as a scorer, so scoring needs no engine of its own.
+
+A judge agent is prompted with the case and the answer as one JSON message and its `output` is
+parsed for a number; a script or flow receives them as named arguments. Anything a scorer returns
+that holds no number is left empty rather than guessed at, and averages skip the empty ones — a
+missing score counted as zero would read as a regression.
+
 ## Storage
 
 Datasets live in the workspace object storage, which must be configured before a dataset can be
-created. Two objects per dataset:
+created. Per dataset:
 
 ```
-wmill_eval_datasets/meta/<path>.json     the dataset's own metadata
-wmill_eval_datasets/cases/<path>.jsonl   one JSON case per line
+wmill_eval_datasets/meta/<path>.json                    the dataset's own metadata
+wmill_eval_datasets/cases/<path>.jsonl                  one JSON case per line
+wmill_eval_datasets/experiments/<path>/<id>.json        one run of the dataset
 ```
 
-They are split so listing datasets never downloads case bulk.
+Metadata is split from the case bulk so listing datasets never downloads cases.
 
 ### Why case writes take a lock
 
@@ -106,17 +148,3 @@ Windmill path it is named by, enforced in the handlers: reading needs read on th
 `u/<self>`, or admin), writing needs write on it, and operators cannot write at all. There is no
 per-dataset `extra_perms`, and anyone who can read the workspace bucket directly can read every
 dataset — as with any other workspace file.
-
-## Capturing a case from real traffic
-
-Manufactured cases miss the edge cases that actually break agents, so both capture paths build a
-draft for review rather than writing anything:
-
-- **From an AI agent run** — the job's `user_message`/`user_attachments`, plus the host flow and
-  the `tool_inputs` that run actually used, lifted from the parent flow's step.
-- **From a flow conversation** — the case re-asks the conversation's *last user turn*, with
-  everything before it replayed as the agent's memory and whatever the agent answered after it
-  kept as `expected`. Splitting there rather than at the end is what makes a finished
-  conversation — which ends on the assistant — yield a runnable case. Tool messages are left out:
-  their content is keyed to call ids this replay will not reissue. `expected` has no consumer
-  yet; it is recorded now because it is only available at capture time.

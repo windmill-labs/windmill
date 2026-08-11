@@ -19,13 +19,17 @@
 	import { workspaceStore } from '$lib/stores'
 	import { untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { Plus, Trash2, Bot, FlaskConical, MessagesSquare } from 'lucide-svelte'
+	import { Plus, Trash2, Bot, FlaskConical, MessagesSquare, Play } from 'lucide-svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
 	import EvalCaseEditor from './EvalCaseEditor.svelte'
 	import EvalRunResult from './EvalRunResult.svelte'
+	import ExperimentResults from './ExperimentResults.svelte'
+	import ScorerPicker from './ScorerPicker.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import { Tab } from '$lib/components/common'
 	import { deepEqual } from 'fast-equals'
 	import {
 		caseLabel,
@@ -75,6 +79,10 @@
 	// draft, so it is keyed on this and remounts rather than carrying one case's edits into the
 	// next.
 	let draftGeneration = $state(0)
+	let paneTab = $state<'cases' | 'results'>('cases')
+	let scorers = $state<{ kind: 'script' | 'flow' | 'agent'; path: string; name?: string }[]>([])
+	let experimentToken = $state(0)
+	let startingExperiment = $state(false)
 
 	async function loadDatasets() {
 		if (!ws) return
@@ -266,6 +274,33 @@
 		await reloadCases()
 	}
 
+	async function runExperiment() {
+		if (!ws || !agentPath || !selectedDataset) {
+			sendUserToast('Pick an agent and a dataset first', true)
+			return
+		}
+		startingExperiment = true
+		try {
+			await AiEvalsService.runExperiment({
+				workspace: ws,
+				requestBody: {
+					dataset: selectedDataset,
+					subject: { kind: 'agent', path: agentPath },
+					scorers
+				}
+			})
+			paneTab = 'results'
+			// The rows fill in as the per-case jobs complete, so the table opens on a running
+			// experiment rather than waiting for one.
+			experimentToken += 1
+			sendUserToast('Experiment started')
+		} catch (err) {
+			sendUserToast((err as any)?.body ?? String(err), true)
+		} finally {
+			startingExperiment = false
+		}
+	}
+
 	async function run() {
 		if (!ws || !agentPath) {
 			sendUserToast('Pick an agent to run against', true)
@@ -416,6 +451,10 @@
 		<Splitpanes class="h-full">
 			<Pane size={40} minSize={25}>
 				<div class="flex flex-col h-full min-h-0 pr-2 gap-2">
+					<Tabs bind:selected={paneTab}>
+						<Tab value="cases" label="Cases" />
+						<Tab value="results" label="Results" />
+					</Tabs>
 					<div class="flex items-center gap-1">
 						<div class="grow min-w-0">
 							<Select
@@ -450,102 +489,122 @@
 						</Popover>
 					</div>
 
-					<Button variant="subtle" size="xs" startIcon={{ icon: FlaskConical }} onclick={newCase}>
-						New case
-					</Button>
+					{#if paneTab === 'cases'}
+						<Button variant="subtle" size="xs" startIcon={{ icon: FlaskConical }} onclick={newCase}>
+							New case
+						</Button>
 
-					<div class="flex-1 min-h-0 overflow-auto">
-						{#if loadingCases}
-							<Skeleton layout={[[2], [2], [2]]} />
-						{:else if !selectedDataset}
-							<div class="text-xs text-tertiary p-2">
-								Pick a dataset to see its cases, or run a one-off case on the right.
-							</div>
-						{:else if cases.length === 0}
-							<div class="text-xs text-tertiary p-2">
-								No case yet. Cases are best captured from real runs: open an AI agent run and add it
-								here.
-							</div>
-						{:else}
-							<DataTable size="xs" noBorder shouldHidePagination>
-								<Head>
-									<tr>
-										<Cell head first>Case</Cell>
-										<Cell head>From</Cell>
-										<Cell head>Last run</Cell>
-										<Cell head last></Cell>
-									</tr>
-								</Head>
-								<tbody>
-									{#each cases as c (c.id)}
-										{@const lastRun = lastRunByCase[c.id]}
-										<tr
-											class="border-b last:border-b-0 cursor-pointer group hover:bg-surface-hover {draft.id ===
-											c.id
-												? 'bg-surface-selected'
-												: ''}"
-											onclick={() => selectCase(c)}
-										>
-											<Cell first>
-												<div class="flex items-center gap-1 min-w-0">
-													<span class="truncate">{caseLabel(c)}</span>
-													{#if c.input?.messages?.length}
-														<Tooltip><MessagesSquare size={12} /></Tooltip>
-													{/if}
-												</div>
-											</Cell>
-											<Cell>
-												<span class="text-tertiary">{caseSource(c)}</span>
-											</Cell>
-											<Cell>
-												{#if lastRun}
-													<span
-														class={lastRun.type === 'CompletedJob'
-															? lastRun.success
-																? 'text-green-600'
-																: 'text-red-600'
-															: 'text-tertiary'}
-													>
-														{lastRun.type === 'CompletedJob'
-															? lastRun.success
-																? 'success'
-																: 'failure'
-															: 'running'}
-													</span>
-												{:else}
-													<span class="text-tertiary">never</span>
-												{/if}
-											</Cell>
-											<Cell last>
-												<Button
-													variant="subtle"
-													size="xs2"
-													startIcon={{ icon: Trash2 }}
-													iconOnly
-													btnClasses="opacity-0 group-hover:opacity-100"
-													onclick={(e) => {
-														e?.stopPropagation()
-														deleting = c
-													}}
-												/>
-											</Cell>
+						<div class="flex-1 min-h-0 overflow-auto">
+							{#if loadingCases}
+								<Skeleton layout={[[2], [2], [2]]} />
+							{:else if !selectedDataset}
+								<div class="text-xs text-tertiary p-2">
+									Pick a dataset to see its cases, or run a one-off case on the right.
+								</div>
+							{:else if cases.length === 0}
+								<div class="text-xs text-tertiary p-2">
+									No case yet. Cases are best captured from real runs: open an AI agent run and add it
+									here.
+								</div>
+							{:else}
+								<DataTable size="xs" noBorder shouldHidePagination>
+									<Head>
+										<tr>
+											<Cell head first>Case</Cell>
+											<Cell head>From</Cell>
+											<Cell head>Last run</Cell>
+											<Cell head last></Cell>
 										</tr>
-									{/each}
-								</tbody>
-							</DataTable>
-							{#if totalCases > cases.length}
-								<Button
-									variant="subtle"
-									size="xs2"
-									disabled={loadingCases}
-									onclick={() =>
-										loadCases(selectedDataset, Math.floor(cases.length / CASE_PAGE_SIZE) + 1)}
-								>
-									Load more ({cases.length} of {totalCases})
-								</Button>
+									</Head>
+									<tbody>
+										{#each cases as c (c.id)}
+											{@const lastRun = lastRunByCase[c.id]}
+											<tr
+												class="border-b last:border-b-0 cursor-pointer group hover:bg-surface-hover {draft.id ===
+												c.id
+													? 'bg-surface-selected'
+													: ''}"
+												onclick={() => selectCase(c)}
+											>
+												<Cell first>
+													<div class="flex items-center gap-1 min-w-0">
+														<span class="truncate">{caseLabel(c)}</span>
+														{#if c.input?.messages?.length}
+															<Tooltip><MessagesSquare size={12} /></Tooltip>
+														{/if}
+													</div>
+												</Cell>
+												<Cell>
+													<span class="text-tertiary">{caseSource(c)}</span>
+												</Cell>
+												<Cell>
+													{#if lastRun}
+														<span
+															class={lastRun.type === 'CompletedJob'
+																? lastRun.success
+																	? 'text-green-600'
+																	: 'text-red-600'
+																: 'text-tertiary'}
+														>
+															{lastRun.type === 'CompletedJob'
+																? lastRun.success
+																	? 'success'
+																	: 'failure'
+																: 'running'}
+														</span>
+													{:else}
+														<span class="text-tertiary">never</span>
+													{/if}
+												</Cell>
+												<Cell last>
+													<Button
+														variant="subtle"
+														size="xs2"
+														startIcon={{ icon: Trash2 }}
+														iconOnly
+														btnClasses="opacity-0 group-hover:opacity-100"
+														onclick={(e) => {
+															e?.stopPropagation()
+															deleting = c
+														}}
+													/>
+												</Cell>
+											</tr>
+										{/each}
+									</tbody>
+								</DataTable>
+								{#if totalCases > cases.length}
+									<Button
+										variant="subtle"
+										size="xs2"
+										disabled={loadingCases}
+										onclick={() =>
+											loadCases(selectedDataset, Math.floor(cases.length / CASE_PAGE_SIZE) + 1)}
+									>
+										Load more ({cases.length} of {totalCases})
+									</Button>
+								{/if}
 							{/if}
-						{/if}
-					</div>
+						</div>
+					{:else}
+						<ScorerPicker bind:scorers workspace={ws} />
+						<Button
+							variant="accent"
+							size="xs"
+							startIcon={{ icon: Play }}
+							disabled={!selectedDataset || !agentPath || startingExperiment}
+							onclick={runExperiment}
+						>
+							{startingExperiment ? 'Starting' : 'Run dataset'}
+						</Button>
+						<div class="flex-1 min-h-0">
+							<ExperimentResults
+								dataset={selectedDataset}
+								workspace={ws}
+								refreshToken={experimentToken}
+							/>
+						</div>
+					{/if}
 				</div>
 			</Pane>
 			<Pane size={30} minSize={22}>

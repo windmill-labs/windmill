@@ -1330,8 +1330,10 @@ mod with_storage {
         pub job_id: Uuid,
         /// `running` until the job completes, then `success` or `failure`.
         pub status: String,
+        /// The agent's answer, which is what a table cell shows. The whole trajectory stays
+        /// reachable through `job_id`, so the row carries the text rather than the result object.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub output: Option<Box<RawValue>>,
+        pub output: Option<String>,
         /// One entry per scorer, in the experiment's scorer order; `None` where it has not
         /// produced a number yet.
         pub scores: Vec<Option<f64>>,
@@ -1342,6 +1344,16 @@ mod with_storage {
         pub experiment: EvalExperiment,
         pub rows: Vec<ExperimentRow>,
         pub scorer_labels: Vec<String>,
+    }
+
+    /// The agent's own result is `{output, messages, usage}`; the answer is its `output`.
+    fn agent_answer(result: &RawValue) -> Option<String> {
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).ok()?;
+        match parsed.get("output") {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            Some(other) => Some(other.to_string()),
+            None => None,
+        }
     }
 
     /// A scorer may return a bare number, a boolean, or `{score, label}`; anything else has no
@@ -1397,7 +1409,7 @@ mod with_storage {
                 None,
             )
             .await
-            .map(|(r, s)| (Some(r), Some(s)))
+            .map(|(r, s)| (agent_answer(&r), Some(s)))
             .unwrap_or((None, None));
 
             let mut scores = Vec::with_capacity(experiment.scorers.len());
