@@ -142,10 +142,17 @@ It does not fix the transient, which scales with concurrency rather than with th
 and it does not survive a restart or share across replicas. Take it if the storage work is
 not worth doing now; it is strictly a smaller version of the same trade.
 
-## Staging
+## Status
 
-1. Extract-and-persist to disk, with eviction and best effort writes. Object store absent.
-   This is the part CE needs and the part that removes the memory ceiling.
-2. Object store tier on top, gated on `enterprise` + `parquet`, populating disk on a miss.
-3. Reduce the in-memory budgets to what packuments need, once the archive tier no longer
-   depends on them.
+Implemented in `store.rs`. The archive cache is gone from memory: extraction streams each
+entry straight to the package directory, so a read holds one entry rather than the whole
+retained set, and `PACKAGE_JSON_CACHE` at 16 MiB is all that is left in the heap.
+
+Two things settled during implementation and are worth keeping in mind before changing it:
+
+- **A warm package must not cost a round trip.** The registry is resolved from settings, and
+  the packument is fetched only on a cache miss. Fetching it first, to reach the tarball URL,
+  made a fully cached package still hit the registry once per minute.
+- **The manifest is exempt from the retention budget.** `next` orders its `package.json`
+  3748th, so a budget spent on the declarations ahead of it would leave the entry point
+  defaulted, which is a wrong answer rather than a slow one.

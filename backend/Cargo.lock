@@ -15209,21 +15209,26 @@ name = "windmill-api-npm-proxy"
 version = "1.784.0"
 dependencies = [
  "axum 0.8.9",
+ "chrono",
  "flate2",
+ "hex",
  "lazy_static",
  "quick_cache",
  "reqwest 0.13.4",
  "semver 1.0.28",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "tar",
  "tokio",
  "tower-http",
  "tracing",
  "url",
+ "uuid",
  "windmill-api-auth",
  "windmill-common",
+ "windmill-object-store",
 ]
 
 [[package]]
