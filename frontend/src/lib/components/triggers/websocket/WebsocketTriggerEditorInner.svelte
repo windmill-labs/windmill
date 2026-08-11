@@ -29,6 +29,7 @@
 	import type { Schema } from '$lib/common'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import TriggerFilters from '../TriggerFilters.svelte'
+	import type { FilterNode } from '../filters'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
@@ -97,10 +98,7 @@
 	let pathError = $state('')
 	let url = $state('')
 	let dirtyUrl = $state(false)
-	let filters: {
-		key: string
-		value: any
-	}[] = $state([])
+	let filters: FilterNode[] = $state([])
 	let filterLogic = $state<'and' | 'or'>('and')
 	let initial_messages: WebsocketTriggerInitialMessage[] = $state([])
 	let url_runnable_args: Record<string, any> | undefined = $state({})
@@ -257,7 +255,7 @@
 		is_flow = cfg?.is_flow
 		path = cfg?.path
 		url = cfg?.url
-		filters = cfg?.filters
+		filters = cfg?.filters ?? []
 		filterLogic = cfg?.filter_logic ?? 'and'
 		initial_messages = cfg?.initial_messages ?? []
 		url_runnable_args = cfg?.url_runnable_args
@@ -325,8 +323,8 @@
 		return {
 			noDeployed: !!(s as any)?.no_deployed,
 			overlay: draftFromBackend
-			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
-			: undefined
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		}
 	}
 
