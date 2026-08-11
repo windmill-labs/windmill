@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
 	artifactUrl,
+	describeLocation,
 	draftFriendlyLeaf,
 	drawerAnchorFor,
+	sameView,
 	itemDisplayName,
 	matchReusablePage,
 	parseArtifactRoute,
@@ -37,6 +39,37 @@ describe('stripBaseKeepingSuffix', () => {
 			'/schedules?path=f/a#u/me/daily'
 		)
 		expect(stripBaseKeepingSuffix(`${base}/schedules`)).toBe('/schedules')
+	})
+})
+
+describe('describeLocation', () => {
+	it('reads the query as the view only where the query is the view', () => {
+		// Runs: the filters are what the tab shows.
+		expect(describeLocation('/runs?path=u/me/a').view).toBe('path=u/me/a')
+		// A list page writes its own defaults back; that is not a different view.
+		expect(describeLocation('/routes?filter_path_of=trigger').view).toBe('')
+		expect(sameView('/routes', '/routes?filter_path_of=trigger')).toBe(true)
+		expect(sameView('/runs?path=a', '/runs?path=b')).toBe(false)
+	})
+
+	it('reads the hash as a row only where the page deep-links rows', () => {
+		expect(describeLocation('/schedules#u/me/daily').anchor).toBe('u/me/daily')
+		expect(describeLocation('/resources#/resource/u/me/db').anchor).toBe('u/me/db')
+		// A legacy app hands its hash to the app as `context.hash`.
+		expect(describeLocation('/apps/edit/u/me/dash#tab=2').anchor).toBe('')
+		expect(sameView('/apps/edit/u/me/dash', '/apps/edit/u/me/dash#tab=2')).toBe(true)
+	})
+
+	it('keeps an artifact addressed by id, not by URL grammar', () => {
+		// `new URL` parses `artifact:` as a scheme and would drop it.
+		expect(describeLocation('artifact:abc-123#My Doc').identity).toBe('artifact:abc-123')
+		expect(sameView('artifact:abc-123#Old name', 'artifact:abc-123#New name')).toBe(true)
+		expect(sameView('artifact:abc-123', 'artifact:def-456')).toBe(false)
+	})
+
+	it('ignores the params the preview host injects, and param order', () => {
+		expect(sameView('/runs?path=a', '/runs?path=a&nomenubar=true&workspace=ws')).toBe(true)
+		expect(sameView('/runs?path=a&status=running', '/runs?status=running&path=a')).toBe(true)
 	})
 })
 

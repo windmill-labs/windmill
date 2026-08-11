@@ -51,7 +51,6 @@ import {
 	selectPreviewTabsToClose
 } from './sessionPreviewTabs.svelte'
 import {
-	matchReusablePage,
 	parsePreviewItemRoute,
 	drawerAnchorFor,
 	previewLocationLabel,
@@ -1053,49 +1052,18 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return undefined
 	const owner = getOrCreateRuntime(session).previewTabs
-	// Re-point the tab already showing this page (matched ignoring query/hash) so a
-	// filter change updates it in place instead of spawning a duplicate — unless the
-	// user asked for a separate tab. open() dedupes on the exact URL, so differing
-	// filters would otherwise always open a new tab.
-	const targetPage = matchReusablePage(href)
-	if (!newTab && targetPage) {
-		const existing = owner.tabs.find(
-			(t) => matchReusablePage(t.loc || t.url)?.path === targetPage.path
-		)
-		if (existing) {
-			// A target identical to what the tab already shows produces no navigation
-			// signal at all, so a drawer-opening hash (an edit drawer the user closed)
-			// would silently not re-fire — force a load. Hashless targets need no
-			// reload: focusing the already-correct view is enough.
-			const unchanged = href.includes('#') && (existing.loc || existing.url) === href
-			// One change, not three: switching to a background tab is already visible,
-			// so the navigate that follows must not read as "nothing happened".
-			owner.asOneChange(() => {
-				owner.select(existing.id)
-				owner.navigate({ type: 'page', href, label })
-				owner.setCollapsed(false)
-			})
-			if (unchanged) {
-				owner.pulseReload(existing.id)
-				return `Re-opened the ${label} preview tab on the requested view.`
-			}
-			return `Updated the ${label} preview tab with the new filters.`
-		}
-	}
+	// open() owns the whole decision — which tab already shows this page, whether the
+	// requested view differs from what it shows, and whether a forced load is needed to
+	// re-fire a drawer. Deciding any of that again here means two predicates for one
+	// question, and the report going out of step with what actually happened.
 	const result = owner.open({ type: 'page', href, label }, { forceNewTab: newTab })
 	if (result.status === 'focused') {
-		// Same no-signal situation as above: open() only reports 'focused' when a
-		// tab already shows this exact URL.
-		if (href.includes('#')) {
-			const shown = owner.tabs.find((t) => (t.loc || t.url) === href)
-			if (shown) owner.pulseReload(shown.id)
-		}
-		return `A preview tab is already showing ${label} — focused it and applied the filters.`
+		return `A preview tab is already showing ${label} — focused it.`
 	}
 	// The tab count did not change: saying "opened a new tab" would leave the model
 	// believing in a tab that does not exist, and offering to close it.
 	if (result.status === 'retargeted') {
-		return `Re-pointed the existing ${label} preview tab at the requested view.`
+		return `Updated the ${label} preview tab with the requested view.`
 	}
 	return `Opened ${label} in a new preview tab in the side panel.`
 })

@@ -292,6 +292,49 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.tabs.find((t) => t.id === first)?.url).toBe('/routes#u/me/a')
 	})
 
+	// The list pages read their `#<path>` once per document, so a drawer the user closed
+	// inside the frame only comes back on a forced load — and re-commanding the location
+	// the tab already shows produces no navigation the host could act on.
+	it('forces a load when the requested row is the one the tab already shows', () => {
+		const o = owner()
+		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
+		o.open(routes('/routes#u/me/a'))
+		const id = o.tabs[0].id
+		o.observeLocation(id, '/routes?filter_path_of=trigger#u/me/a')
+		const before = o.reloadPulse.nonce
+
+		expect(o.open(routes('/routes#u/me/a')).status).toBe('focused')
+		expect(o.reloadPulse).toEqual({ id, nonce: before + 1 })
+	})
+
+	// The frame writing its own filter defaults back is not the user navigating away.
+	// Counting it as drift reloaded the iframe on a re-navigate, throwing away the
+	// filters, scroll and open drawer the user was looking at.
+	it('does not reload when the page only rewrote its own filters', () => {
+		const o = owner()
+		const schedules = () => ({ type: 'page' as const, href: '/schedules', label: 'Schedules' })
+		o.open(schedules())
+		const id = o.tabs[0].id
+		o.observeLocation(id, '/schedules?user_and_folders_only=false')
+		const before = o.reloadPulse.nonce
+
+		o.navigate(schedules())
+		expect(o.reloadPulse.nonce).toBe(before)
+	})
+
+	// ...but a real in-frame move away from the commanded view still is drift.
+	it('reloads when the frame moved to a different view of the page', () => {
+		const o = owner()
+		const runs = () => ({ type: 'page' as const, href: '/runs?path=u/me/a', label: 'Runs' })
+		o.open(runs())
+		const id = o.tabs[0].id
+		o.observeLocation(id, '/runs?path=u/me/b')
+		const before = o.reloadPulse.nonce
+
+		o.navigate(runs())
+		expect(o.reloadPulse).toEqual({ id, nonce: before + 1 })
+	})
+
 	// A legacy app owns its own hash (the editor reads it as `context.hash`), so the
 	// observer records app state into `loc`. Reading that as a drawer anchor would
 	// retarget on reopen, and a same-document retarget forces a reload that discards

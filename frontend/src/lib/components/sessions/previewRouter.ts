@@ -121,6 +121,82 @@ export function drawerAnchorFor(location: string): string | undefined {
 	return location.slice(hashAt + 1).replace(/^\/resource\//, '') || undefined
 }
 
+// Query params the preview host injects into an iframe URL (`nomenubar` hides the nav,
+// `workspace` scopes the page). Never part of what a location means.
+const INJECTED_PARAMS = ['nomenubar', 'workspace'] as const
+
+/** Drop the params the preview host injects, so a location observed in the frame can be
+ * compared with the one that was commanded (which never carries them). */
+export function canonicalizeObservedLoc(loc: string): string {
+	// An artifact is a scheme, not a path — `new URL` would happily parse it and hand
+	// back a pathname with the scheme gone.
+	if (parseArtifactRoute(loc)) return loc
+	try {
+		const u = new URL(loc, 'http://_')
+		for (const p of INJECTED_PARAMS) u.searchParams.delete(p)
+		return u.pathname + u.search + u.hash
+	} catch {
+		return loc
+	}
+}
+
+// Pages whose query *is* what the tab shows, so two such locations are different views
+// of one page. Every other page writes its own filter defaults into the query shortly
+// after mount and `loc` follows that rewrite, which is why the query is page-internal
+// state everywhere else — reading it as the view makes a tab stop recognizing itself.
+const QUERY_IS_VIEW: readonly string[] = [
+	'/runs',
+	'/audit_logs',
+	'/assets',
+	'/workspace_settings',
+	COMPARE_PAGE.path
+]
+
+/** What a preview location means, read against the page it points at. */
+export type PreviewLocation = {
+	/** What two locations must share to be the same tab. */
+	identity: string
+	/** The view within that page, `''` where the query is the page's own state. */
+	view: string
+	/** The row the page deep-links, `''` where the hash is the page's own state. */
+	anchor: string
+}
+
+/** Decompose a preview location into what it means.
+ *
+ * Everything that compares two preview locations goes through this. A query or a hash
+ * means something different on each class of page — the row a drawer is open at, a
+ * filter the page wrote itself, a legacy app's `context.hash` — and answering that at
+ * the call site is how a tab ends up duplicated, reloaded, or reported as showing a row
+ * it is not. The page classes live here and only here. */
+export function describeLocation(loc: string): PreviewLocation {
+	const artifact = parseArtifactRoute(loc)
+	if (artifact) return { identity: `artifact:${artifact.id}`, view: '', anchor: '' }
+	const canonical = canonicalizeObservedLoc(loc)
+	const path = stripBase(canonical)
+	const bare = canonical.split('#')[0]
+	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
+	return {
+		identity: path,
+		view: QUERY_IS_VIEW.includes(path) ? sortedParams(query) : '',
+		anchor: drawerAnchorFor(canonical) ?? ''
+	}
+}
+
+// A page may write its own params back in any order, so a view compares by content.
+function sortedParams(query: string): string {
+	const parts: string[] = []
+	new URLSearchParams(query).forEach((v, k) => parts.push(`${k}=${v}`))
+	return parts.sort().join('&')
+}
+
+/** Whether two preview locations show the same thing: same page, view and row. */
+export function sameView(a: string, b: string): boolean {
+	const x = describeLocation(a)
+	const y = describeLocation(b)
+	return x.identity === y.identity && x.view === y.view && x.anchor === y.anchor
+}
+
 /** Like `stripBase`, but keeps the query and hash: a list page's `?filters` and
  * its `#<path>` (the row whose drawer is open) are what the location says beyond
  * the page's name. Not for route matching — use `stripBase` for that. */

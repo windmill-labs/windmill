@@ -4,8 +4,10 @@ import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import {
 	artifactUrl,
-	drawerAnchorFor,
+	canonicalizeObservedLoc,
+	describeLocation,
 	matchPreviewPage,
+	sameView,
 	parseArtifactRoute,
 	parsePipelineRoute,
 	parsePreviewItemRoute,
@@ -74,34 +76,6 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 	}
 	tab.url = url
 	tab.loc = url
-}
-
-// Identity of a page tab for open()'s dedupe: the path alone. A list page rewrites its
-// own filter defaults into the URL after mount and `loc` follows, so matching on the
-// query stops recognizing the tab it just opened. Pages where the query *is* the view
-// never reach here — matchReusablePage takes them first.
-const pageIdentity = (loc: string) => canonicalizeObservedLoc(loc).split('?')[0].split('#')[0]
-
-// The row a location deep-links, only on the pages that deep-link rows. Elsewhere a
-// hash is the page's own state (a legacy app receives it as `context.hash`), and
-// reading it as an anchor would retarget on reopen — forcing a reload that throws that
-// state away.
-const pageAnchor = (loc: string) => drawerAnchorFor(loc) ?? ''
-
-// Strip the query params the sessions preview injects into iframe URLs
-// (`nomenubar` to hide the nav, `workspace` to scope the page): they aren't part
-// of the canonical page URL. The observed `loc` must drop them to stay symmetric
-// with `url` (targetUrl, which never carries them), else reopening the same page
-// spawns a duplicate tab instead of focusing the existing one.
-export function canonicalizeObservedLoc(loc: string): string {
-	try {
-		const u = new URL(loc, 'http://_')
-		u.searchParams.delete('nomenubar')
-		u.searchParams.delete('workspace')
-		return u.pathname + u.search + u.hash
-	} catch {
-		return loc
-	}
 }
 
 // The editor target a destination maps to, or undefined when it isn't an item we
@@ -272,7 +246,10 @@ export class SessionPreviewTabs {
 	// somewhere else (the user opened another row) and must be pulled back.
 	#retarget(tab: SessionPreviewTab, url: string): void {
 		const commandUnchanged = tab.url === url
-		const drifted = canonicalizeObservedLoc(tab.loc) !== canonicalizeObservedLoc(url)
+		// Drift is a change of what the frame *shows*, not of its URL string: a page
+		// writing its own filter defaults back is not the user navigating away, and
+		// reloading on it would throw away the view they are looking at.
+		const drifted = !sameView(tab.loc, url)
 		retargetTab(tab, url)
 		if (commandUnchanged && drifted) this.pulseReload(tab.id)
 	}
@@ -402,18 +379,23 @@ export class SessionPreviewTabs {
 		}
 		// Focus the tab currently *showing* this destination rather than duplicating it.
 		// Matched on the observed `loc`, not `url`: a tab that navigated away no longer
-		// shows it. A loose (path) match must then re-point the tab, not just focus it —
-		// otherwise one trigger's drawer stays on screen while another is reported open.
-		// A tab already showing the exact location wins over any other tab on the page:
-		// `new_tab` puts two views of one page side by side, and retargeting whichever
-		// sits first would overwrite the other and leave both on the same row.
+		// shows it. A tab already showing this exact view wins over any other tab on the
+		// page — `new_tab` puts two views of one page side by side, and retargeting
+		// whichever sits first would overwrite the other and leave both on the same row.
 		const shown = opts?.forceNewTab
 			? undefined
-			: (this.#tabs.find((t) => canonicalizeObservedLoc(t.loc) === canonicalizeObservedLoc(url)) ??
-				this.#tabs.find((t) => pageIdentity(t.loc) === pageIdentity(url)))
+			: (this.#tabs.find((t) => sameView(t.loc, url)) ??
+				this.#tabs.find((t) => describeLocation(t.loc).identity === describeLocation(url).identity))
 		if (shown) {
-			const same = pageAnchor(shown.loc) === pageAnchor(url)
-			if (!same) this.#retarget(shown, url)
+			const same = sameView(shown.loc, url)
+			if (same) {
+				// Nothing to navigate to, so nothing would re-run: the list pages read their
+				// `#<path>` once per document, and the drawer it opens may since have been
+				// closed. Only a forced load can bring it back.
+				if (describeLocation(url).anchor) this.pulseReload(shown.id)
+			} else {
+				this.#retarget(shown, url)
+			}
 			this.#activeId = shown.id
 			this.#flush()
 			return { status: same ? 'focused' : 'retargeted' }
