@@ -4,6 +4,7 @@ import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import {
 	artifactUrl,
+	drawerAnchorFor,
 	matchPreviewPage,
 	parseArtifactRoute,
 	parsePipelineRoute,
@@ -75,24 +76,17 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 	tab.loc = url
 }
 
-// Identity of a page tab, for the dedupe in `open`: the path alone.
-//
-// Neither the query nor the hash is part of it. A list page rewrites its own
-// defaults into the URL shortly after mount (`/routes` becomes
-// `/routes?filter_path_of=trigger&user_and_folders_only=false`), and `loc`
-// follows those rewrites, so a query-sensitive match stops recognizing the very
-// tab it just opened and every later open spawns a duplicate. The hash is view
-// state inside the page — the row whose drawer is open — not what the tab shows.
-//
-// Pages where the query *is* the view (Runs, Compare) never reach this dedupe:
-// matchReusablePage takes them down a branch that re-points on a query change.
+// Identity of a page tab for open()'s dedupe: the path alone. A list page rewrites its
+// own filter defaults into the URL after mount and `loc` follows, so matching on the
+// query stops recognizing the tab it just opened. Pages where the query *is* the view
+// never reach here — matchReusablePage takes them first.
 const pageIdentity = (loc: string) => canonicalizeObservedLoc(loc).split('?')[0].split('#')[0]
 
-// Where inside the page a location points — the row whose drawer is open.
-const pageAnchor = (loc: string) => {
-	const at = loc.indexOf('#')
-	return at < 0 ? '' : loc.slice(at + 1)
-}
+// The row a location deep-links, only on the pages that deep-link rows. Elsewhere a
+// hash is the page's own state (a legacy app receives it as `context.hash`), and
+// reading it as an anchor would retarget on reopen — forcing a reload that throws that
+// state away.
+const pageAnchor = (loc: string) => drawerAnchorFor(loc) ?? ''
 
 // Strip the query params the sessions preview injects into iframe URLs
 // (`nomenubar` to hide the nav, `workspace` to scope the page): they aren't part
@@ -406,18 +400,10 @@ export class SessionPreviewTabs {
 				return { status: same ? 'focused' : 'opened' }
 			}
 		}
-		// Focus the tab currently *showing* this destination instead of opening a
-		// duplicate. Matched on the observed `loc`, not `url`: a tab that was
-		// opened here but navigated away no longer counts as showing it. Both sides
-		// are canonicalized because a caller may bake `?workspace=` into the href
-		// (the frame re-injects it from the session anyway) while the observed loc
-		// has had it stripped — comparing raw would reopen the page as a duplicate.
-		// Matched on `pageIdentity` — the path — so a tab still counts as showing
-		// the page after the user has opened a row in it and after the page has
-		// rewritten its own filter defaults into the URL. The tab is then
-		// re-pointed at the requested URL rather than merely focused: matching
-		// loosely but not navigating would leave one trigger's drawer on screen
-		// while reporting that another one was opened.
+		// Focus the tab currently *showing* this destination rather than duplicating it.
+		// Matched on the observed `loc`, not `url`: a tab that navigated away no longer
+		// shows it. A loose (path) match must then re-point the tab, not just focus it —
+		// otherwise one trigger's drawer stays on screen while another is reported open.
 		const shown = opts?.forceNewTab
 			? undefined
 			: this.#tabs.find((t) => pageIdentity(t.loc) === pageIdentity(url))

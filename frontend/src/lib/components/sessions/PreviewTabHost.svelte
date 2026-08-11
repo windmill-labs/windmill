@@ -167,14 +167,10 @@
 	})
 	$effect(() => () => clearTimeout(flashTimer))
 
-	// Re-pointing a page tab within one document — `/routes#a` → `/routes#b`, what
-	// open_page does to show another trigger — only changes the iframe's `src`
-	// fragment, which the browser resolves without a load. The trigger lists handle
-	// their `#<path>` exactly once per document (a one-shot flag, unlike Schedules'
-	// reactive one), so without forcing the load the panel keeps showing the row
-	// opened first while the tab model reports the new one. Watches the commanded
-	// `url`, never the observed `loc`: navigation *inside* the frame is the user's
-	// own and must not be undone.
+	// Re-pointing within one document (`/routes#a` → `/routes#b`) only changes the src
+	// fragment, which the browser resolves without a load — and the trigger lists read
+	// their `#<path>` once per document, so the first row would stay on screen. Watches
+	// the commanded `url`, never `loc`: navigation inside the frame is the user's own.
 	let lastCommandedDoc: string | undefined = undefined
 	$effect(() => {
 		const doc = tab.url.split('#')[0]
