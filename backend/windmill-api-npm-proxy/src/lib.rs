@@ -207,6 +207,11 @@ const MAX_ENTRIES: usize = 100_000;
 /// both; anything larger is read back on demand instead.
 const RETAINED_ENTRY_BYTES: u64 = 512 * 1024;
 const RETAINED_BYTES: u64 = 32 * 1024 * 1024;
+/// Charged per entry on top of its bytes, for the `String`/`Vec` headers, their heap
+/// allocations and the map bucket. Deliberately generous: the point is that an archive of
+/// empty files cannot be free, not that the figure is exact.
+const NAME_OVERHEAD: u64 = 64;
+const RETAINED_FILE_OVERHEAD: u64 = 160;
 
 /// What a type request can ask for: `ata/index.ts` reads each dependency's manifest and
 /// then every `.d.ts` the file tree lists. Retaining just those keeps a large package's
@@ -237,12 +242,22 @@ struct PackageArchive {
 }
 
 impl PackageArchive {
+    /// What one package holds. Counting only string contents would let an archive of many
+    /// tiny files sit far above the cache budget: an empty `.d.ts` costs nothing by that
+    /// measure while still owning a `String`, a `Vec`, their separate heap allocations and
+    /// a map bucket, so every entry carries a generous fixed cost as well.
     fn retained_bytes(&self) -> u64 {
-        let names: u64 = self.names.iter().map(|n| n.len() as u64).sum();
+        let names: u64 = self
+            .names
+            .iter()
+            .map(|name| name.len() as u64 + NAME_OVERHEAD)
+            .sum();
         let files: u64 = self
             .small_files
             .iter()
-            .map(|(path, content)| (path.len() + content.len()) as u64)
+            .map(|(path, content)| {
+                (path.len() + content.len()) as u64 + RETAINED_FILE_OVERHEAD
+            })
             .sum();
         self.archive.len() as u64 + names + files
     }
@@ -823,7 +838,9 @@ fn read_package_archive(archive: axum::body::Bytes, max_entries: usize) -> Resul
             .read_to_end(&mut content)
             .map_err(|e| Error::InternalErr(format!("Failed to read {}: {}", stripped, e)))?;
         if content.len() as u64 <= RETAINED_ENTRY_BYTES {
-            retained += content.len() as u64;
+            // The overhead counts against the budget too, so many empty files exhaust it
+            // rather than being retained without limit.
+            retained += content.len() as u64 + RETAINED_FILE_OVERHEAD;
             small_files.insert(stripped, content);
         }
     }
@@ -914,7 +931,8 @@ async fn blocking<T: Send + 'static>(
 mod tests {
     use super::{
         byte_bounded_cache, read_one_entry, read_package_archive, resolve_version_spec,
-        CachedTarball, PackageArchive, RETAINED_ENTRY_BYTES,
+        CachedTarball, PackageArchive, NAME_OVERHEAD, RETAINED_ENTRY_BYTES,
+        RETAINED_FILE_OVERHEAD,
     };
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -1003,6 +1021,31 @@ mod tests {
 
         // Entry count is the one hard bound; size is never a reason to refuse a package
         assert!(read_package_archive(archive, 1).is_err());
+    }
+
+    /// Weighing contents alone would price an archive of empty declarations at nearly
+    /// nothing, while it still owns a string, a vector and a map bucket per entry.
+    #[test]
+    fn an_archive_of_empty_files_is_not_free() {
+        let empty: Vec<(String, usize)> = (0..2000)
+            .map(|i| (format!("package/t{}.d.ts", i), 0))
+            .collect();
+        let archive: axum::body::Bytes = tarball(
+            &empty
+                .iter()
+                .map(|(path, size)| (path.as_str(), *size))
+                .collect::<Vec<_>>(),
+        )
+        .into();
+
+        let read = read_package_archive(archive.clone(), 10_000).unwrap();
+
+        assert_eq!(read.small_files.len(), 2000);
+        // Charged for what each entry actually owns, not for its zero bytes of content
+        assert!(
+            read.retained_bytes()
+                >= archive.len() as u64 + 2000 * (NAME_OVERHEAD + RETAINED_FILE_OVERHEAD)
+        );
     }
 
     /// A cache that splits its budget across shards refuses anything heavier than one
