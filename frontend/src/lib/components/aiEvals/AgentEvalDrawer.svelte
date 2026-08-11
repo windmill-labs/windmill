@@ -372,19 +372,25 @@
 	// per row. The child agent job shares the prefix with a `/a` suffix, so only exact case
 	// segments count.
 	let lastRunByCase = $state<Record<string, Job>>({})
+	// True when the page bound was hit before every case was accounted for, so an empty cell means
+	// "not found in recent runs" rather than "never ran".
+	let runsTruncated = $state(false)
 	let runsGeneration = 0
 	async function loadLastRuns(dataset: string | undefined, agent: string | undefined) {
 		const generation = ++runsGeneration
 		lastRunByCase = {}
+		runsTruncated = false
 		if (!ws || !dataset || !agent) return
+		// Read untracked: naming `cases` in a tracked position would make this whole job-history
+		// query a dependency of the case list, refetching it on every save, delete and Load more.
+		const wanted = untrack(() => new Set(cases.map((c) => c.id)))
 		const prefix = `${agent}/${dataset}/`
 		const RUNS_PAGE_SIZE = 200
 		// Paged until every loaded case has been seen, because one newest-first page covers only
-		// the most recent runs: a dataset with more history than that would report cases as never
-		// run. Bounded, so a long history cannot turn opening a dataset into a crawl — cases still
-		// unseen at the bound keep their honest "never seen in recent runs" blank.
+		// the most recent runs: a dataset with more history than that reported cases as never run.
+		// Bounded, so a long history cannot turn opening a dataset into a crawl; a case not reached
+		// within the bound reads as unknown rather than claiming it never ran.
 		const MAX_RUN_PAGES = 5
-		const wanted = new Set(cases.map((c) => c.id))
 		try {
 			const byCase: Record<string, Job> = {}
 			// listJobs pages by a created_before cursor, not a page number.
@@ -409,6 +415,7 @@
 				if (!before) break
 			}
 			lastRunByCase = byCase
+			runsTruncated = [...wanted].some((id) => !byCase[id])
 		} catch {
 			// A missing run history must not empty the table.
 		}
@@ -526,7 +533,7 @@
 						</Button>
 
 						<div class="flex-1 min-h-0 overflow-auto">
-							{#if loadingCases}
+							{#if loadingCases && cases.length === 0}
 								<Skeleton layout={[[2], [2], [2]]} />
 							{:else if !selectedDataset}
 								<div class="text-xs text-tertiary p-2">
@@ -584,7 +591,11 @@
 																: 'running'}
 														</span>
 													{:else}
-														<span class="text-tertiary">never</span>
+														<span class="text-tertiary" title={runsTruncated
+															? 'No run found in the most recent runs of this dataset'
+															: 'Never run'}>
+															{runsTruncated ? '—' : 'never'}
+														</span>
 													{/if}
 												</Cell>
 												<Cell last>

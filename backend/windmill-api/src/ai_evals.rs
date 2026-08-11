@@ -1476,7 +1476,8 @@ mod with_storage {
             serde_json::Value::Object(map) => match map.get("score") {
                 Some(serde_json::Value::Number(n)) => n.as_f64(),
                 Some(serde_json::Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
-                // An agent scorer answers in `output`, which is itself often a JSON string.
+                // An agent scorer wraps its answer in `output`: a number, a boolean, a
+                // structured {score}, or a string holding any of those.
                 _ => match map.get("output") {
                     Some(serde_json::Value::Number(n)) => n.as_f64(),
                     Some(serde_json::Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
