@@ -20,17 +20,19 @@ INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, sc
 );
 
 -- A path-scoped run token for test-user-2, as the trigger UI mints per runnable for a
--- webhook caller. test-user-2 created every job below, so the `created_by` grant would
--- otherwise hand this token all of them; it must reach only jobs of `f/shared/flow1`.
+-- webhook caller. test-user-2 created every job this token is asserted against, so the
+-- `created_by` grant would otherwise hand it all of them; it must reach only jobs of
+-- `f/shared/flow1`.
 INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
     encode(sha256('RUN_SCOPED_TOKEN'::bytea), 'hex'), 'RUN_SCOPE', 'RUN_SCOPED_TOKEN',
     'test2@windmill.dev', 'flow webhook token', false,
     ARRAY['jobs:run:flows:f/shared/flow1']
 );
 
--- Same, scoped to a script. `wrapped_job` below runs that script through a
--- `singlestepflow` wrapper (native retry / scheduled runs produce these), so the
--- confinement has to project the wrapper onto the runnable it wraps.
+-- Same, scoped to a script. The two jobs below both run through a `singlestepflow`
+-- wrapper (native retry / scheduled runs produce these) — one wrapping a script, one
+-- wrapping a flow — so the confinement has to project each onto the runnable it wraps
+-- rather than onto the wrapper's own `kind`.
 INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
     encode(sha256('RUN_SCOPED_SCRIPT_TOKEN'::bytea), 'hex'), 'RUN_SCRIP', 'RUN_SCOPED_SCRIPT_TOKEN',
     'test2@windmill.dev', 'script webhook token', false,
@@ -49,6 +51,19 @@ INSERT INTO public.v2_job (
 INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, result) VALUES
     ('14141414-1414-1414-1414-141414141414', 'test-workspace', 1000, 'success'::job_status,
      '{"wrapped": "WRAPPED_RESULT"}');
+
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner, raw_flow
+) VALUES (
+    '15151515-1515-1515-1515-151515151515', 'test-workspace', 'test-user-2',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'singlestepflow', 'deno', 'f/shared/flow1', 'flow', true,
+    '{"modules": [{"id": "a", "value": {"type": "flow", "path": "f/shared/flow1"}}]}'
+);
+INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, result) VALUES
+    ('15151515-1515-1515-1515-151515151515', 'test-workspace', 1000, 'success'::job_status,
+     '{"wrapped": "WRAPPED_FLOW_RESULT"}');
 
 -- App embed token for the admin viewer (test-user). Mirrors a minted sandboxed
 -- low-code app token: carries the `app_embed` sentinel plus the embed scope set.

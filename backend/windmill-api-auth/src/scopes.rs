@@ -689,20 +689,32 @@ fn extract_domain_from_route(
     )))
 }
 
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
+/// The reads a `jobs:run` scope implies: following, by id, a run the token started.
+/// Every entry takes a job id and authorizes through `require_job_read_access` (or its
+/// own `jobs:run:flows:<path>` check), which is what confines them to the token's own
+/// runnable. Workspace-wide enumeration (`jobs/list`, counts, exports) is deliberately
+/// absent — that is `jobs:read`. Keep by-id read routes here in sync as they are added,
+/// or a run token loses the ability to follow its own run through them.
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 27] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
     "jobs_u/get_logs/",
+    "jobs_u/get_completed_logs_tail/",
     "jobs_u/get_flow_all_logs/",
+    "jobs_u/get_flow_all_logs_structured/",
+    "jobs_u/get_flow_all_results/",
     "jobs_u/get_args/",
     "jobs_u/get_flow_debug_info/",
     "jobs_u/completed/get/",
     "jobs_u/completed/get_result/",
     "jobs_u/completed/get_result_maybe/",
+    "jobs_u/completed/get_timing/",
+    "jobs_u/dispatch_events/",
     "jobs_u/getupdate/",
     "jobs_u/getupdate_sse/",
     "jobs_u/get_log_file/",
+    "jobs/run_progress/",
     "jobs/result_by_id/",
     "jobs/resume_urls/",
     "jobs/flow/user_states/",
@@ -710,6 +722,7 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
     "jobs/completed/get/",
     "jobs/completed/get_result/",
     "jobs/completed/get_result_maybe/",
+    "jobs/get_otel_traces/",
 ];
 
 /// Sentinel scope in app embed tokens. Grants nothing itself; `check_route_access`
