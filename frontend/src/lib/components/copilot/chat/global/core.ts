@@ -4128,6 +4128,10 @@ function buildVariableUpdateRequestBody(
 	draftValue: CreateVariable
 ): Omit<CreateVariable, 'value'> & { value?: string } {
 	const { value, ...rest } = structuredClone(draftValue)
+	// A non-secret value is resent even when this edit did not change it — a variable draft
+	// carries no baseline to diff against, so this matches `VariableEditor.save` and the
+	// shared deployer. A value changed elsewhere since the draft was created is therefore
+	// overwritten; closing that needs a stale-draft guard for variables on all three paths.
 	if (!rest.is_secret) return { ...rest, value }
 	return value === '' ? rest : { ...rest, value }
 }
