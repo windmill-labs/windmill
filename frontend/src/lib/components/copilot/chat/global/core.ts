@@ -591,15 +591,16 @@ function triggerConfigJsonSchema(kind: TriggerKind): string {
 
 const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverrideField })
 
-// A variable's value is never readable (secrets especially), so an edit must be able
-// to leave it alone: the generated request schema makes value/is_secret/description
-// required, which forces the model to invent a value it was never shown.
+// The chat can never read a variable's value (the user can reveal one in the variable
+// editor, and jobs read it at runtime — but it is never shown to the model), so an edit
+// must be able to leave it alone. The generated request schema makes
+// value/is_secret/description required, which forces the model to invent one.
 const writeVariableSchema = variableRequestSchema.extend({
 	value: z
 		.string()
 		.optional()
 		.describe(
-			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: values are not readable, and a "$var:..." reference is NOT a valid value (that syntax only references a variable from inside a resource). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
+			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: you cannot read it, and a "$var:..." reference is NOT a valid value (that syntax only references a variable from inside a resource). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
 		),
 	is_secret: z
 		.boolean()
@@ -1214,7 +1215,7 @@ Rules:
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
-- Variable values are never readable, so never invent one: when editing an existing variable, omit value (and is_secret) from write_variable and only pass the fields you are actually changing. "$var:path/to/variable" is how a resource value references a variable — it is never a variable's own value.
+- You can never read a variable's value, secret or not, so never invent one: when editing an existing variable, omit value (and is_secret) from write_variable and pass only the fields you are actually changing. The user can reveal a value in the variable editor; you cannot, so never tell them a value is unreadable in general. "$var:path/to/variable" is how a resource value references a variable — it is never a variable's own value.
 - Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Hub scripts are prebuilt integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Use search_hub_scripts to find one before hand-writing an integration, then read_workspace_item with type "script" and the returned hub path to get its code, language, and input schema.
@@ -1400,7 +1401,8 @@ function resourceToItem(resource: ListableResource, includeValue: boolean): Work
 }
 
 function variableToItem(variable: ListableVariable): WorkspaceItem {
-	// Variables NEVER expose value (secret risk). Returns metadata only.
+	// Never exposes a value to the chat, secret or not — the user reveals one in the
+	// variable editor (audited). Metadata only.
 	return {
 		type: 'variable',
 		path: variable.path,
@@ -3303,7 +3305,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
-			'Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. A variable value is never readable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a "$var:" self-reference as the value, or un-secret a variable without giving its new value.',
+			'Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. You can never read the value of a variable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a "$var:" self-reference as the value, or un-secret a variable without giving its new value.',
 			{ strict: false }
 		),
 		showDetails: true,
