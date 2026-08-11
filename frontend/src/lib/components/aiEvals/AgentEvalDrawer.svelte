@@ -16,6 +16,7 @@
 		type Job
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { Plus, Trash2, Bot, FlaskConical } from 'lucide-svelte'
 	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
@@ -57,13 +58,19 @@
 	let agentOptions = $state<{ label: string; value: string }[]>([])
 	let newDatasetPath = $state('')
 	let deleting = $state<EvalCase | undefined>(undefined)
+	// Bumped whenever `draft` is replaced wholesale. The case editor seeds local state from the
+	// draft, so it is keyed on this and remounts rather than carrying one case's edits into the
+	// next.
+	let draftGeneration = $state(0)
 
 	async function loadDatasets() {
 		if (!$workspaceStore) return
 		datasets = await AiEvalsService.listEvalDatasets({ workspace: $workspaceStore })
 	}
 
-	async function loadCases(path: string | undefined) {
+	const CASE_PAGE_SIZE = 100
+
+	async function loadCases(path: string | undefined, page = 1) {
 		if (!$workspaceStore || !path) {
 			cases = []
 			totalCases = 0
@@ -74,9 +81,10 @@
 			const res = await AiEvalsService.listEvalCases({
 				workspace: $workspaceStore,
 				path,
-				perPage: 100
+				page,
+				perPage: CASE_PAGE_SIZE
 			})
-			cases = res.cases ?? []
+			cases = page === 1 ? (res.cases ?? []) : [...cases, ...(res.cases ?? [])]
 			totalCases = res.total ?? cases.length
 		} finally {
 			loadingCases = false
@@ -87,7 +95,8 @@
 		if (!$workspaceStore) return
 		const resources = await ResourceService.listResource({
 			workspace: $workspaceStore,
-			resourceType: 'ai_agent'
+			resourceType: 'ai_agent',
+			perPage: 1000
 		})
 		agentOptions = resources.map((r) => ({ label: r.path, value: r.path }))
 	}
@@ -119,24 +128,45 @@
 	$effect(() => {
 		if (open) loadAgent(agentPath)
 	})
+	// A case id belongs to one dataset. Keeping the draft across a dataset switch would aim Save
+	// and Run at a case the new dataset does not have, so the draft starts fresh — except for a
+	// capture, whose whole point is to survive until it is saved somewhere.
+	let lastDataset: string | undefined = undefined
 	$effect(() => {
-		loadCases(selectedDataset)
+		const dataset = selectedDataset
+		untrack(() => {
+			if (dataset !== lastDataset) {
+				lastDataset = dataset
+				if (draft.id) newCase()
+			}
+			loadCases(dataset)
+		})
 	})
+	// Applied once per capture, by identity: `setDraft` writes state this effect would otherwise
+	// re-read, and re-applying would also throw away whatever the user had started editing.
+	let appliedCapture: EvalCaseDraft | undefined = undefined
 	$effect(() => {
-		if (capture) {
-			draft = fromCaptureDraft(capture)
-			if (capture.agent_path) agentPath = capture.agent_path
-		}
+		const captured = capture
+		if (!captured || captured === appliedCapture) return
+		appliedCapture = captured
+		untrack(() => {
+			setDraft(fromCaptureDraft(captured))
+			if (captured.agent_path) agentPath = captured.agent_path
+		})
 	})
 
-	function selectCase(c: EvalCase) {
-		draft = fromStoredCase(c)
+	function setDraft(next: CaseDraft) {
+		draft = next
+		draftGeneration += 1
 		job = undefined
 	}
 
+	function selectCase(c: EvalCase) {
+		setDraft(fromStoredCase(c))
+	}
+
 	function newCase() {
-		draft = emptyCase()
-		job = undefined
+		setDraft(emptyCase())
 	}
 
 	async function createDataset() {
@@ -373,9 +403,15 @@
 								{/each}
 							</div>
 							{#if totalCases > cases.length}
-								<div class="text-2xs text-tertiary px-2 py-1">
-									Showing {cases.length} of {totalCases} cases
-								</div>
+								<Button
+									variant="subtle"
+									size="xs2"
+									disabled={loadingCases}
+									onclick={() =>
+										loadCases(selectedDataset, Math.floor(cases.length / CASE_PAGE_SIZE) + 1)}
+								>
+									Load more ({cases.length} of {totalCases})
+								</Button>
 							{/if}
 						{/if}
 					</div>
@@ -383,14 +419,16 @@
 			</Pane>
 			<Pane size={37} minSize={25}>
 				<div class="h-full overflow-auto px-2">
-					<EvalCaseEditor
-						bind:draft
-						{running}
-						canSave={!!selectedDataset}
-						saveLabel={draft.id ? 'Update case' : 'Save to dataset'}
-						onRun={run}
-						onSave={saveCase}
-					/>
+					{#key draftGeneration}
+						<EvalCaseEditor
+							bind:draft
+							{running}
+							canSave={!!selectedDataset}
+							saveLabel={draft.id ? 'Update case' : 'Save to dataset'}
+							onRun={run}
+							onSave={saveCase}
+						/>
+					{/key}
 				</div>
 			</Pane>
 			<Pane size={37} minSize={25}>

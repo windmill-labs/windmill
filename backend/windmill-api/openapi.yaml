@@ -26070,8 +26070,9 @@ components:
           format: int64
           nullable: true
           description: >
-            resource_version id the subject resolved to when the run started. Recorded so a run
-            stays attributable to a prompt state; it does not pin execution, which stays live.
+            resource_version id the agent was at when the run was enqueued. Recorded so a run
+            stays attributable to a prompt state; it does not pin execution, which stays live, so
+            a run that waits in the queue across an edit runs a later version than this.
 
     EvalDataset:
       type: object

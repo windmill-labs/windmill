@@ -3,7 +3,6 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { Play, Save } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { CaseDraft } from './evalCaseUtils'
@@ -24,8 +23,13 @@
 		onSave: () => void
 	} = $props()
 
-	// A conversation is edited as raw JSON: it is captured from real traffic far more often than
-	// it is typed, and a turn-by-turn editor would be a lot of surface for a rare hand edit.
+	// The fields are edited as local state seeded from the draft, not bound through it: the parent
+	// replaces `draft` wholesale to switch case and remounts this component with it, so seeding
+	// once is exactly right and the inputs never have to track a draft changing underneath them.
+	let userMessage = $state(draft.input?.user_message ?? '')
+	// A conversation is edited as raw JSON in a plain textarea: it is captured from real traffic far
+	// more often than it is typed, so a turn-by-turn editor would be a lot of surface for a rare
+	// hand edit.
 	let messagesText = $state(
 		draft.input?.messages ? JSON.stringify(draft.input.messages, null, 2) : ''
 	)
@@ -47,8 +51,9 @@
 
 	$effect(() => {
 		if (parsed.error) return
-		if (!deepEqual(draft.input?.messages, parsed.messages)) {
-			draft.input = { ...draft.input, messages: parsed.messages }
+		const next = { ...draft.input, user_message: userMessage, messages: parsed.messages }
+		if (!deepEqual(draft.input, next)) {
+			draft.input = next
 		}
 	})
 </script>
@@ -70,11 +75,8 @@
 			size="sm"
 			unifiedHeight={false}
 			class="min-h-24"
-			value={draft.input?.user_message ?? ''}
-			inputProps={{
-				placeholder: 'What the agent is asked',
-				oninput: (e) => (draft.input = { ...draft.input, user_message: e.currentTarget.value })
-			}}
+			bind:value={userMessage}
+			inputProps={{ placeholder: 'What the agent is asked' }}
 		/>
 	</label>
 
@@ -93,9 +95,14 @@
 					untouched.
 				</Tooltip>
 			</div>
-			<div class="h-40 border rounded-md overflow-hidden">
-				<SimpleEditor lang="json" bind:code={messagesText} fixedOverflowWidgets={false} />
-			</div>
+			<TextInput
+				underlyingInputEl="textarea"
+				size="sm"
+				unifiedHeight={false}
+				class="min-h-40 font-mono !text-2xs"
+				bind:value={messagesText}
+				inputProps={{ placeholder: '[{ "role": "user", "content": "..." }]', spellcheck: false }}
+			/>
 			{#if parsed.error}
 				<span class="text-xs text-red-600">{parsed.error}</span>
 			{/if}

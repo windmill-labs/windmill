@@ -51,10 +51,16 @@ What makes a job findable again is stamped on it at push:
 
 ## Versioning
 
-`subject.version` is the `resource_version` id the agent resolved to when the run started. It is
-recorded, never used to pin execution: a linked agent step resolves its resource live, and that
-stays true. Without the record, a run from last week could not be attributed to a prompt state,
-which is the reason resource versioning landed before this.
+`subject.version` is the `resource_version` id the agent was at when the run was **enqueued**. It
+is recorded, never used to pin execution: a linked agent step resolves its resource when it runs,
+and that stays true. Without the record, a run from last week could not be attributed to a prompt
+state, which is the reason resource versioning landed before this.
+
+Because resolution is live, the stamp is the version at enqueue rather than the one that
+executed: a run that waits in the queue while the agent is edited runs the newer value and is
+recorded against the older id. Closing that gap means either pinning execution to a version or
+having the executor report the version it resolved, both of which belong with the experiment
+work.
 
 A version captures the resource, not its transitive closure. Two byte-identical versions can
 behave differently because a `$var:`/`$res:` they reference changed underneath them, so a

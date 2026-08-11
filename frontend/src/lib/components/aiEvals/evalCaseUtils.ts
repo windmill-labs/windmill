@@ -12,15 +12,20 @@ export function fromStoredCase(c: EvalCase): CaseDraft {
 	return rest
 }
 
+/** Deep-copied, because the draft is edited in place and must not write back into the capture the
+ *  caller still holds. Via JSON rather than `structuredClone`, which throws on the reactive proxy
+ *  a capture arrives wrapped in; a capture is API JSON, so the round-trip is lossless. */
 export function fromCaptureDraft(draft: EvalCaseDraft): CaseDraft {
-	return {
-		name: draft.name,
-		input: draft.input,
-		host_flow_path: draft.host_flow_path,
-		tool_inputs: draft.tool_inputs,
-		expected: draft.expected,
-		source: draft.source
-	}
+	return JSON.parse(
+		JSON.stringify({
+			name: draft.name,
+			input: draft.input,
+			host_flow_path: draft.host_flow_path,
+			tool_inputs: draft.tool_inputs,
+			expected: draft.expected,
+			source: draft.source
+		})
+	)
 }
 
 /** What the case list shows for a case that was never given a name. */

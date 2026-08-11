@@ -80,9 +80,10 @@ mod with_storage {
     pub struct EvalSubject {
         pub kind: EvalSubjectKind,
         pub path: String,
-        /// `resource_version.id` the subject resolved to. Recorded on a run, never used to pin
-        /// execution: a linked agent step resolves its resource live (see
-        /// `docs/reusable-ai-agents.md`).
+        /// `resource_version.id` the agent was at when the run was *enqueued*. Recorded, never
+        /// used to pin execution: a linked agent step resolves its resource when it runs (see
+        /// `docs/reusable-ai-agents.md`), so a run that waits in the queue across an edit executes
+        /// a version later than the one recorded here.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub version: Option<i64>,
     }
@@ -204,10 +205,23 @@ mod with_storage {
     }
 
     #[derive(Deserialize)]
+    /// The edit fields are spelled out rather than `#[serde(flatten)]`-ing `NewEvalCase`: flatten
+    /// deserializes through a buffered representation, which silently yields `None` for the
+    /// `Box<RawValue>` fields — an edited case would lose its conversation and tool inputs.
     pub struct UpdateCase {
         pub id: Uuid,
-        #[serde(flatten)]
-        pub case: NewEvalCase,
+        #[serde(default)]
+        pub name: Option<String>,
+        #[serde(default)]
+        pub input: EvalCaseInput,
+        #[serde(default)]
+        pub host_flow_path: Option<String>,
+        #[serde(default)]
+        pub tool_inputs: Option<Box<RawValue>>,
+        #[serde(default)]
+        pub expected: Option<Box<RawValue>>,
+        #[serde(default)]
+        pub tags: Vec<String>,
     }
 
     #[derive(Serialize)]
@@ -495,6 +509,11 @@ mod with_storage {
     ) -> Result<String> {
         require_can_write(&authed, &payload.path)?;
         let client = object_store(&authed, &db, user_db, &w_id).await?;
+        // Under the same lock as every other writer: the exists-check and the write must not
+        // straddle a concurrent delete, or the delete's second DELETE lands on a dataset this
+        // request just created.
+        let mut tx = db.begin().await?;
+        lock_dataset(&mut tx, &w_id, &payload.path).await?;
         if get_object(&client, &meta_key(&payload.path))
             .await?
             .is_some()
@@ -521,6 +540,7 @@ mod with_storage {
             serde_json::to_vec(&dataset)?,
         )
         .await?;
+        tx.commit().await?;
         Ok(format!("Created eval dataset {}", payload.path))
     }
 
@@ -544,6 +564,8 @@ mod with_storage {
     ) -> Result<String> {
         require_can_write(&authed, &path)?;
         let client = object_store(&authed, &db, user_db, &w_id).await?;
+        let mut tx = db.begin().await?;
+        lock_dataset(&mut tx, &w_id, &path).await?;
         let mut dataset = read_dataset(&client, &path).await?;
         dataset.summary = payload.summary;
         dataset.description = payload.description;
@@ -551,6 +573,7 @@ mod with_storage {
         dataset.edited_at = Utc::now();
         dataset.edited_by = authed.username.clone();
         put_object(&client, &meta_key(&path), serde_json::to_vec(&dataset)?).await?;
+        tx.commit().await?;
         Ok(format!("Updated eval dataset {}", path))
     }
 
@@ -564,10 +587,11 @@ mod with_storage {
         let client = object_store(&authed, &db, user_db, &w_id).await?;
         let mut tx = db.begin().await?;
         lock_dataset(&mut tx, &w_id, &path).await?;
-        // Metadata first: a dataset whose cases outlived a failed delete is invisible and
-        // harmless, whereas cases outliving their metadata would resurface under a recreated
-        // dataset of the same path.
-        for key in [meta_key(&path), cases_key(&path)] {
+        // Cases first. The metadata is what `create_dataset` checks for, so deleting it first
+        // would let a failure between the two deletes leave the cases behind *and* unblock
+        // recreating the path — the new dataset would open holding the old one's cases. This way
+        // a failure leaves an empty dataset, which is visible and retryable.
+        for key in [cases_key(&path), meta_key(&path)] {
             match client.delete(&ObjectPath::from(key.as_str())).await {
                 Ok(()) => {}
                 Err(ObjectStoreError::NotFound { .. }) => {}
@@ -634,18 +658,18 @@ mod with_storage {
         Path((w_id, path)): Path<(String, String)>,
         Json(payload): Json<UpdateCase>,
     ) -> Result<String> {
-        let UpdateCase { id, case: edit } = payload;
+        let UpdateCase { id, name, input, host_flow_path, tool_inputs, expected, tags } = payload;
         mutate_cases(&authed, &db, user_db, &w_id, &path, move |cases| {
             let case = cases
                 .iter_mut()
                 .find(|c| c.id == id)
                 .ok_or_else(|| Error::NotFound(format!("Eval case {} not found", id)))?;
-            case.name = edit.name;
-            case.input = edit.input;
-            case.host_flow_path = edit.host_flow_path;
-            case.tool_inputs = edit.tool_inputs;
-            case.expected = edit.expected;
-            case.tags = edit.tags;
+            case.name = name;
+            case.input = input;
+            case.host_flow_path = host_flow_path;
+            case.tool_inputs = tool_inputs;
+            case.expected = expected;
+            case.tags = tags;
             Ok(())
         })
         .await?;
@@ -844,8 +868,8 @@ mod with_storage {
             None => return Err(Error::NotFound(format!("Agent {} not found", agent_path))),
         }
 
-        // The version the agent resolved to when the run was launched. Recorded so the run stays
-        // attributable to a prompt state later; it does not pin execution, which stays live.
+        // The version the agent is at now. Recorded so the run stays attributable to a prompt
+        // state later; it does not pin execution, which stays live.
         let version = current_resource_version(&db, &w_id, &agent_path).await?;
 
         let tool_inputs = match (&case.tool_inputs, &case.host_flow_path) {
@@ -988,6 +1012,10 @@ mod with_storage {
         Extension(user_db): Extension<UserDB>,
         Path((w_id, job_id)): Path<(String, Uuid)>,
     ) -> JsonResult<EvalCaseDraft> {
+        // `UserDB` enforces row permissions but not a token's scopes, so without this an
+        // `ai_evals:read` token would read job arguments — and any attachment they name — that
+        // `jobs:read` is what actually gates.
+        check_scopes(&authed, || "jobs:read".to_string())?;
         let mut tx = user_db.clone().begin(&authed).await?;
         let job = sqlx::query!(
             "SELECT kind::text AS \"kind!\", args as \"args: sqlx::types::Json<serde_json::Value>\", parent_job, flow_step_id
@@ -1118,6 +1146,8 @@ mod with_storage {
         Extension(user_db): Extension<UserDB>,
         Path((w_id, conversation_id)): Path<(String, Uuid)>,
     ) -> JsonResult<EvalCaseDraft> {
+        // Returns a whole transcript, so it needs the scope that gates transcripts.
+        check_scopes(&authed, || "flow_conversations:read".to_string())?;
         let mut tx = user_db.clone().begin(&authed).await?;
         let conversation = sqlx::query!(
             "SELECT flow_path, title FROM flow_conversation WHERE id = $1 AND workspace_id = $2",
@@ -1186,5 +1216,31 @@ mod with_storage {
             },
             agent_path: None,
         }))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The stamp is what makes a run findable again, and overflowing `runnable_path`'s
+        /// varchar(255) would truncate it into a path that matches nothing.
+        #[test]
+        fn run_path_falls_back_to_the_agent_when_the_stamp_would_overflow() {
+            let case_id = Uuid::nil();
+            assert_eq!(
+                run_path("f/a/agent", Some("f/e/ds"), Some(case_id)),
+                format!("f/a/agent/f/e/ds/{}", case_id)
+            );
+
+            let long_dataset = format!("f/e/{}", "d".repeat(240));
+            assert_eq!(
+                run_path("f/a/agent", Some(&long_dataset), Some(case_id)),
+                "f/a/agent"
+            );
+
+            // No case to point at: the run is a one-off and stamps only its subject.
+            assert_eq!(run_path("f/a/agent", None, None), "f/a/agent");
+            assert_eq!(run_path("f/a/agent", Some("f/e/ds"), None), "f/a/agent");
+        }
     }
 }
