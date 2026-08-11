@@ -36,7 +36,8 @@
 	// against the run before the change says whether the change helped.
 	let baselineId = $state<string | undefined>(undefined)
 	let baselineRows = $state<ExperimentRow[]>([])
-	let baselineLabels = $state<string[]>([])
+	let baselineScorers = $state<{ kind: string; path: string }[]>([])
+	let scorers = $state<{ kind: string; path: string }[]>([])
 	let onlyRegressions = $state(false)
 
 	let listGeneration = 0
@@ -77,6 +78,7 @@
 			if (generation !== resultsGeneration) return
 			rows = res.rows ?? []
 			scorerLabels = res.scorer_labels ?? []
+			scorers = (res.experiment?.scorers ?? []).map((sc) => ({ kind: sc.kind, path: sc.path }))
 		} finally {
 			if (generation === resultsGeneration) loading = false
 		}
@@ -95,18 +97,21 @@
 		const id = baselineId
 		const generation = ++baselineGeneration
 		baselineRows = []
-		baselineLabels = []
+		baselineScorers = []
 		if (!ws || !path || !id) return
 		AiEvalsService.experimentResults({ workspace: ws, requestBody: { dataset: path, id } })
 			.then((res) => {
 				if (generation !== baselineGeneration) return
 				baselineRows = res.rows ?? []
-				baselineLabels = res.scorer_labels ?? []
+				baselineScorers = (res.experiment?.scorers ?? []).map((sc) => ({
+					kind: sc.kind,
+					path: sc.path
+				}))
 			})
 			.catch(() => {
 				if (generation === baselineGeneration) {
 					baselineRows = []
-					baselineLabels = []
+					baselineScorers = []
 				}
 			})
 	})
@@ -116,9 +121,12 @@
 	)
 
 	// The two experiments' scorer lists can differ, so a delta is only meaningful between the same
-	// scorer — matched by label, not by its position in the array.
+	// scorer. Matched on kind and path rather than label: labels default to a path's last segment,
+	// so `f/a/quality` and `f/b/quality` both read "quality" and would compare against each other.
 	function baselineIndex(index: number): number {
-		return baselineLabels.indexOf(scorerLabels[index])
+		const mine = scorers[index]
+		if (!mine) return -1
+		return baselineScorers.findIndex((b) => b.kind === mine.kind && b.path === mine.path)
 	}
 
 	function delta(row: ExperimentRow, index: number): number | undefined {
@@ -158,11 +166,16 @@
 		scorerLabels.map((_, index) => {
 			const other = baselineIndex(index)
 			if (other < 0) return undefined
-			const before = baselineRows
-				.map((r) => r.scores?.[other])
-				.filter((v): v is number => typeof v === 'number')
-			if (before.length === 0 || means[index] == undefined) return undefined
-			return means[index]! - before.reduce((a, b) => a + b, 0) / before.length
+			// Averaged over the cases both runs scored. Comparing each run's own average would
+			// report a regression from a case the baseline never ran, with no regressed row to
+			// point at.
+			const pairs = rows
+				.map((r) => [r.scores?.[index], baselineByCase[r.case_id]?.scores?.[other]])
+				.filter((p): p is [number, number] => typeof p[0] === 'number' && typeof p[1] === 'number')
+			if (pairs.length === 0) return undefined
+			const now = pairs.reduce((a, [n]) => a + n, 0) / pairs.length
+			const before = pairs.reduce((a, [, b]) => a + b, 0) / pairs.length
+			return now - before
 		})
 	)
 </script>
@@ -220,7 +233,7 @@
 			{#if stillRunning > 0}
 				<span>{stillRunning} running</span>
 			{/if}
-			{#each scorerLabels as label, index (label)}
+			{#each scorerLabels as label, index (index)}
 				<span>
 					{label}:
 					<span class="text-primary font-medium">
@@ -256,7 +269,7 @@
 					<tr>
 						<Cell head first>Case</Cell>
 						<Cell head>Output</Cell>
-						{#each scorerLabels as label (label)}
+						{#each scorerLabels as label, index (index)}
 							<Cell head>{label}</Cell>
 						{/each}
 						<Cell head last></Cell>
@@ -284,7 +297,7 @@
 									{row.output ?? ''}
 								</span>
 							</Cell>
-							{#each scorerLabels as label, index (label)}
+							{#each scorerLabels as _label, index (index)}
 								{@const d = delta(row, index)}
 								<Cell numeric>
 									{row.scores?.[index] != undefined ? row.scores[index]?.toFixed(2) : '—'}

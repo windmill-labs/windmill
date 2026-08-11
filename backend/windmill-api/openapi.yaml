@@ -11745,19 +11745,32 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
       requestBody:
-        description: updated eval case
+        description: >
+          The editable fields of a case. `source` is deliberately absent: provenance is recorded at
+          capture and never rewritten.
         required: true
         content:
           application/json:
             schema:
-              allOf:
-                - type: object
-                  required: [id]
-                  properties:
-                    id:
-                      type: string
-                      format: uuid
-                - $ref: "#/components/schemas/NewEvalCase"
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                input:
+                  $ref: "#/components/schemas/EvalCaseInput"
+                host_flow_path:
+                  type: string
+                tool_inputs:
+                  type: object
+                expected: {}
+                tags:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: eval case updated
@@ -11816,6 +11829,10 @@ paths:
                   $ref: "#/components/schemas/EvalSubject"
                 case:
                   $ref: "#/components/schemas/NewEvalCase"
+                scorers:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ScorerRef"
                 dataset:
                   type: string
                   description: dataset holding the case to run, instead of an inline case
@@ -26365,7 +26382,8 @@ components:
           format: uuid
         status:
           type: string
-          enum: [running, success, failure]
+          description: The case job's status; `running` until it completes.
+          enum: [running, success, failure, canceled, skipped]
         output:
           type: string
           description: The agent's answer. The full trajectory stays reachable through job_id.

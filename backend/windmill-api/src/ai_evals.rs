@@ -610,13 +610,14 @@ mod with_storage {
         let client = object_store(&authed, &db, user_db, &w_id).await?;
         let mut tx = db.begin().await?;
         lock_dataset(&mut tx, &w_id, &path).await?;
-        // Cases first. The metadata is what `create_dataset` checks for, so deleting it first
-        // would let a failure between the two deletes leave the cases behind *and* unblock
-        // recreating the path — the new dataset would open holding the old one's cases. This way
-        // a failure leaves an empty dataset, which is visible and retryable.
-        // Experiments first, for the same reason cases precede metadata: they hold copies of the
-        // cases, so a delete that stopped halfway must not leave them readable under a recreated
-        // dataset of the same path.
+        // Experiments, then cases, then metadata. The metadata is what `create_dataset` checks
+        // for, so deleting it first would let a failure partway through leave case copies behind
+        // *and* unblock recreating the path — the new dataset would open holding the old one's
+        // data. This order leaves an empty dataset instead, which is visible and retryable.
+        //
+        // `list` matches on whole path segments, so this prefix cannot reach a sibling dataset
+        // whose path merely starts with the same characters (`f/t/foo` vs `f/t/foobar`). Anything
+        // that replaces it with string-prefix filtering would delete the sibling's experiments.
         use futures::TryStreamExt;
         let experiment_keys: Vec<String> = client
             .list(Some(&ObjectPath::from(
@@ -1222,6 +1223,10 @@ mod with_storage {
         let version = current_resource_version(&db, &w_id, &agent_path).await?;
 
         let client = object_store(&authed, &db, user_db.clone(), &w_id).await?;
+        // Held across the whole launch: without it a delete can land between reading the cases and
+        // writing the experiment, recreating the deleted dataset's inputs under its own path.
+        let mut tx = db.begin().await?;
+        lock_dataset(&mut tx, &w_id, &payload.dataset).await?;
         let cases = read_cases(&client, &payload.dataset).await?;
         if cases.is_empty() {
             return Err(Error::BadRequest(format!(
@@ -1292,6 +1297,7 @@ mod with_storage {
             serde_json::to_vec(&experiment)?,
         )
         .await?;
+        tx.commit().await?;
         Ok(experiment_id.to_string())
     }
 
