@@ -96,7 +96,6 @@ fn is_js_reserved_word(name: &str) -> bool {
             | "let"
             | "static"
             | "await"
-            | "async"
             | "implements"
             | "interface"
             | "package"
@@ -107,7 +106,8 @@ fn is_js_reserved_word(name: &str) -> bool {
 }
 
 /// Identifiers the generated prologue already binds; a second `const {name}`
-/// for them would be a redeclaration SyntaxError.
+/// for them would be a redeclaration SyntaxError. Keep in sync with the prologue
+/// head emitted in worker.rs and bun_executor.rs (`build_nativets_env_code`).
 const PROLOGUE_RESERVED_BINDINGS: &[&str] = &["process", "BASE_URL", "BASE_INTERNAL_URL"];
 
 /// True when `name` can be emitted as a `const {name}` binding in the NativeTS/
@@ -761,7 +761,8 @@ mod tests {
 
     #[test]
     fn can_bind_as_prologue_const_excludes_reserved_and_owned_names() {
-        for ok in ["FOO", "_bar", "$x", "myVar"] {
+        // `async` is a contextual keyword, not reserved — `const async` is valid.
+        for ok in ["FOO", "_bar", "$x", "myVar", "async"] {
             assert!(can_bind_as_prologue_const(ok), "{ok} should be bindable");
         }
         // Valid identifiers that would still break `const {name}`: reserved words
