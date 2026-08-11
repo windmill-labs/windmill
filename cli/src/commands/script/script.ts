@@ -18,7 +18,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { deepEqual, getHeaders, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { deepEqual, getHeaders, isFileResource, isFilesetResource, readTextFile, readTextFileSync } from "../../utils/utils.ts";
 import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
@@ -193,6 +193,12 @@ async function push(opts: PushOptions, filePath: string) {
     );
   }
 
+  if (isFileResource(filePath) || isFilesetResource(filePath)) {
+    throw Error(
+      "Cannot push a file/fileset resource content file as a script, push its .resource.yaml with 'wmill resource push' instead"
+    );
+  }
+
   await requireLogin(opts);
 
   // Warn about metadata state before pushing
@@ -349,6 +355,12 @@ export async function handleFile(
   codebases: SyncCodebase[],
   permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
+  // A file/fileset resource's content file can carry a script extension
+  // (.sql, .ts, …) but belongs to its parent resource, never to a
+  // standalone script.
+  if (isFileResource(path) || isFilesetResource(path)) {
+    return false;
+  }
   // Detect module entry point: e.g., my_script__mod/script.ts
   const moduleEntryPoint = isModuleEntryPoint(path);
   if (
