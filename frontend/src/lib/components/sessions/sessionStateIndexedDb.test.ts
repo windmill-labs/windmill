@@ -65,6 +65,32 @@ function session(over: Partial<Session> = {}): Session {
 }
 const flush = () => new Promise<void>((r) => setTimeout(r, 0))
 
+// Poll the stored record until `check` holds. A tick of `flush` is not a write
+// barrier: the persisting calls are fire-and-forget, so anything that reads the
+// store back has to wait for the record itself.
+async function waitForRecord(user: UserExt, id: string, check: (rec: Session | undefined) => void) {
+	const name = `windmill-sessions::${user.email}`
+	// Generous, because the wait covers opening sessionState's own scoped handle as well
+	// as the write, and a loaded machine running the whole suite can take seconds over it.
+	// Callers raise their own test timeout to match.
+	await vi.waitFor(
+		async () => {
+			// Opening before the writer has created the database would create it here
+			// instead — at version 1, with no object store, which silently breaks every
+			// later write to it.
+			const exists = (await indexedDB.databases()).some((d) => d.name === name)
+			expect(exists).toBe(true)
+			const db = await openDB(name, 1)
+			try {
+				check((await db.get('sessions' as never, id)) as Session | undefined)
+			} finally {
+				db.close()
+			}
+		},
+		{ timeout: 15000 }
+	)
+}
+
 // Each test uses a distinct email: the module-level sessionsDb handle gates its
 // legacy migration to once-per-scoped-name for the process, and fresh emails
 // also dodge any cross-test cached connection.
@@ -160,12 +186,15 @@ describe('sessionState IndexedDB persistence', () => {
 		await putSession(s)
 
 		setSessionPreviewSize('ps1', 42)
-		await flush()
+		// The write is fire-and-forget, and rehydrating reads the store once: start it
+		// before the put lands and the hydrated list is simply stale forever.
+		await waitForRecord(user, 'ps1', (r) => expect(r?.previewSize).toBe(42))
 
 		await rehydrate(user)
-		await flush()
-		expect(sessionState.sessions.find((x) => x.id === 'ps1')?.previewSize).toBe(42)
-	})
+		await vi.waitFor(() =>
+			expect(sessionState.sessions.find((x) => x.id === 'ps1')?.previewSize).toBe(42)
+		)
+	}, 20000)
 
 	it('materializeTransient promotes an in-memory draft to a persisted IndexedDB record', async () => {
 		const user = freshUser()
@@ -176,11 +205,12 @@ describe('sessionState IndexedDB persistence', () => {
 		sessionState.sessions = [s]
 		materializeTransient('t2')
 		expect(s.transient).toBeUndefined()
+		await waitForRecord(user, 't2', (r) => expect(r).toBeTruthy())
 
 		await rehydrate(user)
 		await vi.waitFor(() => expect(sessionState.sessions.map((x) => x.id)).toEqual(['t2']))
 		expect(sessionState.sessions[0].transient).toBeUndefined()
-	})
+	}, 20000)
 
 	it('round-trips the unsent draft prompt on the session record', async () => {
 		const user = freshUser()
