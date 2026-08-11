@@ -274,6 +274,24 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.tabs[0].url).toBe('/routes#u/me/b')
 	})
 
+	// `new_tab` deliberately keeps two views of one page side by side. Reopening one of
+	// them must focus the tab already showing it, not retarget whichever tab happens to
+	// sit first in the strip — that would overwrite the other view and leave two tabs
+	// on the same row.
+	it('focuses the tab already showing the exact location before retargeting by path', () => {
+		const o = owner()
+		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
+		o.open(routes('/routes#u/me/a'))
+		const first = o.tabs[0].id
+		o.open(routes('/routes#u/me/b'), { forceNewTab: true })
+		const second = o.tabs[1].id
+
+		expect(o.open(routes('/routes#u/me/b')).status).toBe('focused')
+		expect(o.activeId).toBe(second)
+		expect(o.tabs).toHaveLength(2)
+		expect(o.tabs.find((t) => t.id === first)?.url).toBe('/routes#u/me/a')
+	})
+
 	// A legacy app owns its own hash (the editor reads it as `context.hash`), so the
 	// observer records app state into `loc`. Reading that as a drawer anchor would
 	// retarget on reopen, and a same-document retarget forces a reload that discards

@@ -404,9 +404,13 @@ export class SessionPreviewTabs {
 		// Matched on the observed `loc`, not `url`: a tab that navigated away no longer
 		// shows it. A loose (path) match must then re-point the tab, not just focus it —
 		// otherwise one trigger's drawer stays on screen while another is reported open.
+		// A tab already showing the exact location wins over any other tab on the page:
+		// `new_tab` puts two views of one page side by side, and retargeting whichever
+		// sits first would overwrite the other and leave both on the same row.
 		const shown = opts?.forceNewTab
 			? undefined
-			: this.#tabs.find((t) => pageIdentity(t.loc) === pageIdentity(url))
+			: (this.#tabs.find((t) => canonicalizeObservedLoc(t.loc) === canonicalizeObservedLoc(url)) ??
+				this.#tabs.find((t) => pageIdentity(t.loc) === pageIdentity(url)))
 		if (shown) {
 			const same = pageAnchor(shown.loc) === pageAnchor(url)
 			if (!same) this.#retarget(shown, url)
