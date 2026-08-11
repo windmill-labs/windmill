@@ -76,15 +76,20 @@
 				{@const field = leafField(filter)}
 				<div class="w-full flex flex-col gap-2 border p-2 rounded-md bg-surface">
 					<div class="flex flex-col w-full">
-						<div class="flex flex-row items-center justify-between mb-2">
-							<div class="text-secondary text-sm">{mode === 'path' ? 'Path' : 'Key'}</div>
+						<div class="flex flex-row items-center mb-2">
 							<ToggleButtonGroup
 								selected={mode}
 								{disabled}
 								on:selected={(e) => (filters[i] = makeLeaf(e.detail, field, filter.value))}
 							>
 								{#snippet children({ item })}
-									<ToggleButton value="key" label="Key" small {item} tooltip="A top-level field" />
+									<ToggleButton
+										value="key"
+										label="Key"
+										small
+										{item}
+										tooltip="A top-level field of the message"
+									/>
 									<ToggleButton
 										value="path"
 										label="Path"
