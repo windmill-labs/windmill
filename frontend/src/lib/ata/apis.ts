@@ -146,9 +146,13 @@ export const getDTSFileForModuleWithVersion = async (
 	try {
 		const baseUrl = getBackendProxyUrl()
 		const proxyUrl = `${baseUrl}/file/${encodeURIComponent(moduleName)}/${encodeURIComponent(version)}${file}`
-		return await text(proxyUrl, { credentials: 'include' })
+		const proxied = await text(proxyUrl, { credentials: 'include' })
+		// The callers in ata/index.ts log a fixed message and drop the value, so a cause
+		// left inside the returned `Error` is a cause nothing ever prints.
+		if (proxied instanceof Error) console.warn('Backend proxy failed for file', proxied)
+		return proxied
 	} catch (e) {
-		console.log('Backend proxy failed for file', e)
+		console.warn('Backend proxy failed for file', e)
 		return new Error(`Backend proxy not available: ${e}`)
 	}
 }
