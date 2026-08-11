@@ -13,12 +13,16 @@
 		type EvalCase,
 		type EvalCaseDraft,
 		type EvalDataset,
-		type Job
+		type Job,
+		JobService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { Plus, Trash2, Bot, FlaskConical } from 'lucide-svelte'
+	import { Plus, Trash2, Bot, FlaskConical, MessagesSquare } from 'lucide-svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
 	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
 	import EvalCaseEditor from './EvalCaseEditor.svelte'
 	import EvalRunResult from './EvalRunResult.svelte'
@@ -88,6 +92,7 @@
 		if (!ws || !path) {
 			cases = []
 			totalCases = 0
+			loadingCases = false
 			return
 		}
 		loadingCases = true
@@ -170,14 +175,21 @@
 		})
 	})
 
-	function setDraft(next: CaseDraft) {
+	// The stored form of the selected case, kept independently of the loaded pages: looking the
+	// baseline up in `cases` made an off-page case read as unedited, so Run sent it by reference
+	// and evaluated the persisted inputs instead of the visible ones.
+	let draftBaseline = $state<unknown | undefined>(undefined)
+
+	function setDraft(next: CaseDraft, baseline?: unknown) {
+		draftBaseline = baseline
 		draft = next
 		draftGeneration += 1
 		job = undefined
 	}
 
 	function selectCase(c: EvalCase) {
-		setDraft(fromStoredCase(c))
+		const stored = fromStoredCase(c)
+		setDraft(stored, comparableCase(stored))
 	}
 
 	function newCase() {
@@ -219,6 +231,7 @@
 				path: selectedDataset,
 				requestBody: { id: draft.id, ...body }
 			})
+			draftBaseline = comparableCase(draft)
 			sendUserToast('Case updated')
 		} else {
 			const id = await AiEvalsService.addEvalCase({
@@ -227,9 +240,19 @@
 				requestBody: body
 			})
 			draft = { ...draft, id }
+			draftBaseline = comparableCase(draft)
 			sendUserToast('Case saved to dataset')
 		}
-		await loadCases(selectedDataset)
+		await reloadCases()
+	}
+
+	// Re-fetch as many pages as were loaded, so a write does not silently collapse the list back
+	// to its first page.
+	async function reloadCases() {
+		const pages = Math.max(1, Math.ceil(cases.length / CASE_PAGE_SIZE))
+		for (let page = 1; page <= pages; page++) {
+			await loadCases(selectedDataset, page)
+		}
 	}
 
 	async function deleteCase(c: EvalCase) {
@@ -240,7 +263,7 @@
 			requestBody: { id: c.id }
 		})
 		if (draft.id === c.id) newCase()
-		await loadCases(selectedDataset)
+		await reloadCases()
 	}
 
 	async function run() {
@@ -253,10 +276,10 @@
 		// A saved case is run by reference so the job records which case it executed. Unsaved edits
 		// have to go inline instead — running the stored case while the editor shows something else
 		// would silently test the wrong thing — and such a run has no case to trace back to.
-		const savedCase = cases.find((c) => c.id === draft.id)
-		const edited =
-			savedCase != undefined &&
-			!deepEqual(comparableCase(fromStoredCase(savedCase)), comparableCase(draft))
+		// No baseline for a case that claims an id means we cannot prove it is unchanged, so treat
+		// it as edited: running the persisted case while the editor shows something else is the
+		// silent failure, and an inline run is merely unstamped.
+		const edited = draft.id != undefined && !deepEqual(draftBaseline, comparableCase(draft))
 		const stored = draft.id && selectedDataset && !edited
 		if (edited) {
 			sendUserToast('Running the unsaved edits; save the case to record the run against it')
@@ -295,6 +318,45 @@
 		)
 	}
 
+	// One query for the whole table: every run of this dataset's cases is stamped with a path under
+	// `<agent>/<dataset>/`, so the last run per case is a group-by on that rather than a request
+	// per row. The child agent job shares the prefix with a `/a` suffix, so only exact case
+	// segments count.
+	let lastRunByCase = $state<Record<string, Job>>({})
+	let runsGeneration = 0
+	async function loadLastRuns(dataset: string | undefined, agent: string | undefined) {
+		const generation = ++runsGeneration
+		lastRunByCase = {}
+		if (!ws || !dataset || !agent) return
+		const prefix = `${agent}/${dataset}/`
+		try {
+			const jobs = await JobService.listJobs({
+				workspace: ws,
+				scriptPathStart: prefix,
+				perPage: 200
+			})
+			if (generation !== runsGeneration) return
+			const byCase: Record<string, Job> = {}
+			for (const job of jobs) {
+				const caseId = job.script_path?.slice(prefix.length)
+				// listJobs is newest first, so the first hit per case is its latest run.
+				if (caseId && !caseId.includes('/') && !byCase[caseId]) byCase[caseId] = job
+			}
+			lastRunByCase = byCase
+		} catch {
+			// A missing run history must not empty the table.
+		}
+	}
+	$effect(() => {
+		if (isOpen) loadLastRuns(selectedDataset, agentPath)
+	})
+
+	function caseSource(c: EvalCase): string {
+		if (c.source?.job_id) return 'run'
+		if (c.source?.conversation_id) return 'conversation'
+		return 'manual'
+	}
+
 	let historyPath = $derived(
 		draft.id && selectedDataset && agentPath
 			? caseRunPath(agentPath, selectedDataset, draft.id)
@@ -318,7 +380,7 @@
 	<span class="text-sm">Delete “{deleting ? caseLabel(deleting) : ''}” from this dataset?</span>
 </ConfirmationModal>
 
-<Drawer bind:open size="1100px">
+<Drawer bind:open size="1400px">
 	<DrawerContent
 		title="Evals"
 		tooltip="Run this agent on its own, and curate the cases you want it to keep handling."
@@ -340,9 +402,11 @@
 					<span class="text-2xs text-tertiary whitespace-nowrap">
 						v{agentVersion}
 						<Tooltip>
-							The version this agent is at now. A run records the version it resolved to, so a
-							result stays attributable to a prompt state. A version captures the resource only: a
-							`$var:` it references can change underneath two identical versions.
+							The version this agent is at now. A run records the version at the moment it is
+							enqueued, so a result stays attributable to a prompt state — a run that waits in
+							the queue while the agent is edited executes a newer value than the one recorded.
+							A version captures the resource only: a `$var:` it references can change underneath
+							two identical versions.
 						</Tooltip>
 					</span>
 				{/if}
@@ -350,7 +414,7 @@
 		{/snippet}
 
 		<Splitpanes class="h-full">
-			<Pane size={26} minSize={18}>
+			<Pane size={40} minSize={25}>
 				<div class="flex flex-col h-full min-h-0 pr-2 gap-2">
 					<div class="flex items-center gap-1">
 						<div class="grow min-w-0">
@@ -403,28 +467,72 @@
 								here.
 							</div>
 						{:else}
-							<div class="flex flex-col">
-								{#each cases as c (c.id)}
-									<div
-										class="flex items-center justify-between gap-1 group rounded-md px-2 py-1 hover:bg-surface-hover {draft.id ===
-										c.id
-											? 'bg-surface-selected'
-											: ''}"
-									>
-										<button class="text-xs text-left truncate grow" onclick={() => selectCase(c)}>
-											{caseLabel(c)}
-										</button>
-										<Button
-											variant="subtle"
-											size="xs2"
-											startIcon={{ icon: Trash2 }}
-											iconOnly
-											btnClasses="opacity-0 group-hover:opacity-100"
-											onclick={() => (deleting = c)}
-										/>
-									</div>
-								{/each}
-							</div>
+							<DataTable size="xs" noBorder shouldHidePagination>
+								<Head>
+									<tr>
+										<Cell head first>Case</Cell>
+										<Cell head>From</Cell>
+										<Cell head>Last run</Cell>
+										<Cell head last></Cell>
+									</tr>
+								</Head>
+								<tbody>
+									{#each cases as c (c.id)}
+										{@const lastRun = lastRunByCase[c.id]}
+										<tr
+											class="border-b last:border-b-0 cursor-pointer group hover:bg-surface-hover {draft.id ===
+											c.id
+												? 'bg-surface-selected'
+												: ''}"
+											onclick={() => selectCase(c)}
+										>
+											<Cell first>
+												<div class="flex items-center gap-1 min-w-0">
+													<span class="truncate">{caseLabel(c)}</span>
+													{#if c.input?.messages?.length}
+														<Tooltip><MessagesSquare size={12} /></Tooltip>
+													{/if}
+												</div>
+											</Cell>
+											<Cell>
+												<span class="text-tertiary">{caseSource(c)}</span>
+											</Cell>
+											<Cell>
+												{#if lastRun}
+													<span
+														class={lastRun.type === 'CompletedJob'
+															? lastRun.success
+																? 'text-green-600'
+																: 'text-red-600'
+															: 'text-tertiary'}
+													>
+														{lastRun.type === 'CompletedJob'
+															? lastRun.success
+																? 'success'
+																: 'failure'
+															: 'running'}
+													</span>
+												{:else}
+													<span class="text-tertiary">never</span>
+												{/if}
+											</Cell>
+											<Cell last>
+												<Button
+													variant="subtle"
+													size="xs2"
+													startIcon={{ icon: Trash2 }}
+													iconOnly
+													btnClasses="opacity-0 group-hover:opacity-100"
+													onclick={(e) => {
+														e?.stopPropagation()
+														deleting = c
+													}}
+												/>
+											</Cell>
+										</tr>
+									{/each}
+								</tbody>
+							</DataTable>
 							{#if totalCases > cases.length}
 								<Button
 									variant="subtle"
@@ -440,7 +548,7 @@
 					</div>
 				</div>
 			</Pane>
-			<Pane size={37} minSize={25}>
+			<Pane size={30} minSize={22}>
 				<div class="h-full overflow-auto px-2">
 					{#key draftGeneration}
 						<EvalCaseEditor
@@ -454,7 +562,7 @@
 					{/key}
 				</div>
 			</Pane>
-			<Pane size={37} minSize={25}>
+			<Pane size={30} minSize={22}>
 				<div class="h-full pl-2">
 					<EvalRunResult {job} tools={agentTools} {historyPath} workspace={ws} />
 				</div>
