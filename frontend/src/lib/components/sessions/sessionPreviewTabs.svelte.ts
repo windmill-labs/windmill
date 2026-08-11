@@ -215,6 +215,12 @@ export class SessionPreviewTabs {
 	get activeTab(): SessionPreviewTab | undefined {
 		return this.#tabs.find((t) => t.id === this.#activeId) ?? this.#tabs[0]
 	}
+	/** The tab the user can actually see, or undefined when the panel is not on
+	 * screen. Anything describing the preview to the user (or to the chat) wants
+	 * this, not `activeTab` — which answers for a collapsed panel too. */
+	get displayedTab(): SessionPreviewTab | undefined {
+		return this.#displayedTab()
+	}
 	get collapsed(): boolean {
 		return this.#collapsed
 	}

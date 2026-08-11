@@ -674,6 +674,23 @@ describe('SessionPreviewTabs.select / close / setCollapsed', () => {
 		vi.runAllTimers()
 		expect(persisted.at(-1)?.tabs.map((t) => t.url)).toEqual(['/z'])
 	})
+
+	// What the chat is told the user is looking at comes from `displayedTab`, so a
+	// collapsed panel must report nothing — otherwise a bare "disable it" resolves
+	// against a row that is not on screen.
+	it('displays no tab while collapsed, and the active one again in fullscreen', () => {
+		const o = owner()
+		o.open(pageTarget)
+		const id = o.tabs[0].id
+		expect(o.displayedTab?.id).toBe(id)
+
+		o.setCollapsed(true)
+		expect(o.displayedTab).toBeUndefined()
+		expect(o.activeTab?.id).toBe(id)
+
+		o.setFullscreen(true)
+		expect(o.displayedTab?.id).toBe(id)
+	})
 })
 
 describe('SessionPreviewTabs.reorder', () => {

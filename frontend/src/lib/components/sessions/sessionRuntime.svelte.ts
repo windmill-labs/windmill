@@ -368,7 +368,10 @@ function createRuntime(session: Session): SessionRuntime {
 	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry.
 	manager.activePreviewResolver = () => {
 		const owner = getRuntime(session.id)?.previewTabs
-		const tab = owner?.activeTab
+		// What is on screen, not merely which tab is selected: the rule tells the model
+		// to resolve "this page" and "it" against this block, and a collapsed panel would
+		// point those at a page the user cannot see.
+		const tab = owner?.displayedTab
 		if (!tab) return undefined
 		const where = tab.loc || tab.url
 		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
