@@ -90,6 +90,9 @@
 	$effect(() => {
 		loadResults(dataset, selectedId)
 	})
+	$effect(() => {
+		if (baselineId && baselineId === selectedId) baselineId = undefined
+	})
 
 	let baselineGeneration = 0
 	$effect(() => {
@@ -149,17 +152,29 @@
 
 	let selected = $derived(experiments.find((e) => e.id === selectedId))
 
-	// The summary a comparison would diff. Scorers that produced no number are left out rather
-	// than counted as zero, which would read as a regression instead of a missing score.
+	// Scorers that produced no number are left out rather than counted as zero, which would read
+	// as a regression instead of a missing score. While comparing, the mean is taken over the same
+	// cases as its delta — otherwise the two numbers beside each other describe different sets.
 	let means = $derived(
 		scorerLabels.map((_, index) => {
-			const values = rows
+			const values = (baselineId ? pairedRows(index) : rows)
 				.map((r) => r.scores?.[index])
 				.filter((v): v is number => typeof v === 'number')
 			if (values.length === 0) return undefined
 			return values.reduce((a, b) => a + b, 0) / values.length
 		})
 	)
+
+	/** Rows this scorer produced a number for in both runs. */
+	function pairedRows(index: number): ExperimentRow[] {
+		const other = baselineIndex(index)
+		if (other < 0) return []
+		return rows.filter(
+			(r) =>
+				typeof r.scores?.[index] === 'number' &&
+				typeof baselineByCase[r.case_id]?.scores?.[other] === 'number'
+		)
+	}
 	let stillRunning = $derived(rows.filter((r) => r.status === 'running').length)
 	let regressionCount = $derived(baselineId ? rows.filter(isRegression).length : 0)
 	let meanDeltas = $derived(
@@ -169,13 +184,12 @@
 			// Averaged over the cases both runs scored. Comparing each run's own average would
 			// report a regression from a case the baseline never ran, with no regressed row to
 			// point at.
-			const pairs = rows
-				.map((r) => [r.scores?.[index], baselineByCase[r.case_id]?.scores?.[other]])
-				.filter((p): p is [number, number] => typeof p[0] === 'number' && typeof p[1] === 'number')
-			if (pairs.length === 0) return undefined
-			const now = pairs.reduce((a, [n]) => a + n, 0) / pairs.length
-			const before = pairs.reduce((a, [, b]) => a + b, 0) / pairs.length
-			return now - before
+			const paired = pairedRows(index)
+			if (paired.length === 0) return undefined
+			const before =
+				paired.reduce((a, r) => a + (baselineByCase[r.case_id]!.scores![other] as number), 0) /
+				paired.length
+			return means[index]! - before
 		})
 	)
 </script>
@@ -281,11 +295,14 @@
 							<Cell first>
 								<div class="flex items-center gap-1 min-w-0">
 									<span
+										title={row.status}
 										class={row.status === 'success'
 											? 'text-green-600'
 											: row.status === 'failure'
 												? 'text-red-600'
-												: 'text-tertiary'}>●</span
+												: row.status === 'running'
+													? 'text-tertiary'
+													: 'text-yellow-600'}>●</span
 									>
 									<span class="truncate">
 										{row.name || row.input?.user_message || 'Untitled case'}

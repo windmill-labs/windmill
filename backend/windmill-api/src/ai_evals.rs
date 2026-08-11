@@ -1223,11 +1223,16 @@ mod with_storage {
         let version = current_resource_version(&db, &w_id, &agent_path).await?;
 
         let client = object_store(&authed, &db, user_db.clone(), &w_id).await?;
-        // Held across the whole launch: without it a delete can land between reading the cases and
-        // writing the experiment, recreating the deleted dataset's inputs under its own path.
-        let mut tx = db.begin().await?;
-        lock_dataset(&mut tx, &w_id, &payload.dataset).await?;
-        let cases = read_cases(&client, &payload.dataset).await?;
+        // Read the case set under the lock, then release it for the pushes: holding it across the
+        // whole launch would 409 every capture and case edit on this dataset until the last job
+        // was queued. The write below retakes it.
+        let cases = {
+            let mut tx = db.begin().await?;
+            lock_dataset(&mut tx, &w_id, &payload.dataset).await?;
+            let cases = read_cases(&client, &payload.dataset).await?;
+            tx.commit().await?;
+            cases
+        };
         if cases.is_empty() {
             return Err(Error::BadRequest(format!(
                 "Eval dataset {} has no case to run",
@@ -1291,6 +1296,17 @@ mod with_storage {
             created_at: Utc::now(),
             created_by: authed.username.clone(),
         };
+        // Retaken for the write, and the dataset is re-checked under it: a delete that completed
+        // while the jobs were being pushed must not have this experiment — which holds copies of
+        // its cases — appear after it.
+        let mut tx = db.begin().await?;
+        lock_dataset(&mut tx, &w_id, &payload.dataset).await?;
+        read_dataset(&client, &payload.dataset).await.map_err(|_| {
+            Error::BadRequest(format!(
+                "Eval dataset {} was deleted while the experiment was starting",
+                payload.dataset
+            ))
+        })?;
         put_object(
             &client,
             &experiment_key(&payload.dataset, experiment_id),
@@ -1434,51 +1450,66 @@ mod with_storage {
         .map(|r| (r.id, r.status))
         .collect::<std::collections::HashMap<_, _>>();
 
-        let mut rows = Vec::with_capacity(experiment.cases.len());
-        for case in &experiment.cases {
-            // Each case is its own flow, so its steps are read back by node id rather than by
-            // walking a nested loop's status.
-            let output = windmill_queue::get_result_and_success_by_id_from_flow(
-                &db,
-                &w_id,
-                &case.job_id,
-                AGENT_NODE_ID,
-                None,
-            )
-            .await
-            .ok()
-            .and_then(|(r, _)| agent_answer(&r));
-
-            let mut scores = Vec::with_capacity(experiment.scorers.len());
-            for index in 0..experiment.scorers.len() {
-                let score = windmill_queue::get_result_and_success_by_id_from_flow(
+        // Bounded concurrency rather than one await after another: a 100-case experiment with
+        // three scorers is 400 lookups, and each helper call is itself several queries.
+        use futures::StreamExt;
+        let scorer_count = experiment.scorers.len();
+        let rows = futures::stream::iter(experiment.cases.clone().into_iter().map(|case| {
+            let db = db.clone();
+            let w_id = w_id.clone();
+            async move {
+                let output = windmill_queue::get_result_and_success_by_id_from_flow(
                     &db,
                     &w_id,
                     &case.job_id,
-                    &scorer_node_id(index),
+                    AGENT_NODE_ID,
                     None,
                 )
                 .await
                 .ok()
-                .and_then(|(r, _)| extract_score(&r));
-                scores.push(score);
+                .and_then(|(r, _)| agent_answer(&r));
+
+                let scores = futures::stream::iter((0..scorer_count).map(|index| {
+                    let db = db.clone();
+                    let w_id = w_id.clone();
+                    async move {
+                        windmill_queue::get_result_and_success_by_id_from_flow(
+                            &db,
+                            &w_id,
+                            &case.job_id,
+                            &scorer_node_id(index),
+                            None,
+                        )
+                        .await
+                        .ok()
+                        .and_then(|(r, _)| extract_score(&r))
+                    }
+                }))
+                .buffered(4)
+                .collect::<Vec<_>>()
+                .await;
+
+                (case, output, scores)
             }
-
-            rows.push(ExperimentRow {
-                case_id: case.case_id,
-                name: case.name.clone(),
-                input: case.input.clone(),
-                expected: case.expected.clone(),
-                job_id: case.job_id,
-                status: statuses
-                    .get(&case.job_id)
-                    .cloned()
-                    .unwrap_or_else(|| "running".to_string()),
-                output,
-                scores,
-            });
-        }
-
+        }))
+        .buffered(8)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .map(|(case, output, scores)| ExperimentRow {
+            case_id: case.case_id,
+            name: case.name,
+            input: case.input,
+            expected: case.expected,
+            job_id: case.job_id,
+            status: statuses
+                .get(&case.job_id)
+                .cloned()
+                .unwrap_or_else(|| "running".to_string()),
+            output,
+            scores,
+        })
+        .collect::<Vec<_>>();
         let scorer_labels = experiment.scorers.iter().map(|s| s.label()).collect();
         Ok(Json(ExperimentResults { experiment, rows, scorer_labels }))
     }
