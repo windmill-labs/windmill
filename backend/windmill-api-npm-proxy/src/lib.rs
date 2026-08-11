@@ -312,11 +312,27 @@ async fn fetch_package_json(
     let (registry_url, auth_token) = get_npm_registry(db)
         .await?
         .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
+    let document = fetch_package_json_from(&registry_url, &auth_token, package).await?;
+    Ok((document, registry_url, auth_token))
+}
 
+/// The same fetch against a registry the caller has already resolved.
+///
+/// Anything that both stores under a registry-scoped key and reads the packument has to
+/// take one snapshot of the setting and use it throughout: resolving twice lets the setting
+/// change in between, and two registries on one host pass the tarball's host check, so the
+/// second registry's files can be written under the first one's key. Cached content is
+/// immutable, so that survives switching back.
+async fn fetch_package_json_from(
+    registry_url: &str,
+    auth_token: &Option<String>,
+    package: &str,
+) -> Result<Arc<JsonValue>> {
+    let registry_url = registry_url.to_string();
     let cache_key = (registry_url.clone(), package.to_string());
     if let Some(cached) = PACKAGE_JSON_CACHE.get(&cache_key) {
         if cached.fetched_at.elapsed() < PACKAGE_JSON_CACHE_TTL {
-            return Ok((cached.document, registry_url, auth_token));
+            return Ok(cached.document);
         }
     }
 
@@ -324,7 +340,7 @@ async fn fetch_package_json(
 
     tracing::info!("Fetching package metadata from: {}", package_url);
 
-    let response = build_registry_request(&package_url, &auth_token, &registry_url)?
+    let response = build_registry_request(&package_url, auth_token, &registry_url)?
         .header(header::ACCEPT, ABBREVIATED_PACKUMENT)
         .send()
         .await
@@ -355,7 +371,7 @@ async fn fetch_package_json(
         },
     );
 
-    Ok((package_json, registry_url, auth_token))
+    Ok(package_json)
 }
 
 /// Open the tarball of a resolved package version on the private registry
@@ -946,7 +962,8 @@ async fn cached_package(
         Err(e) => tracing::warn!("could not pull {key} from the object store: {e:?}"),
     }
 
-    let (package_json, _, _) = fetch_package_json(db, package).await?;
+    // The same snapshot the cache key came from, not a second read of the setting.
+    let package_json = fetch_package_json_from(&registry_url, &auth_token, package).await?;
     let archive =
         fetch_tarball(&package_json, package, version, &registry_url, &auth_token).await?;
 
