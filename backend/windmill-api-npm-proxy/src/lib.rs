@@ -4,13 +4,19 @@
  */
 
 use axum::{
+    body::Body,
     extract::{Path, Query},
+    http::header,
+    response::{IntoResponse, Response},
     routing::get,
     Extension, Json, Router,
 };
+use quick_cache::{sync::Cache, Weighter};
 use serde::{Deserialize, Serialize};
 use sqlx::types::JsonValue;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tower_http::cors::{Any, CorsLayer};
 use windmill_common::{
     error::{Error, JsonResult, Result},
@@ -116,13 +122,20 @@ struct FileEntry {
     name: String,
 }
 
+#[derive(Serialize)]
+struct NpmProxyConfig {
+    registry_configured: bool,
+}
+
 pub fn workspaced_service() -> Router {
     Router::new()
+        .route("/config", get(get_config))
         // Use wildcards for package names to support scoped packages like @scope/package
         .route("/metadata/{*package}", get(get_package_metadata))
         .route("/resolve/{*package}", get(resolve_package_version))
         .route("/filetree/{*package_version}", get(get_package_filetree))
         .route("/file/{*package_version_filepath}", get(get_package_file))
+        .route("/tarball/{*package_version}", get(get_package_tarball))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -156,21 +169,63 @@ fn build_registry_request(
     Ok(req)
 }
 
-/// Get package metadata (versions and tags) from the private registry
-async fn get_package_metadata(
-    _authed: ApiAuthed,
-    Path((_w_id, package_path)): Path<(String, StripPath)>,
-    Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
-) -> JsonResult<PackageVersions> {
-    let package = parse_package_name(package_path.to_path());
-    let (registry_url, auth_token) = get_npm_registry(&db)
+/// npm's abbreviated packument: same `dist-tags` and `versions` keys, same
+/// `versions[v].dist`, without the per-version prose that makes a full document run to
+/// tens of megabytes. Registries that do not implement it answer with the full document.
+const ABBREVIATED_PACKUMENT: &str = "application/vnd.npm.install-v1+json";
+
+/// An install resolves and then downloads every package, so without a cache each
+/// dependency of the app being edited costs several packument round trips.
+const PACKAGE_JSON_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Bounded by bytes rather than documents: packument size varies by orders of magnitude
+/// between packages, so a count-based bound puts no ceiling on resident memory.
+const PACKAGE_JSON_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+
+#[derive(Clone)]
+struct CachedPackageJson {
+    document: Arc<JsonValue>,
+    /// Encoded length of the registry response, standing in for the parsed tree's size.
+    bytes: u64,
+    fetched_at: Instant,
+}
+
+#[derive(Clone)]
+struct PackageJsonWeighter;
+
+impl Weighter<(String, String), CachedPackageJson> for PackageJsonWeighter {
+    fn weight(&self, _key: &(String, String), cached: &CachedPackageJson) -> u64 {
+        cached.bytes.max(1)
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref PACKAGE_JSON_CACHE: Cache<(String, String), CachedPackageJson, PackageJsonWeighter> =
+        Cache::with_weighter(500, PACKAGE_JSON_CACHE_BYTES, PackageJsonWeighter);
+}
+
+/// Fetch a package's registry document, together with the registry it came from so
+/// callers can validate tarball URLs against it.
+async fn fetch_package_json(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    package: &str,
+) -> Result<(Arc<JsonValue>, String, Option<String>)> {
+    let (registry_url, auth_token) = get_npm_registry(db)
         .await?
         .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
-    let package_url = format_registry_url(&registry_url, &package, None, None);
+
+    let cache_key = (registry_url.clone(), package.to_string());
+    if let Some(cached) = PACKAGE_JSON_CACHE.get(&cache_key) {
+        if cached.fetched_at.elapsed() < PACKAGE_JSON_CACHE_TTL {
+            return Ok((cached.document, registry_url, auth_token));
+        }
+    }
+
+    let package_url = format_registry_url(&registry_url, package, None, None);
 
     tracing::info!("Fetching package metadata from: {}", package_url);
 
     let response = build_registry_request(&package_url, &auth_token, &registry_url)?
+        .header(header::ACCEPT, ABBREVIATED_PACKUMENT)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
@@ -182,10 +237,93 @@ async fn get_package_metadata(
         )));
     }
 
-    let package_json: JsonValue = response
-        .json()
+    let body = response
+        .bytes()
         .await
-        .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?;
+        .map_err(|e| Error::InternalErr(format!("Failed to read package metadata: {}", e)))?;
+    let package_json: Arc<JsonValue> = Arc::new(
+        serde_json::from_slice(&body)
+            .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?,
+    );
+
+    PACKAGE_JSON_CACHE.insert(
+        cache_key,
+        CachedPackageJson {
+            document: package_json.clone(),
+            bytes: body.len() as u64,
+            fetched_at: Instant::now(),
+        },
+    );
+
+    Ok((package_json, registry_url, auth_token))
+}
+
+/// Open the tarball of a resolved package version on the private registry
+async fn tarball_response(
+    package_json: &JsonValue,
+    package: &str,
+    version: &str,
+    registry_url: &str,
+    auth_token: &Option<String>,
+) -> Result<reqwest::Response> {
+    let tarball_url = package_json
+        .get("versions")
+        .and_then(|v| v.get(version))
+        .and_then(|v| v.get("dist"))
+        .and_then(|d| d.get("tarball"))
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| Error::NotFound(format!("Tarball not found for {}@{}", package, version)))?;
+
+    let response = build_registry_request(tarball_url, auth_token, registry_url)?
+        .send()
+        .await
+        .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(Error::NotFound(format!(
+            "Failed to download tarball for {}@{}",
+            package, version
+        )));
+    }
+
+    Ok(response)
+}
+
+/// Download the tarball of a resolved package version, for the handlers that unpack it here
+async fn fetch_tarball(
+    package_json: &JsonValue,
+    package: &str,
+    version: &str,
+    registry_url: &str,
+    auth_token: &Option<String>,
+) -> Result<axum::body::Bytes> {
+    tarball_response(package_json, package, version, registry_url, auth_token)
+        .await?
+        .bytes()
+        .await
+        .map_err(|e| Error::InternalErr(format!("Failed to read tarball: {}", e)))
+}
+
+/// Report whether a private registry is configured, so clients that otherwise hit the
+/// public npm CDNs (the raw app editor's in-browser installer) know to route through here.
+async fn get_config(
+    _authed: ApiAuthed,
+    Path(_w_id): Path<String>,
+    Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
+) -> JsonResult<NpmProxyConfig> {
+    Ok(Json(NpmProxyConfig {
+        registry_configured: get_npm_registry(&db).await?.is_some(),
+    }))
+}
+
+/// Get package metadata (versions and tags) from the private registry
+async fn get_package_metadata(
+    _authed: ApiAuthed,
+    Path((_w_id, package_path)): Path<(String, StripPath)>,
+    Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
+) -> JsonResult<PackageVersions> {
+    let package = parse_package_name(package_path.to_path());
+    let (package_json, _, _) = fetch_package_json(&db, &package).await?;
 
     let mut versions = Vec::new();
     let mut tags = HashMap::new();
@@ -205,7 +343,7 @@ async fn get_package_metadata(
     Ok(Json(PackageVersions { tags, versions }))
 }
 
-/// Resolve a package tag/version reference to a specific version
+/// Resolve a package tag/version/range reference to a specific version
 async fn resolve_package_version(
     _authed: ApiAuthed,
     Path((_w_id, package_path)): Path<(String, StripPath)>,
@@ -213,52 +351,126 @@ async fn resolve_package_version(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageVersion> {
     let package = parse_package_name(package_path.to_path());
-    let (registry_url, auth_token) = get_npm_registry(&db)
-        .await?
-        .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
     let reference = query.tag.unwrap_or_else(|| "latest".to_string());
-    let package_url = format_registry_url(&registry_url, &package, None, None);
+    let (package_json, _, _) = fetch_package_json(&db, &package).await?;
 
-    tracing::info!("Resolving package version from: {}", package_url);
+    Ok(Json(PackageVersion {
+        version: resolve_version_spec(&package_json, &reference),
+    }))
+}
 
-    let response = build_registry_request(&package_url, &auth_token, &registry_url)?
-        .send()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
+/// Resolve an npm version spec against a registry document: a dist-tag, an exact
+/// version, or a semver range as it appears in a package.json dependency.
+fn resolve_version_spec(package_json: &JsonValue, spec: &str) -> Option<String> {
+    let spec = spec.trim();
 
-    if !response.status().is_success() {
-        return Err(Error::NotFound(format!(
-            "Package {} not found in private registry",
-            package
-        )));
+    if let Some(version) = package_json
+        .get("dist-tags")
+        .and_then(|v| v.get(spec))
+        .and_then(|v| v.as_str())
+    {
+        return Some(version.to_string());
     }
 
-    let package_json: JsonValue = response
-        .json()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?;
+    let versions = package_json.get("versions").and_then(|v| v.as_object())?;
+    // A spec that pins one version, `v` prefix and all, is exact to npm. It has to be
+    // recognised here rather than left to the range path, where `1.2.3` reads as `^1.2.3`.
+    let pinned = strip_version_prefix(spec);
+    if versions.contains_key(pinned) {
+        return Some(pinned.to_string());
+    }
+    if pinned.parse::<semver::Version>().is_ok() {
+        return None;
+    }
 
-    // Try to resolve the reference as a tag first
-    let version = if let Some(tags) = package_json.get("dist-tags").and_then(|v| v.as_object()) {
-        if let Some(version) = tags.get(&reference).and_then(|v| v.as_str()) {
-            Some(version.to_string())
-        } else {
-            // If not a tag, check if it's a valid version
-            if let Some(versions) = package_json.get("versions").and_then(|v| v.as_object()) {
-                if versions.contains_key(&reference) {
-                    Some(reference)
-                } else {
-                    None
-                }
-            } else {
-                None
+    let requirements = parse_npm_range(spec)?;
+    versions
+        .keys()
+        .filter_map(|raw| semver::Version::parse(raw).ok().map(|parsed| (parsed, raw)))
+        .filter(|(parsed, _)| requirements.iter().any(|req| req.matches(parsed)))
+        .max_by(|(a, _), (b, _)| a.cmp(b))
+        .map(|(_, raw)| raw.clone())
+}
+
+/// npm ranges OR comparator sets together with `||`; the semver crate takes one set per
+/// `VersionReq`. Sets it cannot parse are dropped, so an unsupported alternative narrows
+/// the match rather than failing the whole range.
+fn parse_npm_range(spec: &str) -> Option<Vec<semver::VersionReq>> {
+    let requirements = spec
+        .split("||")
+        .filter_map(|set| semver::VersionReq::parse(&normalize_comparator_set(set)).ok())
+        .collect::<Vec<_>>();
+
+    (!requirements.is_empty()).then_some(requirements)
+}
+
+/// Rewrite one npm comparator set into the crate's syntax. npm additionally accepts an
+/// operator detached from its version (`>= 1.0.0`), a `v` prefix, hyphen ranges, and
+/// AND-ed comparators separated by spaces rather than commas; and it reads a bare partial
+/// as an x-range (`1.2` is `1.2.x`) where the crate reads it as a caret.
+fn normalize_comparator_set(set: &str) -> String {
+    let comparators = split_comparators(set);
+    match comparators.as_slice() {
+        [] => "*".to_string(),
+        [low, hyphen, high] if hyphen == "-" => format!(">={},<={}", low, high),
+        _ => comparators
+            .iter()
+            .map(|comparator| widen_bare_partial(comparator))
+            .collect::<Vec<_>>()
+            .join(","),
+    }
+}
+
+/// Split on whitespace, keeping an operator attached to the version it applies to.
+fn split_comparators(set: &str) -> Vec<String> {
+    let mut comparators: Vec<String> = Vec::new();
+    for token in set.split_whitespace() {
+        match comparators.last_mut() {
+            Some(pending) if is_operator(pending) && token != "-" => {
+                pending.push_str(strip_version_prefix(token))
             }
+            _ => comparators.push(if is_operator(token) {
+                token.to_string()
+            } else {
+                strip_operator_and_version_prefix(token)
+            }),
         }
-    } else {
-        None
-    };
+    }
+    comparators
+}
 
-    Ok(Json(PackageVersion { version }))
+fn is_operator(token: &str) -> bool {
+    !token.is_empty() && token.chars().all(|c| "><=^~".contains(c))
+}
+
+/// npm accepts a `v` in front of a version (`v1.2.3`, `^v1.2.3`); the semver crate does not.
+fn strip_version_prefix(version: &str) -> &str {
+    version
+        .strip_prefix('v')
+        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+        .unwrap_or(version)
+}
+
+fn strip_operator_and_version_prefix(comparator: &str) -> String {
+    let operator_len = comparator
+        .find(|c: char| !"><=^~".contains(c))
+        .unwrap_or(comparator.len());
+    let (operator, version) = comparator.split_at(operator_len);
+    format!("{}{}", operator, strip_version_prefix(version))
+}
+
+/// `1.2` bounds npm to the `1.2.x` line; the crate would read it as `^1.2`.
+fn widen_bare_partial(comparator: &str) -> String {
+    let components = comparator.split('.').collect::<Vec<_>>();
+    if components.len() < 3
+        && components
+            .iter()
+            .all(|c| !c.is_empty() && c.chars().all(|c| c.is_ascii_digit()))
+    {
+        format!("{}.*", comparator)
+    } else {
+        comparator.to_string()
+    }
 }
 
 /// Get the file tree for a specific package version
@@ -268,66 +480,28 @@ async fn get_package_filetree(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageFiletree> {
     let (package, version) = parse_package_and_version(package_version_path.to_path())?;
-    let (registry_url, auth_token) = get_npm_registry(&db)
-        .await?
-        .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
-    let package_url = format_registry_url(&registry_url, &package, None, None);
+    let (package_json, registry_url, auth_token) = fetch_package_json(&db, &package).await?;
+    let tarball_bytes = fetch_tarball(
+        &package_json,
+        &package,
+        &version,
+        &registry_url,
+        &auth_token,
+    )
+    .await?;
 
-    tracing::info!("Fetching package filetree from: {}", package_url);
-
-    let response = build_registry_request(&package_url, &auth_token, &registry_url)?
-        .send()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
-
-    if !response.status().is_success() {
-        return Err(Error::NotFound(format!(
-            "Package {} not found in private registry",
-            package
-        )));
-    }
-
-    let package_json: JsonValue = response
-        .json()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?;
-
-    let tarball_url = package_json
-        .get("versions")
-        .and_then(|v| v.get(&version))
-        .and_then(|v| v.get("dist"))
-        .and_then(|d| d.get("tarball"))
-        .and_then(|t| t.as_str())
-        .ok_or_else(|| Error::NotFound(format!("Tarball not found for {}@{}", package, version)))?;
-
-    let tarball_response = build_registry_request(tarball_url, &auth_token, &registry_url)?
-        .send()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
-
-    if !tarball_response.status().is_success() {
-        return Err(Error::NotFound(format!(
-            "Failed to download tarball for {}@{}",
-            package, version
-        )));
-    }
-
-    let tarball_bytes = tarball_response
-        .bytes()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to read tarball: {}", e)))?;
-
-    // Extract file list from tarball
-    let files = extract_tarball_files(&tarball_bytes)?;
-
-    // Find the main entry point
-    let main = package_json
-        .get("versions")
-        .and_then(|v| v.get(&version))
-        .and_then(|v| v.get("main"))
-        .and_then(|m| m.as_str())
-        .unwrap_or("index.js")
-        .to_string();
+    // The entry point comes from the packaged manifest rather than the registry document,
+    // which carries no `main` in its abbreviated form.
+    let (files, manifest) = extract_tarball_files_and_manifest(&tarball_bytes)?;
+    let main = manifest
+        .and_then(|manifest| serde_json::from_str::<JsonValue>(&manifest).ok())
+        .and_then(|manifest| {
+            manifest
+                .get("main")
+                .and_then(|m| m.as_str())
+                .map(String::from)
+        })
+        .unwrap_or_else(|| "index.js".to_string());
 
     Ok(Json(PackageFiletree { default: main, files }))
 }
@@ -339,59 +513,53 @@ async fn get_package_file(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> Result<String> {
     let (package, version, filepath) = parse_package_version_and_file(full_path.to_path())?;
-    let (registry_url, auth_token) = get_npm_registry(&db)
-        .await?
-        .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
-    let package_url = format_registry_url(&registry_url, &package, None, None);
-
-    tracing::info!("Fetching package file from: {}", package_url);
-
-    let response = build_registry_request(&package_url, &auth_token, &registry_url)?
-        .send()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to fetch package metadata: {}", e)))?;
-
-    if !response.status().is_success() {
-        return Err(Error::NotFound(format!(
-            "Package {} not found in private registry",
-            package
-        )));
-    }
-
-    let package_json: JsonValue = response
-        .json()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to parse package metadata: {}", e)))?;
-
-    let tarball_url = package_json
-        .get("versions")
-        .and_then(|v| v.get(&version))
-        .and_then(|v| v.get("dist"))
-        .and_then(|d| d.get("tarball"))
-        .and_then(|t| t.as_str())
-        .ok_or_else(|| Error::NotFound(format!("Tarball not found for {}@{}", package, version)))?;
-
-    let tarball_response = build_registry_request(tarball_url, &auth_token, &registry_url)?
-        .send()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
-
-    if !tarball_response.status().is_success() {
-        return Err(Error::NotFound(format!(
-            "Failed to download tarball for {}@{}",
-            package, version
-        )));
-    }
-
-    let tarball_bytes = tarball_response
-        .bytes()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to read tarball: {}", e)))?;
+    let (package_json, registry_url, auth_token) = fetch_package_json(&db, &package).await?;
+    let tarball_bytes = fetch_tarball(
+        &package_json,
+        &package,
+        &version,
+        &registry_url,
+        &auth_token,
+    )
+    .await?;
 
     // Extract the specific file from the tarball
     let file_content = extract_file_from_tarball(&tarball_bytes, &filepath)?;
 
     Ok(file_content)
+}
+
+/// Stream a package version's tarball, so in-browser installers can unpack it
+/// themselves instead of reaching the public registry directly
+async fn get_package_tarball(
+    _authed: ApiAuthed,
+    Path((_w_id, package_version_path)): Path<(String, StripPath)>,
+    Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
+) -> Result<Response> {
+    let (package, version) = parse_package_and_version(package_version_path.to_path())?;
+    let (package_json, registry_url, auth_token) = fetch_package_json(&db, &package).await?;
+    let response = tarball_response(
+        &package_json,
+        &package,
+        &version,
+        &registry_url,
+        &auth_token,
+    )
+    .await?;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            // A published version's tarball never changes, and the response is
+            // registry-credentialed, so it is the viewer's cache to keep.
+            (
+                header::CACHE_CONTROL,
+                "private, max-age=31536000, immutable",
+            ),
+        ],
+        Body::from_stream(response.bytes_stream()),
+    )
+        .into_response())
 }
 
 /// Get the npm registry URL and optional auth token from global settings.
@@ -461,21 +629,25 @@ fn format_registry_url(
     }
 }
 
-/// Extract file list from a tarball
-fn extract_tarball_files(tarball_bytes: &[u8]) -> Result<Vec<FileEntry>> {
+/// Extract the file list and the manifest from a tarball, in one pass over the archive
+fn extract_tarball_files_and_manifest(
+    tarball_bytes: &[u8],
+) -> Result<(Vec<FileEntry>, Option<String>)> {
     use flate2::read::GzDecoder;
+    use std::io::Read;
     use tar::Archive;
 
     let gz = GzDecoder::new(tarball_bytes);
     let mut archive = Archive::new(gz);
 
     let mut files = Vec::new();
+    let mut manifest = None;
 
     for entry in archive
         .entries()
         .map_err(|e| Error::InternalErr(format!("Failed to read tarball entries: {}", e)))?
     {
-        let entry = entry
+        let mut entry = entry
             .map_err(|e| Error::InternalErr(format!("Failed to read tarball entry: {}", e)))?;
         let path = entry
             .path()
@@ -485,10 +657,16 @@ fn extract_tarball_files(tarball_bytes: &[u8]) -> Result<Vec<FileEntry>> {
         let path_str = path.to_string_lossy().to_string();
         if let Some(stripped) = path_str.strip_prefix("package/") {
             files.push(FileEntry { name: format!("/{}", stripped) });
+            if stripped == "package.json" {
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_ok() {
+                    manifest = Some(content);
+                }
+            }
         }
     }
 
-    Ok(files)
+    Ok((files, manifest))
 }
 
 /// Extract a specific file from a tarball
@@ -531,4 +709,47 @@ fn extract_file_from_tarball(tarball_bytes: &[u8], target_file: &str) -> Result<
         "File {} not found in tarball",
         target_file
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_version_spec;
+
+    fn packument() -> serde_json::Value {
+        serde_json::json!({
+            "dist-tags": { "latest": "19.2.0", "next": "20.0.0-rc.1" },
+            "versions": {
+                "18.3.1": {}, "19.0.0": {}, "19.1.5": {}, "19.2.0": {}, "20.0.0-rc.1": {}
+            }
+        })
+    }
+
+    #[test]
+    fn resolves_tags_exact_versions_and_ranges() {
+        let p = packument();
+        let resolve = |spec: &str| resolve_version_spec(&p, spec);
+
+        assert_eq!(resolve("latest").as_deref(), Some("19.2.0"));
+        assert_eq!(resolve("19.0.0").as_deref(), Some("19.0.0"));
+        // Ranges are what package.json dependencies actually hold, and each of these
+        // forms means something different to npm than to the semver crate's parser
+        assert_eq!(resolve("^19.0.0").as_deref(), Some("19.2.0"));
+        assert_eq!(resolve("~19.0.0").as_deref(), Some("19.0.0"));
+        assert_eq!(resolve(">=18 <19").as_deref(), Some("18.3.1"));
+        assert_eq!(resolve("^18.0.0 || ^19.0.0").as_deref(), Some("19.2.0"));
+        assert_eq!(resolve("*").as_deref(), Some("19.2.0"));
+        assert_eq!(resolve("19.x").as_deref(), Some("19.2.0"));
+        assert_eq!(resolve("18.3.1 - 19.1.5").as_deref(), Some("19.1.5"));
+        assert_eq!(resolve(">= 18 < 19").as_deref(), Some("18.3.1"));
+        assert_eq!(resolve("^v19.0.0").as_deref(), Some("19.2.0"));
+        // A `v` prefix does not turn a pinned version into a range
+        assert_eq!(resolve("v19.0.0").as_deref(), Some("19.0.0"));
+        assert_eq!(resolve("v19.0.1"), None);
+        // npm reads a bare partial as an x-range, the crate as a caret
+        assert_eq!(resolve("19.1").as_deref(), Some("19.1.5"));
+        assert_eq!(resolve("19").as_deref(), Some("19.2.0"));
+        // A pinned version the registry does not carry must not widen to a caret range
+        assert_eq!(resolve("19.0.1"), None);
+        assert_eq!(resolve("^21.0.0"), None);
+    }
 }
