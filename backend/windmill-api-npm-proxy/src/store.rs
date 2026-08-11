@@ -217,19 +217,8 @@ impl PendingPackage {
     }
 }
 
-/// Move a finished tree onto its final path.
-///
-/// A destination that already holds a manifest is another writer publishing the same
-/// immutable content, so theirs wins and this tree is dropped. A destination *without* one
-/// is debris, left by an eviction or a writer killed between the two, and it has to be
-/// replaced rather than deferred to: `rename` refuses a non-empty directory, so treating
-/// the failure as a concurrent publish would discard this valid tree and leave the path
-/// permanently unreadable, with nothing on the read side able to repair it.
-///
-/// The debris is detached rather than deleted in place so the final path is never absent
-/// for longer than a rename.
 /// Take a directory off the live cache path in one step, returning a guard that removes it
-/// on drop.
+/// on drop. `None` means the path could not be moved and still stands.
 ///
 /// Deleting a package directory where it stands is not safe to interrupt: `remove_dir_all`
 /// unlinks in readdir order, so a process that stops partway can leave `manifest.json`
@@ -243,6 +232,17 @@ fn detach(dir: &Path) -> Option<Scratch> {
     std::fs::rename(dir, &aside.path).ok().map(|()| aside)
 }
 
+/// Move a finished tree onto its final path.
+///
+/// A destination that already holds a manifest is another writer publishing the same
+/// immutable content, so theirs wins and this tree is dropped. A destination *without* one
+/// is debris, left by an eviction or a writer killed between the two, and it has to be
+/// replaced rather than deferred to: `rename` refuses a non-empty directory, so treating
+/// the failure as a concurrent publish would discard this valid tree and leave the path
+/// permanently unreadable, with nothing on the read side able to repair it.
+///
+/// The debris is detached rather than deleted in place so the final path is never absent
+/// for longer than a rename.
 fn publish_dir(tmp: &Path, final_dir: &Path) -> Result<()> {
     if let Some(parent) = final_dir.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -516,17 +516,12 @@ fn sweep(root: &Path, budget: u64) -> std::io::Result<()> {
         }
         // Detached, not deleted in place: an eviction is exactly the long unlink that gets
         // interrupted, and one that stops after the declarations but before the manifest
-        // leaves a directory every later read trusts and nothing repairs.
-        match detach(&dir) {
+        // leaves a directory every later read trusts and nothing repairs. A candidate that
+        // cannot be moved is left whole and skipped, since the cap is a bound this rechecks
+        // on a later sweep while a half-deleted package is permanent.
+        if let Some(_aside) = detach(&dir) {
             // The guard removes it, off the live path.
-            Some(_aside) => total = total.saturating_sub(size),
-            // Nothing can be renamed aside, so the path itself is the problem: deleting in
-            // place is the only remaining way to get back under the cap.
-            None => {
-                if std::fs::remove_dir_all(&dir).is_ok() {
-                    total = total.saturating_sub(size);
-                }
-            }
+            total = total.saturating_sub(size);
         }
     }
     Ok(())

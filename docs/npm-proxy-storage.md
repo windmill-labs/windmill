@@ -149,19 +149,21 @@ store has to be a pure addition on top.
   read, so a missing manifest is treated as a miss and repopulated rather than raised. A
   missing file already falls through to the on-demand walk.
 
-- **An eviction can be interrupted; a recursive delete has no atomic point.**
-  `remove_dir_all` unlinks in readdir order, so stopping partway can leave either half of a
-  package. Both halves are load bearing and neither is self-correcting, which is why both
-  sides of the cache move whole directories with `rename` instead:
-  - *Files gone, manifest left.* Every later read takes the tree for a complete package, and
-    because the manifest short-circuits the lookup, the object store is never consulted.
-    Each missing declaration falls through to the on-demand walk, re-fetching and inflating
-    the archive per request, indefinitely.
-  - *Manifest gone, files left.* Reads treat it as a miss, but `rename` refuses a non-empty
-    destination, so every tree published afterwards is discarded in favour of the debris.
-    Measured before the fix: `/filetree` answered 500 on every attempt with a valid copy
-    sitting in the bucket, and no request could repair it. Afterwards, 200 on the first
-    attempt, repaired from the bucket with no registry request.
+- **A recursive delete has no atomic point, so nothing deletes on the live path.**
+  `remove_dir_all` unlinks in readdir order, and either half of a package it can leave
+  behind is permanent, which is why publishing and eviction both move whole directories with
+  `rename`:
+  - *Files gone, manifest left* reads as a complete package forever. The manifest
+    short-circuits the lookup, so the object store is never consulted, and every declaration
+    it names falls through to the on-demand walk, re-fetching and inflating the archive per
+    request.
+  - *Manifest gone, files left* reads as a miss, but `rename` refuses a non-empty
+    destination, so every tree published afterwards is discarded in favour of the debris and
+    the path answers 500 with a valid copy sitting in the bucket.
+
+  A sweep that cannot rename a candidate aside leaves it whole rather than falling back to
+  deleting it where it stands: the cap is a bound the next sweep rechecks, and a package
+  half-deleted under it is not.
 
 Still open: **single flight**. Concurrent misses for the same package each fetch and
 extract. Publishing by rename and per-pull scratch directories make that safe, just
