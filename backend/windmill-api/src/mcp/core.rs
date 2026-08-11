@@ -209,6 +209,14 @@ impl McpBackend for WindmillBackend {
 
         for (old_key, new_key, value) in replacements {
             schema_obj.properties.remove(&old_key);
+            // `required` names properties; leaving the untransformed name behind marks a
+            // property that no longer exists as required, and drops the real one from the
+            // required set.
+            for name in schema_obj.required.iter_mut() {
+                if *name == old_key {
+                    *name = new_key.clone();
+                }
+            }
             schema_obj.properties.insert(new_key, value);
         }
 

@@ -124,6 +124,36 @@ impl ToolableItem for HubScriptInfo {
     }
 }
 
+/// Spell out, in the tool description, that optional parameters may be left out.
+///
+/// A runnable applies its own defaults for every argument the caller omits, so an
+/// optional parameter never needs a placeholder. Models given a non-strict tool schema
+/// otherwise tend to fill in every property with a type-zero value (`""`, `[]`, `0`,
+/// `false`); those reach the runnable as real arguments and override its defaults.
+/// `required` alone does not deter this, and a client-side system prompt is weighed far
+/// less than the tool's own description.
+fn optional_params_hint(schema: &SchemaType) -> Option<String> {
+    let mut optional = schema
+        .properties
+        .keys()
+        .filter(|key| !schema.required.contains(*key))
+        .map(|key| format!("`{}`", key))
+        .collect::<Vec<_>>();
+
+    if optional.is_empty() {
+        return None;
+    }
+
+    // `properties` is a HashMap, so its order varies per call. Sort: tool definitions sit
+    // in the cached prefix of a provider request, which only matches when byte-identical.
+    optional.sort_unstable();
+
+    Some(format!(
+        " Optional parameters: {}. Omit any parameter the request does not call for, and it falls back to its default. Never pass an empty string, empty array, empty object, `false`, or `0` as a placeholder for a value you were not given.",
+        optional.join(", ")
+    ))
+}
+
 /// Create an MCP Tool from a ToolableItem
 ///
 /// The resources_cache should be pre-populated with all resource types
@@ -137,8 +167,14 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     let is_hub = item.is_hub();
     let path = item.get_transformed_path();
     let item_type = item.item_type();
+
+    let schema = item.get_schema();
+    let schema_obj =
+        backend.transform_schema_for_resources(&schema, resources_cache, resources_types);
+
+    // Derived from the transformed schema, so the names match the ones the client sees.
     let description = format!(
-        "This is a {} named `{}` with the following description: `{}`.{}",
+        "This is a {} named `{}` with the following description: `{}`.{}{}",
         item_type,
         item.get_summary(),
         item.get_description(),
@@ -150,12 +186,9 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
             )
         } else {
             "".to_string()
-        }
+        },
+        optional_params_hint(&schema_obj).unwrap_or_default()
     );
-
-    let schema = item.get_schema();
-    let schema_obj =
-        backend.transform_schema_for_resources(&schema, resources_cache, resources_types);
 
     let input_schema_map = match serde_json::to_value(schema_obj) {
         Ok(mut value) => {
@@ -203,4 +236,38 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
             .idempotent(false) // Are not guaranteed to be idempotent
             .open_world(true), // Can interact with external services
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn schema(properties: &[&str], required: &[&str]) -> SchemaType {
+        SchemaType {
+            r#type: "object".to_string(),
+            properties: properties
+                .iter()
+                .map(|key| (key.to_string(), serde_json::json!({ "type": "string" })))
+                .collect(),
+            required: required.iter().map(|key| key.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn hint_lists_every_optional_param_sorted() {
+        let hint = optional_params_hint(&schema(&["query", "sort", "filters", "page"], &["query"]))
+            .expect("a schema with optional params must produce a hint");
+
+        assert!(
+            hint.starts_with(" Optional parameters: `filters`, `page`, `sort`."),
+            "unexpected hint: {hint}"
+        );
+        assert!(!hint.contains("`query`"), "required param listed: {hint}");
+    }
+
+    #[test]
+    fn no_hint_when_every_param_is_required() {
+        assert_eq!(optional_params_hint(&schema(&["query"], &["query"])), None);
+        assert_eq!(optional_params_hint(&schema(&[], &[])), None);
+    }
 }
