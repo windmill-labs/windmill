@@ -18,6 +18,7 @@ pub struct JsonFilter {
 pub enum FilterGroup {
     AnyOf(Vec<Filter>),
     AllOf(Vec<Filter>),
+    NoneOf(Vec<Filter>),
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,7 +108,7 @@ fn validate_filter(filter: &Value, path: &str) -> windmill_common::error::Result
         .as_object()
         .filter(|object| object.len() == 1)
         .and_then(|object| {
-            ["any_of", "all_of"]
+            ["any_of", "all_of", "none_of"]
                 .into_iter()
                 .find_map(|key| object.get(key).map(|nested| (key, nested)))
         });
@@ -129,7 +130,7 @@ fn validate_filter(filter: &Value, path: &str) -> windmill_common::error::Result
         .map(|_| ())
         .map_err(|err| {
             windmill_common::error::Error::BadRequest(format!(
-                "{} is neither a {{key, value}} criterion nor an any_of/all_of group: {}",
+                "{} is neither a {{key, value}} criterion nor an any_of/all_of/none_of group: {}",
                 path, err
             ))
         })
@@ -145,6 +146,7 @@ fn drop_empty_groups(filters: Vec<Filter>) -> Vec<Filter> {
             let (rebuild, nested): (fn(Vec<Filter>) -> FilterGroup, _) = match filter {
                 Filter::Group(FilterGroup::AnyOf(nested)) => (FilterGroup::AnyOf, nested),
                 Filter::Group(FilterGroup::AllOf(nested)) => (FilterGroup::AllOf, nested),
+                Filter::Group(FilterGroup::NoneOf(nested)) => (FilterGroup::NoneOf, nested),
                 leaf => return Some(leaf),
             };
             let nested = drop_empty_groups(nested);
@@ -161,9 +163,11 @@ fn collect_keys(filters: &[Filter], keys: &mut Vec<String>) {
                     keys.push(key.clone());
                 }
             }
-            Filter::Group(FilterGroup::AnyOf(nested) | FilterGroup::AllOf(nested)) => {
-                collect_keys(nested, keys)
-            }
+            Filter::Group(
+                FilterGroup::AnyOf(nested)
+                | FilterGroup::AllOf(nested)
+                | FilterGroup::NoneOf(nested),
+            ) => collect_keys(nested, keys),
         }
     }
 }
@@ -180,6 +184,8 @@ fn eval_all(filters: &[Filter], use_or_logic: bool, values: &HashMap<&str, &RawV
             .map_or(false, |found| is_superset(&found, value)),
         Filter::Group(FilterGroup::AnyOf(nested)) => eval_all(nested, true, values),
         Filter::Group(FilterGroup::AllOf(nested)) => eval_all(nested, false, values),
+        // A key the message does not carry satisfies a negation: nothing there can match.
+        Filter::Group(FilterGroup::NoneOf(nested)) => !eval_all(nested, true, values),
     };
 
     if use_or_logic {
@@ -390,6 +396,41 @@ mod tests {
             ]}
         ]);
         assert!(matches(payload, filters, false));
+    }
+
+    #[test]
+    fn test_none_of_excludes_matching_messages() {
+        let filters = json!([
+            {"key": "event", "value": "message_created"},
+            {"none_of": [{"key": "sender", "value": "bot"}, {"key": "kind", "value": "draft"}]}
+        ]);
+        assert!(matches(
+            r#"{"event": "message_created", "sender": "human"}"#,
+            filters.clone(),
+            false
+        ));
+        assert!(!matches(
+            r#"{"event": "message_created", "sender": "bot"}"#,
+            filters.clone(),
+            false
+        ));
+        // any one branch matching is enough to exclude
+        assert!(!matches(
+            r#"{"event": "message_created", "sender": "human", "kind": "draft"}"#,
+            filters,
+            false
+        ));
+    }
+
+    #[test]
+    fn test_none_of_is_satisfied_by_a_missing_key() {
+        // Nothing is there to match, so the negation holds — the alternative would make
+        // every negative filter also require the field to be present.
+        assert!(matches(
+            r#"{"event": "message_created"}"#,
+            json!([{"none_of": [{"key": "sender", "value": "bot"}]}]),
+            false
+        ));
     }
 
     #[test]

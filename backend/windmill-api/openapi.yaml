@@ -29116,7 +29116,7 @@ components:
       description: >
         Either a leaf filter, matching a top-level key of the message (parsed as JSON)
         against a value by equality (or superset, when the value is an object or array),
-        or a group nesting sub-filters under a boolean operator.
+        or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).
       oneOf:
         - type: object
           properties:
@@ -29142,6 +29142,14 @@ components:
                 $ref: "#/components/schemas/TriggerFilter"
           required:
             - all_of
+        - type: object
+          properties:
+            none_of:
+              type: array
+              items:
+                $ref: "#/components/schemas/TriggerFilter"
+          required:
+            - none_of
 
     WebsocketTrigger:
       allOf:
@@ -29163,7 +29171,7 @@ components:
           description: Last error message if the trigger failed
         filters:
           type: array
-          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
             $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
@@ -29228,7 +29236,7 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         filters:
           type: array
-          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
             $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
@@ -29304,7 +29312,7 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         filters:
           type: array
-          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
             $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
@@ -30569,7 +30577,7 @@ components:
           description: Array of Kafka topic names to subscribe to
         filters:
           type: array
-          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
             $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
@@ -30641,7 +30649,7 @@ components:
           description: Array of Kafka topic names to subscribe to
         filters:
           type: array
-          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
             $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
@@ -30709,7 +30717,7 @@ components:
           description: Array of Kafka topic names to subscribe to
         filters:
           type: array
-          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
             $ref: "#/components/schemas/TriggerFilter"
         filter_logic:

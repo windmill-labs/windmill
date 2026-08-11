@@ -8,16 +8,16 @@
 	import TriggerFilterList from './TriggerFilterList.svelte'
 	import {
 		groupItems,
-		groupLogic,
+		groupOp,
 		isFilterGroup,
 		makeGroup,
-		type FilterLogic,
+		type GroupOp,
 		type FilterNode
 	} from './filters'
 
 	interface Props {
 		filters: FilterNode[]
-		logic: FilterLogic
+		logic: GroupOp
 		disabled?: boolean
 		/** Nesting level, 0 at the top. */
 		depth?: number
@@ -28,10 +28,13 @@
 	// Deeper nesting is supported by the backend but stops being readable in this editor.
 	const MAX_DEPTH = 3
 
-	const logicItems = [
+	// Negation is offered on groups only: the root's operator is the trigger's
+	// `filter_logic` column, which has no value for it.
+	let logicItems = $derived([
 		{ label: 'all criteria (AND)', value: 'and' as const },
-		{ label: 'any criterion (OR)', value: 'or' as const }
-	]
+		{ label: 'any criterion (OR)', value: 'or' as const },
+		...(depth > 0 ? [{ label: 'no criterion (NONE)', value: 'none' as const }] : [])
+	])
 
 	function add(node: FilterNode) {
 		filters = [...filters, node]
@@ -53,11 +56,10 @@
 				<div class="w-full border p-2 rounded-md bg-surface-secondary">
 					<TriggerFilterList
 						bind:filters={
-							() => groupItems(filter),
-							(items) => (filters[i] = makeGroup(groupLogic(filter), items))
+							() => groupItems(filter), (items) => (filters[i] = makeGroup(groupOp(filter), items))
 						}
 						bind:logic={
-							() => groupLogic(filter),
+							() => groupOp(filter),
 							(nested) => (filters[i] = makeGroup(nested, groupItems(filter)))
 						}
 						{disabled}

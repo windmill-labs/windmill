@@ -69,10 +69,19 @@ properties:
               type: object
         required:
         - all_of
+      - type: object
+        properties:
+          none_of:
+            type: array
+            items:
+              type: object
+        required:
+        - none_of
     description: 'Filters to match incoming messages (only matching messages trigger
       the script). Each entry is either a leaf `{key, value}` matching a top-level
       field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of:
-      [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`.'
+      [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level
+      are combined with `filter_logic`.'
   filter_logic:
     type: string
     enum:
