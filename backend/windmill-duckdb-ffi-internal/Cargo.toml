@@ -14,7 +14,7 @@ chrono = "0.4.41"
 # Not crates.io: a fork of duckdb-rs 1.10505.0 carrying one patch to the bundled engine —
 # see docs/duckdb-isolation.md for why, and for the exit path back to the crates.io crate.
 # Pinned by rev, not branch, so `cargo update` cannot move the engine under us.
-duckdb = { git = "https://github.com/windmill-labs/duckdb-rs", rev = "42c650ac3970e11aedaab05325c36d70faadd628", features = [
+duckdb = { git = "https://github.com/windmill-labs/duckdb-rs", rev = "a3f157df96483eca005d78175184f807bcab41d2", features = [
     "bundled",
     "rust_decimal",
 ] }
