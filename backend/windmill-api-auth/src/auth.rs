@@ -792,9 +792,15 @@ pub async fn resolve_opt_job_authed(
             if let Some(mut opt_job_authed) =
                 cache.get_opt_job_authed(workspace_id.clone(), &token).await
             {
-                let authed = &mut opt_job_authed.authed;
                 let path = original_uri.path();
                 let method = parts.method.as_str();
+                if workspace_id.is_none() && opt_job_authed.job_id.is_some() {
+                    if let Err(err) = crate::scopes::check_job_token_for_global_route(path, method)
+                    {
+                        return Err((err, parts));
+                    }
+                }
+                let authed = &mut opt_job_authed.authed;
                 if authed.scopes.is_some() {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());
 

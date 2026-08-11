@@ -1,11 +1,15 @@
-//! A WM_TOKEN (job JWT) running as a superadmin must not be able to perform
-//! global user/token management — promotion, password reset, user creation,
-//! token creation/impersonation, offboarding, or exporting the user table.
-//! A non-admin `wm_deployers` member can mint
-//! such a token implicitly via an app/flow `on_behalf_of`, so trusting it would
-//! let them establish *persistent* superadmin. A real superadmin who needs this
-//! from a script must use a dedicated superadmin API token (which only a real
-//! superadmin can create), not `$WM_TOKEN`.
+//! A WM_TOKEN (job JWT) is minted for one job in one workspace and carries that
+//! job's full user privileges. Routes that name no workspace are instance-wide,
+//! so it must not reach them: doing so would trade an ephemeral, workspace-bound
+//! credential for a permanent one (`tokens/create` mints a workspace-less API
+//! token that never expires), for instance configuration, or for global user
+//! management.
+//!
+//! A non-admin `wm_deployers` member can mint such a token implicitly via an
+//! app/flow `on_behalf_of`, so the identity it carries need not be their own. A
+//! real superadmin who needs a global endpoint from a script must use a
+//! dedicated API token (which only a real superadmin can create), not
+//! `$WM_TOKEN`.
 //!
 //! The fixture provides `test@windmill.dev` (instance superadmin, token
 //! `SECRET_TOKEN`) and `test2@windmill.dev` (non-superadmin, `SECRET_TOKEN_2`).
@@ -51,7 +55,7 @@ async fn wm_token(email: &str, is_admin: bool) -> String {
 }
 
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
-async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     // The server decodes WM_TOKENs with the same in-process JWT secret, so
     // setting it once lets us mint a valid one below.
@@ -59,11 +63,14 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
 
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let base = format!("http://localhost:{port}/api/users");
+    let api = format!("http://localhost:{port}/api");
+    let base = format!("{api}/users");
 
     // A superadmin-capable WM_TOKEN — the exact thing a deployer obtains via an
     // app on_behalf_of pointed at a superadmin.
     let sa_wm = wm_token("test@windmill.dev", true).await;
+    // ...and one for a plain user: neither may leave its workspace.
+    let user_wm = wm_token("test2@windmill.dev", false).await;
 
     // 1. Cannot mint a (superadmin) token.
     let resp = authed(client().post(format!("{base}/tokens/create")), &sa_wm)
@@ -72,7 +79,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not create tokens: {}",
         resp.text().await?
     );
@@ -84,7 +91,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not impersonate: {}",
         resp.text().await?
     );
@@ -99,7 +106,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not promote users: {}",
         resp.text().await?
     );
@@ -111,7 +118,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not reset passwords: {}",
         resp.text().await?
     );
@@ -125,7 +132,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not delete users: {}",
         resp.text().await?
     );
@@ -140,7 +147,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not change login type: {}",
         resp.text().await?
     );
@@ -156,7 +163,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not offboard users: {}",
         resp.text().await?
     );
@@ -167,38 +174,79 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not export global users: {}",
         resp.text().await?
     );
 
-    // 5. Escape hatch / no false positive: a real superadmin API token
-    //    (SECRET_TOKEN, no job_id) can still create tokens.
-    let resp = authed(
-        client().post(format!("{base}/tokens/create")),
-        "SECRET_TOKEN",
-    )
-    .json(&json!({ "label": "ci" }))
-    .send()
-    .await?;
+    // 5. Not only user management: any workspace-less route is out of reach,
+    //    including one open to every authenticated user.
+    let resp = authed(client().get(format!("{api}/workers/list")), &user_wm)
+        .send()
+        .await?;
     assert_eq!(
         resp.status(),
-        201,
-        "a real superadmin token must still create tokens: {}",
+        403,
+        "WM_TOKEN must not enumerate instance workers: {}",
         resp.text().await?
     );
 
-    // 6. No collateral: a non-superadmin WM_TOKEN can still create its own
-    //    token — the guard only fires for superadmin-capable job tokens.
-    let user_wm = wm_token("test2@windmill.dev", false).await;
+    // 6. A plain user's WM_TOKEN cannot mint itself a permanent, workspace-less
+    //    token either — the confinement does not depend on being a superadmin.
     let resp = authed(client().post(format!("{base}/tokens/create")), &user_wm)
         .json(&json!({ "label": "from-script" }))
         .send()
         .await?;
     assert_eq!(
         resp.status(),
+        403,
+        "WM_TOKEN must not create tokens: {}",
+        resp.text().await?
+    );
+
+    // 7. Escape hatch / no false positive: a real API token (SECRET_TOKEN, no
+    //    job_id) still reaches both.
+    let resp = authed(client().post(format!("{base}/tokens/create")), "SECRET_TOKEN")
+        .json(&json!({ "label": "ci" }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
         201,
-        "non-superadmin WM_TOKEN must still create its own token: {}",
+        "a real superadmin token must still create tokens: {}",
+        resp.text().await?
+    );
+    let resp = authed(client().get(format!("{api}/workers/list")), "SECRET_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a real token must still list workers: {}",
+        resp.text().await?
+    );
+
+    // 8. No collateral on the routes a job legitimately needs: its own workspace,
+    //    and the workspace-less endpoint the clients' `whoami()` calls.
+    let resp = authed(client().get(format!("{base}/whoami")), &user_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still resolve its own identity: {}",
+        resp.text().await?
+    );
+    let resp = authed(
+        client().get(format!("{api}/w/test-workspace/scripts/list")),
+        &user_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still work inside its own workspace: {}",
         resp.text().await?
     );
 

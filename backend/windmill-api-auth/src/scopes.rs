@@ -892,6 +892,47 @@ fn scope_grants_access(
     Ok(true)
 }
 
+/// The workspace-less routes a job token (`$WM_TOKEN`) may still reach: each returns
+/// only the caller's own identity or content identical for every workspace (the Hub
+/// proxy, the documentation). Read methods only — a mutating handler added on one of
+/// these paths must be reconsidered rather than inherit the grant.
+fn is_global_route_open_to_job_token(route_path: &str) -> bool {
+    matches!(
+        route_path,
+        "/api/users/whoami"
+            | "/api/docs/search"
+            | "/api/docs/page"
+            | "/api/integrations/hub/list"
+            | "/api/embeddings/query_hub_scripts"
+    ) || route_path.starts_with("/api/scripts/hub/")
+        || route_path.starts_with("/api/flows/hub/")
+        || route_path.starts_with("/api/apps/hub/")
+}
+
+/// Confines a job token (`$WM_TOKEN`) to routes that name a workspace. It is minted
+/// for one job in one workspace yet carries that job's full user privileges, so on an
+/// instance-wide route it would mint a permanent workspace-less API token, read
+/// worker-group configuration, or manage global users. The token lookup already
+/// rejects a workspace-bound API token on those routes; this is the same rule for
+/// job tokens.
+///
+/// Keyed on the job token specifically: an MCP token is workspace-bound too, but
+/// deliberately publishes instance-wide tools. Callers pass only routes whose path
+/// carries no workspace.
+pub fn check_job_token_for_global_route(route_path: &str, http_method: &str) -> Result<()> {
+    if map_http_method_to_action(http_method, route_path) == ScopeAction::Read
+        && is_global_route_open_to_job_token(route_path)
+    {
+        Ok(())
+    } else {
+        Err(Error::PermissionDenied(format!(
+            "A job token ($WM_TOKEN) is confined to the workspace of its job and cannot be used \
+             on {route_path}, which is not workspace-scoped. Use an API token created for the \
+             user instead."
+        )))
+    }
+}
+
 /// Enforces a token's `read_only` flag: only methods classified as `Read`
 /// (GET/HEAD/OPTIONS) are allowed. Run actions and mutating methods are
 /// rejected. Independent of `scopes`.
