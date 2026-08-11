@@ -72,6 +72,7 @@ import {
   isRawAppFile,
   isWorkspaceDependencies,
   readTextFile,
+  removeResourceSuffix,
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
@@ -5486,7 +5487,7 @@ export async function push(
                   });
                   break;
                 case "resource": {
-                  const resourcePath = removeSuffix(target, ".resource.json");
+                  const resourcePath = removeResourceSuffix(target);
                   try {
                     await wmill.deleteResource({
                       workspace: workspaceId,
