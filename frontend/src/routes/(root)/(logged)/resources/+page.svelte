@@ -27,7 +27,6 @@
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import SupabaseConnect from '$lib/components/SupabaseConnect.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -120,7 +119,6 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let appConnect: AppConnect | undefined = $state(undefined)
-	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
@@ -395,11 +393,6 @@
 	}
 
 	onMount(() => {
-		const callback = page.url.searchParams.get('callback')
-		if (callback == 'supabase_wizard') {
-			supabaseConnect?.open?.()
-		}
-
 		const connect_app = page.url.searchParams.get('connect_app')
 		if (connect_app) {
 			const rt = connect_app ?? undefined
@@ -1370,7 +1363,6 @@
 	</CenteredPage>
 {/if}
 
-<SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
 <ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
 

@@ -6,43 +6,50 @@
  * access token.
  */
 
-import type { SetupStep } from '../wizards/SetupChecklist.svelte'
-
-export type SupabaseOrg = { id: string; name: string; slug?: string }
+export type SupabaseOrg = { id: string; slug?: string; name: string }
 
 export type SupabaseProject = {
-	id: string
+	/** `id` is Supabase's deprecated spelling of `ref`; both are sent today. */
+	id?: string
+	ref?: string
 	name: string
 	region: string
 	status?: string
+	organization_slug?: string
+	organization_id?: string
 	database?: { host: string }
 }
 
-/**
- * The provisioning stages, as a checklist. Each entry is driven only by its own index, so a
- * host that stops at the Supabase side can take the first two and leave the rest.
- * `stage` is 0 idle, 1 creating, 2 starting, 3 checking, 4 ready.
- */
-export function supabaseSetupSteps(stage: number, failed = false): SetupStep[] {
-	const titles = ['Created on Supabase', 'Starting it up', 'Checking Windmill can store data']
-	return titles.map((title, i) => {
-		const done = stage >= i + 2
-		const running = stage === i + 1
-		if (done) return { title, status: 'done' }
-		if (running) return { title, status: failed ? 'failed' : 'running' }
-		return { title, status: 'pending' }
-	})
+/** One Supavisor endpoint of a project. A project has one per mode and replica. */
+export type SupabasePooler = {
+	database_type: 'PRIMARY' | 'READ_REPLICA'
+	pool_mode: 'transaction' | 'session'
+	db_user: string
+	db_host: string
+	db_port: number
+	db_name: string
 }
 
-/** Region codes accepted by region_selection. */
-export const SUPABASE_REGIONS = [
-	'us-east-1',
-	'us-west-1',
-	'eu-central-1',
-	'eu-west-1',
-	'eu-west-3',
-	'ap-southeast-1',
-	'ap-northeast-1'
+export type SupabaseConnectionMode = 'session' | 'direct'
+
+/** Supabase deprecated `id` in favour of `ref`, and still sends both. */
+export function projectRef(project: SupabaseProject): string {
+	return project.ref ?? project.id ?? ''
+}
+
+export function projectOrg(project: SupabaseProject): string | undefined {
+	return project.organization_slug ?? project.organization_id
+}
+
+/** Region codes accepted by region_selection, with the names Supabase shows for them. */
+export const SUPABASE_REGIONS: { code: string; label: string }[] = [
+	{ code: 'us-east-1', label: 'East US (N. Virginia)' },
+	{ code: 'us-west-1', label: 'West US (N. California)' },
+	{ code: 'eu-central-1', label: 'Central EU (Frankfurt)' },
+	{ code: 'eu-west-1', label: 'West EU (Ireland)' },
+	{ code: 'eu-west-3', label: 'West EU (Paris)' },
+	{ code: 'ap-southeast-1', label: 'Southeast Asia (Singapore)' },
+	{ code: 'ap-northeast-1', label: 'Northeast Asia (Tokyo)' }
 ]
 
 export const DEFAULT_SUPABASE_REGION = 'eu-central-1'
@@ -54,9 +61,23 @@ function headers(token: string): HeadersInit {
 async function unwrap(res: Response, what: string): Promise<any> {
 	if (!res.ok) {
 		const body = await res.text()
-		throw new Error(`${what}: ${body || res.statusText}`)
+		throw new Error(`${what}: ${supabaseErrorMessage(body) || res.statusText}`)
 	}
 	return res.json()
+}
+
+/**
+ * Supabase answers with `{ message }` or `{ error }` and occasionally plain text.
+ * Surfacing the raw body puts a JSON blob in front of the user, so unwrap it to
+ * the sentence inside.
+ */
+export function supabaseErrorMessage(body: string): string {
+	try {
+		const parsed = JSON.parse(body)
+		return parsed?.message ?? parsed?.error ?? parsed?.msg ?? body
+	} catch {
+		return body
+	}
 }
 
 export async function listSupabaseOrgs(token: string): Promise<SupabaseOrg[]> {
@@ -67,6 +88,17 @@ export async function listSupabaseOrgs(token: string): Promise<SupabaseOrg[]> {
 export async function listSupabaseProjects(token: string): Promise<SupabaseProject[]> {
 	const res = await fetch('/api/oauth/list_supabase', { headers: headers(token) })
 	return unwrap(res, 'Could not list your Supabase projects')
+}
+
+/** Plan of one organization, which the list endpoint does not carry. */
+export async function getSupabaseOrgPlan(token: string, slug: string): Promise<string | undefined> {
+	try {
+		const res = await fetch(`/api/oauth/get_supabase_org/${slug}`, { headers: headers(token) })
+		if (!res.ok) return undefined
+		return (await res.json())?.plan
+	} catch {
+		return undefined
+	}
 }
 
 /** organization_slug is what create takes; older payloads only carry an id. */
@@ -124,7 +156,7 @@ export async function waitUntilSupabaseHealthy(
 		} catch {
 			continue
 		}
-		const project = list?.find?.((p) => p.id === projectId)
+		const project = list?.find?.((p) => projectRef(p) === projectId)
 		if (project?.status === 'ACTIVE_HEALTHY') return project
 		onStatus?.(project?.status)
 	}
@@ -132,17 +164,37 @@ export async function waitUntilSupabaseHealthy(
 }
 
 /**
- * https://github.com/orgs/supabase/discussions/17817
- * host is `aws-0-${region}.pooler.supabase.com`, user is `postgres.${id}`. The direct host is
- * IPv6-only on free projects, which is why this targets the pooler rather than
- * `database.host` from the API.
+ * The session-mode Supavisor endpoint of the project's primary database.
+ *
+ * Which pooler a project sits behind is assigned by Supabase, not derived from its
+ * region: constructing `aws-0-<region>.pooler.supabase.com` is wrong for every project
+ * that landed on another one, and the resulting resource never connects.
  */
-export function supabaseResourceValue(project: SupabaseProject, passwordVarPath: string) {
+export async function getSupabasePooler(token: string, projectId: string): Promise<SupabasePooler> {
+	const res = await fetch(`/api/oauth/get_supabase_pooler/${projectId}`, {
+		headers: headers(token)
+	})
+	const configs: SupabasePooler[] = await unwrap(res, 'Could not read the connection details')
+	const primary = configs.filter((c) => c.database_type === 'PRIMARY')
+	const pooler = primary.find((c) => c.pool_mode === 'session') ?? primary[0] ?? configs[0]
+	if (!pooler) throw new Error('Supabase returned no connection details for this project')
+	return pooler
+}
+
+/** The resource value for a project, given the endpoint it should connect through. */
+export function supabaseResourceValue(
+	project: SupabaseProject,
+	passwordVarPath: string,
+	connection: { mode: SupabaseConnectionMode; pooler?: SupabasePooler }
+) {
+	const direct = connection.mode === 'direct' || !connection.pooler
 	return {
-		host: `aws-0-${project.region}.pooler.supabase.com`,
-		user: `postgres.${project.id}`,
-		port: 5432,
-		dbname: 'postgres',
+		host: direct
+			? (project.database?.host ?? `db.${projectRef(project)}.supabase.co`)
+			: connection.pooler!.db_host,
+		user: direct ? 'postgres' : connection.pooler!.db_user,
+		port: direct ? 5432 : connection.pooler!.db_port,
+		dbname: direct ? 'postgres' : connection.pooler!.db_name,
 		sslmode: 'prefer',
 		password: `$var:${passwordVarPath}`,
 		// Resource forms fill in every unset property from the schema as soon as they render,

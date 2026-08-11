@@ -17,12 +17,16 @@
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Modal2 from './common/modal/Modal2.svelte'
-	import SupabaseProjectStep, {
-		type SupabasePick
-	} from './workspaceSettings/SupabaseProjectStep.svelte'
-	import { supabaseResourceValue } from './workspaceSettings/supabaseProvisioning'
+	import SupabaseProjectStep from './workspaceSettings/SupabaseProjectStep.svelte'
+	import { newWizardState } from './workspaceSettings/addDataTableModel'
+	import {
+		getSupabasePooler,
+		projectRef,
+		supabaseResourceValue
+	} from './workspaceSettings/supabaseProvisioning'
 	import { useSupabaseOauth } from './workspaceSettings/supabaseOauth.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionString'
 
 	interface Props {
 		resourceType: string
@@ -104,38 +108,38 @@
 	let connectionString = $state('')
 	let validConnectionString = $state(true)
 	function parseConnectionString(close: (_: any) => void) {
-		const regex =
-			/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
-		const match = connectionString.match(regex)
-		if (match) {
-			validConnectionString = true
-			const { user, password, host, port, dbname, sslmode } = match.groups!
-			rawCode = JSON.stringify(
-				{
-					...args,
-					user,
-					password: password || args?.password,
-					host,
-					port: (port ? Number(port) : undefined) || args?.port,
-					dbname: dbname || args?.dbname,
-					sslmode: sslmode || args?.sslmode
-				},
-				null,
-				2
-			)
-			rawCodeEditor?.setCode(rawCode)
-			close(null)
-		} else {
+		const parts = parsePostgresConnectionString(connectionString)
+		if (!parts) {
 			validConnectionString = false
+			return
 		}
+		validConnectionString = true
+		rawCode = JSON.stringify(
+			{
+				...args,
+				user: parts.user,
+				password: parts.password || args?.password,
+				host: parts.host,
+				port: parts.port || args?.port,
+				dbname: parts.dbname || args?.dbname,
+				sslmode: parts.sslmode || args?.sslmode
+			},
+			null,
+			2
+		)
+		rawCodeEditor?.setCode(rawCode)
+		close(null)
 	}
 
 	let rawCodeEditor: { setCode: (code: string) => void } | undefined = $state(undefined)
 	let textFileContent: string | undefined = $state(undefined)
 
 	let supabaseOpen = $state(false)
-	let supaStep: ReturnType<typeof SupabaseProjectStep> | undefined = $state(undefined)
-	let supaResult: SupabasePick | undefined = $state(undefined)
+	let supaBusy = $state(false)
+	// Only the intent this form can act on. Creating a project is a billed action and belongs
+	// in the data table wizard, which can show what it is provisioning and record the result;
+	// a resource form has nowhere to put either.
+	let supaIntent = $state(newWizardState({ name: '', projectName: '', folder: '' }).supabase)
 
 	// Authorizing is not something to present a dialog about first: the button goes straight
 	// to the popup, and the dialog opens on the way back, already holding the projects.
@@ -161,22 +165,33 @@
 	// The resource is being edited here rather than created for us, so the project's password
 	// goes straight into the form as a value. The user can link it to a secret variable with
 	// the same affordance every other password field has.
-	function applySupabasePick(pick: SupabasePick) {
-		args = {
-			...(args ?? {}),
-			...supabaseResourceValue(pick.project, ''),
-			password: pick.password
+	async function applySupabasePick() {
+		const project = supaIntent.project
+		if (!project || !supaIntent.password) return
+		supaBusy = true
+		try {
+			const pooler =
+				supaIntent.connectionMode === 'session'
+					? await getSupabasePooler(supaOauth.token!, projectRef(project))
+					: undefined
+			args = {
+				...(args ?? {}),
+				...supabaseResourceValue(project, '', {
+					mode: supaIntent.connectionMode,
+					pooler
+				}),
+				password: supaIntent.password
+			}
+			rawCode = JSON.stringify(args, null, 2)
+			rawCodeEditor?.setCode(rawCode)
+			supabaseOpen = false
+			sendUserToast(`Filled in the connection for ${project.name}`)
+		} catch (err) {
+			sendUserToast(String(err), true)
+		} finally {
+			supaBusy = false
 		}
-		rawCode = JSON.stringify(args, null, 2)
-		rawCodeEditor?.setCode(rawCode)
-		supabaseOpen = false
-		supaResult = undefined
-		sendUserToast(`Filled in the connection for ${pick.project.name}`)
 	}
-
-	$effect(() => {
-		if (supaResult) applySupabasePick(supaResult)
-	})
 
 	function parseTextFileContent() {
 		args = {
@@ -345,30 +360,24 @@
 	title="Connect Supabase"
 	contentClasses="flex flex-col"
 	fixedWidth="md"
-	fixedHeight="md"
+	fixedHeight="lg"
 >
 	<div class="flex h-full flex-col gap-3">
 		<div class="flex-1 flex flex-col gap-3 min-h-0">
-			<SupabaseProjectStep
-				bind:this={supaStep}
-				bind:result={supaResult}
-				defaultProjectName={`windmill-${$workspaceStore ?? 'workspace'}`}
-				continueLabel="Use this project"
-			/>
+			{#if supaOauth.token}
+				<SupabaseProjectStep bind:intent={supaIntent} token={supaOauth.token} existingOnly />
+			{/if}
 		</div>
-		{#if supaStep}
-			{@const action = supaStep.getAction()}
-			<div class="flex justify-end pt-3">
-				<Button
-					size="sm"
-					variant="accent"
-					disabled={action.disabled}
-					loading={action.busy}
-					onClick={() => action.act?.()}
-				>
-					{action.label}
-				</Button>
-			</div>
-		{/if}
+		<div class="flex justify-end pt-3">
+			<Button
+				size="sm"
+				variant="accent"
+				disabled={!supaIntent.project || !supaIntent.password}
+				loading={supaBusy}
+				onClick={applySupabasePick}
+			>
+				Use this project
+			</Button>
+		</div>
 	</div>
 </Modal2>
