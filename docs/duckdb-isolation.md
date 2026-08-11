@@ -105,6 +105,12 @@ DuckDB's wording verbatim, which
 output so an engine bump that rewords it fails the test instead of silently dropping the
 correction.
 
+The engine emits that same message for **its own default cap**, so which limit was hit
+cannot be read off the message: with `DUCKDB_MAX_TEMP_DIRECTORY_SIZE` unset it means the
+worker is low on disk, not that anyone configured a ceiling. `spill_cap_hint` takes the
+answer from the worker's config instead and says whichever is true — naming the env var on a
+worker that never set it would point the reader at a knob that does not exist.
+
 ## Where the patched engine comes from
 
 `backend/windmill-duckdb-ffi-internal` depends on

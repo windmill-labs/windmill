@@ -2035,26 +2035,51 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
 fn decode_ffi_error(result_str: &str) -> String {
     let raw = result_str.strip_prefix("ERROR ").unwrap_or(result_str);
     let msg = serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string());
-    match msg.contains(SPILL_CAP_ENGINE_MARKER) {
-        true => format!("{msg}\n{SPILL_CAP_HINT}"),
-        false => msg,
+    // Mirrors the filter the FFI applies to the same variable (`ResourceLimits::from_ffi`);
+    // they live in separate crates, so the rule is stated twice and must stay one rule.
+    let configured = env::var("DUCKDB_MAX_TEMP_DIRECTORY_SIZE").is_ok_and(|v| !v.trim().is_empty());
+    match spill_cap_hint(&msg, configured) {
+        Some(hint) => format!("{msg}\n{hint}"),
+        None => msg,
     }
 }
 
 /// DuckDB's own wording when a query outgrows the spill cap. Asserted against real engine
 /// output by `spilling_past_the_configured_cap_fails_the_query_and_cleans_up` in
 /// `windmill-duckdb-ffi-internal`, so an engine bump that rewords it fails there rather than
-/// silently dropping the hint below.
+/// silently dropping the hint.
 const SPILL_CAP_ENGINE_MARKER: &str = "This limit was set by the 'max_temp_directory_size' setting";
 
-/// That error ends by suggesting `PRAGMA max_temp_directory_size='10GiB'`, which every
-/// windmill connection refuses: the cap is frozen along with the temp directory, so following
-/// the advice yields a second, unrelated-looking permission error.
-const SPILL_CAP_HINT: &str = "\nThis spill cap is set on the worker \
-     (DUCKDB_MAX_TEMP_DIRECTORY_SIZE) and frozen for the life of the connection, so the PRAGMA \
-     suggested above is refused — a script cannot raise it. Spill less (fewer threads, a \
-     narrower scan, aggregating before the join), or ask an operator to raise the worker's \
-     limit.";
+/// Split out of [`decode_ffi_error`] so the branch is testable without mutating the process
+/// environment. The engine emits the same text for a configured cap and for its own default,
+/// so which limit was hit has to come from the worker's config, not from the message.
+fn spill_cap_hint(msg: &str, configured: bool) -> Option<&'static str> {
+    if !msg.contains(SPILL_CAP_ENGINE_MARKER) {
+        return None;
+    }
+    Some(if configured {
+        SPILL_CAP_CONFIGURED
+    } else {
+        SPILL_CAP_DEFAULT
+    })
+}
+
+/// Both hints open by contradicting the engine, whose message ends by suggesting
+/// `PRAGMA max_temp_directory_size='10GiB'`: every windmill connection refuses that, since the
+/// cap is frozen along with the temp directory, so following it yields a second,
+/// unrelated-looking permission error. True either way, because the lock is unconditional.
+const SPILL_CAP_CONFIGURED: &str = "\nThe PRAGMA suggested above is refused: this connection's \
+     temp directory and the cap on it are frozen, so a script cannot raise the limit. That limit \
+     is the worker's DUCKDB_MAX_TEMP_DIRECTORY_SIZE. Spill less (fewer threads, a narrower scan, \
+     aggregating before the join), or ask an operator to raise it.";
+
+/// Nothing configured a cap, so this is DuckDB's own default and the worker is genuinely low on
+/// disk. Naming the env var here would send the reader after a knob nobody set.
+const SPILL_CAP_DEFAULT: &str = "\nThe PRAGMA suggested above is refused: this connection's temp \
+     directory and the cap on it are frozen, so a script cannot raise the limit. No cap is \
+     configured on this worker, so that limit is DuckDB's default of 90% of the free space on \
+     its temp volume: the worker is low on disk. Free space on it, or spill less (fewer threads, \
+     a narrower scan, aggregating before the join).";
 
 fn run_duckdb_ffi_safe<'a>(
     query_block_list: impl Iterator<Item = &'a str>,
@@ -2746,6 +2771,33 @@ mod tests {
         );
         // non-JSON payload falls back to the raw slice
         assert_eq!(decode_ffi_error("ERROR not json"), "not json");
+    }
+
+    /// The engine says the same thing whether the cap came from the worker or is its own
+    /// default, so the attribution has to come from the config — naming the env var on a
+    /// worker that never set it would send the reader after the wrong problem.
+    #[test]
+    fn spill_cap_hint_attributes_the_limit_to_whoever_set_it() {
+        let capped = "Out of Memory Error: failed to offload data block of size 256.0 KiB \
+             (18.9 MiB/19.0 MiB used).\nThis limit was set by the 'max_temp_directory_size' \
+             setting.\nYou can adjust this setting, by using (for example) PRAGMA \
+             max_temp_directory_size='10GiB'";
+
+        let configured = spill_cap_hint(capped, true).expect("the cap error must be recognised");
+        assert!(configured.contains("DUCKDB_MAX_TEMP_DIRECTORY_SIZE"));
+
+        let default = spill_cap_hint(capped, false).expect("the cap error must be recognised");
+        assert!(
+            !default.contains("DUCKDB_MAX_TEMP_DIRECTORY_SIZE") && default.contains("low on disk"),
+            "with nothing configured the hint must point at the disk, not at an unset variable"
+        );
+
+        // Both must contradict the PRAGMA the engine suggests, which the lock always refuses.
+        assert!([configured, default]
+            .iter()
+            .all(|h| h.contains("PRAGMA suggested above is refused")));
+
+        assert!(spill_cap_hint("Binder Error: column \"x\" not found", true).is_none());
     }
 
     fn test_ancestor(wid: &str) -> windmill_common::workspaces::DucklakeAncestorAttach {
