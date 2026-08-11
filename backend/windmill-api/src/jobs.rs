@@ -5377,6 +5377,15 @@ pub async fn get_suspended_job_flow(
     .flatten()
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
 
+    // The resume secret is this route's gate, so it never reaches
+    // `require_job_read_access` and the run-scope confinement that gate carries. Re-apply
+    // it against the flow whose args and status are about to be returned: holding a
+    // resume secret must not let a scoped token read a flow it may not run. Anonymous
+    // approvers are unaffected.
+    if let Some(authed) = authed.as_ref() {
+        require_job_within_run_scope(&db, authed, &w_id, &flow_id).await?;
+    }
+
     let flow = GetQuery::new()
         .without_logs()
         .without_code()
@@ -10703,7 +10712,14 @@ async fn get_completed_job_result(
         _ => false,
     };
 
-    if !approval_secret_ok {
+    if approval_secret_ok {
+        // The approval secret skips the gate below, and with it the run-scope
+        // confinement that gate carries — re-apply it, as `get_job` does for the
+        // approval token. Anonymous approval access is untouched.
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_within_run_scope(&db, authed, &w_id, &id).await?;
+        }
+    } else {
         require_opt_authed_job_read_access(
             &db,
             &user_db,

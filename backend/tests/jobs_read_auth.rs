@@ -509,6 +509,29 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         "an approval link must not lift the run-scope confinement (got {status}): {body}"
     );
 
+    // Same for the resume-secret bypass on the result route, which the approval page uses.
+    let (status, secret) = get(
+        &authed_base,
+        &format!("job_signature/{STEP_JOB}/0"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(status.is_success(), "owner must mint a resume secret: {secret}");
+    let secret = secret.trim().trim_matches('"').to_string();
+    let approval_result =
+        format!("completed/get_result/{STEP_JOB}?suspended_job={STEP_JOB}&resume_id=0&secret={secret}");
+    let (status, body) = get(&base, &approval_result, None).await;
+    assert!(
+        status.is_success(),
+        "a resume secret must still authorize a logged-out result read (got {status}): {body}"
+    );
+    let (status, body) = get(&base, &approval_result, Some("RUN_SCOPED_SCRIPT_TOKEN")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "a resume secret must not lift the run-scope confinement (got {status}): {body}"
+    );
+
     // And a run grant is not an enumeration grant: the whole listing surface is denied.
     let (status, body) = get(&authed_base, "list", Some("RUN_SCOPED_TOKEN")).await;
     assert_eq!(
