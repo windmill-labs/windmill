@@ -96,6 +96,16 @@ An experiment applies one tool binding to every case: `host_flow_path` is set pe
 a case's own `host_flow_path` is honoured only by a single run. Rows of one experiment would not
 otherwise be comparable with each other.
 
+### Comparison
+
+One experiment's numbers say little; the delta against the run before a change says whether the
+change helped. Picking a baseline experiment adds a per-scorer delta to each row and to the mean,
+and a filter down to the rows that regressed.
+
+Rows are joined by case id, so a case added after the baseline ran simply has no delta rather
+than counting as a change. Deltas need a number on both sides, and the means skip cases a scorer
+produced no number for — counting a missing score as zero would read as a regression.
+
 ### Scorers
 
 A scorer is any runnable taking `(input, output, expected)` and returning a number — a bare

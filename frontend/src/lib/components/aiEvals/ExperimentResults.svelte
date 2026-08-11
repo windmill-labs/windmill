@@ -9,6 +9,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 	import { ExternalLink, RefreshCw } from 'lucide-svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let {
 		dataset,
@@ -28,6 +29,11 @@
 	let rows = $state<ExperimentRow[]>([])
 	let scorerLabels = $state<string[]>([])
 	let loading = $state(false)
+	// The comparison is the point of the table: one experiment's numbers say little, the delta
+	// against the run before the change says whether the change helped.
+	let baselineId = $state<string | undefined>(undefined)
+	let baselineRows = $state<ExperimentRow[]>([])
+	let onlyRegressions = $state(false)
 
 	let listGeneration = 0
 	async function loadExperiments(path: string | undefined, _token: number) {
@@ -76,6 +82,42 @@
 		loadResults(dataset, selectedId)
 	})
 
+	let baselineGeneration = 0
+	$effect(() => {
+		const path = dataset
+		const id = baselineId
+		const generation = ++baselineGeneration
+		baselineRows = []
+		if (!ws || !path || !id) return
+		AiEvalsService.experimentResults({ workspace: ws, requestBody: { dataset: path, id } })
+			.then((res) => {
+				if (generation === baselineGeneration) baselineRows = res.rows ?? []
+			})
+			.catch(() => {
+				if (generation === baselineGeneration) baselineRows = []
+			})
+	})
+
+	let baselineByCase = $derived(
+		Object.fromEntries(baselineRows.map((r) => [r.case_id, r]))
+	)
+
+	function delta(row: ExperimentRow, index: number): number | undefined {
+		const now = row.scores?.[index]
+		const before = baselineByCase[row.case_id]?.scores?.[index]
+		if (typeof now !== 'number' || typeof before !== 'number') return undefined
+		return now - before
+	}
+
+	// A row is a regression if any scorer went down against the baseline.
+	function isRegression(row: ExperimentRow): boolean {
+		return scorerLabels.some((_, index) => (delta(row, index) ?? 0) < 0)
+	}
+
+	let visibleRows = $derived(
+		onlyRegressions && baselineId ? rows.filter(isRegression) : rows
+	)
+
 	let selected = $derived(experiments.find((e) => e.id === selectedId))
 
 	// The summary a comparison would diff. Scorers that produced no number are left out rather
@@ -90,6 +132,16 @@
 		})
 	)
 	let stillRunning = $derived(rows.filter((r) => r.status === 'running').length)
+	let regressionCount = $derived(baselineId ? rows.filter(isRegression).length : 0)
+	let meanDeltas = $derived(
+		scorerLabels.map((_, index) => {
+			const before = baselineRows
+				.map((r) => r.scores?.[index])
+				.filter((v): v is number => typeof v === 'number')
+			if (before.length === 0 || means[index] == undefined) return undefined
+			return means[index]! - before.reduce((a, b) => a + b, 0) / before.length
+		})
+	)
 </script>
 
 <div class="flex flex-col h-full min-h-0 gap-2">
@@ -117,6 +169,28 @@
 		/>
 	</div>
 
+	{#if selected && experiments.length > 1}
+		<div class="flex items-center gap-2">
+			<span class="text-2xs text-tertiary whitespace-nowrap">vs</span>
+			<div class="grow min-w-0">
+				<Select
+					items={experiments
+						.filter((e) => e.id !== selectedId)
+						.map((e) => ({
+							label: `${displayDate(e.created_at)} · ${e.subject.path}${
+								e.subject.version != undefined ? ` v${e.subject.version}` : ''
+							}`,
+							value: e.id
+						}))}
+					bind:value={baselineId}
+					placeholder="Compare with"
+					clearable
+					class="text-xs"
+				/>
+			</div>
+		</div>
+	{/if}
+
 	{#if selected}
 		<div class="flex items-center gap-3 text-2xs text-tertiary">
 			<span>{rows.length} cases</span>
@@ -129,8 +203,20 @@
 					<span class="text-primary font-medium">
 						{means[index] != undefined ? means[index].toFixed(2) : '—'}
 					</span>
+					{#if baselineId && meanDeltas[index] != undefined}
+						<span class={meanDeltas[index]! < 0 ? 'text-red-600' : 'text-green-600'}>
+							{meanDeltas[index]! >= 0 ? '+' : ''}{meanDeltas[index]!.toFixed(2)}
+						</span>
+					{/if}
 				</span>
 			{/each}
+			{#if baselineId}
+				<Toggle
+					bind:checked={onlyRegressions}
+					size="2xs"
+					options={{ right: `${regressionCount} regressed` }}
+				/>
+			{/if}
 		</div>
 	{/if}
 
@@ -154,7 +240,7 @@
 					</tr>
 				</Head>
 				<tbody>
-					{#each rows as row (row.case_id)}
+					{#each visibleRows as row (row.case_id)}
 						<tr class="border-b last:border-b-0">
 							<Cell first>
 								<div class="flex items-center gap-1 min-w-0">
@@ -176,8 +262,14 @@
 								</span>
 							</Cell>
 							{#each scorerLabels as label, index (label)}
+								{@const d = delta(row, index)}
 								<Cell numeric>
 									{row.scores?.[index] != undefined ? row.scores[index]?.toFixed(2) : '—'}
+									{#if d != undefined && d !== 0}
+										<span class={d < 0 ? 'text-red-600' : 'text-green-600'}>
+											{d > 0 ? '+' : ''}{d.toFixed(2)}
+										</span>
+									{/if}
 								</Cell>
 							{/each}
 							<Cell last>
