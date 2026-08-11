@@ -245,11 +245,37 @@ impl Weighter<(String, String, String), CachedTarball> for CacheWeighter {
     }
 }
 
+/// Single-sharded on purpose. quick_cache divides the weight budget across shards and
+/// declines an item heavier than one shard's share of it, so a sharded cache silently
+/// refuses exactly the packages that cost the most to fetch and inflate again — the very
+/// regression these caches exist to prevent. They are consulted a handful of times per
+/// editor session and hold only map operations under the lock, so the concurrency a
+/// single shard gives up is not worth that.
+fn byte_bounded_cache<Key, Val>(items: usize, bytes: u64) -> Cache<Key, Val, CacheWeighter>
+where
+    Key: Eq + std::hash::Hash,
+    Val: Clone,
+    CacheWeighter: Weighter<Key, Val>,
+{
+    let options = quick_cache::OptionsBuilder::new()
+        .shards(1)
+        .estimated_items_capacity(items)
+        .weight_capacity(bytes)
+        .build()
+        .expect("every cache option is set");
+    Cache::with_options(
+        options,
+        CacheWeighter,
+        Default::default(),
+        Default::default(),
+    )
+}
+
 lazy_static::lazy_static! {
     static ref PACKAGE_JSON_CACHE: Cache<(String, String), CachedPackageJson, CacheWeighter> =
-        Cache::with_weighter(500, PACKAGE_JSON_CACHE_BYTES, CacheWeighter);
+        byte_bounded_cache(500, PACKAGE_JSON_CACHE_BYTES);
     static ref TARBALL_CACHE: Cache<(String, String, String), CachedTarball, CacheWeighter> =
-        Cache::with_weighter(200, TARBALL_CACHE_BYTES, CacheWeighter);
+        byte_bounded_cache(200, TARBALL_CACHE_BYTES);
 }
 
 /// Fetch a package's registry document, together with the registry it came from so
@@ -792,7 +818,13 @@ async fn extracted_tarball(
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_tarball_within, resolve_version_spec};
+    use super::{
+        byte_bounded_cache, extract_tarball_within, resolve_version_spec, CachedTarball,
+        ExtractedTarball, MAX_EXTRACTED_BYTES, TARBALL_CACHE_BYTES,
+    };
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Instant;
 
     fn packument() -> serde_json::Value {
         serde_json::json!({
@@ -841,7 +873,9 @@ mod tests {
             header.set_size(content.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
-            builder.append_data(&mut header, path, content.as_slice()).unwrap();
+            builder
+                .append_data(&mut header, path, content.as_slice())
+                .unwrap();
         }
         builder.into_inner().unwrap().finish().unwrap()
     }
@@ -857,5 +891,24 @@ mod tests {
         // A tarball's transfer size bounds neither of these
         assert!(extract_tarball_within(&archive, 40, 16).is_err());
         assert!(extract_tarball_within(&archive, 1024, 1).is_err());
+    }
+
+    /// A cache that splits its budget across shards refuses anything heavier than one
+    /// shard's share, silently declining the packages worth caching most.
+    #[test]
+    fn the_largest_extraction_allowed_still_fits_the_cache() {
+        let cache = byte_bounded_cache(200, TARBALL_CACHE_BYTES);
+        let key = ("registry".to_string(), "big".to_string(), "1.0.0".to_string());
+
+        cache.insert(
+            key.clone(),
+            CachedTarball {
+                extracted: Arc::new(ExtractedTarball { names: vec![], contents: HashMap::new() }),
+                bytes: MAX_EXTRACTED_BYTES,
+                fetched_at: Instant::now(),
+            },
+        );
+
+        assert!(cache.get(&key).is_some());
     }
 }
