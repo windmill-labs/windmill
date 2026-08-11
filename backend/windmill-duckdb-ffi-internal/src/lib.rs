@@ -631,6 +631,41 @@ mod result_size_guard_tests {
         assert_eq!(collected, 0, "it was refused before being counted");
     }
 
+    /// The budget is per row, not per value: a blob nested in a container reaches
+    /// the same expansion by a path the top-level columns never touch, and several
+    /// modest sibling blobs reach it by summing. Both are invisible to a check
+    /// that only looks at one value at a time.
+    #[test]
+    fn nested_and_sibling_blobs_share_one_budget() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let attempt = |query: &str| {
+            do_duckdb_inner(
+                &conn,
+                query,
+                &HashMap::new(),
+                false,
+                false,
+                &mut None,
+                8 * 1024 * 1024,
+                &mut 0,
+            )
+        };
+
+        // One 1MB blob expands to ~24MB, over the 8MB cap, but it is reached only
+        // by descending into the LIST.
+        let nested = attempt("SELECT [repeat('a', 1000000)::BLOB] AS b")
+            .expect_err("a blob inside a LIST must be charged too");
+        assert!(nested.contains("Query result too large"), "{nested}");
+
+        // Four 100KB blobs are ~2.4MB each — each fits, the row does not.
+        let siblings = attempt(
+            "SELECT repeat('a', 100000)::BLOB AS a, repeat('b', 100000)::BLOB AS b,
+                    repeat('c', 100000)::BLOB AS c, repeat('d', 100000)::BLOB AS d",
+        )
+        .expect_err("sibling blobs must be charged against one shared budget");
+        assert!(siblings.contains("Query result too large"), "{siblings}");
+    }
+
     /// A row costs far more than the JSON it serializes to, and small rows are
     /// almost entirely that overhead. Billing only the payload would let a cap
     /// admit several times the rows the worker can actually hold.
@@ -777,6 +812,20 @@ fn interpolate_named_args<'a>(
     (query, values)
 }
 
+/// How much a row may still expand to, carried through every value it contains.
+///
+/// Only weighed rows reach the running total, so anything that balloons *during*
+/// conversion is invisible to it — a blob becomes one `serde_json::Value` per
+/// byte, and both several sibling columns and one nested deep in a `LIST`/`STRUCT`
+/// can each be individually modest while summing past what the worker can hold.
+/// One shared, decrementing budget is what makes those cases add up.
+struct Budget {
+    remaining: usize,
+    /// The configured cap, kept only so the error can quote it rather than the
+    /// remainder, which would be a different number every time.
+    limit: usize,
+}
+
 fn row_to_value(
     row: &Row<'_>,
     column_names: &[String],
@@ -784,24 +833,21 @@ fn row_to_value(
     budget: usize,
     max_result_size: usize,
 ) -> Result<Box<RawValue>, String> {
+    // Shared by every value in the row, and decremented as each is built, so
+    // columns that are individually under the cap cannot add up past it.
+    let mut budget = Budget {
+        remaining: if max_result_size == 0 {
+            usize::MAX
+        } else {
+            budget
+        },
+        limit: max_result_size,
+    };
     let mut obj = serde_json::Map::new();
     for (i, key) in column_names.iter().enumerate() {
         let value: duckdb::types::Value = row.get(i).map_err(|e| e.to_string())?;
-        // A blob renders one JSON number per byte, so its in-memory form is
-        // `size_of::<Value>()` times the blob and is entirely live before the row
-        // can be weighed. Weighed rows are the only thing the running total sees,
-        // so a single wide blob would exhaust the worker between two checks.
-        // The length is known now, which is the last moment refusing is cheap.
-        if let duckdb::types::Value::Blob(b) | duckdb::types::Value::Geometry(b) = &value {
-            let expanded = b
-                .len()
-                .saturating_mul(std::mem::size_of::<serde_json::Value>());
-            if max_result_size > 0 && expanded > budget {
-                return Err(result_too_large_message(max_result_size));
-            }
-        }
         let type_alias = &type_aliases[i];
-        let json_value = duckdb_value_to_json_value(value, type_alias)
+        let json_value = duckdb_value_to_json_value(value, type_alias, &mut budget)
             .map_err(|e| format!("column \"{key}\": {e}"))?;
         obj.insert(key.clone(), json_value);
     }
@@ -811,6 +857,7 @@ fn row_to_value(
 fn duckdb_value_to_json_value(
     value: duckdb::types::Value,
     type_alias: &Option<String>,
+    budget: &mut Budget,
 ) -> Result<serde_json::Value, String> {
     let json_value = match value {
         duckdb::types::Value::Null => serde_json::Value::Null,
@@ -844,6 +891,21 @@ fn duckdb_value_to_json_value(
         duckdb::types::Value::Text(s) => serde_json::Value::String(s),
         // GEOMETRY surfaces as WKB bytes; render it like any other byte string.
         duckdb::types::Value::Blob(b) | duckdb::types::Value::Geometry(b) => {
+            // Refused on the length, which is known now — once the array below
+            // exists the memory is already spent, and the row is not weighed
+            // until every one of its columns has been built.
+            //
+            // The multiplier is not the modest number it looks like: `Value` is
+            // 72 bytes here, because `preserve_order` backs objects with an
+            // IndexMap. A 50MB blob becomes ~3.6GB of `Value` before anything
+            // has had a chance to object.
+            let expanded = b
+                .len()
+                .saturating_mul(std::mem::size_of::<serde_json::Value>());
+            if expanded > budget.remaining {
+                return Err(result_too_large_message(budget.limit));
+            }
+            budget.remaining -= expanded;
             serde_json::Value::Array(
                 b.into_iter()
                     .map(|byte| serde_json::Value::Number(byte.into()))
@@ -867,20 +929,22 @@ fn duckdb_value_to_json_value(
         duckdb::types::Value::List(values) => serde_json::Value::Array(
             values
                 .into_iter()
-                .map(|v| duckdb_value_to_json_value(v, &None))
+                .map(|v| duckdb_value_to_json_value(v, &None, budget))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         duckdb::types::Value::Enum(e) => serde_json::Value::String(e),
         duckdb::types::Value::Struct(fields) => serde_json::Value::Object(
             fields
                 .iter()
-                .map(|(k, v)| duckdb_value_to_json_value(v.clone(), &None).map(|v| (k.clone(), v)))
+                .map(|(k, v)| {
+                    duckdb_value_to_json_value(v.clone(), &None, budget).map(|v| (k.clone(), v))
+                })
                 .collect::<Result<serde_json::Map<_, _>, _>>()?,
         ),
         duckdb::types::Value::Array(values) => serde_json::Value::Array(
             values
                 .into_iter()
-                .map(|v| duckdb_value_to_json_value(v, &None))
+                .map(|v| duckdb_value_to_json_value(v, &None, budget))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         duckdb::types::Value::Map(map) => serde_json::Value::Object(
@@ -890,7 +954,7 @@ fn duckdb_value_to_json_value(
                         duckdb::types::Value::Text(s) | duckdb::types::Value::Enum(s) => s.clone(),
                         _ => format!("{:?}", k),
                     };
-                    duckdb_value_to_json_value(v.clone(), &None).map(|v| (k, v))
+                    duckdb_value_to_json_value(v.clone(), &None, budget).map(|v| (k, v))
                 })
                 .collect::<Result<serde_json::Map<_, _>, _>>()?,
         ),
@@ -997,7 +1061,8 @@ mod temporal_json_tests {
         let row = rows.next().unwrap().unwrap();
         let json_of = |i: usize| {
             let v: duckdb::types::Value = row.get(i).unwrap();
-            duckdb_value_to_json_value(v, &None).unwrap()
+            let mut budget = Budget { remaining: usize::MAX, limit: 0 };
+            duckdb_value_to_json_value(v, &None, &mut budget).unwrap()
         };
         assert_eq!(json_of(0), serde_json::json!("2026-07-01T23:13:42.218435"));
         assert_eq!(json_of(1), serde_json::json!("2026-07-01T23:13:42"));
@@ -1029,7 +1094,8 @@ mod temporal_json_tests {
         let row = rows.next().unwrap().unwrap();
         let json_of = |i: usize| {
             let v: duckdb::types::Value = row.get(i).unwrap();
-            duckdb_value_to_json_value(v, &None).unwrap()
+            let mut budget = Budget { remaining: usize::MAX, limit: 0 };
+            duckdb_value_to_json_value(v, &None, &mut budget).unwrap()
         };
         assert_eq!(json_of(0), serde_json::json!("-1.05"));
         assert_eq!(json_of(1), serde_json::json!("1.50"));

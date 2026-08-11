@@ -1337,9 +1337,9 @@ lazy_static::lazy_static! {
             parsed
         });
         match explicit {
-            // `0` turns the cap off, matching the sentinel the FFI takes for
-            // unbounded. Passing it through as a literal zero would instead reject
-            // every non-empty result, which is the opposite of what it reads as.
+            // `0` turns the cap off. Normalized here rather than forwarded,
+            // so "no cap" is expressed as a limit nothing can exceed instead of
+            // a sentinel every consumer has to know to special-case.
             Some(0) => usize::MAX,
             // The floor guards the derived value only. An explicit setting is
             // taken at face value, including one deliberately below it.
