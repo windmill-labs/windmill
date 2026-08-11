@@ -4040,9 +4040,12 @@ function variableToDraftState(variable: ListableVariable): VariableDraftState {
 		},
 		labels: variable.labels ?? undefined,
 		wsSpecific: variable.ws_specific ?? false,
-		account: variable.account,
-		is_oauth: variable.is_oauth,
-		expires_at: variable.expires_at
+		// `get_variable` sends these as explicit nulls; carrying a null through would add
+		// `account: null` / `expires_at: null` to the draft and to every diff the user
+		// reviews. Undefined drops out of the JSON instead.
+		account: variable.account ?? undefined,
+		is_oauth: variable.is_oauth ?? undefined,
+		expires_at: variable.expires_at ?? undefined
 	}
 }
 

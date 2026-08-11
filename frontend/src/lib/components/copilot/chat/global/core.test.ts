@@ -1205,6 +1205,52 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// `get_variable` returns account/expires_at as explicit nulls. Carrying them into the
+	// draft adds `account: null` / `expires_at: null` to every diff the user reviews before
+	// deploying — noise that only shows up now that a metadata-only edit is possible.
+	it('does not add null account/expires_at when editing a variable that has neither', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'u/admin/plain_config',
+			value: 'readable',
+			is_secret: false,
+			description: 'old description',
+			account: null,
+			is_oauth: null,
+			expires_at: null,
+			ws_specific: false
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'u/admin/plain_config',
+			description: 'new description'
+		})
+
+		// Serialize as the real POST does: `undefined` only disappears on the wire, while the
+		// in-memory draft store keeps the key.
+		const onTheWire = (value: unknown) => JSON.parse(JSON.stringify(value))
+
+		const draft = onTheWire(
+			getBackendDraft<any>('variable', 'u/admin/plain_config', { workspace: WORKSPACE })
+		)
+		expect(draft).not.toHaveProperty('account')
+		expect(draft).not.toHaveProperty('expires_at')
+		expect(draft).not.toHaveProperty('is_oauth')
+		expect(draft.variable).toMatchObject({ description: 'new description', value: 'readable' })
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'u/admin/plain_config'
+		})
+
+		const requestBody = onTheWire(
+			vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody
+		)
+		expect(requestBody).not.toHaveProperty('account')
+		expect(requestBody).not.toHaveProperty('expires_at')
+	})
+
 	// '' is the draft's sentinel for "no value staged", so it cannot also mean "set the
 	// secret to empty" — accepting it would wipe the secret, which is the placeholder
 	// habit this schema change is meant to remove.
