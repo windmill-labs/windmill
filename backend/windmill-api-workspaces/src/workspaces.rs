@@ -4677,6 +4677,16 @@ async fn set_environment_variable(
 
     match value {
         Some(value) => {
+            // The name is spliced into the NativeTS/Bun worker prologue; reject
+            // anything that isn't a plain identifier so it can't inject JS.
+            // (Deletion, in the None branch, stays unrestricted so already-planted
+            // names remain removable.)
+            if !windmill_common::variables::is_valid_js_identifier(&name) {
+                return Err(Error::BadRequest(format!(
+                    "Invalid environment variable name '{name}': must start with a letter, underscore or '$' and contain only letters, digits, underscores or '$'"
+                )));
+            }
+
             sqlx::query!(
                 "INSERT INTO workspace_env (workspace_id, name, value) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, name) DO UPDATE SET value = EXCLUDED.value",
                 &w_id,

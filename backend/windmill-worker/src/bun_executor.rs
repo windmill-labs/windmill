@@ -2896,9 +2896,8 @@ pub async fn handle_wac_v2_output(
                                     version: flow_info.version,
                                     labels: flow_info.labels.clone(),
                                 };
-                                let on_behalf_of = flow_info
-                                    .on_behalf_of(&job.workspace_id, db)
-                                    .await?;
+                                let on_behalf_of =
+                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
                                 let step_args: HashMap<String, Box<RawValue>> = step
                                     .args
                                     .iter()
@@ -3519,8 +3518,11 @@ pub fn build_nativets_env_code(
         reserved_variables
             .iter()
             .map(|(k, v)| {
-                let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
-                format!("process.env['{}'] = '{}';", k, escaped)
+                // The key is attacker-controllable (custom workspace env vars), so
+                // escape it as a string literal too, not just the value.
+                let key_literal = windmill_common::variables::escape_js_single_quoted(k);
+                let escaped = windmill_common::variables::escape_js_single_quoted(v);
+                format!("process.env['{key_literal}'] = '{escaped}';")
             })
             .collect::<Vec<String>>()
             .join("\n")

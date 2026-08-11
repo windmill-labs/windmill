@@ -23,6 +23,29 @@ lazy_static::lazy_static! {
     static ref RESERVED_WM_VAR_NAME: regex::Regex = regex::Regex::new(r"^WM_[A-Z_]+$").unwrap();
 }
 
+/// Escape a string so it can be safely embedded inside a single-quoted JS
+/// string literal in a generated NativeTS/Bun prologue.
+pub fn escape_js_single_quoted(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+/// True when `name` is a plain ASCII JS identifier and can therefore sit in
+/// `const {name}` position of a generated prologue without smuggling statement
+/// terminators, quotes, or comments. Custom workspace env-var names are
+/// attacker-controllable (any workspace admin sets them), so a non-identifier
+/// name must never reach an identifier position in generated JS.
+pub fn is_valid_js_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c == '_' || c == '$' || c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c == '_' || c == '$' || c.is_ascii_alphanumeric())
+}
+
 #[derive(Serialize, Clone)]
 
 pub struct ContextualVariable {
@@ -627,5 +650,42 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
             "Variable not found when resolving `$var:{}`",
             var_path
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{escape_js_single_quoted, is_valid_js_identifier};
+
+    #[test]
+    fn is_valid_js_identifier_gates_prologue_injection() {
+        for ok in ["FOO", "_bar", "$x", "a1_2", "WM_CUSTOM"] {
+            assert!(is_valid_js_identifier(ok), "{ok} should be a valid identifier");
+        }
+        // Custom workspace env-var names are attacker-controllable; none of these
+        // may reach `const {name}` position in the NativeTS/Bun prologue.
+        for bad in [
+            "",
+            "1BAD",
+            "has space",
+            "dotted.name",
+            "kebab-case",
+            "_x=1;globalThis.PWNED=1//",
+            "x'];globalThis.PWNED=1;process.env['y",
+        ] {
+            assert!(!is_valid_js_identifier(bad), "{bad:?} must not be a valid identifier");
+        }
+    }
+
+    #[test]
+    fn escape_js_single_quoted_neutralizes_string_breakout() {
+        assert_eq!(escape_js_single_quoted("a'b"), "a\\'b");
+        assert_eq!(escape_js_single_quoted("a\\b"), "a\\\\b");
+        assert_eq!(escape_js_single_quoted("a\nb\rc"), "a\\nb\\rc");
+        // A key crafted to break out of process.env['...'] is fully contained.
+        assert_eq!(
+            escape_js_single_quoted("x'];danger();['y"),
+            "x\\'];danger();[\\'y"
+        );
     }
 }
