@@ -50,7 +50,7 @@ pub extern "C" fn get_version() -> c_uint {
     // Increment when making breaking changes to the FFI interface.
     // The windmill worker will check that the version matches or else refuse to call
     // the FFI functions to avoid undefined behavior.
-    return 2;
+    return 3;
 }
 
 #[unsafe(no_mangle)]
@@ -63,6 +63,8 @@ pub extern "C" fn run_duckdb_ffi(
     w_id: *const c_char,
     memory_limit: *const c_char,
     temp_directory: *const c_char,
+    // 0 means unbounded; the worker sends its own budget-derived cap.
+    max_result_size: usize,
     column_order_ptr: *mut *mut c_char,
     collect_last_only: bool,
     collect_first_row_only: bool,
@@ -90,6 +92,7 @@ pub extern "C" fn run_duckdb_ffi(
                 base_internal_url,
                 w_id,
                 limits,
+                max_result_size,
                 collect_last_only,
                 collect_first_row_only,
             )
@@ -486,6 +489,7 @@ fn run_duckdb_internal<'a>(
     base_internal_url: &str,
     w_id: &str,
     limits: ResourceLimits,
+    max_result_size: usize,
     collect_last_only: bool,
     collect_first_row_only: bool,
 ) -> Result<(String, Option<Vec<String>>), String> {
@@ -495,6 +499,9 @@ fn run_duckdb_internal<'a>(
 
     let mut results: Vec<Vec<Box<RawValue>>> = vec![];
     let mut column_order = None;
+    // Carried across blocks: what the worker cannot survive is the total it ends
+    // up holding, not any one statement's share of it.
+    let mut collected = 0usize;
 
     for (query_block_index, query_block) in query_block_list.enumerate() {
         let result = do_duckdb_inner(
@@ -504,12 +511,127 @@ fn run_duckdb_internal<'a>(
             collect_last_only && query_block_index != query_block_list_count - 1,
             collect_first_row_only,
             &mut column_order,
+            max_result_size,
+            &mut collected,
         )
         .map_err(|e| e.to_string())?;
         results.push(result);
     }
-    let results = serde_json::value::to_raw_value(&results).map_err(|e| e.to_string())?;
-    Ok((results.get().to_string(), column_order))
+    // Serializing straight to the String that crosses the FFI boundary; going
+    // through a RawValue first would hold a second copy of the whole result.
+    serde_json::to_string(&results)
+        .map(|results| (results, column_order))
+        .map_err(|e| e.to_string())
+}
+
+/// Beyond its JSON, every collected row costs a fat pointer parked in `rows_vec`
+/// plus its own heap allocation, which the allocator rounds up and prefixes with
+/// a header. Measured at 64 bytes resident for a 14-byte row, falling to a flat
+/// ~34 bytes of overhead once rows are wide; 56 sits above that whole range, so
+/// the charge is never less than what a row actually occupies.
+///
+/// Charging the payload alone is what makes small rows dangerous: `{"a":0}` is
+/// seven bytes but occupies 64, so a cap counting only JSON would admit nine
+/// times the rows the worker can hold.
+const ROW_STORAGE_OVERHEAD: usize = 56;
+
+fn row_storage_cost(json_len: usize) -> usize {
+    json_len + ROW_STORAGE_OVERHEAD
+}
+
+// Duplicated from windmill-worker rather than shared: this crate is deliberately
+// outside the workspace so the bundled engine compiles on its own.
+fn format_byte_size(bytes: usize) -> String {
+    match bytes {
+        b if b >= 1 << 30 => format!("{:.1}GB", b as f64 / (1u64 << 30) as f64),
+        b if b >= 1 << 20 => format!("{}MB", b >> 20),
+        b if b >= 1 << 10 => format!("{}KB", b >> 10),
+        b => format!("{b}B"),
+    }
+}
+
+/// Size is counted as serialized JSON, which is what the rows become: they are
+/// collected in full here, cross the FFI boundary as one string, and land in the
+/// job result. Rows whose destination is storage should never take that path, so
+/// lead with the way to keep them out of it.
+///
+/// Only the limit is quoted. Collection stops on the row that crosses it, so the
+/// running total is just the threshold plus one row — naming it as the result
+/// size would be inventing a number nobody measured.
+fn result_too_large_message(max_result_size: usize) -> String {
+    format!(
+        "Query result too large: collecting it passed the {} limit.\n\
+         Write the rows out from the query instead of returning them:\n  \
+         COPY (<your query>) TO 's3://<bucket>/<file>.parquet' (FORMAT PARQUET);\n\
+         Or return fewer rows — aggregate, or add a LIMIT. On a self-hosted \
+         worker, MAX_SQL_RESULT_SIZE raises the limit.",
+        format_byte_size(max_result_size),
+    )
+}
+
+#[cfg(test)]
+mod result_size_guard_tests {
+    use super::*;
+
+    const ROWS: usize = 100_000;
+
+    fn collect_into(max_result_size: usize, collected: &mut usize) -> Result<usize, String> {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        do_duckdb_inner(
+            &conn,
+            &format!("SELECT i FROM range({ROWS}) t(i)"),
+            &HashMap::new(),
+            false,
+            false,
+            &mut None,
+            max_result_size,
+            collected,
+        )
+        .map(|rows| rows.len())
+    }
+
+    #[test]
+    fn oversized_result_is_refused_mid_collection() {
+        let err = collect_into(1024, &mut 0).expect_err("1KB cannot hold 100k rows");
+        assert!(err.contains("Query result too large"), "{err}");
+        // The limit alone leaves the user stuck; the way out has to travel with it.
+        assert!(err.contains("COPY ("), "no remedy in the error: {err}");
+    }
+
+    #[test]
+    fn zero_is_unbounded() {
+        assert_eq!(collect_into(0, &mut 0).unwrap(), ROWS);
+    }
+
+    /// A row costs far more than the JSON it serializes to, and small rows are
+    /// almost entirely that overhead. Billing only the payload would let a cap
+    /// admit several times the rows the worker can actually hold.
+    #[test]
+    fn a_row_costs_more_than_its_payload() {
+        assert_eq!(row_storage_cost(7), 7 + ROW_STORAGE_OVERHEAD);
+
+        let mut collected = 0;
+        collect_into(usize::MAX, &mut collected).unwrap();
+        assert!(
+            collected >= ROWS * ROW_STORAGE_OVERHEAD,
+            "charged {collected} for {ROWS} rows, so containers went unbilled"
+        );
+    }
+
+    /// The worker dies on the total it holds, not on any one statement, so the
+    /// budget has to carry across blocks — a per-statement reset would let N
+    /// statements each pass the check and still OOM the worker together.
+    #[test]
+    fn the_budget_is_shared_across_statements() {
+        let mut collected = 0;
+        let first = collect_into(usize::MAX, &mut collected).unwrap();
+        assert_eq!(first, ROWS);
+        assert!(collected > 0);
+
+        let err = collect_into(collected, &mut collected)
+            .expect_err("the first statement already spent the whole budget");
+        assert!(err.contains("Query result too large"), "{err}");
+    }
 }
 
 fn do_duckdb_inner(
@@ -519,6 +641,8 @@ fn do_duckdb_inner(
     skip_collect: bool,
     collect_first_row_only: bool,
     column_order: &mut Option<Vec<String>>,
+    max_result_size: usize,
+    collected: &mut usize,
 ) -> Result<Vec<Box<RawValue>>, String> {
     let mut rows_vec = vec![];
 
@@ -576,6 +700,10 @@ fn do_duckdb_inner(
 
                 let row = row_to_value(row, &column_names.as_slice(), &type_aliases.as_slice())
                     .map_err(|e| e.to_string())?;
+                *collected += row_storage_cost(row.get().len());
+                if max_result_size > 0 && *collected > max_result_size {
+                    return Err(result_too_large_message(max_result_size));
+                }
                 rows_vec.push(row);
             }
             Ok(None) => break,

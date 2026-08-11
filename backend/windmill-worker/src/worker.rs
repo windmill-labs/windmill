@@ -1266,6 +1266,104 @@ impl std::ops::Deref for NextJob {
 //only matter if CLOUD_HOSTED
 pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 
+// Share of the worker's memory budget one SQL result may occupy. Collecting rows
+// costs several times the JSON they serialize to — a separately allocated value
+// per row, then a contiguous buffer holding all of them — and the worker still
+// needs the rest of its budget for what it already has resident.
+const SQL_RESULT_SIZE_FRACTION: f64 = 0.15;
+// Under this a result cannot threaten a worker of any size, so capping it would
+// only reject work that would have succeeded.
+const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
+
+/// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
+/// and binary, so `MB` and `MiB` both mean 1024².
+///
+/// Fractions are accepted because `format_byte_size` emits them, and the limit it
+/// renders into an error is meant to be usable as a setting verbatim.
+fn parse_byte_size(v: &str) -> Option<usize> {
+    let upper = v.trim().to_ascii_uppercase();
+    // Longest-first: `GB` would otherwise swallow `GIB`, and `B` every other suffix.
+    let (digits, mult) = [
+        ("GIB", 1u64 << 30),
+        ("GB", 1u64 << 30),
+        ("MIB", 1u64 << 20),
+        ("MB", 1u64 << 20),
+        ("KIB", 1u64 << 10),
+        ("KB", 1u64 << 10),
+        ("B", 1),
+    ]
+    .into_iter()
+    .find_map(|(suffix, mult)| upper.strip_suffix(suffix).map(|d| (d, mult)))
+    .unwrap_or((upper.as_str(), 1));
+    let n = digits.trim().parse::<f64>().ok()?;
+    if !n.is_finite() || n < 0.0 {
+        return None;
+    }
+    let bytes = n * mult as f64;
+    (bytes <= usize::MAX as f64).then(|| bytes as usize)
+}
+
+lazy_static::lazy_static! {
+    /// Bytes one SQL job may collect before the executor gives up — the budget
+    /// spans every statement in the job, since what the worker cannot survive is
+    /// the total it ends up holding. Nothing else bounds it: the executors
+    /// accumulate every row before anything can stream the result out, so an
+    /// oversized one grows past the cgroup and the
+    /// OOM killer takes the worker process down — every job colocated on it, not
+    /// just the one that asked. `MAX_SQL_RESULT_SIZE` overrides it; `0` and a
+    /// worker with no cgroup reading to scale from both mean no cap.
+    static ref MAX_SQL_RESULT_SIZE: usize = {
+        let explicit = std::env::var("MAX_SQL_RESULT_SIZE").ok().and_then(|v| {
+            let parsed = parse_byte_size(&v);
+            if parsed.is_none() {
+                // Falling back silently would leave the operator believing a
+                // limit is in force that never parsed.
+                tracing::warn!(
+                    "MAX_SQL_RESULT_SIZE={v:?} is not a byte size (e.g. 512MB, 2GiB); \
+                     falling back to the memory-derived limit"
+                );
+            }
+            parsed
+        });
+        match explicit {
+            // `0` turns the cap off. It is the sentinel the duckdb FFI already
+            // takes for unbounded, so both engines spell "no limit" the same way;
+            // anything else and one of them would reject every non-empty result.
+            Some(0) => usize::MAX,
+            // The floor guards the derived value only. An explicit setting is
+            // taken at face value, including one deliberately below it.
+            Some(limit) => limit,
+            None => windmill_common::worker::get_memory()
+                .filter(|bytes| *bytes > 0)
+                .map(|bytes| ((bytes as f64 * SQL_RESULT_SIZE_FRACTION) as usize)
+                    .max(MIN_MAX_SQL_RESULT_SIZE))
+                .unwrap_or(usize::MAX),
+        }
+    };
+}
+
+/// The cloud cap is a product limit and stays where it was; off-cloud the only
+/// thing worth enforcing is the worker's own survival.
+///
+/// The callers do not all measure against it in the same unit: postgres charges
+/// the larger of an in-memory estimate and the serialized length, duckdb the
+/// serialized length plus what the row's container costs. Both are proxies for
+/// what collecting the result costs, and the derived limits sit far enough above
+/// real results that the difference does not decide anything; unifying them would
+/// move the cloud cap, which is a product decision, not this one.
+///
+/// This bounds what is *collected*, not the process: `-- raw_output` holds the
+/// accumulated text and then serializes it, so that path peaks near twice the cap.
+/// The derived default leaves room for that — it is a fraction of the worker's
+/// budget, not the whole of it.
+pub fn max_sql_result_size() -> usize {
+    if *CLOUD_HOSTED {
+        MAX_RESULT_SIZE * 4
+    } else {
+        *MAX_SQL_RESULT_SIZE
+    }
+}
+
 #[derive(Clone)]
 pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 
@@ -4867,6 +4965,39 @@ pub async fn write_module_files(
         tokio::fs::write(&full_path, &module.content).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod byte_size_tests {
+    use super::*;
+
+    /// The suffix table is order-sensitive: `GB` matches the tail of `GIB` and
+    /// `B` the tail of every other suffix, so a reordering silently truncates
+    /// the multiplier instead of failing to parse.
+    #[test]
+    fn suffixes_do_not_shadow_each_other() {
+        assert_eq!(parse_byte_size("512"), Some(512));
+        assert_eq!(parse_byte_size("512B"), Some(512));
+        assert_eq!(parse_byte_size("512KB"), Some(512 << 10));
+        assert_eq!(parse_byte_size("300mb"), Some(300 << 20));
+        assert_eq!(parse_byte_size("2GiB"), Some(2 << 30));
+        assert_eq!(parse_byte_size("2 gb "), Some(2 << 30));
+        assert_eq!(parse_byte_size("many"), None);
+    }
+
+    /// The duckdb error renders the limit so it can be pasted straight into
+    /// `MAX_SQL_RESULT_SIZE`. That renderer lives in the FFI crate and emits a
+    /// fraction above 1 GiB, so an integer-only parser here would silently reject
+    /// the very value the error told the user to set.
+    #[test]
+    fn the_shapes_the_error_renders_all_parse() {
+        for rendered in ["512B", "8KB", "307MB", "1.0GB", "2.4GB"] {
+            assert!(
+                parse_byte_size(rendered).is_some(),
+                "{rendered} is rendered into errors but does not parse back"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
