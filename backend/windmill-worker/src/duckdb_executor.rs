@@ -2034,8 +2034,27 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
 // to the raw slice if it is somehow not a JSON string.
 fn decode_ffi_error(result_str: &str) -> String {
     let raw = result_str.strip_prefix("ERROR ").unwrap_or(result_str);
-    serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string())
+    let msg = serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string());
+    match msg.contains(SPILL_CAP_ENGINE_MARKER) {
+        true => format!("{msg}\n{SPILL_CAP_HINT}"),
+        false => msg,
+    }
 }
+
+/// DuckDB's own wording when a query outgrows the spill cap. Asserted against real engine
+/// output by `spilling_past_the_configured_cap_fails_the_query_and_cleans_up` in
+/// `windmill-duckdb-ffi-internal`, so an engine bump that rewords it fails there rather than
+/// silently dropping the hint below.
+const SPILL_CAP_ENGINE_MARKER: &str = "This limit was set by the 'max_temp_directory_size' setting";
+
+/// That error ends by suggesting `PRAGMA max_temp_directory_size='10GiB'`, which every
+/// windmill connection refuses: the cap is frozen along with the temp directory, so following
+/// the advice yields a second, unrelated-looking permission error.
+const SPILL_CAP_HINT: &str = "\nThis spill cap is set on the worker \
+     (DUCKDB_MAX_TEMP_DIRECTORY_SIZE) and frozen for the life of the connection, so the PRAGMA \
+     suggested above is refused — a script cannot raise it. Spill less (fewer threads, a \
+     narrower scan, aggregating before the join), or ask an operator to raise the worker's \
+     limit.";
 
 fn run_duckdb_ffi_safe<'a>(
     query_block_list: impl Iterator<Item = &'a str>,

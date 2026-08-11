@@ -84,14 +84,26 @@ would mean an ABI bump and a coordinated redeploy for what is a config value.
 The value is DuckDB's spelling, not Kubernetes': `KiB`/`MiB`/`GiB`/`TiB` for 1024-based
 units, `KB`/`MB`/`GB`/`TB` for 1000-based. Kubernetes' `6Gi` is not a unit DuckDB knows,
 and an unparseable value fails every DuckDB job on the worker rather than being ignored —
-a cap that quietly disappeared would be worse. `DUCKDB_MEMORY_LIMIT` has the same
-constraint, so the two read alike.
+a cap that quietly disappeared would be worse. `DUCKDB_MEMORY_LIMIT` is spelled the same
+way and DuckDB's parse error says only "memory", so the cap's `SET` is issued on its own
+statement: batched together, a bad value in either would produce the same message and name
+neither.
 
 Enforcement is graceful. A query that needs more spill than the cap fails with
 `Out of Memory Error: failed to offload data block of size … This limit was set by the
 'max_temp_directory_size' setting.`, its temp files are removed, and the worker carries on.
 Size it from measurement, not from the data: DuckDB compresses temp files, so the logical
 spill a given cap permits is well above the number set.
+
+That engine message goes on to suggest `PRAGMA max_temp_directory_size='10GiB'`, which the
+lock refuses — advice that was actionable before the cap was frozen and is now a dead end
+ending in a second, unrelated-looking permission error. `decode_ffi_error`
+(`duckdb_executor.rs`) appends a correction whenever the message appears, on every worker
+rather than only isolating ones, since the lock is taken on every connection. It matches
+DuckDB's wording verbatim, which
+`spilling_past_the_configured_cap_fails_the_query_and_cleans_up` asserts against real engine
+output so an engine bump that rewords it fails the test instead of silently dropping the
+correction.
 
 ## Where the patched engine comes from
 

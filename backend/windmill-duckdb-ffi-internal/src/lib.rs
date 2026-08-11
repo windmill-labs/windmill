@@ -274,24 +274,37 @@ fn configure_duckdb_resource_limits(
             sql_single_quote(tmp)
         ));
     }
+    let run = |sql: &str| {
+        conn.execute_batch(sql).map_err(|e| {
+            format!(
+                "Error configuring DuckDB resource limits: {}",
+                e.to_string()
+            )
+        })
+    };
+    run(&config_sql)?;
+    // Applied on its own rather than batched with the rest so an unparseable value names the
+    // knob to fix: it is spelled in the same units as DUCKDB_MEMORY_LIMIT and DuckDB's parse
+    // error says only "memory", so together the two are indistinguishable to whoever set them.
     if let Some(max) = limits.max_temp_directory_size.as_deref() {
-        config_sql.push_str(&format!(
+        conn.execute_batch(&format!(
             "SET max_temp_directory_size='{}';\n",
             sql_single_quote(max)
-        ));
+        ))
+        .map_err(|e| {
+            format!(
+                "Error applying DUCKDB_MAX_TEMP_DIRECTORY_SIZE='{}': {}",
+                max,
+                e.to_string()
+            )
+        })?;
     }
     // Freeze the directory and the cap on it before any script statement can touch either:
     // on a remote directory `~TemporaryDirectoryHandle` throws out of a `noexcept`
     // destructor, which is `std::terminate` — an abort taking this in-process worker and
     // every job colocated on it down, uncatchable from Rust — and a cap a script can raise
     // leaves nothing bounding how much of the worker's disk one query fills.
-    config_sql.push_str("SET lock_temp_directory=true;\n");
-    conn.execute_batch(&config_sql).map_err(|e| {
-        format!(
-            "Error configuring DuckDB resource limits: {}",
-            e.to_string()
-        )
-    })
+    run("SET lock_temp_directory=true;\n")
 }
 
 fn setup_duckdb_connection(
@@ -1387,8 +1400,11 @@ mod patched_engine_tests {
         };
 
         let err = spill_under_cap("1MB").expect_err("the cap did not stop the spill");
+        // Verbatim because the worker matches on it (`SPILL_CAP_ENGINE_MARKER` in
+        // `duckdb_executor.rs`) to correct the engine's advice to raise the cap, which the
+        // lock refuses. An engine bump that rewords this has to update that too.
         assert!(
-            err.contains("max_temp_directory_size"),
+            err.contains("This limit was set by the 'max_temp_directory_size' setting"),
             "the refusal must name the setting an operator can act on, got: {err}"
         );
         let leftover: Vec<_> = std::fs::read_dir(&temp_dir)
