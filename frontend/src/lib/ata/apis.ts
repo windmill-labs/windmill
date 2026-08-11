@@ -41,8 +41,8 @@ const backendProxyApi = async <T>(endpoint: string, resLimit: ResLimit): Promise
 			})
 		)
 	} catch (e) {
-		// Reachable for a failed request only now that the `await` above is there. On an
-		// instance with no route to the CDN this is the only error an operator gets.
+		// Keep the cause: where the proxy is the only reachable source, this is the sole
+		// report of a failed acquisition, since callers only test the result for `Error`.
 		console.warn(`Backend proxy request to ${endpoint} failed`, e)
 		return new Error(`Backend proxy not available: ${e}`)
 	}
