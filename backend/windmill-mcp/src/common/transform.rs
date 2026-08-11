@@ -4,6 +4,7 @@
 //! to make them compatible with MCP tool naming requirements.
 
 use super::types::SchemaType;
+use std::collections::HashSet;
 use windmill_common::utils::calculate_hash;
 
 /// Max tool name length. The MCP spec allows 64 chars, but some clients
@@ -215,6 +216,10 @@ pub fn transform_property_keys(schema_obj: &mut SchemaType) {
         .map(|key| (key.clone(), apply_key_transformation(key)))
         .collect();
 
+    if renames.is_empty() {
+        return;
+    }
+
     for (old_key, new_key) in renames {
         if let Some(value) = schema_obj.properties.remove(&old_key) {
             schema_obj.properties.insert(new_key.clone(), value);
@@ -225,6 +230,11 @@ pub fn transform_property_keys(schema_obj: &mut SchemaType) {
             }
         }
     }
+
+    // Two keys can collapse onto the same name (`a.b` and `ab`). `required` is
+    // `uniqueItems`, and a strict validator rejects the whole tool over a repeat.
+    let mut seen = HashSet::new();
+    schema_obj.required.retain(|name| seen.insert(name.clone()));
 }
 
 /// Reverse the transformation of a key

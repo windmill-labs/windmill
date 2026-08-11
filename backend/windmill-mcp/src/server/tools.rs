@@ -125,21 +125,26 @@ impl ToolableItem for HubScriptInfo {
     }
 }
 
-/// Spell out, in the tool's own description, which parameters may be left out.
+/// Placeholder values a model reaches for when it will not leave a parameter out.
+const PLACEHOLDERS: &str = "`\"\"`, `[]`, `{}`, `false`, or `0`";
+
+/// State the omission rule in the tool's own description.
 ///
-/// A tool schema that does not opt into strict function calling lets the model omit
-/// anything outside `required`, but models routinely fill every advertised property
-/// with a placeholder (`""`, `[]`, `false`, `0`) instead, which the script then reads
-/// as an explicit empty value rather than an absent one. The tool description carries
-/// far more weight for that decision than the caller's system prompt, so the rule has
-/// to live here rather than being left to whoever configures the client.
-///
-/// Kept terse: it repeats on every tool in the list. It also promises nothing about
-/// what an omitted parameter becomes -- a script falls back to its signature default,
-/// a flow input is simply absent.
-///
-/// Returns `None` when there is no optional parameter to mention.
-fn optional_params_hint(input_schema: &Map<String, Value>) -> Option<String> {
+/// Models routinely fill every property of a non-strict tool schema with a placeholder
+/// rather than omitting it, turning "absent" into "explicitly empty" for the code that
+/// runs, and they weigh a tool's own description far more heavily than the caller's
+/// system prompt. Kept terse: this repeats on every tool in the list.
+fn omission_hint(input_schema: &Map<String, Value>, item_type: &str) -> Option<String> {
+    // A script's `required` is derived from its signature, so "not required" means the
+    // parameter has a default and may genuinely be left out. A flow's is a per-input
+    // toggle that defaults to off, so naming its inputs optional would invite the model
+    // to drop inputs the flow needs -- flows get the rule without the list.
+    if item_type == "flow" {
+        return Some(format!(
+            " Never send {PLACEHOLDERS} as a placeholder for a parameter you were not given a value for."
+        ));
+    }
+
     let properties = input_schema.get("properties")?.as_object()?;
 
     let required: HashSet<&str> = input_schema
@@ -166,8 +171,7 @@ fn optional_params_hint(input_schema: &Map<String, Value>) -> Option<String> {
         .join(", ");
 
     Some(format!(
-        " Optional parameters: {}. Omit any you were not given a value for rather than sending `\"\"`, `[]`, `{{}}`, `false`, or `0` as a placeholder.",
-        names
+        " Optional parameters: {names}. Omit any you were not given a value for rather than sending {PLACEHOLDERS} as a placeholder."
     ))
 }
 
@@ -228,7 +232,7 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
         }
     };
 
-    if let Some(hint) = optional_params_hint(&input_schema_map) {
+    if let Some(hint) = omission_hint(&input_schema_map, item_type) {
         description.push_str(&hint);
     }
 
@@ -261,13 +265,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn input_schema(raw: Value) -> Map<String, Value> {
-        raw.as_object().unwrap().clone()
-    }
-
-    #[test]
-    fn hint_lists_optional_params_and_never_a_required_one() {
-        let hint = optional_params_hint(&input_schema(json!({
+    fn script_schema() -> Map<String, Value> {
+        json!({
             "type": "object",
             "properties": {
                 "query": { "type": "string" },
@@ -275,8 +274,16 @@ mod tests {
                 "filters": { "type": "object" },
             },
             "required": ["query"],
-        })))
-        .expect("a schema with optional params gets a hint");
+        })
+        .as_object()
+        .unwrap()
+        .clone()
+    }
+
+    #[test]
+    fn hint_lists_optional_params_and_never_a_required_one() {
+        let hint = omission_hint(&script_schema(), "script")
+            .expect("a schema with optional params gets a hint");
 
         assert!(
             hint.contains("Optional parameters: `filters`, `page`."),
@@ -287,11 +294,25 @@ mod tests {
 
     #[test]
     fn no_hint_when_every_param_is_required() {
-        assert!(optional_params_hint(&input_schema(json!({
+        let all_required = json!({
             "type": "object",
             "properties": { "query": { "type": "string" } },
             "required": ["query"],
-        })))
-        .is_none());
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        assert!(omission_hint(&all_required, "script").is_none());
+    }
+
+    #[test]
+    fn flow_hint_names_no_parameter() {
+        // A flow's `required` does not track defaults, so its inputs must never be
+        // advertised as optional.
+        let hint = omission_hint(&script_schema(), "flow").expect("flows still get the rule");
+
+        assert!(!hint.contains("Optional parameters"), "{hint}");
+        assert!(!hint.contains("`page`"), "{hint}");
     }
 }
