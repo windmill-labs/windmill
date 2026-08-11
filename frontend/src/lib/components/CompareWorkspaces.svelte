@@ -68,6 +68,7 @@
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import CompareTargetPicker from './CompareTargetPicker.svelte'
 	import { displayDate } from '$lib/utils'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { diffInMask } from './sessions/modifiedItemsMask'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
@@ -400,6 +401,8 @@
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
 	let parentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == parentWorkspaceId))
 
+	let currentNoun = $derived(childWorkspaceNoun(currentWorkspaceInfo))
+
 	// An arbitrary target is one-way: the pair has no tally, so nothing distinguishes
 	// a change made here from one made there, and the "update current" direction
 	// would list every difference as an incoming change.
@@ -448,7 +451,7 @@
 				? `No changes between this workspace and ${parentWorkspaceId}.`
 				: mergeIntoParent
 					? `Nothing to deploy — ${parentWorkspaceId} already has every change from this workspace.`
-					: `Nothing to update — this fork is up to date with ${parentWorkspaceId}.`
+					: `Nothing to update — this ${currentNoun} is up to date with ${parentWorkspaceId}.`
 	)
 
 	let conflictingDiffs = $derived(
@@ -1437,7 +1440,8 @@
 								<span>
 									{#if mergeIntoParent}
 										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
-										Only deployed versions in this fork can be sent to {parentWorkspaceId} — deploy
+										Only deployed versions in this {currentNoun} can be sent to {parentWorkspaceId} —
+										deploy
 										{draftCount !== 1 ? 'them' : 'it'} first, otherwise those changes won't be included.
 									{:else}
 										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
@@ -1461,14 +1465,14 @@
 						<Alert title="Conflicting changes detected" type="warning" class="mt-2">
 							<span>
 								{conflictingDiffs.length} item{conflictingDiffs.length !== 1 ? 's have' : ' has'} conflicting
-								changes, it was modified on the original workspace while changes were made on this fork.
-								Make sure to resolve these before merging.
+								changes, it was modified on the original workspace while changes were made on this
+								{currentNoun}. Make sure to resolve these before merging.
 							</span>
 						</Alert>
 					{/if}
 					{#if hasBehindChanges && hasAheadChanges && !(mergeIntoParent && !canDeployToParent)}
 						<Alert
-							title="This fork is behind {parentWorkspaceId} and needs to be up to date before deploying"
+							title="This {currentNoun} is behind {parentWorkspaceId} and needs to be up to date before deploying"
 							type="warning"
 							class="my-2"
 						>
