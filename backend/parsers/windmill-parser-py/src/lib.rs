@@ -91,11 +91,13 @@ fn filter_non_main(code: &str, main_name: &str) -> String {
         if line.starts_with(&async_def_main) {
             filtered_code += &async_def_main;
             remaining += line.strip_prefix(&async_def_main).unwrap();
+            remaining += "\n";
             remaining += &code_iter.join("\n");
             break;
         } else if line.starts_with(&def_main) {
             filtered_code += &def_main;
             remaining += line.strip_prefix(&def_main).unwrap();
+            remaining += "\n";
             remaining += &code_iter.join("\n");
             break;
         }
@@ -477,7 +479,7 @@ pub fn parse_python_signature(
                         has_default: has_default || default.is_some(),
                         default,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     }
                 })
                 .collect(),
@@ -718,7 +720,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -727,7 +729,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         default: Some(json!("<function call>")),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -736,7 +738,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         default: Some(json!("<function call>")),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -745,7 +747,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         default: Some(json!("wewe")),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -754,7 +756,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         default: Some(json!(21)),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -763,7 +765,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         default: Some(json!([1, 2])),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -772,7 +774,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         default: Some(json!(true)),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -815,7 +817,7 @@ def main(test1: str,
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -824,7 +826,7 @@ def main(test1: str,
                         default: Some(json!("<function call>")),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -833,7 +835,7 @@ def main(test1: str,
                         default: Some(json!("<function call>")),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -842,7 +844,7 @@ def main(test1: str,
                         default: Some(json!("$res:g/all/resource")),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -880,7 +882,7 @@ def main(test1: str,
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -889,7 +891,7 @@ def main(test1: str,
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -898,7 +900,7 @@ def main(test1: str,
                         default: Some(json!("test")),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -907,7 +909,7 @@ def main(test1: str,
                         default: Some(json!("<function call>")),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -942,7 +944,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -954,7 +956,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -988,7 +990,7 @@ def main(test1: DynSelect_foo): return
                     default: None,
                     has_default: false,
                     oidx: None,
-                otyp_inferred: false,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -1046,6 +1048,48 @@ def main(): return
                 args: vec![],
                 auto_kind: None,
                 has_preprocessor: Some(true),
+                ..Default::default()
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_trailing_comment_on_def_line() -> anyhow::Result<()> {
+        let code = r#"
+def main(  # comment
+    test1: str,
+    test2: int,
+): return
+"#;
+        assert_eq!(
+            parse_python_signature(code, None, false)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: None,
+                        name: "test1".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                        otyp_inferred: false,
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "test2".to_string(),
+                        typ: Typ::Int,
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                        otyp_inferred: false,
+                    }
+                ],
+                auto_kind: None,
+                has_preprocessor: Some(false),
                 ..Default::default()
             }
         );
@@ -1114,7 +1158,7 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1123,7 +1167,7 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1132,7 +1176,7 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         default: Some(json!([1, 2, 3, 4])),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1141,7 +1185,7 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         default: Some(json!([1, 2, 3, 4])),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1150,7 +1194,7 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         default: Some(json!(["a", "b"])),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -1185,7 +1229,7 @@ def main(a: str, b: Optional[str], c: str | None): return
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1194,7 +1238,7 @@ def main(a: str, b: Optional[str], c: str | None): return
                         default: None,
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1203,7 +1247,7 @@ def main(a: str, b: Optional[str], c: str | None): return
                         default: None,
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
