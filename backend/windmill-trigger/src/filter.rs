@@ -131,11 +131,13 @@ impl CompiledFilters {
 /// Groups are descended into by hand so a bad entry is named on its own: serde's untagged
 /// error only reports that the outermost entry matched no variant, whatever depth is wrong.
 fn validate_filter(filter: &Value, path: &str) -> windmill_common::error::Result<()> {
+    const GROUP_KEYS: [&str; 3] = ["any_of", "all_of", "none_of"];
+
     let group = filter
         .as_object()
         .filter(|object| object.len() == 1)
         .and_then(|object| {
-            ["any_of", "all_of", "none_of"]
+            GROUP_KEYS
                 .into_iter()
                 .find_map(|key| object.get(key).map(|nested| (key, nested)))
         });
@@ -153,7 +155,16 @@ fn validate_filter(filter: &Value, path: &str) -> windmill_common::error::Result
         return Ok(());
     }
 
-    // The untagged enum would take such an entry as a `key` criterion and drop the `path`
+    // Everything below is meant to be a leaf. The untagged enum resolves a half-and-half
+    // entry by taking the first variant that fits and ignoring the rest of it, so a
+    // criterion carrying a group key would silently lose the whole subtree.
+    if let Some(group_key) = GROUP_KEYS.iter().find(|key| filter.get(*key).is_some()) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "{} combines a criterion with a {} group; an entry is one or the other",
+            path, group_key
+        )));
+    }
+
     if filter.get("key").is_some() && filter.get("path").is_some() {
         return Err(windmill_common::error::Error::BadRequest(format!(
             "{} names its field with both key and path; use one or the other",
@@ -604,6 +615,26 @@ mod tests {
             CompiledFilters::validate(&[json!({"anyOf": [{"key": "a", "value": 1}]})]).is_err()
         );
         assert!(CompiledFilters::validate(&[json!({"key": "a"})]).is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_a_leaf_that_also_carries_a_group() {
+        // Untagged would settle each of these on one variant and drop the rest of the entry
+        for mixed in [
+            json!({"key": "a", "value": 1, "none_of": [{"key": "b", "value": 2}]}),
+            json!({"path": "a.b", "value": 1, "any_of": [{"key": "b", "value": 2}]}),
+            json!({"any_of": [{"key": "a", "value": 1}], "all_of": [{"key": "b", "value": 2}]}),
+        ] {
+            let err = CompiledFilters::validate(&[mixed.clone()])
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("combines a criterion with"),
+                "{} should be rejected, got: {}",
+                mixed,
+                err
+            );
+        }
     }
 
     #[test]
