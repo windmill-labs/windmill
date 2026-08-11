@@ -195,11 +195,32 @@ struct CachedPackageJson {
 const TARBALL_CACHE_TTL: Duration = Duration::from_secs(300);
 const TARBALL_CACHE_BYTES: u64 = 128 * 1024 * 1024;
 
+/// A tarball is inflated entirely into memory, and its transfer size bounds neither how
+/// far it expands nor how many entries it holds, so extraction is capped as it goes: the
+/// cache's own budget only governs what is kept, which is too late.
+const MAX_EXTRACTED_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_EXTRACTED_ENTRIES: usize = 20_000;
+/// Per-entry map and vector overhead, so an archive of many empty files cannot sit in the
+/// cache at near-zero weight.
+const CACHE_ENTRY_OVERHEAD: u64 = 64;
+
 /// A package tarball, inflated once. Paths have the `package/` prefix stripped.
 struct ExtractedTarball {
     /// In archive order, `/`-prefixed, for the file tree listing.
     names: Vec<String>,
     contents: HashMap<String, Vec<u8>>,
+}
+
+impl ExtractedTarball {
+    fn retained_bytes(&self) -> u64 {
+        let names: u64 = self.names.iter().map(|n| n.len() as u64).sum();
+        let contents: u64 = self
+            .contents
+            .iter()
+            .map(|(path, content)| (path.len() + content.len()) as u64 + CACHE_ENTRY_OVERHEAD)
+            .sum();
+        names + contents
+    }
 }
 
 #[derive(Clone)]
@@ -669,6 +690,14 @@ fn format_registry_url(
 
 /// Inflate a tarball in one pass over the archive
 fn extract_tarball(tarball_bytes: &[u8]) -> Result<ExtractedTarball> {
+    extract_tarball_within(tarball_bytes, MAX_EXTRACTED_BYTES, MAX_EXTRACTED_ENTRIES)
+}
+
+fn extract_tarball_within(
+    tarball_bytes: &[u8],
+    max_bytes: u64,
+    max_entries: usize,
+) -> Result<ExtractedTarball> {
     use flate2::read::GzDecoder;
     use std::io::Read;
     use tar::Archive;
@@ -678,6 +707,7 @@ fn extract_tarball(tarball_bytes: &[u8]) -> Result<ExtractedTarball> {
 
     let mut names = Vec::new();
     let mut contents = HashMap::new();
+    let mut extracted_bytes = 0u64;
 
     for entry in archive
         .entries()
@@ -692,10 +722,31 @@ fn extract_tarball(tarball_bytes: &[u8]) -> Result<ExtractedTarball> {
         // Remove the package/ prefix that npm tarballs have
         let path_str = path.to_string_lossy().to_string();
         if let Some(stripped) = path_str.strip_prefix("package/") {
+            if names.len() >= max_entries {
+                return Err(Error::BadRequest(format!(
+                    "Package archive holds more than {} files",
+                    max_entries
+                )));
+            }
             let stripped = stripped.to_string();
             names.push(format!("/{}", stripped));
+
+            // Read through a cap rather than sizing from the header, which an archive is
+            // free to lie about, and one byte past it so the overrun is detectable.
+            let headroom = max_bytes - extracted_bytes;
             let mut content = Vec::new();
-            if entry.read_to_end(&mut content).is_ok() {
+            if (&mut entry)
+                .take(headroom + 1)
+                .read_to_end(&mut content)
+                .is_ok()
+            {
+                if content.len() as u64 > headroom {
+                    return Err(Error::BadRequest(format!(
+                        "Package archive inflates past {} bytes",
+                        max_bytes
+                    )));
+                }
+                extracted_bytes += content.len() as u64;
                 contents.insert(stripped, content);
             }
         }
@@ -731,7 +782,7 @@ async fn extracted_tarball(
         cache_key,
         CachedTarball {
             extracted: extracted.clone(),
-            bytes: extracted.contents.values().map(|c| c.len() as u64).sum(),
+            bytes: extracted.retained_bytes(),
             fetched_at: Instant::now(),
         },
     );
@@ -741,7 +792,7 @@ async fn extracted_tarball(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_version_spec;
+    use super::{extract_tarball_within, resolve_version_spec};
 
     fn packument() -> serde_json::Value {
         serde_json::json!({
@@ -779,5 +830,32 @@ mod tests {
         // A pinned version the registry does not carry must not widen to a caret range
         assert_eq!(resolve("19.0.1"), None);
         assert_eq!(resolve("^21.0.0"), None);
+    }
+
+    fn tarball(entries: &[(&str, usize)]) -> Vec<u8> {
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        let mut builder = tar::Builder::new(encoder);
+        for (path, size) in entries {
+            let content = vec![b'x'; *size];
+            let mut header = tar::Header::new_gnu();
+            header.set_size(content.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, path, content.as_slice()).unwrap();
+        }
+        builder.into_inner().unwrap().finish().unwrap()
+    }
+
+    #[test]
+    fn extraction_is_capped_before_the_archive_is_held_in_memory() {
+        let archive = tarball(&[("package/a.js", 32), ("package/b.js", 32)]);
+
+        let extracted = extract_tarball_within(&archive, 1024, 16).unwrap();
+        assert_eq!(extracted.names, vec!["/a.js", "/b.js"]);
+        assert!(extracted.retained_bytes() > 64);
+
+        // A tarball's transfer size bounds neither of these
+        assert!(extract_tarball_within(&archive, 40, 16).is_err());
+        assert!(extract_tarball_within(&archive, 1024, 1).is_err());
     }
 }
