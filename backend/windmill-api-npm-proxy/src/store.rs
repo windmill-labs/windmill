@@ -132,6 +132,7 @@ impl Scratch {
         self.published = true;
         self.path.clone()
     }
+
 }
 
 impl Drop for Scratch {
@@ -231,8 +232,16 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<bo
                 Error::InternalErr(format!("Failed to create {parent:?}: {e}"))
             })?;
         }
+        // Both the download and the unpacked tree live inside the scratch directory, so a
+        // concurrent pull cannot collide with this one and dropping it takes the download
+        // with it. `with_extension` would have replaced the uuid, giving every pull the
+        // same path.
         let scratch = Scratch::beside(_dir);
-        let tar_path = scratch.path.with_extension("tar");
+        tokio::fs::create_dir_all(&scratch.path).await.map_err(|e| {
+            Error::InternalErr(format!("Failed to create {:?}: {e}", scratch.path))
+        })?;
+        let tar_path = scratch.path.join("archive.tar");
+        let unpack_to = scratch.path.join("content");
         let mut file = tokio::fs::File::create(&tar_path)
             .await
             .map_err(|e| Error::InternalErr(format!("Failed to create {tar_path:?}: {e}")))?;
@@ -249,7 +258,6 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<bo
             .map_err(|e| Error::InternalErr(format!("Failed to flush {tar_path:?}: {e}")))?;
         drop(file);
 
-        let unpack_to = scratch.path.clone();
         let unpacked = tokio::task::spawn_blocking(move || {
             let file = std::fs::File::open(&tar_path)?;
             let mut archive = tar::Archive::new(file);
@@ -261,10 +269,14 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<bo
         .map_err(|e| Error::InternalErr(format!("Failed to unpack {_key}: {e}")))?;
         unpacked.map_err(|e| Error::InternalErr(format!("Failed to unpack {_key}: {e}")))?;
 
+        // The scratch directory still holds the download, so only the unpacked tree moves
+        // and the rest goes with the drop.
+        let content = scratch.path.join("content");
         windmill_common::worker::atomic_publish_dir(
-            &scratch.into_published().to_string_lossy(),
+            &content.to_string_lossy(),
             &_dir.to_string_lossy(),
         )?;
+        drop(scratch);
         return Ok(true);
     }
     #[allow(unreachable_code)]

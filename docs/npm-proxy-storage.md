@@ -124,9 +124,9 @@ store has to be a pure addition on top.
   does not move on a read and an LRU built on it is silently a FIFO. A cache hit touches
   the manifest instead.
 - **ENOSPC and read-only cache directories degrade, they do not fail.** Every write is best
-  effort; when one fails the same walk fills an in-memory map for that request instead, so
-  the endpoint keeps answering and the fallback cannot drift from what would have been
-  stored.
+  effort; when one fails the archive is walked a second time into an in-memory map for that
+  request. Only on that path, since building the map alongside a successful disk fill would
+  put back the per-request heap this exists to remove.
 - **Debris.** A writer killed mid-flight leaves a `.tmp.`/`.upload.` directory that nothing
   will read. The sweep removes them rather than counting them against the cap forever.
 - **Restart hygiene.** Publishing renames a fully written temp directory into place, so a
@@ -135,8 +135,13 @@ store has to be a pure addition on top.
   thread; pushes build a tar on disk and upload it in parts, one at a time. Buffering
   either would put back the per-request heap this exists to remove.
 
+- **Eviction races the reads.** A package can be swept between the lookup and the manifest
+  read, so a missing manifest is treated as a miss and repopulated rather than raised. A
+  missing file already falls through to the on-demand walk.
+
 Still open: **single flight**. Concurrent misses for the same package each fetch and
-extract. `atomic_publish_dir` makes that safe, just wasteful.
+extract. `atomic_publish_dir` and per-pull scratch directories make that safe, just
+wasteful.
 
 ## Alternative considered: just lower the budgets
 

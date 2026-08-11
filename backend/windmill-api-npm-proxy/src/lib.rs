@@ -213,6 +213,9 @@ const RETAINED_BYTES: u64 = 96 * 1024 * 1024;
 const RETAINED_PATH_BYTES: u64 = 32 * 1024 * 1024;
 /// Charged per listed path on top of its bytes, for the `String` header and its allocation.
 const NAME_OVERHEAD: u64 = 64;
+/// What one file costs on disk however small it is, for the write accounting that decides
+/// when to sweep early.
+const DISK_BLOCK_BYTES: u64 = 4096;
 
 /// npm roots its own tarballs at `package/`, but publishers vary — DefinitelyTyped roots
 /// at the type name — so the leading component is dropped whatever it is. Matching
@@ -570,12 +573,23 @@ async fn get_package_filetree(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageFiletree> {
     let (package, version) = parse_package_and_version(package_version_path.to_path())?;
-    let manifest = match cached_package(&db, &package, &version).await? {
-        PackageFiles::Disk(dir) => store::read_manifest(&dir).await.ok_or_else(|| {
-            Error::InternalErr(format!("Cached {}@{} has no manifest", package, version))
-        })?,
-        PackageFiles::Memory(_, manifest) => manifest,
-    };
+
+    // The sweep can evict a package between the lookup and this read, so a missing manifest
+    // is a miss to repopulate rather than an error. Bounded: the second attempt has just
+    // written the directory it is reading.
+    let mut manifest = None;
+    for _ in 0..2 {
+        manifest = match cached_package(&db, &package, &version).await? {
+            PackageFiles::Disk(dir) => store::read_manifest(&dir).await,
+            PackageFiles::Memory(_, manifest) => Some(manifest),
+        };
+        if manifest.is_some() {
+            break;
+        }
+    }
+    let manifest = manifest.ok_or_else(|| {
+        Error::InternalErr(format!("Cached {}@{} has no manifest", package, version))
+    })?;
 
     Ok(Json(PackageFiletree {
         default: manifest.main,
@@ -921,40 +935,40 @@ async fn cached_package(
     let target = dir.clone();
     let extracted = blocking(move || {
         // The cache is an optimisation, so a disk that will not take it degrades to
-        // extracting per request rather than failing one. Every write goes through the
-        // same walk, so the fallback cannot drift from what would have been stored.
-        let pending = match PendingPackage::new(&target) {
-            Ok(pending) => Some(pending),
-            Err(e) => {
-                tracing::warn!("npm proxy cache is not writable, serving without it: {e:?}");
-                None
-            }
-        };
-        let mut fallback = HashMap::new();
+        // extracting per request rather than failing one. The retained files are built in
+        // memory only on that path: doing it always would put back the per-request heap
+        // this module exists to remove.
         let mut written = 0u64;
-        let mut disk_failed = false;
-        let manifest = {
-            let mut keep = |path: &str, content: &[u8]| -> Result<()> {
-                written += content.len() as u64;
-                if let Some(pending) = pending.as_ref().filter(|_| !disk_failed) {
-                    if let Err(e) = pending.write_file(path, content) {
-                        tracing::warn!("npm proxy cache write failed, serving without it: {e:?}");
-                        disk_failed = true;
-                    }
-                }
-                fallback.insert(path.to_string(), content.to_vec());
-                Ok(())
-            };
-            extract_to(&archive, &mut keep, Retention::PRODUCTION)?
-        };
+        let to_disk = (|| {
+            let pending = PendingPackage::new(&target)?;
+            let manifest = extract_to(
+                &archive,
+                &mut |path, content| {
+                    // A block minimum, because the sweep measures blocks: a package of many
+                    // tiny declarations would otherwise never trip the early sweep.
+                    written += (content.len() as u64).max(DISK_BLOCK_BYTES);
+                    pending.write_file(path, content)
+                },
+                Retention::PRODUCTION,
+            )?;
+            pending.publish(&manifest)
+        })();
 
-        match pending.filter(|_| !disk_failed).map(|p| p.publish(&manifest)) {
-            Some(Ok(published)) => Ok((PackageFiles::Disk(published), written)),
-            Some(Err(e)) => {
-                tracing::warn!("npm proxy cache publish failed, serving without it: {e:?}");
-                Ok((PackageFiles::Memory(fallback, manifest), 0))
+        match to_disk {
+            Ok(published) => Ok((PackageFiles::Disk(published), written)),
+            Err(e) => {
+                tracing::warn!("npm proxy cache is not usable, serving without it: {e:?}");
+                let mut kept = HashMap::new();
+                let manifest = extract_to(
+                    &archive,
+                    &mut |path, content| {
+                        kept.insert(path.to_string(), content.to_vec());
+                        Ok(())
+                    },
+                    Retention::PRODUCTION,
+                )?;
+                Ok((PackageFiles::Memory(kept, manifest), 0))
             }
-            None => Ok((PackageFiles::Memory(fallback, manifest), 0)),
         }
     })
     .await?;
