@@ -25,11 +25,11 @@ use windmill_types::s3::S3Object;
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::max_sql_result_size;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::sql_utils::remove_comments;
+use crate::MAX_SQL_RESULT_SIZE;
 use windmill_common::client::AuthedClient;
 use windmill_object_store::DEFAULT_STORAGE;
 
@@ -2083,7 +2083,7 @@ fn run_duckdb_ffi_safe<'a>(
             w_id.as_ptr(),
             memory_limit.as_ptr(),
             temp_directory.as_ptr(),
-            max_sql_result_size(),
+            *MAX_SQL_RESULT_SIZE,
             &mut column_order,
             collection_strategy.collect_last_statement_only(query_block_list_count),
             collection_strategy.collect_first_row_only(),

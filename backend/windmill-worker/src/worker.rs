@@ -1304,15 +1304,26 @@ fn parse_byte_size(v: &str) -> Option<usize> {
 }
 
 lazy_static::lazy_static! {
-    /// Bytes one SQL job may collect before the executor gives up — the budget
-    /// spans every statement in the job, since what the worker cannot survive is
-    /// the total it ends up holding. Nothing else bounds it: the executors
-    /// accumulate every row before anything can stream the result out, so an
-    /// oversized one grows past the cgroup and the
-    /// OOM killer takes the worker process down — every job colocated on it, not
-    /// just the one that asked. `MAX_SQL_RESULT_SIZE` overrides it; `0` and a
-    /// worker with no cgroup reading to scale from both mean no cap.
-    static ref MAX_SQL_RESULT_SIZE: usize = {
+    /// Bytes one duckdb job may collect before the executor gives up — the budget
+    /// spans every query block in the job, since what the worker cannot survive is
+    /// the total it ends up holding. Nothing else bounds it at collection time:
+    /// every row is accumulated before anything can stream the result out, so an
+    /// oversized one grows past the cgroup and the OOM killer takes the worker
+    /// process down — every job colocated on it, not just the one that asked.
+    /// (`MAX_RESULT_SIZE_MB` does bound the finished result, but only once the job
+    /// completes, which is after the memory has already been spent.)
+    ///
+    /// This is a worker-survival limit, not a product one, so it applies the same
+    /// on cloud as off it. `MAX_SQL_RESULT_SIZE` overrides it; `0` and a worker
+    /// with no cgroup reading to scale from both mean no cap.
+    ///
+    /// It bounds what is *collected*, not the process: the collected rows are
+    /// still live while `serde_json::to_string` builds a second whole copy, and
+    /// the worker parses that copy back for every strategy but
+    /// `AllStatementsAllRows`, so peak sits near twice the cap. The derived
+    /// default leaves room for that — it is a fraction of the worker's budget,
+    /// not the whole of it.
+    pub(crate) static ref MAX_SQL_RESULT_SIZE: usize = {
         let explicit = std::env::var("MAX_SQL_RESULT_SIZE").ok().and_then(|v| {
             let parsed = parse_byte_size(&v);
             if parsed.is_none() {
@@ -1340,28 +1351,6 @@ lazy_static::lazy_static! {
                 .unwrap_or(usize::MAX),
         }
     };
-}
-
-/// The cloud cap is a product limit and stays where it was; off-cloud the only
-/// thing worth enforcing is the worker's own survival.
-///
-/// The callers do not all measure against it in the same unit: postgres charges
-/// the larger of an in-memory estimate and the serialized length, duckdb the
-/// serialized length plus what the row's container costs. Both are proxies for
-/// what collecting the result costs, and the derived limits sit far enough above
-/// real results that the difference does not decide anything; unifying them would
-/// move the cloud cap, which is a product decision, not this one.
-///
-/// This bounds what is *collected*, not the process: `-- raw_output` holds the
-/// accumulated text and then serializes it, so that path peaks near twice the cap.
-/// The derived default leaves room for that — it is a fraction of the worker's
-/// budget, not the whole of it.
-pub fn max_sql_result_size() -> usize {
-    if *CLOUD_HOSTED {
-        MAX_RESULT_SIZE * 4
-    } else {
-        *MAX_SQL_RESULT_SIZE
-    }
 }
 
 #[derive(Clone)]

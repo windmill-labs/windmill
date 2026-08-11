@@ -550,10 +550,14 @@ fn format_byte_size(bytes: usize) -> String {
     }
 }
 
-/// Size is counted as serialized JSON, which is what the rows become: they are
-/// collected in full here, cross the FFI boundary as one string, and land in the
-/// job result. Rows whose destination is storage should never take that path, so
-/// lead with the way to keep them out of it.
+/// The limit is on what the collection *retains* — each row's JSON plus the
+/// storage holding it (`row_storage_cost`) — not on how large the result reads.
+/// For narrow rows that storage dominates, so the guard can fire while the JSON
+/// alone is well under the quoted figure. That is the number worth defending:
+/// the worker dies on what it holds, not on what it would have returned.
+///
+/// Rows whose destination is storage should never be collected at all, so lead
+/// with the way to keep them out of it.
 ///
 /// Only the limit is quoted. Collection stops on the row that crosses it, so the
 /// running total is just the threshold plus one row — naming it as the result
