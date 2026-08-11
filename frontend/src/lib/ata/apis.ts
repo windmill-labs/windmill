@@ -25,7 +25,9 @@ const backendProxyApi = async <T>(endpoint: string, resLimit: ResLimit): Promise
 		const baseUrl = getBackendProxyUrl()
 		const url = `${baseUrl}${endpoint}`
 
-		return limit(() =>
+		// `await`, not a bare `return`: an async function adopts a returned promise after
+		// leaving the try block, so a rejection would escape the catch below.
+		return await limit(() =>
 			fetch(url, { credentials: 'include' }).then((res) => {
 				if (res.ok) {
 					return res.text().then((text) => {
@@ -131,8 +133,8 @@ export const getDTSFileForModuleWithVersion = async (
 ) => {
 	// file comes with a prefix /
 	const url = `https://cdn.jsdelivr.net/npm/${moduleName}@${version}${file}`
-	const res = await limit(() => fetch(url))
-	if (res.ok) {
+	const res = await limit(() => fetch(url).catch(() => undefined))
+	if (res?.ok) {
 		return res.text()
 	} else {
 		// Try backend proxy
@@ -166,21 +168,26 @@ function api<T>(url: string, resLimit: ResLimit, init?: RequestInit): Promise<T 
 		console.warn(
 			`Exceeded limit of types downloaded for the needs of the assistant fetching: ${url}, ${resLimit.usage}`
 		)
-		return new Promise(() => new Error('Exceeded limit of 100MB of data downloaded.'))
+		return Promise.resolve(new Error('Exceeded limit of 100MB of data downloaded.'))
 	}
 
+	// Every caller decides what to do next by testing the resolved value for `Error`, so a
+	// rejection here is not an alternative signal: it skips the backend-proxy fallback and
+	// propagates out of type acquisition entirely.
 	return limit(() =>
-		fetch(url, init).then((res) => {
-			if (res.ok) {
-				return res.text().then((text) => {
-					resLimit.usage += text.length
-					console.log('resLimit', url, resLimit.usage)
+		fetch(url, init)
+			.then((res) => {
+				if (res.ok) {
+					return res.text().then((text) => {
+						resLimit.usage += text.length
+						console.log('resLimit', url, resLimit.usage)
 
-					return JSON.parse(text) as T
-				}) as Promise<T | Error>
-			} else {
-				return new Error('OK')
-			}
-		})
+						return JSON.parse(text) as T
+					}) as Promise<T | Error>
+				} else {
+					return new Error('OK')
+				}
+			})
+			.catch((e) => new Error(`Request to ${url} failed: ${e}`))
 	)
 }
