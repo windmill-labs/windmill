@@ -31,9 +31,9 @@
 	)
 
 	let filterHelp = $derived(
-		'The JSON filter checks if the value at the key is equal or a superset of the filter value. ' +
-			'Keys match top-level fields of the message (parsed as JSON); to match a nested field, set an object value (e.g. key data, value {"status": "active"}). ' +
-			'Add a group to nest criteria under their own logic, e.g. an OR of two keys inside an AND, or a NONE group to exclude messages that match it.' +
+		'Each criterion checks that the field is equal to, or a superset of, the filter value. ' +
+			'A Key names a top-level field of the message (parsed as JSON); a Path reaches a nested one, e.g. data.status. Paths do not traverse arrays — match those with an array value instead. ' +
+			'Add a group to nest criteria under their own logic, e.g. an OR of two fields inside an AND, or a NONE group to exclude messages that match it.' +
 			(payloadBase64Encoded
 				? ' The runnable still receives the payload base64-encoded; filters run on the message before that encoding.'
 				: '')

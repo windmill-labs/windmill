@@ -11,6 +11,15 @@ pub struct JsonFilter {
     pub value: Value,
 }
 
+/// Same comparison as [`JsonFilter`], but the field is addressed by a dotted path into
+/// nested objects. A separate field rather than dots in `key`, because a `key` containing
+/// a dot already means the top-level field spelled that way.
+#[derive(Debug, Deserialize)]
+pub struct PathFilter {
+    pub path: String,
+    pub value: Value,
+}
+
 /// Boolean group of nested filters, externally tagged (`{"any_of": [...]}`) so it is
 /// unambiguous against a leaf filter, which is `{"key": ..., "value": ...}`.
 #[derive(Debug, Deserialize)]
@@ -25,7 +34,25 @@ pub enum FilterGroup {
 #[serde(untagged)]
 pub enum Filter {
     JsonFilter(JsonFilter),
+    PathFilter(PathFilter),
     Group(FilterGroup),
+}
+
+/// The scanned top-level key, and whatever is left to walk inside its value.
+fn split_path(path: &str) -> (&str, &str) {
+    path.split_once('.').unwrap_or((path, ""))
+}
+
+/// Objects only: `Value::get` yields nothing for a string index into an array, so a path
+/// through one simply does not match rather than guessing an element.
+fn resolve<'v>(root: &'v Value, rest: &str) -> Option<&'v Value> {
+    let mut current = root;
+    if !rest.is_empty() {
+        for segment in rest.split('.') {
+            current = current.get(segment)?;
+        }
+    }
+    Some(current)
 }
 
 /// Filters prepared for repeated evaluation against a stream of messages. The set of
@@ -126,14 +153,24 @@ fn validate_filter(filter: &Value, path: &str) -> windmill_common::error::Result
         return Ok(());
     }
 
-    serde_json::from_value::<Filter>(filter.clone())
-        .map(|_| ())
-        .map_err(|err| {
-            windmill_common::error::Error::BadRequest(format!(
-                "{} is neither a {{key, value}} criterion nor an any_of/all_of/none_of group: {}",
-                path, err
-            ))
-        })
+    let parsed = serde_json::from_value::<Filter>(filter.clone()).map_err(|err| {
+        windmill_common::error::Error::BadRequest(format!(
+            "{} is neither a {{key, value}} / {{path, value}} criterion nor an any_of/all_of/none_of group: {}",
+            path, err
+        ))
+    })?;
+
+    // An empty segment addresses no field, so the filter could only ever reject everything
+    if let Filter::PathFilter(PathFilter { path: dotted, .. }) = &parsed {
+        if dotted.split('.').any(|segment| segment.is_empty()) {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "{}: path {:?} has an empty segment",
+                path, dotted
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 /// A group with no criterion cannot evaluate to a constant: `true` makes an `or` list
@@ -155,14 +192,17 @@ fn drop_empty_groups(filters: Vec<Filter>) -> Vec<Filter> {
         .collect()
 }
 
+fn push_key(keys: &mut Vec<String>, key: &str) {
+    if !keys.iter().any(|k| k == key) {
+        keys.push(key.to_string());
+    }
+}
+
 fn collect_keys(filters: &[Filter], keys: &mut Vec<String>) {
     for filter in filters {
         match filter {
-            Filter::JsonFilter(JsonFilter { key, .. }) => {
-                if !keys.iter().any(|k| k == key) {
-                    keys.push(key.clone());
-                }
-            }
+            Filter::JsonFilter(JsonFilter { key, .. }) => push_key(keys, key),
+            Filter::PathFilter(PathFilter { path, .. }) => push_key(keys, split_path(path).0),
             Filter::Group(
                 FilterGroup::AnyOf(nested)
                 | FilterGroup::AllOf(nested)
@@ -182,6 +222,14 @@ fn eval_all(filters: &[Filter], use_or_logic: bool, values: &HashMap<&str, &RawV
             .get(key.as_str())
             .and_then(|raw| serde_json::from_str::<Value>(raw.get()).ok())
             .map_or(false, |found| is_superset(&found, value)),
+        Filter::PathFilter(PathFilter { path, value }) => {
+            let (root, rest) = split_path(path);
+            values
+                .get(root)
+                .and_then(|raw| serde_json::from_str::<Value>(raw.get()).ok())
+                .and_then(|found| resolve(&found, rest).map(|at| is_superset(at, value)))
+                .unwrap_or(false)
+        }
         Filter::Group(FilterGroup::AnyOf(nested)) => eval_all(nested, true, values),
         Filter::Group(FilterGroup::AllOf(nested)) => eval_all(nested, false, values),
         // A key the message does not carry satisfies a negation: nothing there can match.
@@ -396,6 +444,72 @@ mod tests {
             ]}
         ]);
         assert!(matches(payload, filters, false));
+    }
+
+    #[test]
+    fn test_path_reaches_a_nested_field() {
+        let payload = r#"{"in_reply_to_message": {"content_attributes": {"sent_by": "reminder"}}}"#;
+        let path = "in_reply_to_message.content_attributes.sent_by";
+        assert!(matches(
+            payload,
+            json!([{"path": path, "value": "reminder"}]),
+            false
+        ));
+        assert!(!matches(
+            payload,
+            json!([{"path": path, "value": "other"}]),
+            false
+        ));
+        // a missing intermediate segment is a miss, not an error
+        assert!(!matches(
+            payload,
+            json!([{"path": "in_reply_to_message.nope.sent_by", "value": "reminder"}]),
+            false
+        ));
+    }
+
+    #[test]
+    fn test_path_and_key_keep_their_own_meaning() {
+        // `key` still addresses the top-level field spelled with dots, `path` traverses
+        assert!(matches(
+            r#"{"a.b": 1}"#,
+            json!([{"key": "a.b", "value": 1}]),
+            false
+        ));
+        assert!(!matches(
+            r#"{"a.b": 1}"#,
+            json!([{"path": "a.b", "value": 1}]),
+            false
+        ));
+        assert!(matches(
+            r#"{"a": {"b": 1}}"#,
+            json!([{"path": "a.b", "value": 1}]),
+            false
+        ));
+        assert!(!matches(
+            r#"{"a": {"b": 1}}"#,
+            json!([{"key": "a.b", "value": 1}]),
+            false
+        ));
+    }
+
+    #[test]
+    fn test_path_does_not_traverse_arrays() {
+        // Deliberately unsupported for now: an element index is not implied
+        assert!(!matches(
+            r#"{"items": [{"id": 1}]}"#,
+            json!([{"path": "items.id", "value": 1}]),
+            false
+        ));
+    }
+
+    #[test]
+    fn test_path_without_dots_is_a_top_level_field() {
+        assert!(matches(
+            r#"{"a": 1}"#,
+            json!([{"path": "a", "value": 1}]),
+            false
+        ));
     }
 
     #[test]

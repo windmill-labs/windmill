@@ -3,7 +3,11 @@ export type FilterLogic = 'and' | 'or'
 /** A nested group's operator. Only groups can negate; the root has nowhere to store it. */
 export type GroupOp = FilterLogic | 'none'
 
-export type FilterLeaf = { key: string; value: any }
+/** How a leaf addresses its field: a top-level name, or a dotted path into nested objects. */
+export type FieldMode = 'key' | 'path'
+export type FilterKeyLeaf = { key: string; value: any }
+export type FilterPathLeaf = { path: string; value: any }
+export type FilterLeaf = FilterKeyLeaf | FilterPathLeaf
 export type FilterAnyOf = { any_of: FilterNode[] }
 export type FilterAllOf = { all_of: FilterNode[] }
 export type FilterNoneOf = { none_of: FilterNode[] }
@@ -29,6 +33,21 @@ export function groupItems(group: FilterGroup): FilterNode[] {
 	if ('any_of' in group) return group.any_of
 	if ('none_of' in group) return group.none_of
 	return group.all_of
+}
+
+export function fieldMode(leaf: FilterLeaf): FieldMode {
+	return typeof (leaf as FilterPathLeaf).path === 'string' ? 'path' : 'key'
+}
+
+export function leafField(leaf: FilterLeaf): string {
+	return (
+		(fieldMode(leaf) === 'path' ? (leaf as FilterPathLeaf).path : (leaf as FilterKeyLeaf).key) ?? ''
+	)
+}
+
+/** A leaf names its field under one key or the other, so switching rebuilds the object. */
+export function makeLeaf(mode: FieldMode, field: string, value: any): FilterLeaf {
+	return mode === 'path' ? { path: field, value } : { key: field, value }
 }
 
 /** Groups carry their operator in their key, so switching it rebuilds the object. */

@@ -48,6 +48,16 @@ properties:
         - value
       - type: object
         properties:
+          path:
+            type: string
+            description: Dotted path into nested objects, e.g. `a.b.c`. Does not traverse
+              arrays.
+          value: {}
+        required:
+        - path
+        - value
+      - type: object
+        properties:
           any_of:
             type: array
             items:
@@ -71,10 +81,10 @@ properties:
         required:
         - none_of
     description: 'Filters to match incoming messages (only matching messages trigger
-      the script). Each entry is either a leaf `{key, value}` matching a top-level
-      field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of:
-      [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level
-      are combined with `filter_logic`.'
+      the script). Each entry is either a leaf `{key, value}` (top-level field) or
+      `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}`
+      / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the
+      top level are combined with `filter_logic`.'
   filter_logic:
     type: string
     enum:

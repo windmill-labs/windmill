@@ -6,11 +6,16 @@
 	import { Plus, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import TriggerFilterList from './TriggerFilterList.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import {
+		fieldMode,
 		groupItems,
 		groupOp,
 		isFilterGroup,
+		leafField,
 		makeGroup,
+		makeLeaf,
 		type GroupOp,
 		type FilterNode
 	} from './filters'
@@ -67,19 +72,43 @@
 					/>
 				</div>
 			{:else}
+				{@const mode = fieldMode(filter)}
+				{@const field = leafField(filter)}
 				<div class="w-full flex flex-col gap-2 border p-2 rounded-md bg-surface">
-					<label class="flex flex-col w-full">
-						<div class="text-secondary text-sm mb-2">Key</div>
-						<TextInput bind:value={filter.key} inputProps={{ disabled }} />
-					</label>
+					<div class="flex flex-col w-full">
+						<div class="flex flex-row items-center justify-between mb-2">
+							<div class="text-secondary text-sm">{mode === 'path' ? 'Path' : 'Key'}</div>
+							<ToggleButtonGroup
+								selected={mode}
+								{disabled}
+								on:selected={(e) => (filters[i] = makeLeaf(e.detail, field, filter.value))}
+							>
+								{#snippet children({ item })}
+									<ToggleButton value="key" label="Key" small {item} tooltip="A top-level field" />
+									<ToggleButton
+										value="path"
+										label="Path"
+										small
+										{item}
+										tooltip="A dotted path into nested objects, e.g. a.b.c. Does not traverse arrays."
+									/>
+								{/snippet}
+							</ToggleButtonGroup>
+						</div>
+						{#if 'path' in filter}
+							<TextInput bind:value={filter.path} inputProps={{ disabled, placeholder: 'a.b.c' }} />
+						{:else}
+							<TextInput bind:value={filter.key} inputProps={{ disabled }} />
+						{/if}
+					</div>
 					<div class="flex flex-col w-full">
 						<div class="text-secondary text-sm mb-2">Value</div>
 						<JsonEditor bind:value={filter.value} code={JSON.stringify(filter.value)} {disabled} />
 					</div>
-					{#if filter.key}
+					{#if field}
 						{@const isObject = filter.value !== null && typeof filter.value === 'object'}
 						<div class="text-xs text-tertiary font-mono mt-2 p-2 bg-surface-secondary rounded">
-							payload.{filter.key}
+							payload.{field}
 							{isObject ? '⊇' : '=='}
 							{JSON.stringify(filter.value)}
 						</div>

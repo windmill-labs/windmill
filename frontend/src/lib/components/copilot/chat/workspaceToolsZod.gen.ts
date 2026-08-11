@@ -101,12 +101,15 @@ export const websocketTriggerRequestSchema = z.object({
 		"key": z.string(),
 		"value": z.any()
 	}), z.object({
+		"path": z.string().describe("Dotted path into nested objects, e.g. `a.b.c`. Does not traverse arrays."),
+		"value": z.any()
+	}), z.object({
 		"any_of": z.array(z.record(z.string(), z.any()))
 	}), z.object({
 		"all_of": z.array(z.record(z.string(), z.any()))
 	}), z.object({
 		"none_of": z.array(z.record(z.string(), z.any()))
-	})]).describe("Either a leaf filter, matching a top-level key of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array), or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
+	})]).describe("Either a leaf filter, matching a field of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array) \u2014 addressed by `key` for a top-level field or `path` for a dotted path into nested objects \u2014 or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
 	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of` groups carry their own logic.").default("and").optional(),
 	"initial_messages": z.array(z.union([z.object({
 		"raw_message": z.string()
@@ -158,12 +161,15 @@ export const kafkaTriggerRequestSchema = z.object({
 		"key": z.string(),
 		"value": z.any()
 	}), z.object({
+		"path": z.string().describe("Dotted path into nested objects, e.g. `a.b.c`. Does not traverse arrays."),
+		"value": z.any()
+	}), z.object({
 		"any_of": z.array(z.record(z.string(), z.any()))
 	}), z.object({
 		"all_of": z.array(z.record(z.string(), z.any()))
 	}), z.object({
 		"none_of": z.array(z.record(z.string(), z.any()))
-	})]).describe("Either a leaf filter, matching a top-level key of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array), or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` matching a top-level field of the message parsed as JSON, or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
+	})]).describe("Either a leaf filter, matching a field of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array) \u2014 addressed by `key` for a top-level field or `path` for a dotted path into nested objects \u2014 or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
 	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of` groups carry their own logic.").default("and").optional(),
 	"auto_offset_reset": z.enum(["latest", "earliest"]).describe("Initial offset behavior when consumer group has no committed offset.").default("latest").optional(),
 	"auto_commit": z.boolean().describe("When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint.").default(true).optional(),
