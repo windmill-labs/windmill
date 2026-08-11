@@ -599,6 +599,18 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_rejects_an_empty_path_segment() {
+        assert!(CompiledFilters::validate(&[json!({"path": "a.b", "value": 1})]).is_ok());
+        for dead in ["", "a.", ".a", "a..b"] {
+            assert!(
+                CompiledFilters::validate(&[json!({"path": dead, "value": 1})]).is_err(),
+                "path {:?} addresses no field and should be rejected",
+                dead
+            );
+        }
+    }
+
+    #[test]
     fn test_validate_names_the_offending_nested_entry() {
         let err = CompiledFilters::validate(&[
             json!({"key": "a", "value": 1}),

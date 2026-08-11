@@ -8317,7 +8317,7 @@ properties:
     - and
     - or
     description: Logic to apply when evaluating the top-level filters. 'and' requires
-      all of them to match, 'or' requires any of them to match. Nested \`any_of\`/\`all_of\`
+      all of them to match, 'or' requires any of them to match. Nested \`any_of\`/\`all_of\`/\`none_of\`
       groups carry their own logic.
   auto_offset_reset:
     type: string
@@ -9029,7 +9029,7 @@ properties:
     - and
     - or
     description: Logic to apply when evaluating the top-level filters. 'and' requires
-      all of them to match, 'or' requires any of them to match. Nested \`any_of\`/\`all_of\`
+      all of them to match, 'or' requires any of them to match. Nested \`any_of\`/\`all_of\`/\`none_of\`
       groups carry their own logic.
   initial_messages:
     type: array
