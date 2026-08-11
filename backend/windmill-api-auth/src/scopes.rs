@@ -284,6 +284,7 @@ pub enum ScopeDomain {
     OAuth,
     AI,
     AiSkills,
+    AiEvals, // AI agent eval datasets
 
     Indexer,
     Teams,   // Microsoft Teams integration
@@ -343,6 +344,7 @@ impl ScopeDomain {
             Self::OAuth => "oauth",
             Self::AI => "ai",
             Self::AiSkills => "ai_skills",
+            Self::AiEvals => "ai_evals",
             Self::Capture => "capture",
             Self::Drafts => "drafts",
             Self::Favorites => "favorites",
@@ -398,6 +400,7 @@ impl ScopeDomain {
             "oauth" => Some(Self::OAuth),
             "ai" => Some(Self::AI),
             "ai_skills" => Some(Self::AiSkills),
+            "ai_evals" => Some(Self::AiEvals),
             "indexer" | "srch" => Some(Self::Indexer),
             "teams" => Some(Self::Teams),
             "native_triggers" => Some(Self::NativeTriggers),

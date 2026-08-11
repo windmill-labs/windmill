@@ -113,6 +113,7 @@ pub mod storage_list_ee;
 mod storage_list_oss;
 mod workspace_dependencies;
 
+mod ai_evals;
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 pub mod apps_ee;
@@ -644,6 +645,7 @@ pub async fn run_server(
                         .route("/labels/list", get(list_workspace_labels))
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
+                        .nest("/ai_evals", ai_evals::workspaced_service())
                         .nest("/jobs", jobs::workspaced_service())
                         .nest("/debug", windmill_api_debug::workspaced_service())
                         .nest("/native_triggers", {

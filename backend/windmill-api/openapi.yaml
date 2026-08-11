@@ -11567,6 +11567,315 @@ paths:
                 items:
                   $ref: "#/components/schemas/FlowConversationMessage"
 
+  /w/{workspace}/ai_evals/datasets/list:
+    get:
+      summary: list eval datasets
+      operationId: listEvalDatasets
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: eval datasets list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvalDataset"
+
+  /w/{workspace}/ai_evals/datasets/create:
+    post:
+      summary: create an eval dataset
+      operationId: createEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new eval dataset
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                description:
+                  type: string
+                default_subject:
+                  $ref: "#/components/schemas/EvalSubject"
+      responses:
+        "200":
+          description: eval dataset created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/datasets/get/{path}:
+    get:
+      summary: get an eval dataset
+      operationId: getEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: eval dataset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvalDataset"
+
+  /w/{workspace}/ai_evals/datasets/update/{path}:
+    post:
+      summary: update an eval dataset
+      operationId: updateEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated eval dataset
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                summary:
+                  type: string
+                description:
+                  type: string
+                default_subject:
+                  $ref: "#/components/schemas/EvalSubject"
+      responses:
+        "200":
+          description: eval dataset updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/datasets/delete/{path}:
+    post:
+      summary: delete an eval dataset and all its cases
+      operationId: deleteEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: eval dataset deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/cases/list/{path}:
+    get:
+      summary: list the cases of an eval dataset
+      operationId: listEvalCases
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: eval cases
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cases, total]
+                properties:
+                  cases:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EvalCase"
+                  total:
+                    type: integer
+                    description: number of cases in the dataset, before pagination
+
+  /w/{workspace}/ai_evals/cases/add/{path}:
+    post:
+      summary: append a case to an eval dataset
+      operationId: addEvalCase
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: new eval case
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewEvalCase"
+      responses:
+        "200":
+          description: id of the created case
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/cases/update/{path}:
+    post:
+      summary: update a case of an eval dataset
+      operationId: updateEvalCase
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated eval case
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required: [id]
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                - $ref: "#/components/schemas/NewEvalCase"
+      responses:
+        "200":
+          description: eval case updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/cases/delete/{path}:
+    post:
+      summary: delete a case from an eval dataset
+      operationId: deleteEvalCase
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: the case to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: eval case deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/run:
+    post:
+      summary: run an agent standalone on one case
+      operationId: runEval
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: what to run, and on which case
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject]
+              properties:
+                subject:
+                  $ref: "#/components/schemas/EvalSubject"
+                case:
+                  $ref: "#/components/schemas/NewEvalCase"
+                dataset:
+                  type: string
+                  description: dataset holding the case to run, instead of an inline case
+                case_id:
+                  type: string
+                  format: uuid
+      responses:
+        "201":
+          description: uuid of the started job
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_evals/case_draft/from_job/{job_id}:
+    get:
+      summary: build a case draft from a past AI agent run
+      operationId: evalCaseDraftFromJob
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: job_id
+          description: id of an AI agent job
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: eval case draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvalCaseDraft"
+
+  /w/{workspace}/ai_evals/case_draft/from_conversation/{conversation_id}:
+    get:
+      summary: build a case draft from a flow conversation
+      operationId: evalCaseDraftFromConversation
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: eval case draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvalCaseDraft"
+
   /w/{workspace}/path_autocomplete/list_paths:
     get:
       summary: list all paths in a workspace for client-side autocomplete
@@ -25744,6 +26053,142 @@ components:
             type: object
             additionalProperties: true
           description: Array of JSON Web Keys for JWT verification
+
+    EvalSubject:
+      type: object
+      description: What an eval run is executed against.
+      required: [kind, path]
+      properties:
+        kind:
+          type: string
+          enum: [agent]
+        path:
+          type: string
+          description: Path of the ai_agent resource
+        version:
+          type: integer
+          format: int64
+          nullable: true
+          description: >
+            resource_version id the subject resolved to when the run started. Recorded so a run
+            stays attributable to a prompt state; it does not pin execution, which stays live.
+
+    EvalDataset:
+      type: object
+      required: [path, created_at, created_by, edited_at, edited_by]
+      properties:
+        path:
+          type: string
+        summary:
+          type: string
+        description:
+          type: string
+        default_subject:
+          $ref: "#/components/schemas/EvalSubject"
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        edited_by:
+          type: string
+
+    EvalCaseInput:
+      type: object
+      description: The inputs a standalone run feeds the agent.
+      properties:
+        user_message:
+          type: string
+        user_attachments:
+          type: array
+          items:
+            type: object
+        messages:
+          type: array
+          description: >
+            Prior turns replayed through Memory::Manual, which bypasses stored memory so a
+            recorded conversation reruns without polluting production memory.
+          items:
+            type: object
+
+    EvalCaseSource:
+      type: object
+      description: Where a case was captured from, when it came from real traffic.
+      required: [captured_at]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        agent_path:
+          type: string
+        captured_at:
+          type: string
+          format: date-time
+
+    NewEvalCase:
+      type: object
+      properties:
+        name:
+          type: string
+        input:
+          $ref: "#/components/schemas/EvalCaseInput"
+        host_flow_path:
+          type: string
+          description: >
+            Resolve the tool inputs from this flow's step instead of the agent's own authored
+            defaults, for when a linked agent behaves differently under its host flow.
+        tool_inputs:
+          type: object
+        expected:
+          description: Reference output. Recorded at capture time; nothing scores it yet.
+        tags:
+          type: array
+          items:
+            type: string
+        source:
+          $ref: "#/components/schemas/EvalCaseSource"
+
+    EvalCase:
+      allOf:
+        - type: object
+          required: [id, created_at, created_by]
+          properties:
+            id:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+            created_by:
+              type: string
+        - $ref: "#/components/schemas/NewEvalCase"
+
+    EvalCaseDraft:
+      type: object
+      description: A case pre-filled from something that already ran, for review before saving.
+      required: [input, source]
+      properties:
+        name:
+          type: string
+        input:
+          $ref: "#/components/schemas/EvalCaseInput"
+        host_flow_path:
+          type: string
+        tool_inputs:
+          type: object
+        expected:
+          description: What the captured run answered.
+        source:
+          $ref: "#/components/schemas/EvalCaseSource"
+        agent_path:
+          type: string
+          description: The agent the capture ran against, to preselect the subject.
 
     FlowConversation:
       type: object

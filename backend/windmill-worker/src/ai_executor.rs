@@ -442,6 +442,16 @@ pub async fn handle_ai_agent_job(
                 );
             }
         }
+        // A step-supplied `memory` overrides the agent's own, which is what lets a recorded
+        // conversation be replayed over `Memory::Manual` instead of the agent's stored memory.
+        // Taken from the raw args, not `local_args`: a recorded message is arbitrary user text,
+        // and interpolating it would resolve a `$var:` someone happened to type into a chat.
+        if let Some(memory) = job.args.as_ref().and_then(|args| args.0.get("memory")) {
+            brain.insert(
+                "memory".to_string(),
+                serde_json::from_str(memory.get()).unwrap_or(serde_json::Value::Null),
+            );
+        }
         let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(brain))
             .map_err(|e| {
                 Error::internal_err(format!(
