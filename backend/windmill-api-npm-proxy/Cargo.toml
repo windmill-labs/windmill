@@ -14,6 +14,7 @@ windmill-common = { workspace = true, default-features = false }
 axum.workspace = true
 flate2.workspace = true
 reqwest.workspace = true
+semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

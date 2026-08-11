@@ -1857,7 +1857,10 @@
 	function uiBuilderIframeSrc(): string {
 		const dark = document.documentElement.classList.contains('dark')
 		const variant = getAppliedDarkModeVariant()
-		return `/ui_builder/index.html?dark=${dark}&variant=${variant}`
+		// `workspace` lets the in-browser npm installer reach /api/w/<ws>/npm_proxy so
+		// package installs honour the instance's .npmrc instead of the public registry.
+		const workspace = encodeURIComponent($workspaceStore ?? '')
+		return `/ui_builder/index.html?dark=${dark}&variant=${variant}&workspace=${workspace}`
 	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.

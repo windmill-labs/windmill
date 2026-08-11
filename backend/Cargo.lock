@@ -15117,6 +15117,7 @@ dependencies = [
  "axum 0.8.9",
  "flate2",
  "reqwest 0.13.4",
+ "semver 1.0.28",
  "serde",
  "serde_json",
  "sqlx",

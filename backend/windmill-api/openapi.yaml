@@ -8152,6 +8152,27 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/npm_proxy/config:
+    get:
+      summary: get npm proxy configuration
+      operationId: getNpmProxyConfig
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: npm proxy configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registry_configured:
+                    type: boolean
+                required:
+                  - registry_configured
+
   /w/{workspace}/npm_proxy/metadata/{package}:
     get:
       summary: get npm package metadata from private registry
@@ -8286,6 +8307,35 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/npm_proxy/tarball/{package}/{version}:
+    get:
+      summary: get npm package tarball from private registry
+      operationId: getNpmPackageTarball
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          description: package version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: package tarball
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
 
   /w/{workspace}/embeddings/query_resource_types:
     get:
