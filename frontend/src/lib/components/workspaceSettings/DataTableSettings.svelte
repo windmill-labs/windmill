@@ -254,7 +254,7 @@
 
 <SettingsPageHeader
 	title="Data tables"
-	description="Store relational data out of the box. Interact with a fully managed PostgreSQL database directly from the Windmill SDK."
+	description="Relational storage the whole workspace shares under one name. Scripts, flows and apps address it as <span class='font-mono'>datatable://main</span> instead of picking a PostgreSQL resource, so nobody needs access to the credentials to query it, and you can point that name at another database without touching a line of code. Browse and edit tables, and version schema changes as migrations, from here."
 	link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
 />
 
