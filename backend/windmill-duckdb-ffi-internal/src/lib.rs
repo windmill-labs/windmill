@@ -632,10 +632,8 @@ mod result_size_guard_tests {
         assert_eq!(collected, 0, "it was refused before being counted");
     }
 
-    /// A JSON column is parsed into a tree before anything can weigh it, and
-    /// compact JSON is the densest way to ask for `Value`s: `[1,1,1,…]` costs two
-    /// bytes per 72-byte `Value`. The text length is the only signal available
-    /// while refusing is still possible.
+    /// The text length is the only signal available while refusing is still
+    /// possible — once the tree exists the memory is committed.
     #[test]
     fn a_dense_json_column_is_refused_before_it_is_parsed() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -918,6 +916,10 @@ fn to_raw_value_within<T: serde::Serialize>(value: &T, budget: usize) -> Option<
 /// byte, and both several sibling columns and one nested deep in a `LIST`/`STRUCT`
 /// can each be individually modest while summing past what the worker can hold.
 /// One shared, decrementing budget is what makes those cases add up.
+/// Not covered: `row.get` materializes a `LIST`/`STRUCT` column before any budget
+/// exists, and `Debug`-rendered `MAP` keys and `UNION`s expand ~5x. All are
+/// upstream of or far cheaper than the 36x/72x paths above, and the first needs a
+/// streaming accessor from `duckdb-rs` to fix at all.
 struct Budget {
     remaining: usize,
     /// The configured cap, kept only so the error can quote it rather than the
@@ -985,15 +987,10 @@ fn duckdb_value_to_json_value(
             serde_json::Value::String(duckdb_timestamp_to_iso(unit, ts))
         }
         duckdb::types::Value::Text(s) if type_alias.as_deref().unwrap_or_default() == "JSON" => {
-            // Parsing builds one `Value` per element, and an element can be as
-            // little as two bytes of text (`1,`), so the tree can reach half
-            // `size_of::<Value>()` times the text — 57MB of `[1,1,1,…]` becomes
-            // over 2GB. Charged before parsing, because afterwards the memory is
-            // already committed and nothing downstream can give it back.
-            //
-            // Deliberately the worst case, so ordinary JSON (longer tokens, fewer
-            // values per byte) is over-charged. The alternative is learning the
-            // real size only once it is too late to refuse.
+            // An element can be two bytes of text (`1,`) and becomes a whole
+            // `Value`, so the retained tree reaches half `size_of::<Value>()`
+            // times the text, and the parser's own growth can hold ~2x that
+            // again. Charged before parsing; afterwards the memory is committed.
             let expanded = s
                 .len()
                 .saturating_mul(std::mem::size_of::<serde_json::Value>() / 2);
