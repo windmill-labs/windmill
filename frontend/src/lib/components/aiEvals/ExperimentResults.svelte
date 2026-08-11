@@ -42,8 +42,17 @@
 	let onlyRegressions = $state(false)
 
 	let listGeneration = 0
+	let listedDataset: string | undefined = undefined
 	async function loadExperiments(path: string | undefined, _token: number) {
 		const generation = ++listGeneration
+		// Dropped synchronously, before the await: an id from the previous dataset would otherwise
+		// be requested under the new one and toast its 404.
+		if (path !== listedDataset) {
+			listedDataset = path
+			selectedId = undefined
+			baselineId = undefined
+			experiments = []
+		}
 		if (!ws || !path) {
 			experiments = []
 			selectedId = undefined
@@ -76,10 +85,7 @@
 		}
 		loading = true
 		try {
-			const res = await AiEvalsService.experimentResults({
-				workspace: ws,
-				requestBody: { dataset: path, id }
-			})
+			const res = await AiEvalsService.experimentResults({ workspace: ws, path, id })
 			if (generation !== resultsGeneration) return
 			rows = res.rows ?? []
 			scorerLabels = res.scorer_labels ?? []
@@ -117,7 +123,7 @@
 		baselineRows = []
 		baselineScorers = []
 		if (!ws || !path || !id) return
-		AiEvalsService.experimentResults({ workspace: ws, requestBody: { dataset: path, id } })
+		AiEvalsService.experimentResults({ workspace: ws, path, id })
 			.then((res) => {
 				if (generation !== baselineGeneration) return
 				baselineRows = res.rows ?? []

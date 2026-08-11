@@ -11950,28 +11950,22 @@ paths:
                 items:
                   $ref: "#/components/schemas/EvalExperiment"
 
-  /w/{workspace}/ai_evals/experiments/results:
-    post:
+  /w/{workspace}/ai_evals/experiments/results/{path}:
+    get:
       summary: read an experiment's results, one row per case
       operationId: experimentResults
       tags:
         - ai_evals
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: which experiment
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [dataset, id]
-              properties:
-                dataset:
-                  type: string
-                id:
-                  type: string
-                  format: uuid
+        - $ref: "#/components/parameters/Path"
+        - name: id
+          description: the experiment to read
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: experiment results

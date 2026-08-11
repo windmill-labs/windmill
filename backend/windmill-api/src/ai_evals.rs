@@ -33,7 +33,7 @@ pub fn workspaced_service() -> Router {
             .route("/run", post(run_eval))
             .route("/experiments/run", post(run_experiment))
             .route("/experiments/list/{*path}", get(list_experiments))
-            .route("/experiments/results", post(experiment_results))
+            .route("/experiments/results/{*path}", get(experiment_results))
             .route("/case_draft/from_job/{job_id}", get(case_draft_from_job))
             .route(
                 "/case_draft/from_conversation/{conversation_id}",
@@ -1379,7 +1379,6 @@ mod with_storage {
 
     #[derive(Deserialize)]
     pub struct ExperimentRef {
-        pub dataset: String,
         pub id: Uuid,
     }
 
@@ -1453,29 +1452,41 @@ mod with_storage {
         authed: ApiAuthed,
         Extension(db): Extension<DB>,
         Extension(user_db): Extension<UserDB>,
-        Path(w_id): Path<String>,
-        Json(payload): Json<ExperimentRef>,
+        Path((w_id, dataset)): Path<(String, String)>,
+        Query(query): Query<ExperimentRef>,
     ) -> JsonResult<ExperimentResults> {
-        require_can_read(&authed, &payload.dataset)?;
+        require_can_read(&authed, &dataset)?;
         let client = object_store(&authed, &db, user_db, &w_id).await?;
-        let bytes = get_object(&client, &experiment_key(&payload.dataset, payload.id))
+        let bytes = get_object(&client, &experiment_key(&dataset, query.id))
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Experiment {} not found", payload.id)))?;
+            .ok_or_else(|| Error::NotFound(format!("Experiment {} not found", query.id)))?;
         let experiment: EvalExperiment = serde_json::from_slice(&bytes)?;
+        // The object is caller-writable, so it does not get to say which dataset it belongs to:
+        // authorization was checked against the requested path, and copying another dataset's
+        // experiment under this key must not carry its contents along.
+        if experiment.dataset != dataset {
+            return Err(Error::NotFound(format!(
+                "Experiment {} does not belong to {}",
+                query.id, dataset
+            )));
+        }
 
         // The experiment object lives in workspace object storage, which a script can write
         // directly — so its job ids are caller-controlled. Results below are read on the
         // unrestricted pool, so a forged experiment naming someone else's flow job would hand back
-        // output the jobs API would refuse. Only jobs this server stamped for *this* experiment
-        // are read; anything else is reported as if it had not run.
+        // output the jobs API would refuse. A job is only read if this server stamped it for this
+        // experiment *and* for the dataset the caller's read access was checked against; matching
+        // on the id alone would accept another dataset's experiment copied under this key.
         let job_ids: Vec<Uuid> = experiment.cases.iter().map(|c| c.job_id).collect();
         let ours = sqlx::query_scalar!(
             "SELECT id FROM v2_job
              WHERE id = ANY($1) AND workspace_id = $2
-               AND args->'_eval'->>'experiment_id' = $3",
+               AND args->'_eval'->>'experiment_id' = $3
+               AND args->'_eval'->>'dataset' = $4",
             &job_ids,
             &w_id,
-            experiment.id.to_string()
+            experiment.id.to_string(),
+            &dataset
         )
         .fetch_all(&db)
         .await?

@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM v2_job\n             WHERE id = ANY($1) AND workspace_id = $2\n               AND args->'_eval'->>'experiment_id' = $3\n               AND args->'_eval'->>'dataset' = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "10579fc90fa78d9ad9d6185b03347b25e0dda06a17c08ada9287fa33de5c385d"
+}
