@@ -1184,12 +1184,18 @@ async fn get_datatable_resource_inner(
         serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
     } else {
+        // Name the data table too: the caller asked for one by name, and a bare
+        // "resource f/x/y does not exist" leaves them to work out which one points at it.
         transform_json_unchecked(
             &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
             w_id,
             db,
         )
-        .await?
+        .await
+        .map_err(|e| match e {
+            Error::NotFound(m) => Error::NotFound(format!("data table {name}: {m}")),
+            e => e,
+        })?
     };
 
     Ok(db_resource)
@@ -2166,25 +2172,32 @@ async fn transform_json_unchecked(
             serde_json::Value::Array(transformed_array)
         }
         serde_json::Value::String(s) if s.starts_with("$res:") => {
+            // A reference to something that was deleted is the common failure here, and
+            // `fetch_one` reports it as "no rows returned by a query that expected to
+            // return at least one row" -- which names neither what was missing nor where.
+            let path = &s[5..];
             let resource = sqlx::query_scalar!(
                 "SELECT value AS \"value!: _\" FROM resource WHERE workspace_id = $1 AND path = $2",
                 &w_id,
-                &s[5..]
+                path
             )
-            .fetch_one(db)
+            .fetch_optional(db)
             .await
-            .map_err(to_anyhow)?;
+            .map_err(to_anyhow)?
+            .ok_or_else(|| Error::NotFound(format!("resource {path} does not exist")))?;
             transform_json_unchecked(&resource, w_id, db).await?
         }
         serde_json::Value::String(s) if s.starts_with("$var:") => {
+            let path = &s[5..];
             let (value, is_secret): (String, bool) = sqlx::query_as(
                 "SELECT value, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
             )
             .bind(&w_id)
-            .bind(&s[5..])
-            .fetch_one(db)
+            .bind(path)
+            .fetch_optional(db)
             .await
-            .map_err(to_anyhow)?;
+            .map_err(to_anyhow)?
+            .ok_or_else(|| Error::NotFound(format!("variable {path} does not exist")))?;
             let value = if is_secret {
                 if is_external_stored_value(&value) {
                     get_secret_value(db, w_id, &s[5..], &value).await?
