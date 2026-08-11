@@ -1277,3 +1277,113 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
         time.num_seconds_from_midnight() as i64,
     ))
 }
+
+// The bundled engine is not stock (docs/duckdb-isolation.md). These two guard the ways an
+// engine bump can drop the patch without anything else noticing.
+#[cfg(test)]
+mod patched_engine_tests {
+    /// Too large to be answered within the `memory_limit` `spill_attempt` sets, so the engine
+    /// has to reach the temp directory to finish it.
+    const SPILLING_QUERY: &str = "CREATE TABLE t AS SELECT * FROM range(1000000)";
+
+    fn spill_attempt(temp_dir: &std::path::Path, lock: bool) -> Result<(), String> {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch(&format!(
+            "SET threads=2; SET memory_limit='2MB'; SET temp_directory='{}';",
+            temp_dir.display()
+        ))
+        .unwrap();
+        if lock {
+            conn.execute_batch("SET lock_temp_directory=true;")
+                .map_err(|e| format!("lock_temp_directory rejected: {e}"))?;
+        }
+        conn.execute_batch("SET disabled_filesystems='LocalFileSystem';")
+            .unwrap();
+        conn.execute_batch(SPILLING_QUERY)
+            .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn locking_the_temp_directory_keeps_spilling_available() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "windmill_duckdb_spill_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Without the lock the fence reaches the buffer manager too, which is both the
+        // stock engine's behaviour and the proof that this query really does spill —
+        // otherwise the assertion below would pass on an unpatched engine.
+        let unlocked = spill_attempt(&temp_dir, false).expect_err("query did not need to spill");
+        assert!(
+            unlocked.contains("LocalFileSystem has been disabled"),
+            "expected the fence to stop the spill, got: {unlocked}"
+        );
+
+        let locked = spill_attempt(&temp_dir, true);
+        std::fs::remove_dir_all(&temp_dir).ok();
+        locked.expect("a locked temp directory must stay usable behind disabled_filesystems");
+    }
+
+    /// The exemption above is only sound while the directory cannot be moved: a script that
+    /// repointed it would get a write primitive through the very fence it is exempt from. A
+    /// rebase can drop that half of the patch while leaving the spill test green, so pin it.
+    #[test]
+    fn locking_the_temp_directory_makes_it_immutable() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        conn.execute_batch("SET temp_directory='/tmp/windmill_duckdb_lock_probe';")
+            .unwrap();
+        conn.execute_batch("SET lock_temp_directory=true;")
+            .expect("the patched engine must accept lock_temp_directory");
+
+        for stmt in [
+            "SET temp_directory='/tmp/windmill_duckdb_elsewhere';",
+            "RESET temp_directory;",
+            "SET lock_temp_directory=false;",
+            "RESET lock_temp_directory;",
+        ] {
+            let err = conn.execute_batch(stmt).expect_err(&format!(
+                "`{stmt}` must be refused once the directory is locked"
+            ));
+            assert!(
+                err.to_string().contains("locked"),
+                "expected a lock refusal for `{stmt}`, got: {err}"
+            );
+        }
+    }
+
+    // The engine loads the *prebuilt* extensions from extensions.duckdb.org, which are
+    // compiled against the struct layouts of the release it claims to be. A patch that
+    // moves a member those extensions reach does not fail — the extension reads the
+    // neighbouring field and LOAD blocks forever — so this is a timeout, not an assertion.
+    #[test]
+    fn prebuilt_extensions_still_load() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        // Fetching the extension needs egress, which loading it back — the part this guards —
+        // does not. Skipping keeps a developer offline from seeing a failure they can't act on,
+        // but never in CI, where a skip and a pass would be indistinguishable.
+        if let Err(e) = conn.execute_batch("INSTALL httpfs;") {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "could not install httpfs, so the extension-load guard did not run: {e}"
+            );
+            eprintln!("skipping: INSTALL httpfs failed ({e})");
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            tx.send(
+                conn.execute_batch("LOAD httpfs;")
+                    .map_err(|e| e.to_string()),
+            )
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(120)) {
+            Ok(r) => r.expect("could not load httpfs"),
+            Err(_) => panic!(
+                "LOAD httpfs did not return: the patched engine's struct layout no longer matches \
+                 the release the prebuilt extensions were built against"
+            ),
+        }
+    }
+}

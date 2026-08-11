@@ -10,7 +10,14 @@ chrono = "0.4.41"
 # used to derive itself, so a `decimal`/`numeric` job argument still binds to the
 # identical DECIMAL. Building one by hand would mean reimplementing that
 # f64 → (mantissa, scale) inference.
-duckdb = { version = "1.10505.0", features = ["bundled", "rust_decimal"] }
+#
+# Not crates.io: a fork of duckdb-rs 1.10505.0 carrying one patch to the bundled engine —
+# see docs/duckdb-isolation.md for why, and for the exit path back to the crates.io crate.
+# Pinned by rev, not branch, so `cargo update` cannot move the engine under us.
+duckdb = { git = "https://github.com/windmill-labs/duckdb-rs", rev = "475383b71cde3d009ca6eaa0cd733faa52bc7393", features = [
+    "bundled",
+    "rust_decimal",
+] }
 regex = "1"
 rust_decimal = "1.37.2"
 serde = { version = "1.0", features = ["derive"] }
