@@ -127,13 +127,20 @@ store has to be a pure addition on top.
   effort; when one fails the archive is walked a second time into an in-memory map for that
   request. Only on that path, since building the map alongside a successful disk fill would
   put back the per-request heap this exists to remove.
-- **Debris.** A writer killed mid-flight leaves a `.tmp.`/`.upload.` directory that nothing
-  will read. The sweep removes them rather than counting them against the cap forever.
+- **Debris, distinguished from live writers.** A killed writer leaves a `.tmp.` directory
+  that nothing will read. The sweep removes those, but only once they are an hour old, and
+  never treats one as an eviction candidate: concurrent cold fills are exactly when a sweep
+  is most likely to run, and deleting a scratch directory underneath its writer would
+  publish a package missing whatever it had already written.
 - **Restart hygiene.** Publishing renames a fully written temp directory into place, so a
   partial one never looks complete, and losing the rename race is success.
-- **Transfers stream.** Object store pulls go to a temp file and unpack on a blocking
-  thread; pushes build a tar on disk and upload it in parts, one at a time. Buffering
-  either would put back the per-request heap this exists to remove.
+- **Transfers stream, and everything that scales with a package stays off the runtime.**
+  Pulls go to a temp file, and unpacking, measuring and publishing all run on a blocking
+  thread; pushes build a tar on disk and upload it with a bound on parts in flight, not
+  bytes queued. Buffering either, or walking a tree of thousands of declarations on a
+  runtime worker, would put back what this exists to remove.
+- **A malicious archive is not a broken disk.** An entry whose path escapes its directory
+  is refused before either sink, rather than degrading the way an unwritable cache does.
 
 - **Eviction races the reads.** A package can be swept between the lookup and the manifest
   read, so a missing manifest is treated as a miss and repopulated rather than raised. A

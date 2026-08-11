@@ -803,6 +803,13 @@ fn extract_to(
         let Some(stripped) = strip_archive_root(&path).map(str::to_string) else {
             continue;
         };
+        // Refused before either sink reaches it: an archive carrying a traversal is
+        // malicious, so it must not degrade the way an unwritable cache does.
+        if !store::is_safe_relative(&stripped) {
+            return Err(Error::BadRequest(format!(
+                "Package archive holds an unsafe path: {stripped}"
+            )));
+        }
         if names.len() >= retention.max_entries {
             return Err(Error::BadRequest(format!(
                 "Package archive holds more than {} files",
@@ -964,7 +971,10 @@ async fn cached_package(
         })();
 
         match to_disk {
-            Ok(published) => Ok((PackageFiles::Disk(published), written)),
+            Ok((published, manifest_bytes)) => Ok((
+                PackageFiles::Disk(published),
+                written + manifest_bytes.max(DISK_BLOCK_BYTES),
+            )),
             Err(e) => {
                 tracing::warn!("npm proxy cache is not usable, serving without it: {e:?}");
                 let mut kept = HashMap::new();
@@ -1084,7 +1094,7 @@ mod tests {
             .join("1.0.0");
         let pending = PendingPackage::new(&dir)?;
         let manifest = extract_to(archive, &mut |path, content| pending.write_file(path, content), retention)?;
-        let published = pending.publish(&manifest)?;
+        let (published, _) = pending.publish(&manifest)?;
         Ok((manifest, published))
     }
 

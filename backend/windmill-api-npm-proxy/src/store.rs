@@ -28,6 +28,14 @@ const DISK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// packages could overshoot the cap by the whole interval's worth of writes.
 const SWEEP_INTERVAL_SECS: i64 = 600;
 const SWEEP_AFTER_WRITTEN: u64 = 256 * 1024 * 1024;
+/// Upload parts allowed in flight at once. The unit is parts, not bytes, so this times the
+/// chunk size is what an upload can hold.
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+const UPLOAD_PARTS_IN_FLIGHT: usize = 2;
+/// How long a scratch directory has to sit untouched before the sweep calls it abandoned.
+/// A live writer's scratch is seconds old; deleting one mid-write would publish a package
+/// missing whatever it had already written.
+const SCRATCH_STALE_SECS: u64 = 3600;
 
 static LAST_SWEEP: AtomicI64 = AtomicI64::new(0);
 static WRITTEN_SINCE_SWEEP: AtomicU64 = AtomicU64::new(0);
@@ -88,14 +96,19 @@ fn escape_segment(segment: &str) -> String {
 /// registry-supplied, so this is the boundary between "a file in a tarball" and "a path on
 /// our disk".
 fn safe_relative_path(dir: &Path, relative: &str) -> Option<PathBuf> {
-    let relative = Path::new(relative);
-    if relative
-        .components()
-        .any(|c| !matches!(c, Component::Normal(_)))
-    {
+    if !is_safe_relative(relative) {
         return None;
     }
     Some(dir.join(FILES_DIR).join(relative))
+}
+
+/// Whether an archive entry's path is one we would ever write. Checked before either sink,
+/// not inside one: an archive carrying a traversal is malicious rather than a cache that
+/// happens to be unwritable, and the two must not degrade the same way.
+pub(crate) fn is_safe_relative(relative: &str) -> bool {
+    Path::new(relative)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_)))
 }
 
 /// Whether a package directory is complete. The manifest is written last, so its presence
@@ -187,9 +200,13 @@ impl PendingPackage {
             .map_err(|e| Error::InternalErr(format!("Failed to write {path:?}: {e}")))
     }
 
-    pub(crate) fn publish(self, manifest: &Manifest) -> Result<PathBuf> {
+    /// Returns the published directory and the manifest's size, which the caller adds to
+    /// its write accounting: a package of mostly non-retained entries writes a large file
+    /// list and would otherwise advance the sweep trigger by almost nothing.
+    pub(crate) fn publish(self, manifest: &Manifest) -> Result<(PathBuf, u64)> {
         let raw = serde_json::to_vec(manifest)
             .map_err(|e| Error::InternalErr(format!("Failed to encode manifest: {e}")))?;
+        let manifest_bytes = raw.len() as u64;
         std::fs::write(self.scratch.path.join(MANIFEST_FILE), raw)
             .map_err(|e| Error::InternalErr(format!("Failed to write manifest: {e}")))?;
 
@@ -212,7 +229,7 @@ impl PendingPackage {
                 )));
             }
         }
-        Ok(final_dir)
+        Ok((final_dir, manifest_bytes))
     }
 }
 
@@ -281,23 +298,34 @@ pub(crate) async fn pull_from_object_store(_dir: &Path, _key: &str) -> Result<Op
         .map_err(|e| Error::InternalErr(format!("Failed to unpack {_key}: {e}")))?;
         unpacked.map_err(|e| Error::InternalErr(format!("Failed to unpack {_key}: {e}")))?;
 
-        // An object that unpacks without a manifest is not a package. Publishing it would
-        // make every later pull short-circuit the registry against a tree nothing can read.
+        // Measuring walks the tree and publishing can recursively remove the loser's, both
+        // of which scale with a package's file count, so neither belongs on a runtime worker.
         let content = scratch.path.join("content");
-        if !content.join(MANIFEST_FILE).exists() {
-            tracing::warn!("{_key} unpacked without a manifest, ignoring it");
-            return Ok(None);
-        }
-        let unpacked = measure(&content).map(|(bytes, _)| bytes).unwrap_or(0);
+        let destination = _dir.to_path_buf();
+        let published = tokio::task::spawn_blocking(move || {
+            // An object that unpacks without a manifest is not a package. Publishing it
+            // would make every later pull short-circuit the registry against a tree nothing
+            // can read.
+            if !content.join(MANIFEST_FILE).exists() {
+                return Ok(None);
+            }
+            let unpacked = measure(&content).map(|(bytes, _)| bytes).unwrap_or(0);
+            windmill_common::worker::atomic_publish_dir(
+                &content.to_string_lossy(),
+                &destination.to_string_lossy(),
+            )
+            .map(|()| Some(unpacked))
+        })
+        .await
+        .map_err(|e| Error::InternalErr(format!("Failed to publish {_key}: {e}")))?;
 
-        // The scratch directory still holds the download, so only the unpacked tree moves
-        // and the rest goes with the drop.
-        windmill_common::worker::atomic_publish_dir(
-            &content.to_string_lossy(),
-            &_dir.to_string_lossy(),
-        )?;
+        // The scratch directory still holds the download, so it goes with the drop.
         drop(scratch);
-        return Ok(Some(unpacked));
+        let published = published?;
+        if published.is_none() {
+            tracing::warn!("{_key} unpacked without a manifest, ignoring it");
+        }
+        return Ok(published);
     }
     #[allow(unreachable_code)]
     Ok(None)
@@ -369,10 +397,10 @@ async fn push_inner(dir: &Path, key: &str) -> Result<()> {
         if read == 0 {
             break;
         }
-        // `write` queues without waiting, so a slow store would leave the whole tar
-        // outstanding in upload tasks. This is the bound the doc comment claims.
+        // Parts in flight, not bytes: `write` queues without waiting, so a slow store
+        // would otherwise leave the whole tar outstanding in upload tasks.
         writer
-            .wait_for_capacity(CHUNK)
+            .wait_for_capacity(UPLOAD_PARTS_IN_FLIGHT)
             .await
             .map_err(|e| Error::InternalErr(format!("Failed to upload {key}: {e}")))?;
         writer.write(&chunk[..read]);
@@ -415,16 +443,20 @@ fn sweep(root: &Path, budget: u64) -> std::io::Result<()> {
         return Ok(());
     }
 
-    // registry/package/version, so package directories sit three levels down. A temp
-    // directory at any level is the debris of a write that died mid-flight: nothing will
-    // ever read it, and it counts against the cap until something removes it.
+    // registry/package/version, so package directories sit three levels down. A scratch
+    // directory left by a write that died mid-flight will never be read, and counts against
+    // the cap until something removes it.
     let mut packages: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
     let mut total = 0u64;
     for registry in child_dirs(root)? {
         for package in child_dirs(&registry)? {
             for version in child_dirs(&package)? {
-                if is_debris(&version) {
-                    let _ = std::fs::remove_dir_all(&version);
+                // Never an eviction candidate: a scratch directory is either a live write,
+                // which must not be deleted underneath its writer, or abandoned debris.
+                if is_scratch(&version) {
+                    if is_stale(&version) {
+                        let _ = std::fs::remove_dir_all(&version);
+                    }
                     continue;
                 }
                 let (size, accessed) = measure(&version)?;
@@ -450,12 +482,24 @@ fn sweep(root: &Path, budget: u64) -> std::io::Result<()> {
     Ok(())
 }
 
-/// A scratch or upload directory whose writer is gone. Publishing renames, so anything
-/// still carrying the marker after the process that made it has moved on is abandoned.
-fn is_debris(dir: &Path) -> bool {
+/// Publishing renames, so a directory still carrying the scratch marker is either a write
+/// in flight or one that died. Age is what separates them: concurrent cold fills are
+/// exactly when the sweep is most likely to run, and a live scratch must survive it.
+fn is_scratch(dir: &Path) -> bool {
     dir.file_name()
         .and_then(|n| n.to_str())
-        .is_some_and(|n| n.contains(".tmp.") || n.contains(".upload."))
+        .is_some_and(|n| n.contains(".tmp."))
+}
+
+fn is_stale(dir: &Path) -> bool {
+    std::fs::metadata(dir)
+        .and_then(|m| m.modified())
+        .map(|at| {
+            at.elapsed()
+                .map(|since| since.as_secs() > SCRATCH_STALE_SECS)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
 }
 
 fn child_dirs(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
@@ -513,6 +557,12 @@ mod tests {
     fn a_path_may_not_escape_its_package_directory() {
         let dir = Path::new("/cache/pkg/1.0.0");
 
+        // the guard the extraction consults before either sink
+        assert!(is_safe_relative("types/index.d.ts"));
+        assert!(!is_safe_relative("../../../etc/passwd"));
+        assert!(!is_safe_relative("/etc/passwd"));
+        assert!(!is_safe_relative("types/../../escape.d.ts"));
+
         assert!(safe_relative_path(dir, "types/index.d.ts").is_some());
         assert_eq!(safe_relative_path(dir, "../../../etc/passwd"), None);
         assert_eq!(safe_relative_path(dir, "/etc/passwd"), None);
@@ -559,18 +609,38 @@ mod tests {
             dir
         };
 
-        // a writer that died mid-flight, and two real packages
+        // a writer that died mid-flight long enough ago to be abandoned, and two packages
         make("ghost", "1.0.0.tmp.abandoned", 1024);
+        let ghost = root.join("registry").join("ghost").join("1.0.0.tmp.abandoned");
+        let long_ago = SystemTime::now() - std::time::Duration::from_secs(SCRATCH_STALE_SECS * 2);
+        std::fs::File::open(&ghost)
+            .and_then(|f| f.set_modified(long_ago))
+            .unwrap();
         let old = make("old", "1.0.0", 64 * 1024);
         std::thread::sleep(std::time::Duration::from_millis(20));
         let fresh = make("fresh", "1.0.0", 64 * 1024);
 
         sweep(&root, 96 * 1024).unwrap();
 
-        assert!(!root.join("registry").join("ghost").join("1.0.0.tmp.abandoned").exists());
+        assert!(!ghost.exists(), "an abandoned scratch directory should be removed");
         assert!(fresh.exists(), "the more recently used package should survive");
         assert!(!old.exists(), "the least recently used should go first");
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Concurrent cold fills are exactly when a sweep is most likely to run, and deleting
+    /// a scratch directory mid-write would publish a package missing what it had written.
+    #[test]
+    fn a_scratch_directory_still_being_written_survives_a_sweep() {
+        let root = std::env::temp_dir().join(format!("npm-proxy-live-{}", uuid::Uuid::new_v4()));
+        let dir = root.join("registry").join("pkg").join("1.0.0");
+        let pending = PendingPackage::new(&dir).unwrap();
+        pending.write_file("index.d.ts", b"declare const x: number").unwrap();
+
+        sweep(&root, 0).unwrap();
+
+        assert!(pending.scratch.path.exists(), "a live writer's scratch must survive");
         let _ = std::fs::remove_dir_all(&root);
     }
 
