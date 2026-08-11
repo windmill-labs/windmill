@@ -647,6 +647,14 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
+
+/**
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
@@ -1409,6 +1417,14 @@ async getResult(jobId: string): Promise<any>
  * @returns Object with started, completed, success, and result properties
  */
 async getResultMaybe(jobId: string): Promise<any>
+
+/**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
 
 /**
  * Run a script asynchronously by its path
@@ -2267,6 +2283,14 @@ async getResult(jobId: string): Promise<any>
  * @returns Object with started, completed, success, and result properties
  */
 async getResultMaybe(jobId: string): Promise<any>
+
+/**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
 
 /**
  * Run a script asynchronously by its path

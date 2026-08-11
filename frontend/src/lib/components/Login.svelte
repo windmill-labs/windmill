@@ -91,7 +91,9 @@
 	const providersType = providers.map((p) => p.type as string)
 
 	let showPassword = $state(false)
-	let logins: OAuthLogin[] | undefined = $state(undefined)
+	// Type argument rather than annotation: annotating narrows the declaration to the
+	// initializer's `undefined`, so a top-level read sees `never` instead of the array.
+	let logins = $state<OAuthLogin[] | undefined>(undefined)
 	let saml: string | undefined = $state(undefined)
 	let smtpConfigured: boolean | undefined = $state(undefined)
 	let disablePasswordLogin = $state(false)
@@ -455,6 +457,8 @@
 	$effect(() => {
 		error && sendUserToast(escapeHtml(error), true)
 	})
+
+	let loginOptionCount = $derived((logins?.length ?? 0) + (saml ? 1 : 0))
 </script>
 
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
@@ -462,9 +466,7 @@
 		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
 	{/if}
 	<div
-		class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4 {autoRedirecting
-			? 'hidden'
-			: ''}"
+		class="grid {loginOptionCount > 3 ? 'grid-cols-2' : ''} gap-4 {autoRedirecting ? 'hidden' : ''}"
 	>
 		{#if !logins}
 			{#each Array(4) as _}
@@ -483,17 +485,13 @@
 				{/if}
 			{/each}
 			{#each logins.filter((login) => !providersType?.includes(login.type)) as login}
-				<Button
-					variant="default"
-					btnClasses="mt-2 w-full"
-					on:click={() => storeRedirect(login.type)}
-				>
+				<Button variant="default" on:click={() => storeRedirect(login.type)}>
 					{login.displayName}
 				</Button>
 			{/each}
 		{/if}
 		{#if saml}
-			<Button variant="default" btnClasses="mt-2 w-full" on:click={redirectSaml}>SSO</Button>
+			<Button variant="default" on:click={redirectSaml}>SSO</Button>
 		{/if}
 	</div>
 	{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}

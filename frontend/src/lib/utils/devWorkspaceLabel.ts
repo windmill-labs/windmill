@@ -41,3 +41,14 @@ export function devLabelWord(label: string | null | undefined): string {
 export function devLabelNoun(label: string | null | undefined): string {
 	return `${devLabelKey(label)} workspace`
 }
+
+/**
+ * How to name a child workspace in prose: its environment noun when it is a dev workspace
+ * ("dev workspace", "staging workspace"), "fork" otherwise. A dev workspace is a standing
+ * environment its whole team works in, so calling it a fork misreads it as throwaway.
+ */
+export function childWorkspaceNoun(
+	workspace: { is_dev_workspace?: boolean; dev_workspace_label?: string | null } | undefined
+): string {
+	return workspace?.is_dev_workspace ? devLabelNoun(workspace.dev_workspace_label) : 'fork'
+}

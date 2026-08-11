@@ -191,6 +191,70 @@ describe('SessionArtifactsStore', () => {
 		expect((await store.update(created.id, { content: '' }))?.content).toBe('')
 	})
 
+	it('snapshots a version per content change, and none for a rename', async () => {
+		await store.setSession('s1')
+		const created = await store.create('s1', { name: 'Plan', content: 'v1' })
+
+		await store.update(created.id, { content: 'v2', note: 'Added a rollback step' })
+		// Neither a rename nor a rewrite to the identical content is a new version.
+		await store.update(created.id, { name: 'Renamed', note: 'ignored' })
+		await store.update(created.id, { content: 'v2', note: 'ignored' })
+
+		const versions = await store.listVersions(created.id)
+		expect(versions.map((v) => [v.version, v.content, v.note])).toEqual([
+			[2, 'v2', 'Added a rollback step'],
+			[1, 'v1', undefined]
+		])
+		expect((await store.get(created.id))?.version).toBe(2)
+		expect((await store.getVersion(created.id, 1))?.content).toBe('v1')
+	})
+
+	it('persists a row and the snapshots it produced in one write', async () => {
+		await store.setSession('s1')
+		const created = await store.create('s1', { name: 'Doc', content: 'c1' })
+
+		const spy = vi.spyOn(dbMod, 'putArtifactWithVersions')
+		await store.update(created.id, { content: 'c2', note: 'second' })
+
+		// Split into two writes, a stamped version can outlive the snapshot that failed to
+		// land beside it. That state still reads as complete, because listVersions
+		// synthesizes the current version from the row — right up until the next edit
+		// overwrites the row, which is the only copy of that content left.
+		expect(spy).toHaveBeenCalledTimes(1)
+		expect(spy.mock.calls[0][1].map((v) => v.version)).toEqual([2])
+		spy.mockRestore()
+
+		const row = await dbMod.getArtifact(created.id)
+		const stored = await dbMod.listArtifactVersions(created.id)
+		expect(stored.some((v) => v.version === row!.version)).toBe(true)
+	})
+
+	it('keeps a legacy v1 when a rename lands before the first content edit', async () => {
+		await dbMod.putArtifact(mk({ id: 'legacy', content: 'original' }))
+		await store.setSession('s1')
+
+		// The rename stamps `version`, after which nothing else would recognise this as a
+		// pre-history artifact — so its v1 has to be captured here or it is lost for good.
+		await store.update('legacy', { name: 'Renamed' })
+		await store.update('legacy', { content: 'edited', note: 'Rewrote it' })
+
+		expect((await store.listVersions('legacy')).map((v) => [v.version, v.content])).toEqual([
+			[2, 'edited'],
+			[1, 'original']
+		])
+	})
+
+	it('reads an artifact stored before history existed as its own version 1', async () => {
+		await dbMod.putArtifact(mk({ id: 'legacy', content: 'only' }))
+		await store.setSession('s1')
+
+		expect(await store.listVersions('legacy')).toMatchObject([{ version: 1, content: 'only' }])
+		expect((await store.getVersion('legacy', 1))?.content).toBe('only')
+		// Its first edit still lands as v2, so version numbers stay monotonic.
+		await store.update('legacy', { content: 'edited' })
+		expect((await store.listVersions('legacy')).map((v) => v.version)).toEqual([2, 1])
+	})
+
 	it('remove deletes from the DB and the loaded list', async () => {
 		await store.setSession('s1')
 		const created = await store.create('s1', { name: 'Plan', content: 'x' })
