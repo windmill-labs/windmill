@@ -1995,7 +1995,15 @@ async fn get_job(
     // same visibility as `jobs/list` (see `require_job_read_access`), or hold a public
     // share link when logged out — which `public_view_grant` already established above,
     // so skip re-deriving it here: this handler is what the public run page polls.
-    if !has_valid_approval_token && !public_view_grant {
+    if has_valid_approval_token || public_view_grant {
+        // Both grants skip the gate below, and with it the run-scope confinement that
+        // gate carries. That confinement is a hard restriction, so re-apply it: holding
+        // an approval link for a job must not let a scoped token read one outside the
+        // runnables it may start.
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_within_run_scope(&db, authed, &w_id, &id).await?;
+        }
+    } else {
         require_opt_authed_job_read_access(
             &db,
             &user_db,

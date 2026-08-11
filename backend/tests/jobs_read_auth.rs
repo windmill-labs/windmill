@@ -481,6 +481,34 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         "a token with no scope on the app must not read its component run (got {status}): {body}"
     );
 
+    // An approval link is a bypass of the read gate, so the confinement is re-applied on
+    // top of it: it must not become a way for a scoped token to read an out-of-scope job.
+    // The link itself is untouched — a logged-out approver still reads the same job.
+    let approval_token =
+        windmill_common::variables::generate_approval_token("test-workspace", VICTIM.parse()?, &db)
+            .await?;
+    let (status, body) = get(
+        &base,
+        &format!("get/{VICTIM}?approval_token={approval_token}"),
+        None,
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "an approval link must still authorize a logged-out read (got {status}): {body}"
+    );
+    let (status, body) = get(
+        &base,
+        &format!("get/{VICTIM}?approval_token={approval_token}"),
+        Some("RUN_SCOPED_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "an approval link must not lift the run-scope confinement (got {status}): {body}"
+    );
+
     // And a run grant is not an enumeration grant: the whole listing surface is denied.
     let (status, body) = get(&authed_base, "list", Some("RUN_SCOPED_TOKEN")).await;
     assert_eq!(

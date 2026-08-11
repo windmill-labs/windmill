@@ -690,11 +690,15 @@ fn extract_domain_from_route(
 }
 
 /// The reads a `jobs:run` scope implies: following, by id, a run the token started.
-/// Every entry takes a job id and authorizes through `require_job_read_access` (or its
-/// own `jobs:run:flows:<path>` check), which is what confines them to the token's own
-/// runnable. Workspace-wide enumeration (`jobs/list`, counts, exports) is deliberately
-/// absent — that is `jobs:read`. Keep by-id read routes here in sync as they are added,
-/// or a run token loses the ability to follow its own run through them.
+/// Every entry is keyed by a job id, and all but two authorize through
+/// `require_job_read_access` (or their own `jobs:run:flows:<path>` check), which is what
+/// confines them to the token's own runnable. The two exceptions carry their own gate:
+/// `jobs_u/get_flow/` needs the resume secret, and `jobs_u/get_root_job_id/` has no check
+/// at all but discloses only flow lineage, to anyone, authenticated or not.
+/// Workspace-wide enumeration (`jobs/list`, counts, exports) and credential minting
+/// (`job_view_token`) are deliberately absent — those are `jobs:read`. Keep by-id read
+/// routes here in sync as they are added, or a run token loses the ability to follow its
+/// own run through them.
 const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
