@@ -1458,6 +1458,11 @@ async fn require_job_read_access(
         }
     }
 
+    // A path-scoped `jobs:run` token is likewise hard-restricted to the runnables it
+    // may start, ahead of every grant below — the token is handed out to run one thing,
+    // so it must not read jobs of anything else merely because its owner could.
+    require_job_within_run_scope(db, authed, w_id, job_id).await?;
+
     // Fast path: you can always read a job you launched. This is also load-bearing
     // for apps — a component job runs as the app policy's `permissioned_as`, but its
     // `created_by` is the launching viewer, so the RLS probe below would hide it.
@@ -1578,6 +1583,71 @@ async fn require_job_read_access(
             "You do not have access to run {job_id}. Ask a user who can see it to open the run and \
              share a read-only link with you (the \"Share\" button on the run page)."
         )))
+    } else {
+        Err(Error::NotFound(format!("Job {job_id} not found")))
+    }
+}
+
+/// Confines a path-scoped `jobs:run:<kind>:<path>` token to jobs of the runnables it may
+/// start. Such a token is minted per script/flow for a webhook or CI caller, which needs
+/// to start that runnable and poll the resulting job — nothing more. Without this, the
+/// by-id read routes it reaches for polling (`RUN_WHITELISTED_GET_PATHS`) would serve
+/// it the args/result/logs of any job its owner's identity can see, defeating the path
+/// confinement the scope exists to provide.
+///
+/// The scope may be satisfied by the job itself or by any of its `parent_job` ancestors:
+/// a flow step's `runnable_path` is the inner runnable's, so a `jobs:run:flows:<flow>`
+/// token inspecting its own run must still reach the steps beneath it.
+///
+/// No-op — and no query — for every caller whose job reads are not run-confined (see
+/// `job_read_run_confinement`), which is all sessions, unscoped tokens and `jobs:read`
+/// tokens.
+async fn require_job_within_run_scope(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: &Uuid,
+) -> error::Result<()> {
+    let Some(confinement) =
+        windmill_api_auth::scopes::job_read_run_confinement(authed.scopes.as_deref())
+    else {
+        return Ok(());
+    };
+    let chain = sqlx::query!(
+        r#"WITH RECURSIVE chain(id, parent_job, runnable_path, kind) AS (
+                SELECT id, parent_job, runnable_path, kind FROM v2_job
+                    WHERE id = $1 AND workspace_id = $2
+                UNION ALL
+                SELECT j.id, j.parent_job, j.runnable_path, j.kind FROM v2_job j
+                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
+            )
+            SELECT runnable_path, kind AS "kind!: JobKind" FROM chain"#,
+        job_id,
+        w_id,
+    )
+    .fetch_all(db)
+    .await?;
+
+    let in_scope = chain.iter().any(|job| {
+        let Some(runnable_path) = job.runnable_path.as_deref() else {
+            return false;
+        };
+        // Only the kinds a `jobs:run:<kind>:<path>` scope can name. Anything else
+        // (previews, dependency jobs, flow-inlined scripts) can still be reached as a
+        // step of a matching flow, through its ancestors.
+        let kind = match job.kind {
+            JobKind::Script | JobKind::Script_Hub | JobKind::UnassignedScript => "scripts",
+            JobKind::Flow
+            | JobKind::SingleStepFlow
+            | JobKind::UnassignedFlow
+            | JobKind::UnassignedSinglestepFlow => "flows",
+            _ => return false,
+        };
+        windmill_api_auth::scopes::run_confinement_admits(&confinement, kind, runnable_path)
+    });
+
+    if in_scope {
+        Ok(())
     } else {
         Err(Error::NotFound(format!("Job {job_id} not found")))
     }
@@ -5455,9 +5525,14 @@ pub async fn create_job_signature(
 
 pub async fn get_flow_user_state(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id, key)): Path<(String, Uuid, String)>,
 ) -> error::JsonResult<Option<serde_json::Value>> {
+    // Reachable by a `jobs:run` token (it is one of the by-id routes a run needs), so
+    // apply the same run-scope confinement as the other single-job reads. RLS below
+    // still governs which jobs the owner's identity can see at all.
+    require_job_within_run_scope(&db, &authed, &w_id, &job_id).await?;
     let mut tx = user_db.begin(&authed).await?;
     let r = sqlx::query_scalar!(
         r#"

@@ -380,6 +380,60 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         }
     }
 
+    // ---- PATH-SCOPED RUN TOKEN: confined to jobs of the runnable it may start.
+    //      RUN_SCOPED_TOKEN is test-user-2's `jobs:run:flows:f/shared/flow1` webhook
+    //      token, and test-user-2 created every job in this fixture — so `created_by`
+    //      alone would hand it all of them.
+    // Its own flow run reads, and so do the steps beneath it: a step's `runnable_path`
+    // is the inner script's, so the scope has to be satisfied through the ancestor.
+    for (path, expected) in [
+        (
+            format!("completed/get_result/{FLOW_JOB}"),
+            r#""flow": "done""#,
+        ),
+        (
+            format!("completed/get_result/{STEP_JOB}"),
+            "STEP_RESULT_INHERITED",
+        ),
+    ] {
+        let (status, body) = get(&base, &path, Some("RUN_SCOPED_TOKEN")).await;
+        assert!(
+            status.is_success(),
+            "run-scoped token must read its own flow run ({path}, got {status}): {body}"
+        );
+        assert!(
+            body.contains(expected),
+            "run-scoped token should get {expected} for {path}: {body}"
+        );
+    }
+    // A job of any other runnable is out of scope, even though the same user created it.
+    for path in [
+        format!("completed/get_result/{VICTIM}"),
+        format!("get_args/{VICTIM}"),
+        format!("get_logs/{VICTIM}"),
+        format!("getupdate/{VICTIM}?only_result=true"),
+    ] {
+        let (status, body) = get(&base, &path, Some("RUN_SCOPED_TOKEN")).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "run-scoped token must not read a job outside its scope ({path}, got {status}): {body}"
+        );
+        for secret in [RESULT_SECRET, ARGS_SECRET, LOGS_SECRET] {
+            assert!(
+                !body.contains(secret),
+                "run-scoped token response for {path} leaked `{secret}`: {body}"
+            );
+        }
+    }
+    // And a run grant is not an enumeration grant: the whole listing surface is denied.
+    let (status, body) = get(&authed_base, "list", Some("RUN_SCOPED_TOKEN")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "run-scoped token must not enumerate jobs (got {status}): {body}"
+    );
+
     // ---- APP EMBED TOKEN: cancellation confined to the app's own jobs. The token
     //      may cancel a job it launched (created_by == viewer), but `cancel_job_api`
     //      denies (NotFound) a job created by someone else, even one the (admin)

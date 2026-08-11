@@ -19,6 +19,15 @@ INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, sc
     ARRAY['jobs:read', 'if_jobs:filter_tags:deno']
 );
 
+-- A path-scoped run token for test-user-2, as the trigger UI mints per runnable for a
+-- webhook caller. test-user-2 created every job below, so the `created_by` grant would
+-- otherwise hand this token all of them; it must reach only jobs of `f/shared/flow1`.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('RUN_SCOPED_TOKEN'::bytea), 'hex'), 'RUN_SCOPE', 'RUN_SCOPED_TOKEN',
+    'test2@windmill.dev', 'flow webhook token', false,
+    ARRAY['jobs:run:flows:f/shared/flow1']
+);
+
 -- App embed token for the admin viewer (test-user). Mirrors a minted sandboxed
 -- low-code app token: carries the `app_embed` sentinel plus the embed scope set.
 -- Used to assert the token is confined to jobs the viewer LAUNCHED, not every job
