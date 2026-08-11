@@ -5725,6 +5725,12 @@ paths:
               properties:
                 name:
                   type: string
+                  description: >-
+                    Environment variable name. New names must be a plain JS
+                    identifier (matching ^[A-Za-z_$][A-Za-z0-9_$]*$) since the
+                    name is spliced into the NativeTS/Bun worker prologue;
+                    otherwise the request is rejected with 400. Existing names
+                    can still be updated regardless of shape.
                 value:
                   type: string
               required: [name]

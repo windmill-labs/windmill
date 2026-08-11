@@ -1708,10 +1708,7 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job
-            .trigger_kind
-            .as_ref()
-            .map(|k| k.as_str().to_string()),
+        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),
@@ -5271,12 +5268,13 @@ pub async fn run_language_executor(
                 .map(|(k, v)| {
                     let escaped = windmill_common::variables::escape_js_single_quoted(v);
                     let key_literal = windmill_common::variables::escape_js_single_quoted(k);
-                    if windmill_common::variables::is_valid_js_identifier(k) {
+                    if windmill_common::variables::can_bind_as_prologue_const(k) {
                         format!("const {k} = '{escaped}';\nprocess.env['{key_literal}'] = '{escaped}';\n")
                     } else {
-                        // Non-identifier names (e.g. attacker-planted workspace env
-                        // vars) can't bind to `const {k}` without executing as code;
-                        // expose them only through process.env with the key escaped.
+                        // Names that can't safely bind to `const {k}` (non-identifiers,
+                        // reserved words, prologue-owned names) are exposed only through
+                        // process.env with the key escaped — a `const` for them would be
+                        // an injection or a SyntaxError.
                         format!("process.env['{key_literal}'] = '{escaped}';\n")
                     }
                 })
