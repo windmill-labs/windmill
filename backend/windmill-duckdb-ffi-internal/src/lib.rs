@@ -250,11 +250,10 @@ fn sql_single_quote(s: &str) -> String {
     s.replace('\'', "''")
 }
 
-// Bounds memory so DuckDB spills to disk before blowing the cgroup cap and
-// getting the worker SIGKILLed, and bounds the spill itself so one query cannot
-// fill the worker's disk. Spill goes to the job dir (when set) so it is cleaned
-// up with the job, otherwise DuckDB's default temp_directory is kept — and either
-// way the directory and its cap are locked for the rest of the connection.
+// Bounds memory so DuckDB spills before blowing the cgroup cap and getting the worker
+// SIGKILLed, and bounds the spill so one query cannot fill its disk. Spill goes to the job
+// dir when set, so it is cleaned up with the job; either way the directory and its cap are
+// then locked for the rest of the connection.
 fn configure_duckdb_resource_limits(
     conn: &duckdb::Connection,
     limits: &ResourceLimits,
@@ -299,11 +298,10 @@ fn configure_duckdb_resource_limits(
             )
         })?;
     }
-    // Freeze the directory and the cap on it before any script statement can touch either:
-    // on a remote directory `~TemporaryDirectoryHandle` throws out of a `noexcept`
-    // destructor, which is `std::terminate` — an abort taking this in-process worker and
-    // every job colocated on it down, uncatchable from Rust — and a cap a script can raise
-    // leaves nothing bounding how much of the worker's disk one query fills.
+    // Freeze both before any script statement can touch them. A remote temp directory makes
+    // `~TemporaryDirectoryHandle` throw out of a `noexcept` destructor — `std::terminate`,
+    // taking this in-process worker and every job on it down, uncatchable from Rust — and a
+    // cap a script can raise bounds nothing.
     run("SET lock_temp_directory=true;\n")
 }
 
@@ -1463,11 +1461,10 @@ mod patched_engine_tests {
         locked.expect("a locked temp directory must stay usable behind disabled_filesystems");
     }
 
-    /// The exemption above is only sound while neither where the spill goes nor how much of
-    /// it there may be can be changed: a script that repointed the directory would get a
-    /// write primitive through the very fence it is exempt from, and one that raised the cap
-    /// would be left with nothing bounding what it writes to the worker's disk. A rebase can
-    /// drop either half of the patch while leaving the spill test green, so pin both.
+    /// The exemption above is only sound while neither the spill's destination nor its size
+    /// can be changed: repointing the directory is a write primitive through the very fence
+    /// it is exempt from, and raising the cap leaves the disk unbounded. A rebase can drop
+    /// either half while leaving the spill test green, so pin both.
     #[test]
     fn locking_the_temp_directory_makes_it_immutable() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
