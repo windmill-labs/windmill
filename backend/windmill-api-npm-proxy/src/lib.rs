@@ -198,16 +198,18 @@ struct CachedPackageJson {
 const TARBALL_CACHE_TTL: Duration = Duration::from_secs(300);
 const TARBALL_CACHE_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Bounds on one archive's inflation. All three sit far above any real package (`next`
-/// unpacks to ~184 MB across ~8.5k files), so they bound abuse rather than express a size
-/// policy — a package is never refused for being large.
+/// Bounds on one archive's inflation. Both sit far above any real package (`next` unpacks
+/// to ~184 MB across ~8.5k files), so they bound abuse rather than express a size policy —
+/// a package is never refused for being large.
 const MAX_INFLATED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
-/// Backstops on what one package retains. Anything past them is read back on demand, which
-/// costs a walk of the archive per read, so they are set above what real packages hold
-/// rather than tightly: `aws-sdk` carries ~51 MB across 442 declarations, the heaviest
-/// known, and the cache's own byte budget is what bounds the total across packages.
+/// Ceiling on one entry held in memory. Past it the entry is read back on demand, which
+/// costs a walk of the archive per read, so it sits above what real packages hold rather
+/// than tightly.
 const RETAINED_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
+/// Ceiling on everything one read holds: the file list and the retained entries together.
+/// `aws-sdk` is the heaviest package known here at ~51 MB across 442 declarations, so this
+/// clears it comfortably while staying an abuse bound.
 const RETAINED_BYTES: u64 = 128 * 1024 * 1024;
 /// Charged per entry on top of its bytes, for the `String`/`Vec` headers, their heap
 /// allocations and the map bucket. Deliberately generous: the point is that an archive of
@@ -215,11 +217,12 @@ const RETAINED_BYTES: u64 = 128 * 1024 * 1024;
 const NAME_OVERHEAD: u64 = 64;
 const RETAINED_FILE_OVERHEAD: u64 = 160;
 
-/// What a type request can ask for: `ata/index.ts` reads each dependency's manifest and
-/// then every `.d.ts` the file tree lists. Retaining just those keeps a large package's
-/// bundles, maps and licences out of memory — `next` lists 8.5k files, of which the
-/// manifest is the 3748th, so a rule by size alone would spend the budget before reaching
-/// what is actually read. Anything else stays available through a read on demand.
+/// Resident memory is `reads in flight × RETAINED_BYTES` plus the cache, since a read
+/// builds its map before the cache ever weighs it. Keeping the per-read ceiling well under
+/// the cache budget also keeps a package clear of the single shard's admission ceiling
+/// (`budget × 0.97`), past which it would be served but silently never cached.
+const _: () = assert!(RETAINED_BYTES * 2 <= TARBALL_CACHE_BYTES);
+
 /// npm roots its own tarballs at `package/`, but publishers vary — DefinitelyTyped roots
 /// at the type name — so the leading component is dropped whatever it is. Matching
 /// `package/` alone silently yields an empty file tree for those packages.
@@ -229,6 +232,11 @@ fn strip_archive_root(path: &str) -> Option<&str> {
         .filter(|rest| !rest.is_empty())
 }
 
+/// What a type request can ask for: `ata/index.ts` reads each dependency's manifest and
+/// then every `.d.ts` the file tree lists. Retaining just those keeps a large package's
+/// bundles, maps and licences out of memory — `next` lists 8.5k files, of which the
+/// manifest is the 3748th, so a rule by size alone would spend the budget before reaching
+/// what is actually read. Anything else stays available through a read on demand.
 fn worth_retaining(path: &str) -> bool {
     path == MANIFEST || path.ends_with(".d.ts")
 }
@@ -257,8 +265,8 @@ struct PackageArchive {
     archive: axum::body::Bytes,
     /// In archive order, `/`-prefixed, for the file tree listing.
     names: Vec<String>,
-    /// Paths with the `package/` prefix stripped. Holds only the entries small enough to
-    /// retain, so a miss means "walk the archive", not "absent from the package".
+    /// Keyed by path with the archive root stripped. A cache of the archive rather than a
+    /// statement about it: a miss means "walk the archive", not "absent from the package".
     small_files: HashMap<String, Vec<u8>>,
 }
 
@@ -626,26 +634,10 @@ async fn get_package_filetree(
     )
     .await?;
 
-    // The entry point comes from the packaged manifest rather than the registry document,
-    // which carries no `main` in its abbreviated form. A manifest past the retention
-    // bounds is read back rather than assumed absent: falling through to a default would
-    // report the wrong entry point for a package that does declare one.
-    let manifest = match archive.small_files.get(MANIFEST) {
-        Some(manifest) => Some(manifest.clone()),
-        None => {
-            let archive = archive.clone();
-            blocking(move || read_one_entry(&archive.archive, MANIFEST)).await?
-        }
+    let main = {
+        let archive = archive.clone();
+        blocking(move || entry_point(&archive)).await?
     };
-    let main = manifest
-        .and_then(|manifest| serde_json::from_slice::<JsonValue>(&manifest).ok())
-        .and_then(|manifest| {
-            manifest
-                .get("main")
-                .and_then(|m| m.as_str())
-                .map(String::from)
-        })
-        .unwrap_or_else(|| "index.js".to_string());
 
     let files = archive
         .names
@@ -856,9 +848,19 @@ fn read_package_archive(
                 retention.max_entries
             )));
         }
+        // Paths are held whatever the entry is, and held twice for a retained one, so
+        // they are charged like any other bytes: an archive of long names would otherwise
+        // grow `names` without limit while reporting almost no weight.
+        retained += stripped.len() as u64 + NAME_OVERHEAD;
+        if retained > retention.total_bytes {
+            return Err(Error::BadRequest(format!(
+                "Package archive holds more than {} bytes of paths and declarations",
+                retention.total_bytes
+            )));
+        }
         names.push(format!("/{}", stripped));
 
-        if !worth_retaining(&stripped) || retained >= retention.total_bytes {
+        if !worth_retaining(&stripped) {
             continue;
         }
         // Read through a cap rather than sizing from the header, which an archive is free
@@ -868,15 +870,41 @@ fn read_package_archive(
             .take(retention.entry_bytes + 1)
             .read_to_end(&mut content)
             .map_err(|e| Error::InternalErr(format!("Failed to read {}: {}", stripped, e)))?;
-        if content.len() as u64 <= retention.entry_bytes {
-            // The overhead counts against the budget too, so many empty files exhaust it
-            // rather than being retained without limit.
-            retained += content.len() as u64 + RETAINED_FILE_OVERHEAD;
-            small_files.insert(stripped, content);
+        if content.len() as u64 > retention.entry_bytes {
+            continue;
         }
+        retained += (stripped.len() + content.len()) as u64 + RETAINED_FILE_OVERHEAD;
+        if retained > retention.total_bytes {
+            return Err(Error::BadRequest(format!(
+                "Package archive holds more than {} bytes of paths and declarations",
+                retention.total_bytes
+            )));
+        }
+        small_files.insert(stripped, content);
     }
 
     Ok(PackageArchive { archive, names, small_files })
+}
+
+/// A package's entry point, from the packaged manifest rather than the registry document,
+/// which carries no `main` in its abbreviated form. A manifest outside the retention
+/// bounds is read back rather than assumed absent: inferring absence from a miss would
+/// report the wrong entry point for a package that does declare one. Blocking work, since
+/// the read-back walks the archive.
+fn entry_point(archive: &PackageArchive) -> Result<String> {
+    let manifest = match archive.small_files.get(MANIFEST) {
+        Some(manifest) => Some(manifest.clone()),
+        None => read_one_entry(&archive.archive, MANIFEST)?,
+    };
+    Ok(manifest
+        .and_then(|manifest| serde_json::from_slice::<JsonValue>(&manifest).ok())
+        .and_then(|manifest| {
+            manifest
+                .get("main")
+                .and_then(|m| m.as_str())
+                .map(String::from)
+        })
+        .unwrap_or_else(|| "index.js".to_string()))
 }
 
 /// Read one entry out of an archive, for the files too large to have been retained.
@@ -962,7 +990,7 @@ async fn blocking<T: Send + 'static>(
 mod tests {
     use super::{
         byte_bounded_cache, read_one_entry, read_package_archive, resolve_version_spec,
-        CachedTarball, PackageArchive, Retention, MANIFEST, NAME_OVERHEAD,
+        entry_point, CachedTarball, PackageArchive, Retention, MANIFEST, NAME_OVERHEAD,
         RETAINED_FILE_OVERHEAD,
     };
     use std::collections::HashMap;
@@ -1076,12 +1104,14 @@ mod tests {
         let squeezed = Retention { entry_bytes: 16, ..TINY };
         let read = read_package_archive(archive.clone(), squeezed).unwrap();
 
+        // The manifest fell outside the bounds, so a lookup alone would default
         assert!(!read.small_files.contains_key(MANIFEST));
-        let found = read_one_entry(&archive, MANIFEST).unwrap().unwrap();
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&found).unwrap()["main"],
-            "lib/index.js"
-        );
+        assert_eq!(entry_point(&read).unwrap(), "lib/index.js");
+
+        // and a package that genuinely declares none still gets the default
+        let bare: axum::body::Bytes = tarball(&[("package/index.js", 4)]).into();
+        let read = read_package_archive(bare, TINY).unwrap();
+        assert_eq!(entry_point(&read).unwrap(), "index.js");
     }
 
     /// Weighing contents alone would price an archive of empty declarations at nearly
@@ -1108,6 +1138,12 @@ mod tests {
             read.retained_bytes()
                 >= archive.len() as u64 + 2000 * (NAME_OVERHEAD + RETAINED_FILE_OVERHEAD)
         );
+
+        // Long paths are held whatever the entry is, so they count against the budget:
+        // an archive of them would otherwise grow `names` while reporting no weight.
+        let long = format!("package/{}.js", "p".repeat(2000));
+        let padded: axum::body::Bytes = tarball(&[(long.as_str(), 0)]).into();
+        assert!(read_package_archive(padded, Retention { total_bytes: 512, ..TINY }).is_err());
     }
 
     /// A cache that splits its budget across shards refuses anything heavier than one
