@@ -189,24 +189,69 @@ struct CachedPackageJson {
     fetched_at: Instant,
 }
 
-/// Type acquisition asks for a package's file tree and then for each `.d.ts` in it. The
-/// downloaded archive is what is kept, not its inflated contents: that bounds the cache by
-/// something already measured — the transfer size — while an inflated map is bounded only
-/// by how far the archive chooses to expand. Each request then walks the archive holding
-/// one entry at a time, which trades a little CPU for a download per package, not per file.
+/// Type acquisition asks for a package's file tree and then for each `.d.ts` in it, all
+/// out of one archive, so a package is downloaded once and inflated once. What is kept is
+/// the compressed archive plus the small files a type request can ask for; the large
+/// entries — bundles, maps, binaries, which nothing here ever reads — are walked past
+/// rather than retained, so the resident size follows the transfer size and not however
+/// far the archive chooses to expand.
 const TARBALL_CACHE_TTL: Duration = Duration::from_secs(300);
 const TARBALL_CACHE_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Guards against an archive that expands without bound in one entry or in entry count.
-/// Both sit far above any real package (`next` unpacks to ~184 MB across ~5k files), so
-/// they bound abuse rather than expressing a size policy: a package too large to cache is
-/// still served, it just costs a walk per request.
-const MAX_ENTRY_BYTES: u64 = 32 * 1024 * 1024;
+/// Bounds on one archive's inflation. All three sit far above any real package (`next`
+/// unpacks to ~184 MB across ~8.5k files), so they bound abuse rather than express a size
+/// policy — a package is never refused for being large.
+const MAX_INFLATED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
+/// Backstops on what one package retains. Type declarations and manifests sit far below
+/// both; anything larger is read back on demand instead.
+const RETAINED_ENTRY_BYTES: u64 = 512 * 1024;
+const RETAINED_BYTES: u64 = 32 * 1024 * 1024;
+
+/// What a type request can ask for: `ata/index.ts` reads each dependency's manifest and
+/// then every `.d.ts` the file tree lists. Retaining just those keeps a large package's
+/// bundles, maps and licences out of memory — `next` lists 8.5k files, of which the
+/// manifest is the 3748th, so a rule by size alone would spend the budget before reaching
+/// what is actually read. Anything else stays available through a read on demand.
+/// npm roots its own tarballs at `package/`, but publishers vary — DefinitelyTyped roots
+/// at the type name — so the leading component is dropped whatever it is. Matching
+/// `package/` alone silently yields an empty file tree for those packages.
+fn strip_archive_root(path: &str) -> Option<&str> {
+    path.split_once('/')
+        .map(|(_, rest)| rest)
+        .filter(|rest| !rest.is_empty())
+}
+
+fn worth_retaining(path: &str) -> bool {
+    path == "package.json" || path.ends_with(".d.ts")
+}
+
+/// A package version's archive, and the small files read out of it on the way in.
+struct PackageArchive {
+    archive: axum::body::Bytes,
+    /// In archive order, `/`-prefixed, for the file tree listing.
+    names: Vec<String>,
+    /// Paths with the `package/` prefix stripped. Holds only the entries small enough to
+    /// retain, so a miss means "walk the archive", not "absent from the package".
+    small_files: HashMap<String, Vec<u8>>,
+}
+
+impl PackageArchive {
+    fn retained_bytes(&self) -> u64 {
+        let names: u64 = self.names.iter().map(|n| n.len() as u64).sum();
+        let files: u64 = self
+            .small_files
+            .iter()
+            .map(|(path, content)| (path.len() + content.len()) as u64)
+            .sum();
+        self.archive.len() as u64 + names + files
+    }
+}
 
 #[derive(Clone)]
 struct CachedTarball {
-    archive: axum::body::Bytes,
+    package: Arc<PackageArchive>,
+    bytes: u64,
     fetched_at: Instant,
 }
 
@@ -221,7 +266,7 @@ impl Weighter<(String, String), CachedPackageJson> for CacheWeighter {
 
 impl Weighter<(String, String, String), CachedTarball> for CacheWeighter {
     fn weight(&self, _key: &(String, String, String), cached: &CachedTarball) -> u64 {
-        (cached.archive.len() as u64).max(1)
+        cached.bytes.max(1)
     }
 }
 
@@ -536,7 +581,7 @@ async fn get_package_filetree(
 ) -> JsonResult<PackageFiletree> {
     let (package, version) = parse_package_and_version(package_version_path.to_path())?;
     let (package_json, registry_url, auth_token) = fetch_package_json(&db, &package).await?;
-    let archive = cached_archive(
+    let archive = cached_package(
         &package_json,
         &package,
         &version,
@@ -545,20 +590,12 @@ async fn get_package_filetree(
     )
     .await?;
 
-    let mut files = Vec::new();
-    let mut manifest = None;
-    walk_tarball(&archive, MAX_ENTRIES, |path, entry| {
-        files.push(FileEntry { name: format!("/{}", path) });
-        if path == "package.json" {
-            manifest = Some(read_entry(path, entry)?);
-        }
-        Ok(true)
-    })?;
-
     // The entry point comes from the packaged manifest rather than the registry document,
     // which carries no `main` in its abbreviated form.
-    let main = manifest
-        .and_then(|manifest| serde_json::from_slice::<JsonValue>(&manifest).ok())
+    let main = archive
+        .small_files
+        .get("package.json")
+        .and_then(|manifest| serde_json::from_slice::<JsonValue>(manifest).ok())
         .and_then(|manifest| {
             manifest
                 .get("main")
@@ -566,6 +603,12 @@ async fn get_package_filetree(
                 .map(String::from)
         })
         .unwrap_or_else(|| "index.js".to_string());
+
+    let files = archive
+        .names
+        .iter()
+        .map(|name| FileEntry { name: name.clone() })
+        .collect();
 
     Ok(Json(PackageFiletree { default: main, files }))
 }
@@ -578,7 +621,7 @@ async fn get_package_file(
 ) -> Result<String> {
     let (package, version, filepath) = parse_package_version_and_file(full_path.to_path())?;
     let (package_json, registry_url, auth_token) = fetch_package_json(&db, &package).await?;
-    let archive = cached_archive(
+    let archive = cached_package(
         &package_json,
         &package,
         &version,
@@ -587,18 +630,21 @@ async fn get_package_file(
     )
     .await?;
 
-    let target = filepath.trim_start_matches('/');
-    let mut found = None;
-    walk_tarball(&archive, MAX_ENTRIES, |path, entry| {
-        if path != target {
-            return Ok(true);
+    let target = filepath.trim_start_matches('/').to_string();
+    let content = match archive.small_files.get(&target) {
+        Some(content) => content.clone(),
+        // Too large to have been retained, so read it back out of the archive
+        None => {
+            let archive = archive.clone();
+            let path = target.clone();
+            blocking(move || read_one_entry(&archive.archive, &path))
+                .await?
+                .ok_or_else(|| {
+                    Error::NotFound(format!("File {} not found in tarball", filepath))
+                })?
         }
-        found = Some(read_entry(path, entry)?);
-        Ok(false)
-    })?;
+    };
 
-    let content =
-        found.ok_or_else(|| Error::NotFound(format!("File {} not found in tarball", filepath)))?;
     String::from_utf8(content)
         .map_err(|_| Error::BadRequest(format!("File {} is not valid UTF-8", filepath)))
 }
@@ -703,22 +749,47 @@ fn format_registry_url(
     }
 }
 
-/// Walk a package archive, calling `visit` with each entry's path (the `package/` prefix
-/// stripped) and a reader over its body, until `visit` returns `false`. Entry bodies are
-/// never all held at once, so peak memory is one entry regardless of the archive's size.
-fn walk_tarball(
-    archive_bytes: &[u8],
-    max_entries: usize,
-    mut visit: impl FnMut(&str, &mut dyn std::io::Read) -> Result<bool>,
-) -> Result<()> {
+/// Caps total inflation across a whole walk, entries skipped past included: a tar entry
+/// can only be advanced over by decompressing it, so bounding the matched entry alone
+/// leaves the work an archive can demand unbounded.
+struct BoundedRead<R> {
+    inner: R,
+    remaining: u64,
+}
+
+impl<R: std::io::Read> std::io::Read for BoundedRead<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(std::io::Error::other(format!(
+                "archive inflates past {} bytes",
+                MAX_INFLATED_BYTES
+            )));
+        }
+        let cap = buf.len().min(self.remaining as usize);
+        let read = self.inner.read(&mut buf[..cap])?;
+        self.remaining -= read as u64;
+        Ok(read)
+    }
+}
+
+/// Read a package archive once, keeping its file list and the entries small enough to
+/// retain. Blocking work: gunzip plus a full walk, so callers hand it to a blocking thread.
+fn read_package_archive(archive: axum::body::Bytes, max_entries: usize) -> Result<PackageArchive> {
     use flate2::read::GzDecoder;
+    use std::io::Read;
     use tar::Archive;
 
-    let gz = GzDecoder::new(archive_bytes);
-    let mut archive = Archive::new(gz);
-    let mut seen = 0usize;
+    let gz = BoundedRead {
+        inner: GzDecoder::new(archive.as_ref()),
+        remaining: MAX_INFLATED_BYTES,
+    };
+    let mut tar = Archive::new(gz);
 
-    for entry in archive
+    let mut names = Vec::new();
+    let mut small_files = HashMap::new();
+    let mut retained = 0u64;
+
+    for entry in tar
         .entries()
         .map_err(|e| Error::InternalErr(format!("Failed to read tarball entries: {}", e)))?
     {
@@ -730,53 +801,78 @@ fn walk_tarball(
             .to_string_lossy()
             .to_string();
 
-        // Remove the package/ prefix that npm tarballs have
-        let Some(stripped) = path.strip_prefix("package/").map(str::to_string) else {
+        let Some(stripped) = strip_archive_root(&path).map(str::to_string) else {
             continue;
         };
-        seen += 1;
-        if seen > max_entries {
+        if names.len() >= max_entries {
             return Err(Error::BadRequest(format!(
                 "Package archive holds more than {} files",
                 max_entries
             )));
         }
-        if !visit(&stripped, &mut entry)? {
-            break;
+        names.push(format!("/{}", stripped));
+
+        if !worth_retaining(&stripped) || retained >= RETAINED_BYTES {
+            continue;
+        }
+        // Read through a cap rather than sizing from the header, which an archive is free
+        // to lie about, and one byte past it so an overrun is detectable.
+        let mut content = Vec::new();
+        (&mut entry)
+            .take(RETAINED_ENTRY_BYTES + 1)
+            .read_to_end(&mut content)
+            .map_err(|e| Error::InternalErr(format!("Failed to read {}: {}", stripped, e)))?;
+        if content.len() as u64 <= RETAINED_ENTRY_BYTES {
+            retained += content.len() as u64;
+            small_files.insert(stripped, content);
         }
     }
 
-    Ok(())
+    Ok(PackageArchive { archive, names, small_files })
 }
 
-/// Read one entry, refusing a body that expands past `MAX_ENTRY_BYTES`. Reads through the
-/// cap rather than sizing from the header, which an archive is free to lie about, and one
-/// byte past it so the overrun is detectable.
-fn read_entry(path: &str, entry: &mut dyn std::io::Read) -> Result<Vec<u8>> {
+/// Read one entry out of an archive, for the files too large to have been retained.
+/// Blocking work, same as the full read.
+fn read_one_entry(archive: &[u8], target: &str) -> Result<Option<Vec<u8>>> {
+    use flate2::read::GzDecoder;
     use std::io::Read;
+    use tar::Archive;
 
-    let mut content = Vec::new();
-    entry
-        .take(MAX_ENTRY_BYTES + 1)
-        .read_to_end(&mut content)
-        .map_err(|e| Error::InternalErr(format!("Failed to read {}: {}", path, e)))?;
-    if content.len() as u64 > MAX_ENTRY_BYTES {
-        return Err(Error::BadRequest(format!(
-            "{} expands past {} bytes",
-            path, MAX_ENTRY_BYTES
-        )));
+    let gz = BoundedRead { inner: GzDecoder::new(archive), remaining: MAX_INFLATED_BYTES };
+    let mut tar = Archive::new(gz);
+
+    for entry in tar
+        .entries()
+        .map_err(|e| Error::InternalErr(format!("Failed to read tarball entries: {}", e)))?
+    {
+        let mut entry = entry
+            .map_err(|e| Error::InternalErr(format!("Failed to read tarball entry: {}", e)))?;
+        let path = entry
+            .path()
+            .map_err(|e| Error::InternalErr(format!("Failed to read entry path: {}", e)))?
+            .to_string_lossy()
+            .to_string();
+
+        if strip_archive_root(&path) == Some(target) {
+            let mut content = Vec::new();
+            entry
+                .read_to_end(&mut content)
+                .map_err(|e| Error::InternalErr(format!("Failed to read {}: {}", target, e)))?;
+            return Ok(Some(content));
+        }
     }
-    Ok(content)
+
+    Ok(None)
 }
 
-/// The archive of a package version, downloaded once and kept compressed
-async fn cached_archive(
+/// The archive of a package version, downloaded and read once
+async fn cached_package(
     package_json: &JsonValue,
     package: &str,
     version: &str,
     registry_url: &str,
     auth_token: &Option<String>,
-) -> Result<axum::body::Bytes> {
+) -> Result<Arc<PackageArchive>> {
     let cache_key = (
         registry_url.to_string(),
         package.to_string(),
@@ -784,26 +880,44 @@ async fn cached_archive(
     );
     if let Some(cached) = TARBALL_CACHE.get(&cache_key) {
         if cached.fetched_at.elapsed() < TARBALL_CACHE_TTL {
-            return Ok(cached.archive);
+            return Ok(cached.package);
         }
     }
 
     let archive = fetch_tarball(package_json, package, version, registry_url, auth_token).await?;
+    let read = blocking(move || read_package_archive(archive, MAX_ENTRIES)).await?;
+    let package = Arc::new(read);
 
     TARBALL_CACHE.insert(
         cache_key,
-        CachedTarball { archive: archive.clone(), fetched_at: Instant::now() },
+        CachedTarball {
+            package: package.clone(),
+            bytes: package.retained_bytes(),
+            fetched_at: Instant::now(),
+        },
     );
 
-    Ok(archive)
+    Ok(package)
+}
+
+/// Inflating an archive is CPU-bound and can run for as long as the archive is large, so
+/// it belongs on a blocking thread rather than a runtime worker serving other requests.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| Error::InternalErr(format!("Failed to read package archive: {}", e)))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        byte_bounded_cache, read_entry, resolve_version_spec, walk_tarball, CachedTarball,
-        TARBALL_CACHE_BYTES,
+        byte_bounded_cache, read_one_entry, read_package_archive, resolve_version_spec,
+        CachedTarball, PackageArchive, RETAINED_ENTRY_BYTES,
     };
+    use std::collections::HashMap;
+    use std::sync::Arc;
     use std::time::Instant;
 
     fn packument() -> serde_json::Value {
@@ -861,38 +975,53 @@ mod tests {
     }
 
     #[test]
-    fn walking_an_archive_lists_every_file_and_reads_one_at_a_time() {
-        let archive = tarball(&[("package/a.js", 32), ("package/package.json", 8)]);
+    fn only_what_a_type_request_reads_is_retained() {
+        // `next` orders its manifest 3748th, behind thousands of licences, and
+        // DefinitelyTyped roots its archives at the type name rather than `package`
+        let archive: axum::body::Bytes = tarball(&[
+            ("express/dist/compiled/a/LICENSE", 64),
+            ("express/dist/bundle.js", RETAINED_ENTRY_BYTES as usize + 1),
+            ("express/package.json", 8),
+            ("express/types/index.d.ts", 32),
+        ])
+        .into();
 
-        let mut names = Vec::new();
-        let mut manifest = None;
-        walk_tarball(&archive, 16, |path, entry| {
-            names.push(path.to_string());
-            if path == "package.json" {
-                manifest = Some(read_entry(path, entry)?);
-            }
-            Ok(true)
-        })
-        .unwrap();
+        let read = read_package_archive(archive.clone(), 16).unwrap();
 
-        assert_eq!(names, vec!["a.js", "package.json"]);
-        assert_eq!(manifest.unwrap().len(), 8);
+        // Every file is listed, whatever its size or kind
+        assert_eq!(read.names.len(), 4);
+        // but only the manifest and the declarations are held
+        let mut retained = read.small_files.keys().cloned().collect::<Vec<_>>();
+        retained.sort();
+        assert_eq!(retained, vec!["package.json", "types/index.d.ts"]);
+        // and the rest stays reachable
+        assert_eq!(
+            read_one_entry(&archive, "dist/bundle.js").unwrap().map(|c| c.len()),
+            Some(RETAINED_ENTRY_BYTES as usize + 1)
+        );
+        assert_eq!(read_one_entry(&archive, "absent.js").unwrap(), None);
 
-        // Entry count is the one abuse bound; size is not a reason to refuse a package
-        assert!(walk_tarball(&archive, 1, |_, _| Ok(true)).is_err());
+        // Entry count is the one hard bound; size is never a reason to refuse a package
+        assert!(read_package_archive(archive, 1).is_err());
     }
 
     /// A cache that splits its budget across shards refuses anything heavier than one
     /// shard's share, silently declining the packages worth caching most.
     #[test]
-    fn an_archive_near_the_whole_budget_is_kept() {
-        let cache = byte_bounded_cache(200, TARBALL_CACHE_BYTES);
+    fn an_entry_near_the_whole_budget_is_kept() {
+        let budget = 4096;
+        let cache = byte_bounded_cache(200, budget);
         let key = ("registry".to_string(), "big".to_string(), "1.0.0".to_string());
 
         cache.insert(
             key.clone(),
             CachedTarball {
-                archive: vec![0u8; TARBALL_CACHE_BYTES as usize / 2].into(),
+                package: Arc::new(PackageArchive {
+                    archive: Default::default(),
+                    names: vec![],
+                    small_files: HashMap::new(),
+                }),
+                bytes: budget / 2,
                 fetched_at: Instant::now(),
             },
         );
