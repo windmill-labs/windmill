@@ -208,8 +208,9 @@ const MAX_ENTRIES: usize = 100_000;
 /// than tightly.
 const RETAINED_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
 /// Ceiling on everything one read holds: the file list and the retained entries together.
-/// `aws-sdk` is the heaviest package known here at ~51 MB across 442 declarations, so this
-/// clears it comfortably while staying an abuse bound.
+/// Declarations past it are left to a read on demand rather than refused; only the file
+/// list, which has to be complete for `/filetree` to be right, refuses. `aws-sdk` is the
+/// heaviest package known here at ~51 MB across 442 declarations, well clear of it.
 const RETAINED_BYTES: u64 = 128 * 1024 * 1024;
 /// Charged per entry on top of its bytes, for the `String`/`Vec` headers, their heap
 /// allocations and the map bucket. Deliberately generous: the point is that an archive of
@@ -848,13 +849,14 @@ fn read_package_archive(
                 retention.max_entries
             )));
         }
-        // Paths are held whatever the entry is, and held twice for a retained one, so
-        // they are charged like any other bytes: an archive of long names would otherwise
-        // grow `names` without limit while reporting almost no weight.
+        // Paths are held whatever the entry is, so they are charged like any other bytes:
+        // an archive of long names would otherwise grow `names` without limit while
+        // reporting almost no weight. This one has to refuse rather than skip — a file
+        // tree missing entries is a wrong answer, not a slower one.
         retained += stripped.len() as u64 + NAME_OVERHEAD;
         if retained > retention.total_bytes {
             return Err(Error::BadRequest(format!(
-                "Package archive holds more than {} bytes of paths and declarations",
+                "Package archive holds more than {} bytes of file paths",
                 retention.total_bytes
             )));
         }
@@ -873,13 +875,14 @@ fn read_package_archive(
         if content.len() as u64 > retention.entry_bytes {
             continue;
         }
-        retained += (stripped.len() + content.len()) as u64 + RETAINED_FILE_OVERHEAD;
-        if retained > retention.total_bytes {
-            return Err(Error::BadRequest(format!(
-                "Package archive holds more than {} bytes of paths and declarations",
-                retention.total_bytes
-            )));
+        // Past the budget the entry simply is not kept: it stays reachable through a read
+        // on demand, so stopping bounds memory as well as refusing would while leaving the
+        // package servable.
+        let cost = (stripped.len() + content.len()) as u64 + RETAINED_FILE_OVERHEAD;
+        if retained + cost > retention.total_bytes {
+            continue;
         }
+        retained += cost;
         small_files.insert(stripped, content);
     }
 
@@ -1080,9 +1083,15 @@ mod tests {
         );
         assert_eq!(read_one_entry(&archive, "absent.js").unwrap(), None);
 
-        // Entry count is the one hard bound; size is never a reason to refuse a package
+        // Refusing is for what would make an answer wrong — too many entries to list, or
+        // too many path bytes — never for a package merely being large
         let too_few = Retention { max_entries: 1, ..TINY };
-        assert!(read_package_archive(archive, too_few).is_err());
+        assert!(read_package_archive(archive.clone(), too_few).is_err());
+        // room for the four paths, not for any file body
+        let squeezed = Retention { total_bytes: 400, ..TINY };
+        let read = read_package_archive(archive, squeezed).unwrap();
+        assert!(read.small_files.is_empty());
+        assert_eq!(read.names.len(), 4);
     }
 
     /// `/filetree` reads the manifest back rather than defaulting, or a package whose
@@ -1139,8 +1148,8 @@ mod tests {
                 >= archive.len() as u64 + 2000 * (NAME_OVERHEAD + RETAINED_FILE_OVERHEAD)
         );
 
-        // Long paths are held whatever the entry is, so they count against the budget:
-        // an archive of them would otherwise grow `names` while reporting no weight.
+        // Long paths are held whatever the entry is, and the file list has to be complete,
+        // so an archive of them is refused rather than silently truncated.
         let long = format!("package/{}.js", "p".repeat(2000));
         let padded: axum::body::Bytes = tarball(&[(long.as_str(), 0)]).into();
         assert!(read_package_archive(padded, Retention { total_bytes: 512, ..TINY }).is_err());
