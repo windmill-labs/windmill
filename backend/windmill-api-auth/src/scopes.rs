@@ -909,12 +909,18 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
         || route_path.starts_with("/api/apps/hub/")
 }
 
-/// The one write a job token keeps. A resource editor's "Test connection" for an
-/// object-storage resource runs as a preview job that POSTs the storage config here
-/// (`TestConnection.svelte`), so this must stay reachable. The handler probes only the
-/// configuration in the request body and persists nothing, so it reads no state
-/// belonging to another workspace.
-const OBJECT_STORAGE_TEST_ROUTE: &str = "/api/settings/test_object_storage_config";
+/// The workspace-less writes a job token keeps, each because an in-product flow performs it
+/// from a job:
+/// - a resource editor's object-storage "Test connection" runs as a preview job that POSTs
+///   the storage config (`TestConnection.svelte`). The probe acts only on the store the
+///   request body describes, touching no Windmill state of any workspace.
+/// - `wmill workspace add`, how a job points the CLI at its own instance, checks the
+///   workspace exists before accepting the credentials. It answers with a bare boolean,
+///   under the caller's own row-level security.
+const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 2] = [
+    "/api/settings/test_object_storage_config",
+    "/api/workspaces/exists",
+];
 
 /// Confines a job token (`$WM_TOKEN`) to routes that name a workspace. It is minted
 /// for one job in one workspace yet carries that job's full user privileges, so on an
@@ -929,7 +935,8 @@ const OBJECT_STORAGE_TEST_ROUTE: &str = "/api/settings/test_object_storage_confi
 pub fn check_job_token_for_global_route(route_path: &str, http_method: &str) -> Result<()> {
     let is_read = map_http_method_to_action(http_method, route_path) == ScopeAction::Read;
     if (is_read && is_global_read_open_to_job_token(route_path))
-        || (http_method.eq_ignore_ascii_case("POST") && route_path == OBJECT_STORAGE_TEST_ROUTE)
+        || (http_method.eq_ignore_ascii_case("POST")
+            && GLOBAL_WRITES_OPEN_TO_JOB_TOKEN.contains(&route_path))
     {
         Ok(())
     } else {

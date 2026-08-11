@@ -250,12 +250,28 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
         resp.text().await?
     );
 
-    // 9. ...and the one write it keeps: the resource editor's object-storage "Test
-    //    connection" runs as a preview job that POSTs its config here. The route only
-    //    exists under `parquet`; without it every status would be a 404 and the
-    //    assertion would hold for the wrong reason. The body is deliberately not a
-    //    valid `ObjectSettings` — what matters is that the request reaches the
-    //    handler's own extractors (422) rather than the confinement guard.
+    // 9. ...and the writes it keeps. `wmill workspace add` checks this before it will
+    //    accept the credentials it was given, so a job that points the CLI at its own
+    //    instance depends on it.
+    let resp = authed(
+        client().post(format!("{api}/workspaces/exists")),
+        &user_wm,
+    )
+    .json(&json!({ "id": "test-workspace" }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still reach the workspace-exists check `wmill workspace add` makes: {}",
+        resp.text().await?
+    );
+
+    //    The resource editor's object-storage "Test connection" runs as a preview job that
+    //    POSTs its config here. The route only exists under `parquet`; without it the
+    //    status would be a 404 and the assertion would hold for the wrong reason. The body
+    //    is deliberately not a valid `ObjectSettings`, so reaching the handler's own
+    //    extractors is exactly a 422 — anything else means the request never got there.
     #[cfg(feature = "parquet")]
     {
         let resp = authed(
@@ -265,9 +281,9 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
         .json(&json!({}))
         .send()
         .await?;
-        assert_ne!(
+        assert_eq!(
             resp.status(),
-            403,
+            422,
             "WM_TOKEN must still reach the object-storage connection test: {}",
             resp.text().await?
         );
