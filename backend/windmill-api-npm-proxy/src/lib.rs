@@ -570,11 +570,12 @@ async fn get_package_filetree(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageFiletree> {
     let (package, version) = parse_package_and_version(package_version_path.to_path())?;
-    let dir = cached_package(&db, &package, &version).await?;
-
-    let manifest = store::read_manifest(&dir).await.ok_or_else(|| {
-        Error::InternalErr(format!("Cached {}@{} has no manifest", package, version))
-    })?;
+    let manifest = match cached_package(&db, &package, &version).await? {
+        PackageFiles::Disk(dir) => store::read_manifest(&dir).await.ok_or_else(|| {
+            Error::InternalErr(format!("Cached {}@{} has no manifest", package, version))
+        })?,
+        PackageFiles::Memory(_, manifest) => manifest,
+    };
 
     Ok(Json(PackageFiletree {
         default: manifest.main,
@@ -593,10 +594,14 @@ async fn get_package_file(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> Result<String> {
     let (package, version, filepath) = parse_package_version_and_file(full_path.to_path())?;
-    let dir = cached_package(&db, &package, &version).await?;
+    let files = cached_package(&db, &package, &version).await?;
 
     let target = filepath.trim_start_matches('/').to_string();
-    let content = match store::read_file(&dir, &target).await {
+    let kept = match &files {
+        PackageFiles::Disk(dir) => store::read_file(dir, &target).await,
+        PackageFiles::Memory(kept, _) => kept.get(&target).cloned(),
+    };
+    let content = match kept {
         Some(content) => content,
         // Not a file a type request asks for, so it was never kept: walk the archive for it
         None => {
@@ -747,7 +752,7 @@ impl<R: std::io::Read> std::io::Read for BoundedRead<R> {
 /// a full walk, so callers hand it to a blocking thread.
 fn extract_to(
     archive: &[u8],
-    pending: &PendingPackage,
+    keep: &mut dyn FnMut(&str, &[u8]) -> Result<()>,
     retention: Retention,
 ) -> Result<store::Manifest> {
     use flate2::read::GzDecoder;
@@ -828,7 +833,7 @@ fn extract_to(
             }
             retained += cost;
         }
-        pending.write_file(&stripped, &content)?;
+        keep(&stripped, &content)?;
     }
 
     Ok(store::Manifest { names, main: main.unwrap_or_else(|| "index.js".to_string()) })
@@ -868,7 +873,15 @@ fn read_one_entry(archive: &[u8], target: &str) -> Result<Option<Vec<u8>>> {
     Ok(None)
 }
 
-/// The local directory holding a package version's kept files, populating it if needed.
+/// Where a package version's kept files are being served from. Disk is the intended
+/// answer; `Memory` is what a cache that cannot be written degrades to, so an ENOSPC or a
+/// read-only cache directory costs a repeated extraction rather than the endpoint.
+enum PackageFiles {
+    Disk(std::path::PathBuf),
+    Memory(HashMap<String, Vec<u8>>, store::Manifest),
+}
+
+/// A package version's kept files, populating the cache if needed.
 ///
 /// Local disk first, the instance object store on a local miss (which then fills disk), the
 /// registry on a miss in both. A published version never changes, so a directory that is
@@ -877,7 +890,7 @@ async fn cached_package(
     db: &sqlx::Pool<sqlx::Postgres>,
     package: &str,
     version: &str,
-) -> Result<std::path::PathBuf> {
+) -> Result<PackageFiles> {
     // Resolving the registry is a settings read; the packument behind it is a round trip,
     // and a version already on disk needs neither, so it is fetched only on a miss.
     let (registry_url, auth_token) = get_npm_registry(db)
@@ -886,12 +899,16 @@ async fn cached_package(
 
     let dir = store::package_dir(&registry_url, package, version);
     if tokio::fs::metadata(dir.join("manifest.json")).await.is_ok() {
-        return Ok(dir);
+        store::touch(&dir);
+        return Ok(PackageFiles::Disk(dir));
     }
 
     let key = store::object_key(&registry_url, package, version);
     match store::pull_from_object_store(&dir, &key).await {
-        Ok(true) => return Ok(dir),
+        Ok(true) => {
+            store::sweep_if_due(0);
+            return Ok(PackageFiles::Disk(dir));
+        }
         Ok(false) => {}
         // A cache that cannot be read is a reason to fetch, not to fail
         Err(e) => tracing::warn!("could not pull {key} from the object store: {e:?}"),
@@ -900,18 +917,56 @@ async fn cached_package(
     let (package_json, _, _) = fetch_package_json(db, package).await?;
     let archive =
         fetch_tarball(&package_json, package, version, &registry_url, &auth_token).await?;
+
     let target = dir.clone();
-    let published = blocking(move || {
-        let pending = PendingPackage::new(&target)?;
-        let manifest = extract_to(&archive, &pending, Retention::PRODUCTION)?;
-        pending.publish(&manifest)
+    let extracted = blocking(move || {
+        // The cache is an optimisation, so a disk that will not take it degrades to
+        // extracting per request rather than failing one. Every write goes through the
+        // same walk, so the fallback cannot drift from what would have been stored.
+        let pending = match PendingPackage::new(&target) {
+            Ok(pending) => Some(pending),
+            Err(e) => {
+                tracing::warn!("npm proxy cache is not writable, serving without it: {e:?}");
+                None
+            }
+        };
+        let mut fallback = HashMap::new();
+        let mut written = 0u64;
+        let mut disk_failed = false;
+        let manifest = {
+            let mut keep = |path: &str, content: &[u8]| -> Result<()> {
+                written += content.len() as u64;
+                if let Some(pending) = pending.as_ref().filter(|_| !disk_failed) {
+                    if let Err(e) = pending.write_file(path, content) {
+                        tracing::warn!("npm proxy cache write failed, serving without it: {e:?}");
+                        disk_failed = true;
+                    }
+                }
+                fallback.insert(path.to_string(), content.to_vec());
+                Ok(())
+            };
+            extract_to(&archive, &mut keep, Retention::PRODUCTION)?
+        };
+
+        match pending.filter(|_| !disk_failed).map(|p| p.publish(&manifest)) {
+            Some(Ok(published)) => Ok((PackageFiles::Disk(published), written)),
+            Some(Err(e)) => {
+                tracing::warn!("npm proxy cache publish failed, serving without it: {e:?}");
+                Ok((PackageFiles::Memory(fallback, manifest), 0))
+            }
+            None => Ok((PackageFiles::Memory(fallback, manifest), 0)),
+        }
     })
     .await?;
 
-    store::push_to_object_store(published.clone(), key);
-    store::sweep_if_due();
-
-    Ok(published)
+    match extracted {
+        (PackageFiles::Disk(published), written) => {
+            store::push_to_object_store(published.clone(), key);
+            store::sweep_if_due(written);
+            Ok(PackageFiles::Disk(published))
+        }
+        (files, _) => Ok(files),
+    }
 }
 
 /// Inflating an archive is CPU-bound and can run for as long as the archive is large, so
@@ -1000,7 +1055,7 @@ mod tests {
             .join("pkg")
             .join("1.0.0");
         let pending = PendingPackage::new(&dir)?;
-        let manifest = extract_to(archive, &pending, retention)?;
+        let manifest = extract_to(archive, &mut |path, content| pending.write_file(path, content), retention)?;
         let published = pending.publish(&manifest)?;
         Ok((manifest, published))
     }
@@ -1039,11 +1094,9 @@ mod tests {
 
         let (manifest, dir) = extract(&archive, TINY).unwrap();
 
-        // Every file is listed, whatever its size or kind
         assert_eq!(manifest.names.len(), 4);
-        // but only the manifest and the declarations are written
         assert_eq!(kept(&dir), vec!["package.json", "types/index.d.ts"]);
-        // and the rest stays reachable
+        // what is not kept stays reachable by walking the archive
         assert_eq!(
             read_one_entry(&archive, "dist/bundle.js").unwrap().map(|c| c.len()),
             Some(TINY.entry_bytes as usize + 1)
@@ -1054,10 +1107,10 @@ mod tests {
         // many path bytes, never for a package merely being large
         assert!(extract(&archive, Retention { max_entries: 1, ..TINY }).is_err());
 
-        // Filling the entry budget leaves the file list alone: the package is still served
+        // Filling the entry budget leaves the file list alone, and the manifest is exempt
+        // from it, so a package is still served and still has an entry point
         let (manifest, dir) = extract(&archive, Retention { total_bytes: 8, ..TINY }).unwrap();
         assert_eq!(manifest.names.len(), 4);
-        // and the manifest is exempt, so the entry point survives a spent budget
         assert_eq!(kept(&dir), vec!["package.json"]);
 
         // A package whose declarations fill that budget is served too, rather than refused

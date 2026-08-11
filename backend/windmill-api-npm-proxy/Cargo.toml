@@ -20,6 +20,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
 axum.workspace = true
 flate2.workspace = true
+futures.workspace = true
 lazy_static.workspace = true
 quick_cache.workspace = true
 reqwest.workspace = true

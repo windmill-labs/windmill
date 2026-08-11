@@ -15211,6 +15211,7 @@ dependencies = [
  "axum 0.8.9",
  "chrono",
  "flate2",
+ "futures",
  "hex",
  "lazy_static",
  "quick_cache",

@@ -52,7 +52,7 @@ Store instead what the endpoints actually serve, which is already what the curre
 chooses to retain:
 
 ```
-<cache root>/npm/<registry hash>/<package>/<version>/
+<cache root>/npm_proxy/<registry hash>/<package>/<version>/
   manifest.json      the file list and the resolved entry point
   files/<path>       each retained .d.ts and the package.json
 ```
@@ -114,22 +114,29 @@ registry are self-hosted, and a good number of them are on CE. The disk tier is 
 nicety for them, it is the whole feature. Disk has to work well on its own, and the object
 store has to be a pure addition on top.
 
-## What this does not solve
+## Failure modes disk has and memory does not
 
-Disk introduces failure modes memory does not have, and they need answers before this
-ships.
+- **Eviction.** A sweep trims to 2 GiB, least recently used first, rate limited to once per
+  ten minutes or 256 MiB written, whichever comes first. It measures allocated blocks
+  rather than file lengths: a package of many tiny declarations costs a block each and
+  would otherwise look nearly free.
+- **Recency is `mtime`, marked explicitly.** Cache volumes mount `relatime`, so access time
+  does not move on a read and an LRU built on it is silently a FIFO. A cache hit touches
+  the manifest instead.
+- **ENOSPC and read-only cache directories degrade, they do not fail.** Every write is best
+  effort; when one fails the same walk fills an in-memory map for that request instead, so
+  the endpoint keeps answering and the fallback cannot drift from what would have been
+  stored.
+- **Debris.** A writer killed mid-flight leaves a `.tmp.`/`.upload.` directory that nothing
+  will read. The sweep removes them rather than counting them against the cap forever.
+- **Restart hygiene.** Publishing renames a fully written temp directory into place, so a
+  partial one never looks complete, and losing the rename race is success.
+- **Transfers stream.** Object store pulls go to a temp file and unpack on a blocking
+  thread; pushes build a tar on disk and upload it in parts, one at a time. Buffering
+  either would put back the per-request heap this exists to remove.
 
-- **Eviction.** Nothing prunes the directory today. Unbounded growth on a small container
-  disk is a worse outcome than the memory it replaces. Needs a size cap and an LRU sweep,
-  or a TTL sweep keyed on access time.
-- **ENOSPC.** A full disk must degrade to serving from the registry, not to failing
-  requests. Every write path needs to be best effort.
-- **Single flight.** Six concurrent ATA requests for the same uncached package currently
-  each fetch and inflate. Memory made that merely wasteful; on disk it is also a write
-  race. `atomic_publish_dir` covers the publish, but a request-level single flight would
-  avoid the duplicate work.
-- **Restart hygiene.** Partial directories from a killed process must not be mistaken for
-  complete ones. That is what publishing through a temp directory is for.
+Still open: **single flight**. Concurrent misses for the same package each fetch and
+extract. `atomic_publish_dir` makes that safe, just wasteful.
 
 ## Alternative considered: just lower the budgets
 
