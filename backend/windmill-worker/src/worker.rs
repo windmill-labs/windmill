@@ -1278,8 +1278,10 @@ const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 /// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
 /// and binary, so `MB` and `MiB` both mean 1024².
 ///
-/// Fractions are accepted because `format_byte_size` emits them, and the limit it
-/// renders into an error is meant to be usable as a setting verbatim.
+/// Fractions have to be accepted even though `format_byte_size` never emits one:
+/// the duckdb error is rendered by the FFI crate's own copy of that helper, which
+/// rounds to a fraction above 1 GiB, and every limit an error quotes is meant to
+/// be usable as a setting verbatim.
 fn parse_byte_size(v: &str) -> Option<usize> {
     let upper = v.trim().to_ascii_uppercase();
     // Longest-first: `GB` would otherwise swallow `GIB`, and `B` every other suffix.
@@ -1888,10 +1890,7 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job
-            .trigger_kind
-            .as_ref()
-            .map(|k| k.as_str().to_string()),
+        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),
