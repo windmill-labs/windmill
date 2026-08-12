@@ -202,12 +202,14 @@ fn merge_go_toolchain_envs(
 fn go_build_parallelism_args(envs: &[(String, String)]) -> Vec<String> {
     envs.iter()
         .find(|(k, _)| k == "GOMAXPROCS")
-        // A worker group's value is forwarded verbatim, so it is neither necessarily
-        // a number — leaving `-p` off keeps a typo as harmless as the Go runtime
-        // makes it, rather than failing the build on it — nor necessarily spelled
-        // the way the flag parser accepts: `-p` infers the base, so it rejects the
-        // zero-padded `08` that the runtime reads happily as 8.
-        .and_then(|(_, v)| v.trim().parse::<u32>().ok())
+        // A worker group's value is forwarded verbatim, so it is not necessarily one
+        // the flag would take. Parsing it the way the Go runtime does keeps `-p` in
+        // step with `GOMAXPROCS` on both edges: the runtime reads a signed 32-bit
+        // decimal, so it ignores `2147483648` — while `-p` would accept it and spawn
+        // that many workers — and reads the zero-padded `08` as 8, where `-p` infers
+        // the base and rejects it. A value the runtime ignores leaves `-p` off, so
+        // the build keeps the default the runtime itself would have used.
+        .and_then(|(_, v)| v.trim().parse::<i32>().ok())
         .filter(|parallelism| *parallelism > 0)
         .map(|parallelism| vec!["-p".to_string(), parallelism.to_string()])
         .unwrap_or_default()
@@ -950,6 +952,11 @@ mod go_toolchain_envs_tests {
         assert_eq!(
             go_build_parallelism_args(&merged(&[("GOMAXPROCS", "08")], DERIVED)),
             vec!["-p".to_string(), "8".to_string()]
+        );
+        // Past the signed 32-bit range the runtime ignores the value, so `-p` has
+        // to as well: the flag would take it and start that many workers.
+        assert!(
+            go_build_parallelism_args(&merged(&[("GOMAXPROCS", "2147483648")], DERIVED)).is_empty()
         );
         assert!(go_build_parallelism_args(&merged(&[], None)).is_empty());
     }
