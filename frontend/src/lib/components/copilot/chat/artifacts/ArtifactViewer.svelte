@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { Code, Eye, FileText, Copy, Check, Download } from 'lucide-svelte'
@@ -25,51 +26,65 @@
 	interface Props {
 		artifact: PersistedArtifact
 		store: SessionArtifactsStore
+		/** Version being viewed, or undefined for the current one. Owned by the caller — it
+		 * outlives this component, so the viewer must not keep a copy of its own. */
+		pinned?: number
+		onPin: (version: number | undefined) => void
 	}
 
-	let { artifact, store }: Props = $props()
+	let { artifact, store, pinned, onPin }: Props = $props()
 
 	const latest = $derived(currentVersion(artifact))
 	// Nothing to pick between until a second version exists.
 	const hasHistory = $derived(latest > 1)
 
-	// undefined = following the current version. An explicit pick survives later edits, so
-	// the AI writing v8 does not yank the reader out of the v3 they chose to read.
-	let pinned = $state<number | undefined>(undefined)
 	let pinnedContent = $state<ArtifactVersion | undefined>(undefined)
+	// A pin that arrives with the tab has nothing honest to show until its snapshot lands: the
+	// latest document is not the version asked for, and the banner saying so is keyed on the
+	// snapshot itself. A pin picked while reading keeps the document already on screen instead.
+	let restoringPin = $state(untrack(() => pinned !== undefined))
+	let readAttempt = $state(0)
 
-	// The store hands us a fresh object on every edit, so this effect reruns constantly.
-	// Compare the id against the last one seen: clearing on every rerun would drop the
-	// reader's pin the moment the assistant writes a new version.
-	let pinnedFor: string | undefined
-	$effect(() => {
-		if (artifact.id === pinnedFor) return
-		pinnedFor = artifact.id
-		pinned = undefined
-	})
+	/** Pick a version to show. Re-picking the one already pinned leaves the url unchanged, so
+	 * only the attempt counter can re-read it — the reader's one way back from a failed read. */
+	function selectVersion(version: number | undefined) {
+		if (version === pinned) readAttempt++
+		onPin(version)
+	}
 
 	$effect(() => {
 		const version = pinned
+		void readAttempt // dependency: see selectVersion
 		if (version === undefined) {
 			pinnedContent = undefined
+			restoringPin = false
 			return
 		}
 		const id = artifact.id
-		void store.getVersion(id, version).then((snapshot) => {
-			if (pinned !== version || artifact.id !== id) return
-			// Pruned out from under the pin (history is capped): fall back to current rather
-			// than showing an empty document.
-			if (!snapshot) {
-				pinned = undefined
-				return
+		void store.getVersion(id, version).then(
+			(snapshot) => {
+				if (pinned !== version || artifact.id !== id) return
+				restoringPin = false
+				// Pruned out from under the pin (history is capped): fall back to current rather
+				// than showing an empty document.
+				if (!snapshot) {
+					onPin(undefined)
+					return
+				}
+				pinnedContent = snapshot
+			},
+			() => {
+				// A failed read is no evidence the version is gone, so the pin stays on the tab and
+				// the document already on screen stays up — the latest, or the snapshot of whatever
+				// version was pinned before this pick.
+				if (pinned === version && artifact.id === id) restoringPin = false
 			}
-			pinnedContent = snapshot
-		})
+		)
 	})
 
 	const shown = $derived(pinnedContent ?? artifact)
-	// Label from the snapshot that is rendered, not from the one just requested: the read is
-	// async, so `pinned` names a version the body has not swapped to yet.
+	// Label the snapshot that is rendered, not the one just requested: until it lands the body
+	// is still on the previous version, and naming the new one would misreport it.
 	const shownVersion = $derived(pinnedContent?.version)
 
 	// Markdown is the only rendered kind in v1; anything else shows source only.
@@ -102,23 +117,35 @@
 				{shown.name}
 			</span>
 			{#if hasHistory}
+				<!-- The body is blank while restoring, so the chip names the version being fetched:
+				     the latest is the one version certainly not on screen. -->
 				<ArtifactVersionPicker
 					{artifact}
 					{store}
-					selected={shownVersion}
-					onSelect={(v) => (pinned = v)}
+					selected={restoringPin ? pinned : shownVersion}
+					onSelect={selectVersion}
 				/>
 			{/if}
 		</div>
 		<div class="flex items-center gap-2 shrink-0">
-			<!-- Copy raw markdown, with a dropdown for the download-as-file variant. -->
+			<!-- Copy raw markdown, with a dropdown for the download-as-file variant. Both export
+			     `shown`, which is still the current document while a pin is restoring — so both
+			     are disabled, the item explicitly: a Button's `disabled` does not reach it. -->
 			<Button
 				unifiedSize="sm"
 				variant="default"
+				disabled={restoringPin}
 				startIcon={{ icon: copied ? Check : Copy }}
 				onClick={copyRaw}
 				title="Copy raw markdown"
-				dropdownItems={[{ label: 'Download as .md', icon: Download, onClick: downloadFile }]}
+				dropdownItems={[
+					{
+						label: 'Download as .md',
+						icon: Download,
+						onClick: downloadFile,
+						disabled: restoringPin
+					}
+				]}
 			>
 				{copied ? 'Copied' : 'Copy'}
 			</Button>
@@ -157,7 +184,7 @@
 				<TimeAgo date={new Date(pinnedContent.savedAt).toISOString()} compact /> ago
 			</span>
 			<div class="ml-auto shrink-0">
-				<Button unifiedSize="xs" variant="default" onClick={() => (pinned = undefined)}>
+				<Button unifiedSize="xs" variant="default" onClick={() => selectVersion(undefined)}>
 					Back to latest
 				</Button>
 			</div>
@@ -165,7 +192,9 @@
 	{/if}
 
 	<div class="flex-1 min-h-0 overflow-auto px-8">
-		{#if source}
+		{#if restoringPin}
+			<!-- Deliberately blank until the pinned snapshot lands; see restoringPin. -->
+		{:else if source}
 			<!-- key: SimpleEditor reads `code` only on init; remount on id or content change. -->
 			{#key `${artifact.id}:${pinnedContent ? `v${pinnedContent.version}` : artifact.updatedAt}`}
 				<SimpleEditor lang="markdown" code={shown.content} readOnly class="h-full" />

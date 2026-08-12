@@ -56,10 +56,23 @@ function isEditorTabFor(url: string, target: SessionTarget): boolean {
 	return slot.kind === 'editor' && slot.editorKind === target.kind && slot.path === target.path
 }
 
-// URL a tab should load for a destination: a page's href, an item's edit route, or an artifact's scheme.
-function targetUrl(target: PreviewTarget): string {
+// The version a tab keeps when it is re-pointed: whatever pin is already on it. Re-pointing
+// must never double as "show the newest" — every artifact tool re-opens the document it just
+// wrote, so that would yank the reader out of the version they chose on each edit. The pin
+// belongs to a (tab, artifact) pair: a different document, or a brand-new tab, starts unpinned.
+function keptVersion(artifactId: string, onto: SessionPreviewTab | undefined): number | undefined {
+	const current = onto && parseArtifactRoute(onto.url)
+	return current?.id === artifactId ? current.version : undefined
+}
+
+// URL a tab should load for a destination: a page's href, an item's edit route, or an artifact's
+// scheme. `onto` is the tab about to be written, passed wherever one is being re-pointed so
+// that every such path keeps its pin.
+function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 	if (target.type === 'page') return target.href
-	if (target.type === 'artifact') return artifactUrl(target.id, target.name)
+	if (target.type === 'artifact') {
+		return artifactUrl(target.id, target.name, keptVersion(target.id, onto))
+	}
 	return `${base}${editPathFor(target.item)}`
 }
 
@@ -389,8 +402,11 @@ export class SessionPreviewTabs {
 		if (target.type === 'artifact') {
 			const existing = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === target.id)
 			if (existing) {
-				const same = existing.url === url
-				retargetTab(existing, url)
+				// `same` is judged against the url actually written (which keeps the tab's pin —
+				// see keptVersion), else preserving a pin would report 'opened' with nothing moved.
+				const kept = targetUrl(target, existing)
+				const same = existing.url === kept
+				retargetTab(existing, kept)
 				this.#activeId = existing.id
 				this.#flush()
 				return { status: same ? 'focused' : 'opened' }
@@ -451,16 +467,15 @@ export class SessionPreviewTabs {
 				return
 			}
 		}
-		const url = targetUrl(target)
 		// Keep at most one pipeline tab (all share runtime.pipelineEditorState): if a
 		// *different* tab already hosts a pipeline, retarget and focus it rather than
 		// turning the active tab into a second pipeline editor racing the shared
 		// state. Same invariant as open(); a no-op when the active tab is that tab.
-		const pipelineFolder = parsePipelineRoute(url)
+		const pipelineFolder = parsePipelineRoute(targetUrl(target))
 		if (pipelineFolder) {
 			const existing = this.#tabs.find((x) => parsePipelineRoute(x.url) !== null)
 			if (existing && existing.id !== t.id) {
-				this.#retarget(existing, url)
+				this.#retarget(existing, targetUrl(target, existing))
 				this.#activeId = existing.id
 				this.#flush()
 				return
@@ -472,13 +487,13 @@ export class SessionPreviewTabs {
 		if (target.type === 'artifact') {
 			const existing = this.#tabs.find((x) => parseArtifactRoute(x.url)?.id === target.id)
 			if (existing && existing.id !== t.id) {
-				this.#retarget(existing, url)
+				this.#retarget(existing, targetUrl(target, existing))
 				this.#activeId = existing.id
 				this.#flush()
 				return
 			}
 		}
-		this.#retarget(t, url)
+		this.#retarget(t, targetUrl(target, t))
 		this.#flush()
 	}
 
@@ -524,6 +539,19 @@ export class SessionPreviewTabs {
 		if (this.#activeId === id) {
 			this.#activeId = (this.#tabs[idx] ?? this.#tabs[idx - 1] ?? this.#tabs[0])?.id ?? ''
 		}
+		this.#flush()
+	}
+
+	/** Show a version of an artifact already open, or the current one when `version` is
+	 * undefined. Reader-driven: re-pointing a tab preserves a pin instead (see keptVersion). */
+	pinArtifactVersion(artifactId: string, version: number | undefined): void {
+		const tab = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === artifactId)
+		const route = tab && parseArtifactRoute(tab.url)
+		if (!tab || !route) return
+		const url = artifactUrl(artifactId, route.name, version)
+		if (tab.url === url) return
+		tab.url = url
+		tab.loc = url
 		this.#flush()
 	}
 
@@ -658,7 +686,9 @@ export function describePreview(
 		const pipelineFolder = parsePipelineRoute(where)
 		const route = parsePreviewItemRoute(where)
 		const label = artifact
-			? `artifact "${artifact.name || 'Artifact'}"`
+			? // A pinned tab is not showing what the assistant last wrote, and nothing else in this
+				// summary would tell it so.
+				`artifact "${artifact.name || 'Artifact'}"${artifact.version ? ` (pinned to v${artifact.version})` : ''}`
 			: page
 				? `page "${page.label}"${previewLocationDetail(where)}`
 				: pipelineFolder

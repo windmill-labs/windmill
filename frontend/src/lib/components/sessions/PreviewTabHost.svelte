@@ -268,7 +268,12 @@
 		aria-hidden={!active}
 	>
 		{#if artifact && runtime}
-			<ArtifactViewer {artifact} store={runtime.manager.artifacts} />
+			<ArtifactViewer
+				{artifact}
+				store={runtime.manager.artifacts}
+				pinned={slot.version}
+				onPin={(version) => runtime?.previewTabs.pinArtifactVersion(artifact.id, version)}
+			/>
 		{:else if !runtime?.manager.artifacts.loading}
 			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
 		{/if}

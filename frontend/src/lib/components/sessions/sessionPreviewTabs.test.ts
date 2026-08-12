@@ -434,6 +434,31 @@ describe('SessionPreviewTabs.open', () => {
 		expect(res.status).toBe('opened')
 	})
 
+	it('keeps the version a reader pinned across re-opens, until they move or clear it', () => {
+		const { adapter, persisted } = makeAdapter()
+		const o = owner({}, adapter)
+		o.open(artifactTarget)
+		vi.runAllTimers()
+		o.pinArtifactVersion('art1', 1)
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan', 1))
+		// The pin only survives a reload if it reached the durable snapshot.
+		vi.runAllTimers()
+		expect(persisted.at(-1)?.tabs.map((t) => t.url)).toEqual([artifactUrl('art1', 'Plan', 1)])
+
+		// Nothing moved, so re-opening the pinned artifact is a focus, not an open.
+		expect(o.open(artifactTarget).status).toBe('focused')
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan', 1))
+
+		// The re-open every artifact tool does after writing, here also carrying a rename.
+		o.open({ type: 'artifact', id: 'art1', name: 'Plan, revised' })
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan, revised', 1))
+
+		o.pinArtifactVersion('art1', 2)
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan, revised', 2))
+		o.pinArtifactVersion('art1', undefined)
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan, revised'))
+	})
+
 	it('opens separate tabs for different artifact ids', () => {
 		const o = owner()
 		o.open(artifactTarget)
@@ -543,6 +568,35 @@ describe('SessionPreviewTabs.navigate', () => {
 		expect(o.tabs).toHaveLength(1)
 		expect(o.activeId).toBe(tabId)
 		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan'))
+	})
+
+	// The breadcrumb picker opens highlighting the artifact the active tab already shows, so
+	// re-picking it is the modal interaction — and it must not double as a reset to latest.
+	it('keeps a pinned version when the breadcrumb re-points a tab to the artifact it shows', () => {
+		const o = owner()
+		o.open(artifactTarget)
+		o.pinArtifactVersion('art1', 1)
+		const artifactTabId = o.activeId
+
+		// Active tab *is* the artifact tab: the picker's own highlight leads here.
+		o.navigate({ type: 'artifact', id: 'art1', name: 'Plan' })
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan', 1))
+
+		// Same rule from another tab, where navigate() re-points and focuses this one instead.
+		o.open(pageTarget)
+		o.navigate({ type: 'artifact', id: 'art1', name: 'Renamed plan' })
+		expect(o.activeId).toBe(artifactTabId)
+		expect(o.tabs.find((t) => t.id === artifactTabId)?.url).toBe(
+			artifactUrl('art1', 'Renamed plan', 1)
+		)
+	})
+
+	it('carries no pin across when a tab is retargeted to a different artifact', () => {
+		const o = owner()
+		o.open(artifactTarget)
+		o.pinArtifactVersion('art1', 1)
+		o.navigate({ type: 'artifact', id: 'art2', name: 'Other' })
+		expect(o.tabs[0].url).toBe(artifactUrl('art2', 'Other'))
 	})
 
 	it('drops a stale friendly label and path when the tab is retargeted', () => {
@@ -864,6 +918,13 @@ describe('describePreview', () => {
 			{ id: 'a', url: '/schedules', loc: '/schedules#u/me/daily_report' }
 		]
 		expect(describePreview(tabs, 'a')).toContain('page "Schedules" (open: u/me/daily_report)')
+	})
+
+	it('reports the pinned version, so the assistant knows the reader is behind', () => {
+		const url = artifactUrl('uuid-1', 'My Plan', 2)
+		expect(describePreview([{ id: 'a', url, loc: url }], 'a')).toContain(
+			'artifact "My Plan" (pinned to v2)'
+		)
 	})
 
 	it('labels an artifact tab by name, not the raw artifact url', () => {

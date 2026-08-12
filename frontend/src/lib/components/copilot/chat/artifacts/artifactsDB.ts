@@ -287,17 +287,21 @@ export async function listArtifactVersions(artifactId: string): Promise<Artifact
 	}
 }
 
+/** A stored snapshot, or undefined when there is none. Rejects when the read could not be made
+ * at all — unlike the other reads here, which degrade to undefined. A caller that conflates the
+ * two reports a transient failure as permanent absence, and whatever it discards in response
+ * (a reader's pinned version) is discarded for good. */
 export async function getArtifactVersion(
 	artifactId: string,
 	version: number
 ): Promise<ArtifactVersion | undefined> {
 	const db = await getDB()
-	if (!db) return undefined
+	if (!db) throw new Error('Artifact store unavailable')
 	try {
 		return await db.get('versions', versionKey(artifactId, version))
 	} catch (err) {
 		console.error('Could not read artifact version', err)
-		return undefined
+		throw err
 	}
 }
 
