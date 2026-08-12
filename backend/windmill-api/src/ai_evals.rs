@@ -1800,6 +1800,23 @@ pub async fn case_draft_from_job(
             }
         }
     }
+    // What the run answered becomes the case's expected value: capture time is the only moment a
+    // reference answer exists for free, and every scorer is handed one. A run that failed or is
+    // still going has nothing to offer, and the caller can always write their own.
+    let expected = sqlx::query!(
+        "SELECT result AS \"result: sqlx::types::Json<Box<RawValue>>\", status::text AS \"status!\"
+         FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .filter(|r| r.status == "success")
+    .and_then(|r| r.result)
+    .and_then(|r| agent_answer(&r.0))
+    .map(|answer| serde_json::value::to_raw_value(&answer))
+    .transpose()?;
+
     tx.commit().await?;
 
     // A host flow only matters when it can actually be reapplied, which needs both the flow
@@ -1817,7 +1834,7 @@ pub async fn case_draft_from_job(
         input,
         host_flow_path,
         tool_inputs,
-        expected: None,
+        expected,
         source: EvalCaseSource {
             job_id: Some(job_id),
             conversation_id: None,

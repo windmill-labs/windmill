@@ -312,15 +312,19 @@
 				No experiment yet. Run the dataset to score every case in one go.
 			</div>
 		{:else}
-			<DataTable size="xs" noBorder shouldHidePagination>
+			<!-- Fixed layout so the scorer columns keep their width: sized by content, a long answer
+			     pushes the numbers the table exists to show off the edge of the pane. -->
+			<DataTable size="xs" noBorder shouldHidePagination tableFixed>
 				<Head>
 					<tr>
-						<Cell head first>Case</Cell>
-						<Cell head>Output</Cell>
+						<!-- Widths are set here because the layout is fixed: left to themselves the two text
+						     columns would take everything and squeeze the scores to nothing. -->
+						<Cell head first style="width: 32%">Case</Cell>
+						<Cell head style="width: 32%">Output</Cell>
 						{#each scorerLabels as label, index (index)}
 							<Cell head>{label}</Cell>
 						{/each}
-						<Cell head last></Cell>
+						<Cell head last style="width: 5%"></Cell>
 					</tr>
 				</Head>
 				<tbody>
@@ -344,7 +348,7 @@
 								</div>
 							</Cell>
 							<Cell>
-								<span class="truncate block max-w-72" title={row.output}>
+								<span class="truncate block" title={row.output}>
 									{row.output ?? ''}
 								</span>
 							</Cell>
