@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { writeFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { withTestBackend } from "./test_backend.ts";
+import { withTestBackend, type TestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../src/commands/workspace/workspace.ts";
 
 /**
@@ -13,6 +13,49 @@ import { addWorkspace } from "../src/commands/workspace/workspace.ts";
  * generate-metadata created duplicate content files (e.g., fetch_users.ts alongside a.ts).
  * On next push, loadRunnablesFromBackend auto-detected the orphans as new runnables.
  */
+
+/**
+ * Deploying an app queues a dependency job that writes the generated locks back
+ * into the app value. Pulling while it is still in flight yields a local copy
+ * with no lock files, so the push below stops being the no-op this test asserts:
+ * it becomes a real change, and rebuilding a raw app bundle needs a package.json
+ * this fixture has no reason to carry.
+ */
+async function waitForQueueToDrain(
+  backend: TestBackend,
+  timeoutMs = 60000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const resp = await fetch(
+      `${backend.baseUrl}/api/w/${backend.workspace}/jobs/queue/list`,
+      { headers: { Authorization: `Bearer ${backend.token}` } },
+    );
+    if (!resp.ok) {
+      throw new Error(`failed to list the queue: ${resp.status}`);
+    }
+    if (((await resp.json()) as unknown[]).length === 0) {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`queue still not empty after ${timeoutMs}ms`);
+}
+
+/** Fails with the CLI's own output, which is otherwise swallowed. */
+async function runCLI(
+  backend: TestBackend,
+  args: string[],
+  tempDir: string,
+): Promise<void> {
+  const result = await backend.runCLICommand(args, tempDir);
+  if (result.code !== 0) {
+    throw new Error(
+      `wmill ${args.join(" ")} exited with ${result.code}\n${result.stdout}\n${result.stderr}`,
+    );
+  }
+}
+
 test("Raw app: generate-metadata must not create duplicate files when runnable key != name", async () => {
   await withTestBackend(async (backend, tempDir) => {
     const testWorkspace = {
@@ -70,23 +113,21 @@ test("Raw app: generate-metadata must not create duplicate files when runnable k
       { method: "POST", headers: { Authorization: `Bearer ${backend.token}` }, body: formData },
     );
     expect(createResp.ok).toBeTruthy();
+    await waitForQueueToDrain(backend);
 
     // Pull the app
-    const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-    expect(pullResult.code).toEqual(0);
+    await runCLI(backend, ["sync", "pull", "--yes"], tempDir);
 
     const backendDir = path.join(tempDir, "f/test/diffname_app.raw_app", "backend");
     let files = await readdir(backendDir);
 
-    // After pull: files named by KEY (a, b).
-    // Lock files are generated asynchronously by the backend worker and may not
-    // have landed yet — exclude them from this precondition to avoid a Windows race.
+    // After pull: files named by KEY (a, b). Lock files are not what this test
+    // pins, so they are left out of the precondition.
     const nonLockFiles = files.filter((f) => !f.endsWith(".lock")).sort();
     expect(nonLockFiles).toEqual(["a.ts", "a.yaml", "b.ts", "b.yaml"]);
 
     // Run generate-metadata — this previously created duplicate files named by NAME
-    const metaResult = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
-    expect(metaResult.code).toEqual(0);
+    await runCLI(backend, ["generate-metadata", "--yes"], tempDir);
 
     // After generate-metadata: must still only have KEY-based files, no NAME-based duplicates
     files = await readdir(backendDir);
@@ -102,8 +143,7 @@ test("Raw app: generate-metadata must not create duplicate files when runnable k
     expect(files).not.toContain("update_record.lock");
 
     // Push should be a no-op (no phantom changes)
-    const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-    expect(pushResult.code).toEqual(0);
+    await runCLI(backend, ["sync", "push", "--yes"], tempDir);
 
     // Backend should still have exactly 2 runnables
     const getResp = await fetch(
