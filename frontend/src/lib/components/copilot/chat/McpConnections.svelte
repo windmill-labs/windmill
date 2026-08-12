@@ -90,13 +90,12 @@
 <Button
 	unifiedSize="2xs"
 	variant="subtle"
+	iconOnly
 	startIcon={{ icon: Plug }}
-	btnClasses="text-secondary font-normal"
+	btnClasses="text-secondary"
 	title="MCP connections"
 	onClick={open}
->
-	Connections
-</Button>
+/>
 
 <Drawer bind:this={drawer} size="700px">
 	<DrawerContent
