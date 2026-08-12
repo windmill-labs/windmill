@@ -110,10 +110,11 @@
 		{/if}
 		{#if edit && variable.is_secret}
 			<div class="ml-3"></div>
-			{#if isEncryptedDraftValue(variable.value)}
-				<!-- Encrypted draft value: it can't be loaded back, only cleared.
-				Loading the deployed secret here would silently replace the draft,
-				so the audit-logged load action is hidden until the field is reset. -->
+			{#if variable.value !== ''}
+				<!-- Loading writes the deployed secret into the draft row this drawer shares
+				with the AI chat, so it would discard whatever that row already stages — a
+				value typed here, or one staged elsewhere. Clearing is explicit instead. An
+				`$encrypted:` value additionally cannot be displayed, only cleared. -->
 				<Button
 					size="xs"
 					variant="default"
