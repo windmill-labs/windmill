@@ -1402,8 +1402,8 @@ fn worker_vcpus() -> usize {
     effective_vcpus(
         windmill_common::worker::get_vcpus(),
         windmill_common::worker::get_cpu_period(),
-        std::thread::available_parallelism()
-            .map(|n| n.get())
+        windmill_common::worker::get_affinity_cpus()
+            .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
             .unwrap_or(1),
     )
 }
@@ -1415,15 +1415,17 @@ fn worker_vcpus() -> usize {
 /// it rounds up the way the Go runtime's own container-aware `GOMAXPROCS` does:
 /// flooring would call that worker single-core and serialize its builds.
 ///
-/// `host_cpus` is only the answer when there is no quota to read. It cannot also
-/// serve as a ceiling on one: `available_parallelism` already folds the quota in
-/// and floors it, so clamping to it would put back the rounding this exists to fix.
+/// `host_cpus` counts the CPUs the worker may run on, quota aside, and is both the
+/// answer when there is no quota and the floor under one: Go's own container-aware
+/// default never drops below two while the machine has two to give, since even a
+/// fraction of a CPU compiles two packages faster than it compiles them in series.
 fn effective_vcpus(quota_us: Option<i64>, period_us: Option<i64>, host_cpus: usize) -> usize {
     quota_us
         .zip(period_us)
         .filter(|(quota, period)| *quota > 0 && *period > 0)
         .map(|(quota, period)| ((quota + period - 1) / period) as usize)
         .unwrap_or(host_cpus)
+        .max(host_cpus.min(2))
         .max(1)
 }
 
@@ -1504,7 +1506,10 @@ mod go_build_limits_tests {
         // it would otherwise be clamped to has already floored it.
         assert_eq!(effective_vcpus(Some(4_000_000), Some(100_000), 4), 40);
         assert_eq!(effective_vcpus(None, None, 8), 8);
-        assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 24), 1);
+        // Under a whole CPU the floor is two, as the Go runtime's own default is —
+        // but only where there are two to give.
+        assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 24), 2);
+        assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 1), 1);
     }
 
     #[test]
