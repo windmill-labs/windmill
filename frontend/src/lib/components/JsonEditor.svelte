@@ -2,8 +2,9 @@
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { setEditorUnparseable } from './pendingEditorFlush'
 	import Button from './common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
@@ -36,6 +37,11 @@
 	let loadTooBigAnyway = $state(false)
 	let focused = $state(false)
 
+	// Identity for this editor's entry in the unparseable registry, so a caller about to
+	// persist what is on screen can refuse rather than save the last value that parsed.
+	const unparseableKey = {}
+	onDestroy(() => setEditorUnparseable(unparseableKey, false))
+
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
@@ -51,6 +57,7 @@
 		} catch (e) {
 			error = e.message
 		}
+		setEditorUnparseable(unparseableKey, error !== '')
 	}
 	$effect(() => {
 		code != undefined && untrack(() => parseJson())

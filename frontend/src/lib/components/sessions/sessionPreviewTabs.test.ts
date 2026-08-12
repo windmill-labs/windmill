@@ -480,6 +480,24 @@ describe('SessionPreviewTabs.open — commanded url', () => {
 	})
 })
 
+describe('SessionPreviewTabs.observeLocation', () => {
+	it('drops the row from the command when the frame closes its drawer', () => {
+		const o = owner()
+		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
+		// The page clears its own hash when the drawer closes.
+		o.observeLocation(o.tabs[0].id, '/routes?filter_path_of=trigger')
+		// The iframe mounts from `url`, so a remount would otherwise reopen the drawer.
+		expect(o.tabs[0].url).toBe('/routes')
+	})
+
+	it('leaves the command alone when the user just browses inside the frame', () => {
+		const o = owner()
+		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
+		o.observeLocation(o.tabs[0].id, '/routes#u/me/b')
+		expect(o.tabs[0].url).toBe('/routes#u/me/a')
+	})
+})
+
 describe('SessionPreviewTabs.navigate', () => {
 	it('retargets the active tab to an editor item', () => {
 		const o = owner()

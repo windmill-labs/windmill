@@ -265,9 +265,8 @@ export type GlobalActivePreviewContext = {
 	 * location: a tab can host a legacy app whose hash is app state, and a filter value
 	 * can be free text the user typed. Build it with `previewLocationContext`. */
 	location: string
-	/** The row the page's URL is anchored at — the one whose drawer the user
-	 * opened. The pages keep the anchor when a drawer is closed, so this says
-	 * where the page is pointed, not that a drawer is on screen right now. */
+	/** The row whose drawer is open on that page. The list pages drop the anchor when
+	 * their drawer closes, so its absence means no row is open. */
 	open?: string
 }
 

@@ -1,7 +1,10 @@
 import { tick } from 'svelte'
 import { page } from '$app/state'
 import { goto } from '$lib/navigation'
-import { flushAllPendingEditorChanges } from '$lib/components/SimpleEditor.svelte'
+import {
+	anyEditorUnparseable,
+	flushAllPendingEditorChanges
+} from '$lib/components/pendingEditorFlush'
 import { buildFilterUrl } from '$lib/navigation'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { UserDraftItemKind } from '$lib/gen'
@@ -34,6 +37,11 @@ const DRAWER_DRAFT_KIND: Record<string, UserDraftItemKind> = {
 // drawer the user is looking at still holds the edit.
 async function flushOrRefuse(query: Parameters<typeof UserDraftDbSyncer.flush>[0]): Promise<void> {
 	await UserDraftDbSyncer.flush(query)
+	// Text that does not parse never reached the draft, so leaving now would open the
+	// session on the last value that did and drop the buffer with the drawer.
+	if (anyEditorUnparseable()) {
+		throw new Error('This drawer has changes that are not valid JSON. Fix them first.')
+	}
 	if (UserDraftDbSyncer.getConflict(query).conflict) {
 		throw new Error(
 			'This draft has a newer conflicting version on the server. Resolve it here before opening a session.'
@@ -81,9 +89,9 @@ export function pageDrawerSessionSource(
 		workspaceId,
 		// Autosave is debounced, and the preview reads the draft back through the server
 		// from a document of its own — routing before the POST lands opens the drawer on a
-		// value the user has already changed. The code editors hold their last keystrokes
-		// behind a debounce of their own, so materialise those and let the bindings settle
-		// before the draft is persisted.
+		// value the user has already changed. Editors hold their last keystrokes behind a
+		// debounce of their own, so materialise those and let the bindings settle first.
+		// Text that does not parse never reaches the draft, so routing is refused instead.
 		beforeOpen:
 			itemKind && workspaceId
 				? async () => {

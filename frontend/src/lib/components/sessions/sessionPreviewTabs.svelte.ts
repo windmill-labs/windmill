@@ -575,6 +575,14 @@ export class SessionPreviewTabs {
 		const canonical = canonicalizeObservedLoc(loc)
 		if (t.loc === canonical) return
 		t.loc = canonical
+		// Closing a drawer drops the row from the frame's URL. The command has to follow, or
+		// the tab reopens it on the next mount — the iframe loads `url`, not `loc`. Only the
+		// anchor: any other in-frame move is the user browsing, which must not re-command.
+		const commanded = describeLocation(t.url)
+		const observed = describeLocation(canonical)
+		if (commanded.anchor && !observed.anchor && commanded.identity === observed.identity) {
+			t.url = t.url.split('#')[0]
+		}
 		this.#flush()
 	}
 
