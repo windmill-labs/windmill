@@ -491,9 +491,8 @@ pub async fn prebuild_csharp_binary(
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
     let hash = csharp_cache_key(code, Some(lock), &job.workspace_id).await;
-    let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
-    if crate::global_cache::exists_in_cache(&bin_path, &remote_path).await {
+    if crate::global_cache::exists_in_object_store(&remote_path).await {
         return Ok(None);
     }
 
@@ -501,7 +500,7 @@ pub async fn prebuild_csharp_binary(
     gen_cs_proj(code, job_dir, reqs, lines_to_remove)?;
     write_file(job_dir, "packages.lock.json", lock)?;
 
-    build_cs_proj(
+    let logs = build_cs_proj(
         &job.id,
         mem_peak,
         canceled_by,
@@ -513,8 +512,9 @@ pub async fn prebuild_csharp_binary(
         &hash,
         occupancy_metrics,
     )
-    .await
-    .map(Some)
+    .await?;
+    crate::global_cache::ensure_pushed_to_object_store(&remote_path).await?;
+    Ok(Some(logs))
 }
 
 #[cfg(feature = "csharp")]

@@ -2487,6 +2487,58 @@ async fn create_script_internal<'c>(
         // )
         // .await?;
 
+        // A caller-supplied lock (CLI, git-sync) queues no dependency job, so this is the
+        // only place a deploy of one can also queue the binary build. Pushed on the deploy's
+        // own transaction: the build reads the script version back by hash, which an
+        // independently pushed job could reach before this commit lands.
+        let tx = match windmill_queue::binary_prebuild::binary_prebuild_job(
+            &db,
+            &script_path,
+            hash,
+            ns.language,
+            lock.as_deref(),
+        )
+        .await?
+        {
+            Some(prebuild) => {
+                let (job_id, new_tx) = windmill_queue::push(
+                    &db,
+                    PushIsolationLevel::Transaction(tx),
+                    &w_id,
+                    prebuild.payload,
+                    windmill_queue::PushArgs { args: &prebuild.args, extra: None },
+                    &authed.username,
+                    &authed.email,
+                    permissioned_as,
+                    authed.token_prefix.as_deref(),
+                    authed.username_override.as_deref(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                    None,
+                    true,
+                    prebuild.tag,
+                    None,
+                    None,
+                    None,
+                    Some(&authed.clone().into()),
+                    false,
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+                tracing::info!("pushed auto-build binary job {job_id} for {script_path}");
+                new_tx
+            }
+            None => tx,
+        };
+
         Ok((
             hash,
             tx,

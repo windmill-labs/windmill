@@ -5586,6 +5586,9 @@ async fn push_inner<'c, 'd>(
         debouncing_settings: DebouncingSettings,
         retry_settings: RetrySettings,
         labels: Option<Vec<String>>,
+        /// A `dependencies` job that only compiles an already-deployed script's binary.
+        /// It shares the job kind, but not the queue policy lock generation needs.
+        build_binary_only: bool,
     }
     let mut preprocessed = None;
     #[allow(unused)]
@@ -5605,6 +5608,7 @@ async fn push_inner<'c, 'd>(
         debouncing_settings,
         retry_settings,
         labels,
+        build_binary_only,
     } = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -5782,6 +5786,15 @@ async fn push_inner<'c, 'd>(
             language: Some(language),
             dedicated_worker,
             debouncing_settings,
+            ..Default::default()
+        },
+
+        JobPayload::BuildBinary { path, hash, language } => JobPayloadUntagged {
+            runnable_id: Some(hash.0),
+            runnable_path: Some(path),
+            job_kind: JobKind::Dependencies,
+            language: Some(language),
+            build_binary_only: true,
             ..Default::default()
         },
 
@@ -6363,7 +6376,14 @@ async fn push_inner<'c, 'd>(
             && !*WMDEBUG_NO_DEBOUNCING
             && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await,
     ) {
-        concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        // A binary build takes minutes and writes no lock, so it gets its own key: sharing
+        // the lock-generation slot would park the next deploy of that path behind a compile.
+        // Still limit 1, to collapse redundant builds of the same script.
+        concurrency_settings.concurrency_key = Some(if build_binary_only {
+            format!("build_binary:{workspace_id}/{path}")
+        } else {
+            format!("dependency:{workspace_id}/{path}")
+        });
         concurrency_settings.concurrent_limit = Some(1);
     }
 
@@ -6388,7 +6408,9 @@ async fn push_inner<'c, 'd>(
     // prioritize flow steps to drain the queue faster
     let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
         Some(0)
-    } else if job_kind == JobKind::Dependencies {
+    } else if job_kind == JobKind::Dependencies && !build_binary_only {
+        // A binary build is a background optimization, not a deploy the user waits on, so
+        // it does not get the dependency-job jump ahead of ordinary jobs on its tag.
         Some(0)
     } else {
         final_priority

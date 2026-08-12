@@ -626,9 +626,8 @@ pub async fn prebuild_rust_binary(
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     let hash = rust_cache_key(code, Some(&lock.to_string()), &job.workspace_id).await;
-    let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
-    if crate::global_cache::exists_in_cache(&bin_path, &remote_path).await {
+    if crate::global_cache::exists_in_object_store(&remote_path).await {
         return Ok(None);
     }
 
@@ -636,7 +635,7 @@ pub async fn prebuild_rust_binary(
     write_cargo_config(job_dir, &job.id, &job.workspace_id, conn).await?;
     write_file(job_dir, "Cargo.lock", lock)?;
 
-    build_rust_crate(
+    let logs = build_rust_crate(
         job,
         mem_peak,
         canceled_by,
@@ -648,8 +647,9 @@ pub async fn prebuild_rust_binary(
         occupancy_metrics,
         false,
     )
-    .await
-    .map(Some)
+    .await?;
+    crate::global_cache::ensure_pushed_to_object_store(&remote_path).await?;
+    Ok(Some(logs))
 }
 
 pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String {

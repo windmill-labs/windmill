@@ -79,63 +79,32 @@ use crate::{
     go_executor::install_go_dependencies,
 };
 
-/// Job arg that turns a dependency job into an auto-build pass: instead of regenerating
-/// the lock, it compiles the already-deployed version and pushes the artifact to the
-/// shared binary cache. Set only by [`maybe_queue_binary_prebuild`].
-const BUILD_BINARY_ONLY_ARG: &str = "build_binary_only";
-
-/// Languages whose compiled artifact lands in the instance object store, which is what
-/// makes building it at deploy time spare *every* worker the first-run compile. Bun
-/// bundles are already built inline by `capture_dependency_job`.
-fn supports_binary_prebuild(lang: ScriptLang) -> bool {
-    matches!(lang, ScriptLang::Rust | ScriptLang::Go | ScriptLang::CSharp)
-}
-
 /// Queue a build of the just-deployed script's binary when the instance opts into it.
 ///
 /// It gets its own job rather than running inline: a release build takes minutes and the
 /// deploy must not block on it, and the configured tag lets the build land on a pool that
 /// has the toolchain and, since the cache key is per OS/arch, the platform the runtime
-/// workers use.
+/// workers use. Deploys that supply their own lock never reach a dependency job at all and
+/// queue theirs from `create_script_internal` instead.
 async fn maybe_queue_binary_prebuild(db: &DB, job: &MiniPulledJob, lock: &str) -> Result<()> {
-    let (Some(hash), Some(path), Some(lang)) = (
-        job.runnable_id,
-        job.runnable_path.clone(),
-        job.script_lang.filter(|l| supports_binary_prebuild(*l)),
-    ) else {
+    let (Some(hash), Some(path), Some(lang)) =
+        (job.runnable_id, job.runnable_path.clone(), job.script_lang)
+    else {
         return Ok(());
     };
-    if lock.is_empty() {
-        return Ok(());
-    }
-    let Some(tag) = windmill_common::global_settings::auto_build_binary_on_deploy(db).await? else {
+    let Some(prebuild) =
+        windmill_queue::binary_prebuild::binary_prebuild_job(db, &path, hash, lang, Some(lock))
+            .await?
+    else {
         return Ok(());
     };
-    // Without the instance object store the artifact never leaves the building worker's
-    // own disk, so every other worker would still compile it on first run.
-    if !crate::global_cache::object_store_configured().await {
-        tracing::warn!(
-            "auto-build binary on deploy is enabled but no instance object storage is \
-             configured, skipping build for {path}"
-        );
-        return Ok(());
-    }
-
-    let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
-    args.insert(BUILD_BINARY_ONLY_ARG.to_string(), to_raw_value(&true));
 
     let (uuid, tx) = windmill_queue::push(
         db,
         windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
         &job.workspace_id,
-        windmill_common::jobs::JobPayload::Dependencies {
-            hash,
-            language: lang,
-            path: path.clone(),
-            dedicated_worker: None,
-            debouncing_settings: Default::default(),
-        },
-        windmill_queue::PushArgs { args: &args, extra: None },
+        prebuild.payload,
+        windmill_queue::PushArgs { args: &prebuild.args, extra: None },
         &job.created_by,
         &job.permissioned_as_email,
         job.permissioned_as.clone(),
@@ -151,9 +120,7 @@ async fn maybe_queue_binary_prebuild(db: &DB, job: &MiniPulledJob, lock: &str) -
         false,
         None,
         true,
-        // `None` falls through to the script's language tag, where its dependency job
-        // already ran.
-        tag,
+        prebuild.tag,
         None,
         None,
         None,
@@ -193,6 +160,16 @@ async fn handle_build_binary_job(
             json!({ "status": "skipped", "reason": "script has no lockfile" }),
         ));
     };
+    // The instance is configured for one (the push checks the setting), but this worker's
+    // build may lack the object-store features, in which case the artifact would never
+    // leave its disk. Say so rather than producing a green job that shared nothing.
+    if !crate::global_cache::object_store_available().await {
+        return Ok(to_raw_value_owned(json!({
+            "status": "skipped",
+            "reason": "this worker cannot reach the instance object store, so the binary \
+                       would not be shared with other workers",
+        })));
+    }
     let conn = Connection::from(db.clone());
     let code = &script_data.code;
 
@@ -332,13 +309,9 @@ pub async fn handle_dependency_job(
         },
     };
 
-    if job
-        .args
-        .as_ref()
-        .is_some_and(|x| x.contains_key(BUILD_BINARY_ONLY_ARG))
-    {
-        // Not a deploy: the version being built was committed and tallied by the
-        // dependency job that queued this one, so a failure here must not tally again.
+    if windmill_queue::binary_prebuild::is_build_binary_job(job.args.as_ref().map(|x| &x.0)) {
+        // Not a deploy: the version being built was committed and tallied by the deploy
+        // that queued this job, so a failure here must not tally it a second time.
         *deployment_tallied = true;
         return handle_build_binary_job(
             job,

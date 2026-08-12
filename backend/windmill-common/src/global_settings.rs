@@ -359,6 +359,10 @@ lazy_static::lazy_static! {
 /// `None` = off. `Some(tag_override)` = on, where `None` inside means "use the script's
 /// language tag". Read per deployment rather than cached: deploys of a compiled language
 /// are rare, and a stale cache here silently skips builds for as long as it lives.
+///
+/// The env fallbacks are read in whichever process decides — a server for a deploy that
+/// brings its own lock, a worker for one that generates it — so on a split deployment they
+/// belong on both. The instance setting has no such caveat; prefer it.
 pub async fn auto_build_binary_on_deploy(
     db: &Pool<Postgres>,
 ) -> error::Result<Option<Option<String>>> {
@@ -378,6 +382,15 @@ pub async fn auto_build_binary_on_deploy(
     if !enabled {
         return Ok(None);
     }
+    // Without an instance object store the artifact never leaves the building worker's own
+    // disk, so every other worker would still compile it on first run.
+    if !instance_object_store_configured(db).await? {
+        tracing::warn!(
+            "{AUTO_BUILD_BINARY_ON_DEPLOY_SETTING} is enabled but no instance object storage is \
+             configured, not building anything"
+        );
+        return Ok(None);
+    }
     let tag = match load_value_from_global_settings(db, AUTO_BUILD_BINARY_TAG_SETTING).await? {
         Some(serde_json::Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
         Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) | None => {
@@ -389,6 +402,17 @@ pub async fn auto_build_binary_on_deploy(
         }
     };
     Ok(Some(tag))
+}
+
+/// Whether an instance object store is configured, mirroring what
+/// `windmill_object_store::reload_object_store_setting` accepts. Reads config rather than
+/// the loaded client so callers outside the worker (which may be built without the
+/// object-store features) reach the same answer.
+async fn instance_object_store_configured(db: &Pool<Postgres>) -> error::Result<bool> {
+    Ok(!matches!(
+        load_value_from_global_settings(db, OBJECT_STORE_CONFIG_SETTING).await?,
+        None | Some(serde_json::Value::Null)
+    ) || std::env::var("S3_CACHE_BUCKET").is_ok())
 }
 
 /// Read OAuth client_id and client_secret from instance-level global settings.

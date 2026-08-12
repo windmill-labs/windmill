@@ -310,9 +310,8 @@ pub async fn prebuild_go_binary(
 ) -> Result<Option<String>, Error> {
     let maybe_lock = MaybeLock::Resolved { lock: lock.to_string() };
     let hash = go_cache_key(code, &maybe_lock);
-    let bin_path = format!("{}/{hash}", *GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
-    if crate::global_cache::exists_in_cache(&bin_path, &remote_path).await {
+    if crate::global_cache::exists_in_object_store(&remote_path).await {
         return Ok(None);
     }
 
@@ -325,7 +324,7 @@ pub async fn prebuild_go_binary(
 
     let (skip_go_mod, skip_tidy) = gen_go_mod(code, job_dir, lock).await?;
 
-    build_go_binary(
+    let logs = build_go_binary(
         job,
         code,
         maybe_lock,
@@ -340,8 +339,9 @@ pub async fn prebuild_go_binary(
         skip_go_mod,
         skip_tidy,
     )
-    .await
-    .map(Some)
+    .await?;
+    crate::global_cache::ensure_pushed_to_object_store(&remote_path).await?;
+    Ok(Some(logs))
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
