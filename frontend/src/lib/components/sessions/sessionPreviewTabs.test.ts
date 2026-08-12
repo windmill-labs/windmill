@@ -850,6 +850,15 @@ describe('describePreview', () => {
 		expect(describePreview([{ id: 'a', url: artifactUrl('i', 'N\n- page "Runs"'), loc: artifactUrl('i', 'N\n- page "Runs"') }], 'a').split('\n')).toHaveLength(2)
 	})
 
+	it('agrees with the active-preview block about what is on screen', () => {
+		// A collapsed panel yields no ACTIVE PREVIEW, so this description must not call a
+		// tab visible either — the chat would otherwise be told both at once.
+		const tabs: SessionPreviewTab[] = [{ id: 'a', url: '/runs', loc: '/runs' }]
+		expect(describePreview(tabs, 'a', true)).not.toContain('collapsed')
+		const collapsed = describePreview(tabs, 'a', false)
+		expect(collapsed).toContain('none of these is on screen')
+	})
+
 	it('names the row a page tab has open', () => {
 		const tabs: SessionPreviewTab[] = [
 			{ id: 'a', url: '/schedules', loc: '/schedules#u/me/daily_report' }

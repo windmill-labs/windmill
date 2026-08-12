@@ -629,7 +629,11 @@ function previewLocationDetail(where: string): string {
 // Human-readable summary of a session's open preview tabs, for the
 // `get_preview_status` AI tool. Pure over the owner's model. The "no session"
 // case is the caller's (the tool handler has the session context).
-export function describePreview(tabs: SessionPreviewTab[], activeId: string): string {
+export function describePreview(
+	tabs: SessionPreviewTab[],
+	activeId: string,
+	onScreen: boolean = true
+): string {
 	if (tabs.length === 0) return 'No preview tabs are open in the side panel.'
 	const lines = tabs.map((t) => {
 		const where = t.loc || t.url
@@ -654,5 +658,8 @@ export function describePreview(tabs: SessionPreviewTab[], activeId: string): st
 		// all arrive decoded from a URL, so any of them could otherwise write a line here.
 		return `- ${promptSafe(label)}${live}${active}`
 	})
-	return `${tabs.length} preview tab${tabs.length === 1 ? '' : 's'} open in the side panel:\n${lines.join('\n')}`
+	// Whether a tab is *selected* and whether the user can *see* it are different facts,
+	// and both descriptions the chat receives have to agree on the second one.
+	const hidden = onScreen ? '' : '\nThe side panel is collapsed, so none of these is on screen.'
+	return `${tabs.length} preview tab${tabs.length === 1 ? '' : 's'} open in the side panel:\n${lines.join('\n')}${hidden}`
 }

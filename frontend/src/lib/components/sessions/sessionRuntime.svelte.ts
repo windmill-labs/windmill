@@ -1072,7 +1072,9 @@ setGetPreviewStatusHandler((callerSessionId) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return 'No active session; the preview panel is unavailable.'
 	const owner = getOrCreateRuntime(session).previewTabs
-	return describePreview(owner.tabs, owner.activeId)
+	// `displayedTab` is the one place that decides what the user can see; the ACTIVE
+	// PREVIEW block reads it too, so the two descriptions cannot contradict each other.
+	return describePreview(owner.tabs, owner.activeId, !!owner.displayedTab)
 })
 
 // close_page dispatches here to close preview tabs in the calling session's
