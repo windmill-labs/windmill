@@ -260,14 +260,10 @@ async fn create_schedule(
         ));
     }
 
-    // Check schedule for error (validate before opening the tx).
     ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref(), true)?;
 
-    // These reads deliberately use the non-RLS `db` pool (fork-ness and
-    // permissioned_as resolution must be complete regardless of the caller's
-    // folder perms). Run them BEFORE opening the RLS transaction below: acquiring
-    // a second pooled connection while the tx is held self-deadlocks on a
-    // single-connection pool, and they don't depend on the tx.
+    // Keep these `db`-pool reads ABOVE user_db.begin(): a second pool checkout
+    // while the RLS tx is held self-deadlocks at max_connections=1.
     //
     // A git-sync/merge/create write into a fork never sets operational state:
     // force `enabled = false` so a cloned / synced / merged / UI-created schedule
