@@ -37,11 +37,14 @@
 		if (job.job_kind === 'script') {
 			let code = job.raw_code
 			if (!code && job.script_hash && $workspaceStore) {
+				// A job can be visible to someone with no read permission on its script.
+				// Only the source-derived assets are then unavailable, so the argument-derived
+				// ones below must still be parsed rather than lost with the whole promise.
 				const script = await ScriptService.getScriptByHash({
 					workspace: $workspaceStore,
 					hash: job.script_hash
-				})
-				code = script.content
+				}).catch(() => undefined)
+				code = script?.content
 			}
 			let inferAssetsResult = await inferAssets(job.language!, code ?? '')
 			let assets = inferAssetsResult.status === 'ok' ? inferAssetsResult.assets : []
