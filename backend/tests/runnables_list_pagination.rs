@@ -379,22 +379,21 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         "search must substring-match the summary only"
     );
 
-    // Terms match independently, so one query can span the summary and the path with
-    // anything in between — what a caller's fuzzy ranking accepts but a single
-    // contiguous ILIKE would withhold.
+    // Terms may sit apart and span the summary and the path — what the homepage's
+    // fuzzy ranking accepts but a single contiguous ILIKE would withhold.
     assert_eq!(
         list_once(port, "search=deploy%20one").await,
         vec!["script:f/alpha/one".to_string()],
         "terms may sit apart, in the summary and the path"
     );
 
-    // Terms are AND-ed: each one matches something here, no row matches both.
-    let none = list_once(port, "search=deploy%20beta").await;
-    assert!(none.is_empty(), "terms must all match, got {none:?}");
-
-    // A search holding no terms must not degrade into an unfiltered page.
-    let blank = list_once(port, "search=%20").await;
-    assert!(blank.is_empty(), "whitespace-only search, got {blank:?}");
+    // The three rules that bound it, each pinned by a query that must return nothing:
+    // terms hold their order, every term must appear, and a query of pure separators
+    // is a search that matches nothing rather than no search at all.
+    for query in ["search=one%20deploy", "search=deploy%20beta", "search=%20"] {
+        let none = list_once(port, query).await;
+        assert!(none.is_empty(), "{query} must match nothing, got {none:?}");
+    }
 
     // kinds filter selects a single kind.
     let flows = list_once(port, "kinds=flow").await;
