@@ -402,9 +402,10 @@ async fn toggle_workspace_error_handler(
     .await?
     .unwrap_or(None);
 
+    let mut updated_rows = 0;
     let response = match error_handler_maybe {
         Some(_) => {
-            sqlx::query_scalar!(
+            updated_rows = sqlx::query_scalar!(
                 r#"
                     UPDATE 
                         flow 
@@ -419,7 +420,8 @@ async fn toggle_workspace_error_handler(
                 req.muted,
             )
             .execute(&mut *tx)
-            .await?;
+            .await?
+            .rows_affected();
             Ok("".to_string())
         }
         None => Err(Error::BadRequest(
@@ -431,8 +433,10 @@ async fn toggle_workspace_error_handler(
 
     // `ws_error_handler_muted` is part of the synced flow metadata, so the
     // toggle is a deploy like any other edit of it. The version is a
-    // placeholder: git sync keys off the path and kind alone.
-    if response.is_ok() {
+    // placeholder: git sync keys off the path and kind alone. The update runs
+    // under RLS against an unchecked path, so it can match nothing — deploy
+    // only what it actually wrote.
+    if updated_rows > 0 {
         handle_deployment_metadata(
             &authed.email,
             &authed.username,

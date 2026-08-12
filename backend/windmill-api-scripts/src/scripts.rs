@@ -2791,7 +2791,7 @@ async fn toggle_workspace_error_handler(
 
     match error_handler_maybe {
         Some(_) => {
-            sqlx::query_scalar!(
+            let updated = sqlx::query_scalar!(
                 "UPDATE script 
                 SET ws_error_handler_muted = $3 
                 WHERE ctid = (
@@ -2811,30 +2811,34 @@ async fn toggle_workspace_error_handler(
 
             // `ws_error_handler_muted` is part of the synced script metadata, so
             // the toggle is a deploy like any other edit of it. The hash is a
-            // placeholder: git sync keys off the path and kind alone.
-            handle_deployment_metadata(
-                &authed.email,
-                &authed.username,
-                &db,
-                &w_id,
-                DeployedObject::Script {
-                    hash: ScriptHash(0),
-                    path: path.to_path().to_string(),
-                    parent_path: None,
-                },
-                Some(format!(
-                    "Script '{}' {} the workspace error handler",
-                    path.to_path(),
-                    if req.muted.unwrap_or(false) {
-                        "muted"
-                    } else {
-                        "unmuted"
-                    }
-                )),
-                true,
-                None,
-            )
-            .await?;
+            // placeholder: git sync keys off the path and kind alone. The update
+            // runs under RLS against an unchecked path, so it can match nothing —
+            // deploy only what it actually wrote.
+            if updated.rows_affected() > 0 {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Script {
+                        hash: ScriptHash(0),
+                        path: path.to_path().to_string(),
+                        parent_path: None,
+                    },
+                    Some(format!(
+                        "Script '{}' {} the workspace error handler",
+                        path.to_path(),
+                        if req.muted.unwrap_or(false) {
+                            "muted"
+                        } else {
+                            "unmuted"
+                        }
+                    )),
+                    true,
+                    None,
+                )
+                .await?;
+            }
 
             Ok("".to_string())
         }

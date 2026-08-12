@@ -881,13 +881,12 @@ fn parse_pr_check_error(result_raw: &str) -> Option<String> {
         })
 }
 
-/// Markdown pointing the check summary at the job that produced it. Empty when
-/// no URL could be built, so the check never carries a link that goes nowhere.
+/// The run page for `job_id`, or `None` when the instance has no `BASE_URL` set
+/// (it defaults to empty) — a check must not carry a link that goes nowhere.
 #[cfg(all(feature = "enterprise", feature = "private"))]
-fn job_link_suffix(job_url: Option<&str>) -> String {
-    job_url
-        .map(|url| format!("\n\n[See the job in Windmill]({url})"))
-        .unwrap_or_default()
+fn job_run_url(base_url: &str, job_id: &uuid::Uuid, workspace_id: &str) -> Option<String> {
+    let base = base_url.trim_end_matches('/');
+    (!base.is_empty()).then(|| format!("{base}/run/{job_id}?workspace={workspace_id}"))
 }
 
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -904,19 +903,18 @@ fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
 
 #[cfg(all(test, feature = "enterprise", feature = "private"))]
 mod git_sync_check_tests {
-    use super::{
-        format_change_list, job_link_suffix, parse_git_sync_changes, parse_pr_check_error,
-    };
+    use super::{format_change_list, job_run_url, parse_git_sync_changes, parse_pr_check_error};
 
     #[test]
-    fn job_link_is_appended_only_when_resolvable() {
-        // A failing check is where the logs matter most, and the summary is the
-        // only place the user can reach them from without leaving GitHub.
+    fn job_run_url_is_none_without_a_base_url() {
+        let id = uuid::Uuid::nil();
         assert_eq!(
-            job_link_suffix(Some("https://app.windmill.dev/run/abc?workspace=w")),
-            "\n\n[See the job in Windmill](https://app.windmill.dev/run/abc?workspace=w)"
+            job_run_url("https://app.windmill.dev/", &id, "w").as_deref(),
+            Some("https://app.windmill.dev/run/00000000-0000-0000-0000-000000000000?workspace=w")
         );
-        assert_eq!(job_link_suffix(None), "");
+        // BASE_URL defaults to empty; a link built from it would 404 the reader.
+        assert_eq!(job_run_url("", &id, "w"), None);
+        assert_eq!(job_run_url("/", &id, "w"), None);
     }
 
     #[test]
@@ -1398,15 +1396,7 @@ async fn maybe_post_git_sync_check(
     // The creating call could only link the check to the workspace's run list —
     // the check predates the job fulfilling it. Now that the job is known, point
     // both the summary and the check's "Details" link at its logs.
-    let base_url = windmill_common::BASE_URL.load().to_string();
-    let job_url = (!base_url.is_empty()).then(|| {
-        format!(
-            "{}/run/{}?workspace={}",
-            base_url.trim_end_matches('/'),
-            job_id,
-            workspace_id
-        )
-    });
+    let job_url = job_run_url(&windmill_common::BASE_URL.load(), job_id, workspace_id);
 
     let (conclusion, title, summary): (&str, String, String) = if is_deploy {
         // Phase 6: real deploy pull -> "Deployed N changes" / "In sync" / failure.
@@ -1523,6 +1513,10 @@ async fn maybe_post_git_sync_check(
         }
     };
 
+    let check_summary = match job_url.as_deref() {
+        Some(url) => format!("{summary}\n\n[See the job in Windmill]({url})"),
+        None => summary.clone(),
+    };
     if let Err(e) = windmill_common::git_sync_ee::update_check_run(
         db,
         workspace_id,
@@ -1530,7 +1524,7 @@ async fn maybe_post_git_sync_check(
         check.check_run_id,
         conclusion,
         &title,
-        &format!("{summary}{}", job_link_suffix(job_url.as_deref())),
+        &check_summary,
         job_url.as_deref(),
     )
     .await
