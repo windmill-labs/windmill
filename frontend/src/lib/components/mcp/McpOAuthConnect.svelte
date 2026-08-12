@@ -22,10 +22,12 @@
 		path: string
 		/** The caller owns the path picker, so it owns whether the path is usable. */
 		pathValid?: boolean
+		/** Reports what discovery found, so the caller can offer the right fallback. */
+		onDiscovered?: (supportsOAuth: boolean) => void
 		workspace?: string
 	}
 
-	let { onConnected, server, path, pathValid = true, workspace }: Props = $props()
+	let { onConnected, server, path, pathValid = true, onDiscovered, workspace }: Props = $props()
 
 	let opWs = $derived(workspace ?? $workspaceStore)
 
@@ -47,10 +49,12 @@
 			selectedScopes = discoveryResult?.scopes_supported ?? []
 			noOAuth = false
 			status = 'discovered'
+			onDiscovered?.(true)
 		} catch (e) {
 			console.error('Error discovering OAuth settings', e)
 			noOAuth = true
 			status = 'idle'
+			onDiscovered?.(false)
 		}
 	}
 
@@ -163,9 +167,7 @@
 <div class="flex flex-col gap-4">
 	{#if status === 'idle'}
 		{#if noOAuth}
-			<div class="text-2xs text-secondary">
-				{server.name} did not advertise OAuth support, so connect with a token below.
-			</div>
+			<div class="text-2xs text-secondary">{server.name} did not advertise OAuth support.</div>
 		{/if}
 		<Button
 			unifiedSize="2xs"

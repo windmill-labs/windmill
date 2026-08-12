@@ -64,19 +64,26 @@
 
 	/** Rows for the chat's "+" menu: one per connected server, checked when it is
 	 * on, then the way to add another. Loaded on open so the checks are current. */
-	export async function menuItems(): Promise<Item[]> {
+	export async function menuItems(closeMenu?: () => void): Promise<Item[]> {
 		await loadServers()
 		return [
 			...servers.map((server) => ({
 				displayName: server.path,
-				toggle: server.enabled,
+				// A getter, not a snapshot: the menu stays open across a click, so the
+				// switch has to read the state at render time to repaint.
+				get toggle() {
+					return server.enabled
+				},
 				action: () => toggle(server.path, !server.enabled)
 			})),
 			{
 				displayName: 'Connect a server',
 				icon: Plus,
 				separatorTop: servers.length > 0,
-				action: () => void open()
+				action: () => {
+					closeMenu?.()
+					void open()
+				}
 			}
 		]
 	}

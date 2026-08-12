@@ -50,6 +50,8 @@
 	let manualPath = $state('')
 	let manualPathError = $state('')
 	let saving = $state(false)
+	let discoveryFoundOAuth = $state<boolean | undefined>(undefined)
+	let showToken = $state(false)
 
 	/** Slug for the resource value's `name` and for the path suggestion. Hosts are
 	 * reduced to the label that names the service, so mcp.notion.com reads notion. */
@@ -94,6 +96,11 @@
 	)
 	let needsOauthApp = $derived(entry?.auth === 'oauth_app' && !oauthAppReady)
 	let canDiscover = $derived(!needsOauthApp && !oauthAppReady && !!committedUrl)
+	// A token is the only way in for some servers and a distraction for others, so
+	// it is offered outright only when nothing here can sign in.
+	let canSignIn = $derived(
+		oauthAppReady || (canDiscover && !!$enterpriseLicense && discoveryFoundOAuth !== false)
+	)
 
 	$effect(() => {
 		const client = entry?.connectClient
@@ -121,6 +128,7 @@
 		suggested = id
 		url = findMcpEntry(id)?.url ?? url
 		committedUrl = url
+		discoveryFoundOAuth = undefined
 	}
 
 	async function createMcpResource(path: string, tokenRef: string) {
@@ -258,7 +266,7 @@
 					type: 'url',
 					placeholder: 'https://mcp.example.com',
 					disabled: entry !== undefined,
-					onchange: () => (committedUrl = url)
+					onchange: () => ((committedUrl = url), (discoveryFoundOAuth = undefined))
 				}}
 				bind:value={url}
 			/>
@@ -289,17 +297,6 @@
 			{entry.name} MCP documentation <ExternalLink size={12} />
 		</a>
 	{/if}
-
-	{#key suggestedPath}
-		<Path
-			bind:path={manualPath}
-			bind:error={manualPathError}
-			initialPath={suggestedPath}
-			namePlaceholder={serverName}
-			kind="resource"
-			workspaceOverride={ws}
-		/>
-	{/key}
 
 	{#if oauthAppReady && entry}
 		<div class="text-2xs text-secondary">
@@ -355,6 +352,7 @@
 					server={{ name: entry?.name ?? serverName, url: committedUrl }}
 					path={manualPath}
 					pathValid={manualPathError === ''}
+					onDiscovered={(supported) => (discoveryFoundOAuth = supported)}
 					workspace={ws}
 					onConnected={(path) => onConnected(path)}
 				/>
@@ -366,21 +364,43 @@
 		{/if}
 	{/if}
 
-	<div class="flex flex-col gap-3 border-t pt-3">
-		<span class="text-2xs uppercase tracking-wide text-secondary">Connect with a token</span>
-		{#if entry?.tokenHint}
-			<div class="text-2xs text-secondary">{entry.tokenHint}</div>
-		{/if}
-		<Label label="Token">
-			<Password bind:password={manualToken} />
-		</Label>
+	{#if canSignIn && !showToken}
 		<Button
-			unifiedSize="sm"
+			unifiedSize="2xs"
+			variant="subtle"
 			wrapperClasses="self-start"
-			onClick={saveManual}
-			disabled={saving || !url || !manualToken || !manualPath || manualPathError !== ''}
+			onClick={() => (showToken = true)}
 		>
-			Save
+			Connect with a token instead
 		</Button>
-	</div>
+	{:else}
+		<div class="flex flex-col gap-3 border-t pt-3">
+			<span class="text-2xs uppercase tracking-wide text-secondary">Connect with a token</span>
+			{#if entry?.tokenHint}
+				<div class="text-2xs text-secondary">{entry.tokenHint}</div>
+			{/if}
+			<Label label="Token">
+				<Password bind:password={manualToken} />
+			</Label>
+			<Button
+				unifiedSize="sm"
+				wrapperClasses="self-start"
+				onClick={saveManual}
+				disabled={saving || !url || !manualToken || !manualPath || manualPathError !== ''}
+			>
+				Save
+			</Button>
+		</div>
+	{/if}
+
+	{#key suggestedPath}
+		<Path
+			bind:path={manualPath}
+			bind:error={manualPathError}
+			initialPath={suggestedPath}
+			namePlaceholder={serverName}
+			kind="resource"
+			workspaceOverride={ws}
+		/>
+	{/key}
 </div>
