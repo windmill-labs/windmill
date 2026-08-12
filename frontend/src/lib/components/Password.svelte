@@ -16,6 +16,7 @@
 		minRows?: number
 		id?: string
 		autocomplete?: HTMLInputAttributes['autocomplete']
+		/** Off for login-style fields: keeps Enter free to submit. Overrides `minRows`. */
 		allowMultiline?: boolean
 		onKeyDown?: (event: KeyboardEvent) => void
 		onBlur?: (event: FocusEvent) => void

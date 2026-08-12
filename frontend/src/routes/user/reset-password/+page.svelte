@@ -53,7 +53,9 @@
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
-		if (event.key === 'Enter' && !event.isComposing) {
+		// keydown auto-repeats while held, and Enter also confirms an IME candidate — either
+		// would fire several resets against a single-use token
+		if (event.key === 'Enter' && !event.isComposing && !event.repeat) {
 			event.preventDefault()
 			resetPassword()
 		}
@@ -113,7 +115,7 @@
 								placeholder=""
 								allowMultiline={false}
 								onKeyDown={(e) => {
-									if (e.key === 'Enter' && !e.isComposing) {
+									if (e.key === 'Enter' && !e.isComposing && !e.repeat) {
 										e.preventDefault()
 										confirmPasswordField?.focus()
 									}

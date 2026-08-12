@@ -278,8 +278,9 @@
 	function handleKeyDown(event: KeyboardEvent) {
 		const key = event.key
 
-		// Enter confirming an IME candidate must not submit
-		if (key === 'Enter' && !event.isComposing) {
+		// keydown auto-repeats while held, and Enter also confirms an IME candidate —
+		// either would submit the form more than once per keypress
+		if (key === 'Enter' && !event.isComposing && !event.repeat) {
 			event.preventDefault()
 			login()
 		}
@@ -535,9 +536,11 @@
 							inputProps={{
 								id: 'email',
 								type: 'email',
-								autocomplete: 'email',
+								autocomplete: 'username',
 								onkeydown: (e) => {
-									if (e.key === 'Enter' && !e.isComposing) {
+									// Only move on once the field holds something: while the browser's
+									// credential dropdown is open, Enter belongs to the dropdown
+									if (e.key === 'Enter' && !e.isComposing && !e.repeat && e.currentTarget.value) {
 										e.preventDefault()
 										passwordField?.focus()
 									}
