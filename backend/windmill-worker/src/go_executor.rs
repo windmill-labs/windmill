@@ -26,8 +26,8 @@ use crate::{
         OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR,
-    GO_BUILD_LIMITS, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    is_sandboxing_enabled, read_ee_registry, GoBuildLimits, DISABLE_NUSER, GOPRIVATE, GOPROXY,
+    GO_BIN_CACHE_DIR, GO_BUILD_LIMITS, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -103,31 +103,33 @@ const GO_TOOLCHAIN_TUNING_ENVS: [&str; 3] = ["GOMEMLIMIT", "GOGC", "GOMAXPROCS"]
 /// the same names, as they do on the run step.
 fn go_toolchain_envs() -> Vec<(String, String)> {
     let worker_config = windmill_common::worker::WORKER_CONFIG.load();
-    let configured = |k: &str| {
-        worker_config
-            .env_vars
-            .get(k)
-            .map(|v| v.trim())
-            .filter(|v| !v.is_empty())
-    };
+    merge_go_toolchain_envs(&worker_config.env_vars, *GO_BUILD_LIMITS)
+}
 
-    let mut envs: Vec<(String, String)> = GO_TOOLCHAIN_TUNING_ENVS
-        .iter()
-        .filter_map(|k| configured(k).map(|v| (k.to_string(), v.to_string())))
-        .collect();
-
+fn merge_go_toolchain_envs(
+    worker_envs: &HashMap<String, String>,
+    derived: Option<GoBuildLimits>,
+) -> Vec<(String, String)> {
     // Values reach the toolchain as the worker group wrote them, the same way they
     // reach the run step: a `GOMEMLIMIT` the Go runtime rejects then fails both
     // steps alike instead of compiling under a rewritten value and dying on the
-    // binary it produced.
-    let pinned_by_worker_group = envs.iter().any(|(k, _)| k == "GOMEMLIMIT");
-    if let (false, Some(limits)) = (pinned_by_worker_group, *GO_BUILD_LIMITS) {
+    // binary it produced. An allowlisted name the worker never set resolves to an
+    // empty string, which would shadow the derived pair with nothing.
+    let configured = |k: &str| worker_envs.get(k).filter(|v| !v.trim().is_empty());
+
+    let mut envs: Vec<(String, String)> = GO_TOOLCHAIN_TUNING_ENVS
+        .iter()
+        .filter_map(|k| configured(k).map(|v| (k.to_string(), v.clone())))
+        .collect();
+
+    // Half of the derived pair is not a weaker limit but no limit (see
+    // `resolve_go_build_limits`), so a worker group that sets either one owns both.
+    let pinned_by_worker_group = envs
+        .iter()
+        .any(|(k, _)| k == "GOMEMLIMIT" || k == "GOMAXPROCS");
+    if let (false, Some(limits)) = (pinned_by_worker_group, derived) {
         envs.push(("GOMEMLIMIT".to_string(), limits.memlimit.to_string()));
-        // The per-process cap only adds up to the budget while the number of
-        // compilers sharing it is held down too.
-        if !envs.iter().any(|(k, _)| k == "GOMAXPROCS") {
-            envs.push(("GOMAXPROCS".to_string(), limits.parallelism.to_string()));
-        }
+        envs.push(("GOMAXPROCS".to_string(), limits.parallelism.to_string()));
     }
     envs
 }
@@ -769,4 +771,72 @@ async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     write_file(&mymod_dir, "inner_main.go", &code)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod go_toolchain_envs_tests {
+    use super::{merge_go_toolchain_envs, GoBuildLimits, HashMap};
+
+    const DERIVED: Option<GoBuildLimits> = Some(GoBuildLimits { memlimit: 512, parallelism: 3 });
+
+    fn worker_envs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn merged(pairs: &[(&str, &str)], derived: Option<GoBuildLimits>) -> Vec<(String, String)> {
+        let mut envs = merge_go_toolchain_envs(&worker_envs(pairs), derived);
+        envs.sort();
+        envs
+    }
+
+    fn expect(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        let mut envs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        envs.sort();
+        envs
+    }
+
+    #[test]
+    fn worker_group_settings_replace_the_derived_pair_whole() {
+        assert_eq!(
+            merged(&[], DERIVED),
+            expect(&[("GOMEMLIMIT", "512"), ("GOMAXPROCS", "3")])
+        );
+        // Either half configured hands the whole policy over, since a cap without a
+        // process count (or the reverse) bounds nothing.
+        assert_eq!(
+            merged(&[("GOMEMLIMIT", "2GiB")], DERIVED),
+            expect(&[("GOMEMLIMIT", "2GiB")])
+        );
+        assert_eq!(
+            merged(&[("GOMAXPROCS", "32")], DERIVED),
+            expect(&[("GOMAXPROCS", "32")])
+        );
+        // GOGC is orthogonal to the pair, so it rides along with it.
+        assert_eq!(
+            merged(&[("GOGC", "50")], DERIVED),
+            expect(&[
+                ("GOGC", "50"),
+                ("GOMEMLIMIT", "512"),
+                ("GOMAXPROCS", "3")
+            ])
+        );
+        // Forwarded untouched: a trimmed value would compile under a spelling the
+        // run step then rejects.
+        assert_eq!(
+            merged(&[("GOMEMLIMIT", " 2GiB ")], DERIVED),
+            expect(&[("GOMEMLIMIT", " 2GiB ")])
+        );
+        // An allowlisted name the worker never set must not shadow the pair.
+        assert_eq!(
+            merged(&[("GOMEMLIMIT", "  ")], DERIVED),
+            expect(&[("GOMEMLIMIT", "512"), ("GOMAXPROCS", "3")])
+        );
+        assert_eq!(merged(&[], None), expect(&[]));
+    }
 }

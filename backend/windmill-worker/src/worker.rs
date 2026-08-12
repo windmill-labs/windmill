@@ -1280,8 +1280,10 @@ const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 // changes are those that were about to take the worker down.
 const GO_BUILD_MEMLIMIT_FRACTION: f64 = 0.75;
 // Least heap worth handing a Go compiler: under it the process spends more time
-// collecting than compiling, so the budget buys fewer of them instead.
-const MIN_GO_BUILD_MEMLIMIT: usize = 256 * 1024 * 1024;
+// collecting than compiling, so the budget buys fewer of them instead. Measured on
+// a dependency-heavy build at a fixed budget: this share compiles it faster than
+// both more-and-smaller processes and fewer-and-larger ones, the latter steeply so.
+const MIN_GO_BUILD_MEMLIMIT: usize = 384 * 1024 * 1024;
 
 /// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
 /// and binary, so `MB` and `MiB` both mean 1024².
@@ -1393,7 +1395,7 @@ lazy_static::lazy_static! {
 /// the only way the toolchain understands it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct GoBuildLimits {
-    /// `GOMEMLIMIT`, which caps one process rather than the build.
+    /// `GOMEMLIMIT`.
     pub memlimit: usize,
     /// `GOMAXPROCS`, which is also `go build`'s default `-p`: how many compilers it
     /// runs at once.
@@ -1474,7 +1476,7 @@ mod go_build_limits_tests {
         // More cores than the budget can feed buys fewer compilers, not smaller ones.
         assert_eq!(
             resolve_go_build_limits(None, Some(4 * GIB), 64),
-            limits(MIN_GO_BUILD_MEMLIMIT, 11)
+            limits(MIN_GO_BUILD_MEMLIMIT, 7)
         );
         // Nothing to scale from leaves the toolchain unlimited, as it was before.
         assert_eq!(resolve_go_build_limits(None, None, 4), None);
