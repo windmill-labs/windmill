@@ -2775,6 +2775,7 @@ async fn toggle_workspace_error_handler(
 async fn toggle_workspace_error_handler(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
@@ -2807,6 +2808,34 @@ async fn toggle_workspace_error_handler(
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
+
+            // `ws_error_handler_muted` is part of the synced script metadata, so
+            // the toggle is a deploy like any other edit of it. The hash is a
+            // placeholder: git sync keys off the path and kind alone.
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Script {
+                    hash: ScriptHash(0),
+                    path: path.to_path().to_string(),
+                    parent_path: None,
+                },
+                Some(format!(
+                    "Script '{}' {} the workspace error handler",
+                    path.to_path(),
+                    if req.muted.unwrap_or(false) {
+                        "muted"
+                    } else {
+                        "unmuted"
+                    }
+                )),
+                true,
+                None,
+            )
+            .await?;
+
             Ok("".to_string())
         }
         None => {

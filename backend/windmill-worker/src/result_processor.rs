@@ -881,6 +881,15 @@ fn parse_pr_check_error(result_raw: &str) -> Option<String> {
         })
 }
 
+/// Markdown pointing the check summary at the job that produced it. Empty when
+/// no URL could be built, so the check never carries a link that goes nowhere.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn job_link_suffix(job_url: Option<&str>) -> String {
+    job_url
+        .map(|url| format!("\n\n[See the job in Windmill]({url})"))
+        .unwrap_or_default()
+}
+
 #[cfg(all(feature = "enterprise", feature = "private"))]
 fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
     let mut lines = Vec::new();
@@ -895,7 +904,20 @@ fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
 
 #[cfg(all(test, feature = "enterprise", feature = "private"))]
 mod git_sync_check_tests {
-    use super::{format_change_list, parse_git_sync_changes, parse_pr_check_error};
+    use super::{
+        format_change_list, job_link_suffix, parse_git_sync_changes, parse_pr_check_error,
+    };
+
+    #[test]
+    fn job_link_is_appended_only_when_resolvable() {
+        // A failing check is where the logs matter most, and the summary is the
+        // only place the user can reach them from without leaving GitHub.
+        assert_eq!(
+            job_link_suffix(Some("https://app.windmill.dev/run/abc?workspace=w")),
+            "\n\n[See the job in Windmill](https://app.windmill.dev/run/abc?workspace=w)"
+        );
+        assert_eq!(job_link_suffix(None), "");
+    }
 
     #[test]
     fn pr_check_error_is_a_field_not_a_substring() {
@@ -1373,6 +1395,18 @@ async fn maybe_post_git_sync_check(
     } else {
         None
     };
+    // The creating call could only link the check to the workspace's run list —
+    // the check predates the job fulfilling it. Now that the job is known, point
+    // both the summary and the check's "Details" link at its logs.
+    let base_url = windmill_common::BASE_URL.load().to_string();
+    let job_url = (!base_url.is_empty()).then(|| {
+        format!(
+            "{}/run/{}?workspace={}",
+            base_url.trim_end_matches('/'),
+            job_id,
+            workspace_id
+        )
+    });
 
     let (conclusion, title, summary): (&str, String, String) = if is_deploy {
         // Phase 6: real deploy pull -> "Deployed N changes" / "In sync" / failure.
@@ -1380,8 +1414,7 @@ async fn maybe_post_git_sync_check(
             (
                 "failure",
                 format!("Deploy to {} failed", workspace_id),
-                "Deploying the latest commit failed. See the job in Windmill for details."
-                    .to_string(),
+                "Deploying the latest commit failed.".to_string(),
             )
         } else {
             match parse_git_sync_changes(result_raw) {
@@ -1444,15 +1477,13 @@ async fn maybe_post_git_sync_check(
             (
                 "failure",
                 "Windmill diff failed".to_string(),
-                "The dry-run pull reported an unrecognized error. See the job in Windmill for details."
-                    .to_string(),
+                "The dry-run pull reported an unrecognized error.".to_string(),
             )
         } else if !success {
             (
                 "failure",
                 "Windmill diff failed".to_string(),
-                "The dry-run pull to compute the diff failed. See the job in Windmill for details."
-                    .to_string(),
+                "The dry-run pull to compute the diff failed.".to_string(),
             )
         } else {
             match parse_git_sync_changes(result_raw) {
@@ -1499,7 +1530,8 @@ async fn maybe_post_git_sync_check(
         check.check_run_id,
         conclusion,
         &title,
-        &summary,
+        &format!("{summary}{}", job_link_suffix(job_url.as_deref())),
+        job_url.as_deref(),
     )
     .await
     {
@@ -1517,8 +1549,12 @@ async fn maybe_post_git_sync_check(
                 .as_deref()
                 .map(|s| &s[..s.len().min(7)])
                 .unwrap_or("latest");
+            let job_row = job_url
+                .as_deref()
+                .map(|url| format!("\n| **Job** | [See the logs]({url}) |"))
+                .unwrap_or_default();
             let body = format!(
-                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
+                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |{job_row}\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
             );
             if let Err(e) = windmill_common::git_sync_ee::upsert_pr_comment(
                 db,
