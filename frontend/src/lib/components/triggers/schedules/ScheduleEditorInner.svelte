@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
+	import { clearPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import { SCHEDULES_PATH } from '$lib/components/copilot/chat/global/pageNavigation'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -1397,7 +1399,7 @@
 {/snippet}
 
 {#if useDrawer}
-	<Drawer size="900px" bind:this={drawer}>
+	<Drawer size="900px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(SCHEDULES_PATH)}>
 		<DrawerContent
 			bannerReserved={draftSync.hasBaseline}
 			title={edit

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { Alert, Button, TabContent } from '$lib/components/common'
+	import { clearPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewRouter'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -567,7 +569,7 @@
 {/if}
 
 {#if useDrawer}
-	<Drawer size="800px" bind:this={drawer}>
+	<Drawer size="800px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.postgres.path)}>
 		<DrawerContent
 			bannerReserved={draftSync.hasBaseline}
 			title={edit
