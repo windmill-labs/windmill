@@ -10962,7 +10962,8 @@ paths:
             case-insensitive match on summary or path; whitespace separates terms and
             a row must match each of the first 8, in any order and not necessarily
             adjacent. Terms past the 8th are ignored, so an over-long query matches
-            more rows rather than fewer.
+            more rows rather than fewer; a blank or whitespace-only query filters
+            nothing.
           schema:
             type: string
         - $ref: "#/components/parameters/PerPage"
