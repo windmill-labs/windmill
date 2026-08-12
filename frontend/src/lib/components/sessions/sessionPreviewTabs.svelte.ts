@@ -391,6 +391,10 @@ export class SessionPreviewTabs {
 		if (shown) {
 			const same = sameView(shown.loc, url)
 			if (same) {
+				// The frame is already here, but record what was asked for: `url` is what the
+				// tab persists and remounts from, so leaving it on where the frame started
+				// sends a refresh back to the row the user has since moved off.
+				shown.url = url
 				// Nothing to navigate to, so nothing would re-run: the list pages read their
 				// `#<path>` once per document, and the drawer it opens may since have been
 				// closed. Only a forced load can bring it back.

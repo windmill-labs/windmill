@@ -72,16 +72,6 @@
 	let ws = $derived(workspace ?? $workspaceStore)
 
 	let editDescription = $state(false)
-	let textEditor: SimpleEditor | undefined = $state(undefined)
-	let rawEditor: SimpleEditor | undefined = $state(undefined)
-
-	/** Push both code editors' debounced buffers into `args` now, for a caller that has
-	 * to persist what is on screen before leaving it. */
-	export function flushPendingChanges(): void {
-		textEditor?.flushPendingChanges()
-		rawEditor?.flushPendingChanges()
-	}
-
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')
 
@@ -280,7 +270,6 @@
 				</h5>
 				<div class="">
 					<SimpleEditor
-						bind:this={textEditor}
 						autoHeight
 						lang={resourceTypeInfo.format_extension}
 						bind:code={textFileContent}
@@ -316,7 +305,7 @@
 					>{jsonError}</span
 				>{:else}<div class="py-2"></div>{/if}
 			<div class="bg-surface-tertiary rounded-md border py-2.5">
-				<SimpleEditor bind:this={rawEditor} autoHeight lang="json" bind:code={rawCode} />
+				<SimpleEditor autoHeight lang="json" bind:code={rawCode} />
 			</div>
 		{/if}
 	</div>

@@ -286,8 +286,13 @@ const CONTEXT_FIELD_MAX = 300
  * these values are decoded out of URLs, which are attacker-shaped input the moment a link
  * can be shared. Length is capped too: a path this long tells the model nothing. */
 export function promptSafe(text: string): string {
+	// C0 and DEL, plus the Unicode terminators a renderer also breaks a line on — these
+	// values are percent-decoded, so `%E2%80%A8` arrives as a real U+2028.
 	// eslint-disable-next-line no-control-regex
-	return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, CONTEXT_FIELD_MAX)
+	return text
+		.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, ' ')
+		.trim()
+		.slice(0, CONTEXT_FIELD_MAX)
 }
 
 /** How a preview location may be described to the model: reassembled from the parts this

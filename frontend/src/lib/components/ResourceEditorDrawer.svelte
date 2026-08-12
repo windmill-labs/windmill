@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { tick } from 'svelte'
 	import { Button, Drawer } from './common'
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -23,12 +22,12 @@
 	let drawer: Drawer | undefined = $state()
 	let historyDrawer: Drawer | undefined = $state()
 	let canSave = $state(true)
+	let hasInvalidEdits = $state(false)
 	let resource_type: string | undefined = $state(undefined)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 
 	let resourceEditor:
 		| {
-				flushPendingChanges: () => void
 				save: () => void
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
@@ -80,13 +79,14 @@
 		if (!source) return undefined
 		return {
 			...source,
-			// The code editors hold their last keystrokes behind their own debounce, so
-			// materialise them and let `args` settle before the draft is persisted —
-			// otherwise the session opens on the value from before them.
+			// Checked after the flush, which is what materialises the editor text: JSON that
+			// does not parse never reaches `args`, so leaving would open the session on the
+			// last value that did and drop the buffer with the drawer.
 			beforeOpen: async () => {
-				resourceEditor?.flushPendingChanges()
-				await tick()
 				await source.beforeOpen?.()
+				if (hasInvalidEdits) {
+					throw new Error('This resource has changes that are not valid JSON. Fix them first.')
+				}
 			}
 		}
 	})
@@ -112,6 +112,7 @@
 				bind:selected
 				onDraftStateChange={(v) => (hasLocalDraft = v)}
 				onCanWriteChange={(v) => (canWriteSelected = v)}
+				onInvalidEditsChange={(v) => (hasInvalidEdits = v)}
 			/>
 		{/await}
 		{#snippet banner()}

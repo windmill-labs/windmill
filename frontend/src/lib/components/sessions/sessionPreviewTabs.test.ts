@@ -442,6 +442,19 @@ describe('SessionPreviewTabs.open', () => {
 	})
 })
 
+describe('SessionPreviewTabs.open — commanded url', () => {
+	it('records the requested row even when the frame is already showing it', () => {
+		const o = owner()
+		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
+		// The user moves to another row inside the frame.
+		o.observeLocation(o.tabs[0].id, '/routes#u/me/b')
+		o.open({ type: 'page', href: '/routes#u/me/b', label: 'R' })
+		// `url` is what a refresh and a remount reload from, so it has to follow.
+		expect(o.tabs[0].url).toBe('/routes#u/me/b')
+		expect(o.tabs).toHaveLength(1)
+	})
+})
+
 describe('SessionPreviewTabs.navigate', () => {
 	it('retargets the active tab to an editor item', () => {
 		const o = owner()

@@ -1,4 +1,15 @@
 <script module>
+	// Every mounted editor, so a caller can materialise what the user typed without
+	// knowing which editors a page contains — a drawer nests them through SchemaForm and
+	// ArgInput, so enumerating them from the container does not scale.
+	const liveEditors = new Set<{ flushPendingChanges: () => void }>()
+
+	/** Drain every mounted editor's debounced buffer. For code that must act on what is on
+	 * screen before leaving it — persisting a draft before routing to a session. */
+	export function flushAllPendingEditorChanges(): void {
+		for (const editor of liveEditors) editor.flushPendingChanges()
+	}
+
 	let cssClassesLoaded = $state(false)
 	let tailwindClassesLoaded = $state(false)
 
@@ -656,6 +667,12 @@
 		if (mounted && extraLib && initialized) {
 			untrack(() => loadExtraLib())
 		}
+	})
+
+	const registration = { flushPendingChanges: () => flushPendingChanges() }
+	onMount(() => {
+		liveEditors.add(registration)
+		return () => liveEditors.delete(registration)
 	})
 
 	onDestroy(() => {

@@ -32,6 +32,8 @@
 		 * so it can hide the banner's Discard button in read-only mode (matches
 		 * the trigger editors' `disabled={!can_write}` wiring). */
 		onCanWriteChange?: (canWrite: boolean) => void
+		/** Unsaved edits that do not parse — the raw JSON buffer never reached `args`. */
+		onInvalidEditsChange?: (invalid: boolean) => void
 	}
 
 	let {
@@ -44,7 +46,8 @@
 		workspace = undefined,
 		selected: selectedProp = $bindable(),
 		onDraftStateChange,
-		onCanWriteChange
+		onCanWriteChange,
+		onInvalidEditsChange
 	}: Props = $props()
 
 	type ResourceState = {
@@ -277,6 +280,7 @@
 		canSave = anyDirty && dirtyValid && dirtyCanWrite
 	})
 
+
 	// Drive the parent drawer's "unsaved changes" banner. The drawer chrome
 	// (header + banner slot) lives in ResourceEditorDrawer, above this
 	// lazily-imported content, so the state is lifted up via these accessors.
@@ -287,14 +291,9 @@
 		onCanWriteChange?.(can_write)
 	})
 
-	/** Materialise the form's code editors, which hold recent keystrokes behind their own
-	 * debounce. A caller persisting the draft before navigating must call this and await a
-	 * tick first, or it saves the value from before those keystrokes. */
-	let resourceForm: ResourceForm | undefined = $state(undefined)
-
-	export function flushPendingChanges(): void {
-		resourceForm?.flushPendingChanges()
-	}
+	$effect(() => {
+		onInvalidEditsChange?.(anyDirty && !dirtyValid)
+	})
 
 	export function localDraftDeployed(): ResourceState | undefined {
 		return selected ? initialStates[selected] : undefined
@@ -397,7 +396,6 @@
 		{#if current}
 			{#key current}
 				<ResourceForm
-					bind:this={resourceForm}
 					bind:path={current.path}
 					bind:labels={current.labels}
 					bind:description={current.description}

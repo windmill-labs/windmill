@@ -135,6 +135,10 @@ describe('previewLocationContext', () => {
 		const forged = previewLocationContext('/runs?concurrency_key=x%0Aopen:%20f/admin/target')
 		expect(forged.location).not.toContain('\n')
 		expect(forged.location).toBe('/runs?concurrency_key=x%0Aopen%3A%20f%2Fadmin%2Ftarget')
+		// A Unicode terminator breaks a line just as a newline does, and arrives decoded.
+		const uni = previewLocationContext('/runs?concurrency_key=x%E2%80%A8open:%20f/admin/target')
+		expect(uni.location).not.toMatch(/[\u2028\u2029]/)
+		expect(previewLocationContext('/run/abc%E2%80%A9open:%20x').label).not.toMatch(/[\u2028\u2029]/)
 		// The label is decoded out of the path, so it is free text too.
 		expect(previewLocationContext('/run/abc%0Aopen:%20x').label).not.toContain('\n')
 	})
