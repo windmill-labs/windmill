@@ -1823,6 +1823,9 @@ pub enum JobOutcome {
     /// or was suspended waiting for child jobs (WAC v2).
     /// All of these leave the span `Status` `Unset`.
     Completed,
+    /// A valid cached result was found for the job's args and path, so it was
+    /// answered without running anything.
+    CompletedFromCache,
     /// Job was attempted but its execution returned an error; the failure has
     /// been dispatched to the result processor. `description` holds the
     /// truncated error string for the outer span's `Status.message`.
@@ -1836,7 +1839,13 @@ impl JobOutcome {
     /// True when the job completed successfully on this worker. Used by
     /// callers that previously matched on `Ok(true)`.
     pub fn is_success(&self) -> bool {
-        matches!(self, Self::Completed)
+        matches!(self, Self::Completed | Self::CompletedFromCache)
+    }
+
+    /// Whether the job's code actually ran here, as opposed to being answered
+    /// from the cache or by another worker.
+    fn ran_on_this_worker(&self) -> bool {
+        matches!(self, Self::Completed | Self::Failed { .. })
     }
 }
 
@@ -1850,7 +1859,7 @@ impl JobOutcome {
 /// description that reflects the actual cause.
 pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<JobOutcome>) {
     let description = match result {
-        Ok(JobOutcome::Completed) => return,
+        Ok(JobOutcome::Completed) | Ok(JobOutcome::CompletedFromCache) => return,
         Ok(JobOutcome::Failed { description }) => description.clone(),
         Ok(JobOutcome::AlreadyCompleted) => "job already completed by another worker".to_string(),
         Err(err) => truncate_description(&err.to_string()),
@@ -3181,7 +3190,7 @@ pub async fn run_worker(
 
                 last_executed_job = None;
                 jobs_executed += 1;
-                let dirties_env = dirties_worker_env(
+                let mut dirties_env = dirties_worker_env(
                     job.kind,
                     &job.tag,
                     job.runnable_path.as_deref(),
@@ -3510,6 +3519,12 @@ pub async fn run_worker(
                     )
                     .await;
 
+                    // A result served from the cache, or a job another worker had already
+                    // completed, went through the loop without running anything here.
+                    dirties_env &= job_result
+                        .as_ref()
+                        .map_or(true, JobOutcome::ran_on_this_worker);
+
                     match job_result {
                         Ok(ref outcome) if !outcome.is_success() && is_init_script => {
                             tracing::error!("init script job failed, exiting");
@@ -3618,25 +3633,25 @@ pub async fn run_worker(
                 if let Some(max_jobs) = *EXIT_AFTER_N_JOBS {
                     if dirties_env {
                         jobs_executed_in_env += 1;
-                        if jobs_executed_in_env >= max_jobs {
-                            // Killpill rather than `break`: the main loop still has to drain the
-                            // same-worker jobs it owns (a same-worker flow runs to its end here,
-                            // past the limit) and let the background processor persist the results
-                            // of what it just ran, before the process goes away. `send` reports
-                            // whether this is the shutdown that got scheduled.
-                            if killpill_tx.send() {
-                                tracing::info!(
-                                    worker = %worker_name, hostname = %hostname,
-                                    "executed {jobs_executed_in_env} job(s), EXIT_AFTER_N_JOBS={max_jobs} \
-                                    reached: shutting the worker process down so it restarts on a fresh environment"
-                                );
-                            }
-                            // `jobs_executed` only reaches the ping row every NUM_SECS_PING, which
-                            // this process is about to exit before: force one for every job counted
-                            // from here on, drained ones included, so the row the restarted worker
-                            // reclaims counts the jobs this one ran.
-                            last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
+                    }
+                    if jobs_executed_in_env >= max_jobs {
+                        // Killpill rather than `break`: the main loop still has to drain the
+                        // same-worker jobs it owns (a same-worker flow runs to its end here, past
+                        // the limit) and let the background processor persist the results of what
+                        // it just ran, before the process goes away. `send` reports whether this is
+                        // the shutdown that got scheduled.
+                        if killpill_tx.send() {
+                            tracing::info!(
+                                worker = %worker_name, hostname = %hostname,
+                                "executed {jobs_executed_in_env} job(s), EXIT_AFTER_N_JOBS={max_jobs} \
+                                reached: shutting the worker process down so it restarts on a fresh environment"
+                            );
                         }
+                        // `jobs_executed` only reaches the ping row every NUM_SECS_PING, which this
+                        // process is about to exit before: force one after every job from here on,
+                        // drained ones included, so the row the restarted worker reclaims counts
+                        // the jobs this one ran.
+                        last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
                     }
                 }
 
@@ -4306,7 +4321,7 @@ pub async fn handle_queued_job(
                     }
                 }
 
-                return Ok(JobOutcome::Completed);
+                return Ok(JobOutcome::CompletedFromCache);
             }
         };
     }

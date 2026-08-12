@@ -384,25 +384,34 @@ fn create_stable_worker_suffix(hostname: &str, index: usize) -> String {
 /// restart in place, which is the case for `EXIT_AFTER_N_JOBS`. `WORKER_SUFFIX` overrides
 /// both, for hosts running several worker processes of the same worker group: the hostname
 /// alone cannot tell those apart.
-pub fn resolve_worker_suffix(hostname: &str, index: usize) -> String {
-    match &*WORKER_SUFFIX {
-        Some(label) => create_labelled_worker_suffix(hostname, label, index),
+pub fn resolve_worker_suffix(hostname: &str, index: usize) -> anyhow::Result<String> {
+    Ok(match &*WORKER_SUFFIX {
+        Some(label) => create_labelled_worker_suffix(hostname, label, index)?,
         None if EXIT_AFTER_N_JOBS.is_some() => create_stable_worker_suffix(hostname, index),
         None => create_default_worker_suffix(hostname),
-    }
+    })
 }
 
 /// The operator's label takes the place of the random part, and stays confined to it: a `-`
 /// inside it would add a segment to the worker name, which [`retrieve_common_worker_prefix`]
-/// reads as the part to strip.
-fn create_labelled_worker_suffix(hostname: &str, label: &str, index: usize) -> String {
-    let label = label.replace('-', "_");
+/// reads as the part to strip. Rejected rather than rewritten, since the whole point of the
+/// label is that two workers configured with different ones end up with different names.
+fn create_labelled_worker_suffix(
+    hostname: &str,
+    label: &str,
+    index: usize,
+) -> anyhow::Result<String> {
+    if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(anyhow::anyhow!(
+            "WORKER_SUFFIX must only contain ASCII letters, digits and underscores, got '{label}'"
+        ));
+    }
     let label = if index > 1 {
         format!("{label}_{index}")
     } else {
-        label
+        label.to_string()
     };
-    format!("{}-{}", instance_name(hostname), label)
+    Ok(format!("{}-{}", instance_name(hostname), label))
 }
 
 pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
@@ -1542,22 +1551,25 @@ mod tests {
 
     /// The operator's label has to survive into the name for them to recognize the worker,
     /// while staying one segment so it does not shift the interactive shell tag, and it must
-    /// still leave the workers of one process with distinct names.
+    /// still leave the workers of one process with distinct names. Two processes given
+    /// different labels must never end up with the same one, which is why a label that does
+    /// not fit a single segment is rejected instead of being rewritten into one that does.
     #[test]
     fn labelled_worker_suffix_stays_one_segment() {
-        let first = create_labelled_worker_suffix("wm-worker-abcde", "slot-a", 1);
+        let first = create_labelled_worker_suffix("wm-worker-abcde", "slot_a", 1).unwrap();
         assert_eq!(first, "abcde-slot_a");
-        assert_ne!(
-            first,
-            create_labelled_worker_suffix("wm-worker-abcde", "slot-a", 2)
-        );
-        for suffix in [
-            &first,
-            &create_labelled_worker_suffix("wm-worker-abcde", "slot-a", 2),
-        ] {
+        let second = create_labelled_worker_suffix("wm-worker-abcde", "slot_a", 2).unwrap();
+        assert_ne!(first, second);
+        for suffix in [&first, &second] {
             assert_eq!(
                 retrieve_common_worker_prefix(&worker_name_with_suffix(false, "default", suffix)),
                 "wk-default-abcde"
+            );
+        }
+        for rejected in ["slot-a", "slot a", "slot.a", "slot/a"] {
+            assert!(
+                create_labelled_worker_suffix("wm-worker-abcde", rejected, 1).is_err(),
+                "{rejected} should be rejected"
             );
         }
     }
