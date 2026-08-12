@@ -392,10 +392,13 @@ pub fn resolve_worker_suffix(hostname: &str, index: usize) -> anyhow::Result<Str
     })
 }
 
-/// The operator's label takes the place of the random part, and stays confined to it: a `-`
-/// inside it would add a segment to the worker name, which [`retrieve_common_worker_prefix`]
-/// reads as the part to strip. Rejected rather than rewritten, since the whole point of the
-/// label is that two workers configured with different ones end up with different names.
+/// The operator's label only has to tell the worker processes of one host apart, so it is
+/// appended to the stable suffix rather than replacing it: the digest is what keeps two hosts
+/// whose names end on the same segment (`worker-east-1`, `worker-west-1`) from sharing an
+/// identity, and it already folds in the worker index. A `-` in the label would add a segment
+/// to the worker name, which [`retrieve_common_worker_prefix`] reads as the part to strip;
+/// rejected rather than rewritten, since the point of the label is that two different ones
+/// give two different names.
 fn create_labelled_worker_suffix(
     hostname: &str,
     label: &str,
@@ -406,12 +409,10 @@ fn create_labelled_worker_suffix(
             "WORKER_SUFFIX must only contain ASCII letters, digits and underscores, got '{label}'"
         ));
     }
-    let label = if index > 1 {
-        format!("{label}_{index}")
-    } else {
-        label.to_string()
-    };
-    Ok(format!("{}-{}", instance_name(hostname), label))
+    Ok(format!(
+        "{}_{label}",
+        create_stable_worker_suffix(hostname, index)
+    ))
 }
 
 pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
@@ -1556,13 +1557,24 @@ mod tests {
     /// not fit a single segment is rejected instead of being rewritten into one that does.
     #[test]
     fn labelled_worker_suffix_stays_one_segment() {
-        let first = create_labelled_worker_suffix("wm-worker-abcde", "slot_a", 1).unwrap();
-        assert_eq!(first, "abcde-slot_a");
-        let second = create_labelled_worker_suffix("wm-worker-abcde", "slot_a", 2).unwrap();
-        assert_ne!(first, second);
-        for suffix in [&first, &second] {
+        let label =
+            |hostname, label, index| create_labelled_worker_suffix(hostname, label, index).unwrap();
+        let first = label("wm-worker-abcde", "slot_a", 1);
+        assert!(
+            first.starts_with("abcde-") && first.ends_with("_slot_a"),
+            "{first}"
+        );
+        assert_eq!(first, label("wm-worker-abcde", "slot_a", 1));
+        // Neither another worker of this process, nor another label, nor a host whose name
+        // happens to end on the same segment, may land on this identity.
+        for other in [
+            label("wm-worker-abcde", "slot_a", 2),
+            label("wm-worker-abcde", "slot_b", 1),
+            label("wm-worker-east-abcde", "slot_a", 1),
+        ] {
+            assert_ne!(first, other);
             assert_eq!(
-                retrieve_common_worker_prefix(&worker_name_with_suffix(false, "default", suffix)),
+                retrieve_common_worker_prefix(&worker_name_with_suffix(false, "default", &other)),
                 "wk-default-abcde"
             );
         }

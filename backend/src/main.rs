@@ -74,8 +74,9 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
-        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
+        is_native_mode_from_env, reload_custom_tags_setting, validate_worker_lifecycle_env,
+        Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR,
+        WINDMILL_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, INSTANCE_NAME, METRICS_ENABLED,
 };
@@ -781,6 +782,8 @@ async fn windmill_main() -> anyhow::Result<()> {
             num_workers = 1;
         }
     }
+
+    validate_worker_lifecycle_env()?;
 
     let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()

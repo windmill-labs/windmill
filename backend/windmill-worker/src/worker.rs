@@ -1842,10 +1842,11 @@ impl JobOutcome {
         matches!(self, Self::Completed | Self::CompletedFromCache)
     }
 
-    /// Whether the job's code actually ran here, as opposed to being answered
-    /// from the cache or by another worker.
+    /// Whether anything ran here. Only a cached result is a true no-run:
+    /// `AlreadyCompleted` is raised when the queue row disappears *while* the
+    /// child process is running, so that job did execute, and was interrupted.
     fn ran_on_this_worker(&self) -> bool {
-        matches!(self, Self::Completed | Self::Failed { .. })
+        !matches!(self, Self::CompletedFromCache)
     }
 }
 
@@ -2239,6 +2240,16 @@ mod exit_after_n_jobs_tests {
             true,
             WK
         ));
+    }
+
+    /// A job whose queue row vanished mid-execution ran here all the same, and one that
+    /// failed left behind whatever it had written before it did.
+    #[test]
+    fn only_a_cached_result_means_nothing_ran() {
+        assert!(!JobOutcome::CompletedFromCache.ran_on_this_worker());
+        assert!(JobOutcome::AlreadyCompleted.ran_on_this_worker());
+        assert!(JobOutcome::Completed.ran_on_this_worker());
+        assert!(JobOutcome::Failed { description: "boom".to_string() }.ran_on_this_worker());
     }
 
     /// The internal tags are ordinary routing tags: a worker can be configured to pull them,
@@ -3519,8 +3530,8 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    // A result served from the cache, or a job another worker had already
-                    // completed, went through the loop without running anything here.
+                    // A result served from the cache went through the loop without running
+                    // anything here.
                     dirties_env &= job_result
                         .as_ref()
                         .map_or(true, JobOutcome::ran_on_this_worker);
