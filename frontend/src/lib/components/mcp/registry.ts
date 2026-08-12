@@ -83,3 +83,25 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 export function findMcpEntry(id: string): McpRegistryEntry | undefined {
 	return MCP_REGISTRY.find((e) => e.id === id)
 }
+
+/**
+ * The entry a connected server belongs to, matched on host so it also recognises
+ * resources created outside this card (the raw resource form, the CLI, git sync).
+ * Unknown hosts get no icon rather than a wrong one.
+ */
+export function findMcpEntryByUrl(url: unknown): McpRegistryEntry | undefined {
+	if (typeof url !== 'string') return undefined
+	let host: string
+	try {
+		host = new URL(url).hostname
+	} catch {
+		return undefined
+	}
+	return MCP_REGISTRY.find((e) => {
+		try {
+			return new URL(e.url).hostname === host
+		} catch {
+			return false
+		}
+	})
+}

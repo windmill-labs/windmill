@@ -4,6 +4,8 @@
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { isMcpEnabled, setMcpEnabled } from '$lib/components/mcp/enabledServers'
+	import { findMcpEntryByUrl } from '$lib/components/mcp/registry'
+	import type { Component } from 'svelte'
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -29,7 +31,9 @@
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let showConnect = $state(false)
-	let servers = $state<{ path: string; description?: string; enabled: boolean }[]>([])
+	let servers = $state<
+		{ path: string; description?: string; enabled: boolean; icon?: Component<any> }[]
+	>([])
 	let loading = $state(false)
 	let loadError = $state<string | undefined>(undefined)
 	let pendingDisconnect = $state<string | undefined>(undefined)
@@ -63,6 +67,7 @@
 				description: r.description,
 				enabled: isMcpEnabled(target, r.path)
 			}))
+			void loadIcons(target, seq)
 		} catch (e) {
 			if (seq !== loadSeq) return
 			// Without this the drawer would render the empty state, which reads as
@@ -100,6 +105,8 @@
 		const shown = ordered.slice(0, MAX_MENU_SERVERS)
 		return [
 			...shown.map((server) => ({
+				// No provider icon here: the submenu is narrow, and an icon on some rows
+				// only truncates the path and ragged-aligns the rest.
 				displayName: server.path,
 				// A getter, not a snapshot: the menu stays open across a click, so the
 				// switch has to read the state at render time to repaint.
@@ -171,6 +178,30 @@
 		}
 	}
 
+	// The list endpoint strips resource values, so the url each server points at
+	// (and with it, which provider it is) takes one read per row. Rows render
+	// without waiting for it, and a long list stops asking rather than firing a
+	// request storm at a screen nobody is reading that far down.
+	const MAX_ICON_LOOKUPS = 20
+	async function loadIcons(target: string, seq: number) {
+		const rows = servers.slice(0, MAX_ICON_LOOKUPS)
+		const icons = await Promise.all(
+			rows.map(async (server) => {
+				try {
+					const resource = await ResourceService.getResource({
+						workspace: target,
+						path: server.path
+					})
+					return findMcpEntryByUrl((resource.value as { url?: unknown } | undefined)?.url)?.icon
+				} catch {
+					return undefined
+				}
+			})
+		)
+		if (seq !== loadSeq) return
+		rows.forEach((server, i) => (server.icon = icons[i]))
+	}
+
 	async function refresh() {
 		// A path can be reconnected to a different server, so the cached tool list
 		// (and the readOnlyHint the confirmation gate reads) must not survive.
@@ -232,6 +263,12 @@
 								checked={server.enabled}
 								on:change={async (e) => await toggle(server.path, e.detail)}
 							/>
+							{#if server.icon}
+								{@const Icon = server.icon}
+								<Icon width="16px" height="16px" class="shrink-0" />
+							{:else}
+								<Plug size={16} class="shrink-0 text-tertiary" />
+							{/if}
 							<div class="min-w-0 grow">
 								<div class="text-xs font-mono text-emphasis truncate">{server.path}</div>
 								{#if server.description}
