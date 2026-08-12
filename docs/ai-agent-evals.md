@@ -72,14 +72,18 @@ recorded version is necessary for attribution but not sufficient.
 Manufactured cases miss the edge cases that actually break agents, so both capture paths build a
 draft for review rather than writing anything:
 
-- **From an AI agent run** — the job's `user_message`/`user_attachments`, plus the host flow and
-  the `tool_inputs` that run actually used, lifted from the parent flow's step.
+- **From an AI agent run** — the job's `user_message`/`user_attachments`, the host flow and the
+  `tool_inputs` that run actually used (lifted from the parent flow's step), and what the run
+  answered as `expected`.
 - **From a flow conversation** — the case re-asks the conversation's *last user turn*, with
   everything before it replayed as the agent's memory and whatever the agent answered after it
   kept as `expected`. Splitting there rather than at the end is what makes a finished
   conversation — which ends on the assistant — yield a runnable case. Tool messages are left out:
-  their content is keyed to call ids this replay will not reissue. `expected` is what a scorer
-  compares a rerun against, and capture time is the only moment it exists.
+  their content is keyed to call ids this replay will not reissue.
+
+`expected` is what a scorer compares a rerun against. Capture is the moment it exists for free,
+but it is an ordinary field: it can be typed as plain text, or as JSON when the answer has
+structure.
 
 ## Experiments
 
