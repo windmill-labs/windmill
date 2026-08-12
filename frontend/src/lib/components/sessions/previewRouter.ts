@@ -15,6 +15,9 @@ import {
 import type { DrillIcon } from '$lib/components/drillPicker'
 import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
 import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
+import { buildVariablesFilterSchema } from '$lib/components/variables/variablesFilter'
+import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
+import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
 import { COMPARE_ITEMS_PARAM } from './modifiedItemsMask'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
@@ -143,27 +146,40 @@ export function canonicalizeObservedLoc(loc: string): string {
 	}
 }
 
+// A page's own filter schema — what it hands FilterSearchbar — is its declaration of
+// which query params are the view the user chose, so read the names from there rather
+// than restating them. Every option is passed so the set is the page's whole vocabulary,
+// not one viewer's subset: a name missing here is silently taken for the page's own.
+const PAGE_FILTER_SCHEMA: Record<string, Record<string, unknown>> = {
+	'/runs': buildRunsFilterSearchbarSchema({
+		paths: [],
+		usernames: [],
+		folders: [],
+		jobTriggerKinds: [],
+		isSuperAdminOrDevops: true,
+		isAdminsWorkspace: true
+	}),
+	'/schedules': buildSchedulesFilterSchema({
+		paths: [],
+		scriptPaths: [],
+		showUserFoldersFilter: true
+	}),
+	'/variables': buildVariablesFilterSchema({ paths: [], owners: [], showUserFoldersFilter: true }),
+	'/resources': buildResourcesFilterSchema({
+		paths: [],
+		resourceTypes: [],
+		owners: [],
+		showUserFoldersFilter: true
+	}),
+	'/assets': buildAssetsFilterSchema({ paths: [], assetKinds: [] })
+}
+
 // The query params belonging to the request; every other one the page wrote into its own
-// URL (`filter_path_of`, `page`/`perPage`) and must not read as a view. A name missing
-// here is silently ignored, so the flags below stay on to cover permission-gated filters
-// like Runs' `all_workspaces`. The URL builders read this back as their `validKeys`.
+// URL (`filter_path_of`, `page`/`perPage`) and must not read as a view. Only the pages
+// with no filter schema are listed — they read their params straight off the URL. The
+// URL builders read this whole table back as their `validKeys`.
 export const PAGE_REQUEST_PARAMS: Record<string, readonly string[]> = {
-	'/runs': Object.keys(
-		buildRunsFilterSearchbarSchema({
-			paths: [],
-			usernames: [],
-			folders: [],
-			jobTriggerKinds: [],
-			isSuperAdminOrDevops: true,
-			isAdminsWorkspace: true
-		})
-	),
-	'/schedules': Object.keys(
-		buildSchedulesFilterSchema({ paths: [], scriptPaths: [], showUserFoldersFilter: true })
-	),
-	'/variables': ['path', 'owner'],
-	'/resources': ['path', 'resource_type', 'owner'],
-	'/assets': ['path'],
+	...Object.fromEntries(Object.entries(PAGE_FILTER_SCHEMA).map(([p, s]) => [p, Object.keys(s)])),
 	'/audit_logs': ['username', 'operation', 'resource'],
 	'/workspace_settings': ['tab'],
 	[COMPARE_PAGE.path]: ['workspace_id', 'mode', COMPARE_ITEMS_PARAM]

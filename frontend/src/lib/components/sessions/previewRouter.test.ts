@@ -60,6 +60,15 @@ describe('describeLocation', () => {
 		expect(sameView('/audit_logs?username=a', '/audit_logs?username=b')).toBe(false)
 	})
 
+	it('counts every filter its page offers, not just the ones the chat can set', () => {
+		// The names come from each page's own filter schema. A filter the user sets in the
+		// frame but the chat cannot request is still the view they chose, so leaving it out
+		// would let a filtered tab answer a request for the unfiltered page.
+		expect(sameView('/variables', '/variables?description=api')).toBe(false)
+		expect(sameView('/resources', '/resources?label=prod')).toBe(false)
+		expect(sameView('/assets', '/assets?asset_kinds=s3')).toBe(false)
+	})
+
 	it('counts a filter only some viewers can reach', () => {
 		// `all_workspaces` exists only for a superadmin in the admins workspace, and the
 		// Runs entry point carries the live query into the preview wholesale. Left out of
