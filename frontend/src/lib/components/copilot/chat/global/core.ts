@@ -71,6 +71,7 @@ import {
 	findUnresolvedInlineScriptRefs
 } from '../flow/inlineScriptsUtils'
 import { searchNpmPackagesTool } from '../script/core'
+import type { McpServer } from './mcpTools'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
@@ -1162,7 +1163,8 @@ const buildGlobalSystemPrompt = (
 	username: string,
 	previewTools: boolean,
 	folderCtx?: FolderPromptContext,
-	skills: AiSkillListItem[] = []
+	skills: AiSkillListItem[] = [],
+	mcpServers: McpServer[] = []
 ) => {
 	const folderGuidance = buildFolderGuidance(username, folderCtx)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
@@ -1265,6 +1267,14 @@ Skills:
 - Skills are reusable instruction sets curated for this workspace, each covering a specific kind of task. The available skills are listed below by name and description.
 - When a user's request matches a skill's description, call read_skill with its exact name to load the full instructions BEFORE acting, then follow them.
 ${skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')}`
+			: ''
+	}${
+		mcpServers.length > 0
+			? `
+
+Connected MCP servers:
+${mcpServers.map((s) => `- ${s.path}`).join('\n')}
+- These act on external systems under this user's own credentials. When the user asks for something one of them covers (e.g. a GitHub issue or pull request), use search_mcp_tools then call_mcp_read_tool / call_mcp_write_tool instead of writing a script against that system's API.`
 			: ''
 	}`
 }
@@ -6919,6 +6929,7 @@ export function prepareGlobalSystemMessage(
 		// store (the eval harness) pass it explicitly instead.
 		user?: { username: string; is_admin?: boolean; folders?: string[]; folders_read?: string[] }
 		skills?: AiSkillListItem[]
+		mcpServers?: McpServer[]
 	}
 ): ChatCompletionSystemMessageParam {
 	const user = opts?.user ?? get(userStore)
@@ -6934,7 +6945,8 @@ export function prepareGlobalSystemMessage(
 		username,
 		opts?.previewTools ?? false,
 		folderCtx,
-		opts?.skills ?? []
+		opts?.skills ?? [],
+		opts?.mcpServers ?? []
 	)
 	if (instructions?.workspace?.trim()) {
 		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`

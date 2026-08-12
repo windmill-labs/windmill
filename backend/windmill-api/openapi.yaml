@@ -8057,11 +8057,66 @@ paths:
                       type: string
                     description:
                       type: string
-                    parameters:
+                    inputSchema:
                       type: object
+                    annotations:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        readOnlyHint:
+                          type: boolean
+                        destructiveHint:
+                          type: boolean
+                        idempotentHint:
+                          type: boolean
+                        openWorldHint:
+                          type: boolean
                   required:
                     - name
-                    - parameters
+                    - inputSchema
+
+  /w/{workspace}/resources/mcp_call_tool/{path}:
+    post:
+      summary: call a tool on the MCP server described by the resource
+      operationId: callMcpTool
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: tool name and arguments
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tool:
+                  type: string
+                arguments:
+                  type: object
+              required:
+                - tool
+      responses:
+        "200":
+          description: |
+            the MCP tool result, forwarded verbatim. A tool that ran but failed
+            returns 200 with isError true.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items:
+                      type: object
+                  structuredContent:
+                    type: object
+                  isError:
+                    type: boolean
 
   /w/{workspace}/resources/list_names/{name}:
     get:

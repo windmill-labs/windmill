@@ -29,6 +29,7 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
+	import McpConnections from './McpConnections.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -982,6 +983,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						<ContextUsageIndicator />
 						<AIChatModelSettings />
+						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<McpConnections />
+						{/if}
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}

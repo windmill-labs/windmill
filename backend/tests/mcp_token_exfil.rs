@@ -19,6 +19,11 @@
 //!     and the request only fails later at the connect/SSRF step — proving the
 //!     legitimate path still resolves the token (no over-blocking).
 //!
+//! `POST .../resources/mcp_call_tool/{path}` reaches the same MCP server through
+//! the same resource, so it is pinned to the same property here — both handlers
+//! share `connect_mcp_client`, and a future split of that helper must not let
+//! one of them regress.
+//!
 //! SSRF rejection of an author-controlled URL is covered by the unit test in
 //! `windmill-mcp` (`from_resource_rejects_ssrf_url`).
 #![cfg(feature = "mcp")]
@@ -27,6 +32,7 @@ use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
 const SECRET_VALUE: &str = "S3CRET-MCP-TOKEN-VALUE";
+const RESOURCE_PATH: &str = "u/test-user-3/evil_mcp";
 
 fn client() -> reqwest::Client {
     reqwest::Client::new()
@@ -44,13 +50,28 @@ async fn get(base: &str, path: &str, token: &str) -> (reqwest::StatusCode, Strin
     (status, body)
 }
 
-#[sqlx::test(fixtures("base", "mcp_token_exfil"))]
-async fn test_mcp_token_not_exfiltrated(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
+async fn post(
+    base: &str,
+    path: &str,
+    token: &str,
+    body: serde_json::Value,
+) -> (reqwest::StatusCode, String) {
+    let resp = client()
+        .post(format!("{base}/{path}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&body)
+        .send()
+        .await
+        .expect("request");
+    let status = resp.status();
+    let body = resp.text().await.expect("body");
+    (status, body)
+}
 
-    // Insert the locked secret variable with a real, workspace-key-encrypted
-    // value so an authorized read genuinely decrypts it.
-    let mc = windmill_common::variables::build_crypt(&db, "test-workspace").await?;
+/// Insert the locked secret variable with a real, workspace-key-encrypted value
+/// so an authorized read genuinely decrypts it.
+async fn insert_locked_secret(db: &Pool<Postgres>) -> anyhow::Result<()> {
+    let mc = windmill_common::variables::build_crypt(db, "test-workspace").await?;
     let encrypted = windmill_common::variables::encrypt(&mc, SECRET_VALUE);
     // Runtime-checked query (not the `query!` macro) so no offline `.sqlx` cache
     // entry is needed for this test-only insert.
@@ -59,13 +80,21 @@ async fn test_mcp_token_not_exfiltrated(db: Pool<Postgres>) -> anyhow::Result<()
          VALUES ('test-workspace', 'f/locked/secret_token', $1, true, 'Locked secret', '{}')",
     )
     .bind(&encrypted)
-    .execute(&db)
+    .execute(db)
     .await?;
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base", "mcp_token_exfil"))]
+async fn test_mcp_token_not_exfiltrated(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    insert_locked_secret(&db).await?;
 
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/resources/mcp_tools");
-    let path = "u/test-user-3/evil_mcp";
+    let path = RESOURCE_PATH;
 
     // ---- CORE REGRESSION: the developer can read the resource but must NOT be
     //      able to resolve the locked secret. They are denied (401) at the
@@ -105,6 +134,50 @@ async fn test_mcp_token_not_exfiltrated(db: Pool<Postgres>) -> anyhow::Result<()
     assert!(
         body.contains("Failed to connect to MCP server"),
         "admin should resolve the token and only fail at the connect/SSRF step: {body}"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base", "mcp_token_exfil"))]
+async fn test_mcp_call_tool_token_not_exfiltrated(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    insert_locked_secret(&db).await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/resources/mcp_call_tool");
+    let body = serde_json::json!({ "tool": "whoami", "arguments": {} });
+
+    let (status, resp) = post(&base, RESOURCE_PATH, "SECRET_TOKEN_3", body.clone()).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "developer must be denied resolving a secret they can't read (got {status}): {resp}"
+    );
+    assert!(
+        !resp.contains(SECRET_VALUE),
+        "the locked secret must never leak to the developer: {resp}"
+    );
+    assert!(
+        resp.contains("don't have access"),
+        "denial should come from the variable-RLS gate, not a connection error: {resp}"
+    );
+    assert!(
+        !resp.contains("Failed to connect to MCP server"),
+        "developer must be blocked before the connection step (would mean the token was resolved): {resp}"
+    );
+
+    let (status, resp) = post(&base, RESOURCE_PATH, "SECRET_TOKEN", body).await;
+    assert_ne!(
+        status,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "admin must clear the variable-RLS gate (got {status}): {resp}"
+    );
+    assert!(
+        resp.contains("Failed to connect to MCP server"),
+        "admin should resolve the token and only fail at the connect/SSRF step: {resp}"
     );
 
     Ok(())
