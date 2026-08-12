@@ -175,3 +175,6 @@ envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
 envar: "PYTHONPATH={ADDITIONAL_PYTHON_PATHS}"
 envar: "HOME=/tmp"
 envar: "ANSIBLE_CONFIG=/tmp/ansible.cfg"
+# Ansible never flushes its own stdout; on the pipe Windmill gives it, python block-buffers
+# and the job log arrives in bursts instead of as tasks run. Mirrors ansible_executor.rs.
+envar: "PYTHONUNBUFFERED=1"
