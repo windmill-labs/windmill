@@ -164,6 +164,10 @@
 	 * what is on screen — persisting a draft before navigating away — cannot wait out
 	 * CHANGE_TIMEOUT. Mirrors `Editor.flushPendingChanges`. */
 	export function flushPendingChanges(): void {
+		// Same guards as onDestroy: only a pending keystroke debounce is ours to flush.
+		// `getCode()` is '' until Monaco finishes initialising, and a caller draining every
+		// mounted editor reaches ones that have not — flushing those writes the blank out.
+		if (!editor || changeTimeoutId === undefined) return
 		cancelPendingChanges()
 		updateCode()
 	}
