@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT message_type::text AS \"message_type!\", content\n         FROM flow_conversation_message\n         WHERE conversation_id = $1 AND message_type IN ('user', 'assistant')\n         ORDER BY created_seq ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "message_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "content",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "5fb0deb71835b9bae32cf0f684739acea2614601d3440a85f6c0fad7960cd06f"
+}

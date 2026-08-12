@@ -83,7 +83,11 @@
 				<TextInput
 					bind:value={path}
 					size="sm"
-					inputProps={{ placeholder: kind === 'script' ? 'f/folder/script' : 'f/folder/flow' }}
+					inputProps={{
+						placeholder: kind === 'script' ? 'f/folder/script' : 'f/folder/flow',
+						// A path typed but never added is a scorer the run silently would not have.
+						onkeydown: (e: KeyboardEvent) => e.key === 'Enter' && add()
+					}}
 				/>
 			{/if}
 		</div>

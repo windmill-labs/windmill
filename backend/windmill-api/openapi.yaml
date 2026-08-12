@@ -11943,8 +11943,8 @@ paths:
       responses:
         "200":
           description: >
-            Experiments, newest first. `cases` is empty here — the list is for picking a run; read
-            an experiment's results to get its case set.
+            The 100 newest experiments. The list is for picking a run; read an experiment's
+            results to get the cases it executed.
           content:
             application/json:
               schema:
@@ -26319,26 +26319,12 @@ components:
           type: string
           description: Column header; defaults to the last segment of the path.
 
-    ExperimentCase:
-      type: object
-      required: [case_id, input, job_id]
-      properties:
-        case_id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        input:
-          $ref: "#/components/schemas/EvalCaseInput"
-        expected: {}
-        job_id:
-          type: string
-          format: uuid
-
     EvalExperiment:
       type: object
-      description: One run of a dataset, holding the exact case set it executed.
-      required: [id, dataset, subject, cases, created_at, created_by]
+      description: >-
+        One run of a dataset. The case set it executed is returned by the results endpoint, not
+        here: a listing would otherwise send the whole dataset back once per run.
+      required: [id, dataset, subject, case_count, created_at, created_by]
       properties:
         id:
           type: string
@@ -26351,10 +26337,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ScorerRef"
-        cases:
-          type: array
-          items:
-            $ref: "#/components/schemas/ExperimentCase"
+        case_count:
+          type: integer
         created_at:
           type: string
           format: date-time

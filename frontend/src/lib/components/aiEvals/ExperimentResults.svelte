@@ -144,9 +144,7 @@
 			})
 	})
 
-	let baselineByCase = $derived(
-		Object.fromEntries(baselineRows.map((r) => [r.case_id, r]))
-	)
+	let baselineByCase = $derived(Object.fromEntries(baselineRows.map((r) => [r.case_id, r])))
 
 	// The two experiments' scorer lists can differ, so a delta is only meaningful between the same
 	// scorer. Matched on kind and path rather than label: labels default to a path's last segment,
@@ -171,9 +169,7 @@
 		return scorerLabels.some((_, index) => (delta(row, index) ?? 0) < 0)
 	}
 
-	let visibleRows = $derived(
-		onlyRegressions && baselineId ? rows.filter(isRegression) : rows
-	)
+	let visibleRows = $derived(onlyRegressions && baselineId ? rows.filter(isRegression) : rows)
 
 	let selected = $derived(experiments.find((e) => e.id === selectedId))
 
@@ -229,7 +225,7 @@
 				items={experiments.map((e) => ({
 					label: `${displayDate(e.created_at)} · ${e.subject.path}${
 						e.subject.version != undefined ? ` v${e.subject.version}` : ''
-					}`,
+					} · ${e.case_count} ${e.case_count === 1 ? 'case' : 'cases'}`,
 					value: e.id
 				}))}
 				bind:value={selectedId}

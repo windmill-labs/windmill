@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM eval_experiment_case WHERE experiment_id = $1 AND ordinal >= $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "06ffbe465cd1396785b8972e5c0bd62a9eed593a963072551fafe096d3d466ad"
+}

@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT runnable_path, raw_flow as \"raw_flow: sqlx::types::Json<serde_json::Value>\", runnable_id, kind::text AS \"kind!\"\n             FROM v2_job WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "raw_flow: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "runnable_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "kind!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "1a92e6909fbdbf521ee0947f30ea2187199786d15eb3516facf5a3bdb063a595"
+}

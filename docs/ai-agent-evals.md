@@ -119,48 +119,52 @@ missing score counted as zero would read as a regression.
 
 ## Storage
 
-Datasets live in the workspace object storage, which must be configured before a dataset can be
-created. Per dataset:
+Datasets, cases and experiments are rows:
 
-```
-wmill_eval_datasets/meta/<path>.json                    the dataset's own metadata
-wmill_eval_datasets/cases/<path>.jsonl                  one JSON case per line
-wmill_eval_datasets/experiments/<path>/<id>.json        one run of the dataset
-```
+| table | holds |
+|---|---|
+| `eval_dataset` | one dataset, addressed by a workspace path |
+| `eval_case` | one case: its inputs, the answer it was expected to produce, where it was captured from |
+| `eval_experiment` | one run of a dataset, against one subject with one set of scorers |
+| `eval_experiment_case` | the case set that run executed, and the job each case became |
 
-Metadata is split from the case bulk so listing datasets never downloads cases.
+An experiment records its cases by value instead of pointing at `eval_case`, because a dataset
+keeps changing and a result set that cannot say which inputs produced it is not reproducible. For
+the same reason `case_id` is a plain column rather than a foreign key: deleting a case must not
+rewrite the history of the runs that used it.
 
-### Why case writes take a lock
+Deleting a dataset takes its cases, its experiments and their recorded case sets with it through
+the foreign keys. The jobs those experiments produced are left alone — they are jobs, with their
+own retention, and a run that happened is not undone by curating the dataset away.
 
-Adding, editing or deleting a case is a read-modify-write of the whole JSONL, so it runs inside a
-transaction holding
-`pg_try_advisory_xact_lock(hashtext('ai_eval_dataset:' || workspace || '/' || path))`. Advisory
-locks are database-global, so this serializes writers across every API server. Without it, two
-cases captured from production runs at the same moment both read the same file and the second PUT
-silently drops the first — which is precisely the case you most wanted to keep.
-
-The lock is `try` with a bounded retry rather than the blocking form, because it is held across
-two object-store round-trips: a hung storage call must fail that one dataset's request instead of
-parking connections behind it.
-
-Optimistic concurrency (conditional PUT with `If-Match`) would avoid the database entirely, but a
-store that ignores the header does not error — it silently drops the guarantee, and workspace
-storage can be S3, Azure Blob, GCS or any S3-compatible store.
-
-The lock only covers writers that go through the API. Workspace object storage is directly
-reachable from scripts through the S3 helpers, so a script appending to the JSONL itself bypasses
-it.
-
-That same reachability is why an experiment's `job_id`s are not trusted. Results are read on the
-unrestricted pool, so a forged experiment object naming somebody else's flow job would otherwise
-hand back output the jobs API would refuse. Only jobs this server stamped with that experiment's
-id (in `_eval`) are read; anything else is reported as though it had not run.
+A case is text: a message, an expected answer, at most a short replayed conversation. Attachments
+are S3 references rather than inline bytes, so nothing in a case is meant to be large, and two
+caps keep it that way — 256 KiB per case and 10 000 cases per dataset, both refused at the API
+rather than truncated.
 
 ### Permissions
 
-Object storage has no per-object ACL, so a dataset's permissions are the permissions of the
-Windmill path it is named by, enforced in the handlers: reading needs read on the folder (or
-`u/<self>`, or admin), writing needs write on it, and operators cannot write at all. Recording an
-experiment counts as a write — it persists into the dataset's namespace. There is no
-per-dataset `extra_perms`, and anyone who can read the workspace bucket directly can read every
-dataset — as with any other workspace file.
+A dataset is permissioned like any other path-addressed object: row-level security on
+`eval_dataset` decides who may see it (readers of its folder, `u/<self>`, a group, or an
+`extra_perms` grant) and who may change it. Operators cannot write at all. Recording an experiment
+counts as a write, since it persists into the dataset.
+
+Cases and experiments are the contents of a dataset rather than objects in their own right. They
+carry a read policy derived from their dataset and no write policy at all: the API writes them on
+the unrestricted pool, after asking the dataset row itself whether this caller may write it with
+`SELECT … FOR UPDATE`, which applies the dataset's UPDATE policies as well as its SELECT policies.
+The rule therefore lives in one place instead of being mirrored in Rust, where it could drift. A
+stray write to those tables through `user_db` fails rather than silently succeeding.
+
+### Why an experiment is recorded before it is launched
+
+Launching picks every job's id up front, writes the experiment and its case set in one
+transaction, and only then pushes the jobs. The order is the point. Pushing first and recording
+afterwards leaves a window in which jobs are running that no experiment accounts for, that nothing
+will collect and that a retry would silently duplicate. In this order, a launch that dies partway
+leaves a recorded case whose job is missing — which the results table shows — and if a push fails
+midway the cases that never reached the queue are removed again, so an experiment holds exactly
+what ran.
+
+The dataset's foreign key is what makes a concurrent delete safe: the transaction fails, and at
+that point no job has been queued.

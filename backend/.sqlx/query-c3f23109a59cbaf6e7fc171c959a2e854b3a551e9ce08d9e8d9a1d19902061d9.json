@@ -1,0 +1,79 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, input, host_flow_path, tool_inputs, expected, tags, source, created_at,\n                created_by\n         FROM eval_case\n         WHERE workspace_id = $1 AND dataset_path = $2\n         ORDER BY created_at, id\n         LIMIT $3 OFFSET $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "input",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "host_flow_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "tool_inputs",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "expected",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "tags",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "source",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_by",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "c3f23109a59cbaf6e7fc171c959a2e854b3a551e9ce08d9e8d9a1d19902061d9"
+}
