@@ -144,8 +144,11 @@
 								size="xs"
 								checked={server.enabled}
 								on:change={async (e) => {
+									// Local preference only: nothing to re-read from the API, and the
+									// cached tool lists stay valid because the servers are unchanged.
 									setMcpEnabled($workspaceStore!, server.path, e.detail)
-									await refresh()
+									server.enabled = e.detail
+									await aiChatManager.refreshMcpServers()
 								}}
 							/>
 							<div class="min-w-0 grow">

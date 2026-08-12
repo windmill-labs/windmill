@@ -8,7 +8,7 @@
 	import OauthScopes from '$lib/components/OauthScopes.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { onDestroy, untrack } from 'svelte'
-	import { ArrowLeft, ExternalLink, Pen } from 'lucide-svelte'
+	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { MCP_REGISTRY, findMcpEntry } from './registry'
 	import { OauthService, ResourceService, VariableService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
@@ -29,7 +29,6 @@
 	let entry = $derived(suggested ? findMcpEntry(suggested) : undefined)
 
 	let instanceConnects = $state<string[] | undefined>(undefined)
-	let showOAuth = $state(false)
 	let signingIn = $state(false)
 	let editScopes = $state(false)
 	// Seeded from the instance connect, then left editable: a server may want more
@@ -38,6 +37,9 @@
 	let scopes = $state<string[]>([])
 
 	let url = $state('')
+	// Discovery is a network call, so it follows the committed url (a picked
+	// suggestion, or a typed one on blur) rather than every keystroke.
+	let committedUrl = $state('')
 	let manualToken = $state<string | undefined>(undefined)
 	let manualPath = $state('')
 	let manualPathError = $state('')
@@ -85,7 +87,7 @@
 			(instanceConnects?.includes(entry.connectClient) ?? false)
 	)
 	let needsOauthApp = $derived(entry?.auth === 'oauth_app' && !oauthAppReady)
-	let canDiscover = $derived(!needsOauthApp && !oauthAppReady && !!url)
+	let canDiscover = $derived(!needsOauthApp && !oauthAppReady && !!committedUrl)
 
 	$effect(() => {
 		const client = entry?.connectClient
@@ -97,7 +99,6 @@
 	})
 
 	function pick(id: string) {
-		showOAuth = false
 		if (suggested === id) {
 			// Deselecting leaves the url in place to edit; an edited url is no longer
 			// that suggestion, so its auth kind must stop applying with it.
@@ -106,6 +107,7 @@
 		}
 		suggested = id
 		url = findMcpEntry(id)?.url ?? url
+		committedUrl = url
 	}
 
 	async function createMcpResource(path: string, tokenRef: string) {
@@ -246,7 +248,8 @@
 				inputProps={{
 					type: 'url',
 					placeholder: 'https://mcp.example.com',
-					disabled: entry !== undefined
+					disabled: entry !== undefined,
+					onchange: () => (committedUrl = url)
 				}}
 				bind:value={url}
 			/>
@@ -289,98 +292,79 @@
 		/>
 	{/key}
 
-	{#if showOAuth}
-		<McpOAuthConnect
-			server={{ name: entry?.name ?? serverName, url }}
-			path={manualPath}
-			workspace={ws}
-			onConnected={(path) => onConnected(path)}
-		/>
-		<Button
-			unifiedSize="2xs"
-			variant="subtle"
-			wrapperClasses="self-start"
-			startIcon={{ icon: ArrowLeft }}
-			onClick={() => (showOAuth = false)}
-		>
-			Back
-		</Button>
-	{:else}
-		{#if oauthAppReady && entry}
-			<div class="text-2xs text-secondary">
-				This instance has a {entry.name} OAuth app configured, so you can sign in with your own account.
-			</div>
-			<div class="flex flex-col gap-1">
-				<span class="text-xs font-semibold text-emphasis flex gap-2 items-center">
-					Scopes
-					<Button
-						unifiedSize="2xs"
-						variant="subtle"
-						iconOnly
-						title="Edit scopes"
-						startIcon={{ icon: Pen }}
-						onClick={() => (editScopes = !editScopes)}
-					/>
-				</span>
-				{#if editScopes}
-					<OauthScopes bind:scopes />
-				{:else}
-					<div class="flex flex-col gap-1">
-						{#each scopes as scope}
-							<div class="py-0.5 pl-2 text-xs">- {scope}</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
-			<Button
-				unifiedSize="sm"
-				variant="accent"
-				wrapperClasses="self-start"
-				onClick={startProviderOAuth}
-				disabled={signingIn || !manualPath || manualPathError !== ''}
-			>
-				{signingIn ? 'Finish in the popup...' : `Sign in with ${entry.name}`}
-			</Button>
-		{:else if needsOauthApp && entry}
-			<div class="text-2xs text-secondary">
-				{entry.name} does not support dynamic client registration, so signing in needs a {entry.name}
-				OAuth app registered on this instance. None is configured, so connect with a token below. An
-				admin can add one in instance settings to enable sign-in.
-			</div>
-		{:else if canDiscover}
-			{#if $enterpriseLicense}
+	{#if oauthAppReady && entry}
+		<div class="text-2xs text-secondary">
+			This instance has a {entry.name} OAuth app configured, so you can sign in with your own account.
+		</div>
+		<div class="flex flex-col gap-1">
+			<span class="text-xs font-semibold text-emphasis flex gap-2 items-center">
+				Scopes
 				<Button
-					unifiedSize="sm"
-					variant="accent"
-					wrapperClasses="self-start"
-					disabled={!manualPath || manualPathError !== ''}
-					onClick={() => (showOAuth = true)}
-				>
-					Sign in with {entry?.name ?? 'OAuth'}
-				</Button>
+					unifiedSize="2xs"
+					variant="subtle"
+					iconOnly
+					title="Edit scopes"
+					startIcon={{ icon: Pen }}
+					onClick={() => (editScopes = !editScopes)}
+				/>
+			</span>
+			{#if editScopes}
+				<OauthScopes bind:scopes />
 			{:else}
-				<div class="text-2xs text-secondary">
-					Signing in to an MCP server is an enterprise feature. Connect with a token below instead.
+				<div class="flex flex-col gap-1">
+					{#each scopes as scope}
+						<div class="py-0.5 pl-2 text-xs">- {scope}</div>
+					{/each}
 				</div>
 			{/if}
-		{/if}
-
-		<div class="flex flex-col gap-3 border-t pt-3">
-			<span class="text-2xs uppercase tracking-wide text-secondary">Connect with a token</span>
-			{#if entry?.tokenHint}
-				<div class="text-2xs text-secondary">{entry.tokenHint}</div>
-			{/if}
-			<Label label="Token">
-				<Password bind:password={manualToken} />
-			</Label>
-			<Button
-				unifiedSize="sm"
-				wrapperClasses="self-start"
-				onClick={saveManual}
-				disabled={saving || !url || !manualToken || !manualPath || manualPathError !== ''}
-			>
-				Save
-			</Button>
 		</div>
+		<Button
+			unifiedSize="sm"
+			variant="accent"
+			wrapperClasses="self-start"
+			onClick={startProviderOAuth}
+			disabled={signingIn || !manualPath || manualPathError !== ''}
+		>
+			{signingIn ? 'Finish in the popup...' : `Sign in with ${entry.name}`}
+		</Button>
+	{:else if needsOauthApp && entry}
+		<div class="text-2xs text-secondary">
+			{entry.name} does not support dynamic client registration, so signing in needs a {entry.name}
+			OAuth app registered on this instance. None is configured, so connect with a token below. An admin
+			can add one in instance settings to enable sign-in.
+		</div>
+	{:else if canDiscover}
+		{#if $enterpriseLicense}
+			{#key committedUrl}
+				<McpOAuthConnect
+					server={{ name: entry?.name ?? serverName, url: committedUrl }}
+					path={manualPath}
+					workspace={ws}
+					onConnected={(path) => onConnected(path)}
+				/>
+			{/key}
+		{:else}
+			<div class="text-2xs text-secondary">
+				Signing in to an MCP server is an enterprise feature. Connect with a token below instead.
+			</div>
+		{/if}
 	{/if}
+
+	<div class="flex flex-col gap-3 border-t pt-3">
+		<span class="text-2xs uppercase tracking-wide text-secondary">Connect with a token</span>
+		{#if entry?.tokenHint}
+			<div class="text-2xs text-secondary">{entry.tokenHint}</div>
+		{/if}
+		<Label label="Token">
+			<Password bind:password={manualToken} />
+		</Label>
+		<Button
+			unifiedSize="sm"
+			wrapperClasses="self-start"
+			onClick={saveManual}
+			disabled={saving || !url || !manualToken || !manualPath || manualPathError !== ''}
+		>
+			Save
+		</Button>
+	</div>
 </div>

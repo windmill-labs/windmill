@@ -33,6 +33,7 @@
 	let selectedScopes = $state<string[]>([])
 	let status = $state<'idle' | 'discovering' | 'discovered' | 'connecting'>('idle')
 	let error = $state<string | null>(null)
+	let noOAuth = $state(false)
 
 	async function discoverOAuth() {
 		status = 'discovering'
@@ -42,11 +43,11 @@
 				requestBody: { mcp_server_url: serverUrl }
 			})
 			selectedScopes = discoveryResult?.scopes_supported ?? []
+			noOAuth = false
 			status = 'discovered'
 		} catch (e) {
 			console.error('Error discovering OAuth settings', e)
-			const errorMessage = e.body?.message || e.body || e.message || 'Unknown error'
-			error = `Failed to discover OAuth settings: ${errorMessage}`
+			noOAuth = true
 			status = 'idle'
 		}
 	}
@@ -162,16 +163,22 @@
 
 <div class="flex flex-col gap-4">
 	{#if status === 'idle'}
+		{#if noOAuth}
+			<div class="text-2xs text-secondary">
+				{server.name} did not advertise OAuth support, so connect with a token below.
+			</div>
+		{/if}
 		<Button
-			unifiedSize="sm"
+			unifiedSize="2xs"
+			variant="subtle"
 			wrapperClasses="self-start"
 			onClick={discoverOAuth}
 			disabled={!serverUrl}
 		>
-			Discover OAuth settings
+			{noOAuth ? 'Check again' : 'Check for OAuth support'}
 		</Button>
 	{:else if status === 'discovering'}
-		<div class="text-xs text-secondary">Discovering OAuth settings...</div>
+		<div class="text-xs text-secondary">Checking what {server.name} supports...</div>
 	{:else if status === 'discovered' && discoveryResult}
 		<div class="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
 			<Check size={14} />
@@ -213,7 +220,7 @@
 			onClick={startOAuth}
 			disabled={!path}
 		>
-			Connect with OAuth
+			Sign in with {server.name}
 		</Button>
 	{:else if status === 'connecting'}
 		<div class="text-xs text-secondary">Complete authentication in the popup window...</div>

@@ -33,7 +33,9 @@ export type McpRegistryEntry = {
 	icon: Component<any>
 	/** For `oauth_app`: the Windmill OAuth connect (and resource type) to use. */
 	connectClient?: string
-	/** Shown when falling back to entering a token by hand. */
+	/** What this server accepts as a static token, when its documentation says.
+	 * Servers that document OAuth only are called out rather than left silent:
+	 * pasting a token there fails at first use, not at save time. */
 	tokenHint?: string
 	docsUrl?: string
 }
@@ -56,6 +58,8 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: NotionIcon,
 		url: 'https://mcp.notion.com/mcp',
 		auth: 'dcr',
+		tokenHint:
+			'Notion documents OAuth for its hosted server, so a static integration token may be rejected.',
 		docsUrl: 'https://developers.notion.com/docs/mcp'
 	},
 	{
@@ -64,6 +68,8 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: LinearIcon,
 		url: 'https://mcp.linear.app/mcp',
 		auth: 'dcr',
+		tokenHint:
+			'Use a Linear API key. A key with only the Read permission is enough for the read tools.',
 		docsUrl: 'https://linear.app/docs/mcp'
 	},
 	{
@@ -72,6 +78,8 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: SentryIcon,
 		url: 'https://mcp.sentry.dev/mcp',
 		auth: 'dcr',
+		tokenHint:
+			'Sentry documents OAuth only for its hosted server, so a static token may be rejected.',
 		docsUrl: 'https://docs.sentry.io/product/sentry-mcp/'
 	},
 	{
@@ -80,6 +88,8 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: StripeIcon,
 		url: 'https://mcp.stripe.com',
 		auth: 'dcr',
+		tokenHint:
+			'Use a restricted API key (rk_...) granting only the permissions you are willing to give the chat.',
 		docsUrl: 'https://docs.stripe.com/mcp'
 	}
 ]
