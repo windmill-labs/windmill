@@ -204,6 +204,34 @@ describe('artifactsDB', () => {
 		await expect(noDb.deleteArtifactsForSession('s1')).resolves.toBeUndefined()
 	})
 
+	it('rejects a version read it could not make, instead of reading as absent', async () => {
+		// The one read here that does not degrade to undefined: a caller clears a reader's pinned
+		// version on absence, and a pin cleared over a transient failure is cleared for good.
+		vi.resetModules()
+		delete (globalThis as any).indexedDB
+		;(await import('$lib/stores')).userStore.set({ email: 'a@x.com' } as never)
+		const noDb = await import('./artifactsDB')
+		await expect(noDb.getArtifactVersion('a1', 2)).rejects.toThrow(/unavailable/)
+
+		// And with a handle in hand, whose get rejects (a force-closed connection).
+		vi.resetModules()
+		vi.doMock('idb', () => ({
+			openDB: async () => ({
+				get: async () => {
+					throw new DOMException('closed', 'InvalidStateError')
+				}
+			}),
+			deleteDB: async () => {}
+		}))
+		try {
+			;(await import('$lib/stores')).userStore.set({ email: 'a@x.com' } as never)
+			const failing = await import('./artifactsDB')
+			await expect(failing.getArtifactVersion('a1', 2)).rejects.toThrow(/closed/)
+		} finally {
+			vi.doUnmock('idb')
+		}
+	})
+
 	it('swallows a write failure when the DB handle exists but the op rejects', async () => {
 		// The handle is present, but put/delete reject — the QuotaExceededError-shaped failure
 		// the plain no-handle test can't reach. Must not throw at the caller.
