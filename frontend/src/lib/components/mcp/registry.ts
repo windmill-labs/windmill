@@ -34,8 +34,9 @@ export type McpRegistryEntry = {
 	/** For `oauth_app`: the Windmill OAuth connect (and resource type) to use. */
 	connectClient?: string
 	/** What this server accepts as a static token, when its documentation says.
-	 * Servers that document OAuth only are called out rather than left silent:
-	 * pasting a token there fails at first use, not at save time. */
+	 * Shown as the token field's tooltip. Servers that document OAuth only are
+	 * called out rather than left silent: pasting a token there fails at first
+	 * use, not at save time. */
 	tokenHint?: string
 	docsUrl?: string
 }

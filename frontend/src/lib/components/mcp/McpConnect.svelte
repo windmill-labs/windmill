@@ -311,10 +311,7 @@
 
 	{#if hasTarget && !awaitingConnects}
 		{#if showToken || !canSignIn}
-			{#if entry?.tokenHint}
-				<div class="text-2xs text-secondary">{entry.tokenHint}</div>
-			{/if}
-			<Label label="Token">
+			<Label label="Token" tooltip={entry?.tokenHint}>
 				<Password bind:password={manualToken} />
 			</Label>
 		{:else if oauthAppReady && entry}
@@ -369,16 +366,18 @@
 			>
 		{/if}
 
-		{#key suggestedPath}
-			<Path
-				bind:path={manualPath}
-				bind:error={manualPathError}
-				initialPath={suggestedPath}
-				namePlaceholder={serverName}
-				kind="resource"
-				workspaceOverride={ws}
-			/>
-		{/key}
+		<Label label="Path">
+			{#key suggestedPath}
+				<Path
+					bind:path={manualPath}
+					bind:error={manualPathError}
+					initialPath={suggestedPath}
+					namePlaceholder={serverName}
+					kind="resource"
+					workspaceOverride={ws}
+				/>
+			{/key}
+		</Label>
 
 		<div class="flex flex-col gap-2">
 			{#if showToken || !canSignIn}
