@@ -1902,10 +1902,7 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job
-            .trigger_kind
-            .as_ref()
-            .map(|k| k.as_str().to_string()),
+        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),

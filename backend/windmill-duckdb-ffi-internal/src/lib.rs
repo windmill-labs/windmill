@@ -909,7 +909,6 @@ fn interpolate_named_args<'a>(
 /// the callers pass a `serde_json::Map` of `Value`s: serializing one cannot fail
 /// for any reason except the budget. A caller passing a type with a fallible
 /// `Serialize` would have its error silently retold as a size limit.
-///
 fn to_raw_value_within<T: serde::Serialize>(value: &T, budget: usize) -> Option<Box<RawValue>> {
     struct Budgeted {
         buf: Vec<u8>,
