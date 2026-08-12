@@ -176,11 +176,11 @@ async function executeTool(
 		})
 	} catch (e: any) {
 		const status = e?.status
-		return JSON.stringify({
+		return bounded({
 			success: false,
 			...(status ? { status } : {}),
 			error: errorMessage(e),
-			// Wrong arguments are the common failure — echo the schema so the model
+			// Wrong arguments are the common failure: echo the schema so the model
 			// can self-correct on the next call without a separate schema tool.
 			...(status >= 400 && status < 500 ? { schema: tool.inputSchema } : {})
 		})
@@ -189,20 +189,36 @@ async function executeTool(
 	const data = extractResultData(raw)
 	// A tool that ran but reported failure comes back as a success with isError set.
 	if ((raw as { isError?: boolean })?.isError) {
-		return JSON.stringify({
+		return bounded({
 			success: false,
 			error: typeof data === 'string' ? data : JSON.stringify(data),
 			schema: tool.inputSchema
 		})
 	}
 
-	const result = JSON.stringify({ success: true, data })
-	if (result.length <= MAX_RESULT_CHARS) return result
+	return bounded({ success: true, data })
+}
+
+/**
+ * Every result the model sees, within the advertised cap. A server controls both
+ * its output *and* its error text, so bounding only the success path would leave
+ * a hostile or merely verbose failure free to fill the context window.
+ */
+function bounded(payload: {
+	success: boolean
+	data?: unknown
+	error?: string
+	[k: string]: unknown
+}) {
+	const full = JSON.stringify(payload)
+	if (full.length <= MAX_RESULT_CHARS) return full
+	const body = payload.success ? payload.data : payload.error
+	const text = typeof body === 'string' ? body : JSON.stringify(body)
 	return JSON.stringify({
-		success: true,
+		success: payload.success,
 		truncated: true,
-		data: (typeof data === 'string' ? data : JSON.stringify(data)).slice(0, MAX_RESULT_CHARS),
-		note: `Result truncated to ${MAX_RESULT_CHARS} characters. Use filter or pagination parameters to narrow it.`
+		[payload.success ? 'data' : 'error']: text.slice(0, MAX_RESULT_CHARS),
+		note: `Truncated to ${MAX_RESULT_CHARS} characters. Use filter or pagination parameters to narrow it.`
 	})
 }
 

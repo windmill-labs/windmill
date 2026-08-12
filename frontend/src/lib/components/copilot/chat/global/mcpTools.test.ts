@@ -207,6 +207,30 @@ describe('search_mcp_tools', () => {
 	})
 })
 
+// A server controls its error text as much as its output, so the cap has to hold
+// on the failure path too.
+describe('result size cap', () => {
+	it('truncates an oversized isError payload', async () => {
+		getMcpToolsMock.mockResolvedValue(TOOLS)
+		callMcpToolMock.mockResolvedValue({
+			isError: true,
+			content: [{ type: 'text', text: 'x'.repeat(80_000) }]
+		})
+		const result = JSON.parse(
+			await getTool('call_mcp_read_tool').fn({
+				args: { server: 'u/hugo/github_mcp', tool: 'get_issue', arguments: {} },
+				workspace: 'test-ws',
+				helpers: {},
+				toolCallbacks: createToolCallbacks(),
+				toolId: 'tool-1'
+			})
+		)
+		expect(result.success).toBe(false)
+		expect(result.truncated).toBe(true)
+		expect(result.error.length).toBeLessThanOrEqual(20_000)
+	})
+})
+
 // The opt-in boundary: a readable `mcp` resource is not a server the chat may
 // act through until its owner turns it on.
 describe('loadMcpServers', () => {

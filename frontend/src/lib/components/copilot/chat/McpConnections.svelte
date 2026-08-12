@@ -9,6 +9,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { List, Loader2, Plug, Plus, Trash2 } from 'lucide-svelte'
 	import type { Item } from '$lib/utils'
+	import { untrack } from 'svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { clearMcpToolsCache } from './global/mcpTools'
 
@@ -33,27 +34,42 @@
 	let loadError = $state<string | undefined>(undefined)
 	let pendingDisconnect = $state<string | undefined>(undefined)
 
-	async function loadServers() {
-		if (!ws) return
+	// Rows describe one workspace. A switch while the drawer is open must not leave
+	// A's rows on screen while the actions below target B: same path, different
+	// server, and disconnect would delete the wrong one.
+	let loadSeq = 0
+	$effect(() => {
+		const target = ws
+		untrack(() => {
+			servers = []
+			void loadServers(target)
+		})
+	})
+
+	async function loadServers(target = ws) {
+		if (!target) return
+		const seq = ++loadSeq
 		loading = true
 		loadError = undefined
 		try {
 			const resources = await ResourceService.listResource({
-				workspace: ws,
+				workspace: target,
 				resourceType: 'mcp',
 				perPage: 100
 			})
+			if (seq !== loadSeq) return
 			servers = resources.map((r) => ({
 				path: r.path,
 				description: r.description,
-				enabled: isMcpEnabled(ws, r.path)
+				enabled: isMcpEnabled(target, r.path)
 			}))
 		} catch (e) {
+			if (seq !== loadSeq) return
 			// Without this the drawer would render the empty state, which reads as
 			// "you have no connections" rather than "we could not load them".
 			loadError = e.body ?? e.message
 		} finally {
-			loading = false
+			if (seq === loadSeq) loading = false
 		}
 	}
 
@@ -70,7 +86,13 @@
 	/** Rows for the chat's "+" menu: one per connected server, checked when it is
 	 * on, then the way to add another. Loaded on open so the checks are current. */
 	export async function menuItems(closeMenu?: () => void): Promise<Item[]> {
-		await loadServers()
+		// The menu opens on what is already known and refreshes behind it: waiting on
+		// a round trip would stall the whole `+` menu, attachments included.
+		if (servers.length === 0) {
+			await loadServers()
+		} else {
+			void loadServers()
+		}
 		// Enabled first: those are the ones a quick visit is most likely about.
 		const ordered = [...servers].sort(
 			(a, b) => Number(b.enabled) - Number(a.enabled) || a.path.localeCompare(b.path)
