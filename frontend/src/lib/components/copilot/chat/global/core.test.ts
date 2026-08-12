@@ -1309,6 +1309,58 @@ describe('global AI tools', () => {
 		expect(JSON.stringify(requestBody)).not.toContain('live-refreshed-access-token')
 	})
 
+	// Same carry rule, but the variable is readable: '' still means "not staged" for an
+	// OAuth-managed value, so the deploy must omit it rather than blank the token.
+	it('never deploys an empty value for a non-secret oauth-managed variable', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'u/admin/gh_token_readable',
+			value: 'live-refreshed-access-token',
+			is_secret: false,
+			is_oauth: true,
+			account: 7,
+			description: 'github oauth',
+			ws_specific: false
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'u/admin/gh_token_readable',
+			description: 'github oauth for the sync job'
+		})
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'u/admin/gh_token_readable'
+		})
+
+		const requestBody = vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody
+		expect(requestBody).not.toHaveProperty('value')
+		expect(requestBody).toMatchObject({ description: 'github oauth for the sync job' })
+	})
+
+	// The backend refuses an is_secret change with no value, and a variable holding '' stages
+	// nothing to send — so the tool has to ask for one instead of letting that error surface.
+	it('refuses to make an empty-valued variable secret without a value', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true)
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'u/admin/blank',
+			value: '',
+			is_secret: false,
+			description: 'nothing yet',
+			ws_specific: false
+		} as any)
+
+		await expect(
+			callGlobalTool('write_variable', {
+				path: 'u/admin/blank',
+				is_secret: true
+			})
+		).rejects.toThrow('without a value')
+
+		expect(getBackendDraft('variable', 'u/admin/blank', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
 	// A draft accumulates: omitting `value` means "this write does not touch the value", so a
 	// value set earlier stays set. Abandoning it needs discard_local_draft.
 	it('keeps a rotation staged across a later metadata-only write', async () => {

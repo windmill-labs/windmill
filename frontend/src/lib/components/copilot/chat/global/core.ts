@@ -4073,6 +4073,18 @@ function resolveVariableWrite(
 			`An empty string is not a valid value for secret variable "${args.path}". Omit value to keep the stored secret, or pass the real new one.`
 		)
 	}
+	// Securing one needs a value too when it holds none: the deploy would send no `value`
+	// (nothing is staged) and the backend refuses an is_secret change without one. Saying
+	// so here keeps the model from having to interpret that error.
+	if (
+		is_secret &&
+		base?.variable.is_secret === false &&
+		(args.value ?? base.variable.value) === ''
+	) {
+		throw new Error(
+			`Cannot make variable "${args.path}" secret without a value: it currently holds an empty one, so there would be nothing to encrypt. Pass the value it should hold.`
+		)
+	}
 	// Un-securing always needs a new plaintext value. An `$encrypted:` marker is no
 	// help: the deploy endpoints only decrypt it while the target stays secret, so
 	// carrying it into a non-secret variable would store the marker as the value.
@@ -4121,19 +4133,24 @@ function buildVariableCreateRequestBody(draftValue: CreateVariable): CreateVaria
 }
 
 // The deploy body for an existing variable. Every field is optional on the update
-// endpoint, and a secret draft stores '' when it stages no new value — so omitting
-// `value` in that case is what leaves the stored secret untouched. A staged value is
-// sent as-is: the endpoint decrypts an `$encrypted:` marker and encrypts plaintext.
+// endpoint, and a draft stores '' when it stages no new value — so omitting `value` in
+// that case is what leaves the stored one untouched. A staged value is sent as-is: the
+// endpoint decrypts an `$encrypted:` marker and encrypts plaintext.
 function buildVariableUpdateRequestBody(
 	draftValue: CreateVariable
 ): Omit<CreateVariable, 'value'> & { value?: string } {
 	const { value, ...rest } = structuredClone(draftValue)
-	// A non-secret value is resent even when this edit did not change it — a variable draft
+	// A value the draft is never allowed to carry — a secret's, and an OAuth-managed one
+	// dropped by `variableToDraftState` — reaches here as '' whenever this edit staged
+	// none, so sending it would blank the stored value or wipe a rotating token.
+	if (rest.is_secret || rest.is_oauth === true || rest.account != undefined) {
+		return value === '' ? rest : { ...rest, value }
+	}
+	// A readable value is resent even when this edit did not change it — a variable draft
 	// carries no baseline to diff against, so this matches `VariableEditor.save` and the
 	// shared deployer. A value changed elsewhere since the draft was created is therefore
 	// overwritten; closing that needs a stale-draft guard for variables on all three paths.
-	if (!rest.is_secret) return { ...rest, value }
-	return value === '' ? rest : { ...rest, value }
+	return { ...rest, value }
 }
 
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
