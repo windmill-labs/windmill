@@ -60,10 +60,11 @@ struct ListRunnablesQuery {
     /// Comma-separated labels; a row matches if it (or its folder) carries all.
     label: Option<String>,
     /// Case-insensitive fuzzy match on `summary (path)`, mirroring how the homepage
-    /// ranks: split into terms on anything but letters, digits and apostrophes, then
-    /// every term must appear whole and in order, with anything in between. Only the
-    /// first `MAX_SEARCH_TERMS` apply. Omitted or empty filters nothing; a query that
-    /// holds characters but no terms, such as `" "`, matches nothing.
+    /// ranks: split into terms on anything but ASCII letters, digits and apostrophes,
+    /// then every term must appear whole and in order, with anything in between. Only
+    /// the first `MAX_SEARCH_TERMS` apply. Omitted or empty filters nothing; a query
+    /// that holds no ASCII-alphanumeric character at all — `" "`, `"_"`, `"привет"` —
+    /// yields no terms and matches nothing, as it does on the homepage.
     search: Option<String>,
     per_page: Option<usize>,
     /// Opaque keyset cursor from a previous page's `next_cursor`.

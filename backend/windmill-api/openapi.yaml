@@ -10960,11 +10960,13 @@ paths:
           in: query
           description: >-
             case-insensitive fuzzy match on "summary (path)": the query is split into
-            terms on runs of anything but letters, digits and apostrophes, and each of
-            the first 8 must appear whole and in order, with anything in between. Terms
-            past the 8th are ignored, so an over-long query matches more rows rather
-            than fewer. Omitted or empty filters nothing; a query that holds characters
-            but no terms, such as a lone space, matches nothing.
+            terms on runs of anything but ASCII letters, digits and apostrophes, and
+            each of the first 8 must appear whole and in order, with anything in
+            between. Terms past the 8th are ignored, so an over-long query matches more
+            rows rather than fewer. Omitted or empty filters nothing; a query holding no
+            ASCII-alphanumeric character at all (a lone space, "_", or text in a
+            non-Latin script) yields no terms and matches nothing, mirroring the
+            homepage, whose matcher discards those queries too.
           schema:
             type: string
         - $ref: "#/components/parameters/PerPage"
