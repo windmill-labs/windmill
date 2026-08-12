@@ -222,8 +222,10 @@ export function parseArtifactRoute(
 export function artifactUrl(id: string, name: string, version?: number): string {
 	// Only stamp a version parseArtifactRoute can read back: this url is persisted with the
 	// tab, so one that round-trips to null would come back as an unopenable tab every reload.
+	// Safe integers specifically — from 1e21 up a number interpolates as `1e+21`, which the
+	// digits-only parser rejects outright.
 	const pinned =
-		version !== undefined && Number.isInteger(version) && version > 0 ? `?v=${version}` : ''
+		version !== undefined && Number.isSafeInteger(version) && version > 0 ? `?v=${version}` : ''
 	return `artifact:${encodeURIComponent(id)}${pinned}#${encodeURIComponent(name)}`
 }
 

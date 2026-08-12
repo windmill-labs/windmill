@@ -199,7 +199,7 @@ describe('artifact route', () => {
 	it('agrees with itself on what counts as a pinned version', () => {
 		// A url that stamps a version the parser then rejects is persisted with the tab, so it
 		// would outlive the bad call.
-		for (const bad of [0, -1, 1.5, NaN]) {
+		for (const bad of [0, -1, 1.5, NaN, 1e21]) {
 			expect(parseArtifactRoute(artifactUrl('abc', 'Plan', bad))).toEqual({
 				id: 'abc',
 				name: 'Plan',
