@@ -272,6 +272,18 @@
 
 	<div class="flex flex-col gap-1">
 		<Label label="MCP server URL">
+			{#snippet action()}
+				{#if entry?.docsUrl}
+					<a
+						href={entry.docsUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						class="text-2xs text-secondary inline-flex items-center gap-1"
+					>
+						Docs <ExternalLink size={12} />
+					</a>
+				{/if}
+			{/snippet}
 			<TextInput
 				inputProps={{
 					type: 'url',
@@ -297,17 +309,6 @@
 			{/each}
 		</div>
 	</div>
-
-	{#if entry?.docsUrl}
-		<a
-			href={entry.docsUrl}
-			target="_blank"
-			rel="noopener noreferrer"
-			class="text-2xs text-secondary inline-flex items-center gap-1"
-		>
-			{entry.name} MCP documentation <ExternalLink size={12} />
-		</a>
-	{/if}
 
 	{#if hasTarget && !awaitingConnects}
 		{#if showToken || !canSignIn}

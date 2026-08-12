@@ -7,7 +7,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Plug, Plus, Trash2 } from 'lucide-svelte'
+	import { List, Loader2, Plug, Plus, Trash2 } from 'lucide-svelte'
 	import type { Item } from '$lib/utils'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { clearMcpToolsCache } from './global/mcpTools'
@@ -57,17 +57,27 @@
 		}
 	}
 
-	export async function open() {
+	export async function open(startConnect = false) {
+		showConnect = startConnect
 		drawer?.openDrawer()
 		await loadServers()
 	}
+
+	// A menu is a shortcut, not a directory: past this many the list stops being
+	// scannable, so the rest are reached through the drawer rather than dropped.
+	const MAX_MENU_SERVERS = 8
 
 	/** Rows for the chat's "+" menu: one per connected server, checked when it is
 	 * on, then the way to add another. Loaded on open so the checks are current. */
 	export async function menuItems(closeMenu?: () => void): Promise<Item[]> {
 		await loadServers()
+		// Enabled first: those are the ones a quick visit is most likely about.
+		const ordered = [...servers].sort(
+			(a, b) => Number(b.enabled) - Number(a.enabled) || a.path.localeCompare(b.path)
+		)
+		const shown = ordered.slice(0, MAX_MENU_SERVERS)
 		return [
-			...servers.map((server) => ({
+			...shown.map((server) => ({
 				displayName: server.path,
 				// A getter, not a snapshot: the menu stays open across a click, so the
 				// switch has to read the state at render time to repaint.
@@ -76,13 +86,25 @@
 				},
 				action: () => toggle(server.path, !server.enabled)
 			})),
+			...(ordered.length > shown.length
+				? [
+						{
+							displayName: `Show all ${ordered.length}`,
+							icon: List,
+							action: () => {
+								closeMenu?.()
+								void open()
+							}
+						}
+					]
+				: []),
 			{
 				displayName: 'Connect a server',
 				icon: Plus,
 				separatorTop: servers.length > 0,
 				action: () => {
 					closeMenu?.()
-					void open()
+					void open(true)
 				}
 			}
 		]
