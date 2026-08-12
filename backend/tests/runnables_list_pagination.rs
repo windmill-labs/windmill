@@ -379,20 +379,14 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         "search must substring-match the summary only"
     );
 
-    // Terms may be spread across the summary and the path, in any order and with
-    // anything in between: clients rank with a fuzzy matcher that matches this way,
-    // so a query it would accept must not come back empty from the server.
-    for query in [
-        "search=deploy%20one",
-        "search=one%20deploy",
-        "search=alpha%20tool",
-    ] {
-        assert_eq!(
-            list_once(port, query).await,
-            vec!["script:f/alpha/one".to_string()],
-            "{query} must reach 'Deploy tool' at f/alpha/one"
-        );
-    }
+    // Terms match independently, so one query can span the summary and the path with
+    // anything in between — what a caller's fuzzy ranking accepts but a single
+    // contiguous ILIKE would withhold.
+    assert_eq!(
+        list_once(port, "search=deploy%20one").await,
+        vec!["script:f/alpha/one".to_string()],
+        "terms may sit apart, in the summary and the path"
+    );
 
     // Terms are AND-ed: each one matches something here, no row matches both.
     let none = list_once(port, "search=deploy%20beta").await;

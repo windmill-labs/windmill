@@ -59,8 +59,9 @@ struct ListRunnablesQuery {
     path_start: Option<String>,
     /// Comma-separated labels; a row matches if it (or its folder) carries all.
     label: Option<String>,
-    /// Case-insensitive match on summary or path. Whitespace separates terms,
-    /// all of which must match, in any order and not necessarily adjacent.
+    /// Case-insensitive match on summary or path. Whitespace separates terms; a
+    /// row must match each of the first `MAX_SEARCH_TERMS`, in any order and not
+    /// necessarily adjacent. Terms past that bound are ignored.
     search: Option<String>,
     per_page: Option<usize>,
     /// Opaque keyset cursor from a previous page's `next_cursor`.
