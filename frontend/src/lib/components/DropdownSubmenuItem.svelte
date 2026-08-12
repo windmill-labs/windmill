@@ -3,7 +3,8 @@
 	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import { melt } from '@melt-ui/svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { ChevronRight } from 'lucide-svelte'
+	import { Check, ChevronRight } from 'lucide-svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import type { Item } from '$lib/utils'
 	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import { Tooltip } from './meltComponents'
@@ -71,6 +72,23 @@
 					{subItem.displayName}
 				</p>
 				{@render subItem.extra?.()}
+				{#if subItem.shortcut || subItem.selected || subItem.toggle !== undefined}
+					<div class="ml-auto flex shrink-0 items-center gap-2">
+						{#if subItem.shortcut}
+							<span class="pl-4 text-2xs text-secondary">{subItem.shortcut}</span>
+						{/if}
+						{#if subItem.selected}
+							<Check size={14} class="text-primary" />
+						{/if}
+						{#if subItem.toggle !== undefined}
+							<!-- Indicator only: the click belongs to the row, so the switch must not
+							     take it (nor answer for the row to a screen reader). -->
+							<span class="pointer-events-none" aria-hidden="true">
+								<Toggle size="2xs" checked={subItem.toggle} />
+							</span>
+						{/if}
+					</div>
+				{/if}
 				{#if subItem.tooltip}
 					<Tooltip>
 						{#snippet text()}
