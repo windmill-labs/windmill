@@ -5,7 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Password from '$lib/components/Password.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import McpOAuthConnect from './McpOAuthConnect.svelte'
+	import McpServerOAuthConnect from './McpServerOAuthConnect.svelte'
 	import OauthScopes from '$lib/components/OauthScopes.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { onDestroy, untrack } from 'svelte'
@@ -13,18 +13,20 @@
 	import { MCP_REGISTRY, findMcpEntry } from './registry'
 	import { OauthService, ResourceService } from '$lib/gen'
 	import { upsertSecretVariable } from './secretVariable'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		onConnected: (resourcePath: string) => void
 		onCancel: () => void
-		workspace?: string
+		/** Required: a caller that forgot it would create the connection in whichever
+		 * workspace the ui happens to be showing, not the one it operates on. */
+		workspace: string
 	}
 
 	let { onConnected, onCancel, workspace }: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore!)
+	let ws = $derived(workspace)
 	// Any URL is connectable; a suggestion is a shortcut that also pins how the
 	// server hands out credentials, which a typed URL cannot tell us.
 	let suggested = $state<string | undefined>(undefined)
@@ -55,7 +57,7 @@
 	// `u/<me>` is private; a folder or group path means the token travels with the
 	// resource to everyone who can read it.
 	let sharedPath = $derived(!!manualPath && !manualPath.startsWith(`u/${$userStore?.username}/`))
-	let oauthConnect: McpOAuthConnect | undefined = $state()
+	let oauthConnect: McpServerOAuthConnect | undefined = $state()
 
 	/** Slug for the resource value's `name` and for the path suggestion. Hosts are
 	 * reduced to the label that names the service, so mcp.notion.com reads notion. */
@@ -348,7 +350,7 @@
 			{/if}
 		{:else if canDiscover && $enterpriseLicense}
 			{#key committedUrl}
-				<McpOAuthConnect
+				<McpServerOAuthConnect
 					bind:this={oauthConnect}
 					server={{ name: entry?.name ?? serverName, url: committedUrl }}
 					path={manualPath}

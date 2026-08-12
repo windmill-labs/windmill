@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import {
 		McpOauthService,
 		OauthService,
@@ -22,12 +21,12 @@
 		path: string
 		/** Reports what discovery found, so the caller can offer the right fallback. */
 		onDiscovered?: (supportsOAuth: boolean) => void
-		workspace?: string
+		/** Required: a caller that forgot it would create the connection in whichever
+		 * workspace the ui happens to be showing. */
+		workspace: string
 	}
 
 	let { onConnected, server, path, onDiscovered, workspace }: Props = $props()
-
-	let opWs = $derived(workspace ?? $workspaceStore)
 
 	let serverUrl = $derived(server.url)
 	let resourceName = $derived(server.name.toLowerCase().replace(/[^a-z0-9]/g, '_'))
@@ -115,7 +114,7 @@
 			let accountId: number | undefined
 			if (data.expires_in && data.refresh_token) {
 				const accountIdStr = await OauthService.createAccount({
-					workspace: opWs!,
+					workspace: workspace,
 					requestBody: {
 						refresh_token: data.refresh_token,
 						expires_in: data.expires_in,
@@ -127,7 +126,7 @@
 			}
 
 			await upsertSecretVariable({
-				workspace: opWs!,
+				workspace: workspace,
 				path,
 				value: data.access_token,
 				isOauth: true,
@@ -136,7 +135,7 @@
 			})
 
 			await ResourceService.createResource({
-				workspace: opWs!,
+				workspace: workspace,
 				requestBody: {
 					resource_type: 'mcp',
 					path: path,

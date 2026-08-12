@@ -114,7 +114,7 @@
 				</Button>
 			{:else}
 				<McpConnect
-					workspace={opWs}
+					workspace={opWs!}
 					onConnected={(path) => handleOAuthConnected(path, path.split('/').pop() ?? path)}
 					onCancel={() => (showOAuthForm = false)}
 				/>
