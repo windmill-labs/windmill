@@ -29,6 +29,7 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::mysql_executor::MysqlDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::sql_utils::remove_comments;
+use crate::MAX_SQL_RESULT_SIZE;
 use windmill_common::client::AuthedClient;
 use windmill_object_store::DEFAULT_STORAGE;
 
@@ -1910,6 +1911,7 @@ struct DuckDbFfiLib {
             w_id: *const c_char,
             memory_limit: *const c_char,
             temp_directory: *const c_char,
+            max_result_size: usize,
             column_order_ptr: *mut *mut c_char,
             collect_last_only: bool,
             collect_first_row_only: bool,
@@ -1972,7 +1974,7 @@ impl DuckDbFfiLib {
         // Version mismatch should only be possible on Windows agent workers
         // We check for it because FFI interface mismatch will cause undefined behavior / crashes
         unsafe {
-            let expected_version: c_uint = 2;
+            let expected_version: c_uint = 3;
             let get_version: Symbol<'static, unsafe extern "C" fn() -> c_uint> = 
             lib.get(b"get_version")
                 .map_err(|e| return Error::ExecutionErr(format!("Could not find get_version in the duckdb ffi library. If you are not using docker, consider manually upgrading windmill_duckdb_ffi_lib. {}", e.to_string())))?;
@@ -2125,6 +2127,7 @@ fn run_duckdb_ffi_safe<'a>(
             w_id.as_ptr(),
             memory_limit.as_ptr(),
             temp_directory.as_ptr(),
+            *MAX_SQL_RESULT_SIZE,
             &mut column_order,
             collection_strategy.collect_last_statement_only(query_block_list_count),
             collection_strategy.collect_first_row_only(),
