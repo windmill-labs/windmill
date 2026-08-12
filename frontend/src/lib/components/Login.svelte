@@ -17,7 +17,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, tick } from 'svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
 	import Password from './Password.svelte'
@@ -118,6 +118,11 @@
 			email,
 			password
 		}
+
+		// Await the DOM update: the field must be back to type="password" before the
+		// request goes out, or the browser may not offer to save the credential
+		passwordField?.conceal()
+		await tick()
 
 		try {
 			await UserService.login({ requestBody })

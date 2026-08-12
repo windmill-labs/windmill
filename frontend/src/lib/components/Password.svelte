@@ -51,6 +51,12 @@
 		;(isMultiline ? textareaRef : inputRef)?.focus()
 	}
 
+	// Revealing swaps the input to type="text". Auth forms conceal again before submitting,
+	// so the browser sees a password field when it decides whether to save the credential.
+	export function conceal() {
+		hideValue = true
+	}
+
 	function insertAndSwitchToMultiline(input: HTMLInputElement, text: string) {
 		const start = input.selectionStart
 		const end = input.selectionEnd

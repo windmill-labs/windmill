@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import { tick } from 'svelte'
 	import { page } from '$app/state'
 	import { WindmillIcon } from '$lib/components/icons'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
@@ -16,6 +17,7 @@
 	let confirmPassword = $state('')
 	let loading = $state(false)
 	let success = $state(false)
+	let newPasswordField = $state<Password | undefined>(undefined)
 	let confirmPasswordField = $state<Password | undefined>(undefined)
 
 	async function resetPassword() {
@@ -33,6 +35,12 @@
 			sendUserToast('Passwords do not match', true)
 			return
 		}
+
+		// Await the DOM update: the fields must be back to type="password" before the
+		// request goes out, or the browser may not offer to save the new credential
+		newPasswordField?.conceal()
+		confirmPasswordField?.conceal()
+		await tick()
 
 		loading = true
 		try {
@@ -110,6 +118,7 @@
 						</label>
 						<div>
 							<Password
+								bind:this={newPasswordField}
 								bind:password={newPassword}
 								id="new-password"
 								placeholder=""
