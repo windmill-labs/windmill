@@ -48,7 +48,6 @@ profiles:
       To connect to the database, use this connection string: ${DATABASE_URL}
       Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check.
       For UI verification, use the Playwright MCP (`mcp__playwright__*`) — the `playwright` server is headless and works without a display. Navigate to http://localhost:${FRONTEND_PORT}, log in as admin@windmill.dev / changeme.
-      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     panes:
       - id: agent
         kind: agent
@@ -78,7 +77,6 @@ profiles:
       To connect to the database, use this connection string: ${DATABASE_URL}
       Because we are running frontend with npm run dev, to verify your changes, just check the logs in the frontend pane. No need for npm run build.
       For UI verification, use the Playwright MCP (`mcp__playwright__*`) — the `playwright` server is headless and works without a display. Navigate to http://localhost:${FRONTEND_PORT}, log in as admin@windmill.dev / changeme.
-      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     panes:
       - id: agent
         kind: agent
@@ -93,8 +91,6 @@ profiles:
     runtime: host
     yolo: true
     envPassthrough: []
-    systemPrompt: >
-      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     panes:
       - id: agent
         kind: agent

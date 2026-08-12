@@ -142,3 +142,22 @@ Cloud-only logic must be behind `if *CLOUD_HOSTED { ... }`: feature-gate the hel
 - code already inside an `if *CLOUD_HOSTED { ... }` block,
 - handlers that early-return on `!*CLOUD_HOSTED`,
 - idempotent no-ops that are harmless off-cloud (e.g. cache invalidation).
+
+## Verifying Backend Changes
+
+`cargo check` and the unit tests do not exercise a worker code path. **If you changed how
+a job runs — an executor, `handle_child`, anything spawning or reading from a
+subprocess — run an actual job of that kind** and confirm it completed, then say so.
+Whole classes of defect compile and unit-test clean:
+
+- **Stack overflow from a large buffer in an async block.** An array declared across an
+  `.await` is baked into the future's state; once that future is boxed a few layers deep
+  by the job poller, two 16 KB arrays abort the worker *process* (`thread
+  'tokio-runtime-worker' has overflowed its stack`). Heap-allocate read buffers
+  (`vec![0u8; N]`, not `[0u8; N]`).
+- Deadlocks from draining only one of a child's pipes, missed cancellation or timeout
+  propagation, and anything depending on the real engine's output format.
+
+A crash like this takes down every job on that worker, not just yours, so check the
+backend log after the run rather than only the job's own status. If you cannot run one,
+say which path went unexercised instead of implying it was verified.

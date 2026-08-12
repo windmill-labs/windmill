@@ -27,3 +27,59 @@ function useLoader(argsGetter: () => Args) {
 ```
 
 Two-way binding is fine for simple form inputs. Avoid it for component-to-component state.
+
+## Verifying Frontend Changes
+
+After modifying frontend code, drive the running dev server with the **Playwright MCP** to verify the change in a real browser — don't claim a UI change works without exercising it.
+
+Two MCP servers are registered in `.mcp.json`:
+- `playwright` — headless Chromium, default for devboxes (no display required)
+- `playwright-headed` — windowed Chromium, when a display is available
+
+**One-time setup:** run `npx playwright install chromium` to download the browser binary (Playwright won't fetch it automatically on first use).
+
+Typical flow:
+1. Ensure backend (`cargo run`) and frontend (`REMOTE=http://localhost:8000 npm run dev`) are running
+2. `mcp__playwright__browser_navigate` to the relevant page (login at `admin@windmill.dev` / `changeme`)
+3. `mcp__playwright__browser_snapshot` to inspect the accessibility tree (preferred over screenshots for reading the DOM)
+4. `mcp__playwright__browser_click` / `browser_fill_form` / `browser_type` to interact
+5. `mcp__playwright__browser_take_screenshot` for visual confirmation
+6. `mcp__playwright__browser_console_messages` / `browser_network_requests` to surface errors
+
+Write screenshots to an absolute path under `/tmp` (the MCP servers already do; standalone
+Playwright scripts must be told): moving a PNG out of the checkout afterwards needs a `mv` the
+permission hooks always prompt on. Same reason to run `rm`/`mv`/`cp` as one plain command per Bash
+call: those hooks defer on `&&`, `;`, redirects, quotes and `$VAR`.
+
+**Attach the screenshots to the PR.** For any change under `frontend/`, embed screenshots of the affected UI in the PR body — the `pr` skill requires this and carries the upload recipe.
+
+If you cannot exercise a UI change (no dev server, etc.), say so explicitly rather than claiming success.
+
+### Traps while driving the UI
+
+- `critical_alerts` 404s are expected on CE builds (EE-only endpoint) — ignore them.
+- VSCode worker 404s are dev-mode artifacts — ignore them.
+- `<Toggle>` hides its checkbox (`sr-only`). Click the `<label>` wrapper, not the checkbox.
+
+## Banned Patterns
+
+### `$bindable(default_value)` on optional props
+
+Using `$bindable(default_value)` on props that can be `undefined` is **banned**. This pattern causes subtle bugs because the default value masks the `undefined` state.
+
+**Bad:**
+
+```svelte
+let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
+```
+
+**Correct alternatives:**
+
+1. **Use `$derived` with nullish coalescing** — handle the potential `undefined` at the usage site:
+
+   ```svelte
+   let { my_prop = $bindable() }: { my_prop?: string } = $props()
+   let effective_value = $derived(my_prop ?? default_value)
+   ```
+
+2. **Create a `useMyPropState()` helper** — encapsulate the undefined-handling logic in a reusable function and call it higher in the component tree, so the child component always receives a defined value.

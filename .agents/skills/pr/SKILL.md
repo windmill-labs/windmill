@@ -62,7 +62,7 @@ If `git diff main...HEAD --name-only` matches `^frontend/`, the PR body **must**
 screenshots of the affected UI. Skip only when there is no visible UI effect (types,
 tests, build config) — and say so in the body.
 
-1. Verify the change in the browser (AGENTS.md → "Verifying Frontend Changes").
+1. Verify the change in the browser (frontend/CLAUDE.md → "Verifying Frontend Changes").
 2. Screenshot each affected page with `mcp__playwright__browser_take_screenshot` (save to a file).
 3. Host each image and get its Markdown embed by pushing to the public
    `windmill-labs/agent-screenshots-internal` repo. **Pipe base64 through stdin** —
