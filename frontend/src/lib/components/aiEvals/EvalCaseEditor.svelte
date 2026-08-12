@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import Label from '$lib/components/Label.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -59,17 +60,15 @@
 </script>
 
 <div class="flex flex-col gap-4">
-	<label class="flex flex-col gap-1">
-		<span class="text-xs font-semibold text-secondary">Name</span>
+	<Label label="Name">
 		<TextInput
 			bind:value={draft.name}
 			size="sm"
 			inputProps={{ placeholder: 'Optional label for this case' }}
 		/>
-	</label>
+	</Label>
 
-	<label class="flex flex-col gap-1">
-		<span class="text-xs font-semibold text-secondary">User message</span>
+	<Label label="User message">
 		<TextInput
 			underlyingInputEl="textarea"
 			size="sm"
@@ -78,7 +77,7 @@
 			bind:value={userMessage}
 			inputProps={{ placeholder: 'What the agent is asked' }}
 		/>
-	</label>
+	</Label>
 
 	<div class="flex flex-col gap-1">
 		<Toggle
@@ -101,28 +100,25 @@
 				unifiedHeight={false}
 				class="min-h-40 font-mono !text-2xs"
 				bind:value={messagesText}
+				error={parsed.error}
 				inputProps={{ placeholder: '[{ "role": "user", "content": "..." }]', spellcheck: false }}
 			/>
 			{#if parsed.error}
-				<span class="text-xs text-red-600">{parsed.error}</span>
+				<span class="text-red-500 text-2xs font-normal">{parsed.error}</span>
 			{/if}
 		{/if}
 	</div>
 
-	<label class="flex flex-col gap-1">
-		<span class="text-xs font-semibold text-secondary">
-			Host flow
-			<Tooltip>
-				A linked agent's tools bind to the flow they run in. Leave this empty to use the agent's own
-				authored defaults, or name a flow to reproduce that flow's tool inputs instead.
-			</Tooltip>
-		</span>
+	<Label
+		label="Host flow"
+		tooltip="A linked agent's tools bind to the flow they run in. Leave this empty to use the agent's own authored defaults, or name a flow to reproduce that flow's tool inputs instead."
+	>
 		<TextInput
 			bind:value={draft.host_flow_path}
 			size="sm"
 			inputProps={{ placeholder: 'f/folder/flow (optional)' }}
 		/>
-	</label>
+	</Label>
 
 	<div class="flex gap-2 justify-end">
 		<Button

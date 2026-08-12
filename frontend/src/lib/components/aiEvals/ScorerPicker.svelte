@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Label from '$lib/components/Label.svelte'
 	import Select from '$lib/components/select/Select.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Plus, X } from 'lucide-svelte'
 	import { ResourceService } from '$lib/gen'
 
@@ -36,30 +37,25 @@
 	}
 </script>
 
-<div class="flex flex-col gap-1">
-	<span class="text-xs font-semibold text-secondary">
-		Scorers
-		<Tooltip>
-			A scorer is any runnable taking the case input, the agent's answer and the expected value, and
-			returning a number (or a boolean, or an object with a score). An LLM-as-judge is just a
-			reusable agent used here.
-		</Tooltip>
-	</span>
-
+<Label
+	label="Scorers"
+	tooltip="A scorer is any runnable taking the case input, the agent's answer and the expected value, and returning a number (or a boolean, or an object with a score). An LLM-as-judge is just a reusable agent used here."
+>
 	{#if scorers.length > 0}
 		<div class="flex flex-wrap gap-1">
 			{#each scorers as scorer, index (scorer.path + index)}
-				<span class="flex items-center gap-1 text-2xs rounded-md border border-light px-1.5 py-0.5">
+				<Badge color="gray">
 					<span class="text-tertiary">{scorer.kind}</span>
 					<span>{scorer.path}</span>
 					<button
-						class="text-tertiary hover:text-primary"
+						class="rounded-full p-0.5 text-tertiary hover:bg-surface-hover hover:text-primary"
 						title="Remove scorer"
+						aria-label="Remove scorer"
 						onclick={() => (scorers = scorers.filter((_, i) => i !== index))}
 					>
 						<X size={11} />
 					</button>
-				</span>
+				</Badge>
 			{/each}
 		</div>
 	{/if}
@@ -101,4 +97,4 @@
 			onclick={add}
 		/>
 	</div>
-</div>
+</Label>

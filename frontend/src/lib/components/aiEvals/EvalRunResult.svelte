@@ -100,7 +100,7 @@
 						</span>
 						<span class="flex items-center gap-1 shrink-0">
 							{#if run.type === 'CompletedJob'}
-								<span class={run.success ? 'text-green-600' : 'text-red-600'}>
+								<span class={run.success ? 'text-green-500' : 'text-red-500'}>
 									{run.success ? 'success' : 'failure'}
 								</span>
 							{:else}

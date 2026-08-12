@@ -515,7 +515,7 @@
 							{/snippet}
 							{#snippet content()}
 								<div class="flex flex-col gap-2 p-2 w-72">
-									<span class="text-xs font-semibold">New dataset</span>
+									<span class="text-xs font-semibold text-emphasis">New dataset</span>
 									<TextInput
 										bind:value={newDatasetPath}
 										size="sm"
@@ -580,8 +580,8 @@
 														<span
 															class={lastRun.type === 'CompletedJob'
 																? lastRun.success
-																	? 'text-green-600'
-																	: 'text-red-600'
+																	? 'text-green-500'
+																	: 'text-red-500'
 																: 'text-tertiary'}
 														>
 															{lastRun.type === 'CompletedJob'

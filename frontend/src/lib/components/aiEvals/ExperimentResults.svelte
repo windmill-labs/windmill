@@ -9,8 +9,18 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate } from '$lib/utils'
-	import { ExternalLink, RefreshCw } from 'lucide-svelte'
+	import { Ban, Check, ExternalLink, FastForward, Play, RefreshCw, X } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+
+	// Status carries an icon as well as a colour, since colour alone says nothing to a
+	// colour-blind reader. Same icon vocabulary as the runs table (`JobStatusIcon`).
+	const STATUS = {
+		success: { icon: Check, color: 'text-green-500' },
+		failure: { icon: X, color: 'text-red-500' },
+		canceled: { icon: Ban, color: 'text-tertiary' },
+		skipped: { icon: FastForward, color: 'text-tertiary' },
+		running: { icon: Play, color: 'text-yellow-500' }
+	} as const
 
 	let {
 		dataset,
@@ -278,7 +288,7 @@
 						{means[index] != undefined ? means[index].toFixed(2) : '—'}
 					</span>
 					{#if baselineId && meanDeltas[index] != undefined}
-						<span class={meanDeltas[index]! < 0 ? 'text-red-600' : 'text-green-600'}>
+						<span class={meanDeltas[index]! < 0 ? 'text-red-500' : 'text-green-500'}>
 							{meanDeltas[index]! >= 0 ? '+' : ''}{meanDeltas[index]!.toFixed(2)}
 						</span>
 					{/if}
@@ -317,17 +327,17 @@
 					{#each visibleRows as row (row.case_id)}
 						<tr class="border-b last:border-b-0">
 							<Cell first>
+								{@const status = STATUS[row.status] ?? STATUS.running}
+								{@const StatusIcon = status.icon}
 								<div class="flex items-center gap-1 min-w-0">
 									<span
+										class={`shrink-0 ${status.color}`}
+										role="img"
 										title={row.status}
-										class={row.status === 'success'
-											? 'text-green-600'
-											: row.status === 'failure'
-												? 'text-red-600'
-												: row.status === 'running'
-													? 'text-tertiary'
-													: 'text-yellow-600'}>●</span
+										aria-label={row.status}
 									>
+										<StatusIcon size={12} />
+									</span>
 									<span class="truncate">
 										{row.name || row.input?.user_message || 'Untitled case'}
 									</span>
@@ -343,7 +353,7 @@
 								<Cell numeric>
 									{row.scores?.[index] != undefined ? row.scores[index]?.toFixed(2) : '—'}
 									{#if d != undefined && d !== 0}
-										<span class={d < 0 ? 'text-red-600' : 'text-green-600'}>
+										<span class={d < 0 ? 'text-red-500' : 'text-green-500'}>
 											{d > 0 ? '+' : ''}{d.toFixed(2)}
 										</span>
 									{/if}
