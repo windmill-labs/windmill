@@ -69,7 +69,6 @@
 		return [
 			...servers.map((server) => ({
 				displayName: server.path,
-				icon: Plug,
 				toggle: server.enabled,
 				action: () => toggle(server.path, !server.enabled)
 			})),

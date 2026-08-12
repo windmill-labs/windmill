@@ -65,6 +65,13 @@
 				)}
 				item={meltItem}
 			>
+				{#if subItem.toggle !== undefined}
+					<!-- Indicator only: the click belongs to the row, so the switch must not
+					     take it (nor answer for the row to a screen reader). -->
+					<span class="pointer-events-none" aria-hidden="true">
+						<Toggle size="2xs" checked={subItem.toggle} />
+					</span>
+				{/if}
 				{#if subItem.icon}
 					<subItem.icon size={14} color={subItem.iconColor} class="shrink-0" />
 				{/if}
@@ -72,20 +79,13 @@
 					{subItem.displayName}
 				</p>
 				{@render subItem.extra?.()}
-				{#if subItem.shortcut || subItem.selected || subItem.toggle !== undefined}
+				{#if subItem.shortcut || subItem.selected}
 					<div class="ml-auto flex shrink-0 items-center gap-2">
 						{#if subItem.shortcut}
 							<span class="pl-4 text-2xs text-secondary">{subItem.shortcut}</span>
 						{/if}
 						{#if subItem.selected}
 							<Check size={14} class="text-primary" />
-						{/if}
-						{#if subItem.toggle !== undefined}
-							<!-- Indicator only: the click belongs to the row, so the switch must not
-							     take it (nor answer for the row to a screen reader). -->
-							<span class="pointer-events-none" aria-hidden="true">
-								<Toggle size="2xs" checked={subItem.toggle} />
-							</span>
 						{/if}
 					</div>
 				{/if}

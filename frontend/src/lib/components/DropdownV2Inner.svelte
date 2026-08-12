@@ -50,6 +50,13 @@
 		aiId={`${aiId ? `${aiId}-${item.displayName}` : undefined}`}
 		aiDescription={item.displayName}
 	>
+		{#if item.toggle !== undefined}
+			<!-- Indicator only: the click belongs to the row, so the switch must not
+			     take it (nor answer for the row to a screen reader). -->
+			<span class="pointer-events-none" aria-hidden="true">
+				<Toggle size="2xs" checked={item.toggle} />
+			</span>
+		{/if}
 		{#if item.icon}
 			<item.icon size={14} color={item.iconColor} class="shrink-0" />
 		{/if}
@@ -57,7 +64,7 @@
 			{item.displayName}
 		</p>
 		{@render item.extra?.()}
-		{#if item.shortcut || item.selected || item.toggle !== undefined}
+		{#if item.shortcut || item.selected}
 			<!-- Single trailing group so `shortcut` and `selected` can coexist:
 			     two `ml-auto` siblings would collapse to one right-aligned item. -->
 			<div class="ml-auto flex shrink-0 items-center gap-2">
@@ -66,13 +73,6 @@
 				{/if}
 				{#if item.selected}
 					<Check size={14} class="text-primary" />
-				{/if}
-				{#if item.toggle !== undefined}
-					<!-- Indicator only: the click belongs to the row, so the switch must not
-					     take it (nor answer for the row to a screen reader). -->
-					<span class="pointer-events-none" aria-hidden="true">
-						<Toggle size="2xs" checked={item.toggle} />
-					</span>
 				{/if}
 			</div>
 		{/if}
