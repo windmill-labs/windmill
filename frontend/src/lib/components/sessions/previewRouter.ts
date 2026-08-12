@@ -13,6 +13,9 @@ import {
 	ScrollText
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
+import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
+import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
+import { COMPARE_ITEMS_PARAM } from './modifiedItemsMask'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
@@ -140,23 +143,45 @@ export function canonicalizeObservedLoc(loc: string): string {
 	}
 }
 
-// Pages whose query *is* what the tab shows, so two such locations are different views
-// of one page. Every other page writes its own filter defaults into the query shortly
-// after mount and `loc` follows that rewrite, which is why the query is page-internal
-// state everywhere else — reading it as the view makes a tab stop recognizing itself.
-const QUERY_IS_VIEW: readonly string[] = [
-	'/runs',
-	'/audit_logs',
-	'/assets',
-	'/workspace_settings',
-	COMPARE_PAGE.path
-]
+// A location's query has two authors, and only one of them says anything about which
+// view was asked for: the params a request can set (below), against the ones the page
+// writes into its own URL after mount — filter defaults like `filter_path_of`, paging
+// like `page`/`perPage`. Read a page-written param as the view and the tab stops
+// recognizing itself; ignore a request-written one and a requested view is silently
+// dropped. This is the same set each page's URL builder passes as its `validKeys`,
+// which reads it back from here so the two cannot drift. Pages absent from the table
+// take no request params at all — the trigger lists deep-link only through their hash,
+// and Folders/Groups have no query.
+export const PAGE_REQUEST_PARAMS: Record<string, readonly string[]> = {
+	'/runs': Object.keys(
+		buildRunsFilterSearchbarSchema({
+			paths: [],
+			usernames: [],
+			folders: [],
+			jobTriggerKinds: [],
+			isSuperAdminOrDevops: false,
+			isAdminsWorkspace: false
+		})
+	),
+	'/schedules': Object.keys(buildSchedulesFilterSchema({ paths: [], scriptPaths: [] })),
+	'/variables': ['path', 'owner'],
+	'/resources': ['path', 'resource_type', 'owner'],
+	'/assets': ['path'],
+	'/audit_logs': ['username', 'operation', 'resource'],
+	'/workspace_settings': ['tab'],
+	[COMPARE_PAGE.path]: ['workspace_id', 'mode', COMPARE_ITEMS_PARAM]
+}
+
+/** The query params a request can set on `path` — empty for a page that takes none. */
+export function pageRequestParams(path: string): readonly string[] {
+	return PAGE_REQUEST_PARAMS[stripBase(path)] ?? []
+}
 
 /** What a preview location means, read against the page it points at. */
 export type PreviewLocation = {
 	/** What two locations must share to be the same tab. */
 	identity: string
-	/** The view within that page, `''` where the query is the page's own state. */
+	/** The view within that page: only the params a request could have set. */
 	view: string
 	/** The row the page deep-links, `''` where the hash is the page's own state. */
 	anchor: string
@@ -178,15 +203,20 @@ export function describeLocation(loc: string): PreviewLocation {
 	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
 	return {
 		identity: path,
-		view: QUERY_IS_VIEW.includes(path) ? sortedParams(query) : '',
+		view: requestedParams(query, PAGE_REQUEST_PARAMS[path]),
 		anchor: drawerAnchorFor(canonical) ?? ''
 	}
 }
 
-// A page may write its own params back in any order, so a view compares by content.
-function sortedParams(query: string): string {
+// By content, never by the raw string: a page hands its params back in its own order and
+// re-encodes what it was given (`path=f/a` arrives as `path=f%2Fa`), and neither is a
+// change of view.
+function requestedParams(query: string, allowed: readonly string[] | undefined): string {
+	if (!allowed?.length) return ''
 	const parts: string[] = []
-	new URLSearchParams(query).forEach((v, k) => parts.push(`${k}=${v}`))
+	new URLSearchParams(query).forEach((v, k) => {
+		if (allowed.includes(k)) parts.push(`${k}=${v}`)
+	})
 	return parts.sort().join('&')
 }
 

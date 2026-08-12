@@ -43,13 +43,28 @@ describe('stripBaseKeepingSuffix', () => {
 })
 
 describe('describeLocation', () => {
-	it('reads the query as the view only where the query is the view', () => {
+	it('reads a query param as the view only when a request could have set it', () => {
 		// Runs: the filters are what the tab shows.
 		expect(describeLocation('/runs?path=u/me/a').view).toBe('path=u/me/a')
 		// A list page writes its own defaults back; that is not a different view.
 		expect(describeLocation('/routes?filter_path_of=trigger').view).toBe('')
 		expect(sameView('/routes', '/routes?filter_path_of=trigger')).toBe(true)
 		expect(sameView('/runs?path=a', '/runs?path=b')).toBe(false)
+	})
+
+	it('separates the two authors on a page that has both', () => {
+		// Audit logs page itself its paging, while a request sets the filters. Reading
+		// its paging as the view makes re-opening the page look like a navigation away
+		// and reload it, throwing away wherever the user had paged to.
+		expect(sameView('/audit_logs', '/audit_logs?page=1&perPage=100')).toBe(true)
+		expect(sameView('/audit_logs?username=a', '/audit_logs?username=b')).toBe(false)
+	})
+
+	it('keeps a requested filter a different view on a page that writes none', () => {
+		// Schedules never rewrites its own query, so a requested filter is the whole
+		// difference — treating it as page state drops the filter and reports success.
+		expect(sameView('/schedules', '/schedules?path=u/me/daily')).toBe(false)
+		expect(sameView('/variables', '/variables?owner=u/me')).toBe(false)
 	})
 
 	it('reads the hash as a row only where the page deep-links rows', () => {

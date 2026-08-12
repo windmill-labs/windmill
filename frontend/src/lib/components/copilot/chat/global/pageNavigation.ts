@@ -1,9 +1,8 @@
 import { buildFilterUrl } from '$lib/navigation'
-import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
-import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
 import {
 	COMPARE_PAGE,
 	TRIGGER_PAGES,
+	pageRequestParams,
 	type TriggerKind
 } from '$lib/components/sessions/previewRouter'
 import {
@@ -49,25 +48,14 @@ export const WORKSPACE_SETTINGS_TABS = [
 	'shared_ui'
 ] as const
 
-// Valid query-param keys are derived from the real filter schemas (option arrays are
-// irrelevant to the key set), so a renamed filter key propagates here for free.
-const RUNS_FILTER_KEYS = Object.keys(
-	buildRunsFilterSearchbarSchema({
-		paths: [],
-		usernames: [],
-		folders: [],
-		jobTriggerKinds: [],
-		isSuperAdminOrDevops: false,
-		isAdminsWorkspace: false
-	})
-)
-const SCHEDULES_FILTER_KEYS = Object.keys(
-	buildSchedulesFilterSchema({ paths: [], scriptPaths: [] })
-)
+// Every builder below allows exactly the params `previewRouter` records as
+// request-settable for that page, so the URLs this emits and the preview's reading of
+// them stay one set. For Runs and Schedules that set is derived from the real filter
+// schemas, so a renamed filter key propagates here for free.
 
 /** Deep-link to the Runs page with the given filters (keys must match `runsFilter`). */
 export function buildRunsUrl(filters: Record<string, unknown>): string {
-	return buildFilterUrl(RUNS_PATH, filters, { validKeys: RUNS_FILTER_KEYS })
+	return buildFilterUrl(RUNS_PATH, filters, { validKeys: pageRequestParams(RUNS_PATH) })
 }
 
 /**
@@ -82,15 +70,14 @@ export function buildSchedulesUrl({
 	filters?: Record<string, unknown>
 }): string {
 	return buildFilterUrl(SCHEDULES_PATH, filters ?? {}, {
-		validKeys: SCHEDULES_FILTER_KEYS,
+		validKeys: pageRequestParams(SCHEDULES_PATH),
 		hash: open
 	})
 }
 
 // The remaining pages expose a curated subset of each page's real query params (not the
-// full filter schema), so the allow-list is the exact set of keys the builder emits —
-// these names match the query params the pages read (variablesFilter/resourcesFilter/
-// assetsFilter and audit_logs/+page.svelte).
+// full filter schema); those names match the query params the pages read
+// (variablesFilter/resourcesFilter/assetsFilter and audit_logs/+page.svelte).
 /** When `open` is set, the variable at that exact path is opened in the edit
  * drawer via the `#<path>` hash the page already handles. */
 export function buildVariablesUrl({
@@ -101,7 +88,7 @@ export function buildVariablesUrl({
 	filters?: Record<string, unknown>
 }): string {
 	return buildFilterUrl(VARIABLES_PATH, filters ?? {}, {
-		validKeys: ['path', 'owner'],
+		validKeys: pageRequestParams(VARIABLES_PATH),
 		hash: open
 	})
 }
@@ -116,24 +103,26 @@ export function buildResourcesUrl({
 	filters?: Record<string, unknown>
 }): string {
 	return buildFilterUrl(RESOURCES_PATH, filters ?? {}, {
-		validKeys: ['path', 'resource_type', 'owner'],
+		validKeys: pageRequestParams(RESOURCES_PATH),
 		hash: open ? `/resource/${open}` : undefined
 	})
 }
 
 export function buildAssetsUrl(filters: Record<string, unknown>): string {
-	return buildFilterUrl(ASSETS_PATH, filters, { validKeys: ['path'] })
+	return buildFilterUrl(ASSETS_PATH, filters, { validKeys: pageRequestParams(ASSETS_PATH) })
 }
 
 export function buildAuditLogsUrl(filters: Record<string, unknown>): string {
 	return buildFilterUrl(AUDIT_LOGS_PATH, filters, {
-		validKeys: ['username', 'operation', 'resource']
+		validKeys: pageRequestParams(AUDIT_LOGS_PATH)
 	})
 }
 
 /** Deep-link to the Workspace settings page, optionally on a specific `?tab=`. */
 export function buildWorkspaceSettingsUrl({ tab }: { tab?: string }): string {
-	return buildFilterUrl(WORKSPACE_SETTINGS_PATH, tab ? { tab } : {})
+	return buildFilterUrl(WORKSPACE_SETTINGS_PATH, tab ? { tab } : {}, {
+		validKeys: pageRequestParams(WORKSPACE_SETTINGS_PATH)
+	})
 }
 
 /** Folders and Groups list pages have no query filters — just open them. */
@@ -171,7 +160,7 @@ export function buildCompareUrl({
 			mode,
 			[COMPARE_ITEMS_PARAM]: items ? serializeItemsMaskParam(items) : undefined
 		},
-		{ validKeys: ['workspace_id', 'mode', COMPARE_ITEMS_PARAM] }
+		{ validKeys: pageRequestParams(COMPARE_PAGE.path) }
 	)
 }
 
