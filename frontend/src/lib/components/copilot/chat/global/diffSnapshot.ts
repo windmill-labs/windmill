@@ -433,10 +433,10 @@ export function maskVariableDiffSides(
 		before !== null && typeof before === 'object' ? (before as Record<string, unknown>) : undefined
 	const afterObj =
 		after !== null && typeof after === 'object' ? (after as Record<string, unknown>) : undefined
-	// A secret's sides are already masked upstream (draft rows store '' and the
-	// deployed value is never decrypted), so equality between them proves
-	// nothing — the value may have changed invisibly. Only non-secret sides
-	// carry real content worth comparing.
+	// A secret's sides are never comparable: the deployed value is never decrypted, and a
+	// draft holds '' only when it stages no new value — otherwise an `$encrypted:` marker.
+	// So equality proves nothing; the value may have changed invisibly. Only non-secret
+	// sides carry real content worth comparing.
 	const secret = beforeObj?.is_secret === true || afterObj?.is_secret === true
 	const valueUncomparable = secret && beforeObj !== undefined && afterObj !== undefined
 	const valueChanged =

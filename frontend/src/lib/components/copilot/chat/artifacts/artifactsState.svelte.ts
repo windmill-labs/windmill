@@ -6,6 +6,7 @@ import {
 	getArtifactVersion,
 	listArtifactVersions,
 	listArtifactsForSession,
+	mutateArtifact,
 	putArtifactWithVersions,
 	versionKey,
 	type ArtifactKind,
@@ -113,31 +114,38 @@ export class SessionArtifactsStore {
 		input: UpdateArtifactInput,
 		opts?: { sessionId?: string }
 	): Promise<PersistedArtifact | undefined> {
-		const existing = this.artifacts.find((a) => a.id === id) ?? (await getArtifact(id))
-		if (!existing) return undefined
-		if (opts?.sessionId !== undefined && existing.sessionId !== opts.sessionId) return undefined
-		// Only a content change earns a version: a rename or an identical rewrite would
-		// otherwise fill the picker with entries the user cannot tell apart.
-		const contentChanged = input.content !== undefined && input.content !== existing.content
-		const version = currentVersion(existing) + (contentChanged ? 1 : 0)
-		const updated: PersistedArtifact = {
-			...existing,
-			name: input.name ?? existing.name,
-			content: input.content ?? existing.content,
-			updatedAt: Date.now(),
-			version
-		}
-		const snapshots: ArtifactVersion[] = []
-		// An artifact written before history existed has no snapshot of its current content,
-		// so capture one on *any* update, not just a content change: this write stamps
-		// `version`, and nothing afterwards would recognise it as pre-history.
-		if (existing.version === undefined) {
-			snapshots.push(snapshotOf(existing, currentVersion(existing)))
-		}
-		if (contentChanged) {
-			snapshots.push(snapshotOf(updated, version, input.note))
-		}
-		await putArtifactWithVersions(updated, snapshots)
+		const updated = await mutateArtifact(id, (stored) => {
+			// Read inside the mutator: hoisted out, it would weigh a stale copy against a fresh one.
+			const existing = furtherAlong(
+				stored,
+				this.artifacts.find((a) => a.id === id)
+			)
+			if (!existing) return undefined
+			if (opts?.sessionId !== undefined && existing.sessionId !== opts.sessionId) return undefined
+			// Only a content change earns a version: a rename or an identical rewrite would
+			// otherwise fill the picker with entries the user cannot tell apart.
+			const contentChanged = input.content !== undefined && input.content !== existing.content
+			const version = currentVersion(existing) + (contentChanged ? 1 : 0)
+			const artifact: PersistedArtifact = {
+				...existing,
+				name: input.name ?? existing.name,
+				content: input.content ?? existing.content,
+				updatedAt: Date.now(),
+				version
+			}
+			const snapshots: ArtifactVersion[] = []
+			// An artifact written before history existed has no snapshot of its current content,
+			// so capture one on *any* update, not just a content change: this write stamps
+			// `version`, and nothing afterwards would recognise it as pre-history.
+			if (existing.version === undefined) {
+				snapshots.push(snapshotOf(existing, currentVersion(existing)))
+			}
+			if (contentChanged) {
+				snapshots.push(snapshotOf(artifact, version, input.note))
+			}
+			return { artifact, snapshots }
+		})
+		if (!updated) return undefined
 		if (updated.sessionId === this.#sessionId) {
 			this.#applyWrite(sortByUpdatedDesc(this.artifacts.map((a) => (a.id === id ? updated : a))))
 		}
@@ -185,6 +193,24 @@ export class SessionArtifactsStore {
 		const next = this.artifacts.filter((a) => a.id !== id)
 		if (next.length !== this.artifacts.length) this.#applyWrite(next)
 	}
+}
+
+/**
+ * Neither copy is authoritative: only the store carries an edit another tab made, and only
+ * memory carries one the store refused (quota) and `update` handed back unpersisted.
+ * Always preferring one side reverts the other's text on the next edit, so the later wins.
+ */
+function furtherAlong(
+	stored: PersistedArtifact | undefined,
+	held: PersistedArtifact | undefined
+): PersistedArtifact | undefined {
+	if (!stored || !held) return stored ?? held
+	const heldVersion = currentVersion(held)
+	const storedVersion = currentVersion(stored)
+	// A rename earns no version, so at equal versions only the clock separates the two.
+	// Both are written by the same browser, which is what makes the stamps comparable.
+	if (heldVersion === storedVersion) return held.updatedAt > stored.updatedAt ? held : stored
+	return heldVersion > storedVersion ? held : stored
 }
 
 function snapshotOf(a: PersistedArtifact, version: number, note?: string): ArtifactVersion {

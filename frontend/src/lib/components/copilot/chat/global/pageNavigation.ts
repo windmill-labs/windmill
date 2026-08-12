@@ -51,8 +51,10 @@ export const WORKSPACE_SETTINGS_TABS = [
 // Every builder below allows exactly the params `previewRouter` records as
 // request-settable for that page, so the URLs this emits and the preview's reading of
 // them stay one set. Wherever the page declares a filter schema that set is its full
-// key list, so a renamed or added filter propagates here for free. What the chat may
-// actually pass is narrower and lives in the open_page tool schema, not here.
+// key list, so a renamed or added filter propagates here for free — including the keys
+// only some viewers see: gating `all_workspaces` is the caller's job, and the Runs page
+// ignores it for anyone whose own schema lacks it. What the chat may actually pass is
+// narrower and lives in the open_page tool schema, not here.
 
 /** Deep-link to the Runs page with the given filters (keys must match `runsFilter`). */
 export function buildRunsUrl(filters: Record<string, unknown>): string {

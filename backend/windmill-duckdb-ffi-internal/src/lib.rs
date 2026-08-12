@@ -50,7 +50,7 @@ pub extern "C" fn get_version() -> c_uint {
     // Increment when making breaking changes to the FFI interface.
     // The windmill worker will check that the version matches or else refuse to call
     // the FFI functions to avoid undefined behavior.
-    return 2;
+    return 3;
 }
 
 #[unsafe(no_mangle)]
@@ -63,12 +63,14 @@ pub extern "C" fn run_duckdb_ffi(
     w_id: *const c_char,
     memory_limit: *const c_char,
     temp_directory: *const c_char,
+    // 0 means unbounded; the worker sends its own budget-derived cap.
+    max_result_size: usize,
     column_order_ptr: *mut *mut c_char,
     collect_last_only: bool,
     collect_first_row_only: bool,
 ) -> *mut c_char {
     let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
-        (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
+        (Ok(m), Ok(t)) => Ok(ResourceLimits::from_ffi(m, t)),
         (Err(e), _) | (_, Err(e)) => Err(e),
     };
     let (r, column_order) = match convert_args(
@@ -90,6 +92,7 @@ pub extern "C" fn run_duckdb_ffi(
                 base_internal_url,
                 w_id,
                 limits,
+                max_result_size,
                 collect_last_only,
                 collect_first_row_only,
             )
@@ -195,7 +198,7 @@ pub extern "C" fn prepare_duckdb_ffi(
     temp_directory: *const c_char,
 ) -> *mut c_char {
     let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
-        (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
+        (Ok(m), Ok(t)) => Ok(ResourceLimits::from_ffi(m, t)),
         (Err(e), _) | (_, Err(e)) => Err(e),
     };
     let r = match convert_prepare_args(
@@ -229,16 +232,31 @@ pub extern "C" fn prepare_duckdb_ffi(
 struct ResourceLimits {
     memory_limit: Option<String>,
     temp_directory: Option<String>,
+    max_temp_directory_size: Option<String>,
+}
+
+impl ResourceLimits {
+    // The spill cap comes from the environment rather than from an FFI parameter: this
+    // cdylib is versioned separately from the worker and agent workers ship it out of band,
+    // so a signature change costs an ABI bump and a coordinated redeploy for what is a
+    // config value. Unset keeps DuckDB's default of 90% of the temp volume's free space.
+    fn from_ffi(memory_limit: Option<String>, temp_directory: Option<String>) -> Self {
+        let max_temp_directory_size = std::env::var("DUCKDB_MAX_TEMP_DIRECTORY_SIZE")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        ResourceLimits { memory_limit, temp_directory, max_temp_directory_size }
+    }
 }
 
 fn sql_single_quote(s: &str) -> String {
     s.replace('\'', "''")
 }
 
-// Bounds memory so DuckDB spills to disk before blowing the cgroup cap and
-// getting the worker SIGKILLed. Spill goes to the job dir (when set) so it is
-// cleaned up with the job, otherwise DuckDB's default temp_directory is kept —
-// and either way the directory is then locked for the rest of the connection.
+// Bounds memory so DuckDB spills before blowing the cgroup cap and getting the worker
+// SIGKILLed, and bounds the spill so one query cannot fill its disk. Spill goes to the job
+// dir when set, so it is cleaned up with the job; either way the directory and its cap are
+// then locked for the rest of the connection.
 fn configure_duckdb_resource_limits(
     conn: &duckdb::Connection,
     limits: &ResourceLimits,
@@ -258,17 +276,36 @@ fn configure_duckdb_resource_limits(
             sql_single_quote(tmp)
         ));
     }
-    // Freeze it before any script statement can move it: on a remote directory
-    // `~TemporaryDirectoryHandle` throws out of a `noexcept` destructor, which is
-    // `std::terminate` — an abort taking this in-process worker and every job
-    // colocated on it down, uncatchable from Rust.
-    config_sql.push_str("SET lock_temp_directory=true;\n");
-    conn.execute_batch(&config_sql).map_err(|e| {
-        format!(
-            "Error configuring DuckDB resource limits: {}",
-            e.to_string()
-        )
-    })
+    let run = |sql: &str| {
+        conn.execute_batch(sql).map_err(|e| {
+            format!(
+                "Error configuring DuckDB resource limits: {}",
+                e.to_string()
+            )
+        })
+    };
+    run(&config_sql)?;
+    // Applied on its own rather than batched with the rest so an unparseable value names the
+    // knob to fix: it is spelled in the same units as DUCKDB_MEMORY_LIMIT and DuckDB's parse
+    // error says only "memory", so together the two are indistinguishable to whoever set them.
+    if let Some(max) = limits.max_temp_directory_size.as_deref() {
+        conn.execute_batch(&format!(
+            "SET max_temp_directory_size='{}';\n",
+            sql_single_quote(max)
+        ))
+        .map_err(|e| {
+            format!(
+                "Error applying DUCKDB_MAX_TEMP_DIRECTORY_SIZE='{}': {}",
+                max,
+                e.to_string()
+            )
+        })?;
+    }
+    // Freeze both before any script statement can touch them. A remote temp directory makes
+    // `~TemporaryDirectoryHandle` throw out of a `noexcept` destructor — `std::terminate`,
+    // taking this in-process worker and every job on it down, uncatchable from Rust — and a
+    // cap a script can raise bounds nothing.
+    run("SET lock_temp_directory=true;\n")
 }
 
 fn setup_duckdb_connection(
@@ -486,6 +523,7 @@ fn run_duckdb_internal<'a>(
     base_internal_url: &str,
     w_id: &str,
     limits: ResourceLimits,
+    max_result_size: usize,
     collect_last_only: bool,
     collect_first_row_only: bool,
 ) -> Result<(String, Option<Vec<String>>), String> {
@@ -495,6 +533,9 @@ fn run_duckdb_internal<'a>(
 
     let mut results: Vec<Vec<Box<RawValue>>> = vec![];
     let mut column_order = None;
+    // Carried across blocks: what the worker cannot survive is the total it ends
+    // up holding, not any one statement's share of it.
+    let mut collected = 0usize;
 
     for (query_block_index, query_block) in query_block_list.enumerate() {
         let result = do_duckdb_inner(
@@ -504,12 +545,241 @@ fn run_duckdb_internal<'a>(
             collect_last_only && query_block_index != query_block_list_count - 1,
             collect_first_row_only,
             &mut column_order,
+            max_result_size,
+            &mut collected,
         )
         .map_err(|e| e.to_string())?;
         results.push(result);
     }
-    let results = serde_json::value::to_raw_value(&results).map_err(|e| e.to_string())?;
-    Ok((results.get().to_string(), column_order))
+    // Serializing straight to the String that crosses the FFI boundary; going
+    // through a RawValue first would hold a second copy of the whole result.
+    serde_json::to_string(&results)
+        .map(|results| (results, column_order))
+        .map_err(|e| e.to_string())
+}
+
+/// Beyond its JSON, every collected row costs a fat pointer parked in `rows_vec`
+/// plus its own heap allocation, which the allocator rounds up and prefixes with
+/// a header. Measured at 64 bytes resident for a 14-byte row, falling to a flat
+/// ~34 bytes of overhead once rows are wide; 56 sits above that whole range, so
+/// the charge is never less than what a row actually occupies.
+///
+/// Charging the payload alone is what makes small rows dangerous: `{"a":0}` is
+/// seven bytes but occupies 64, so a cap counting only JSON would admit nine
+/// times the rows the worker can hold.
+const ROW_STORAGE_OVERHEAD: usize = 56;
+
+fn row_storage_cost(json_len: usize) -> usize {
+    json_len + ROW_STORAGE_OVERHEAD
+}
+
+// Duplicated from windmill-worker rather than shared: this crate is deliberately
+// outside the workspace so the bundled engine compiles on its own.
+fn format_byte_size(bytes: usize) -> String {
+    match bytes {
+        b if b >= 1 << 30 => format!("{:.1}GB", b as f64 / (1u64 << 30) as f64),
+        b if b >= 1 << 20 => format!("{}MB", b >> 20),
+        b if b >= 1 << 10 => format!("{}KB", b >> 10),
+        b => format!("{b}B"),
+    }
+}
+
+/// The limit is on what the collection *retains* — each row's JSON plus the
+/// storage holding it (`row_storage_cost`) — not on how large the result reads.
+/// For narrow rows that storage dominates, so the guard can fire while the JSON
+/// alone is well under the quoted figure. That is the number worth defending:
+/// the worker dies on what it holds, not on what it would have returned.
+///
+/// Rows whose destination is storage should never be collected at all, so lead
+/// with the way to keep them out of it.
+///
+/// Only the limit is quoted. Neither caller knows a number worth naming: the row
+/// loop stops on the row that crosses the threshold, so its total is the threshold
+/// plus one row, and the expansion guard refuses on a projection while the total
+/// can still be zero.
+fn result_too_large_message(max_result_size: usize) -> String {
+    format!(
+        "Query result too large: collecting it passed the {} limit.\n\
+         Write the rows out from the query instead of returning them:\n  \
+         COPY (<your query>) TO 's3://<bucket>/<file>.parquet' (FORMAT PARQUET);\n\
+         Or return fewer rows — aggregate, or add a LIMIT. On a self-hosted \
+         worker, MAX_SQL_RESULT_SIZE raises the limit.",
+        format_byte_size(max_result_size),
+    )
+}
+
+#[cfg(test)]
+mod result_size_guard_tests {
+    use super::*;
+
+    const ROWS: usize = 100_000;
+
+    fn collect_into(max_result_size: usize, collected: &mut usize) -> Result<usize, String> {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        do_duckdb_inner(
+            &conn,
+            &format!("SELECT i FROM range({ROWS}) t(i)"),
+            &HashMap::new(),
+            false,
+            false,
+            &mut None,
+            max_result_size,
+            collected,
+        )
+        .map(|rows| rows.len())
+    }
+
+    #[test]
+    fn oversized_result_is_refused_mid_collection() {
+        let err = collect_into(1024, &mut 0).expect_err("1KB cannot hold 100k rows");
+        assert!(err.contains("Query result too large"), "{err}");
+        // The limit alone leaves the user stuck; the way out has to travel with it.
+        assert!(err.contains("COPY ("), "no remedy in the error: {err}");
+    }
+
+    #[test]
+    fn zero_is_unbounded() {
+        assert_eq!(collect_into(0, &mut 0).unwrap(), ROWS);
+    }
+
+    /// A blob expands to one `serde_json::Value` per byte on the way in, so it is
+    /// the one value that can exhaust the worker between two checks of the running
+    /// total. It has to be refused on its length, before that expansion is built.
+    #[test]
+    fn a_wide_blob_is_refused_before_it_is_expanded() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let mut collected = 0;
+        // 1MB of blob expands to ~72MB of `Value`, well past this budget, while the
+        // running total is still zero — nothing else in the loop would catch it.
+        let err = do_duckdb_inner(
+            &conn,
+            "SELECT repeat('a', 1000000)::BLOB AS b",
+            &HashMap::new(),
+            false,
+            false,
+            &mut None,
+            1024 * 1024,
+            &mut collected,
+        )
+        .expect_err("a blob expanding past the budget must be refused");
+        assert!(err.contains("Query result too large"), "{err}");
+        assert_eq!(collected, 0, "it was refused before being counted");
+    }
+
+    /// The text length is the only signal available while refusing is still
+    /// possible — once the tree exists the memory is committed.
+    #[test]
+    fn a_dense_json_column_is_refused_before_it_is_parsed() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let attempt = |budget: usize| {
+            do_duckdb_inner(
+                &conn,
+                // ~200KB of text, ~7MB once it is a tree of `Value`s.
+                "SELECT ('[' || repeat('1,', 99999) || '1]')::JSON AS j",
+                &HashMap::new(),
+                false,
+                false,
+                &mut None,
+                budget,
+                &mut 0,
+            )
+        };
+
+        let err = attempt(1024 * 1024).expect_err("the parsed tree does not fit 1MB");
+        assert!(err.contains("Query result too large"), "{err}");
+        assert_eq!(attempt(64 * 1024 * 1024).unwrap().len(), 1);
+    }
+
+    /// `Budget` charges expansions visible in the value tree, and escaping is not
+    /// one of them — it happens while the finished row is written, which is before
+    /// anything weighs it. Only bounding the writer catches that.
+    #[test]
+    fn escaping_cannot_outgrow_the_row_budget() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        // 100k control characters: ~100KB of `String`, ~600KB once escaped.
+        let attempt = |budget: usize| {
+            do_duckdb_inner(
+                &conn,
+                "SELECT repeat(chr(1), 100000) AS a",
+                &HashMap::new(),
+                false,
+                false,
+                &mut None,
+                budget,
+                &mut 0,
+            )
+        };
+
+        let err = attempt(300_000).expect_err("the escaped form does not fit 300KB");
+        assert!(err.contains("Query result too large"), "{err}");
+        // Room for the escaped form, so the same row goes through.
+        assert_eq!(attempt(2_000_000).unwrap().len(), 1);
+    }
+
+    /// The budget is per row, not per value: a blob nested in a container reaches
+    /// the same expansion by a path the top-level columns never touch, and several
+    /// modest sibling blobs reach it by summing. Both are invisible to a check
+    /// that only looks at one value at a time.
+    #[test]
+    fn nested_and_sibling_blobs_share_one_budget() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let attempt = |query: &str| {
+            do_duckdb_inner(
+                &conn,
+                query,
+                &HashMap::new(),
+                false,
+                false,
+                &mut None,
+                8 * 1024 * 1024,
+                &mut 0,
+            )
+        };
+
+        // One 1MB blob expands to ~72MB, over the 8MB cap, but it is reached only
+        // by descending into the LIST.
+        let nested = attempt("SELECT [repeat('a', 1000000)::BLOB] AS b")
+            .expect_err("a blob inside a LIST must be charged too");
+        assert!(nested.contains("Query result too large"), "{nested}");
+
+        // Four 30KB blobs are ~2.2MB each — every one fits on its own, the row does not.
+        let siblings = attempt(
+            "SELECT repeat('a', 30000)::BLOB AS a, repeat('b', 30000)::BLOB AS b,
+                    repeat('c', 30000)::BLOB AS c, repeat('d', 30000)::BLOB AS d",
+        )
+        .expect_err("sibling blobs must be charged against one shared budget");
+        assert!(siblings.contains("Query result too large"), "{siblings}");
+    }
+
+    /// A row costs far more than the JSON it serializes to, and small rows are
+    /// almost entirely that overhead. Billing only the payload would let a cap
+    /// admit several times the rows the worker can actually hold.
+    #[test]
+    fn a_row_costs_more_than_its_payload() {
+        assert_eq!(row_storage_cost(7), 7 + ROW_STORAGE_OVERHEAD);
+
+        let mut collected = 0;
+        collect_into(usize::MAX, &mut collected).unwrap();
+        assert!(
+            collected >= ROWS * ROW_STORAGE_OVERHEAD,
+            "charged {collected} for {ROWS} rows, so containers went unbilled"
+        );
+    }
+
+    /// The worker dies on the total it holds, not on any one statement, so the
+    /// budget has to carry across blocks — a per-statement reset would let N
+    /// statements each pass the check and still OOM the worker together.
+    #[test]
+    fn the_budget_is_shared_across_statements() {
+        let mut collected = 0;
+        let first = collect_into(usize::MAX, &mut collected).unwrap();
+        assert_eq!(first, ROWS);
+        assert!(collected > 0);
+
+        let err = collect_into(collected, &mut collected)
+            .expect_err("the first statement already spent the whole budget");
+        assert!(err.contains("Query result too large"), "{err}");
+    }
 }
 
 fn do_duckdb_inner(
@@ -519,6 +789,8 @@ fn do_duckdb_inner(
     skip_collect: bool,
     collect_first_row_only: bool,
     column_order: &mut Option<Vec<String>>,
+    max_result_size: usize,
+    collected: &mut usize,
 ) -> Result<Vec<Box<RawValue>>, String> {
     let mut rows_vec = vec![];
 
@@ -574,8 +846,18 @@ fn do_duckdb_inner(
 
                 // let type_aliases = (0..stmt.column_count()).map(|_| None).collect::<Vec<_>>();
 
-                let row = row_to_value(row, &column_names.as_slice(), &type_aliases.as_slice())
-                    .map_err(|e| e.to_string())?;
+                let row = row_to_value(
+                    row,
+                    &column_names.as_slice(),
+                    &type_aliases.as_slice(),
+                    max_result_size.saturating_sub(*collected),
+                    max_result_size,
+                )
+                .map_err(|e| e.to_string())?;
+                *collected += row_storage_cost(row.get().len());
+                if max_result_size > 0 && *collected > max_result_size {
+                    return Err(result_too_large_message(max_result_size));
+                }
                 rows_vec.push(row);
             }
             Ok(None) => break,
@@ -615,25 +897,110 @@ fn interpolate_named_args<'a>(
     (query, values)
 }
 
+/// Serializes to JSON without letting the output outgrow `budget`.
+///
+/// The expansions the `Budget` charges are the ones visible in the value tree;
+/// escaping is not one of them. A control character becomes the six-byte
+/// `\u0001`, so a row that fit the budget as `Value`s can still allocate several
+/// times it while being written — and the write happens before the finished row
+/// is ever weighed. Bounding the writer keeps that inside the budget.
+///
+/// `None` is reported to the caller as "too large", which is only honest because
+/// the callers pass a `serde_json::Map` of `Value`s: serializing one cannot fail
+/// for any reason except the budget. A caller passing a type with a fallible
+/// `Serialize` would have its error silently retold as a size limit.
+fn to_raw_value_within<T: serde::Serialize>(value: &T, budget: usize) -> Option<Box<RawValue>> {
+    struct Budgeted {
+        buf: Vec<u8>,
+        left: usize,
+    }
+    impl std::io::Write for Budgeted {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.write_all(bytes)?;
+            Ok(bytes.len())
+        }
+        // `Vec<u8>` overrides this too: the default implementation loops over
+        // `write`, and serde_json emits a great many small pieces per row.
+        fn write_all(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+            if bytes.len() > self.left {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "row over budget",
+                ));
+            }
+            self.left -= bytes.len();
+            self.buf.extend_from_slice(bytes);
+            Ok(())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut writer = Budgeted { buf: Vec::new(), left: budget };
+    serde_json::to_writer(&mut writer, value).ok()?;
+    let json = String::from_utf8(writer.buf).ok()?;
+    // SAFETY: `to_writer` returned `Ok`, so `json` holds one complete, well-formed
+    // JSON value with no surrounding whitespace. Running out of budget is the only
+    // way a partial write happens, and it takes the `?` above instead of reaching
+    // here. The safe constructor re-parses every row to learn the same thing, which
+    // measured ~1.8x the cost of serializing it in the first place; serde_json
+    // itself builds a `RawValue` this way in `to_raw_value`, and `debug_assert!`s
+    // the invariant by re-parsing in debug builds.
+    Some(unsafe { RawValue::from_string_unchecked(json) })
+}
+
+/// How much a row may still expand to, carried through every value it contains.
+///
+/// Only weighed rows reach the running total, so anything that balloons *during*
+/// conversion is invisible to it — a blob becomes one `serde_json::Value` per
+/// byte, and both several sibling columns and one nested deep in a `LIST`/`STRUCT`
+/// can each be individually modest while summing past what the worker can hold.
+/// One shared, decrementing budget is what makes those cases add up.
+/// Not covered: `row.get` materializes a `LIST`/`STRUCT` column before any budget
+/// exists, and `Debug`-rendered `MAP` keys and `UNION`s expand ~5x. All are
+/// upstream of or far cheaper than the 36x/72x paths above, and the first needs a
+/// streaming accessor from `duckdb-rs` to fix at all.
+struct Budget {
+    remaining: usize,
+    /// The configured cap, kept only so the error can quote it rather than the
+    /// remainder, which would be a different number every time.
+    limit: usize,
+}
+
 fn row_to_value(
     row: &Row<'_>,
     column_names: &[String],
     type_aliases: &[Option<String>],
+    budget: usize,
+    max_result_size: usize,
 ) -> Result<Box<RawValue>, String> {
+    // Shared by every value in the row, and decremented as each is built, so
+    // columns that are individually under the cap cannot add up past it.
+    let mut budget = Budget {
+        remaining: if max_result_size == 0 {
+            usize::MAX
+        } else {
+            budget
+        },
+        limit: max_result_size,
+    };
     let mut obj = serde_json::Map::new();
     for (i, key) in column_names.iter().enumerate() {
         let value: duckdb::types::Value = row.get(i).map_err(|e| e.to_string())?;
         let type_alias = &type_aliases[i];
-        let json_value = duckdb_value_to_json_value(value, type_alias)
+        let json_value = duckdb_value_to_json_value(value, type_alias, &mut budget)
             .map_err(|e| format!("column \"{key}\": {e}"))?;
         obj.insert(key.clone(), json_value);
     }
-    serde_json::value::to_raw_value(&obj).map_err(|e| e.to_string())
+    to_raw_value_within(&obj, budget.remaining)
+        .ok_or_else(|| result_too_large_message(budget.limit))
 }
 
 fn duckdb_value_to_json_value(
     value: duckdb::types::Value,
     type_alias: &Option<String>,
+    budget: &mut Budget,
 ) -> Result<serde_json::Value, String> {
     let json_value = match value {
         duckdb::types::Value::Null => serde_json::Value::Null,
@@ -661,12 +1028,38 @@ fn duckdb_value_to_json_value(
             serde_json::Value::String(duckdb_timestamp_to_iso(unit, ts))
         }
         duckdb::types::Value::Text(s) if type_alias.as_deref().unwrap_or_default() == "JSON" => {
+            // An element can be two bytes of text (`1,`) and becomes a whole
+            // `Value`, so the retained tree reaches half `size_of::<Value>()`
+            // times the text, and the parser's own growth can hold ~2x that
+            // again. Charged before parsing; afterwards the memory is committed.
+            let expanded = s
+                .len()
+                .saturating_mul(std::mem::size_of::<serde_json::Value>() / 2);
+            if expanded > budget.remaining {
+                return Err(result_too_large_message(budget.limit));
+            }
+            budget.remaining -= expanded;
             serde_json::from_str(&s)
                 .map_err(|e| format!("Error parsing JSON text: {}", e.to_string()))?
         }
         duckdb::types::Value::Text(s) => serde_json::Value::String(s),
         // GEOMETRY surfaces as WKB bytes; render it like any other byte string.
         duckdb::types::Value::Blob(b) | duckdb::types::Value::Geometry(b) => {
+            // Refused on the length, which is known now — once the array below
+            // exists the memory is already spent, and the row is not weighed
+            // until every one of its columns has been built.
+            //
+            // The multiplier is not the modest number it looks like: `Value` is
+            // 72 bytes here, because `preserve_order` backs objects with an
+            // IndexMap. A 50MB blob becomes ~3.6GB of `Value` before anything
+            // has had a chance to object.
+            let expanded = b
+                .len()
+                .saturating_mul(std::mem::size_of::<serde_json::Value>());
+            if expanded > budget.remaining {
+                return Err(result_too_large_message(budget.limit));
+            }
+            budget.remaining -= expanded;
             serde_json::Value::Array(
                 b.into_iter()
                     .map(|byte| serde_json::Value::Number(byte.into()))
@@ -690,20 +1083,22 @@ fn duckdb_value_to_json_value(
         duckdb::types::Value::List(values) => serde_json::Value::Array(
             values
                 .into_iter()
-                .map(|v| duckdb_value_to_json_value(v, &None))
+                .map(|v| duckdb_value_to_json_value(v, &None, budget))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         duckdb::types::Value::Enum(e) => serde_json::Value::String(e),
         duckdb::types::Value::Struct(fields) => serde_json::Value::Object(
             fields
                 .iter()
-                .map(|(k, v)| duckdb_value_to_json_value(v.clone(), &None).map(|v| (k.clone(), v)))
+                .map(|(k, v)| {
+                    duckdb_value_to_json_value(v.clone(), &None, budget).map(|v| (k.clone(), v))
+                })
                 .collect::<Result<serde_json::Map<_, _>, _>>()?,
         ),
         duckdb::types::Value::Array(values) => serde_json::Value::Array(
             values
                 .into_iter()
-                .map(|v| duckdb_value_to_json_value(v, &None))
+                .map(|v| duckdb_value_to_json_value(v, &None, budget))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         duckdb::types::Value::Map(map) => serde_json::Value::Object(
@@ -713,7 +1108,7 @@ fn duckdb_value_to_json_value(
                         duckdb::types::Value::Text(s) | duckdb::types::Value::Enum(s) => s.clone(),
                         _ => format!("{:?}", k),
                     };
-                    duckdb_value_to_json_value(v.clone(), &None).map(|v| (k, v))
+                    duckdb_value_to_json_value(v.clone(), &None, budget).map(|v| (k, v))
                 })
                 .collect::<Result<serde_json::Map<_, _>, _>>()?,
         ),
@@ -820,7 +1215,8 @@ mod temporal_json_tests {
         let row = rows.next().unwrap().unwrap();
         let json_of = |i: usize| {
             let v: duckdb::types::Value = row.get(i).unwrap();
-            duckdb_value_to_json_value(v, &None).unwrap()
+            let mut budget = Budget { remaining: usize::MAX, limit: 0 };
+            duckdb_value_to_json_value(v, &None, &mut budget).unwrap()
         };
         assert_eq!(json_of(0), serde_json::json!("2026-07-01T23:13:42.218435"));
         assert_eq!(json_of(1), serde_json::json!("2026-07-01T23:13:42"));
@@ -852,7 +1248,8 @@ mod temporal_json_tests {
         let row = rows.next().unwrap().unwrap();
         let json_of = |i: usize| {
             let v: duckdb::types::Value = row.get(i).unwrap();
-            duckdb_value_to_json_value(v, &None).unwrap()
+            let mut budget = Budget { remaining: usize::MAX, limit: 0 };
+            duckdb_value_to_json_value(v, &None, &mut budget).unwrap()
         };
         assert_eq!(json_of(0), serde_json::json!("-1.05"));
         assert_eq!(json_of(1), serde_json::json!("1.50"));
@@ -1281,8 +1678,8 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
     ))
 }
 
-// The bundled engine is not stock (docs/duckdb-isolation.md). These two guard the ways an
-// engine bump can drop the patch without anything else noticing.
+// The bundled engine is not stock (docs/duckdb-isolation.md). These guard the ways an engine
+// bump can drop the patches without anything else noticing.
 #[cfg(test)]
 mod patched_engine_tests {
     use super::*;
@@ -1310,6 +1707,7 @@ mod patched_engine_tests {
             &ResourceLimits {
                 memory_limit: Some("2MB".to_string()),
                 temp_directory: Some(temp_dir.display().to_string()),
+                max_temp_directory_size: None,
             },
         )
         .unwrap();
@@ -1333,6 +1731,57 @@ mod patched_engine_tests {
         let spilled = conn.execute_batch(SPILLING_QUERY);
         std::fs::remove_dir_all(&temp_dir).ok();
         spilled.expect("a locked temp directory must still be usable for spilling");
+    }
+
+    /// `DUCKDB_MAX_TEMP_DIRECTORY_SIZE` is the only thing standing between one query and the
+    /// worker's whole disk, so pin that a configured connection really does stop at it, names
+    /// the setting when it does, and leaves nothing behind for the next job to trip over.
+    #[test]
+    fn spilling_past_the_configured_cap_fails_the_query_and_cleans_up() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "windmill_duckdb_capped_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let spill_under_cap = |cap: &str| {
+            let conn = duckdb::Connection::open_in_memory().unwrap();
+            configure_duckdb_resource_limits(
+                &conn,
+                &ResourceLimits {
+                    memory_limit: Some("2MB".to_string()),
+                    temp_directory: Some(temp_dir.display().to_string()),
+                    max_temp_directory_size: Some(cap.to_string()),
+                },
+            )
+            .unwrap();
+            conn.execute_batch(SPILLING_QUERY)
+                .map_err(|e| e.to_string())
+        };
+
+        let err = spill_under_cap("1MB").expect_err("the cap did not stop the spill");
+        // Verbatim because the worker matches on it (`SPILL_CAP_ENGINE_MARKER` in
+        // `duckdb_executor.rs`) to correct the engine's advice to raise the cap, which the
+        // lock refuses. An engine bump that rewords this has to update that too.
+        assert!(
+            err.contains("This limit was set by the 'max_temp_directory_size' setting"),
+            "the refusal must name the setting an operator can act on, got: {err}"
+        );
+        let leftover: Vec<_> = std::fs::read_dir(&temp_dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        assert!(
+            leftover.is_empty(),
+            "a query killed by the cap must not leave its spill behind: {leftover:?}"
+        );
+
+        // DuckDB compresses temp files, so the failure above is only evidence of the cap if
+        // the same query gets through once the cap is out of the way.
+        let generous = spill_under_cap("1GB");
+        std::fs::remove_dir_all(&temp_dir).ok();
+        generous.expect("the query must still spill and finish under a cap that fits it");
     }
 
     fn spill_attempt(temp_dir: &std::path::Path, lock: bool) -> Result<(), String> {
@@ -1375,9 +1824,10 @@ mod patched_engine_tests {
         locked.expect("a locked temp directory must stay usable behind disabled_filesystems");
     }
 
-    /// The exemption above is only sound while the directory cannot be moved: a script that
-    /// repointed it would get a write primitive through the very fence it is exempt from. A
-    /// rebase can drop that half of the patch while leaving the spill test green, so pin it.
+    /// The exemption above is only sound while neither the spill's destination nor its size
+    /// can be changed: repointing the directory is a write primitive through the very fence
+    /// it is exempt from, and raising the cap leaves the disk unbounded. A rebase can drop
+    /// either half while leaving the spill test green, so pin both.
     #[test]
     fn locking_the_temp_directory_makes_it_immutable() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -1389,6 +1839,8 @@ mod patched_engine_tests {
         for stmt in [
             "SET temp_directory='/tmp/windmill_duckdb_elsewhere';",
             "RESET temp_directory;",
+            "SET max_temp_directory_size='100GB';",
+            "RESET max_temp_directory_size;",
             "SET lock_temp_directory=false;",
             "RESET lock_temp_directory;",
         ] {

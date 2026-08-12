@@ -136,6 +136,7 @@ import {
 import {
 	userStore,
 	superadmin,
+	devopsRole,
 	enterpriseLicense,
 	userWorkspaces,
 	workspaceStore
@@ -166,6 +167,8 @@ import {
 	buildCompareUrl,
 	WORKSPACE_SETTINGS_TABS
 } from './pageNavigation'
+import { runsTimeframes } from '$lib/components/runs/timeframes'
+import { jobTriggerKinds } from '$lib/components/triggers/utils'
 import {
 	COMPARE_ITEMS_PARAM,
 	parseItemsMaskParam
@@ -176,10 +179,8 @@ import {
 	type TriggerKind as PageTriggerKind
 } from '$lib/components/sessions/previewRouter'
 import {
-	clearEphemeralSecretVariableDraftValue,
 	deleteGlobalDraft,
 	flushGlobalDraftSaves,
-	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
 	itemKindFor,
@@ -189,7 +190,6 @@ import {
 	readLocalDraftCellByKind,
 	resolveGlobalDraftStoragePathByKind,
 	saveGlobalAppDraft,
-	setEphemeralSecretVariableDraftValue,
 	type DraftPersistResult
 } from './userDraftAdapter'
 import {
@@ -609,7 +609,31 @@ function triggerConfigJsonSchema(kind: TriggerKind): string {
 
 const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverrideField })
 
-const writeVariableSchema = variableRequestSchema.extend({ override: draftOverrideField })
+// The chat can never read a variable's value (the user can reveal one in the variable
+// editor, and jobs read it at runtime — but it is never shown to the model), so an edit
+// must be able to leave it alone. The generated request schema makes
+// value/is_secret/description required, which forces the model to invent one.
+const writeVariableSchema = variableRequestSchema.extend({
+	value: z
+		.string()
+		.optional()
+		.describe(
+			'The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: you cannot read it, and a "$var:..." reference is NOT a valid value (that syntax only references a variable from inside a resource). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.'
+		),
+	is_secret: z
+		.boolean()
+		.optional()
+		.describe(
+			'Whether the variable is a secret. Omit it to keep the current secrecy — required only when creating a new variable. Never pass false for an existing secret variable unless the user explicitly asked to reveal it and you also pass its new value.'
+		),
+	description: z
+		.string()
+		.optional()
+		.describe('The description of the variable. Omit it to keep the current description.'),
+	override: draftOverrideField
+})
+
+type WriteVariableArgs = z.infer<typeof writeVariableSchema>
 
 const searchResourceTypesSchema = z.object({
 	query: z
@@ -1215,7 +1239,7 @@ Rules:
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
-- Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
+- You can never read a variable's value, secret or not, so never invent one: when editing an existing variable, omit value (and is_secret) from write_variable and pass only the fields you are actually changing. The user can reveal a value in the variable editor; you cannot, so never tell them a value is unreadable in general. "$var:path/to/variable" is how a resource value references a variable — it is never a variable's own value.
 - Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Hub scripts are prebuilt integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Use search_hub_scripts to find one before hand-writing an integration, then read_workspace_item with type "script" and the returned hub path to get its code, language, and input schema.
@@ -1225,7 +1249,7 @@ ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
-- Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
+- Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
 		previewTools
@@ -1347,6 +1371,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			type: 'variable',
 			path: item.path,
 			summary: item.summary,
+			isSecret: item.isSecret,
 			isDraft: item.isDraft
 		}
 	}
@@ -1400,11 +1425,13 @@ function resourceToItem(resource: ListableResource, includeValue: boolean): Work
 }
 
 function variableToItem(variable: ListableVariable): WorkspaceItem {
-	// Variables NEVER expose value (secret risk). Returns metadata only.
+	// Never exposes a value to the chat, secret or not — the user reveals one in the
+	// variable editor (audited). Metadata only.
 	return {
 		type: 'variable',
 		path: variable.path,
 		summary: variable.description,
+		isSecret: variable.is_secret,
 		isDraft: false
 	}
 }
@@ -2081,9 +2108,10 @@ function getResourceInstructions(): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
-- A variable draft is a workspace item: \`{ type: 'variable', path, summary?, value, isDraft }\`. \`value\` is a CreateVariable body: \`{ path, value, is_secret, description, account?, is_oauth?, expires_at?, labels? }\`.
+- Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
+- \`write_variable\` takes \`{ path, value?, is_secret?, description?, account?, is_oauth?, expires_at?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
 - For secret fields in a resource value, do NOT inline the raw secret. Create a Variable first with \`is_secret: true\`, then in the resource value reference it as \`"$var:path/to/variable"\`.
-- Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`.
+- Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. These are references FROM a resource value; never store a \`$var:\` string as a variable's own value.
 - When deploying drafts that depend on each other (e.g., a resource and the variables it references), deploy the variables first.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
 - For OAuth resources, the \`is_oauth: true\` flag is managed by Windmill's OAuth flow; global mode generally creates manual resources, not OAuth ones.
@@ -2305,6 +2333,13 @@ function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore))
 	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
 }
 
+// The Runs page only offers its cross-workspace filter to a superadmin or devops user in
+// the admins workspace (RunsPage builds its filter schema with the same condition, and
+// without the key the page ignores the query param), so the tool mirrors that gate.
+function allowsAllWorkspacesRuns(workspaceId: string | undefined = get(workspaceStore)): boolean {
+	return (!!get(superadmin) || !!get(devopsRole)) && workspaceId === 'admins'
+}
+
 // The advertised `items` description must match this chat's surface: only chats that
 // track their modified items (AI sessions) can honor "omitted = this chat's edits" —
 // on an untracked chat (the global side panel) an omitted mask falls through to the
@@ -2315,6 +2350,15 @@ const COMPARE_ITEMS_DESCRIPTIONS = {
 	untracked:
 		"Compare: preselect exactly these changed items, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). If omitted, the page preselects EVERY pending change in the workspace, not just this chat's — when you changed specific items, pass them so the review is scoped to them."
 } as const
+
+// The Runs filters the page accepts several values for, all encoded in one param: the
+// value is a comma-separated list, and for the negatable ones a leading `!` excludes
+// instead (the page rejects a list mixing included and excluded values).
+const RUNS_MULTI_VALUE_HINT =
+	'comma-separate to match several values, or prefix each with ! to exclude them instead (never mix included and excluded values in one filter).'
+const RUNS_MULTI_VALUE_HINT_WILDCARD =
+	'Comma-separate to match several values; * matches any substring.'
+const RUNS_TIMEFRAME_LABELS = runsTimeframes.map((tf) => tf.label) as [string, ...string[]]
 
 // One flat object (not a discriminated union): `page` selects the target and the
 // per-page fields are optional. Top-level `type: object` is what Anthropic's
@@ -2328,7 +2372,7 @@ const openPageFullSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Runs/Schedules/Variables/Resources/Assets: the script, flow or item path to filter by'
+			`Runs/Schedules/Variables/Resources/Assets: the script, flow or item path to filter by. On Runs, ${RUNS_MULTI_VALUE_HINT}`
 		),
 	status: z
 		.enum(['running', 'success', 'failure', 'canceled', 'waiting', 'suspended'])
@@ -2344,7 +2388,105 @@ const openPageFullSchema = z.object({
 		.enum(['all', 'runs', 'dependencies', 'previews', 'deploymentcallbacks'])
 		.optional()
 		.describe('Runs: filter by job category (defaults to top-level runs)'),
-	user: z.string().optional().describe('Runs: filter by the user who created the job'),
+	user: z
+		.string()
+		.optional()
+		.describe(
+			`Runs: filter by the user who created the job. ${RUNS_MULTI_VALUE_HINT} (e.g. 'admin' or '!admin')`
+		),
+	// Single positive folder only: the page turns this value into one `f/<folder>/` path
+	// prefix, so a comma list or a leading `!` would land inside the prefix and match
+	// nothing (`f/a,b/`, `f/!a/`). Excluding a folder isn't expressible here.
+	folder: z
+		.string()
+		.optional()
+		.describe(
+			"Runs: filter by the folder containing the script or flow — one folder name, without the 'f/' prefix and without ! or commas (use path for anything finer)"
+		),
+	job_trigger_kind: z
+		.string()
+		.optional()
+		.describe(
+			`Runs: filter by how the job was triggered — one of ${jobTriggerKinds.join(', ')}. ${RUNS_MULTI_VALUE_HINT} (e.g. '!schedule' to hide scheduled runs)`
+		),
+	label: z
+		.string()
+		.optional()
+		.describe(
+			`Runs: filter by a custom label attached to the job. ${RUNS_MULTI_VALUE_HINT_WILDCARD}`
+		),
+	tag: z
+		.string()
+		.optional()
+		.describe(`Runs: filter by worker tag. ${RUNS_MULTI_VALUE_HINT_WILDCARD}`),
+	worker: z
+		.string()
+		.optional()
+		.describe(
+			`Runs: filter by the worker instance that ran the job. ${RUNS_MULTI_VALUE_HINT_WILDCARD}`
+		),
+	concurrency_key: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: filter by concurrency limit key, e.g. custom-key or a full script path. Cannot be combined with worker, search, or a waiting/suspended status — that view has no way to apply them.'
+		),
+	arg: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs whose arguments contain these key/value pairs, as a JSON object string, e.g. {"customer_id":"42"}'
+		),
+	result: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs whose result contains these key/value pairs, as a JSON object string, e.g. {"status":"ko"}'
+		),
+	search: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: free-text search matched case-insensitively across several run fields at once. Prefer a specific filter when you know which one applies.'
+		),
+	timeframe: z
+		.enum(RUNS_TIMEFRAME_LABELS)
+		.optional()
+		.describe(
+			'Runs: relative time window to look at, ending now. Ignored when min_ts or max_ts is set.'
+		),
+	min_ts: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs after this instant, as an ISO 8601 timestamp (e.g. 2026-08-01T09:00:00Z); a bare 2026-08-01 means local midnight. Use it with max_ts for an absolute window; prefer timeframe for a relative one.'
+		),
+	max_ts: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs before this instant, as an ISO 8601 timestamp. A bare 2026-08-01 means local midnight, so it excludes that day — pass the next day, or an explicit time, to include it.'
+		),
+	resolved: z
+		.enum(['all', 'unresolved', 'resolved'])
+		.optional()
+		.describe(
+			"Runs: filter failures by whether they have been marked as handled — 'unresolved' hides the ones already resolved"
+		),
+	show_skipped: z
+		.boolean()
+		.optional()
+		.describe('Runs: include skipped flow steps (excluded by default)'),
+	show_future_jobs: z
+		.boolean()
+		.optional()
+		.describe('Runs: include jobs scheduled for later (included by default — pass false to hide)'),
+	all_workspaces: z
+		.boolean()
+		.optional()
+		.describe(
+			'Runs: show runs of every workspace, not just this one. Only available to a superadmin or devops user in the admins workspace.'
+		),
 	open: z
 		.string()
 		.optional()
@@ -2399,6 +2541,22 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 	schedule_path: ['runs', 'schedules'],
 	job_kinds: ['runs'],
 	user: ['runs'],
+	folder: ['runs'],
+	job_trigger_kind: ['runs'],
+	label: ['runs'],
+	tag: ['runs'],
+	worker: ['runs'],
+	concurrency_key: ['runs'],
+	arg: ['runs'],
+	result: ['runs'],
+	search: ['runs'],
+	timeframe: ['runs'],
+	min_ts: ['runs'],
+	max_ts: ['runs'],
+	resolved: ['runs'],
+	show_skipped: ['runs'],
+	show_future_jobs: ['runs'],
+	all_workspaces: ['runs'],
 	open: ['schedules', 'triggers', 'variables', 'resources'],
 	summary: ['schedules'],
 	trigger_kind: ['triggers'],
@@ -2414,11 +2572,13 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 
 // The model-facing schema for the given allowed pages: the `page` enum plus only the
 // fields relevant to those pages (reusing the full schema's field definitions). The
-// `trigger_kind` enum is narrowed to the license-available kinds.
+// `trigger_kind` enum is narrowed to the license-available kinds, and the Runs
+// `all_workspaces` filter is only advertised where the page itself offers it.
 function buildOpenPageDefSchema(
 	pages: readonly OpenPageName[],
 	triggerKinds: readonly PageTriggerKind[],
-	chatEditsTracked: boolean
+	chatEditsTracked: boolean,
+	allWorkspacesRuns: boolean
 ): z.ZodTypeAny {
 	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
 	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. an operator
@@ -2431,6 +2591,7 @@ function buildOpenPageDefSchema(
 	}
 	for (const [field, fieldPages] of Object.entries(OPEN_PAGE_FIELD_PAGES)) {
 		if (!fieldPages.some((p) => pages.includes(p))) continue
+		if (field === 'all_workspaces' && !allWorkspacesRuns) continue
 		shape[field] =
 			field === 'trigger_kind'
 				? z
@@ -2457,16 +2618,124 @@ const OPEN_PAGE_DESCRIPTION =
 // live modified-items mask backing the compare page's default preselection.
 type OpenPageUrlCtx = { workspaceId: string; chatItems?: readonly string[] }
 
+// The Runs page reads its two absolute bounds as `new Date(param)` and drops whatever
+// doesn't parse, so normalize to ISO here rather than passing a stamp the page will
+// silently ignore.
+function isoTimestamp(raw: string | undefined): string | undefined {
+	if (!raw) return undefined
+	// A bare date means local midnight, as the page's own date picker writes it; parsed
+	// as-is it would be read as UTC and shift the bound by the viewer's offset.
+	const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00` : raw)
+	return isNaN(d.getTime()) ? undefined : d.toISOString()
+}
+
+// One comma-separated list each, read back with the polarity of its FIRST item: " b" in
+// "a, b" is matched with its space, and a mixed "a,!b" quietly matches b as an inclusion.
+const RUNS_LIST_FIELDS = ['path', 'user', 'label', 'tag', 'worker', 'job_trigger_kind'] as const
+
+function normalizeRunsList(raw: string): { value: string | undefined } | { mixed: true } {
+	const items = raw
+		.split(',')
+		.map((v) => v.trim())
+		.filter((v) => v !== '')
+	const excluded = items.filter((v) => v.startsWith('!'))
+	if (excluded.length && excluded.length !== items.length) return { mixed: true }
+	return { value: items.length ? items.join(',') : undefined }
+}
+
+// Normalizes the Runs filters in place, and fails closed on the values the page applies
+// differently than asked or not at all — silently, so nothing downstream would catch it.
+function prepareRunsFilters(a: OpenPageArgs): string | undefined {
+	for (const [field, raw] of [
+		['arg', a.arg],
+		['result', a.result]
+	] as const) {
+		if (raw === undefined) continue
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(raw)
+		} catch {
+			parsed = undefined
+		}
+		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+			return `The ${field} filter must be a JSON object of key/value pairs to match, e.g. {"key":"value"} — got ${raw}`
+		}
+	}
+	// The page wraps this value into a single `f/<folder>/` path prefix, so anything but one
+	// bare folder name ends up inside the prefix and matches nothing (`f/f/infra/`, `f/a,b/`).
+	if (a.folder !== undefined) {
+		a.folder = a.folder.trim()
+		if (!VALID_FOLDER_NAME.test(a.folder)) {
+			return `The folder filter takes one bare folder name (letters, digits, _ or -), without the 'f/' prefix, commas or ! — got ${a.folder}. Use path to name several runnables or to exclude some.`
+		}
+	}
+	const fields = a as Record<(typeof RUNS_LIST_FIELDS)[number], string | undefined>
+	for (const field of RUNS_LIST_FIELDS) {
+		const raw = fields[field]
+		if (raw === undefined) continue
+		const normalized = normalizeRunsList(raw)
+		if ('mixed' in normalized) {
+			return `The ${field} filter cannot mix included and excluded values (got ${raw}) — prefix every value with ! to exclude them all, or none to include them all.`
+		}
+		fields[field] = normalized.value
+	}
+	const unknownKinds = (a.job_trigger_kind?.split(',') ?? [])
+		.map((k) => k.replace(/^!/, ''))
+		.filter((k) => !(jobTriggerKinds as string[]).includes(k))
+	if (unknownKinds.length) {
+		return `Unknown job_trigger_kind: ${unknownKinds.join(', ')}. Valid kinds are ${jobTriggerKinds.join(', ')}.`
+	}
+	// A concurrency key switches the page to its extended-jobs query, which has no worker,
+	// free-text or queue-status parameter — those chips would render and filter nothing.
+	if (a.concurrency_key !== undefined) {
+		const ignored: string[] = (['worker', 'search'] as const).filter((f) => a[f] !== undefined)
+		if (a.status === 'waiting' || a.status === 'suspended') ignored.push(`status=${a.status}`)
+		if (ignored.length) {
+			return `The Runs page ignores ${ignored.join(' and ')} when concurrency_key is set (that view can't filter on ${ignored.length > 1 ? 'them' : 'it'}). Open the page with either concurrency_key or ${ignored.join('/')}, not both.`
+		}
+	}
+	for (const [field, raw] of [
+		['min_ts', a.min_ts],
+		['max_ts', a.max_ts]
+	] as const) {
+		if (raw !== undefined && isoTimestamp(raw) === undefined) {
+			return `${field} must be an ISO 8601 timestamp, e.g. 2026-08-01T09:00:00Z or 2026-08-01 — got ${raw}`
+		}
+	}
+	return undefined
+}
+
 export function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs, ctx: OpenPageUrlCtx): string {
 	switch (page) {
-		case 'runs':
+		case 'runs': {
+			const min_ts = isoTimestamp(a.min_ts)
+			const max_ts = isoTimestamp(a.max_ts)
 			return buildRunsUrl({
 				status: a.status,
 				path: a.path,
 				schedule_path: a.schedule_path,
 				job_kinds: a.job_kinds,
-				user: a.user
+				user: a.user,
+				folder: a.folder,
+				job_trigger_kind: a.job_trigger_kind,
+				label: a.label,
+				tag: a.tag,
+				worker: a.worker,
+				concurrency_key: a.concurrency_key,
+				arg: a.arg,
+				result: a.result,
+				_default_: a.search,
+				min_ts,
+				max_ts,
+				// An absolute bound wins over a relative window on the page itself; drop the
+				// window so the summary doesn't advertise a filter that isn't applied.
+				timeframe: min_ts || max_ts ? undefined : a.timeframe,
+				resolved: a.resolved,
+				show_skipped: a.show_skipped,
+				show_future_jobs: a.show_future_jobs,
+				all_workspaces: a.all_workspaces
 			})
+		}
 		case 'schedules':
 			return buildSchedulesUrl({
 				open: a.open,
@@ -2538,7 +2807,12 @@ export const openPageTool: Tool<{}> = {
 	// The initial def assumes an untracked chat; setSchema below rebuilds it with the
 	// caller's real surface before each iteration.
 	def: createToolDef(
-		buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds(), false),
+		buildOpenPageDefSchema(
+			allowedOpenPages(),
+			allowedTriggerKinds(),
+			false,
+			allowsAllWorkspacesRuns()
+		),
 		'open_page',
 		OPEN_PAGE_DESCRIPTION
 	),
@@ -2554,7 +2828,8 @@ export const openPageTool: Tool<{}> = {
 			buildOpenPageDefSchema(
 				allowedOpenPages(operatingWorkspaceFromHelpers(helpers)),
 				allowedTriggerKinds(),
-				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined
+				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined,
+				allowsAllWorkspacesRuns(operatingWorkspaceFromHelpers(helpers))
 			),
 			'open_page',
 			OPEN_PAGE_DESCRIPTION
@@ -2576,6 +2851,15 @@ export const openPageTool: Tool<{}> = {
 		const triggerKind = parsed.trigger_kind as PageTriggerKind | undefined
 		if (page === 'triggers' && triggerKind && !allowedTriggerKinds().includes(triggerKind)) {
 			return `${TRIGGER_PAGES[triggerKind].label} aren't available on this instance.`
+		}
+		// Same for the cross-workspace Runs filter: drop it rather than build a link whose
+		// param the page would ignore anyway.
+		if (parsed.all_workspaces && !allowsAllWorkspacesRuns(workspaceId)) {
+			parsed.all_workspaces = undefined
+		}
+		if (page === 'runs') {
+			const filterError = prepareRunsFilters(parsed)
+			if (filterError) return filterError
 		}
 		// Headless callers (ai_evals) have neither helpers.operatingWorkspace nor a
 		// populated workspaceStore; the chat loop's workspace is still correct there.
@@ -3301,7 +3585,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
-			'Create or overwrite a draft variable.',
+			'Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. You can never read the value of a variable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a "$var:" self-reference as the value, or un-secret a variable without giving its new value.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -4024,32 +4308,90 @@ function createResourceToDraftState(
 }
 
 function variableToDraftState(variable: ListableVariable): VariableDraftState {
+	// An OAuth variable's value is owned by the refresh flow, and `get_variable` hands back
+	// a freshly refreshed LIVE token for an expired one even under decryptSecret: false
+	// (variables.rs checks is_expired first). Drop it here, at the boundary: carrying it
+	// into a draft would pin a rotating value to a static one on the next deploy.
+	const oauthManaged = variable.is_oauth || variable.account != null
 	return {
 		path: variable.path,
 		variable: {
-			value: variable.value ?? '',
+			value: oauthManaged ? '' : (variable.value ?? ''),
 			is_secret: variable.is_secret,
 			description: variable.description ?? ''
 		},
 		labels: variable.labels ?? undefined,
 		wsSpecific: variable.ws_specific ?? false,
-		account: variable.account,
-		is_oauth: variable.is_oauth,
-		expires_at: variable.expires_at
+		// `get_variable` sends these as explicit nulls; carrying a null through would add
+		// `account: null` / `expires_at: null` to the draft and to every diff the user
+		// reviews. Undefined drops out of the JSON instead.
+		account: variable.account ?? undefined,
+		is_oauth: variable.is_oauth ?? undefined,
+		expires_at: variable.expires_at ?? undefined
+	}
+}
+
+function resolveVariableWrite(
+	args: WriteVariableArgs,
+	base?: VariableDraftState
+): {
+	is_secret: boolean
+	value: string
+	description: string
+} {
+	if (base === undefined && (args.value === undefined || args.is_secret === undefined)) {
+		throw new Error(
+			`Variable "${args.path}" does not exist yet, so creating it requires both value and is_secret.`
+		)
+	}
+	const is_secret = args.is_secret ?? base?.variable.is_secret ?? false
+	// '' is the sentinel for "nothing staged" in a secret draft, so it cannot also mean
+	// "set the secret to empty". Refusing it matters because a model reaching for a
+	// placeholder — the habit this schema change removes — would otherwise wipe the secret.
+	if (is_secret && args.value === '') {
+		throw new Error(
+			`An empty string is not a valid value for secret variable "${args.path}". Omit value to keep the stored secret, or pass the real new one.`
+		)
+	}
+	// Securing one needs a value too when it holds none: the deploy would send no `value`
+	// (nothing is staged) and the backend refuses an is_secret change without one. Saying
+	// so here keeps the model from having to interpret that error.
+	if (
+		is_secret &&
+		base?.variable.is_secret === false &&
+		(args.value ?? base.variable.value) === ''
+	) {
+		throw new Error(
+			`Cannot make variable "${args.path}" secret without a value: it currently holds an empty one, so there would be nothing to encrypt. Pass the value it should hold.`
+		)
+	}
+	// Un-securing always needs a new plaintext value. An `$encrypted:` marker is no
+	// help: the deploy endpoints only decrypt it while the target stays secret, so
+	// carrying it into a non-secret variable would store the marker as the value.
+	if (is_secret === false && base?.variable.is_secret === true && args.value === undefined) {
+		throw new Error(
+			`Cannot turn secret variable "${args.path}" into a non-secret one without a value: its stored value cannot be read, so it would be replaced by an empty one. Pass the new plaintext value, or leave is_secret unset to keep it secret.`
+		)
+	}
+	return {
+		is_secret,
+		value: args.value ?? base?.variable.value ?? '',
+		description: args.description ?? base?.variable.description ?? ''
 	}
 }
 
 function createVariableToDraftState(
-	args: CreateVariable,
+	args: WriteVariableArgs,
 	base?: VariableDraftState
 ): VariableDraftState {
+	const { is_secret, value, description } = resolveVariableWrite(args, base)
 	return {
 		...base,
 		path: args.path,
 		variable: {
-			value: args.is_secret ? '' : args.value,
-			is_secret: args.is_secret,
-			description: args.description
+			value,
+			is_secret,
+			description
 		},
 		labels: args.labels ?? base?.labels,
 		wsSpecific: args.ws_specific ?? base?.wsSpecific ?? false,
@@ -4059,32 +4401,36 @@ function createVariableToDraftState(
 	}
 }
 
-function syncEphemeralSecretVariableDraftValue(workspace: string, args: CreateVariable): void {
-	const storagePath = getGlobalDraftStoragePath(workspace, 'variable', args.path)
-	if (args.is_secret) {
-		setEphemeralSecretVariableDraftValue(workspace, storagePath, args.value)
-	} else {
-		clearEphemeralSecretVariableDraftValue(workspace, storagePath)
-	}
-}
-
-function buildVariableDeployRequestBody(
-	workspace: string,
-	path: string,
-	draftValue: CreateVariable
-): CreateVariable {
+// The deploy body for a variable that does not exist yet.
+function buildVariableCreateRequestBody(draftValue: CreateVariable): CreateVariable {
 	const requestBody = structuredClone(draftValue)
-	if (!requestBody.is_secret) return requestBody
-
-	const storagePath = getGlobalDraftStoragePath(workspace, 'variable', path)
-	const secretValue = getEphemeralSecretVariableDraftValue(workspace, storagePath)
-	if (secretValue === undefined) {
+	if (requestBody.is_secret && requestBody.value === '') {
 		throw new Error(
-			`Secret value for draft variable "${path}" is no longer available because secret draft values are kept only in memory. Run write_variable again before deploying this secret.`
+			`Draft variable "${draftValue.path}" is secret but stages no value, so it cannot be created. Run write_variable with its value first.`
 		)
 	}
+	return requestBody
+}
 
-	return { ...requestBody, value: secretValue }
+// The deploy body for an existing variable. Every field is optional on the update
+// endpoint, and a draft stores '' when it stages no new value — so omitting `value` in
+// that case is what leaves the stored one untouched. A staged value is sent as-is: the
+// endpoint decrypts an `$encrypted:` marker and encrypts plaintext.
+function buildVariableUpdateRequestBody(
+	draftValue: CreateVariable
+): Omit<CreateVariable, 'value'> & { value?: string } {
+	const { value, ...rest } = structuredClone(draftValue)
+	// A value the draft is never allowed to carry — a secret's, and an OAuth-managed one
+	// dropped by `variableToDraftState` — reaches here as '' whenever this edit staged
+	// none, so sending it would blank the stored value or wipe a rotating token.
+	if (rest.is_secret || rest.is_oauth === true || rest.account != undefined) {
+		return value === '' ? rest : { ...rest, value }
+	}
+	// A readable value is resent even when this edit did not change it — a variable draft
+	// carries no baseline to diff against, so this matches `VariableEditor.save` and the
+	// shared deployer. A value changed elsewhere since the draft was created is therefore
+	// overwritten; closing that needs a stale-draft guard for variables on all three paths.
+	return { ...rest, value }
 }
 
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
@@ -4214,13 +4560,11 @@ function finishDraftWrite(
 // Per-draft-kind knowledge for the shared write skeleton. `fetchDeployed` returns
 // the deployed item already shaped as a draft value (e.g. script with parent_hash)
 // so `buildDraft` treats a draft base and a deployed base identically; a `base` of
-// undefined is the create-from-scratch case. `beforePersist` is a kind-local side
-// effect run after the value is built (only variable, for its in-memory secret).
+// undefined is the create-from-scratch case.
 type WriteSpec<T, A> = {
 	probe: (workspace: string, path: string) => Promise<boolean>
 	fetchDeployed: (workspace: string, path: string) => Promise<T>
 	buildDraft: (base: T | undefined, args: A, path: string) => T | Promise<T>
-	beforePersist?: (workspace: string, args: A) => void
 }
 
 async function writeDraft<T, A>(
@@ -4243,7 +4587,6 @@ async function writeDraft<T, A>(
 	}
 
 	const draft = await spec.buildDraft(base, args, path)
-	spec.beforePersist?.(workspace, args)
 
 	const result = await persistGlobalDraft(workspace, type, path, draft, {
 		triggerKind: opts.triggerKind,
@@ -4426,20 +4769,23 @@ function writeResourceDraft(
 	return writeDraft(RESOURCE_SPEC, 'resource', args.path, args, ctx, { override: args.override })
 }
 
-const VARIABLE_SPEC: WriteSpec<VariableDraftState, CreateVariable & { override?: boolean }> = {
+const VARIABLE_SPEC: WriteSpec<VariableDraftState, WriteVariableArgs> = {
 	probe: (workspace, path) => VariableService.existsVariable({ workspace, path }),
 	fetchDeployed: async (workspace, path) =>
 		variableToDraftState(
 			await VariableService.getVariable({ workspace, path, decryptSecret: false })
 		),
-	buildDraft: (base, args) => createVariableToDraftState(args, base),
-	beforePersist: (workspace, args) => syncEphemeralSecretVariableDraftValue(workspace, args)
+	buildDraft: (base, args) => createVariableToDraftState(args, base)
 }
 
-function writeVariableDraft(
-	args: CreateVariable & { override?: boolean },
-	ctx: WriteDraftCtx
-): Promise<string> {
+function writeVariableDraft(args: WriteVariableArgs, ctx: WriteDraftCtx): Promise<string> {
+	// A variable's value is never interpolated, so "$var:<its own path>" as the value
+	// is always the model echoing the reference syntax back instead of a real value.
+	if (args.value === `$var:${args.path}`) {
+		throw new Error(
+			`"${args.value}" is not a valid value for variable "${args.path}" — it is a self-reference. The "$var:" syntax only references a variable from inside a resource value. Omit value to keep the current one.`
+		)
+	}
 	return writeDraft(VARIABLE_SPEC, 'variable', args.path, args, ctx, { override: args.override })
 }
 
@@ -6509,6 +6855,9 @@ async function deployDraft(
 	// Where the deploy actually lands — the app branch can resolve a different
 	// target from the draft's own path fields; the mask rename below must track it.
 	let deployedPath = path
+	// Appended to the success message when the deploy deliberately left something alone,
+	// so "deployed" is never read as "everything in the draft was applied".
+	let deployNote: string | undefined
 
 	if (type === 'script' || type === 'flow') {
 		// Promote the full persisted draft via the shared deploy module — the same
@@ -6592,18 +6941,25 @@ async function deployDraft(
 				break
 			}
 			case 'variable': {
-				// The chat keeps secret draft values only in memory (the DB draft
-				// stores `''`); buildVariableDeployRequestBody re-injects the ephemeral
-				// secret, so this can't go through the DB-reading shared deployer.
-				const requestBody = buildVariableDeployRequestBody(
-					workspace,
-					path,
-					draft.value as CreateVariable
-				)
+				// Can't go through the DB-reading shared deployer: a secret's `value` is
+				// omitted when the draft stages none (see `buildVariableUpdateRequestBody`).
+				const draftValue = draft.value as CreateVariable
 				if (await VariableService.existsVariable({ workspace, path })) {
+					const requestBody = buildVariableUpdateRequestBody(draftValue)
 					await VariableService.updateVariable({ workspace, path, requestBody })
+					// Say when the secret was left alone. A draft written by a build that kept
+					// secret values in memory is indistinguishable from a metadata-only edit
+					// here — both store '' — so without this the deploy would report a rotation
+					// it never performed.
+					if (draftValue.is_secret && !('value' in requestBody)) {
+						deployNote =
+							'Its secret value was left unchanged, because the draft staged only metadata. If a new value was meant to be set, run write_variable again with it.'
+					}
 				} else {
-					await VariableService.createVariable({ workspace, requestBody })
+					await VariableService.createVariable({
+						workspace,
+						requestBody: buildVariableCreateRequestBody(draftValue)
+					})
 				}
 				actions = [createOpenVariableAction(path)]
 				break
@@ -6787,7 +7143,9 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.`,
+			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.${
+				deployNote ? ` ${deployNote}` : ''
+			}`,
 			type,
 			path,
 			triggerKind

@@ -1,6 +1,6 @@
 // Scoped by sessionId (fixed for the session's life), not chatId: a session follows its
 // active chat's rotation, so chatId-keying would drop artifacts on each new conversation.
-import { type DBSchema as IDBSchema, type IDBPObjectStore } from 'idb'
+import { type DBSchema as IDBSchema, type IDBPObjectStore, type IDBPTransaction } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 
 export type ArtifactKind = 'md' | 'html'
@@ -135,6 +135,11 @@ export async function listArtifactsForSession(sessionId: string): Promise<Persis
 	}
 }
 
+export interface ArtifactEdit {
+	artifact: PersistedArtifact
+	snapshots: ArtifactVersion[]
+}
+
 /**
  * Write an artifact and the snapshots that edit produced in one transaction.
  *
@@ -151,17 +156,104 @@ export async function putArtifactWithVersions(
 	if (!db) return
 	try {
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
-		const versions = tx.objectStore('versions')
-		await tx.objectStore('items').put(artifact)
-		for (const entry of snapshots) await versions.put(entry)
-		const newest = snapshots.at(-1)
-		if (newest) await pruneVersionsIn(versions, artifact.id, newest.content.length)
+		await writeEdit(tx.objectStore('items'), tx.objectStore('versions'), { artifact, snapshots })
 		await tx.done
 	} catch (err) {
 		// A rejected write (most likely QuotaExceededError) leaves the artifact usable for the
 		// session but unpersisted — degrade like the reads rather than throwing at the caller.
 		console.error('Could not persist artifact', err)
 	}
+}
+
+async function writeEdit(
+	items: ItemsStore,
+	versions: VersionsStore,
+	edit: ArtifactEdit
+): Promise<void> {
+	await items.put(edit.artifact)
+	for (const entry of edit.snapshots) await versions.put(entry)
+	const newest = edit.snapshots.at(-1)
+	if (newest) await pruneVersionsIn(versions, edit.artifact.id, newest.content.length)
+}
+
+/**
+ * Read an artifact and write it back in one transaction. `mutate` returns the edit to
+ * write, or undefined to leave the artifact alone and resolve to undefined. A store that
+ * fails is reported rather than thrown, so the edited row resolves either way — persisted
+ * where it could be, and usable for the session where it could not.
+ */
+export async function mutateArtifact(
+	id: string,
+	mutate: (existing: PersistedArtifact | undefined) => ArtifactEdit | undefined
+): Promise<PersistedArtifact | undefined> {
+	const db = await getDB()
+	// `transaction()` throws on a connection closed since `getDB()` answered — another tab
+	// upgrading the schema, or a user switch releasing the handle.
+	let opened: IDBPTransaction<ArtifactsSchema, ('items' | 'versions')[], 'readwrite'> | undefined
+	try {
+		opened = db?.transaction(['items', 'versions'], 'readwrite')
+	} catch (err) {
+		console.error('Could not open an artifact write transaction', err)
+	}
+	// Not `return undefined`: `create` can hand out an artifact the store never took, and it
+	// stays revisable only if the edit is computed anyway.
+	if (!opened) return mutate(undefined)?.artifact
+	const tx = opened
+	// Attached before the first await: idb builds `done` eagerly and rejects it on abort, so
+	// attaching later would leave an unhandled rejection. Cleared before each deliberate
+	// abort below, whose own site reports the failure when there was one.
+	let reportFailure = true
+	const settled = tx.done.catch((err) => {
+		if (reportFailure) console.error('Could not persist artifact', err)
+	})
+	const abort = () => {
+		try {
+			tx.abort()
+		} catch {}
+	}
+	const items = tx.objectStore('items')
+	const versions = tx.objectStore('versions')
+	let existing: PersistedArtifact | undefined
+	try {
+		// Read outside this transaction, two tabs both see version N, both stamp N+1, and the
+		// later write silently replaces the earlier one — content and snapshot alike.
+		existing = await items.get(id)
+	} catch (err) {
+		console.error('Could not read the artifact being written', err)
+		reportFailure = false
+		abort()
+		await settled
+		return mutate(undefined)?.artifact
+	}
+	// Kept out of the store's own error handling: a mutator that fails is not the store
+	// failing, so its error is neither reported as one nor swallowed.
+	let edit: ArtifactEdit | undefined
+	try {
+		edit = mutate(existing)
+	} catch (err) {
+		reportFailure = false
+		abort()
+		await settled
+		throw err
+	}
+	if (!edit) {
+		reportFailure = false
+		abort()
+		await settled
+		return undefined
+	}
+	try {
+		await writeEdit(items, versions, edit)
+	} catch (err) {
+		// A request that errors aborts the transaction itself; one that throws before creating
+		// a request (DataCloneError) would otherwise commit the row without its snapshot.
+		// Logged here because `settled` sees only a cause-less AbortError.
+		console.error('Could not persist artifact', err)
+		reportFailure = false
+		abort()
+	}
+	await settled
+	return edit.artifact
 }
 
 async function pruneVersionsIn(
@@ -241,6 +333,8 @@ export async function deleteArtifactsForSession(sessionId: string): Promise<void
 		console.error('Could not delete artifacts for session', err)
 	}
 }
+
+type ItemsStore = IDBPObjectStore<ArtifactsSchema, ('items' | 'versions')[], 'items', 'readwrite'>
 
 type VersionsStore = IDBPObjectStore<
 	ArtifactsSchema,

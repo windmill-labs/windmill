@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.784.0"
+version = "1.787.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.784.0"
+version = "1.787.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -433,7 +433,9 @@ tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
 tower-cookies = "^0.11"
 serde = "^1"
-serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+# 1.0.151 introduced RawValue::from_string_unchecked, which the SQL executors use
+# to avoid re-parsing every collected row.
+serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
