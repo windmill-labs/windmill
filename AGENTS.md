@@ -5,9 +5,22 @@ Open-source platform for internal tools, workflows, API integrations, background
 ## Workflow
 
 1. **Understand**: Before coding, explore the codebase (see Code Navigation below). Use `outline` to understand file structure, `body` to read specific symbols, `def`/`callers`/`callees` to trace code, `Grep` to find usages. Read `docs/` for domain context.
-2. **Plan**: For non-trivial changes, use plan mode. For large features, break into reviewable stages
+2. **Plan**: For non-trivial changes, use plan mode. For large features, break into reviewable stages.
+   For a new user-facing feature, put the `feature_usage` telemetry in the plan as a proposed item
+   (see `docs/feature-telemetry.md`) so the user can keep or drop it — don't ask separately, and
+   don't instrument bugfixes or refactors.
 3. **Execute**: Follow coding patterns from skills (`rust-backend`, `svelte-frontend`)
-4. **Validate**: After every change, run the appropriate checks per `docs/validation.md`
+4. **Validate**: After every change, run the appropriate checks per `docs/validation.md`, then
+   **exercise the change on the running instance**. Type-checks are not verification. Whatever the
+   change touches, get that path actually running, and stand up whatever that takes — this is
+   expected, not a last resort. A few examples, not a closed list: drive the UI with the Playwright
+   MCP, run a real job of the kind you touched, restart the backend with the cargo features the
+   path needs (`backend/CLAUDE.md`), put a stub in front of an upstream, start MinIO for an S3
+   path, plant state with SQL, exercise it through the `wmill` CLI. If the path you need has no
+   obvious way in, invent one rather than skipping it; `docs/` carries recipes for several areas.
+   If it needs a credential or a third-party account, ask for one rather than skipping the test or
+   inventing a value. If you genuinely cannot exercise it, say which path went unexercised instead
+   of implying it was verified.
 
 ## Documentation
 
@@ -17,6 +30,9 @@ Open-source platform for internal tools, workflows, API integrations, background
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Product telemetry**: `docs/feature-telemetry.md` — when to instrument a new feature with
+  `feature_usage`, and the four-step recipe. An unregistered `(feature, kind)` pair is dropped
+  silently, so frontend-only instrumentation records nothing.
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
 - **Frontend UUIDs**: do not call `crypto.randomUUID()` in frontend code. Import `randomUUID` from `$lib/utils/uuid` instead.

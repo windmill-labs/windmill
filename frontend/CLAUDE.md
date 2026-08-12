@@ -2,8 +2,8 @@
 
 - **Coding patterns**: MUST use the `svelte-frontend` skill when writing Svelte code
 - **Validation**: `docs/validation.md` — `npm run check:fast` (2s) for iteration, `npm run check` (50s) for final PR
-- **UI components**: use Windmill's design-system components (Button, TextInput, Select) — never raw HTML elements
-- **Brand/design**: `frontend/brand-guidelines.md`
+- **UI components**: use Windmill's design-system components — never raw HTML elements. Start from the barrel `src/lib/components/common/index.ts` and grep `src/lib/components/`; the component you need almost certainly exists
+- **Brand/design**: `frontend/brand-guidelines.md` — read the relevant section before building UI, not after; the `svelte-frontend` skill maps which section covers what
 - **Backend API**: routes in `../backend/windmill-api/openapi.yaml`, generated types in `src/lib/gen/`
 - **Regenerate client**: `npm run generate-backend-client` after backend API changes
 

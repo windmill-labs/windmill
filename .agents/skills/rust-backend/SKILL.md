@@ -94,6 +94,13 @@ Use `tokio::sync::mpsc` (bounded) for channels. Avoid `std::thread::sleep` in as
 
 Always use rust-analyzer LSP for go-to-definition, find-references, and type info. Do not guess at module paths.
 
+## Feature Telemetry
+
+`FEATURE_USAGE_KINDS` in `windmill-api-workspaces/src/workspaces.rs` is an allowlist: a
+`(feature, kind)` pair missing from it is dropped by `valid_feature_usage_event` with a bare
+`continue` — no error, and the route still returns 204. Adding a counter on the frontend without
+registering it here records nothing. See `docs/feature-telemetry.md`.
+
 ## Axum Handlers
 
 Destructure extractors directly in function signatures:
