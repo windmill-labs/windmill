@@ -48,7 +48,8 @@ import {
 	describePreview,
 	hydratePreviewTabs,
 	previewTargetForSessionTarget,
-	selectPreviewTabsToClose
+	selectPreviewTabsToClose,
+	whereIs
 } from './sessionPreviewTabs.svelte'
 import {
 	parsePreviewItemRoute,
@@ -374,7 +375,7 @@ function createRuntime(session: Session): SessionRuntime {
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
 		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
-		return previewLocationContext(tab.loc || tab.url)
+		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
@@ -1089,7 +1090,7 @@ setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
 	if (owner.tabs.length === 0) return 'The preview panel has no open tabs.'
 
 	const labelFor = (t: (typeof owner.tabs)[number]) =>
-		promptSafe(previewLocationLabel(t.loc || t.url))
+		promptSafe(previewLocationLabel(whereIs(t)))
 	// Resolve the doomed tabs to ids up front — close() re-indexes on each call.
 	const doomed = selectPreviewTabsToClose(owner.tabs, { all, match })
 	if (doomed.length === 0) {

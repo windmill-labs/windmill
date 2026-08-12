@@ -1,4 +1,5 @@
 import type { SessionPreviewTab } from './sessionState.svelte'
+import { whereIs } from './sessionPreviewTabs.svelte'
 import { stripBase, TRIGGER_PAGES, type TriggerKind } from './previewRouter'
 
 // Which list pages a completed chat tool can change, as base-stripped paths
@@ -71,5 +72,5 @@ export function tabsToReload(
 	pages: ReadonlySet<string>
 ): SessionPreviewTab[] {
 	if (pages.size === 0) return []
-	return tabs.filter((t) => pages.has(stripBase(t.loc || t.url)))
+	return tabs.filter((t) => pages.has(stripBase(whereIs(t))))
 }

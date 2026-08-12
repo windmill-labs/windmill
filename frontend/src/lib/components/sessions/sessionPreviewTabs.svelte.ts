@@ -79,6 +79,23 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 	tab.loc = url
 }
 
+// A tab carries two locations and each write touches a different one, so the choice is a
+// function name rather than a judgement: `url` is what we last commanded and what the host
+// loads; `loc` is where the frame actually went, written only by the observer.
+
+/** The frame is already showing `url` — record what was asked for without moving it. A
+ * refresh and a remount both reload from `url`, so leaving it behind sends the tab back to
+ * wherever it started. */
+function recordCommand(tab: SessionPreviewTab, url: string): void {
+	tab.url = url
+}
+
+/** Where the tab is, as well as we know: the frame's own location once it has reported
+ * one, else what we commanded. */
+export function whereIs(tab: Pick<SessionPreviewTab, 'url' | 'loc'>): string {
+	return tab.loc || tab.url
+}
+
 // The editor target a destination maps to, or undefined when it isn't an item we
 // host live (static pages, legacy drag-and-drop apps). Drives the open()/navigate()
 // dedupe — one editor tab per (kind, path).
@@ -149,7 +166,7 @@ export function hydratePreviewTabs(session: {
 		seen.add(t.id)
 		// Rebuilt field-by-field so stray properties on old saved records (e.g. the
 		// retired `pinned` flag) don't survive hydration and get persisted back.
-		tabs.push({ id: t.id, url: t.url, loc: t.loc ?? t.url })
+		tabs.push({ id: t.id, url: t.url, loc: t.loc || t.url })
 	}
 	if (tabs.length > 0) {
 		const wantActive = session.activePreviewTabId
@@ -373,8 +390,7 @@ export class SessionPreviewTabs {
 			const existing = this.#tabs.find((t) => parseArtifactRoute(t.url)?.id === target.id)
 			if (existing) {
 				const same = existing.url === url
-				existing.url = url
-				existing.loc = url
+				retargetTab(existing, url)
 				this.#activeId = existing.id
 				this.#flush()
 				return { status: same ? 'focused' : 'opened' }
@@ -394,7 +410,7 @@ export class SessionPreviewTabs {
 				// The frame is already here, but record what was asked for: `url` is what the
 				// tab persists and remounts from, so leaving it on where the frame started
 				// sends a refresh back to the row the user has since moved off.
-				shown.url = url
+				recordCommand(shown, url)
 				// Nothing to navigate to, so nothing would re-run: the list pages read their
 				// `#<path>` once per document, and the drawer it opens may since have been
 				// closed. Only a forced load can bring it back.
@@ -604,7 +620,7 @@ export function selectPreviewTabsToClose(
 	const needle = opts.match?.trim().toLowerCase()
 	if (!needle) return []
 	return tabs.filter((t) => {
-		const where = t.loc || t.url
+		const where = whereIs(t)
 		return (
 			previewLocationLabel(where).toLowerCase().includes(needle) ||
 			where.toLowerCase().includes(needle)
@@ -636,7 +652,7 @@ export function describePreview(
 ): string {
 	if (tabs.length === 0) return 'No preview tabs are open in the side panel.'
 	const lines = tabs.map((t) => {
-		const where = t.loc || t.url
+		const where = whereIs(t)
 		const artifact = parseArtifactRoute(where)
 		const page = matchPreviewPage(where)
 		const pipelineFolder = parsePipelineRoute(where)

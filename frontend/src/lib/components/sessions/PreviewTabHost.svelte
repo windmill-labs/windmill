@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
+	import { whereIs } from './sessionPreviewTabs.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import {
 		getEffectiveWorkspaceId,
@@ -115,7 +116,7 @@
 			// current URL is a no-op when it carries a fragment (same-document
 			// navigation, no load) — only then fall back to location.reload(), which
 			// always performs a full load of that same URL.
-			const target = withMenuHidden(tab.loc || tab.url, workspaceId || undefined)
+			const target = withMenuHidden(whereIs(tab), workspaceId || undefined)
 			const { pathname, search, hash } = win.location
 			if (pathname + search + hash === target) win.location.reload()
 			else if (pathname + search === target.split('#')[0]) {
