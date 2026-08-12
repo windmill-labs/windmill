@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { Resource, ResourceType } from '$lib/gen'
+	import { onDestroy } from 'svelte'
+	import { setEditorUnparseable } from './pendingEditorFlush'
 	import { emptyString, isOwner, urlize } from '$lib/utils'
 	import { Alert, Skeleton } from './common'
 	import Path from './Path.svelte'
@@ -75,6 +77,12 @@
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')
 
+	// This field is a bare SimpleEditor parsed here, so it never passes through JsonEditor —
+	// it has to register itself, or a caller persisting what is on screen would save the
+	// last value that parsed and leave without the text in front of the user.
+	const unparseableKey = {}
+	onDestroy(() => setEditorUnparseable(unparseableKey, false))
+
 	function parseJson() {
 		try {
 			args = JSON.parse(rawCode ?? '')
@@ -82,6 +90,7 @@
 		} catch (e) {
 			jsonError = e.message
 		}
+		setEditorUnparseable(unparseableKey, jsonError !== '')
 	}
 
 	function parseTextFileContent() {

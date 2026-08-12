@@ -32,8 +32,6 @@
 		 * so it can hide the banner's Discard button in read-only mode (matches
 		 * the trigger editors' `disabled={!can_write}` wiring). */
 		onCanWriteChange?: (canWrite: boolean) => void
-		/** Unsaved edits that do not parse — the raw JSON buffer never reached `args`. */
-		onInvalidEditsChange?: (invalid: boolean) => void
 	}
 
 	let {
@@ -46,8 +44,7 @@
 		workspace = undefined,
 		selected: selectedProp = $bindable(),
 		onDraftStateChange,
-		onCanWriteChange,
-		onInvalidEditsChange
+		onCanWriteChange
 	}: Props = $props()
 
 	type ResourceState = {
@@ -291,12 +288,6 @@
 		onCanWriteChange?.(can_write)
 	})
 
-	// Straight from the editor, never from draft dirtiness: text that does not parse never
-	// reaches `args`, so a first edit that breaks the JSON leaves the draft clean and a
-	// dirtiness-based signal reports nothing wrong.
-	$effect(() => {
-		onInvalidEditsChange?.(jsonError !== '')
-	})
 
 	export function localDraftDeployed(): ResourceState | undefined {
 		return selected ? initialStates[selected] : undefined
