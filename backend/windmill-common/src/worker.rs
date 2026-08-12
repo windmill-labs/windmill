@@ -1528,6 +1528,12 @@ pub fn get_affinity_cpus() -> Option<usize> {
 
 #[cfg(windows)]
 pub fn get_affinity_cpus() -> Option<usize> {
+    // The 1CU cap is a policy rather than a bandwidth quota, so it is the whole
+    // answer here as it is for `get_vcpus` and `get_memory` — a consumer that reads
+    // this as the hardware count would raise the worker back above the cap.
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(1);
+    }
     let mut sys = System::new();
     sys.refresh_cpu_all();
     Some(sys.cpus().len()).filter(|cpus| *cpus > 0)

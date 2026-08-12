@@ -1510,6 +1510,9 @@ mod go_build_limits_tests {
         // but only where there are two to give.
         assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 24), 2);
         assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 1), 1);
+        // A one-CPU allowance stays one when that is all the worker may use, which
+        // is how the Windows 1CU cap reports itself.
+        assert_eq!(effective_vcpus(Some(100_000), Some(100_000), 1), 1);
     }
 
     #[test]
