@@ -1450,7 +1450,9 @@ fn resolve_go_build_limits(
     let cap = vcpus.max(1) + 1;
     let processes = (budget / GO_BUILD_TARGET_MEMLIMIT).clamp(MIN_GO_BUILD_PROCESSES.min(cap), cap);
     Some(GoBuildLimits {
-        budget,
+        // Floored like the share it is an alternative to: a step that holds the
+        // whole budget must never end up with less than one of six compilers.
+        budget: budget.max(MIN_GO_BUILD_MEMLIMIT),
         memlimit: (budget / processes).max(MIN_GO_BUILD_MEMLIMIT),
         parallelism: processes - 1,
     })
@@ -1493,7 +1495,7 @@ mod go_build_limits_tests {
         // Under the floor the budget gives instead of the share.
         assert_eq!(
             resolve_go_build_limits(None, Some(GIB / 8), 4),
-            limits(3 * GIB as usize / 32, MIN_GO_BUILD_MEMLIMIT, 4)
+            limits(MIN_GO_BUILD_MEMLIMIT, MIN_GO_BUILD_MEMLIMIT, 4)
         );
         assert_eq!(
             resolve_go_build_limits(Some("2GiB"), Some(4 * GIB), 4),
