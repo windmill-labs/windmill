@@ -164,12 +164,14 @@ async fn update_worker_ping_full_inner(
     Ok(())
 }
 
+/// Registers the worker in `worker_ping` and returns the number of jobs already attributed
+/// to that worker name, which is 0 unless this process reclaims the row of an earlier one.
 pub async fn insert_ping(
     worker_instance: &str,
     worker_name: &str,
     ip: &str,
     db: &Connection,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<i32> {
     let (tags, dw, dws, native_mode) = {
         let wc = (**WORKER_CONFIG.load()).clone();
         (
@@ -200,7 +202,7 @@ pub async fn insert_ping(
 
     match db {
         Connection::Sql(db) => {
-            insert_ping_query(
+            return Ok(insert_ping_query(
                 worker_instance,
                 worker_name,
                 WORKER_GROUP.as_str(),
@@ -215,7 +217,7 @@ pub async fn insert_ping(
                 native_mode,
                 db,
             )
-            .await?;
+            .await?);
         }
         Connection::Http(client) => {
             client
@@ -248,7 +250,9 @@ pub async fn insert_ping(
                 .await?;
         }
     }
-    Ok(())
+    // The agent ping endpoint answers with nothing, so an agent worker always starts its
+    // counter from zero.
+    Ok(0)
 }
 
 pub async fn update_worker_ping_from_job(

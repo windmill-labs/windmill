@@ -12,6 +12,7 @@ use crate::ee_oss::LICENSE_KEY_ID;
 use crate::ee_oss::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
+use crate::worker::EXIT_AFTER_N_JOBS;
 use crate::DB;
 use anyhow::Context;
 use gethostname::gethostname;
@@ -359,6 +360,34 @@ pub fn create_worker_suffix(hostname: &str, rd_string_len: usize) -> String {
 
 pub fn create_default_worker_suffix(hostname: &str) -> String {
     create_worker_suffix(hostname, DEFAULT_WORKER_SUFFIX_LEN)
+}
+
+/// Same shape as [`create_default_worker_suffix`] but derived from the hostname and the
+/// worker index instead of randomness, so the process gets the same worker name every time
+/// it starts on that host. The index is folded into the digest rather than appended so that
+/// the name still has exactly one suffix segment, which is what
+/// [`retrieve_common_worker_prefix`] (the interactive shell tag) strips off.
+fn create_stable_worker_suffix(hostname: &str, index: usize) -> String {
+    let digest = calculate_hash(&format!("{hostname}#{index}"));
+    format!(
+        "{}-{}",
+        instance_name(hostname),
+        &digest[..DEFAULT_WORKER_SUFFIX_LEN]
+    )
+}
+
+/// Suffix of the name of the `index`-th (1-based) worker of this process.
+///
+/// A worker name is the primary key of its `worker_ping` row, so it decides whether a
+/// restarted process appears as a new worker or resumes the previous one. Random by default
+/// (two processes must never share a row); deterministic when the worker is expected to
+/// restart in place, which is the case for `EXIT_AFTER_N_JOBS`.
+pub fn resolve_worker_suffix(hostname: &str, index: usize) -> String {
+    if EXIT_AFTER_N_JOBS.is_some() {
+        create_stable_worker_suffix(hostname, index)
+    } else {
+        create_default_worker_suffix(hostname)
+    }
 }
 
 pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
@@ -1470,6 +1499,31 @@ pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A worker that restarts must land on the exact same name to reclaim its `worker_ping`
+    /// row, while still never colliding with the other workers of its own process. The
+    /// suffix must also stay a single `-` segment, which is what the interactive shell tag
+    /// strips off.
+    #[test]
+    fn stable_worker_suffix_is_per_host_and_per_index() {
+        let first = create_stable_worker_suffix("wm-worker-7d8f9c-abcde", 1);
+        assert_eq!(
+            first,
+            create_stable_worker_suffix("wm-worker-7d8f9c-abcde", 1)
+        );
+        assert_ne!(
+            first,
+            create_stable_worker_suffix("wm-worker-7d8f9c-abcde", 2)
+        );
+        assert_ne!(
+            first,
+            create_stable_worker_suffix("wm-worker-7d8f9c-fghij", 1)
+        );
+        assert_eq!(
+            retrieve_common_worker_prefix(&worker_name_with_suffix(false, "default", &first)),
+            "wk-default-abcde"
+        );
+    }
 
     /// The guards are only safe because they are never stricter than the DB
     /// constraints they front. Narrowing `\w` to ASCII reads equivalent and
