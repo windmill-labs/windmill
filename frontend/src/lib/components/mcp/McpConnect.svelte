@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -26,6 +26,7 @@
 	let entry = $derived(selected === CUSTOM ? undefined : findMcpEntry(selected))
 
 	let instanceConnects = $state<string[] | undefined>(undefined)
+	let connectScopes = $state<string[] | undefined>(undefined)
 	let appConnectDrawer: AppConnectDrawer | undefined = $state(undefined)
 	let showOAuth = $state(false)
 
@@ -50,6 +51,24 @@
 				.catch(() => (instanceConnects = []))
 		}
 	})
+
+	// The token is minted with whatever the instance connect asks for, so a
+	// connect that is missing a scope produces tools that fail one by one at call
+	// time instead of failing here.
+	$effect(() => {
+		const client = entry?.connectClient
+		if (client && oauthAppReady) {
+			OauthService.getOauthConnect({ client })
+				.then((c) => (connectScopes = c.scopes ?? []))
+				.catch(() => (connectScopes = undefined))
+		}
+	})
+
+	let missingScopes = $derived(
+		connectScopes === undefined
+			? []
+			: (entry?.requiredScopes ?? []).filter((sc) => !connectScopes!.includes(sc))
+	)
 
 	// Which flows this server can actually use here, so the reason a button is
 	// missing is visible before it is clicked rather than after it errors.
@@ -176,6 +195,13 @@
 				<div class="text-2xs text-secondary">
 					This instance has a {entry.name} OAuth app configured, so you can sign in with your own account.
 				</div>
+				{#if missingScopes.length > 0}
+					<Alert type="warning" title="The {entry.name} connect is missing scopes" size="xs">
+						Add {missingScopes.join(', ')} to the {entry.connectClient} OAuth connect in instance
+						settings, otherwise some tools are refused. Reconnect after changing them — an existing
+						token keeps the scopes it was granted.
+					</Alert>
+				{/if}
 				<Button
 					size="sm"
 					onClick={() => appConnectDrawer?.open(entry?.connectClient)}
