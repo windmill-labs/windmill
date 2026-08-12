@@ -60,6 +60,15 @@ describe('describeLocation', () => {
 		expect(sameView('/audit_logs?username=a', '/audit_logs?username=b')).toBe(false)
 	})
 
+	it('counts a filter only some viewers can reach', () => {
+		// `all_workspaces` exists only for a superadmin in the admins workspace, and the
+		// Runs entry point carries the live query into the preview wholesale. Left out of
+		// the vocabulary it reads as the page's own, and an all-workspaces tab would
+		// answer a request for the workspace-scoped view.
+		expect(sameView('/runs?all_workspaces=true', '/runs')).toBe(false)
+		expect(sameView('/schedules?user_folders_only=true', '/schedules')).toBe(false)
+	})
+
 	it('keeps a requested filter a different view on a page that writes none', () => {
 		// Schedules never rewrites its own query, so a requested filter is the whole
 		// difference — treating it as page state drops the filter and reports success.

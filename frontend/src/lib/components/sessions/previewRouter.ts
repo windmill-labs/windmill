@@ -152,6 +152,11 @@ export function canonicalizeObservedLoc(loc: string): string {
 // which reads it back from here so the two cannot drift. Pages absent from the table
 // take no request params at all — the trigger lists deep-link only through their hash,
 // and Folders/Groups have no query.
+// Permission and feature flags are all set so the key set is the page's whole filter
+// vocabulary rather than one viewer's subset. A filter only some users can reach —
+// Runs' `all_workspaces` — still reaches a location, and a name missing here is read
+// as the page's own and silently ignored, so an all-workspaces tab would answer a
+// request for the workspace-scoped view.
 export const PAGE_REQUEST_PARAMS: Record<string, readonly string[]> = {
 	'/runs': Object.keys(
 		buildRunsFilterSearchbarSchema({
@@ -159,11 +164,13 @@ export const PAGE_REQUEST_PARAMS: Record<string, readonly string[]> = {
 			usernames: [],
 			folders: [],
 			jobTriggerKinds: [],
-			isSuperAdminOrDevops: false,
-			isAdminsWorkspace: false
+			isSuperAdminOrDevops: true,
+			isAdminsWorkspace: true
 		})
 	),
-	'/schedules': Object.keys(buildSchedulesFilterSchema({ paths: [], scriptPaths: [] })),
+	'/schedules': Object.keys(
+		buildSchedulesFilterSchema({ paths: [], scriptPaths: [], showUserFoldersFilter: true })
+	),
 	'/variables': ['path', 'owner'],
 	'/resources': ['path', 'resource_type', 'owner'],
 	'/assets': ['path'],

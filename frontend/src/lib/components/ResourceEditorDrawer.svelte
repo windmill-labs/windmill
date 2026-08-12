@@ -71,15 +71,10 @@
 
 	let mode: 'edit' | 'new' = $derived(!path ? 'new' : 'edit')
 
-	// The Resources page deep-links a row as `#/resource/<path>`, not the bare path.
 	// `selected`, not `effectiveWorkspace`: WsSpecificVersions re-points this drawer
 	// at another workspace's version, and the session must act on the one shown.
 	const sessionSource = $derived(
-		pageDrawerSessionSource(
-			RESOURCES_PATH,
-			path ? `/resource/${path}` : undefined,
-			selected ?? effectiveWorkspace
-		)
+		pageDrawerSessionSource(RESOURCES_PATH, path, selected ?? effectiveWorkspace)
 	)
 </script>
 
