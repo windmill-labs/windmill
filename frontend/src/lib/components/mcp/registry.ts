@@ -13,6 +13,13 @@
  *    pre-registered app, so the connect goes through the instance's configured
  *    OAuth client named by `connectClient`.
  */
+import type { Component } from 'svelte'
+import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+import LinearIcon from '$lib/components/icons/LinearIcon.svelte'
+import NotionIcon from '$lib/components/icons/NotionIcon.svelte'
+import SentryIcon from '$lib/components/icons/SentryIcon.svelte'
+import StripeIcon from '$lib/components/icons/StripeIcon.svelte'
+
 export type McpAuthKind = 'dcr' | 'oauth_app'
 
 export type McpRegistryEntry = {
@@ -20,6 +27,10 @@ export type McpRegistryEntry = {
 	name: string
 	url: string
 	auth: McpAuthKind
+	/** Imported per entry rather than through `appIconComponent`, which would pull
+	 * the whole icon barrel into the chat bundle for a handful of logos. These take
+	 * width/height as css lengths and ignore lucide's `size`, so callers pass both. */
+	icon: Component<any>
 	/** For `oauth_app`: the Windmill OAuth connect (and resource type) to use. */
 	connectClient?: string
 	/** Shown when falling back to entering a token by hand. */
@@ -31,6 +42,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 	{
 		id: 'github',
 		name: 'GitHub',
+		icon: GithubIcon,
 		url: 'https://api.githubcopilot.com/mcp/',
 		auth: 'oauth_app',
 		connectClient: 'github',
@@ -41,6 +53,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 	{
 		id: 'notion',
 		name: 'Notion',
+		icon: NotionIcon,
 		url: 'https://mcp.notion.com/mcp',
 		auth: 'dcr',
 		docsUrl: 'https://developers.notion.com/docs/mcp'
@@ -48,6 +61,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 	{
 		id: 'linear',
 		name: 'Linear',
+		icon: LinearIcon,
 		url: 'https://mcp.linear.app/mcp',
 		auth: 'dcr',
 		docsUrl: 'https://linear.app/docs/mcp'
@@ -55,6 +69,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 	{
 		id: 'sentry',
 		name: 'Sentry',
+		icon: SentryIcon,
 		url: 'https://mcp.sentry.dev/mcp',
 		auth: 'dcr',
 		docsUrl: 'https://docs.sentry.io/product/sentry-mcp/'
@@ -62,16 +77,10 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 	{
 		id: 'stripe',
 		name: 'Stripe',
+		icon: StripeIcon,
 		url: 'https://mcp.stripe.com',
 		auth: 'dcr',
 		docsUrl: 'https://docs.stripe.com/mcp'
-	},
-	{
-		id: 'paypal',
-		name: 'PayPal',
-		url: 'https://mcp.paypal.com/mcp',
-		auth: 'dcr',
-		docsUrl: 'https://developer.paypal.com/tools/mcp-server/'
 	}
 ]
 

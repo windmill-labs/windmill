@@ -258,6 +258,7 @@
 					unifiedSize="2xs"
 					variant="subtle"
 					selected={suggested === e.id}
+					startIcon={{ icon: e.icon, props: { width: '12px', height: '12px' } }}
 					onClick={() => pick(e.id)}
 				>
 					{e.name}
