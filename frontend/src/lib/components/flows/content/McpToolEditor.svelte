@@ -28,7 +28,6 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { getContext, untrack } from 'svelte'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import type { FlowEditorContext } from '../types'
 
@@ -96,35 +95,28 @@
 
 <FlowCard {noEditor} title="MCP tool">
 	<div class="flex flex-col gap-4 overflow-auto p-4" style="scrollbar-gutter: stable">
-		<Alert type="info" title="MCP Client Configuration">
-			{#snippet children()}
-				<p class="mb-2 text-sm">
-					MCP clients allow AI agents to access and execute a list of tools made available by an MCP
-					server.
-					<br />
-					Choose an MCP resource to make its tools available to the agent.
-					<br />
-					<br />
-					<strong>Note:</strong> Only HTTP streamable MCP servers are supported.
-				</p>
-			{/snippet}
-		</Alert>
-
 		<div class="w-full">
-			<Label label="MCP Resource">
-				<ResourcePicker
-					bind:this={resourcePicker}
-					resourceType="mcp"
-					bind:value={tool.value.resource_path}
-					workspace={opWs}
-				/>
+			<Label label="MCP server" tooltip="Only HTTP streamable MCP servers are supported.">
+				<div class="flex flex-col gap-1">
+					<span class="text-2xs text-secondary">
+						Pick a server already connected in this workspace, or connect a new one. The agent can
+						call the tools it exposes.
+					</span>
+					<ResourcePicker
+						bind:this={resourcePicker}
+						resourceType="mcp"
+						placeholder="Select a connected server"
+						bind:value={tool.value.resource_path}
+						workspace={opWs}
+					/>
+				</div>
 			</Label>
 		</div>
 
 		{#if !resourcePath}
 			{#if !showOAuthForm}
-				<Button size="xs" color="light" onClick={() => (showOAuthForm = true)}>
-					Connect a server
+				<Button unifiedSize="sm" wrapperClasses="self-start" onClick={() => (showOAuthForm = true)}>
+					Connect a new server
 				</Button>
 			{:else}
 				<McpConnect

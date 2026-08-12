@@ -243,7 +243,7 @@
 	</div>
 
 	<div class="flex flex-col gap-1">
-		<Label label="MCP server URL">
+		<Label label="MCP server URL" tooltip="Only HTTP streamable MCP servers are supported.">
 			<TextInput
 				inputProps={{
 					type: 'url',
