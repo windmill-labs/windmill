@@ -678,5 +678,23 @@ async fn test_by_hash_endpoints_enforce_acls(db: Pool<Postgres>) -> anyhow::Resu
         }
     }
 
+    // A grant made after the caller's folder list was cached must not deny the read:
+    // the requests above cached it, and writing `extra_perms` directly leaves that
+    // entry stale exactly as an admin granting access to someone else's session does.
+    sqlx::query(
+        "UPDATE folder SET extra_perms = extra_perms || '{\"u/test-user-2\": false}'::jsonb
+         WHERE name = 'private' AND workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await?;
+    let resp = get_as(port, "SECRET_TOKEN_2", "get/h", private).await;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 200,
+        "a freshly granted folder must be read from the database, not the cached authed \
+         (got {status}: {body})"
+    );
+
     Ok(())
 }

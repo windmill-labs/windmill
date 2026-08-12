@@ -3219,35 +3219,50 @@ async fn get_script_by_hash_internal<'c>(
     Ok(script)
 }
 
+/// Resolves what a hash-addressed read may see, before the RLS query runs.
+///
+/// Returns the script's path when the hash names one at all, regardless of the caller's
+/// grants, together with the authed the read should then run as.
+///
+/// `authed.folders` is a snapshot cached alongside the caller's token, so a grant made
+/// after it was cached (the folder created by the deploy the caller is being redirected
+/// from, or one an admin has just added them to) would otherwise deny a script they can
+/// legitimately read. `maybe_refresh_folders` re-reads the memberships from the database
+/// and needs the path, hence the privileged lookup.
+async fn resolve_hash_read(
+    authed: ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    hash: &ScriptHash,
+) -> Result<(Option<String>, ApiAuthed)> {
+    let path = sqlx::query_scalar!(
+        "SELECT path FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash.0,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let authed = match path.as_deref() {
+        Some(path) => maybe_refresh_folders(path, w_id, authed, db).await,
+        None => authed,
+    };
+    Ok((path, authed))
+}
+
 /// A hash-addressed read that misses under RLS is ambiguous: the hash may name no
 /// script, or one in a folder the caller has no grant on. Legitimate callers land here
 /// (a flow step, an app component job, or a shared run can all reference a script the
 /// viewer cannot read), so report which of the two it is rather than a bare "not found".
 /// Disclosing existence costs nothing a caller who already holds the hash does not have,
 /// and mirrors what `raw/p` reports for paths.
-async fn explain_hash_miss(
-    err: Error,
-    db: &DB,
-    w_id: &str,
-    hash: &ScriptHash,
-    authed: &ApiAuthed,
-) -> Error {
-    if !matches!(err, Error::NotFound(_)) {
-        return err;
-    }
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2)",
-        hash.0,
-        w_id,
-    )
-    .fetch_one(db)
-    .await;
-    match exists {
-        Ok(Some(true)) => Error::NotFound(format!(
+fn explain_hash_miss(err: Error, exists: bool, hash: &ScriptHash, authed: &ApiAuthed) -> Error {
+    match err {
+        Error::NotFound(_) if exists => Error::NotFound(format!(
             "Script with hash {hash} exists but {} does not have permissions to access it",
             authed.username
         )),
-        _ => err,
+        e => e,
     }
 }
 
@@ -3261,6 +3276,7 @@ async fn get_script_by_hash(
     // Addressing a script by hash must not be a way around the folder ACLs that
     // `get/p` enforces: the fetch always goes through RLS, and `scripts:read:<path>`
     // is checked once the row (hence the path) is known.
+    let (path, authed) = resolve_hash_read(authed, &db, &w_id, &hash).await?;
     let mut tx = user_db.begin(&authed).await?;
     let r = match get_script_by_hash_internal(
         &mut tx,
@@ -3277,7 +3293,7 @@ async fn get_script_by_hash(
     .await
     {
         Ok(r) => r,
-        Err(e) => return Err(explain_hash_miss(e, &db, &w_id, &hash, &authed).await),
+        Err(e) => return Err(explain_hash_miss(e, path.is_some(), &hash, &authed)),
     };
 
     check_scopes(&authed, || format!("scripts:read:{}", &r.script.path))?;
@@ -3298,10 +3314,11 @@ async fn raw_script_by_hash(
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
         Error::BadRequest("Raw script path must end with .ts".to_string())
     })?)?);
+    let (path, authed) = resolve_hash_read(authed, &db, &w_id, &hash).await?;
     let mut tx = user_db.begin(&authed).await?;
     let r = match get_script_by_hash_internal(&mut tx, &w_id, &hash, None).await {
         Ok(r) => r,
-        Err(e) => return Err(explain_hash_miss(e, &db, &w_id, &hash, &authed).await),
+        Err(e) => return Err(explain_hash_miss(e, path.is_some(), &hash, &authed)),
     };
     tx.commit().await?;
 
@@ -3322,6 +3339,7 @@ async fn get_deployment_status(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
+    let (path, authed) = resolve_hash_read(authed, &db, &w_id, &hash).await?;
     let mut tx = user_db.begin(&authed).await?;
     let status_o = sqlx::query!(
         "SELECT s.path, s.lock, s.lock_error_logs, dm.job_id
@@ -3336,7 +3354,7 @@ async fn get_deployment_status(
 
     let status = match not_found_if_none(status_o, "DeploymentStatus", hash.to_string()) {
         Ok(s) => s,
-        Err(e) => return Err(explain_hash_miss(e, &db, &w_id, &hash, &authed).await),
+        Err(e) => return Err(explain_hash_miss(e, path.is_some(), &hash, &authed)),
     };
     tx.commit().await?;
 
