@@ -1279,11 +1279,18 @@ const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 // that an ordinary build never approaches it, so the only builds whose behavior
 // changes are those that were about to take the worker down.
 const GO_BUILD_MEMLIMIT_FRACTION: f64 = 0.75;
-// Least heap worth handing a Go compiler: under it the process spends more time
-// collecting than compiling, so the budget buys fewer of them instead. Measured on
-// a dependency-heavy build at a fixed budget: this share compiles it faster than
-// both more-and-smaller processes and fewer-and-larger ones, the latter steeply so.
-const MIN_GO_BUILD_MEMLIMIT: usize = 384 * 1024 * 1024;
+// Heap a Go compiler is comfortable in: cores are only put to work while the budget
+// still affords each of them this much.
+const GO_BUILD_TARGET_MEMLIMIT: usize = 384 * 1024 * 1024;
+// Driver plus the compilers below which a build stops overlapping and starts
+// waiting. Measured on a dependency-heavy build: at a budget too small to give this
+// many the target share, splitting it further still compiles faster than handing
+// fewer processes more — one compiler alone costs ~3x what five of them do on the
+// same budget — so the process count holds and the share absorbs the difference.
+const MIN_GO_BUILD_PROCESSES: usize = 6;
+// Floor under the share, past which dividing the budget again buys nothing: the
+// processes only trade compiling time for collecting time.
+const MIN_GO_BUILD_MEMLIMIT: usize = 128 * 1024 * 1024;
 
 /// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
 /// and binary, so `MB` and `MiB` both mean 1024².
@@ -1371,24 +1378,11 @@ lazy_static::lazy_static! {
     /// `GO_BUILD_MEMLIMIT` overrides the budget (`512MB`, `2GiB`, …), and `0`/`off`
     /// disables the whole thing, as does a worker with no cgroup memory reading to
     /// scale from.
-    pub(crate) static ref GO_BUILD_LIMITS: Option<GoBuildLimits> = {
-        let limits = resolve_go_build_limits(
-            std::env::var("GO_BUILD_MEMLIMIT").ok().as_deref(),
-            windmill_common::worker::get_memory(),
-            worker_vcpus(),
-        );
-        // A slow compilation is the symptom of a budget that is too low, and nothing
-        // else would tell an operator one is in force or what it resolved to.
-        match limits {
-            Some(l) => tracing::info!(
-                "Go compilation limited to {} per process across {} compilers",
-                format_byte_size(l.memlimit),
-                l.parallelism
-            ),
-            None => tracing::info!("Go compilation memory is unlimited"),
-        }
-        limits
-    };
+    pub(crate) static ref GO_BUILD_LIMITS: Option<GoBuildLimits> = resolve_go_build_limits(
+        std::env::var("GO_BUILD_MEMLIMIT").ok().as_deref(),
+        windmill_common::worker::get_memory(),
+        worker_vcpus(),
+    );
 }
 
 /// How much memory the Go toolchain may hold while compiling a script, expressed
@@ -1446,10 +1440,13 @@ fn resolve_go_build_limits(
         },
     };
 
-    // The floor wins over the budget on a worker too small to honor both: a
-    // compiler squeezed under it makes no progress, so exceeding the budget is the
-    // lesser evil.
-    let processes = (budget / MIN_GO_BUILD_MEMLIMIT).clamp(2, vcpus.max(1) + 1);
+    // One compiler per core while the budget affords each the target share, never
+    // so few that the build stops overlapping, and never more than the cores can
+    // run. The floor is the last word: on a worker too small to honor both, the
+    // budget is the one that gives, since processes squeezed under it make no
+    // progress to bound.
+    let cap = vcpus.max(1) + 1;
+    let processes = (budget / GO_BUILD_TARGET_MEMLIMIT).clamp(MIN_GO_BUILD_PROCESSES.min(cap), cap);
     Some(GoBuildLimits {
         memlimit: (budget / processes).max(MIN_GO_BUILD_MEMLIMIT),
         parallelism: processes - 1,
@@ -1458,7 +1455,9 @@ fn resolve_go_build_limits(
 
 #[cfg(test)]
 mod go_build_limits_tests {
-    use super::{resolve_go_build_limits, GoBuildLimits, MIN_GO_BUILD_MEMLIMIT};
+    use super::{
+        resolve_go_build_limits, GoBuildLimits, GO_BUILD_TARGET_MEMLIMIT, MIN_GO_BUILD_MEMLIMIT,
+    };
 
     const GIB: i64 = 1024 * 1024 * 1024;
 
@@ -1468,22 +1467,30 @@ mod go_build_limits_tests {
 
     #[test]
     fn splits_the_budget_across_the_build_tree() {
-        // 3GiB of budget over a driver plus 4 compilers, none under the floor.
+        // Fewer cores than the budget could feed: every core gets a compiler, and
+        // they share 3GiB with the driver.
         assert_eq!(
             resolve_go_build_limits(None, Some(4 * GIB), 4),
             limits(3 * GIB as usize / 5, 4)
         );
-        // More cores than the budget can feed buys fewer compilers, not smaller ones.
+        // More cores than it can feed at the target share: the extra cores idle
+        // rather than shrink every compiler.
         assert_eq!(
             resolve_go_build_limits(None, Some(4 * GIB), 64),
-            limits(MIN_GO_BUILD_MEMLIMIT, 7)
+            limits(GO_BUILD_TARGET_MEMLIMIT, 7)
+        );
+        // Too small to give even the minimum process count the target share: the
+        // build keeps overlapping and the share absorbs it.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(GIB), 64),
+            limits(3 * GIB as usize / 4 / 6, 5)
         );
         // Nothing to scale from leaves the toolchain unlimited, as it was before.
         assert_eq!(resolve_go_build_limits(None, None, 4), None);
-        // A worker too small for even one compiler still gets the floor.
+        // Under the floor the budget gives instead of the share.
         assert_eq!(
             resolve_go_build_limits(None, Some(GIB / 8), 4),
-            limits(MIN_GO_BUILD_MEMLIMIT, 1)
+            limits(MIN_GO_BUILD_MEMLIMIT, 4)
         );
         assert_eq!(
             resolve_go_build_limits(Some("2GiB"), Some(4 * GIB), 4),

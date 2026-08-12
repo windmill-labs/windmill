@@ -103,7 +103,38 @@ const GO_TOOLCHAIN_TUNING_ENVS: [&str; 3] = ["GOMEMLIMIT", "GOGC", "GOMAXPROCS"]
 /// the same names, as they do on the run step.
 fn go_toolchain_envs() -> Vec<(String, String)> {
     let worker_config = windmill_common::worker::WORKER_CONFIG.load();
-    merge_go_toolchain_envs(&worker_config.env_vars, *GO_BUILD_LIMITS)
+    let envs = merge_go_toolchain_envs(&worker_config.env_vars, *GO_BUILD_LIMITS);
+    log_go_toolchain_limits(&envs);
+    envs
+}
+
+/// A slow compilation is the symptom of a limit set too low, and nothing else would
+/// tell an operator that one is in force or what it resolved to. Reports what the
+/// toolchain is actually given, since a worker group can pin values of its own —
+/// on change rather than per job, because it can also do so at runtime.
+fn log_go_toolchain_limits(envs: &[(String, String)]) {
+    lazy_static::lazy_static! {
+        static ref LAST_LOGGED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    }
+
+    let limits = envs
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let Ok(mut last_logged) = LAST_LOGGED.lock() else {
+        return;
+    };
+    if last_logged.as_deref() == Some(limits.as_str()) {
+        return;
+    }
+    if limits.is_empty() {
+        tracing::info!("Go compilation is unlimited");
+    } else {
+        tracing::info!("Go compilation limited to {limits}");
+    }
+    *last_logged = Some(limits);
 }
 
 fn merge_go_toolchain_envs(
@@ -820,11 +851,7 @@ mod go_toolchain_envs_tests {
         // GOGC is orthogonal to the pair, so it rides along with it.
         assert_eq!(
             merged(&[("GOGC", "50")], DERIVED),
-            expect(&[
-                ("GOGC", "50"),
-                ("GOMEMLIMIT", "512"),
-                ("GOMAXPROCS", "3")
-            ])
+            expect(&[("GOGC", "50"), ("GOMEMLIMIT", "512"), ("GOMAXPROCS", "3")])
         );
         // Forwarded untouched: a trimmed value would compile under a spelling the
         // run step then rejects.
