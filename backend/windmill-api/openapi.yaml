@@ -10960,8 +10960,8 @@ paths:
           in: query
           description: >-
             case-insensitive fuzzy match on "summary (path)": the query is split into
-            terms on non-alphanumerics, and each of the first 8 must appear whole and
-            in order, with anything in between. Terms past the 8th are ignored, so an
+            terms on runs of anything but letters, digits and apostrophes, and each of
+            the first 8 must appear whole and in order, with anything in between. Terms past the 8th are ignored, so an
             over-long query matches more rows rather than fewer; a query holding no
             terms at all matches nothing.
           schema:
