@@ -46,7 +46,7 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::sql_s3_input::fetch_s3object_as_json_text;
 use crate::sql_utils::remove_comments;
-use crate::MAX_RESULT_SIZE;
+use crate::{max_sql_result_size, sql_result_too_large_error, to_raw_value_within};
 use bytes::Buf;
 use lazy_static::lazy_static;
 use windmill_common::client::AuthedClient;
@@ -579,47 +579,62 @@ fn do_postgresql_inner<'a>(
                 rows.boxed()
             };
 
-            let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
+            // Consumed row by row rather than collected into a `Vec<Row>` first:
+            // buffering the whole result before converting it holds the wire bytes
+            // and the converted form at once, and leaves the size cap below with
+            // nothing left to protect — the worker is already over budget by the
+            // time the first check runs.
+            futures::pin_mut!(rows);
+            let max_result_size = max_sql_result_size();
+            let mut envelope = raw_output
+                .then(|| crate::pg_raw_output::RawOutputEnvelopeBuilder::new(max_result_size));
+            let mut column_names: Option<Vec<String>> = None;
 
-            if let Some(column_order) = column_order {
-                *column_order = Some(
-                    rows.first()
-                        .map(|x| {
-                            x.columns()
-                                .iter()
-                                .map(|x| x.name().to_string())
-                                .collect::<Vec<String>>()
-                        })
-                        .unwrap_or_default(),
-                );
+            while let Some(row) = rows.try_next().await.map_err(to_anyhow)? {
+                if column_names.is_none() {
+                    column_names = Some(
+                        row.columns()
+                            .iter()
+                            .map(|x| x.name().to_string())
+                            .collect::<Vec<String>>(),
+                    );
+                }
+
+                if let Some(envelope) = envelope.as_mut() {
+                    envelope.push(row, &format_state, siz)?;
+                    continue;
+                }
+
+                let v = postgres_row_to_json_value_with_state(row, &format_state)?;
+                // Serialized under what is left of the budget, not after it: JSON
+                // escaping can expand a value that fit in memory into one that
+                // does not, and by then the allocation has already happened.
+                let raw = to_raw_value_within(
+                    &v,
+                    max_result_size.saturating_sub(siz.load(Ordering::Relaxed)),
+                )
+                .ok_or_else(|| sql_result_too_large_error(max_result_size))?;
+                siz.fetch_add(sizeof_val(&v).max(raw.get().len()), Ordering::Relaxed);
+                if siz.load(Ordering::Relaxed) > max_result_size {
+                    return Err(sql_result_too_large_error(max_result_size));
+                }
+                res.push(raw);
             }
 
-            if raw_output {
-                let envelope = crate::pg_raw_output::build_envelope(rows, &format_state, siz)?;
-                res.push(to_raw_value(&envelope));
-            } else {
-                for row in rows.into_iter() {
-                    let r = postgres_row_to_json_value_with_state(row, &format_state);
-                    if let Ok(v) = r.as_ref() {
-                        let size = sizeof_val(v);
-                        siz.fetch_add(size, Ordering::Relaxed);
-                    }
-                    if *CLOUD_HOSTED {
-                        let siz = siz.load(Ordering::Relaxed);
-                        if siz > MAX_RESULT_SIZE * 4 {
-                            return Err(Error::ExecutionErr(format!(
-                                "Query result too large for cloud (size = {} > {})",
-                                siz,
-                                MAX_RESULT_SIZE * 4,
-                            )));
-                        }
-                    }
-                    if let Ok(v) = r {
-                        res.push(to_raw_value(&v));
-                    } else {
-                        return Err(to_anyhow(r.err().unwrap()).into());
-                    }
-                }
+            if let Some(column_order) = column_order {
+                // A statement that returned no rows reports no columns.
+                *column_order = Some(column_names.unwrap_or_default());
+            }
+
+            if let Some(envelope) = envelope {
+                // Budgeted against the whole cap rather than what is left: the
+                // rows were already charged as text, and this envelope is that
+                // same text serialized, so charging it twice would reject a
+                // result that passed every row-level check.
+                res.push(
+                    to_raw_value_within(&envelope.finish(), max_result_size)
+                        .ok_or_else(|| sql_result_too_large_error(max_result_size))?,
+                );
             }
         }
 

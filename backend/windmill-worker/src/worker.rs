@@ -1270,11 +1270,9 @@ pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 // costs several times the JSON they serialize to — a separately allocated value
 // per row, then a contiguous buffer holding all of them — and the worker still
 // needs the rest of its budget for what it already has resident.
-#[cfg(feature = "duckdb")]
 const SQL_RESULT_SIZE_FRACTION: f64 = 0.15;
 // Under this a result cannot threaten a worker of any size, so capping it would
 // only reject work that would have succeeded.
-#[cfg(feature = "duckdb")]
 const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 
 /// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
@@ -1282,7 +1280,6 @@ const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 ///
 /// Fractions are accepted because `format_byte_size` emits them, and the limit it
 /// renders into an error is meant to be usable as a setting verbatim.
-#[cfg(feature = "duckdb")]
 fn parse_byte_size(v: &str) -> Option<usize> {
     let upper = v.trim().to_ascii_uppercase();
     // Longest-first: `GB` would otherwise swallow `GIB`, and `B` every other suffix.
@@ -1306,9 +1303,8 @@ fn parse_byte_size(v: &str) -> Option<usize> {
     (bytes <= usize::MAX as f64).then(|| bytes as usize)
 }
 
-#[cfg(feature = "duckdb")]
 lazy_static::lazy_static! {
-    /// Bytes one duckdb job may collect before the executor gives up — the budget
+    /// Bytes one SQL job may collect before its executor gives up — the budget
     /// spans every query block in the job, since what the worker cannot survive is
     /// the total it ends up holding. Nothing else bounds it at collection time:
     /// every row is accumulated before anything can stream the result out, so an
@@ -1322,11 +1318,9 @@ lazy_static::lazy_static! {
     /// with no cgroup reading to scale from both mean no cap.
     ///
     /// It bounds what is *collected*, not the process: the collected rows are
-    /// still live while `serde_json::to_string` builds a second whole copy, and
-    /// the worker parses that copy back for every strategy but
-    /// `AllStatementsAllRows`, so peak sits near twice the cap. The derived
-    /// default leaves room for that — it is a fraction of the worker's budget,
-    /// not the whole of it.
+    /// still live while a second whole copy is serialized out of them, so peak
+    /// sits near twice the cap. The derived default leaves room for that — it is
+    /// a fraction of the worker's budget, not the whole of it.
     pub(crate) static ref MAX_SQL_RESULT_SIZE: usize = {
         let explicit = std::env::var("MAX_SQL_RESULT_SIZE").ok().and_then(|v| {
             let parsed = parse_byte_size(&v);
@@ -1355,6 +1349,100 @@ lazy_static::lazy_static! {
                 .unwrap_or(usize::MAX),
         }
     };
+}
+
+/// What postgres collection is bounded by. The cloud cap is a product limit and
+/// stays exactly where it was; off-cloud there was no cap at all, and the only
+/// thing worth enforcing is the worker's own survival.
+///
+/// Duckdb deliberately does not come through here — its cap is a survival limit
+/// only, so it reads `MAX_SQL_RESULT_SIZE` directly and is not subject to the
+/// cloud product limit.
+///
+/// Postgres charges a row the larger of an in-memory estimate and its serialized
+/// length, both proxies for what collecting the result costs.
+pub fn max_sql_result_size() -> usize {
+    if *CLOUD_HOSTED {
+        MAX_RESULT_SIZE * 4
+    } else {
+        *MAX_SQL_RESULT_SIZE
+    }
+}
+
+/// Renders a byte count the way the limit is configured, so the number in the
+/// error can be pasted straight into `MAX_SQL_RESULT_SIZE` — `parse_byte_size`
+/// accepts everything this emits, fractions included.
+fn format_byte_size(bytes: usize) -> String {
+    match bytes {
+        b if b >= 1 << 30 => format!("{:.1}GB", b as f64 / (1u64 << 30) as f64),
+        b if b >= 1 << 20 => format!("{}MB", b >> 20),
+        b if b >= 1 << 10 => format!("{}KB", b >> 10),
+        b => format!("{b}B"),
+    }
+}
+
+/// Serializes `value` to JSON, refusing to allocate more than `budget` bytes.
+///
+/// A running total kept over values in memory does not see what serializing them
+/// costs: JSON escaping expands text on the way out — one control character
+/// becomes the six-byte escape `\u0001` — so a value that fit the budget unescaped
+/// can still allocate several times it while being written, long past the point
+/// where a check between rows could help. Bounding the writer is what keeps that
+/// expansion inside the budget rather than inside the cgroup.
+///
+/// `None` means the output did not fit. Serializing a `serde_json::Value` cannot
+/// fail for any other reason, which is what makes that reading unambiguous.
+pub(crate) fn to_raw_value_within<T: serde::Serialize>(
+    value: &T,
+    budget: usize,
+) -> Option<Box<serde_json::value::RawValue>> {
+    struct Budgeted {
+        buf: Vec<u8>,
+        left: usize,
+    }
+    impl std::io::Write for Budgeted {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.left {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "result over budget",
+                ));
+            }
+            self.left -= bytes.len();
+            self.buf.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut writer = Budgeted { buf: Vec::new(), left: budget };
+    serde_json::to_writer(&mut writer, value).ok()?;
+    String::from_utf8(writer.buf)
+        .ok()
+        .and_then(|s| serde_json::value::RawValue::from_string(s).ok())
+}
+
+/// Wording shared by the SQL executors that collect rows in the worker process.
+/// `MAX_SQL_RESULT_SIZE` is not settable on cloud, so only mention it off-cloud.
+///
+/// Only the limit is quoted: collection stops on the row that crosses it, so the
+/// running total is the threshold plus one row, not the size of the result.
+pub fn sql_result_too_large_error(limit: usize) -> Error {
+    // Each branch is a whole sentence: splicing a prefix in leaves the cloud
+    // message starting mid-sentence, since there is no prefix to splice there.
+    let remedy = if *CLOUD_HOSTED {
+        "Return fewer rows"
+    } else {
+        "Raise MAX_SQL_RESULT_SIZE, or return fewer rows"
+    };
+    Error::ExecutionErr(format!(
+        "Query result too large: collecting it passed the {} limit. {remedy} — \
+         aggregate, add a LIMIT, or write the rows out from the query instead of \
+         returning them.",
+        format_byte_size(limit),
+    ))
 }
 
 #[derive(Clone)]
@@ -4960,7 +5048,7 @@ pub async fn write_module_files(
     Ok(())
 }
 
-#[cfg(all(test, feature = "duckdb"))]
+#[cfg(test)]
 mod byte_size_tests {
     use super::*;
 
@@ -4988,6 +5076,38 @@ mod byte_size_tests {
             assert!(
                 parse_byte_size(rendered).is_some(),
                 "{rendered} is rendered into errors but does not parse back"
+            );
+        }
+    }
+
+    /// A value is charged by its size in memory, but serializing it is what
+    /// allocates, and escaping makes those two diverge by up to 6x. Budgeting on
+    /// the in-memory size alone let a 19MB cell allocate ~800MB under a 20MB cap.
+    #[test]
+    fn escaping_cannot_outgrow_the_budget() {
+        // One control character in, six bytes of `\u0001` out.
+        let value = serde_json::json!({ "a": "\u{1}".repeat(1000) });
+        let serialized_len = serde_json::to_string(&value).unwrap().len();
+        assert!(
+            serialized_len > 6000,
+            "expected escaping to expand: {serialized_len}"
+        );
+
+        // A budget that the unescaped bytes would clear, and the escaped ones cannot.
+        assert!(to_raw_value_within(&value, 2000).is_none());
+        assert!(to_raw_value_within(&value, serialized_len).is_some());
+    }
+
+    /// The error quotes the limit so it can be set verbatim. That only holds
+    /// while the parser accepts the whole range the formatter emits — the GB
+    /// branch renders a fraction, which an integer-only parser silently rejects.
+    #[test]
+    fn every_rendered_limit_parses_back() {
+        for bytes in [512, 8 << 20, 307 << 20, 2 << 30, 2_576_980_377, 16 << 30] {
+            let rendered = format_byte_size(bytes);
+            assert!(
+                parse_byte_size(&rendered).is_some(),
+                "format_byte_size({bytes}) = {rendered:?}, which does not parse back"
             );
         }
     }
