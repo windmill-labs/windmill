@@ -56,15 +56,13 @@ fn text_row_size(text_row: &[Option<String>]) -> usize {
             .sum::<usize>()
 }
 
-/// Builds a `RawOutputEnvelope` one row at a time. Reuses the existing JSON-cell
-/// formatter (numeric precision warning, interval/timetz coercion, JSON columns…)
-/// and only post-processes its output into the text form Postgres's wire protocol
-/// expects.
+/// Builds a `RawOutputEnvelope` one row at a time, charging each against the
+/// caller's running total as it goes. Reuses the existing JSON-cell formatter
+/// (numeric precision warning, interval/timetz coercion, JSON columns…) and only
+/// post-processes its output into the text form Postgres's wire protocol expects.
 ///
-/// Row-at-a-time rather than over a `Vec<Row>` so the caller never has to hold
-/// the whole result twice: each row's wire buffer is dropped as soon as its text
-/// form is appended, and the size cap is checked on the way in — a cap applied
-/// after the rows were already buffered would fire too late to save the worker.
+/// Taking rows one at a time is what lets the caller drop each wire buffer as its
+/// text form is appended, so the whole result is never resident twice.
 pub struct RawOutputEnvelopeBuilder {
     columns: Vec<RawOutputColumn>,
     seen_first_row: bool,

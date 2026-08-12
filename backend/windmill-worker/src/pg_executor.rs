@@ -579,11 +579,10 @@ fn do_postgresql_inner<'a>(
                 rows.boxed()
             };
 
-            // Consumed row by row rather than collected into a `Vec<Row>` first:
-            // buffering the whole result before converting it holds the wire bytes
-            // and the converted form at once, and leaves the size cap below with
-            // nothing left to protect — the worker is already over budget by the
-            // time the first check runs.
+            // The stream is consumed one row at a time so the cap below can still
+            // refuse. Collecting it into a `Vec<Row>` first holds every wire buffer
+            // and every converted row at once, and the worker is already past the
+            // budget by the time the first check gets to run.
             futures::pin_mut!(rows);
             let max_result_size = max_sql_result_size();
             let mut envelope = raw_output
@@ -606,14 +605,17 @@ fn do_postgresql_inner<'a>(
                 }
 
                 let v = postgres_row_to_json_value_with_state(row, &format_state)?;
-                // Serialized under what is left of the budget, not after it: JSON
-                // escaping can expand a value that fit in memory into one that
-                // does not, and by then the allocation has already happened.
+                // Serialized under what is left of the budget: escaping can expand
+                // a row that fit in memory past what remains, and a check placed
+                // after the write happens once the allocation already did.
                 let raw = to_raw_value_within(
                     &v,
                     max_result_size.saturating_sub(siz.load(Ordering::Relaxed)),
                 )
                 .ok_or_else(|| sql_result_too_large_error(max_result_size))?;
+                // Both are proxies for what the row costs the worker, and neither
+                // dominates: the value tree is wider than its JSON for small
+                // scalars, narrower once escaping expands the text.
                 siz.fetch_add(sizeof_val(&v).max(raw.get().len()), Ordering::Relaxed);
                 if siz.load(Ordering::Relaxed) > max_result_size {
                     return Err(sql_result_too_large_error(max_result_size));
@@ -627,10 +629,10 @@ fn do_postgresql_inner<'a>(
             }
 
             if let Some(envelope) = envelope {
-                // Budgeted against the whole cap rather than what is left: the
-                // rows were already charged as text, and this envelope is that
-                // same text serialized, so charging it twice would reject a
-                // result that passed every row-level check.
+                // The envelope is budgeted against the whole cap: its rows were
+                // already charged as text on the way in, and this is that same
+                // text serialized, so charging it against the remainder would
+                // reject a result that passed every row-level check.
                 res.push(
                     to_raw_value_within(&envelope.finish(), max_result_size)
                         .ok_or_else(|| sql_result_too_large_error(max_result_size))?,

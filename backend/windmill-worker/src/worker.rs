@@ -1351,17 +1351,14 @@ lazy_static::lazy_static! {
     };
 }
 
-/// What postgres collection is bounded by. The cloud cap is a product limit and
-/// stays exactly where it was; off-cloud there was no cap at all, and the only
-/// thing worth enforcing is the worker's own survival.
+/// The limit postgres collection is bounded by: the cloud product cap where one
+/// applies, and otherwise the worker-survival cap, which is the only thing worth
+/// enforcing on a deployment that has no product limit to answer to.
 ///
 /// Duckdb deliberately does not come through here — its cap is a survival limit
-/// only, so it reads `MAX_SQL_RESULT_SIZE` directly and is not subject to the
+/// only, so it reads `MAX_SQL_RESULT_SIZE` directly and is never narrowed to the
 /// cloud product limit.
-///
-/// Postgres charges a row the larger of an in-memory estimate and its serialized
-/// length, both proxies for what collecting the result costs.
-pub fn max_sql_result_size() -> usize {
+pub(crate) fn max_sql_result_size() -> usize {
     if *CLOUD_HOSTED {
         MAX_RESULT_SIZE * 4
     } else {
@@ -1369,16 +1366,20 @@ pub fn max_sql_result_size() -> usize {
     }
 }
 
-/// Renders a byte count the way the limit is configured, so the number in the
-/// error can be pasted straight into `MAX_SQL_RESULT_SIZE` — `parse_byte_size`
-/// accepts everything this emits, fractions included.
+/// Renders a byte count so the figure in the error names the limit exactly and
+/// can be set as `MAX_SQL_RESULT_SIZE` verbatim.
+///
+/// A unit is only used when it divides the count evenly. Rounding to the nearest
+/// MB reads better but names a threshold nobody configured — a 1.5MB limit shown
+/// as `1MB` both misreports it and lowers it if pasted back — and the
+/// memory-derived default is rarely a whole number of MB, which is exactly the
+/// case an operator is most likely to copy.
 fn format_byte_size(bytes: usize) -> String {
-    match bytes {
-        b if b >= 1 << 30 => format!("{:.1}GB", b as f64 / (1u64 << 30) as f64),
-        b if b >= 1 << 20 => format!("{}MB", b >> 20),
-        b if b >= 1 << 10 => format!("{}KB", b >> 10),
-        b => format!("{b}B"),
-    }
+    [("GB", 1usize << 30), ("MB", 1 << 20), ("KB", 1 << 10)]
+        .into_iter()
+        .find(|(_, unit)| bytes >= *unit && bytes % unit == 0)
+        .map(|(suffix, unit)| format!("{}{suffix}", bytes / unit))
+        .unwrap_or_else(|| format!("{bytes}B"))
 }
 
 /// Serializes `value` to JSON, refusing to allocate more than `budget` bytes.
@@ -1429,7 +1430,7 @@ pub(crate) fn to_raw_value_within<T: serde::Serialize>(
 ///
 /// Only the limit is quoted: collection stops on the row that crosses it, so the
 /// running total is the threshold plus one row, not the size of the result.
-pub fn sql_result_too_large_error(limit: usize) -> Error {
+pub(crate) fn sql_result_too_large_error(limit: usize) -> Error {
     // Each branch is a whole sentence: splicing a prefix in leaves the cloud
     // message starting mid-sentence, since there is no prefix to splice there.
     let remedy = if *CLOUD_HOSTED {
@@ -1887,7 +1888,10 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
+        trigger_kind: arc_job
+            .trigger_kind
+            .as_ref()
+            .map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),
@@ -5080,9 +5084,9 @@ mod byte_size_tests {
         }
     }
 
-    /// A value is charged by its size in memory, but serializing it is what
-    /// allocates, and escaping makes those two diverge by up to 6x. Budgeting on
-    /// the in-memory size alone let a 19MB cell allocate ~800MB under a 20MB cap.
+    /// Pins the property the budgeted writer exists for: a value is charged by
+    /// its size in memory, and escaping makes the serialized form diverge from
+    /// that by up to 6x.
     #[test]
     fn escaping_cannot_outgrow_the_budget() {
         // One control character in, six bytes of `\u0001` out.
@@ -5098,16 +5102,18 @@ mod byte_size_tests {
         assert!(to_raw_value_within(&value, serialized_len).is_some());
     }
 
-    /// The error quotes the limit so it can be set verbatim. That only holds
-    /// while the parser accepts the whole range the formatter emits — the GB
-    /// branch renders a fraction, which an integer-only parser silently rejects.
+    /// The error quotes the limit so it can be set verbatim, which only holds if
+    /// the rendered figure means the same number of bytes. Rounding to a unit
+    /// that does not divide it evenly parses fine and still names a different
+    /// limit, so parseability alone is not the property worth pinning.
     #[test]
-    fn every_rendered_limit_parses_back() {
+    fn every_rendered_limit_round_trips_exactly() {
         for bytes in [512, 8 << 20, 307 << 20, 2 << 30, 2_576_980_377, 16 << 30] {
             let rendered = format_byte_size(bytes);
-            assert!(
-                parse_byte_size(&rendered).is_some(),
-                "format_byte_size({bytes}) = {rendered:?}, which does not parse back"
+            assert_eq!(
+                parse_byte_size(&rendered),
+                Some(bytes),
+                "format_byte_size({bytes}) = {rendered:?}, which names a different limit"
             );
         }
     }
