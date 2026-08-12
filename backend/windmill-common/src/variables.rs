@@ -23,6 +23,105 @@ lazy_static::lazy_static! {
     static ref RESERVED_WM_VAR_NAME: regex::Regex = regex::Regex::new(r"^WM_[A-Z_]+$").unwrap();
 }
 
+/// Escape a string so it can be safely embedded inside a single-quoted JS
+/// string literal in a generated NativeTS/Bun prologue.
+pub fn escape_js_single_quoted(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+/// True when `name` is a plain ASCII JS identifier and can therefore sit in a
+/// single-quoted string literal or identifier context of a generated prologue
+/// without smuggling statement terminators, quotes, or comments. Custom
+/// workspace env-var names are attacker-controllable (any workspace admin sets
+/// them), so a non-identifier name must never reach an identifier position in
+/// generated JS.
+pub fn is_valid_js_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c == '_' || c == '$' || c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c == '_' || c == '$' || c.is_ascii_alphanumeric())
+}
+
+/// Names that cannot be used as a binding — `const {word} = ...` is a
+/// SyntaxError. The generated prologue runs as an ES module (always strict), so
+/// this includes the strict-mode reserved words and the two names that strict
+/// mode additionally forbids as bindings: `eval` and `arguments`.
+fn is_js_reserved_word(name: &str) -> bool {
+    matches!(
+        name,
+        "arguments"
+            | "eval"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "debugger"
+            | "default"
+            | "delete"
+            | "do"
+            | "else"
+            | "enum"
+            | "export"
+            | "extends"
+            | "false"
+            | "finally"
+            | "for"
+            | "function"
+            | "if"
+            | "import"
+            | "in"
+            | "instanceof"
+            | "new"
+            | "null"
+            | "return"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "true"
+            | "try"
+            | "typeof"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+            | "yield"
+            | "let"
+            | "static"
+            | "await"
+            | "implements"
+            | "interface"
+            | "package"
+            | "private"
+            | "protected"
+            | "public"
+    )
+}
+
+/// Identifiers the generated prologue already binds; a second `const {name}`
+/// for them would be a redeclaration SyntaxError. Keep in sync with the prologue
+/// head emitted in worker.rs and bun_executor.rs (`build_nativets_env_code`).
+const PROLOGUE_RESERVED_BINDINGS: &[&str] = &["process", "BASE_URL", "BASE_INTERNAL_URL"];
+
+/// True when `name` can be emitted as a `const {name}` binding in the NativeTS/
+/// Bun prologue: a valid identifier that is neither a JS reserved word nor a
+/// name the prologue already binds. Names failing this are still exposed via
+/// `process.env['{name}']` (with the name escaped), so nothing is lost — a
+/// `const` for such a name would only ever be a SyntaxError that breaks every
+/// NativeTS run in the workspace.
+pub fn can_bind_as_prologue_const(name: &str) -> bool {
+    is_valid_js_identifier(name)
+        && !is_js_reserved_word(name)
+        && !PROLOGUE_RESERVED_BINDINGS.contains(&name)
+}
+
 #[derive(Serialize, Clone)]
 
 pub struct ContextualVariable {
@@ -627,5 +726,76 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
             "Variable not found when resolving `$var:{}`",
             var_path
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{can_bind_as_prologue_const, escape_js_single_quoted, is_valid_js_identifier};
+
+    #[test]
+    fn is_valid_js_identifier_gates_prologue_injection() {
+        for ok in ["FOO", "_bar", "$x", "a1_2", "WM_CUSTOM"] {
+            assert!(
+                is_valid_js_identifier(ok),
+                "{ok} should be a valid identifier"
+            );
+        }
+        // Custom workspace env-var names are attacker-controllable; none of these
+        // may reach `const {name}` position in the NativeTS/Bun prologue.
+        for bad in [
+            "",
+            "1BAD",
+            "has space",
+            "dotted.name",
+            "kebab-case",
+            "_x=1;globalThis.PWNED=1//",
+            "x'];globalThis.PWNED=1;process.env['y",
+        ] {
+            assert!(
+                !is_valid_js_identifier(bad),
+                "{bad:?} must not be a valid identifier"
+            );
+        }
+    }
+
+    #[test]
+    fn can_bind_as_prologue_const_excludes_reserved_and_owned_names() {
+        // `async` is a contextual keyword, not reserved — `const async` is valid.
+        for ok in ["FOO", "_bar", "$x", "myVar", "async"] {
+            assert!(can_bind_as_prologue_const(ok), "{ok} should be bindable");
+        }
+        // Valid identifiers that would still break `const {name}`: reserved words
+        // (SyntaxError), the two names strict mode forbids as bindings (`eval`,
+        // `arguments`), and names the prologue already binds (redeclaration).
+        for bad in [
+            "class",
+            "const",
+            "await",
+            "return",
+            "eval",
+            "arguments",
+            "process",
+            "BASE_URL",
+            "BASE_INTERNAL_URL",
+        ] {
+            assert!(is_valid_js_identifier(bad), "{bad} is a valid identifier");
+            assert!(
+                !can_bind_as_prologue_const(bad),
+                "{bad} must not bind as a prologue const"
+            );
+        }
+    }
+
+    #[test]
+    fn escape_js_single_quoted_neutralizes_string_breakout() {
+        assert_eq!(escape_js_single_quoted("a'b"), "a\\'b");
+        assert_eq!(escape_js_single_quoted("a\\b"), "a\\\\b");
+        assert_eq!(escape_js_single_quoted("a\nb\rc"), "a\\nb\\rc");
+        // A key crafted to break out of process.env['...'] is fully contained.
+        assert_eq!(
+            escape_js_single_quoted("x'];danger();['y"),
+            "x\\'];danger();[\\'y"
+        );
     }
 }

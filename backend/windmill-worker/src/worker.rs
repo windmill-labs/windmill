@@ -5532,8 +5532,17 @@ pub async fn run_language_executor(
             reserved_variables
                 .iter()
                 .map(|(k, v)| {
-                    let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
-                    format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, escaped, k, escaped)
+                    let escaped = windmill_common::variables::escape_js_single_quoted(v);
+                    let key_literal = windmill_common::variables::escape_js_single_quoted(k);
+                    if windmill_common::variables::can_bind_as_prologue_const(k) {
+                        format!("const {k} = '{escaped}';\nprocess.env['{key_literal}'] = '{escaped}';\n")
+                    } else {
+                        // Names that can't safely bind to `const {k}` (non-identifiers,
+                        // reserved words, prologue-owned names) are exposed only through
+                        // process.env with the key escaped — a `const` for them would be
+                        // an injection or a SyntaxError.
+                        format!("process.env['{key_literal}'] = '{escaped}';\n")
+                    }
                 })
                 .collect::<Vec<String>>()
                 .join("\n"));
