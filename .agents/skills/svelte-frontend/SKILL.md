@@ -127,4 +127,4 @@ Use the Svelte MCP tools when working on Svelte code:
 
 ## Verifying in the Browser
 
-After changing Svelte code, use the **Playwright MCP** (`mcp__playwright__*`) to drive the running frontend and confirm the change works. See frontend/CLAUDE.md → "Verifying Frontend Changes" for the full flow. Use `playwright` (headless) on devboxes; `playwright-headed` when a display is available.
+After changing Svelte code, use the **Playwright MCP** (`mcp__playwright__*`) to drive the running frontend and confirm the change works. See frontend/AGENTS.md → "Verifying Frontend Changes" for the full flow. Use `playwright` (headless) on devboxes; `playwright-headed` when a display is available.

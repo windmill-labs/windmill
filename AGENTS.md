@@ -15,7 +15,7 @@ Open-source platform for internal tools, workflows, API integrations, background
    change touches, get that path actually running, and stand up whatever that takes — this is
    expected, not a last resort. A few examples, not a closed list: drive the UI with the Playwright
    MCP, run a real job of the kind you touched, restart the backend with the cargo features the
-   path needs (`backend/CLAUDE.md`), put a stub in front of an upstream, start MinIO for an S3
+   path needs (`backend/AGENTS.md`), put a stub in front of an upstream, start MinIO for an S3
    path, plant state with SQL, exercise it through the `wmill` CLI. If the path you need has no
    obvious way in, invent one rather than skipping it; `docs/` carries recipes for several areas.
    If it needs a credential or a third-party account, ask for one rather than skipping the test or
@@ -54,7 +54,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 (`$WEBMUX_WORKTREE_PATH` is set) the backend and frontend are already up in sibling tmux panes —
 use those, don't spawn your own. `tmux list-panes -t "$(tmux display-message -p -t "$TMUX_PANE"
 '#{window_id}')" -F '#{pane_index} #{pane_current_command}'` shows what is running; read its log
-with `tmux capture-pane`, and see `backend/CLAUDE.md` to restart it with different cargo features.
+with `tmux capture-pane`, and see `backend/AGENTS.md` to restart it with different cargo features.
 A second server started in your own shell fights the first one for the port. The commands below
 are for a plain checkout with nothing running.
 

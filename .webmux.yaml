@@ -146,12 +146,12 @@ oneshot:
     — note the choice in the PR description if it matters.
 
     # PR readiness
-    Always open the PR as a draft, then take it to ready before you stop.
-    Follow the `pr` skill's "Review rounds": run the review round, fix every
-    finding, repeat until all reviewer verdicts are a go, then post the
-    `✅ Review round clean @ <sha>` marker and `gh pr ready`. Never flip to
-    ready without a clean round behind it, and never leave the PR sitting in
-    draft — an unreviewed draft is an unfinished oneshot.
+    Always open the PR as a draft, then drive the `pr` skill's "Review rounds"
+    until every reviewer verdict is a go. Never flip to ready without a clean
+    round behind it, and never stop at an *unreviewed* draft — that is an
+    unfinished oneshot. Whether a clean round then flips the PR is the skill's
+    "Flip, or ask first" call, not this prompt's: self-contained changes flip,
+    wide-blast-radius ones stay a clean draft with the reason in the PR body.
 
     # Ending your turn
     Never end your turn with a question, a suggestion to "take a look", or a

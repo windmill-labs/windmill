@@ -62,7 +62,7 @@ If `git diff main...HEAD --name-only` matches `^frontend/`, the PR body **must**
 screenshots of the affected UI. Skip only when there is no visible UI effect (types,
 tests, build config) — and say so in the body.
 
-1. Verify the change in the browser (frontend/CLAUDE.md → "Verifying Frontend Changes").
+1. Verify the change in the browser (frontend/AGENTS.md → "Verifying Frontend Changes").
 2. Screenshot each affected page with `mcp__playwright__browser_take_screenshot` (save to a file).
 3. Host each image and get its Markdown embed by pushing to the public
    `windmill-labs/agent-screenshots-internal` repo. **Pipe base64 through stdin** —
@@ -216,8 +216,9 @@ description saying why — `left in draft: adds a migration, wants a human look 
 Don't flip a wide-blast-radius change just because the round came back clean, and don't ask a
 question nobody will read.
 
-When the call is genuinely ambiguous, ask, then record the answer under "PR ready calibration" in
-`AGENTS.local.md` so the next one is less ambiguous.
+`AGENTS.local.md` (gitignored, so it may not exist) carries a "PR ready calibration" section
+recording how past ambiguous calls went. Read it before deciding; when a call is still genuinely
+ambiguous, ask, then append the answer there so the next one is less ambiguous.
 
 ### When rounds stop converging
 

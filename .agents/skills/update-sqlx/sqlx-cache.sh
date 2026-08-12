@@ -21,8 +21,16 @@ state="${TMPDIR:-/tmp}/wm-sqlx-cache/$(basename "$repo_root")"
 backup="$state/backup"
 added="$state/added"
 
-# `find -printf` is GNU-only; this stays portable to a macOS checkout.
-list_entries() { (cd "$1" 2>/dev/null && ls -1 ./*.json 2>/dev/null | sed 's|^\./||') | sort; }
+# `find -printf` is GNU-only; a glob loop stays portable to a macOS checkout and, unlike
+# `ls *.json`, does not fail the script under `set -e` when the cache is empty — which is
+# exactly the state a failed `prepare` leaves behind.
+list_entries() {
+  local f
+  for f in "$1"/*.json; do
+    [ -e "$f" ] || continue
+    basename "$f"
+  done | sort
+}
 
 show_query() {
   if command -v jq >/dev/null 2>&1; then

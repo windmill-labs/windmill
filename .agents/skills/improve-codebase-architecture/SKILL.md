@@ -53,7 +53,7 @@ End the report with a **Top recommendation** section: which candidate you'd tack
 
 **Use CONTEXT.md vocabulary for the domain, and the `/codebase-design` vocabulary for the architecture.** If `CONTEXT.md` defines "Order," talk about "the Order intake module" — not "the FooBarHandler," and not "the Order service."
 
-See [HTML-REPORT.md](.agents/skills/improve-codebase-architecture/HTML-REPORT.md) for the full HTML scaffold, diagram patterns, and styling guidance.
+See `.agents/skills/improve-codebase-architecture/HTML-REPORT.md` (path from the repo root) for the full HTML scaffold, diagram patterns, and styling guidance.
 
 Do NOT propose interfaces yet. After the file is written, ask the user: "Which of these would you like to explore?"
 
