@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
 	import { oauthStore } from '$lib/stores'
-	import { hasParkedWizard } from '$lib/components/workspaceSettings/AddDataTableWizard.svelte'
+	import { hasParkedWizard } from '$lib/components/workspaceSettings/wizardParking'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -16,8 +16,21 @@
 	let code = page.url.searchParams.get('code') ?? undefined
 	let state = page.url.searchParams.get('state') ?? undefined
 
+	/**
+	 * As the wizard's popup there is no page to land on: the tab behind us is still showing the
+	 * flow and is watching for this window to go away. Leaving it open on a full Windmill page
+	 * is what strands the caller's button spinning, and declining consent is a normal outcome,
+	 * not an edge case.
+	 */
+	function closeIfPopup(): boolean {
+		if (!window.opener) return false
+		window.close()
+		return true
+	}
+
 	onMount(async () => {
 		if (error) {
+			if (closeIfPopup()) return
 			sendUserToast(`Error trying to fetch projects from windmill: ${error}`, true)
 			goto('/resources')
 		} else if (code && state) {
@@ -34,17 +47,23 @@
 					return
 				}
 				$oauthStore = res
-				// The data table wizard parks its state before redirecting; send the user back to
-				// where they started rather than always to /resources.
-				const returnTo = hasParkedWizard()
-					? '/workspace_settings?tab=windmill_data_tables'
-					: '/resources'
-				goto(`${returnTo}${returnTo.includes('?') ? '&' : '?'}callback=${client_name}`)
+				// The data table wizard parks its state before redirecting, so it can be resumed
+				// where it left off. Anything else that started this leg was unmounted by the
+				// redirect and has nothing to return to -- say so, since the token is now held
+				// and reopening the form is all that is left to do.
+				if (hasParkedWizard()) {
+					goto(`/workspace_settings?tab=windmill_data_tables&callback=${client_name}`)
+				} else {
+					sendUserToast('Connected to Supabase. Reopen the resource to finish setting it up.')
+					goto('/resources')
+				}
 			} catch (e) {
+				if (closeIfPopup()) return
 				sendUserToast(`Error parsing the response token, ${e.body}`, true)
 				goto('/resources')
 			}
 		} else {
+			if (closeIfPopup()) return
 			sendUserToast('Missing code or state as query params', true)
 			goto('/resources')
 		}

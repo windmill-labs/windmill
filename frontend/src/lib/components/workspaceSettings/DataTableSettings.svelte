@@ -12,8 +12,6 @@
 				resource_type: 'postgresql' | 'instance'
 				resource_path?: string | undefined
 			}
-			/** Recorded by the setup wizard; absent on anything configured before it. */
-			origin?: DataTableOrigin | undefined
 		}[]
 	}
 
@@ -68,12 +66,16 @@
 	import Row from '../table/Row.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
+	import {
+		isCustomInstanceDbEnabled,
+		getUnusedInstanceDbName,
+		isDataTableWizardEnabled
+	} from './utils.svelte'
+	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		SettingService,
 		WorkspaceService,
-		type DataTableOrigin,
 		type GetSettingsResponse,
 		type TestDataTableConnectionResponse
 	} from '$lib/gen'
@@ -91,10 +93,8 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import AddDataTableWizard, {
-		takeParkedWizard,
-		type WizardResume
-	} from './AddDataTableWizard.svelte'
+	import AddDataTableWizard from './AddDataTableWizard.svelte'
+	import { takeParkedWizard, type WizardResume } from './wizardParking'
 	import { Database } from 'lucide-svelte'
 	import { onMount } from 'svelte'
 
@@ -164,6 +164,22 @@
 		return getUnusedInstanceDbName('dt', $workspaceStore ?? '', usedNames)
 	}
 
+	// Kept for the flag-off path: adding a data table is a row in this table that the user
+	// fills in and saves, rather than a wizard.
+	function onNewDataTable() {
+		const name = tempSettings.dataTables.some((d) => d.name === 'main')
+			? `${random_adj()}_datatable`
+			: 'main'
+		tempSettings.dataTables.push({
+			id: randomUUID(),
+			name,
+			database: {
+				resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
+				resource_path: $isCustomInstanceDbEnabled ? defaultInstanceDbName() : undefined
+			}
+		})
+	}
+
 	async function onSave() {
 		try {
 			if (
@@ -205,12 +221,14 @@
 		}
 	}
 
+	const wizardEnabled = isDataTableWizardEnabled()
 	let wizardOpen = $state(false)
 	let wizardResume: WizardResume | undefined = $state(undefined)
 
 	// Supabase sends the user back here after authorizing; pick the wizard back up where it
 	// was rather than making them start again.
 	onMount(() => {
+		if (!wizardEnabled) return
 		const parked = takeParkedWizard()
 		if (parked) {
 			wizardResume = parked
@@ -218,6 +236,12 @@
 		}
 	})
 
+	/**
+	 * The wizard persists what it creates, so the server is authoritative afterwards and the
+	 * whole baseline comes from it. `tempSettings` derives from that baseline, so this discards
+	 * uncommitted edits in the table -- which is why the wizard cannot be opened while there
+	 * are any (see the disabled entry points below).
+	 */
 	async function reloadAfterWizard() {
 		const s = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		dataTableSettings = convertDataTableSettingsFromBackend(s.datatable)
@@ -286,25 +310,37 @@
 	<tbody class="divide-y bg-surface-tertiary">
 		{#if tempSettings.dataTables.length == 0}
 			<Row>
-				<Cell colspan={tableHeadNames.length} class="py-8">
-					<div class="flex flex-col items-center gap-3 text-center">
-						<Database size={24} class="text-secondary" />
-						<div class="flex flex-col gap-1 items-center">
-							<span class="font-semibold text-sm">No data table yet</span>
-							<p class="text-xs text-secondary max-w-sm">
-								Give your scripts a database to store and query data.
-								{#if isCloudHosted()}
-									Set one up free in about a minute.
-								{:else}
-									Use the Windmill database, or bring your own.
-								{/if}
-							</p>
+				{#if wizardEnabled}
+					<Cell colspan={tableHeadNames.length} class="py-8">
+						<div class="flex flex-col items-center gap-3 text-center">
+							<Database size={24} class="text-secondary" />
+							<div class="flex flex-col gap-1 items-center">
+								<span class="font-semibold text-sm">No data table yet</span>
+								<p class="text-xs text-secondary max-w-sm">
+									Give your scripts a database to store and query data.
+									{#if isCloudHosted()}
+										Set one up free in about a minute.
+									{:else}
+										Use the Windmill database, or bring your own.
+									{/if}
+								</p>
+							</div>
+							<Button
+								size="sm"
+								variant="accent"
+								disabled={hasUnsavedChanges}
+								title={hasUnsavedChanges ? 'Save or discard your changes first' : undefined}
+								on:click={() => (wizardOpen = true)}
+							>
+								Add a data table
+							</Button>
 						</div>
-						<Button size="sm" variant="accent" on:click={() => (wizardOpen = true)}>
-							Add a data table
-						</Button>
-					</div>
-				</Cell>
+					</Cell>
+				{:else}
+					<Cell colspan={tableHeadNames.length} class="text-center py-6">
+						No data table in this workspace yet
+					</Cell>
+				{/if}
 			</Row>
 		{/if}
 		{#each tempSettings.dataTables as dataTable, dataTableIndex (dataTable.id)}
@@ -412,7 +448,7 @@
 				</Cell>
 			</Row>
 		{/each}
-		{#if tempSettings.dataTables.length > 0}
+		{#if !wizardEnabled || tempSettings.dataTables.length > 0}
 			<Row class="!border-0">
 				<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
 					<div class="flex justify-center">
@@ -420,9 +456,14 @@
 							size="sm"
 							btnClasses="max-w-fit"
 							variant="default"
-							on:click={() => (wizardOpen = true)}
+							disabled={wizardEnabled && hasUnsavedChanges}
+							title={wizardEnabled && hasUnsavedChanges
+								? 'Save or discard your changes first'
+								: undefined}
+							on:click={() => (wizardEnabled ? (wizardOpen = true) : onNewDataTable())}
 						>
-							<Plus /> Add a data table
+							<Plus />
+							{wizardEnabled ? 'Add a data table' : 'New Data Table'}
 						</Button>
 					</div>
 				</Cell>
@@ -504,25 +545,26 @@
 
 <ConfirmationModal {...confirmationModal.props} />
 
-<AddDataTableWizard
-	bind:opened={
-		() => wizardOpen,
-		(v) => {
-			wizardOpen = v
-			// Drop the parked run once the wizard closes: leaving it set would force the next
-			// open straight back to the Supabase setup step.
-			if (!v) wizardResume = undefined
+{#if wizardEnabled}
+	<AddDataTableWizard
+		bind:opened={
+			() => wizardOpen,
+			(v) => {
+				wizardOpen = v
+				// Drop the parked run once the wizard closes: leaving it set would force the next
+				// open straight back to the Supabase setup step.
+				if (!v) wizardResume = undefined
+			}
 		}
-	}
-	existingNames={tempSettings.dataTables.map((d) => d.name)}
-	existingDataTables={tempSettings.dataTables.map((d) => ({
-		name: d.name,
-		resourcePath: d.database.resource_path,
-		projectRef: d.origin?.project_ref
-	}))}
-	resume={wizardResume}
-	onDone={reloadAfterWizard}
-	{customInstanceDbs}
-	{confirmationModal}
-	{defaultInstanceDbName}
-/>
+		existingNames={tempSettings.dataTables.map((d) => d.name)}
+		existingDataTables={tempSettings.dataTables.map((d) => ({
+			name: d.name,
+			resourcePath: d.database.resource_path
+		}))}
+		resume={wizardResume}
+		onDone={reloadAfterWizard}
+		{customInstanceDbs}
+		{confirmationModal}
+		{defaultInstanceDbName}
+	/>
+{/if}

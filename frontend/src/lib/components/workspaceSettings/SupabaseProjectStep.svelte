@@ -1,11 +1,9 @@
 <script lang="ts">
 	import Alert from '../common/alert/Alert.svelte'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Password from '../Password.svelte'
 	import Select from '../select/Select.svelte'
-	import { Database, Loader2 } from 'lucide-svelte'
+	import { Database, Loader2, Plus } from 'lucide-svelte'
 	import { tick } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import SupabaseConnectionMode from './SupabaseConnectionMode.svelte'
@@ -56,10 +54,15 @@
 			if (orgs?.length && !intent.org) intent.org = orgSlug(orgs[0])
 			projects = await listSupabaseProjects(t)
 			// Someone who already has a Supabase database almost always means to connect it
-			// rather than make a second one. Decided before anything renders, so the toggle
-			// never visibly flips under the user.
-			if (projects?.length) intent.mode = 'existing'
-			else if (existingOnly) intent.mode = 'existing'
+			// rather than make a second one, so the step opens on the first of them. Decided
+			// before anything renders, so no card visibly selects itself under the user.
+			// Only seeds a choice that has not been made: this step is unmounted whenever the
+			// wizard moves off it, so a user who picked "New project" and pressed Back would
+			// otherwise come back to the first existing project instead.
+			if (!intent.project && intent.mode !== 'create') {
+				if (projects?.length) intent.project = projects[0]
+				else if (!existingOnly) intent.mode = 'create'
+			}
 			// The plan decides who gets billed, and the list endpoint does not carry it.
 			for (const o of orgs ?? []) {
 				getSupabaseOrgPlan(t, orgSlug(o)).then((p) => {
@@ -80,11 +83,13 @@
 		return p.status === 'INACTIVE' ? 'paused' : p.status.toLowerCase().replace(/_/g, ' ')
 	}
 
-	// Each tab owns what it produced. A project picked on one tab, and whatever the host
-	// derived from it, must not survive into the other.
-	function setMode(v: 'create' | 'existing') {
-		if (v === intent.mode) return
-		intent.mode = v
+	// Exclusive with the project cards, and each owns what it produced: a picked project, and
+	// whatever the host derived from it, must not survive into the project about to exist.
+	function selectNewProject() {
+		if (intent.mode === 'create') return
+		intent.mode = 'create'
+		intent.project = undefined
+		intent.password = ''
 		onIntentChange?.()
 	}
 
@@ -99,6 +104,7 @@
 	// card in a long list also grows it past the fold, hence the scroll once it has resized.
 	async function selectProject(p: SupabaseProject, card: HTMLElement | null) {
 		if (!isSelected(intent.project, p)) intent.password = ''
+		intent.mode = 'existing'
 		intent.project = p
 		onIntentChange?.()
 		await tick()
@@ -133,17 +139,104 @@
 		<Loader2 size={16} class="animate-spin" />
 		Loading your Supabase projects...
 	</div>
+{:else if (projects ?? []).length === 0 && existingOnly}
+	<Alert type="info" size="xs" bgClass="border-0" title="">
+		This Supabase account has no projects yet.
+	</Alert>
 {:else}
-	{#if !existingOnly}
-		<ToggleButtonGroup bind:selected={() => intent.mode, (v) => setMode(v)}>
-			{#snippet children({ item })}
-				<ToggleButton value="existing" label="Use an existing project" {item} small />
-				<ToggleButton value="create" label="Create a new project" {item} small />
-			{/snippet}
-		</ToggleButtonGroup>
+	{#if (projects ?? []).length}
+		<span class="text-xs font-semibold text-emphasis">Projects in your Supabase account</span>
+	{:else}
+		<p class="text-xs text-secondary">This Supabase account has no projects yet.</p>
 	{/if}
+	<div class="flex flex-col gap-2 overflow-y-auto flex-1 min-h-24 pr-1">
+		{#each projects ?? [] as p (projectRef(p))}
+			{@const selected = intent.mode === 'existing' && isSelected(intent.project, p)}
+			<!-- shrink-0 or the flex column squeezes the cards to fit instead of letting the
+			list scroll, and the selected one loses its password field to the clip. -->
+			<div
+				class="shrink-0 border rounded-md overflow-hidden transition-colors {selected
+					? 'border-border-selected/50 bg-surface-accent-selected'
+					: 'border-border-light'}"
+			>
+				<button
+					class="w-full text-left p-3 flex gap-3 items-start {selected
+						? ''
+						: 'hover:bg-surface-hover'}"
+					onclick={(e) => selectProject(p, e.currentTarget.parentElement)}
+				>
+					<span class="mt-0.5 shrink-0"><Database size={18} class="text-secondary" /></span>
+					<span class="flex flex-col gap-0.5 min-w-0">
+						<span class="text-xs font-medium {selected ? 'text-accent' : 'text-emphasis'}"
+							>{p.name}</span
+						>
+						<span class="text-xs text-secondary font-normal">
+							{p.region}{projectOrg(p) ? ` · ${projectOrg(p)}` : ''}{projectStatus(p)
+								? ` · ${projectStatus(p)}`
+								: ''}
+						</span>
+					</span>
+				</button>
+				{#if selected}
+					<div class="px-3 pb-3 flex flex-col gap-2">
+						<div>
+							<span class="text-xs font-semibold text-emphasis">Database password</span>
+							<Password
+								bind:password={
+									() => intent.password, (v) => ((intent.password = v ?? ''), onIntentChange?.())
+								}
+								placeholder="••••••••"
+							/>
+							<p class="text-2xs text-secondary mt-1">
+								Supabase only shows this when the project is created, and never exposes it through
+								its API. If you no longer have it, <a
+									href="https://supabase.com/dashboard/project/{projectRef(p)}/database/settings"
+									target="_blank"
+									rel="noreferrer"
+									class="text-blue-500 hover:underline">set a new one</a
+								> — every existing connection to this project stops working when you do.
+							</p>
+						</div>
+						<SupabaseConnectionMode bind:mode={intent.connectionMode} onChange={onIntentChange} />
+					</div>
+				{/if}
+			</div>
+		{/each}
+		{#if !existingOnly}
+			<div
+				class="shrink-0 border rounded-md overflow-hidden transition-colors {intent.mode ===
+				'create'
+					? 'border-border-selected/50 bg-surface-accent-selected'
+					: 'border-border-light'}"
+			>
+				<button
+					class="w-full text-left p-3 flex gap-3 items-start {intent.mode === 'create'
+						? ''
+						: 'hover:bg-surface-hover'}"
+					onclick={selectNewProject}
+				>
+					<span class="mt-0.5 shrink-0"><Plus size={18} class="text-secondary" /></span>
+					<span class="flex flex-col gap-0.5 min-w-0">
+						<span
+							class="text-xs font-medium {intent.mode === 'create'
+								? 'text-accent'
+								: 'text-emphasis'}">New project</span
+						>
+						<span class="text-xs text-secondary font-normal"
+							>Windmill creates it and stores its password</span
+						>
+					</span>
+				</button>
+				{#if intent.mode === 'create'}
+					<div class="px-3 pb-3">{@render newProjectFields()}</div>
+				{/if}
+			</div>
+		{/if}
+	</div>
+{/if}
 
-	{#if intent.mode === 'create'}
+{#snippet newProjectFields()}
+	<div class="flex flex-col gap-2">
 		<div class="grid grid-cols-2 gap-2">
 			<div>
 				<span class="text-xs font-semibold text-emphasis">Organization</span>
@@ -174,65 +267,5 @@
 			come up.
 		</Alert>
 		<SupabaseConnectionMode bind:mode={intent.connectionMode} onChange={onIntentChange} />
-	{:else}
-		<div class="flex flex-col gap-2 overflow-y-auto flex-1 min-h-24 pr-1">
-			{#each projects ?? [] as p (projectRef(p))}
-				{@const selected = isSelected(intent.project, p)}
-				<!-- shrink-0 or the flex column squeezes the cards to fit instead of letting the
-				list scroll, and the selected one loses its password field to the clip. -->
-				<div
-					class="shrink-0 border rounded-md overflow-hidden transition-colors {selected
-						? 'border-border-selected/50 bg-surface-accent-selected'
-						: 'border-border-light'}"
-				>
-					<button
-						class="w-full text-left p-3 flex gap-3 items-start {selected
-							? ''
-							: 'hover:bg-surface-hover'}"
-						onclick={(e) => selectProject(p, e.currentTarget.parentElement)}
-					>
-						<span class="mt-0.5 shrink-0"><Database size={18} class="text-secondary" /></span>
-						<span class="flex flex-col gap-0.5 min-w-0">
-							<span class="text-xs font-medium {selected ? 'text-accent' : 'text-emphasis'}"
-								>{p.name}</span
-							>
-							<span class="text-xs text-secondary font-normal">
-								{p.region}{projectOrg(p) ? ` · ${projectOrg(p)}` : ''}{projectStatus(p)
-									? ` · ${projectStatus(p)}`
-									: ''}
-							</span>
-						</span>
-					</button>
-					{#if selected}
-						<div class="px-3 pb-3 flex flex-col gap-2">
-							<div>
-								<span class="text-xs font-semibold text-emphasis">Database password</span>
-								<Password
-									bind:password={
-										() => intent.password, (v) => ((intent.password = v ?? ''), onIntentChange?.())
-									}
-									placeholder="••••••••"
-								/>
-								<p class="text-2xs text-secondary mt-1">
-									Supabase only shows this when the project is created, and never exposes it through
-									its API. If you no longer have it, <a
-										href="https://supabase.com/dashboard/project/{projectRef(p)}/database/settings"
-										target="_blank"
-										rel="noreferrer"
-										class="text-blue-500 hover:underline">set a new one</a
-									> — every existing connection to this project stops working when you do.
-								</p>
-							</div>
-							<SupabaseConnectionMode bind:mode={intent.connectionMode} onChange={onIntentChange} />
-						</div>
-					{/if}
-				</div>
-			{/each}
-			{#if (projects ?? []).length === 0}
-				<Alert type="info" size="xs" bgClass="border-0" title="">
-					This Supabase account has no projects yet.
-				</Alert>
-			{/if}
-		</div>
-	{/if}
-{/if}
+	</div>
+{/snippet}

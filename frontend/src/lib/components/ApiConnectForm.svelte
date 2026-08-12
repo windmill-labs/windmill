@@ -142,7 +142,15 @@
 
 	// Authorizing is not something to present a dialog about first: the button goes straight
 	// to the popup, and the dialog opens on the way back, already holding the projects.
-	const supaOauth = useSupabaseOauth()
+	// No `redirectIfBlocked`: navigating this tab away would take the half-filled resource form
+	// with it, and there is nothing here to park and resume.
+	const supaOauth = useSupabaseOauth({
+		onFallbackBlocked: () => {
+			awaitingSupabaseAuth = false
+			sendUserToast('Allow pop-ups for this site to connect your Supabase account.', true)
+		},
+		onAbandoned: () => (awaitingSupabaseAuth = false)
+	})
 	let awaitingSupabaseAuth = $state(false)
 
 	function connectSupabase() {

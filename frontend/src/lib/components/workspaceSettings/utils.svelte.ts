@@ -1,7 +1,19 @@
 import { isCloudHosted } from '$lib/cloud'
 
 import { superadmin } from '$lib/stores'
+import { getLocalSetting } from '$lib/utils'
 import { derived } from 'svelte/store'
+
+/**
+ * Opt-in for the data table setup wizard while it is being tested. Browser-local and read
+ * once per page: `localStorage.setItem('dataTableWizard', 'true')`, then reload. With it
+ * off, adding a data table falls back to the inline row in the settings table.
+ */
+export const DATATABLE_WIZARD_SETTING_NAME = 'dataTableWizard'
+
+export function isDataTableWizardEnabled(): boolean {
+	return getLocalSetting(DATATABLE_WIZARD_SETTING_NAME) === 'true'
+}
 
 export let isCustomInstanceDbEnabled = derived(
 	[superadmin],

@@ -6,6 +6,9 @@
 		status: SetupStepStatus
 		/** Shown when the row is expanded, and opened automatically when the step fails. */
 		description?: string
+		/** The checks this step is made of, when the caller knows them. Always visible: they
+		 *  are the step's progress, not detail to go looking for. */
+		substeps?: SetupStep[]
 	}
 
 	/**
@@ -21,6 +24,7 @@
 
 <script lang="ts">
 	import { Circle, CircleCheck, CircleX, ChevronDown, Loader2 } from 'lucide-svelte'
+	import Self from './SetupChecklist.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResizeTransitionWrapper from '../common/ResizeTransitionWrapper.svelte'
 
@@ -104,6 +108,11 @@
 					</ResizeTransitionWrapper>
 				</div>
 			</div>
+			{#if step.substeps?.length}
+				<div class="ml-6" onclick={(e) => e.stopPropagation()}>
+					<Self steps={step.substeps} />
+				</div>
+			{/if}
 		</div>
 	{/each}
 </div>

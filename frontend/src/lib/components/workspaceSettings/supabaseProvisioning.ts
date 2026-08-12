@@ -6,6 +6,11 @@
  * access token.
  */
 
+import { DEFAULT_SSLMODE } from '$lib/utils/postgresConnectionString'
+import { base } from '$lib/base'
+import { oauthStore } from '$lib/stores'
+import { get } from 'svelte/store'
+
 export type SupabaseOrg = { id: string; slug?: string; name: string }
 
 export type SupabaseProject = {
@@ -60,6 +65,10 @@ function headers(token: string): HeadersInit {
 
 async function unwrap(res: Response, what: string): Promise<any> {
 	if (!res.ok) {
+		// Supabase access tokens are short-lived while `oauthStore` lasts as long as the tab, so
+		// a stale one otherwise leaves every caller "authorized" and unable to reach the button
+		// that would fix it. Forgetting it here is what puts Connect back on screen.
+		if (res.status === 401) oauthStore.set(undefined)
 		const body = await res.text()
 		throw new Error(`${what}: ${supabaseErrorMessage(body) || res.statusText}`)
 	}
@@ -81,19 +90,21 @@ export function supabaseErrorMessage(body: string): string {
 }
 
 export async function listSupabaseOrgs(token: string): Promise<SupabaseOrg[]> {
-	const res = await fetch('/api/oauth/list_supabase_orgs', { headers: headers(token) })
+	const res = await fetch(`${base}/api/oauth/list_supabase_orgs`, { headers: headers(token) })
 	return unwrap(res, 'Could not list your Supabase organizations')
 }
 
 export async function listSupabaseProjects(token: string): Promise<SupabaseProject[]> {
-	const res = await fetch('/api/oauth/list_supabase', { headers: headers(token) })
+	const res = await fetch(`${base}/api/oauth/list_supabase`, { headers: headers(token) })
 	return unwrap(res, 'Could not list your Supabase projects')
 }
 
 /** Plan of one organization, which the list endpoint does not carry. */
 export async function getSupabaseOrgPlan(token: string, slug: string): Promise<string | undefined> {
 	try {
-		const res = await fetch(`/api/oauth/get_supabase_org/${slug}`, { headers: headers(token) })
+		const res = await fetch(`${base}/api/oauth/get_supabase_org/${slug}`, {
+			headers: headers(token)
+		})
 		if (!res.ok) return undefined
 		return (await res.json())?.plan
 	} catch {
@@ -121,7 +132,7 @@ export async function createSupabaseProject(
 	token: string,
 	args: { name: string; organizationSlug: string; region: string; dbPass: string }
 ): Promise<SupabaseProject> {
-	const res = await fetch('/api/oauth/create_supabase_project', {
+	const res = await fetch(`${base}/api/oauth/create_supabase_project`, {
 		method: 'POST',
 		headers: headers(token),
 		body: JSON.stringify({
@@ -153,7 +164,10 @@ export async function waitUntilSupabaseHealthy(
 		let list: SupabaseProject[]
 		try {
 			list = await listSupabaseProjects(token)
-		} catch {
+		} catch (err) {
+			// A transient failure is worth another poll; an expired token is not -- retrying it
+			// burns five minutes and then reports a timeout, which names the wrong problem.
+			if (!get(oauthStore)?.access_token) throw err
 			continue
 		}
 		const project = list?.find?.((p) => projectRef(p) === projectId)
@@ -171,7 +185,7 @@ export async function waitUntilSupabaseHealthy(
  * that landed on another one, and the resulting resource never connects.
  */
 export async function getSupabasePooler(token: string, projectId: string): Promise<SupabasePooler> {
-	const res = await fetch(`/api/oauth/get_supabase_pooler/${projectId}`, {
+	const res = await fetch(`${base}/api/oauth/get_supabase_pooler/${projectId}`, {
 		headers: headers(token)
 	})
 	const configs: SupabasePooler[] = await unwrap(res, 'Could not read the connection details')
@@ -223,7 +237,9 @@ export function supabaseResourceValue(
 		user: direct ? 'postgres' : connection.pooler!.db_user,
 		port: direct ? 5432 : connection.pooler!.db_port,
 		dbname: direct ? 'postgres' : connection.pooler!.db_name,
-		sslmode: 'prefer',
+		// Supabase terminates TLS on every endpoint it hands out, and this connection carries a
+		// generated password, so there is no reason to leave a plaintext fallback open.
+		sslmode: DEFAULT_SSLMODE,
 		password: `$var:${passwordVarPath}`,
 		// Resource forms fill in every unset property from the schema as soon as they render,
 		// so a postgresql resource saved without these comes up already modified -- and saves a

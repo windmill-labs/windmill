@@ -1000,46 +1000,6 @@ pub struct DataTable {
     /// when migrations already exist (see `datatable_migrations_enabled`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub migrations_enabled: Option<bool>,
-    /// Where the connection came from. Absent on data tables created before the
-    /// setup wizard, and on any whose origin cannot be told from the resource.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub origin: Option<DataTableOrigin>,
-    /// Set while the wizard has not finished creating everything this data table
-    /// needs, so `database.resource_path` may point at a resource that does not
-    /// exist yet. Cleared by a successful retry. There is deliberately no
-    /// intermediate state: the setup runs entirely in the browser, so nothing
-    /// server-side can advance one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub setup_incomplete: Option<bool>,
-}
-
-/// Provenance of the database behind a data table, kept vendor-neutral: Neon,
-/// Railway and Render have the identical shape and must not each grow their own
-/// fields.
-///
-/// `project_name` + `org` identify the provider-side project on their own,
-/// because the data table row is written before that project exists — a retry
-/// has to be able to find a half-created one, and `project_ref` is only known
-/// once creation returns.
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct DataTableOrigin {
-    /// `supabase`, `instance` or `resource`.
-    pub provider: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project_ref: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub org: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub region: Option<String>,
-    /// `session` or `direct` for providers that offer both.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub connection_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub connected_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub connected_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -1063,35 +1023,6 @@ pub enum DataTableCatalogResourceType {
     #[strum(serialize = "postgres")]
     Postgresql,
     Instance,
-}
-
-/// Carries the fields the datatable config form does not own forward from the
-/// stored value.
-///
-/// That form sends the whole map, so a client which left one of these out would
-/// erase it for every data table it was not even editing — silently, since the
-/// result still deserializes. Only a brand-new entry takes them from the
-/// request; from then on `set_datatable_setup` and the migrations endpoints are
-/// the only ways to change them.
-///
-/// `renamed_from` maps a new name to the old one so a rename inherits rather
-/// than reads as a fresh data table.
-pub fn preserve_unmanaged_datatable_fields(
-    new_datatables: &mut std::collections::HashMap<String, DataTable>,
-    old_datatables: &std::collections::HashMap<String, DataTable>,
-    renamed_from: &std::collections::HashMap<String, String>,
-) {
-    for (name, dt) in new_datatables.iter_mut() {
-        let lookup = renamed_from.get(name).map(String::as_str).unwrap_or(name);
-        match old_datatables.get(lookup) {
-            Some(old) => {
-                dt.migrations_enabled = old.migrations_enabled;
-                dt.origin = old.origin.clone();
-                dt.setup_incomplete = old.setup_incomplete;
-            }
-            None => dt.migrations_enabled = Some(true),
-        }
-    }
 }
 
 /// Build a self-teaching error for an unresolved `datatable://<name>` reference.
@@ -2560,77 +2491,6 @@ mod tests {
         assert!(msg.contains("analytics"), "{msg}");
         assert!(msg.contains("staging"), "{msg}");
         assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
-    }
-
-    fn datatable_with(origin: Option<&str>, incomplete: Option<bool>) -> DataTable {
-        DataTable {
-            database: DataTableDatabase {
-                resource_type: DataTableCatalogResourceType::Postgresql,
-                resource_path: "f/data/pg".to_string(),
-            },
-            forked_from: None,
-            migrations_enabled: Some(true),
-            origin: origin.map(|provider| DataTableOrigin {
-                provider: provider.to_string(),
-                project_name: None,
-                project_ref: None,
-                org: None,
-                region: None,
-                connection_mode: None,
-                connected_by: None,
-                connected_at: None,
-            }),
-            setup_incomplete: incomplete,
-        }
-    }
-
-    /// The config form sends the whole map. A client that does not echo `origin`
-    /// and `setup_incomplete` back must not erase them, and the erasure would be
-    /// silent: the payload still deserializes.
-    #[test]
-    fn test_preserve_unmanaged_datatable_fields() {
-        let old = std::collections::HashMap::from([
-            (
-                "main".to_string(),
-                datatable_with(Some("supabase"), Some(true)),
-            ),
-            (
-                "old_name".to_string(),
-                datatable_with(Some("instance"), None),
-            ),
-        ]);
-        let mut new = std::collections::HashMap::from([
-            // Sent without either field, as an older client would.
-            ("main".to_string(), datatable_with(None, None)),
-            // Renamed: inherits from the name it had.
-            ("new_name".to_string(), datatable_with(None, None)),
-            // Brand new: the request is authoritative.
-            (
-                "fresh".to_string(),
-                datatable_with(Some("resource"), Some(true)),
-            ),
-        ]);
-        let renames =
-            std::collections::HashMap::from([("new_name".to_string(), "old_name".to_string())]);
-
-        preserve_unmanaged_datatable_fields(&mut new, &old, &renames);
-
-        assert_eq!(
-            new["main"].origin.as_ref().map(|o| o.provider.as_str()),
-            Some("supabase")
-        );
-        assert_eq!(new["main"].setup_incomplete, Some(true));
-        assert_eq!(
-            new["new_name"].origin.as_ref().map(|o| o.provider.as_str()),
-            Some("instance")
-        );
-        assert_eq!(
-            new["fresh"].origin.as_ref().map(|o| o.provider.as_str()),
-            Some("resource")
-        );
-        assert_eq!(new["fresh"].setup_incomplete, Some(true));
-        // Migrations opt-in keeps defaulting on for a new data table.
-        assert_eq!(new["fresh"].migrations_enabled, Some(true));
     }
 
     #[test]
