@@ -35,7 +35,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		auth: 'oauth_app',
 		connectClient: 'github',
 		tokenHint:
-			'Create a fine-grained personal access token at github.com/settings/tokens with read access to the repositories you want the chat to reach.',
+			'Create a personal access token at github.com/settings/tokens. Grant the permissions you are willing to give the chat — repo and read:org cover most tools; a fine-grained token reaches fewer endpoints than a classic one.',
 		docsUrl: 'https://github.com/github/github-mcp-server'
 	},
 	{
