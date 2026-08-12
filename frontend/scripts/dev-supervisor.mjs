@@ -9,6 +9,7 @@
 //   node scripts/dev-supervisor.mjs                        # this worktree, $FRONTEND_PORT
 //   node scripts/dev-supervisor.mjs -t 3340:/path/to/wt -t 3350:/other
 //   node scripts/dev-supervisor.mjs -t 3340:/path --idle 10m --stats rss.jsonl
+//   node scripts/dev-supervisor.mjs -t 3340:/path --bind 0.0.0.0   # reachable off-host
 //
 // Proxying is at the TCP layer so HTTP, the HMR websocket, and the /api proxy all
 // pass through untouched.
@@ -20,6 +21,11 @@ import path from 'node:path'
 const START_TIMEOUT_MS = 180_000
 const POLL_INTERVAL_MS = 250
 const TICK_MS = 15_000
+const KILL_GRACE_MS = 5_000
+const MAX_HEAD_BYTES = 8_192
+
+// Every spawned dev server, so no exit path can orphan one.
+const liveChildren = new Set()
 
 function parseDuration(text) {
 	const m = /^(\d+)(ms|s|m|h)?$/.exec(text)
@@ -29,7 +35,10 @@ function parseDuration(text) {
 }
 
 function parseArgs(argv) {
-	const opts = { targets: [], idleMs: parseDuration('15m'), bind: '0.0.0.0', stats: null }
+	// Loopback by default: the supervised port fronts the /api proxy to a local backend
+	// and serves source over /@fs, and `server.allowedHosts` does not stop a non-browser
+	// client from sending whatever Host header it likes. Widening is opt-in.
+	const opts = { targets: [], idleMs: parseDuration('15m'), bind: '127.0.0.1', stats: null }
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]
 		const next = () => {
@@ -80,18 +89,26 @@ function canConnect(port) {
 // RSS of the child's whole process tree: vite spawns workers, and the number worth
 // reporting is what the machine gives back when the tree is killed.
 function treeRssMb(rootPid) {
-	let children
+	const children = new Map()
+	let entries
 	try {
-		children = new Map()
-		for (const entry of readdirSync('/proc')) {
-			if (!/^\d+$/.test(entry)) continue
-			const stat = readFileSync(`/proc/${entry}/stat`, 'utf8')
-			const ppid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1])
-			if (!children.has(ppid)) children.set(ppid, [])
-			children.get(ppid).push(Number(entry))
-		}
+		entries = readdirSync('/proc')
 	} catch {
 		return null
+	}
+	for (const entry of entries) {
+		if (!/^\d+$/.test(entry)) continue
+		// Processes come and go mid-scan, so one unreadable pid must not lose the whole
+		// tree: a null here would silently report a running server as 0 MB.
+		let stat
+		try {
+			stat = readFileSync(`/proc/${entry}/stat`, 'utf8')
+		} catch {
+			continue
+		}
+		const ppid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1])
+		if (!children.has(ppid)) children.set(ppid, [])
+		children.get(ppid).push(Number(entry))
 	}
 	let total = 0
 	const stack = [rootPid]
@@ -117,6 +134,7 @@ class Target {
 		this.child = null
 		this.internalPort = null
 		this.starting = null
+		this.ready = false
 		this.lastActivity = Date.now()
 		this.liveSockets = new Set()
 		this.stopping = false
@@ -127,7 +145,9 @@ class Target {
 	}
 
 	async ensureStarted() {
-		if (this.child && this.internalPort) return this.internalPort
+		// `ready`, not `child`: the port is only connectable once vite has bound it, and a
+		// second request arriving mid-startup would otherwise be handed a dead port.
+		if (this.child && this.ready) return this.internalPort
 		if (this.starting) return this.starting
 		this.starting = this.#start().finally(() => {
 			this.starting = null
@@ -154,7 +174,9 @@ class Target {
 		)
 		this.child = child
 		this.internalPort = internalPort
+		this.ready = false
 		this.stopping = false
+		liveChildren.add(child)
 		const relay = (stream) => {
 			let buffered = ''
 			stream.setEncoding('utf8')
@@ -168,10 +190,12 @@ class Target {
 		relay(child.stdout)
 		relay(child.stderr)
 		child.on('exit', (code, signal) => {
+			liveChildren.delete(child)
 			if (!this.stopping) this.log(`dev server exited unexpectedly (${signal ?? code})`)
 			if (this.child === child) {
 				this.child = null
 				this.internalPort = null
+				this.ready = false
 			}
 		})
 
@@ -181,6 +205,7 @@ class Target {
 			if (!this.child) throw new Error('dev server exited during startup')
 			if (await canConnect(internalPort)) {
 				this.log(`ready in ${((Date.now() - started) / 1000).toFixed(1)}s`)
+				this.ready = true
 				this.lastActivity = Date.now()
 				return internalPort
 			}
@@ -195,61 +220,82 @@ class Target {
 		this.stopping = true
 		const rss = treeRssMb(this.child.pid)
 		this.log(`stopping dev server${rss ? ` (reclaiming ${rss} MB)` : ''}`)
-		this.child.kill('SIGTERM')
 		const child = this.child
-		setTimeout(() => child.kill('SIGKILL'), 5000).unref()
+		child.kill('SIGTERM')
+		setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS).unref()
 		this.child = null
 		this.internalPort = null
+		this.ready = false
 		for (const socket of this.liveSockets) socket.destroy()
 		this.liveSockets.clear()
 	}
 
 	handle(client) {
 		client.on('error', () => client.destroy())
-		client.once('data', (first) => {
+		// TCP preserves no message boundaries, so the request head can arrive split across
+		// segments: classify only once the header terminator is in hand (or the cap is hit),
+		// otherwise an upgrade split mid-header reads as ordinary traffic and the HMR socket
+		// keeps a server alive that nobody is watching.
+		const chunks = []
+		let buffered = 0
+		const onData = (chunk) => {
+			chunks.push(chunk)
+			buffered += chunk.length
+			const head = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks)
+			if (head.indexOf('\r\n\r\n') === -1 && buffered < MAX_HEAD_BYTES) return
+			client.off('data', onData)
 			client.pause()
-			// A lone HMR socket from a tab left open is not someone looking at the page, so
-			// websocket bytes neither hold the dev server alive nor start it. Vite's client
-			// probes for a restart with a websocket too (subprotocol `vite-ping`), so starting
-			// on one would have the reconnect loop resurrect every server we just stopped.
-			const head = first.toString('latin1', 0, Math.min(first.length, 2048))
-			const isWebsocket = /\r\nupgrade:\s*websocket/i.test(head)
-			if (isWebsocket && !this.child) {
-				client.destroy()
-				return
-			}
-			if (!isWebsocket) {
-				this.lastActivity = Date.now()
-				this.liveSockets.add(client)
-			}
+			this.#dispatch(client, head)
+		}
+		client.on('data', onData)
+	}
 
-			this.ensureStarted().then(
-				(port) => {
-					const upstream = net.connect(port, '127.0.0.1', () => {
-						upstream.write(first)
-						client.pipe(upstream)
-						upstream.pipe(client)
-						client.resume()
-					})
-					const bump = isWebsocket ? () => {} : () => (this.lastActivity = Date.now())
-					client.on('data', bump)
-					upstream.on('data', bump)
-					const teardown = () => {
-						this.liveSockets.delete(client)
-						client.destroy()
-						upstream.destroy()
-					}
-					upstream.on('error', teardown)
-					upstream.on('close', teardown)
-					client.on('close', teardown)
-				},
-				(err) => {
-					this.log(`failed to start: ${err.message}`)
+	#dispatch(client, first) {
+		// A lone HMR socket from a tab left open is not someone looking at the page, so
+		// websocket bytes neither hold the dev server alive nor start it. Vite's client
+		// probes for a restart with a websocket too (subprotocol `vite-ping`), so starting
+		// on one would have the reconnect loop resurrect every server we just stopped.
+		const head = first.toString('latin1', 0, Math.min(first.length, MAX_HEAD_BYTES))
+		const isWebsocket = /\r\nupgrade:\s*websocket/i.test(head)
+		if (isWebsocket && !this.child) {
+			client.destroy()
+			return
+		}
+		if (!isWebsocket) {
+			this.lastActivity = Date.now()
+			this.liveSockets.add(client)
+			// Registered at insertion, not after the upstream connects: a client that gives
+			// up during a cold start would otherwise stay in the set forever and silently
+			// wedge the idle reaper for the life of the process.
+			client.once('close', () => this.liveSockets.delete(client))
+		}
+
+		this.ensureStarted().then(
+			(port) => {
+				const upstream = net.connect(port, '127.0.0.1', () => {
+					upstream.write(first)
+					client.pipe(upstream)
+					upstream.pipe(client)
+					client.resume()
+				})
+				const bump = isWebsocket ? () => {} : () => (this.lastActivity = Date.now())
+				client.on('data', bump)
+				upstream.on('data', bump)
+				const teardown = () => {
 					this.liveSockets.delete(client)
 					client.destroy()
+					upstream.destroy()
 				}
-			)
-		})
+				upstream.on('error', teardown)
+				upstream.on('close', teardown)
+				client.on('close', teardown)
+			},
+			(err) => {
+				this.log(`failed to start: ${err.message}`)
+				this.liveSockets.delete(client)
+				client.destroy()
+			}
+		)
 	}
 
 	tick() {
@@ -285,17 +331,38 @@ for (const target of targets) {
 
 setInterval(() => {
 	for (const target of targets) target.tick()
-	if (opts.stats) {
-		const now = new Date().toISOString()
+	if (!opts.stats) return
+	const now = new Date().toISOString()
+	try {
 		for (const target of targets) {
 			appendFileSync(opts.stats, JSON.stringify({ at: now, ...target.sample() }) + '\n')
 		}
+	} catch (err) {
+		// An unwritable stats path must not throw out of the tick: that would leave the
+		// dev servers running with nothing left to reap them.
+		console.error(`stats write failed, continuing: ${err.message}`)
 	}
 }, TICK_MS).unref()
 
+// Whatever route we leave by, the dev servers are the thing this tool exists to
+// reclaim, so nothing may outlive the supervisor.
+process.on('exit', () => {
+	for (const child of liveChildren) {
+		try {
+			child.kill('SIGKILL')
+		} catch {
+			// already gone
+		}
+	}
+})
+
 for (const signal of ['SIGINT', 'SIGTERM']) {
-	process.on(signal, () => {
+	process.on(signal, async () => {
 		for (const target of targets) target.stop()
+		const deadline = Date.now() + KILL_GRACE_MS
+		while (liveChildren.size > 0 && Date.now() < deadline) {
+			await new Promise((r) => setTimeout(r, 50))
+		}
 		process.exit(0)
 	})
 }
