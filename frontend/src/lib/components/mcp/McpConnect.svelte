@@ -32,9 +32,9 @@
 	let showOAuth = $state(false)
 	let signingIn = $state(false)
 	let editScopes = $state(false)
-	// Seeded from the instance connect plus the scopes the server publishes, then
-	// left editable: the connect's own scopes are shared with other integrations,
-	// so this widens the request for this connection only.
+	// Seeded from the instance connect, then left editable: a server may want more
+	// than the connect asks for (org-scoped search needs read:org, for instance),
+	// and the connect itself is shared with other integrations so it is not widened.
 	let scopes = $state<string[]>([])
 
 	// Manual path: a URL and a token typed by hand.
@@ -72,8 +72,8 @@
 		const client = entry?.connectClient
 		if (client && oauthAppReady) {
 			OauthService.getOauthConnect({ client })
-				.then((c) => (scopes = [...new Set([...(c.scopes ?? []), ...(entry?.requiredScopes ?? [])])]))
-				.catch(() => (scopes = entry?.requiredScopes ?? []))
+				.then((c) => (scopes = c.scopes ?? []))
+				.catch(() => (scopes = []))
 		}
 	})
 

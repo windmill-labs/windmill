@@ -22,12 +22,6 @@ export type McpRegistryEntry = {
 	auth: McpAuthKind
 	/** For `oauth_app`: the Windmill OAuth connect (and resource type) to use. */
 	connectClient?: string
-	/**
-	 * For `oauth_app`: scopes the server needs beyond what a bare connect
-	 * requests. The instance connect is shared with other integrations, so this
-	 * is used to warn rather than to widen it silently.
-	 */
-	requiredScopes?: string[]
 	/** Shown when falling back to entering a token by hand. */
 	tokenHint?: string
 	docsUrl?: string
@@ -40,10 +34,6 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		url: 'https://api.githubcopilot.com/mcp/',
 		auth: 'oauth_app',
 		connectClient: 'github',
-		// Advertised by https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp;
-		// the default connect only asks for repo + workflow, which refuses the
-		// org- and user-scoped tools.
-		requiredScopes: ['repo', 'read:org', 'read:user'],
 		tokenHint:
 			'Create a personal access token at github.com/settings/tokens. Grant the permissions you are willing to give the chat — repo and read:org cover most tools; a fine-grained token reaches fewer endpoints than a classic one.',
 		docsUrl: 'https://github.com/github/github-mcp-server'
