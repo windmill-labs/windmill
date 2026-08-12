@@ -1275,6 +1275,14 @@ const SQL_RESULT_SIZE_FRACTION: f64 = 0.15;
 // only reject work that would have succeeded.
 const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 
+// Share of the worker's memory budget a Go compilation is told to keep its heap
+// under. Set high enough that an ordinary build never approaches it, so the only
+// builds whose behavior changes are those that were about to take the worker down.
+const GO_BUILD_MEMLIMIT_FRACTION: f64 = 0.75;
+// Below this the toolchain would spend more time collecting than compiling, and a
+// build confined to that little cannot threaten a worker anyway.
+const MIN_GO_BUILD_MEMLIMIT: usize = 256 * 1024 * 1024;
+
 /// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
 /// and binary, so `MB` and `MiB` both mean 1024².
 ///
@@ -1351,6 +1359,95 @@ lazy_static::lazy_static! {
                 .unwrap_or(usize::MAX),
         }
     };
+
+    /// Soft heap cap, in bytes, handed to the Go toolchain as `GOMEMLIMIT` when it
+    /// compiles a script. It is the only bound those subprocesses have: they run
+    /// with a cleared environment, so nothing configured on the worker reaches them
+    /// and a compilation grows until the cgroup OOM killer takes the worker process
+    /// down, every job colocated on it with it. `GOMEMLIMIT` is soft — the Go GC
+    /// works harder as the heap nears it instead of failing the allocation — so a
+    /// pathological build degrades into a slow one rather than a dead worker.
+    ///
+    /// `GO_BUILD_MEMLIMIT` overrides the derived value (`512MB`, `2GiB`, …), and
+    /// `0`/`off` disables the cap, as does a worker with no cgroup memory reading to
+    /// scale from. A `GOMEMLIMIT` set on the worker group wins over both.
+    pub static ref GO_BUILD_MEMLIMIT: Option<usize> = {
+        let limit = resolve_go_build_memlimit(
+            std::env::var("GO_BUILD_MEMLIMIT").ok().as_deref(),
+            windmill_common::worker::get_memory(),
+        );
+        // A slow compilation is the symptom of a cap that is too low, and nothing
+        // else would tell an operator one is in force or what it resolved to.
+        tracing::info!(
+            "Go compilation memory limit (GOMEMLIMIT): {}",
+            limit.map(format_byte_size).unwrap_or_else(|| "none".to_string())
+        );
+        limit
+    };
+}
+
+fn resolve_go_build_memlimit(
+    env_override: Option<&str>,
+    worker_memory: Option<i64>,
+) -> Option<usize> {
+    let derived = || {
+        worker_memory.filter(|bytes| *bytes > 0).map(|bytes| {
+            ((bytes as f64 * GO_BUILD_MEMLIMIT_FRACTION) as usize).max(MIN_GO_BUILD_MEMLIMIT)
+        })
+    };
+
+    match env_override.map(str::trim).filter(|v| !v.is_empty()) {
+        None => derived(),
+        Some(v) if v.eq_ignore_ascii_case("off") => None,
+        Some(v) => match parse_byte_size(v) {
+            // A zero cap would have the GC hold the heap at nothing, so it reads as
+            // "no cap" instead.
+            Some(0) => None,
+            Some(bytes) => Some(bytes),
+            None => {
+                // Falling back silently would leave the operator believing the limit
+                // they wrote is in force.
+                tracing::warn!(
+                    "GO_BUILD_MEMLIMIT={v:?} is not a byte size (e.g. 512MB, 2GiB); \
+                     falling back to the memory-derived limit"
+                );
+                derived()
+            }
+        },
+    }
+}
+
+#[cfg(test)]
+mod go_build_memlimit_tests {
+    use super::{resolve_go_build_memlimit, MIN_GO_BUILD_MEMLIMIT};
+
+    const GIB: i64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn resolves_the_go_build_memlimit() {
+        assert_eq!(
+            resolve_go_build_memlimit(None, Some(4 * GIB)),
+            Some(3 * GIB as usize)
+        );
+        // Nothing to scale from leaves the toolchain uncapped, as it was before.
+        assert_eq!(resolve_go_build_memlimit(None, None), None);
+        // A worker too small to derive a workable cap from keeps the floor.
+        assert_eq!(
+            resolve_go_build_memlimit(None, Some(GIB / 8)),
+            Some(MIN_GO_BUILD_MEMLIMIT)
+        );
+        assert_eq!(
+            resolve_go_build_memlimit(Some("2GiB"), Some(4 * GIB)),
+            Some(2 * GIB as usize)
+        );
+        assert_eq!(resolve_go_build_memlimit(Some("off"), Some(4 * GIB)), None);
+        assert_eq!(resolve_go_build_memlimit(Some("0MB"), Some(4 * GIB)), None);
+        // An unparseable override falls back to the derived cap rather than uncapping.
+        assert_eq!(
+            resolve_go_build_memlimit(Some("lots"), Some(4 * GIB)),
+            Some(3 * GIB as usize)
+        );
+    }
 }
 
 /// The limit postgres collection is bounded by: the cloud product cap where one

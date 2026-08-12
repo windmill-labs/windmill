@@ -27,7 +27,8 @@ use crate::{
     },
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR,
-    GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    GO_BUILD_MEMLIMIT, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -84,6 +85,42 @@ lazy_static::lazy_static! {
 
 pub const GO_OBJECT_STORE_PREFIX: &str =
     const_format::concatcp!(crate::global_cache::TARGET, "_gobin/");
+
+/// Worker group env vars forwarded to the Go toolchain (`go build`, `go mod …`).
+///
+/// Restricted to the GC and scheduler knobs, which bound what a compilation costs
+/// without changing what it produces: the built binary is cached under a hash of
+/// the source and lockfile alone, so a var that alters codegen (`GOFLAGS`, build
+/// tags) would let two worker groups disagree about the contents of one cache
+/// entry — including the one shared through the object store.
+const GO_TOOLCHAIN_TUNING_ENVS: [&str; 3] = ["GOMEMLIMIT", "GOGC", "GOMAXPROCS"];
+
+/// Memory and parallelism settings for the Go toolchain subprocesses, which
+/// otherwise inherit nothing (they are spawned with a cleared environment).
+///
+/// Must be applied before the explicit `.env` calls of each command so the
+/// worker's own `PATH`/`GOPATH`/`GOCACHE`/`HOME` win over a worker group setting
+/// the same names, as they do on the run step.
+fn go_toolchain_envs() -> Vec<(String, String)> {
+    let worker_config = windmill_common::worker::WORKER_CONFIG.load();
+    let mut envs: Vec<(String, String)> = GO_TOOLCHAIN_TUNING_ENVS
+        .iter()
+        .filter_map(|k| {
+            worker_config
+                .env_vars
+                .get(*k)
+                .map(|v| (k.to_string(), v.clone()))
+        })
+        .collect();
+
+    if !envs.iter().any(|(k, _)| k == "GOMEMLIMIT") {
+        if let Some(memlimit) = *GO_BUILD_MEMLIMIT {
+            envs.push(("GOMEMLIMIT".to_string(), memlimit.to_string()));
+        }
+    }
+    envs
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     mem_peak: &mut i32,
@@ -233,6 +270,7 @@ func Run(req Req) (interface{{}}, error){{
         build_go_cmd
             .current_dir(job_dir)
             .env_clear()
+            .envs(go_toolchain_envs())
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", {
@@ -526,6 +564,7 @@ pub async fn install_go_dependencies(
                     child_cmd
                         .current_dir(job_dir)
                         .env_clear()
+                        .envs(go_toolchain_envs())
                         .args(vec!["mod", "init", "mymod"])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped());
@@ -610,6 +649,7 @@ pub async fn install_go_dependencies(
     child_cmd
         .current_dir(job_dir)
         .env_clear()
+        .envs(go_toolchain_envs())
         .env("HOME", HOME_ENV.as_str())
         .env("PATH", PATH_ENV.as_str())
         .envs(PROXY_ENVS.clone())
