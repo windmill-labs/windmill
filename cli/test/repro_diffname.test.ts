@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { writeFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { withTestBackend, type TestBackend } from "./test_backend.ts";
+import { waitForDeploymentJobs } from "./new_commands_helpers.ts";
 import { addWorkspace } from "../src/commands/workspace/workspace.ts";
 
 /**
@@ -13,34 +14,6 @@ import { addWorkspace } from "../src/commands/workspace/workspace.ts";
  * generate-metadata created duplicate content files (e.g., fetch_users.ts alongside a.ts).
  * On next push, loadRunnablesFromBackend auto-detected the orphans as new runnables.
  */
-
-/**
- * Deploying an app queues a dependency job that writes the generated locks back
- * into the app value. Pulling while it is still in flight yields a local copy
- * with no lock files, so the push below stops being the no-op this test asserts:
- * it becomes a real change, and rebuilding a raw app bundle needs a package.json
- * this fixture has no reason to carry.
- */
-async function waitForQueueToDrain(
-  backend: TestBackend,
-  timeoutMs = 60000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const resp = await fetch(
-      `${backend.baseUrl}/api/w/${backend.workspace}/jobs/queue/list`,
-      { headers: { Authorization: `Bearer ${backend.token}` } },
-    );
-    if (!resp.ok) {
-      throw new Error(`failed to list the queue: ${resp.status}`);
-    }
-    if (((await resp.json()) as unknown[]).length === 0) {
-      return;
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error(`queue still not empty after ${timeoutMs}ms`);
-}
 
 /** Fails with the CLI's own output, which is otherwise swallowed. */
 async function runCLI(
@@ -113,7 +86,12 @@ test("Raw app: generate-metadata must not create duplicate files when runnable k
       { method: "POST", headers: { Authorization: `Bearer ${backend.token}` }, body: formData },
     );
     expect(createResp.ok).toBeTruthy();
-    await waitForQueueToDrain(backend);
+    // Deploying the app queues a dependency job that writes the generated locks
+    // back into the app value. Pulling while it is in flight yields a local copy
+    // with no lock files, so the push below stops being the no-op this test
+    // asserts: it becomes a real change, and rebuilding a raw app bundle needs a
+    // package.json this fixture has no reason to carry.
+    await waitForDeploymentJobs(backend);
 
     // Pull the app
     await runCLI(backend, ["sync", "pull", "--yes"], tempDir);
@@ -121,10 +99,10 @@ test("Raw app: generate-metadata must not create duplicate files when runnable k
     const backendDir = path.join(tempDir, "f/test/diffname_app.raw_app", "backend");
     let files = await readdir(backendDir);
 
-    // After pull: files named by KEY (a, b). Lock files are not what this test
-    // pins, so they are left out of the precondition.
-    const nonLockFiles = files.filter((f) => !f.endsWith(".lock")).sort();
-    expect(nonLockFiles).toEqual(["a.ts", "a.yaml", "b.ts", "b.yaml"]);
+    // After pull: files named by KEY (a, b), locks included.
+    expect(files.sort()).toEqual([
+      "a.lock", "a.ts", "a.yaml", "b.lock", "b.ts", "b.yaml",
+    ]);
 
     // Run generate-metadata — this previously created duplicate files named by NAME
     await runCLI(backend, ["generate-metadata", "--yes"], tempDir);
