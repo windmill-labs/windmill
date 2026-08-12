@@ -170,6 +170,13 @@ async fn handle_build_binary_job(
                        would not be shared with other workers",
         })));
     }
+    // A multi-file script compiles against its companion modules, so the build dir has to
+    // hold what a run's would. Same call, same `base_dir` (only Python takes one), so the
+    // compiler sees the layout it sees at run time.
+    if let Some(modules) = script_data.modules.as_ref() {
+        crate::worker::write_module_files(job_dir, modules, None).await?;
+    }
+
     let conn = Connection::from(db.clone());
     let code = &script_data.code;
 

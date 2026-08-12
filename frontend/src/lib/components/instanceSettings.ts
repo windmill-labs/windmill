@@ -548,7 +548,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Auto-build worker tag',
 			description:
-				'Worker tag the auto-build jobs run on. Leave empty to use the script language tag, where its dependency job already runs. Set it to pin builds to a pool that has the toolchain and matches the platform of your runtime workers — the cache key includes the OS and architecture, so a binary built elsewhere is never reused. Note that compiling runs script-author-controlled build steps (Cargo build scripts, MSBuild targets, cgo), sandboxed the same way a run of the script is, so this pool executes them at deploy time.',
+				'Worker tag the auto-build jobs run on. Leave empty to use the script language tag, where its dependency job already runs. Set it to pin builds to a pool that has the toolchain and matches the platform of your runtime workers — the cache key includes the OS and architecture, so a binary built elsewhere is never reused. Note that compiling runs script-author-controlled build steps (Cargo build scripts, MSBuild targets, cgo) with exactly the isolation the cold build of a first run has — nsjail for Rust when job isolation is on, none for the Go and C# compilers — so this pool now executes them at deploy time rather than at first run.',
 			key: 'auto_build_binary_tag',
 			fieldType: 'text',
 			placeholder: 'e.g. build',

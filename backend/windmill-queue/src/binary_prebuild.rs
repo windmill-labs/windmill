@@ -32,7 +32,7 @@ pub fn is_build_binary_job(args: Option<&HashMap<String, Box<RawValue>>>) -> boo
 /// Languages whose compiled artifact lands in the instance object store, which is what
 /// makes building it at deploy time spare *every* worker the first-run compile. Bun
 /// bundles are already built inline by the dependency job.
-pub fn supports_binary_prebuild(lang: ScriptLang) -> bool {
+fn supports_binary_prebuild(lang: ScriptLang) -> bool {
     matches!(lang, ScriptLang::Rust | ScriptLang::Go | ScriptLang::CSharp)
 }
 

@@ -324,6 +324,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "AUTO_BUILD_BINARY_TAG",
 ];
 
+use crate::ee_oss::LicensePlan;
 use crate::error;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
@@ -404,11 +405,17 @@ pub async fn auto_build_binary_on_deploy(
     Ok(Some(tag))
 }
 
-/// Whether an instance object store is configured, mirroring what
-/// `windmill_object_store::reload_object_store_setting` accepts. Reads config rather than
-/// the loaded client so callers outside the worker (which may be built without the
-/// object-store features) reach the same answer.
+/// Whether an instance object store is configured, mirroring every condition
+/// `windmill_object_store::reload_object_store_setting` needs to actually load one —
+/// including its refusal on the Pro plan, without which a Pro instance holding an
+/// object-store row would queue a build per deploy that can only ever skip.
+///
+/// Reads config rather than the loaded client so callers outside the worker (which may be
+/// built without the object-store features) reach the same answer.
 async fn instance_object_store_configured(db: &Pool<Postgres>) -> error::Result<bool> {
+    if matches!(crate::ee_oss::get_license_plan().await, LicensePlan::Pro) {
+        return Ok(false);
+    }
     Ok(!matches!(
         load_value_from_global_settings(db, OBJECT_STORE_CONFIG_SETTING).await?,
         None | Some(serde_json::Value::Null)
