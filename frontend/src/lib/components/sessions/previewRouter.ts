@@ -115,7 +115,7 @@ const DRAWER_ANCHOR_PAGES = ['/schedules', '/variables', '/resources'] as const
 
 /** The workspace item whose drawer a preview location has open, or undefined when
  * the page doesn't deep-link rows (or none is anchored). Takes the location with
- * its suffix — `stripBaseKeepingSuffix` output or a raw href. */
+ * its suffix — a raw href, or an observed location. */
 export function drawerAnchorFor(location: string): string | undefined {
 	const hashAt = location.indexOf('#')
 	if (hashAt < 0) return undefined
@@ -283,6 +283,17 @@ const ADDRESSING_PARAMS = new Set([
 	COMPARE_ITEMS_PARAM
 ])
 
+// These fields are rendered as `key: value` lines of the chat's ACTIVE PREVIEW block, so
+// a value carrying a newline would write a line of its own — a URL is attacker-shaped
+// input once a link can be shared. Control characters go, and each field is capped: a
+// path or a filter this long says nothing the model can use anyway.
+const CONTEXT_FIELD_MAX = 300
+
+function oneLine(text: string): string {
+	// eslint-disable-next-line no-control-regex
+	return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, CONTEXT_FIELD_MAX)
+}
+
 /** How a preview location may be described to the model. Reassembled from the parts this
  * module recognizes, never passed through whole: an iframe tab can host a legacy app,
  * whose hash is app state its author chose, and a page can carry both filters that
@@ -299,23 +310,21 @@ export function previewLocationContext(loc: string): {
 	const declared = pageRequestParams(identity)
 	const filters: string[] = []
 	new URLSearchParams(query).forEach((v, k) => {
-		if (declared.includes(k)) filters.push(ADDRESSING_PARAMS.has(k) ? `${k}=${v}` : k)
+		// Re-encoded for the same reason the view is: decoded, a value holding `&` or `=`
+		// reads as another filter entirely.
+		if (declared.includes(k)) {
+			const key = encodeURIComponent(k)
+			filters.push(ADDRESSING_PARAMS.has(k) ? `${key}=${encodeURIComponent(v)}` : key)
+		}
 	})
 	return {
 		// Labels come from route shape (page name, trigger kind, run id, item leaf), so
-		// they carry no query or hash of their own.
-		label: previewLocationLabel(loc),
-		location: identity + (filters.length ? `?${filters.sort().join('&')}` : ''),
-		open: anchor || undefined
+		// they carry no query or hash of their own — but a run id and an item leaf are
+		// decoded out of the path, so they still reach here as free text.
+		label: oneLine(previewLocationLabel(loc)),
+		location: oneLine(identity + (filters.length ? `?${filters.sort().join('&')}` : '')),
+		open: anchor ? oneLine(anchor) : undefined
 	}
-}
-
-/** Like `stripBase`, but keeps the query and hash: a list page's `?filters` and
- * its `#<path>` (the row whose drawer is open) are what the location says beyond
- * the page's name. Not for route matching — use `stripBase` for that. */
-export function stripBaseKeepingSuffix(path: string): string {
-	const bare = path.split('?')[0].split('#')[0]
-	return stripBase(bare) + path.slice(bare.length)
 }
 
 // Match a base-stripped preview pathname to a known page, for breadcrumb

@@ -260,7 +260,10 @@ export type GlobalActiveEditorContext = {
 export type GlobalActivePreviewContext = {
 	/** Page name as the tab strip shows it, e.g. "Schedules". */
 	label: string
-	/** Base-stripped location, query and hash included. */
+	/** Base-stripped page path plus the request params the page declares — values kept
+	 * only for the ones addressing a workspace object, and percent-encoded. Never a raw
+	 * location: a tab can host a legacy app whose hash is app state, and a filter value
+	 * can be free text the user typed. Build it with `previewLocationContext`. */
 	location: string
 	/** The row the page's URL is anchored at — the one whose drawer the user
 	 * opened. The pages keep the anchor when a drawer is closed, so this says

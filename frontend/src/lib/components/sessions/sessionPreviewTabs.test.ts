@@ -818,7 +818,7 @@ describe('describePreview', () => {
 			{ id: 'a', url, loc }
 		]
 		// A declared filter and an anchored row are worth telling the model.
-		expect(describePreview(at('/runs?path=u/me/a'), 'a')).toContain('/runs?path=u/me/a')
+		expect(describePreview(at('/runs?path=u/me/a'), 'a')).toContain('/runs?path=u%2Fme%2Fa')
 		expect(describePreview(at('/schedules#u/me/daily'), 'a')).toContain('open: u/me/daily')
 		// A legacy app's hash is app state and an undeclared param is unknown text; this
 		// string is a tool result, so neither may ride along.

@@ -5272,14 +5272,14 @@ describe('prepareGlobalUserMessage', () => {
 		const message = prepareGlobalUserMessage('Disable it', [], {
 			activePreview: {
 				label: 'Schedules',
-				location: '/schedules#u/me/daily_report',
+				location: '/schedules',
 				open: 'u/me/daily_report'
 			}
 		})
 
 		expect(message.content).toContain('## ACTIVE PREVIEW')
 		expect(message.content).toContain('page: Schedules')
-		expect(message.content).toContain('location: /schedules#u/me/daily_report')
+		expect(message.content).toContain('location: /schedules')
 		expect(message.content).toContain('open: u/me/daily_report')
 	})
 

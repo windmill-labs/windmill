@@ -68,7 +68,10 @@ export function pageDrawerSessionSource(
 		// Autosave is debounced, and the preview reads the draft back through the
 		// server from a document of its own — routing before the POST lands opens the
 		// drawer on a value the user has already changed. A no-op when nothing is
-		// parked, so an untouched drawer costs nothing.
+		// parked, so an untouched drawer costs nothing. Covers what the drawer has
+		// already parked, which the synchronous inputs park on change; the resource
+		// drawer's raw-JSON editor holds its last keystrokes for its own debounce and
+		// would need a flush of its own to be included.
 		beforeOpen:
 			itemKind && workspaceId
 				? () => flushOrRefuse({ workspace: workspaceId, itemKind, path: itemPath })
