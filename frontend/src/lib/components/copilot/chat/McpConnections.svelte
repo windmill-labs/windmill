@@ -16,7 +16,14 @@
 	// switching `workspaceStore`, and that is the workspace the chat reads the
 	// enabled set under. Key everything here the same way or a toggle lands under
 	// a key nothing reads.
-	let ws = $derived(aiChatManager.operatingWorkspace ?? $workspaceStore!)
+	//
+	// `operatingWorkspace` is a plain getter over untracked state, so the store is
+	// read unconditionally rather than behind `??`: short-circuiting it would leave
+	// this derived with no dependency at all, frozen on the workspace it first saw.
+	let ws = $derived.by(() => {
+		const active = $workspaceStore
+		return aiChatManager.operatingWorkspace ?? active!
+	})
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let showConnect = $state(false)
@@ -111,9 +118,12 @@
 		<div class="flex flex-col gap-4">
 			{#if showConnect}
 				<McpConnect
+					workspace={ws}
 					onConnected={async (path) => {
 						// Connecting one is the act of choosing it.
-						setMcpEnabled(ws, path, true)
+						if (!setMcpEnabled(ws, path, true)) {
+							sendUserToast(`Connected ${path}, but could not turn it on. Toggle it here.`, true)
+						}
 						showConnect = false
 						await refresh()
 					}}

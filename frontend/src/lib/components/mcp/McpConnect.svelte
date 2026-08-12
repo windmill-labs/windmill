@@ -36,6 +36,10 @@
 	// than the connect asks for (org-scoped search needs read:org, for instance),
 	// and the connect itself is shared with other integrations so it is not widened.
 	let scopes = $state<string[]>([])
+	// The popup url is built from `scopes`, so signing in before the connect's
+	// scopes arrive would authorize with none at all and mint a token that cannot
+	// reach the tools the user came for.
+	let scopesStatus = $state<'loading' | 'loaded' | 'error'>('loading')
 
 	let url = $state('')
 	// Discovery is a network call, so it follows the committed url (a picked
@@ -93,9 +97,16 @@
 	$effect(() => {
 		const client = entry?.connectClient
 		if (client && oauthAppReady) {
+			scopesStatus = 'loading'
 			OauthService.getOauthConnect({ client })
-				.then((c) => (scopes = c.scopes ?? []))
-				.catch(() => (scopes = []))
+				.then((c) => {
+					scopes = c.scopes ?? []
+					scopesStatus = 'loaded'
+				})
+				.catch(() => {
+					scopes = []
+					scopesStatus = 'error'
+				})
 		}
 	})
 
@@ -126,7 +137,7 @@
 
 	function startProviderOAuth() {
 		const client = entry?.connectClient
-		if (!client || !manualPath) return
+		if (!client || !manualPath || scopesStatus !== 'loaded') return
 		const connectUrl = new URL(`/api/oauth/connect/${client}`, window.location.origin)
 		connectUrl.searchParams.set('scopes', scopes.join('+'))
 		if (!window.open(connectUrl.toString(), '_blank', 'popup=true')) {
@@ -321,12 +332,18 @@
 				</div>
 			{/if}
 		</div>
+		{#if scopesStatus === 'error'}
+			<div class="text-2xs text-secondary">
+				Could not load the scopes configured for the {entry.name} connect. Reload to try again, or connect
+				with a token below.
+			</div>
+		{/if}
 		<Button
 			unifiedSize="sm"
 			variant="accent"
 			wrapperClasses="self-start"
 			onClick={startProviderOAuth}
-			disabled={signingIn || !manualPath || manualPathError !== ''}
+			disabled={signingIn || scopesStatus !== 'loaded' || !manualPath || manualPathError !== ''}
 		>
 			{signingIn ? 'Finish in the popup...' : `Sign in with ${entry.name}`}
 		</Button>

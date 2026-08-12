@@ -48,9 +48,11 @@ export function isMcpEnabled(workspace: string, path: string): boolean {
 	return enabledMcpPaths(workspace).includes(path)
 }
 
-export function setMcpEnabled(workspace: string, path: string, enabled: boolean) {
+/** Returns false when there is no account to record the preference against, so a
+ * caller that just connected a server can say it did not stay on. */
+export function setMcpEnabled(workspace: string, path: string, enabled: boolean): boolean {
 	const key = scope(workspace)
-	if (!key) return
+	if (!key) return false
 	const all = read()
 	const current = new Set(all[key] ?? [])
 	if (enabled) {
@@ -60,4 +62,5 @@ export function setMcpEnabled(workspace: string, path: string, enabled: boolean)
 	}
 	all[key] = [...current]
 	write(all)
+	return true
 }
