@@ -22861,6 +22861,7 @@ paths:
   /concurrency_groups/{id}/key:
     get:
       summary: Get the concurrency key for a job that has concurrency limits enabled
+      description: Requires read access to the job, the same as reading the run itself. Returns 403 for a workspace member who cannot see the run, and 404 when the caller is not a member of the job's workspace.
       operationId: getConcurrencyKey
       tags:
         - concurrencyGroups
