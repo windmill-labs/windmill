@@ -533,11 +533,14 @@
 									<span class="text-primary font-semibold text-xs">Redirect URL</span>
 									<ClipboardPanel content="{baseUrl}/oauth/callback/{k}" size="sm" />
 									{#if baseUrlMismatch}
-										<span class="text-yellow-600 dark:text-yellow-500 text-2xs">
-											Built from the instance base url, which is not the URL you are on
-											({browserOrigin}). If the base url is wrong, update it in Core settings —
-											otherwise the provider will reject the callback.
-										</span>
+										<Alert
+											type="warning"
+											title="Does not match the url you are on ({browserOrigin})"
+											size="xs"
+										>
+											This is built from the instance base url. Update it in Core settings if it is
+											wrong, or {k} will reject the callback.
+										</Alert>
 									{/if}
 								</div>
 								<div class="flex flex-col gap-2 mb-2">
