@@ -9,7 +9,7 @@
 	import { isOwner } from '$lib/utils'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
-	import { pageDrawerSessionSource } from './sessions/pageDrawerSession'
+	import { clearPageDrawerAnchor, pageDrawerSessionSource } from './sessions/pageDrawerSession'
 	import { RESOURCES_PATH } from './copilot/chat/global/pageNavigation'
 	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
 
@@ -92,7 +92,12 @@
 	})
 </script>
 
-<Drawer bind:this={drawer} size="50rem" {disableChatOffset}>
+<Drawer
+	bind:this={drawer}
+	size="50rem"
+	{disableChatOffset}
+	on:close={() => clearPageDrawerAnchor(RESOURCES_PATH)}
+>
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
 		bannerReserved={mode == 'edit'}

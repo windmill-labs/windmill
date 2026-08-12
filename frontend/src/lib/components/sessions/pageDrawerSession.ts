@@ -1,5 +1,6 @@
 import { tick } from 'svelte'
 import { page } from '$app/state'
+import { goto } from '$lib/navigation'
 import { flushAllPendingEditorChanges } from '$lib/components/SimpleEditor.svelte'
 import { buildFilterUrl } from '$lib/navigation'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -44,6 +45,17 @@ async function flushOrRefuse(query: Parameters<typeof UserDraftDbSyncer.flush>[0
 			`Saving the latest draft failed (${failureMessage ?? 'unknown error'}). Retry before opening a session.`
 		)
 	}
+}
+
+/**
+ * Drop the row a list page deep-links, once its drawer closes. The hash is how the row was
+ * requested; leaving it behind makes the location claim a drawer that is no longer open —
+ * and the chat reports that location as what the user is looking at. No-op off that page,
+ * where the same drawers open without a hash convention.
+ */
+export async function clearPageDrawerAnchor(pagePath: string): Promise<void> {
+	if (stripBase(page.url.pathname) !== pagePath || !page.url.hash) return
+	await goto(`${page.url.pathname}${page.url.search}`, { replaceState: true, noScroll: true })
 }
 
 /**

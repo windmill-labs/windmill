@@ -6,7 +6,7 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
-	import { pageDrawerSessionSource } from './sessions/pageDrawerSession'
+	import { clearPageDrawerAnchor, pageDrawerSessionSource } from './sessions/pageDrawerSession'
 	import { VARIABLES_PATH } from './copilot/chat/global/pageNavigation'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -302,7 +302,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="50rem">
+<Drawer bind:this={drawer} size="50rem" on:close={() => clearPageDrawerAnchor(VARIABLES_PATH)}>
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		bannerReserved={edit}
