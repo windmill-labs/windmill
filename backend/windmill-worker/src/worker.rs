@@ -1399,11 +1399,32 @@ pub(crate) struct GoBuildLimits {
 }
 
 fn worker_vcpus() -> usize {
-    windmill_common::worker::get_vcpus()
-        // cgroup quota, in µs of CPU time per 100ms period.
-        .map(|quota| (quota / 100_000).max(1) as usize)
-        .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
-        .unwrap_or(1)
+    effective_vcpus(
+        windmill_common::worker::get_vcpus(),
+        windmill_common::worker::get_cpu_period(),
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1),
+    )
+}
+
+/// CPUs worth of work the worker can actually run at once.
+///
+/// The cgroup states its allowance as a quota over a period, and only their ratio
+/// is a number of CPUs — `1500m` is `150000/100000`. A fraction still runs work, so
+/// it rounds up the way the Go runtime's own container-aware `GOMAXPROCS` does:
+/// flooring would call that worker single-core and serialize its builds.
+///
+/// `host_cpus` is only the answer when there is no quota to read. It cannot also
+/// serve as a ceiling on one: `available_parallelism` already folds the quota in
+/// and floors it, so clamping to it would put back the rounding this exists to fix.
+fn effective_vcpus(quota_us: Option<i64>, period_us: Option<i64>, host_cpus: usize) -> usize {
+    quota_us
+        .zip(period_us)
+        .filter(|(quota, period)| *quota > 0 && *period > 0)
+        .map(|(quota, period)| ((quota + period - 1) / period) as usize)
+        .unwrap_or(host_cpus)
+        .max(1)
 }
 
 /// Split a build budget into the per-process cap and the parallelism it assumes.
@@ -1461,13 +1482,29 @@ fn resolve_go_build_limits(
 #[cfg(test)]
 mod go_build_limits_tests {
     use super::{
-        resolve_go_build_limits, GoBuildLimits, GO_BUILD_TARGET_MEMLIMIT, MIN_GO_BUILD_MEMLIMIT,
+        effective_vcpus, resolve_go_build_limits, GoBuildLimits, GO_BUILD_TARGET_MEMLIMIT,
+        MIN_GO_BUILD_MEMLIMIT,
     };
 
     const GIB: i64 = 1024 * 1024 * 1024;
 
     fn limits(budget: usize, memlimit: usize, parallelism: usize) -> Option<GoBuildLimits> {
         Some(GoBuildLimits { budget, memlimit, parallelism })
+    }
+
+    #[test]
+    fn reads_the_cgroup_allowance_as_cpus() {
+        // 1500m: a fraction of a CPU still runs work, so it is two compilers' worth
+        // of concurrency rather than one.
+        assert_eq!(effective_vcpus(Some(150_000), Some(100_000), 24), 2);
+        assert_eq!(effective_vcpus(Some(400_000), Some(100_000), 24), 4);
+        // The period is configurable, so only the ratio means anything.
+        assert_eq!(effective_vcpus(Some(400_000), Some(50_000), 24), 8);
+        // The quota is the answer whenever there is one to read, since the count
+        // it would otherwise be clamped to has already floored it.
+        assert_eq!(effective_vcpus(Some(4_000_000), Some(100_000), 4), 40);
+        assert_eq!(effective_vcpus(None, None, 8), 8);
+        assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 24), 1);
     }
 
     #[test]
