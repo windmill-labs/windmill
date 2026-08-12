@@ -24,26 +24,24 @@ const MAX_RESULT_CHARS = 20_000
 // confirmation and must not stay pinned to a stale answer for a whole session.
 const TOOLS_CACHE_TTL_MS = 60_000
 
+// Keyed by workspace as well as path: the same path names different servers in
+// different workspaces (a fork, most obviously), and `readOnlyHint` decides
+// whether a call needs confirmation — one workspace must never answer for another.
 let toolsCache: Record<string, { tools: McpToolDef[]; at: number }> = {}
-let toolsCacheWorkspace: string | undefined
 
 async function loadServerTools(workspace: string, path: string): Promise<McpToolDef[]> {
-	if (toolsCacheWorkspace !== workspace) {
-		toolsCache = {}
-		toolsCacheWorkspace = workspace
-	}
-	const cached = toolsCache[path]
+	const key = `${workspace}:${path}`
+	const cached = toolsCache[key]
 	if (cached && Date.now() - cached.at < TOOLS_CACHE_TTL_MS) {
 		return cached.tools
 	}
 	const tools = await ResourceService.getMcpTools({ workspace, path })
-	toolsCache[path] = { tools, at: Date.now() }
+	toolsCache[key] = { tools, at: Date.now() }
 	return tools
 }
 
 export function clearMcpToolsCache() {
 	toolsCache = {}
-	toolsCacheWorkspace = undefined
 }
 
 /**

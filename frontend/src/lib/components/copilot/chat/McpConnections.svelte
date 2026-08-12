@@ -7,7 +7,8 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Plug, Trash2 } from 'lucide-svelte'
+	import { Loader2, Plug, Plus, Trash2 } from 'lucide-svelte'
+	import type { Item } from '$lib/utils'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { clearMcpToolsCache } from './global/mcpTools'
 
@@ -61,6 +62,35 @@
 		await loadServers()
 	}
 
+	/** Rows for the chat's "+" menu: one per connected server, checked when it is
+	 * on, then the way to add another. Loaded on open so the checks are current. */
+	export async function menuItems(): Promise<Item[]> {
+		await loadServers()
+		return [
+			...servers.map((server) => ({
+				displayName: server.path,
+				icon: Plug,
+				selected: server.enabled,
+				action: () => toggle(server.path, !server.enabled)
+			})),
+			{
+				displayName: 'Connect a server',
+				icon: Plus,
+				separatorTop: servers.length > 0,
+				action: () => void open()
+			}
+		]
+	}
+
+	async function toggle(path: string, enabled: boolean) {
+		// Local preference only: nothing to re-read from the API, and the cached
+		// tool lists stay valid because the servers are unchanged.
+		setMcpEnabled(ws, path, enabled)
+		const server = servers.find((s) => s.path === path)
+		if (server) server.enabled = enabled
+		await aiChatManager.refreshMcpServers()
+	}
+
 	// Deleting a resource also deletes every variable its value references, and an
 	// mcp resource's token is usually the credential of the resource it was created
 	// from (the github one). Drop the reference before deleting so disconnecting
@@ -79,6 +109,9 @@
 				requestBody: { value: withoutToken }
 			})
 			await ResourceService.deleteResource({ workspace: ws, path })
+			// A later resource at this path is a different server; it must be turned
+			// on deliberately rather than inherit this one's enablement.
+			setMcpEnabled(ws, path, false)
 			sendUserToast(`Disconnected ${path}. Its token variable was kept.`)
 			await refresh()
 		} catch (e) {
@@ -98,16 +131,6 @@
 		await aiChatManager.refreshMcpServers()
 	}
 </script>
-
-<Button
-	unifiedSize="2xs"
-	variant="subtle"
-	iconOnly
-	startIcon={{ icon: Plug }}
-	btnClasses="text-secondary"
-	title="MCP connections"
-	onClick={open}
-/>
 
 <Drawer bind:this={drawer} size="700px">
 	<DrawerContent
@@ -157,13 +180,7 @@
 							<Toggle
 								size="xs"
 								checked={server.enabled}
-								on:change={async (e) => {
-									// Local preference only: nothing to re-read from the API, and the
-									// cached tool lists stay valid because the servers are unchanged.
-									setMcpEnabled(ws, server.path, e.detail)
-									server.enabled = e.detail
-									await aiChatManager.refreshMcpServers()
-								}}
+								on:change={async (e) => await toggle(server.path, e.detail)}
 							/>
 							<div class="min-w-0 grow">
 								<div class="text-xs font-mono text-emphasis truncate">{server.path}</div>

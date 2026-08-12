@@ -11,7 +11,8 @@
 	import { onDestroy, untrack } from 'svelte'
 	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { MCP_REGISTRY, findMcpEntry } from './registry'
-	import { OauthService, ResourceService, VariableService } from '$lib/gen'
+	import { OauthService, ResourceService } from '$lib/gen'
+	import { upsertSecretVariable } from './secretVariable'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 
@@ -204,16 +205,13 @@
 					})
 				)
 			}
-			await VariableService.createVariable({
+			await upsertSecretVariable({
 				workspace: ws,
-				requestBody: {
-					path: manualPath,
-					value: res.access_token,
-					is_secret: true,
-					is_oauth: true,
-					account,
-					description: `OAuth token for ${entry!.name}`
-				}
+				path: manualPath,
+				value: res.access_token,
+				isOauth: true,
+				account,
+				description: `OAuth token for ${entry!.name}`
 			})
 			await createMcpResource(manualPath, `$var:${manualPath}`)
 			sendUserToast(`Connected ${entry!.name}`)
@@ -229,14 +227,11 @@
 		if (!url || !token || !manualPath) return
 		saving = true
 		try {
-			await VariableService.createVariable({
+			await upsertSecretVariable({
 				workspace: ws,
-				requestBody: {
-					path: `${manualPath}_token`,
-					value: token,
-					is_secret: true,
-					description: `Token for the ${manualPath} MCP server`
-				}
+				path: `${manualPath}_token`,
+				value: token,
+				description: `Token for the ${manualPath} MCP server`
 			})
 			await createMcpResource(manualPath, `$var:${manualPath}_token`)
 			sendUserToast(`Connected ${entry?.name ?? url}`)
@@ -359,6 +354,7 @@
 				<McpOAuthConnect
 					server={{ name: entry?.name ?? serverName, url: committedUrl }}
 					path={manualPath}
+					pathValid={manualPathError === ''}
 					workspace={ws}
 					onConnected={(path) => onConnected(path)}
 				/>

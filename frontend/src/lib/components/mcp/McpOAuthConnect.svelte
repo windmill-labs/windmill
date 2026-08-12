@@ -4,13 +4,13 @@
 		McpOauthService,
 		OauthService,
 		ResourceService,
-		VariableService,
 		type DiscoverMcpOauthResponse
 	} from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import { Check } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { upsertSecretVariable } from './secretVariable'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { onDestroy, onMount } from 'svelte'
 
@@ -20,10 +20,12 @@
 		server: { name: string; url: string }
 		/** Where the resource and its token variable land. */
 		path: string
+		/** The caller owns the path picker, so it owns whether the path is usable. */
+		pathValid?: boolean
 		workspace?: string
 	}
 
-	let { onConnected, server, path, workspace }: Props = $props()
+	let { onConnected, server, path, pathValid = true, workspace }: Props = $props()
 
 	let opWs = $derived(workspace ?? $workspaceStore)
 
@@ -122,16 +124,13 @@
 				accountId = Number(accountIdStr)
 			}
 
-			await VariableService.createVariable({
+			await upsertSecretVariable({
 				workspace: opWs!,
-				requestBody: {
-					path: path,
-					value: data.access_token,
-					is_secret: true,
-					is_oauth: true,
-					account: accountId,
-					description: `MCP OAuth token for ${data.mcp_server_url}`
-				}
+				path,
+				value: data.access_token,
+				isOauth: true,
+				account: accountId,
+				description: `MCP OAuth token for ${data.mcp_server_url}`
 			})
 
 			await ResourceService.createResource({
@@ -218,7 +217,7 @@
 			variant="accent"
 			wrapperClasses="self-start"
 			onClick={startOAuth}
-			disabled={!path}
+			disabled={!path || !pathValid}
 		>
 			Sign in with {server.name}
 		</Button>

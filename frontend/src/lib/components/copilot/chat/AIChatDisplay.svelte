@@ -15,6 +15,7 @@
 		Hand,
 		HistoryIcon,
 		MousePointer2,
+		Plug,
 		Plus,
 		TextSelect,
 		X,
@@ -154,6 +155,7 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
+	let mcpConnections: McpConnections | undefined = $state()
 	let editingMessageIndex = $state<number | null>(null)
 
 	// Escape stops the generation when focus is on the chat (or parked on
@@ -834,7 +836,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						{#if canAttachFiles}
 							<DropdownV2
-								items={() => [
+								items={async () => [
 									{
 										displayName: 'Attach file or image',
 										icon: FileText,
@@ -849,7 +851,17 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
 											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
 										action: () => linkFolder()
-									}
+									},
+									...(aiChatManager.mode === AIMode.GLOBAL && mcpConnections
+										? [
+												{
+													displayName: 'MCP connections',
+													icon: Plug,
+													separatorTop: true,
+													submenuItems: await mcpConnections.menuItems()
+												}
+											]
+										: [])
 								]}
 								placement="bottom-start"
 								fixedHeight={false}
@@ -984,7 +996,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						<ContextUsageIndicator />
 						<AIChatModelSettings />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
-							<McpConnections />
+							<McpConnections bind:this={mcpConnections} />
 						{/if}
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
