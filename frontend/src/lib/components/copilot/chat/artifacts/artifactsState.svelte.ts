@@ -181,10 +181,16 @@ export class SessionArtifactsStore {
 	): Promise<ArtifactVersion | undefined> {
 		const artifact = await this.get(id)
 		if (opts?.sessionId !== undefined && artifact?.sessionId !== opts.sessionId) return undefined
-		const stored = await getArtifactVersion(id, version)
-		if (stored) return stored
-		if (artifact && currentVersion(artifact) === version) return snapshotOf(artifact, version)
-		return undefined
+		// The current content is held in memory, so it is the one version a broken store can
+		// still serve; for any older one the read failing propagates (see getArtifactVersion).
+		const live =
+			artifact && currentVersion(artifact) === version ? snapshotOf(artifact, version) : undefined
+		try {
+			return (await getArtifactVersion(id, version)) ?? live
+		} catch (err) {
+			if (live) return live
+			throw err
+		}
 	}
 
 	async remove(id: string): Promise<void> {

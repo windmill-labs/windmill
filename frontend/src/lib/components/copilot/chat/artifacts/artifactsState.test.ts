@@ -278,6 +278,16 @@ describe('SessionArtifactsStore', () => {
 		expect(stored.some((v) => v.version === row!.version)).toBe(true)
 	})
 
+	it('serves the live version from memory when the store is unreadable, but not an older one', async () => {
+		await store.setSession('s1')
+		const created = await store.create('s1', { name: 'Plan', content: 'v1' })
+		await store.update(created.id, { content: 'v2', note: 'second' })
+		vi.spyOn(dbMod, 'getArtifactVersion').mockRejectedValue(new Error('read failed'))
+
+		expect((await store.getVersion(created.id, 2))?.content).toBe('v2')
+		await expect(store.getVersion(created.id, 1)).rejects.toThrow('read failed')
+	})
+
 	it('keeps a legacy v1 when a rename lands before the first content edit', async () => {
 		await dbMod.putArtifact(mk({ id: 'legacy', content: 'original' }))
 		await store.setSession('s1')
