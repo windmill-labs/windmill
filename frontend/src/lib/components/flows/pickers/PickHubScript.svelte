@@ -123,7 +123,7 @@
 			// Rides the anonymous stats payload rather than a live call to the hub,
 			// so instances that cannot reach the hub still report which integrations
 			// they use.
-			logHubScriptPick(item.path, 'picker')
+			logHubScriptPick(item.path)
 			try {
 				await ScriptService.pickHubScriptByPath({ path: item.path })
 			} catch (error) {

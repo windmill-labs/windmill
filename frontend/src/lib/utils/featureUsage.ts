@@ -148,10 +148,10 @@ export function logFeatureUsage(feature: string, kind: string, opts: FeatureUsag
  * Rust twin: `hub_script_usage_key` in `backend/windmill-common/src/feature_usage.rs`,
  * which reduces the same paths for the flow inventory.
  */
-export function logHubScriptPick(path: string, origin: 'picker' | 'ai'): void {
+export function logHubScriptPick(path: string): void {
 	const key = hubScriptUsageKey(path)
 	if (key) {
-		logFeatureUsage('hub_script', origin === 'ai' ? 'picked_ai' : 'picked', { key })
+		logFeatureUsage('hub_script', 'picked', { key })
 	}
 }
 
