@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getMcpToolsMock } = vi.hoisted(() => ({
-	getMcpToolsMock: vi.fn()
+const { getMcpToolsMock, callMcpToolMock } = vi.hoisted(() => ({
+	getMcpToolsMock: vi.fn(),
+	callMcpToolMock: vi.fn()
 }))
 
 vi.mock('../shared', () => ({
@@ -13,13 +14,14 @@ vi.mock('../shared', () => ({
 
 vi.mock('$lib/gen', () => ({
 	ResourceService: {
-		getMcpTools: getMcpToolsMock
+		getMcpTools: getMcpToolsMock,
+		callMcpTool: callMcpToolMock
 	}
 }))
 
 import { clearMcpToolsCache, createMcpTools, type McpServer } from './mcpTools'
 
-const SERVERS: McpServer[] = [{ path: 'u/hugo/github_mcp', name: 'github_mcp' }]
+const SERVERS: McpServer[] = [{ path: 'u/hugo/github_mcp' }]
 
 const TOOLS = [
 	{
@@ -74,7 +76,7 @@ beforeEach(() => {
 	vi.clearAllMocks()
 	clearMcpToolsCache()
 	getMcpToolsMock.mockResolvedValue(TOOLS)
-	vi.unstubAllGlobals()
+	callMcpToolMock.mockReset()
 })
 
 describe('tool registration', () => {
@@ -119,15 +121,10 @@ describe('read/write split', () => {
 
 describe('call results', () => {
 	it('returns the tool argument schema when the call is rejected', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn().mockResolvedValue({
-				ok: false,
-				status: 400,
-				headers: { get: () => 'application/json' },
-				json: async () => ({ error: { message: 'missing owner' } })
-			})
-		)
+		callMcpToolMock.mockRejectedValue({
+			status: 400,
+			body: { error: { message: 'missing owner' } }
+		})
 		const result = await run('call_mcp_read_tool', {
 			server: 'u/hugo/github_mcp',
 			tool: 'get_issue',
@@ -138,18 +135,10 @@ describe('call results', () => {
 	})
 
 	it('reports a tool that ran but returned isError as a failure', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn().mockResolvedValue({
-				ok: true,
-				status: 200,
-				headers: { get: () => 'application/json' },
-				json: async () => ({
-					content: [{ type: 'text', text: 'issue not found' }],
-					isError: true
-				})
-			})
-		)
+		callMcpToolMock.mockResolvedValue({
+			content: [{ type: 'text', text: 'issue not found' }],
+			isError: true
+		})
 		const result = await run('call_mcp_read_tool', {
 			server: 'u/hugo/github_mcp',
 			tool: 'get_issue',
@@ -160,15 +149,7 @@ describe('call results', () => {
 	})
 
 	it('flattens text content on success', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn().mockResolvedValue({
-				ok: true,
-				status: 200,
-				headers: { get: () => 'application/json' },
-				json: async () => ({ content: [{ type: 'text', text: '{"number":42}' }] })
-			})
-		)
+		callMcpToolMock.mockResolvedValue({ content: [{ type: 'text', text: '{"number":42}' }] })
 		const result = await run('call_mcp_read_tool', {
 			server: 'u/hugo/github_mcp',
 			tool: 'get_issue',
@@ -190,5 +171,29 @@ describe('search_mcp_tools', () => {
 				params: ['owner', 'repo']
 			}
 		])
+	})
+
+	it('still returns matches when one server is unreachable', async () => {
+		const servers: McpServer[] = [...SERVERS, { path: 'u/hugo/broken_mcp' }]
+		getMcpToolsMock.mockImplementation(({ path }: { path: string }) =>
+			path === 'u/hugo/broken_mcp'
+				? Promise.reject(new Error('connection refused'))
+				: Promise.resolve(TOOLS)
+		)
+		const tool = createMcpTools(servers).find(
+			(entry) => entry.def.function.name === 'search_mcp_tools'
+		)!
+		const result = JSON.parse(
+			await tool.fn({
+				args: { query: 'issue' },
+				workspace: 'test-ws',
+				helpers: {},
+				toolCallbacks: createToolCallbacks(),
+				toolId: 'tool-1'
+			})
+		)
+		expect(result.matches).toHaveLength(1)
+		expect(result.unavailable).toHaveLength(1)
+		expect(result.unavailable[0]).toContain('u/hugo/broken_mcp')
 	})
 })

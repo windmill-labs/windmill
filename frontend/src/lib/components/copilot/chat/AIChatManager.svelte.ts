@@ -2763,8 +2763,10 @@ export class AIChatManager {
 		// Session chats commit their workspace in beforeSend; skills and MCP servers
 		// must match the committed workspace before the system prompt is sent.
 		if (this.mode === AIMode.GLOBAL) {
-			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
-			await this.refreshMcpServers(this.operatingWorkspace ?? '')
+			await Promise.all([
+				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
+				this.refreshMcpServers(this.operatingWorkspace ?? '')
+			])
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
 		// request went out. Mirror the main "cancelled before usable output" recovery:

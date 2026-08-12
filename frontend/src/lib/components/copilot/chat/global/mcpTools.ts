@@ -13,13 +13,17 @@ import { createToolDef, type Tool } from '../shared'
 
 type McpToolDef = GetMcpToolsResponse[number]
 
-export type McpServer = { path: string; name: string }
+export type McpServer = { path: string }
 
 const MAX_SEARCH_RESULTS = 10
 const MAX_DESCRIPTION_CHARS = 200
 const MAX_RESULT_CHARS = 20_000
+// Listing costs a full MCP handshake against a third party, so it is cached —
+// but bounded, because `readOnlyHint` decides whether a call needs the user's
+// confirmation and must not stay pinned to a stale answer for a whole session.
+const TOOLS_CACHE_TTL_MS = 60_000
 
-let toolsCache: Record<string, McpToolDef[]> = {}
+let toolsCache: Record<string, { tools: McpToolDef[]; at: number }> = {}
 let toolsCacheWorkspace: string | undefined
 
 async function loadServerTools(workspace: string, path: string): Promise<McpToolDef[]> {
@@ -27,10 +31,13 @@ async function loadServerTools(workspace: string, path: string): Promise<McpTool
 		toolsCache = {}
 		toolsCacheWorkspace = workspace
 	}
-	if (!toolsCache[path]) {
-		toolsCache[path] = await ResourceService.getMcpTools({ workspace, path })
+	const cached = toolsCache[path]
+	if (cached && Date.now() - cached.at < TOOLS_CACHE_TTL_MS) {
+		return cached.tools
 	}
-	return toolsCache[path]
+	const tools = await ResourceService.getMcpTools({ workspace, path })
+	toolsCache[path] = { tools, at: Date.now() }
+	return tools
 }
 
 export function clearMcpToolsCache() {
@@ -47,10 +54,7 @@ export async function loadMcpServers(workspace: string): Promise<McpServer[]> {
 			resourceType: 'mcp',
 			perPage: 100
 		})
-		return resources.map((r) => ({
-			path: r.path,
-			name: r.path.split('/').pop() ?? r.path
-		}))
+		return resources.map((r) => ({ path: r.path }))
 	} catch (e) {
 		console.error('Failed to load MCP servers', e)
 		return []
@@ -111,6 +115,10 @@ function summarizeTool(server: McpServer, tool: McpToolDef) {
 	}
 }
 
+function errorMessage(e: any): string {
+	return e?.body?.error?.message ?? e?.body ?? e?.message ?? String(e)
+}
+
 async function resolveTool(
 	workspace: string,
 	servers: McpServer[],
@@ -152,31 +160,27 @@ async function executeTool(
 	tool: McpToolDef,
 	args: Record<string, unknown>
 ): Promise<string> {
-	const response = await fetch(
-		`/api/w/${encodeURIComponent(workspace)}/resources/mcp_call_tool/${server.path}`,
-		{
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ tool: tool.name, arguments: args })
-		}
-	)
-	const raw = response.headers.get('content-type')?.includes('application/json')
-		? await response.json()
-		: await response.text()
-
-	if (!response.ok) {
+	let raw: unknown
+	try {
+		raw = await ResourceService.callMcpTool({
+			workspace,
+			path: server.path,
+			requestBody: { tool: tool.name, arguments: args }
+		})
+	} catch (e: any) {
+		const status = e?.status
 		return JSON.stringify({
 			success: false,
-			status: response.status,
-			error: typeof raw === 'string' ? raw : JSON.stringify(raw),
+			...(status ? { status } : {}),
+			error: errorMessage(e),
 			// Wrong arguments are the common failure — echo the schema so the model
 			// can self-correct on the next call without a separate schema tool.
-			...(response.status >= 400 && response.status < 500 ? { schema: tool.inputSchema } : {})
+			...(status >= 400 && status < 500 ? { schema: tool.inputSchema } : {})
 		})
 	}
 
 	const data = extractResultData(raw)
-	// A tool that ran but reported failure comes back as a 200 with isError set.
+	// A tool that ran but reported failure comes back as a success with isError set.
 	if ((raw as { isError?: boolean })?.isError) {
 		return JSON.stringify({
 			success: false,
@@ -211,9 +215,63 @@ const callMcpToolSchema = z.object({
 })
 
 /**
- * Built per session from the servers the user connected so the descriptions can
- * name them: without that the model would have to search blind to discover that
- * a GitHub connection exists at all.
+ * The read and write call tools differ only in which side of the `readOnlyHint`
+ * split they accept, and that check is what keeps a mutating call behind the
+ * user's confirmation — building both from one body keeps them from drifting.
+ */
+function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> {
+	const isRead = mode === 'read'
+	return {
+		def: createToolDef(
+			callMcpToolSchema,
+			isRead ? 'call_mcp_read_tool' : 'call_mcp_write_tool',
+			isRead
+				? 'Call a read-only tool on a connected MCP server. Use search_mcp_tools first to find the server and tool names; a failed call returns the tool argument schema.'
+				: 'Call a tool that modifies data on a connected MCP server; the user is asked to confirm. Use search_mcp_tools first to find the server and tool names; a failed call returns the tool argument schema.'
+		),
+		showDetails: true,
+		...(isRead
+			? {}
+			: {
+					requiresConfirmation: true,
+					confirmationMessage: (args: any) => `Call ${args?.tool ?? ''} on ${args?.server ?? ''}`
+				}),
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = callMcpToolSchema.parse(args)
+			const resolved = await resolveTool(workspace, servers, parsed.server, parsed.tool)
+			if ('error' in resolved) {
+				toolCallbacks.setToolStatus(toolId, { content: resolved.error, error: resolved.error })
+				return JSON.stringify({ success: false, error: resolved.error })
+			}
+			if (isReadOnly(resolved.tool) !== isRead) {
+				const error = isRead
+					? `"${parsed.tool}" is not marked read-only — use call_mcp_write_tool.`
+					: `"${parsed.tool}" is read-only — use call_mcp_read_tool (no confirmation needed).`
+				toolCallbacks.setToolStatus(toolId, { content: error, error })
+				return JSON.stringify({ success: false, error })
+			}
+			toolCallbacks.setToolStatus(toolId, { content: `Calling ${parsed.tool}...` })
+			const result = await executeTool(
+				workspace,
+				resolved.server,
+				resolved.tool,
+				parsed.arguments ?? {}
+			)
+			const ok = JSON.parse(result).success === true
+			toolCallbacks.setToolStatus(toolId, {
+				content: ok ? `Called ${parsed.tool}` : `Call to ${parsed.tool} failed`,
+				result,
+				...(ok ? {} : { error: `Call to ${parsed.tool} failed` })
+			})
+			return result
+		}
+	}
+}
+
+/**
+ * Built per session from the servers the user connected: with none, the tools
+ * are not registered at all, so a workspace without an MCP connection pays no
+ * per-iteration schema cost for them.
  */
 export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 	if (servers.length === 0) return []
@@ -224,16 +282,24 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 			def: createToolDef(
 				searchMcpToolsSchema,
 				'search_mcp_tools',
-				`Search the tools exposed by the MCP servers connected to this workspace (${serverList}). Returns server + tool names to pass to call_mcp_read_tool or call_mcp_write_tool.`
+				'Search the tools exposed by the MCP servers connected to this workspace (listed in the system prompt). Returns server + tool names to pass to call_mcp_read_tool or call_mcp_write_tool.'
 			),
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsed = searchMcpToolsSchema.parse(args)
 				toolCallbacks.setToolStatus(toolId, { content: 'Searching MCP tools...' })
 				const queryTokens = tokenize(parsed.query)
+				// One unreachable server must not blank out the others: connecting is a
+				// live network call to a third party, so a single failure is expected.
+				const unavailable: string[] = []
 				const perServer = await Promise.all(
 					servers.map(async (server) => {
-						const tools = await loadServerTools(workspace, server.path)
-						return tools.map((tool) => ({ server, tool }))
+						try {
+							const tools = await loadServerTools(workspace, server.path)
+							return tools.map((tool) => ({ server, tool }))
+						} catch (e) {
+							unavailable.push(`${server.path}: ${errorMessage(e)}`)
+							return []
+						}
 					})
 				)
 				const scored = perServer
@@ -246,7 +312,8 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 					const result = JSON.stringify(
 						{
 							matches: [],
-							hint: `No tool matched on ${serverList}. Retry with different keywords.`
+							hint: `No tool matched on ${serverList}. Retry with different keywords.`,
+							...(unavailable.length > 0 ? { unavailable } : {})
 						},
 						null,
 						2
@@ -262,7 +329,8 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 							? {
 									note: `${scored.length - top.length} more match(es) — refine the query to see them.`
 								}
-							: {})
+							: {}),
+						...(unavailable.length > 0 ? { unavailable } : {})
 					},
 					null,
 					2
@@ -274,77 +342,7 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 				return result
 			}
 		},
-		{
-			def: createToolDef(
-				callMcpToolSchema,
-				'call_mcp_read_tool',
-				'Call a read-only tool on a connected MCP server. Use search_mcp_tools first to find the server and tool names; a failed call returns the tool argument schema.'
-			),
-			showDetails: true,
-			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				const parsed = callMcpToolSchema.parse(args)
-				const resolved = await resolveTool(workspace, servers, parsed.server, parsed.tool)
-				if ('error' in resolved) {
-					toolCallbacks.setToolStatus(toolId, { content: resolved.error, error: resolved.error })
-					return JSON.stringify({ success: false, error: resolved.error })
-				}
-				if (!isReadOnly(resolved.tool)) {
-					const error = `"${parsed.tool}" is not marked read-only — use call_mcp_write_tool.`
-					toolCallbacks.setToolStatus(toolId, { content: error, error })
-					return JSON.stringify({ success: false, error })
-				}
-				toolCallbacks.setToolStatus(toolId, { content: `Calling ${parsed.tool}...` })
-				const result = await executeTool(
-					workspace,
-					resolved.server,
-					resolved.tool,
-					parsed.arguments ?? {}
-				)
-				const ok = JSON.parse(result).success === true
-				toolCallbacks.setToolStatus(toolId, {
-					content: ok ? `Called ${parsed.tool}` : `Call to ${parsed.tool} failed`,
-					result,
-					...(ok ? {} : { error: `Call to ${parsed.tool} failed` })
-				})
-				return result
-			}
-		},
-		{
-			def: createToolDef(
-				callMcpToolSchema,
-				'call_mcp_write_tool',
-				'Call a tool that modifies data on a connected MCP server; the user is asked to confirm. Use search_mcp_tools first to find the server and tool names; a failed call returns the tool argument schema.'
-			),
-			requiresConfirmation: true,
-			confirmationMessage: (args) => `Call ${args?.tool ?? ''} on ${args?.server ?? ''}`,
-			showDetails: true,
-			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				const parsed = callMcpToolSchema.parse(args)
-				const resolved = await resolveTool(workspace, servers, parsed.server, parsed.tool)
-				if ('error' in resolved) {
-					toolCallbacks.setToolStatus(toolId, { content: resolved.error, error: resolved.error })
-					return JSON.stringify({ success: false, error: resolved.error })
-				}
-				if (isReadOnly(resolved.tool)) {
-					const error = `"${parsed.tool}" is read-only — use call_mcp_read_tool (no confirmation needed).`
-					toolCallbacks.setToolStatus(toolId, { content: error, error })
-					return JSON.stringify({ success: false, error })
-				}
-				toolCallbacks.setToolStatus(toolId, { content: `Calling ${parsed.tool}...` })
-				const result = await executeTool(
-					workspace,
-					resolved.server,
-					resolved.tool,
-					parsed.arguments ?? {}
-				)
-				const ok = JSON.parse(result).success === true
-				toolCallbacks.setToolStatus(toolId, {
-					content: ok ? `Called ${parsed.tool}` : `Call to ${parsed.tool} failed`,
-					result,
-					...(ok ? {} : { error: `Call to ${parsed.tool} failed` })
-				})
-				return result
-			}
-		}
+		createCallTool(servers, 'read'),
+		createCallTool(servers, 'write')
 	]
 }
