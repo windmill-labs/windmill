@@ -63,9 +63,11 @@ and the rest of `runtime.env`. Scope every kill to this worktree — **never**
    Carry over every feature the old command had unless you mean to drop one — rebuilding the list
    from memory is how a backend silently loses `quickjs`.
 
-4. Persist the new set so a recreated pane starts with it: set `CARGO_FEATURES` in
-   `$(git rev-parse --git-dir)/webmux/runtime.env`. That file is read at pane startup only, so it
-   changes nothing about the process you just relaunched — step 3 is what takes effect now.
+4. Persist the new set so a recreated pane starts with it: set `CARGO_FEATURES` in the
+   worktree's `.env.local`, which `scripts/post-create.sh` writes and webmux reads. Do **not**
+   edit `runtime.env` for this — webmux regenerates it from metadata and `.env.local` every time
+   the worktree is opened, so an edit there is lost on the next reopen. Either way the change
+   only affects a future pane; step 3 is what takes effect now.
 
 5. Re-capture the pane until `health check completed` appears before hitting the API. A cold
    rebuild takes ~60s, and the previous run's success line is still in the scrollback, so a
