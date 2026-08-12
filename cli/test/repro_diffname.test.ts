@@ -86,10 +86,9 @@ test("Raw app: generate-metadata must not create duplicate files when runnable k
       { method: "POST", headers: { Authorization: `Bearer ${backend.token}` }, body: formData },
     );
     expect(createResp.ok).toBeTruthy();
-    // Deploying the app queues a dependency job that writes the generated locks
-    // back into the app value. Pulling while it is in flight yields a local copy
-    // with no lock files, so the push below stops being the no-op this test
-    // asserts: it becomes a real change, and rebuilding a raw app bundle needs a
+    // Deploying queues a dependency job that writes the generated locks back into
+    // the app value. Pulling mid-flight leaves the locks out locally, which turns
+    // the push below into a real change — and rebuilding a raw app bundle needs a
     // package.json this fixture has no reason to carry.
     await waitForDeploymentJobs(backend);
 
