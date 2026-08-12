@@ -223,12 +223,13 @@ export function describeLocation(loc: string): PreviewLocation {
 
 // By content, never by the raw string: a page hands its params back in its own order and
 // re-encodes what it was given (`path=f/a` arrives as `path=f%2Fa`), and neither is a
-// change of view.
+// change of view. Re-encoded on the way out so a value holding a delimiter stays one
+// pair — decoded, `?arg=x%26result%3Dy` and `?arg=x&result=y` read alike.
 function requestedParams(query: string, allowed: readonly string[] | undefined): string {
 	if (!allowed?.length) return ''
 	const parts: string[] = []
 	new URLSearchParams(query).forEach((v, k) => {
-		if (allowed.includes(k)) parts.push(`${k}=${v}`)
+		if (allowed.includes(k)) parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
 	})
 	return parts.sort().join('&')
 }

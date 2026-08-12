@@ -46,7 +46,7 @@ describe('stripBaseKeepingSuffix', () => {
 describe('describeLocation', () => {
 	it('reads a query param as the view only when a request could have set it', () => {
 		// Runs: the filters are what the tab shows.
-		expect(describeLocation('/runs?path=u/me/a').view).toBe('path=u/me/a')
+		expect(sameView('/runs?path=u/me/a', '/runs')).toBe(false)
 		// A list page writes its own defaults back; that is not a different view.
 		expect(describeLocation('/routes?filter_path_of=trigger').view).toBe('')
 		expect(sameView('/routes', '/routes?filter_path_of=trigger')).toBe(true)
@@ -99,6 +99,14 @@ describe('describeLocation', () => {
 		expect(describeLocation('artifact:abc-123#My Doc').identity).toBe('artifact:abc-123')
 		expect(sameView('artifact:abc-123#Old name', 'artifact:abc-123#New name')).toBe(true)
 		expect(sameView('artifact:abc-123', 'artifact:def-456')).toBe(false)
+	})
+
+	it('keeps a value holding a delimiter apart from two filters', () => {
+		// Decoded, one `arg` whose value is `x&result=y` reads exactly like `arg` plus
+		// `result` — collapsing them focuses the open tab and drops the filter asked for.
+		expect(sameView('/runs?arg=x%26result%3Dy', '/runs?arg=x&result=y')).toBe(false)
+		// The re-encoding a page does to what it was handed is still not a change of view.
+		expect(sameView('/runs?path=f/crm/x', '/runs?path=f%2Fcrm%2Fx')).toBe(true)
 	})
 
 	it('ignores the params the preview host injects, and param order', () => {
