@@ -33,6 +33,7 @@
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
 	import { openEditorInSession, openPageInSession } from './sessionSwitch.svelte'
 
 	let {
@@ -74,6 +75,9 @@
 		if (opening || !source) return
 		opening = true
 		try {
+			// `beforeOpen` persists what is on screen and throws when it could not, so a
+			// failure has to stay on this page and say so — the session would otherwise
+			// open on an older draft than the editor the user is looking at.
 			await source.beforeOpen?.()
 			if (source.target) {
 				await openEditorInSession(source.target, source.workspaceId, source.previewParams)
@@ -81,6 +85,8 @@
 				const href = source.page?.()
 				if (href) await openPageInSession(href, source.workspaceId)
 			}
+		} catch (e) {
+			sendUserToast(e instanceof Error ? e.message : String(e), true)
 		} finally {
 			opening = false
 		}

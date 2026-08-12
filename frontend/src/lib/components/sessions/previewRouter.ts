@@ -146,48 +146,51 @@ export function canonicalizeObservedLoc(loc: string): string {
 	}
 }
 
-// A page's own filter schema — what it hands FilterSearchbar — is its declaration of
-// which query params are the view the user chose, so read the names from there rather
-// than restating them. Every option is passed so the set is the page's whole vocabulary,
-// not one viewer's subset: a name missing here is silently taken for the page's own.
-const PAGE_FILTER_SCHEMA: Record<string, Record<string, unknown>> = {
-	'/runs': buildRunsFilterSearchbarSchema({
-		paths: [],
-		usernames: [],
-		folders: [],
-		jobTriggerKinds: [],
-		isSuperAdminOrDevops: true,
-		isAdminsWorkspace: true
-	}),
-	'/schedules': buildSchedulesFilterSchema({
-		paths: [],
-		scriptPaths: [],
-		showUserFoldersFilter: true
-	}),
-	'/variables': buildVariablesFilterSchema({ paths: [], owners: [], showUserFoldersFilter: true }),
-	'/resources': buildResourcesFilterSchema({
-		paths: [],
-		resourceTypes: [],
-		owners: [],
-		showUserFoldersFilter: true
-	}),
-	'/assets': buildAssetsFilterSchema({ paths: [], assetKinds: [] })
-}
-
 // The query params belonging to the request; every other one the page wrote into its own
-// URL (`filter_path_of`, `page`/`perPage`) and must not read as a view. Only the pages
-// with no filter schema are listed — they read their params straight off the URL. The
-// URL builders read this whole table back as their `validKeys`.
-export const PAGE_REQUEST_PARAMS: Record<string, readonly string[]> = {
-	...Object.fromEntries(Object.entries(PAGE_FILTER_SCHEMA).map(([p, s]) => [p, Object.keys(s)])),
-	'/audit_logs': ['username', 'operation', 'resource'],
-	'/workspace_settings': ['tab'],
-	[COMPARE_PAGE.path]: ['workspace_id', 'mode', COMPARE_ITEMS_PARAM]
+// URL (`filter_path_of`, `page`/`perPage`) and must not read as a view. Where a page
+// declares a filter schema — what it hands FilterSearchbar — that schema is its own list
+// of the names, with every option on so the set is its whole vocabulary rather than one
+// viewer's subset; the rest read their params straight off the URL and are written out.
+// Built on first use: only the key names are ever needed, and this module is imported by
+// the Runs page and by every trigger drawer.
+let requestParams: Record<string, readonly string[]> | undefined
+
+function pageRequestParamTable(): Record<string, readonly string[]> {
+	return (requestParams ??= {
+		'/runs': Object.keys(
+			buildRunsFilterSearchbarSchema({
+				paths: [],
+				usernames: [],
+				folders: [],
+				jobTriggerKinds: [],
+				isSuperAdminOrDevops: true,
+				isAdminsWorkspace: true
+			})
+		),
+		'/schedules': Object.keys(
+			buildSchedulesFilterSchema({ paths: [], scriptPaths: [], showUserFoldersFilter: true })
+		),
+		'/variables': Object.keys(
+			buildVariablesFilterSchema({ paths: [], owners: [], showUserFoldersFilter: true })
+		),
+		'/resources': Object.keys(
+			buildResourcesFilterSchema({
+				paths: [],
+				resourceTypes: [],
+				owners: [],
+				showUserFoldersFilter: true
+			})
+		),
+		'/assets': Object.keys(buildAssetsFilterSchema({ paths: [], assetKinds: [] })),
+		'/audit_logs': ['username', 'operation', 'resource'],
+		'/workspace_settings': ['tab'],
+		[COMPARE_PAGE.path]: ['workspace_id', 'mode', COMPARE_ITEMS_PARAM]
+	})
 }
 
 /** The query params a request can set on `path` — empty for a page that takes none. */
 export function pageRequestParams(path: string): readonly string[] {
-	return PAGE_REQUEST_PARAMS[stripBase(path)] ?? []
+	return pageRequestParamTable()[stripBase(path)] ?? []
 }
 
 /** What a preview location means, read against the page it points at. */
@@ -213,7 +216,7 @@ export function describeLocation(loc: string): PreviewLocation {
 	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
 	return {
 		identity: path,
-		view: requestedParams(query, PAGE_REQUEST_PARAMS[path]),
+		view: requestedParams(query, pageRequestParamTable()[path]),
 		anchor: drawerAnchorFor(canonical) ?? ''
 	}
 }
@@ -235,6 +238,75 @@ export function sameView(a: string, b: string): boolean {
 	const x = describeLocation(a)
 	const y = describeLocation(b)
 	return x.identity === y.identity && x.view === y.view && x.anchor === y.anchor
+}
+
+// Filters whose value addresses a workspace object — a path, an owner, a kind, a state,
+// a timestamp — and so may be repeated to the model. A filter absent here keeps its name
+// and loses its value, because the rest search *over* content: the free-text box, a job's
+// arguments or result, a variable's or resource's value. Withholding by default means a
+// filter added later leaks nothing until it is listed deliberately.
+const ADDRESSING_PARAMS = new Set([
+	'path',
+	'path_start',
+	'schedule_path',
+	'script_path',
+	'asset_path',
+	'usage_path',
+	'owner',
+	'user',
+	'username',
+	'folder',
+	'worker',
+	'tag',
+	'label',
+	'resource_type',
+	'asset_kinds',
+	'job_kinds',
+	'job_trigger_kind',
+	'operation',
+	'resource',
+	'concurrency_key',
+	'status',
+	'min_ts',
+	'max_ts',
+	'timeframe',
+	'all_workspaces',
+	'show_skipped',
+	'show_future_jobs',
+	'resolved',
+	'user_folders_only',
+	'columns',
+	'tab',
+	'workspace_id',
+	'mode',
+	COMPARE_ITEMS_PARAM
+])
+
+/** How a preview location may be described to the model. Reassembled from the parts this
+ * module recognizes, never passed through whole: an iframe tab can host a legacy app,
+ * whose hash is app state its author chose, and a page can carry both filters that
+ * address an object and filters that search its contents. The chat has no redaction
+ * boundary of its own, so only the addressing ones keep their value. */
+export function previewLocationContext(loc: string): {
+	label: string
+	location: string
+	open?: string
+} {
+	const { identity, anchor } = describeLocation(loc)
+	const bare = canonicalizeObservedLoc(loc).split('#')[0]
+	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
+	const declared = pageRequestParams(identity)
+	const filters: string[] = []
+	new URLSearchParams(query).forEach((v, k) => {
+		if (declared.includes(k)) filters.push(ADDRESSING_PARAMS.has(k) ? `${k}=${v}` : k)
+	})
+	return {
+		// Labels come from route shape (page name, trigger kind, run id, item leaf), so
+		// they carry no query or hash of their own.
+		label: previewLocationLabel(loc),
+		location: identity + (filters.length ? `?${filters.sort().join('&')}` : ''),
+		open: anchor || undefined
+	}
 }
 
 /** Like `stripBase`, but keeps the query and hash: a list page's `?filters` and

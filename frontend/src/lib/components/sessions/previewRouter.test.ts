@@ -10,6 +10,7 @@ import {
 	parseArtifactRoute,
 	parsePreviewItemRoute,
 	parsePreviewSelectedId,
+	previewLocationContext,
 	previewLocationLabel,
 	resolvePreviewTab,
 	stripBaseKeepingSuffix
@@ -103,6 +104,47 @@ describe('describeLocation', () => {
 	it('ignores the params the preview host injects, and param order', () => {
 		expect(sameView('/runs?path=a', '/runs?path=a&nomenubar=true&workspace=ws')).toBe(true)
 		expect(sameView('/runs?path=a&status=running', '/runs?status=running&path=a')).toBe(true)
+	})
+})
+
+describe('previewLocationContext', () => {
+	it('keeps the page, the recognized filters and the anchored row', () => {
+		expect(previewLocationContext('/runs?path=u/me/a&status=failed')).toEqual({
+			label: 'Runs',
+			location: '/runs?path=u/me/a&status=failed',
+			open: undefined
+		})
+		expect(previewLocationContext('/schedules#u/me/daily')).toEqual({
+			label: 'Schedules',
+			location: '/schedules',
+			open: 'u/me/daily'
+		})
+	})
+
+	it('drops state the page owns rather than passing a location through whole', () => {
+		// A legacy app's hash is whatever its author put there, and the chat has no
+		// redaction boundary — it must never reach the model.
+		expect(previewLocationContext('/apps/get/u/me/dash#token=sk-secret').location).toBe(
+			'/apps/get/u/me/dash'
+		)
+		// Same for a param no page declares, and for the ones a page writes itself.
+		expect(previewLocationContext('/runs?unknown=sk-secret').location).toBe('/runs')
+		expect(previewLocationContext('/routes?filter_path_of=trigger').location).toBe('/routes')
+	})
+
+	it('keeps the name but not the value of a filter that searches content', () => {
+		// These search *over* what they filter: a job's arguments and result, a variable's
+		// or resource's value, the free-text box. Their values are the content itself.
+		expect(previewLocationContext('/runs?arg=sk-secret&result=sk-secret').location).toBe(
+			'/runs?arg&result'
+		)
+		expect(previewLocationContext('/variables?value=sk-secret').location).toBe('/variables?value')
+		expect(previewLocationContext('/resources?value=sk-secret').location).toBe('/resources?value')
+		expect(previewLocationContext('/runs?_default_=sk-secret').location).toBe('/runs?_default_')
+		// Addressing filters alongside them still carry their value.
+		expect(previewLocationContext('/runs?path=u/me/a&arg=sk-secret').location).toBe(
+			'/runs?arg&path=u/me/a'
+		)
 	})
 })
 

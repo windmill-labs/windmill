@@ -10,11 +10,11 @@ import {
 	sameView,
 	parseArtifactRoute,
 	parsePipelineRoute,
+	previewLocationContext,
 	parsePreviewItemRoute,
 	previewLocationLabel,
 	resolvePreviewTab,
 	stripBase,
-	stripBaseKeepingSuffix,
 	type PreviewTarget
 } from './previewRouter'
 import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
@@ -610,9 +610,15 @@ export function selectPreviewTabsToClose(
 // A list page's query and hash carry what the page label drops: the filters in
 // force and, on the pages that deep-link one (`/schedules#u/me/daily`), the row
 // whose drawer is open. Empty for a bare page, so a plain tab costs nothing.
+// This string is a tool result, so it is assembled from the parts previewRouter
+// recognizes rather than from the location itself: an iframe tab can host a legacy app,
+// whose hash is app state, and any page can carry a filter value the user typed.
 function previewLocationDetail(where: string): string {
-	const full = stripBaseKeepingSuffix(where)
-	return full === stripBase(where) ? '' : ` (${full})`
+	const { location, open } = previewLocationContext(where)
+	const detail = [location === stripBase(where) ? undefined : location, open && `open: ${open}`]
+		.filter(Boolean)
+		.join(', ')
+	return detail ? ` (${detail})` : ''
 }
 
 // Human-readable summary of a session's open preview tabs, for the
@@ -636,7 +642,7 @@ export function describePreview(tabs: SessionPreviewTab[], activeId: string): st
 						? `${route.raw_app ? 'raw_app' : route.kind} "${route.itemPath}"`
 						: // Trigger list pages land here (they're outside PREVIEW_PAGES), and
 							// their `#<path>` is the trigger the drawer has open.
-							stripBaseKeepingSuffix(where)
+							`${stripBase(where)}${previewLocationDetail(where)}`
 		const live = resolvePreviewTab(t.url).kind === 'editor' ? ', live editor' : ''
 		const active = t.id === activeId ? ', active' : ''
 		return `- ${label}${live}${active}`

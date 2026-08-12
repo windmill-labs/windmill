@@ -25,6 +25,25 @@ const DRAWER_DRAFT_KIND: Record<string, UserDraftItemKind> = {
 	)
 }
 
+// Push the drawer's pending autosave, and refuse to leave if it did not land: `flush`
+// reports a failed or conflicting POST through its state rather than by throwing, so
+// routing regardless would open the preview on the server's older draft while the
+// drawer the user is looking at still holds the edit.
+async function flushOrRefuse(query: Parameters<typeof UserDraftDbSyncer.flush>[0]): Promise<void> {
+	await UserDraftDbSyncer.flush(query)
+	if (UserDraftDbSyncer.getConflict(query).conflict) {
+		throw new Error(
+			'This draft has a newer conflicting version on the server. Resolve it here before opening a session.'
+		)
+	}
+	const { state, failureMessage } = UserDraftDbSyncer.getState(query)
+	if (state === 'failed') {
+		throw new Error(
+			`Saving the latest draft failed (${failureMessage ?? 'unknown error'}). Retry before opening a session.`
+		)
+	}
+}
+
 /**
  * "Open in AI session" source for the edit drawer of a workspace list page (trigger
  * lists, schedules, resources, variables): none is an editable item the preview can
@@ -52,7 +71,7 @@ export function pageDrawerSessionSource(
 		// parked, so an untouched drawer costs nothing.
 		beforeOpen:
 			itemKind && workspaceId
-				? () => UserDraftDbSyncer.flush({ workspace: workspaceId, itemKind, path: itemPath })
+				? () => flushOrRefuse({ workspace: workspaceId, itemKind, path: itemPath })
 				: undefined
 	}
 }

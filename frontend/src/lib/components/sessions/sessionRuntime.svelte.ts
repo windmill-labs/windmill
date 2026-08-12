@@ -52,10 +52,9 @@ import {
 } from './sessionPreviewTabs.svelte'
 import {
 	parsePreviewItemRoute,
-	drawerAnchorFor,
+	previewLocationContext,
 	previewLocationLabel,
-	resolvePreviewTab,
-	stripBaseKeepingSuffix
+	resolvePreviewTab
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -373,16 +372,8 @@ function createRuntime(session: Session): SessionRuntime {
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
-		const where = tab.loc || tab.url
 		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
-		const location = stripBaseKeepingSuffix(where)
-		return {
-			label: previewLocationLabel(where),
-			location,
-			// Only the list pages that deep-link a row — a hash means something else
-			// entirely on the other pages an iframe tab can host.
-			open: drawerAnchorFor(location)
-		}
+		return previewLocationContext(tab.loc || tab.url)
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.

@@ -813,11 +813,24 @@ describe('describePreview', () => {
 		expect(out).not.toContain('live editor')
 	})
 
-	it('appends the query and hash of a page tab, which name the open row', () => {
+	it('describes a location by what is recognized, never passing it through whole', () => {
+		const at = (loc: string, url = loc.split(/[?#]/)[0]): SessionPreviewTab[] => [
+			{ id: 'a', url, loc }
+		]
+		// A declared filter and an anchored row are worth telling the model.
+		expect(describePreview(at('/runs?path=u/me/a'), 'a')).toContain('/runs?path=u/me/a')
+		expect(describePreview(at('/schedules#u/me/daily'), 'a')).toContain('open: u/me/daily')
+		// A legacy app's hash is app state and an undeclared param is unknown text; this
+		// string is a tool result, so neither may ride along.
+		expect(describePreview(at('/apps/get/u/me/dash#token=sk-secret'), 'a')).not.toContain('sk-')
+		expect(describePreview(at('/runs?unknown=sk-secret'), 'a')).not.toContain('sk-')
+	})
+
+	it('names the row a page tab has open', () => {
 		const tabs: SessionPreviewTab[] = [
 			{ id: 'a', url: '/schedules', loc: '/schedules#u/me/daily_report' }
 		]
-		expect(describePreview(tabs, 'a')).toContain('page "Schedules" (/schedules#u/me/daily_report)')
+		expect(describePreview(tabs, 'a')).toContain('page "Schedules" (open: u/me/daily_report)')
 	})
 
 	it('labels an artifact tab by name, not the raw artifact url', () => {
