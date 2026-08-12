@@ -351,6 +351,7 @@ fn instance_name(hostname: &str) -> String {
 }
 
 const DEFAULT_WORKER_SUFFIX_LEN: usize = 5;
+const MAX_WORKER_SUFFIX_LABEL_LEN: usize = 64;
 pub const SSH_AGENT_WORKER_SUFFIX: &'static str = "/ssh";
 
 pub fn create_worker_suffix(hostname: &str, rd_string_len: usize) -> String {
@@ -407,6 +408,15 @@ fn create_labelled_worker_suffix(
     if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return Err(anyhow::anyhow!(
             "WORKER_SUFFIX must only contain ASCII letters, digits and underscores, got '{label}'"
+        ));
+    }
+    // The worker name is a `VARCHAR(255)` primary key and a component of the worker
+    // directory's path: a label long enough to blow either only surfaces at the initial ping,
+    // which the worker `expect`s.
+    if label.len() > MAX_WORKER_SUFFIX_LABEL_LEN {
+        return Err(anyhow::anyhow!(
+            "WORKER_SUFFIX must be at most {MAX_WORKER_SUFFIX_LABEL_LEN} characters, got {}",
+            label.len()
         ));
     }
     Ok(format!(
@@ -1578,7 +1588,13 @@ mod tests {
                 "wk-default-abcde"
             );
         }
-        for rejected in ["slot-a", "slot a", "slot.a", "slot/a"] {
+        for rejected in [
+            "slot-a",
+            "slot a",
+            "slot.a",
+            "slot/a",
+            &"s".repeat(MAX_WORKER_SUFFIX_LABEL_LEN + 1),
+        ] {
             assert!(
                 create_labelled_worker_suffix("wm-worker-abcde", rejected, 1).is_err(),
                 "{rejected} should be rejected"
