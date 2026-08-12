@@ -20,6 +20,13 @@ export function useFlowPanelMode(opts: { enabled: () => boolean }) {
 		get mode(): FlowPanelMode {
 			return resolvePanelMode({ enabled: opts.enabled(), preference, width })
 		},
+		/**
+		 * Whether `mode` reflects a real layout. Until the first measurement lands, `mode` is
+		 * `docked` because that is the safe thing to render, not because the editor is wide.
+		 */
+		get measured(): boolean {
+			return width > 0
+		},
 		/** Fed by the editor root's measured width; drives `auto` in both directions. */
 		measure(measured: number | null | undefined) {
 			width = measured ?? 0

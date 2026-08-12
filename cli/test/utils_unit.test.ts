@@ -4,7 +4,7 @@
  */
 
 import { expect, test, describe } from "bun:test";
-import { deepEqual, isFileResource, isFilesetResource, toCamel, capitalize, validateRequiredArgs, stripBom, readTextFile, readTextFileSync } from "../src/utils/utils.ts";
+import { deepEqual, isFileResource, isFilesetResource, removeResourceSuffix, toCamel, capitalize, validateRequiredArgs, stripBom, readTextFile, readTextFileSync } from "../src/utils/utils.ts";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -156,6 +156,30 @@ describe("isFileResource", () => {
 
   test("detects branch-specific resource file paths", () => {
     expect(isFileResource("f/test/config.main.resource.file.json")).toBe(true);
+  });
+});
+
+// =============================================================================
+// removeResourceSuffix
+// =============================================================================
+
+describe("removeResourceSuffix", () => {
+  test("strips the metadata suffix", () => {
+    expect(removeResourceSuffix("f/test/my_resource.resource.yaml")).toBe(
+      "f/test/my_resource"
+    );
+    expect(removeResourceSuffix("f/test/my_resource.resource.json")).toBe(
+      "f/test/my_resource"
+    );
+  });
+
+  test("strips the file-resource suffix", () => {
+    expect(removeResourceSuffix("f/test/my_file.resource.file.txt")).toBe(
+      "f/test/my_file"
+    );
+    expect(removeResourceSuffix("u/admin/config.resource.file.json")).toBe(
+      "u/admin/config"
+    );
   });
 });
 

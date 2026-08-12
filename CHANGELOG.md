@@ -1,5 +1,82 @@
 # Changelog
 
+## [1.786.0](https://github.com/windmill-labs/windmill/compare/v1.785.0...v1.786.0) (2026-08-12)
+
+
+### Features
+
+* bound how much disk a single duckdb job can spill ([#10645](https://github.com/windmill-labs/windmill/issues/10645)) ([a6157ba](https://github.com/windmill-labs/windmill/commit/a6157ba1046b046466212a3370e0cfb8796f4b59))
+
+
+### Bug Fixes
+
+* bound duckdb result collection so an oversized result cannot OOM the worker ([#10641](https://github.com/windmill-labs/windmill/issues/10641)) ([00822a7](https://github.com/windmill-labs/windmill/commit/00822a7435328b38a5a3bd1ee6d9a1556ca2d0c0))
+* **copilot:** read an artifact inside the transaction that revises it ([#10647](https://github.com/windmill-labs/windmill/issues/10647)) ([66c0d12](https://github.com/windmill-labs/windmill/commit/66c0d1251dcb3ed4cdf3b2010d3f5a4e95378341))
+
+## [1.785.0](https://github.com/windmill-labs/windmill/compare/v1.784.0...v1.785.0) (2026-08-11)
+
+
+### Features
+
+* **ata:** prefer the npm proxy when the instance configures a registry ([#10632](https://github.com/windmill-labs/windmill/issues/10632)) ([a8816b8](https://github.com/windmill-labs/windmill/commit/a8816b896df978c07441642d0c4092c303c967c9))
+* **frontend:** show prod and dev as sibling choices in the workspace picker ([#10590](https://github.com/windmill-labs/windmill/issues/10590)) ([583649b](https://github.com/windmill-labs/windmill/commit/583649bb2311c321835e9a1de78a174e55616461))
+* keep duckdb spilling behind the local-filesystem fence ([#10607](https://github.com/windmill-labs/windmill/issues/10607)) ([18ae0bd](https://github.com/windmill-labs/windmill/commit/18ae0bdfbfe7791f27ea9d3e4ce9ee4dbded1988))
+* **npm-proxy:** keep package files on disk and in the object store ([#10638](https://github.com/windmill-labs/windmill/issues/10638)) ([3394546](https://github.com/windmill-labs/windmill/commit/339454665796d6f4e728f7460d942462792c62dc))
+* **sdk:** add cancelJob to the TypeScript client ([#10624](https://github.com/windmill-labs/windmill/issues/10624)) ([d9b9137](https://github.com/windmill-labs/windmill/commit/d9b9137e17d4d009167ca20413bd1a9f1c204f8b))
+* **triggers:** nested filter groups and dotted paths ([#10625](https://github.com/windmill-labs/windmill/issues/10625)) ([ec99108](https://github.com/windmill-labs/windmill/commit/ec99108cf6a62951f0aebecbe4b14d7b80a14215))
+
+
+### Bug Fixes
+
+* accept a bodyless request that advertises a JSON content type ([#10628](https://github.com/windmill-labs/windmill/issues/10628)) ([5125467](https://github.com/windmill-labs/windmill/commit/5125467de4ed54e9a0ba7f408f9e5c74bc8136fb))
+* **ata:** fall back to the npm proxy when the CDN request fails outright ([#10630](https://github.com/windmill-labs/windmill/issues/10630)) ([e54b6a9](https://github.com/windmill-labs/windmill/commit/e54b6a914cf3936da408b1ce615313ebdfa6b3fe))
+* bump the bundled DuckDB engine to 1.5.5 ([#10588](https://github.com/windmill-labs/windmill/issues/10588)) ([4fafe59](https://github.com/windmill-labs/windmill/commit/4fafe59371a836f738359f3aa438d2a219e3e934))
+* **cli:** delete file resources at the right path on sync push ([#10639](https://github.com/windmill-labs/windmill/issues/10639)) ([1816b11](https://github.com/windmill-labs/windmill/commit/1816b114744c7d33826142a938b0e57e75142e5c))
+* **cli:** sync push crashed on edited fileset children; reject non-canonical fileset dirs ([#10572](https://github.com/windmill-labs/windmill/issues/10572)) ([8513457](https://github.com/windmill-labs/windmill/commit/85134578b40a938c27110ea39193a36776e430f3))
+* **parser-py:** keep first param when def main( line has trailing comment ([#10586](https://github.com/windmill-labs/windmill/issues/10586)) ([a02a97c](https://github.com/windmill-labs/windmill/commit/a02a97ce3ba7e2758a517312b2171f4141f281b0))
+* pin MCP OAuth token requests to the validated address ([#10593](https://github.com/windmill-labs/windmill/issues/10593)) ([46eca13](https://github.com/windmill-labs/windmill/commit/46eca132824c37de3dc2c482fabfb015b4c158be))
+* **python-client:** return at most size bytes from S3BufferedReader.read ([#10623](https://github.com/windmill-labs/windmill/issues/10623)) ([13b5216](https://github.com/windmill-labs/windmill/commit/13b521651bdbe31bf0179898646c04391d46f20b))
+* **raw-apps:** respect the instance .npmrc in the raw app editor ([#10629](https://github.com/windmill-labs/windmill/issues/10629)) ([ceacc17](https://github.com/windmill-labs/windmill/commit/ceacc170144ce554aa62722f8609ade50f16c632))
+* scope a fork's cloned app policy and custom path to its creator ([#10595](https://github.com/windmill-labs/windmill/issues/10595)) ([06c6b87](https://github.com/windmill-labs/windmill/commit/06c6b8780c919e6f110bd05ffeaed8bc065ddf56))
+* tell MCP clients which tool parameters may be omitted ([#10642](https://github.com/windmill-labs/windmill/issues/10642)) ([f23a5d7](https://github.com/windmill-labs/windmill/commit/f23a5d78b2ea0fcd4607161c0c4cccceff6c4f0c))
+
+## [1.784.0](https://github.com/windmill-labs/windmill/compare/v1.783.0...v1.784.0) (2026-08-10)
+
+
+### Features
+
+* **flow-editor:** measure step panel placement ([#10543](https://github.com/windmill-labs/windmill/issues/10543)) ([676256b](https://github.com/windmill-labs/windmill/commit/676256baccbd2e4421e8c13a5a239825a9c47551))
+* version history for session artifacts ([#10574](https://github.com/windmill-labs/windmill/issues/10574)) ([77adf85](https://github.com/windmill-labs/windmill/commit/77adf85ccd512aad3ea54362bbaceae240e5c8a0))
+* version resource values with history, diff and restore ([#10596](https://github.com/windmill-labs/windmill/issues/10596)) ([c09de59](https://github.com/windmill-labs/windmill/commit/c09de594b6e35c0c1c88e504c90730ff217b42fd))
+
+
+### Bug Fixes
+
+* **cli:** attach the right job path to preview runs ([#10606](https://github.com/windmill-labs/windmill/issues/10606)) ([9eef70e](https://github.com/windmill-labs/windmill/commit/9eef70ea8b366c42f968308112cc41a6fdeccf8a))
+* **cli:** load the app's ESM svelte compiler, not its CJS one ([#10622](https://github.com/windmill-labs/windmill/issues/10622)) ([2748d01](https://github.com/windmill-labs/windmill/commit/2748d019f53e37c3254392c5a40776a94c1ca130))
+* **duckdb:** cast list columns in quicksearch so tables containing them can be previewed ([#10614](https://github.com/windmill-labs/windmill/issues/10614)) ([bf1b2cd](https://github.com/windmill-labs/windmill/commit/bf1b2cdcf9cd5251ee0560077db307b6003d472c))
+* **frontend:** call a dev workspace a dev workspace in the merge UI ([#10605](https://github.com/windmill-labs/windmill/issues/10605)) ([c725d62](https://github.com/windmill-labs/windmill/commit/c725d62fb07e059a377346d13ea491bbc97bd666))
+* order workspace members and invites by email ([#10604](https://github.com/windmill-labs/windmill/issues/10604)) ([85916ce](https://github.com/windmill-labs/windmill/commit/85916cedf812eeb2ab96a428939e1198fd55ceaf))
+* raw app new-app modal ignores instance-level AI settings ([#10619](https://github.com/windmill-labs/windmill/issues/10619)) ([8c65511](https://github.com/windmill-labs/windmill/commit/8c65511e814e383f6cdd9df3601e544cbc0c1b49))
+* **smtp:** explain why a test email failed instead of 'deadline has elapsed' ([#10620](https://github.com/windmill-labs/windmill/issues/10620)) ([5b0a159](https://github.com/windmill-labs/windmill/commit/5b0a159a018662ea7836e72d8ee95d3aebd30cef))
+
+## [1.783.0](https://github.com/windmill-labs/windmill/compare/v1.782.0...v1.783.0) (2026-08-07)
+
+
+### Features
+
+* add public sharing option for job pages ([#10573](https://github.com/windmill-labs/windmill/issues/10573)) ([5ce29b3](https://github.com/windmill-labs/windmill/commit/5ce29b34364d6429411621752c64e306426aa2dd))
+* offer more dev workspace environment labels ([#10570](https://github.com/windmill-labs/windmill/issues/10570)) ([8c6211c](https://github.com/windmill-labs/windmill/commit/8c6211c27718912ad1e1a29f770747ea07fdb161))
+* open a session edit in the preview panel from the edits list ([#10486](https://github.com/windmill-labs/windmill/issues/10486)) ([d008975](https://github.com/windmill-labs/windmill/commit/d0089758e6091b07009dee5b8387f3f4b6d97455))
+* preview merge result in git-sync PR diff check ([#10542](https://github.com/windmill-labs/windmill/issues/10542)) ([c61404a](https://github.com/windmill-labs/windmill/commit/c61404a0f4008cd1de3c977c653c712ef3d9e0a3))
+
+
+### Bug Fixes
+
+* **frontend:** collapse the dev-workspace edit notice into a badge ([#10576](https://github.com/windmill-labs/windmill/issues/10576)) ([fdd76a6](https://github.com/windmill-labs/windmill/commit/fdd76a6f1358404b13326c68eed1eac14097bd88))
+* **frontend:** hide the fork workspace banner from operators ([#10575](https://github.com/windmill-labs/windmill/issues/10575)) ([57ed0f7](https://github.com/windmill-labs/windmill/commit/57ed0f77e1f83751ea04820b365fb53f098d38bf))
+* scope a fork's cloned app policy and custom path to its creator ([#10589](https://github.com/windmill-labs/windmill/issues/10589)) ([8e95bfe](https://github.com/windmill-labs/windmill/commit/8e95bfe6157ebe4f8fc5f6e13c36a6f0bdb9969d))
+
 ## [1.782.0](https://github.com/windmill-labs/windmill/compare/v1.781.3...v1.782.0) (2026-08-06)
 
 

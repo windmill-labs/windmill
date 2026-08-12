@@ -5,7 +5,19 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.41"
-duckdb = { version = "1.10502.0", features = ["bundled"] }
+# `rust_decimal` is optional upstream. It stays on because its
+# `From<rust_decimal::Decimal>` derives the same width/scale/mantissa the crate
+# used to derive itself, so a `decimal`/`numeric` job argument still binds to the
+# identical DECIMAL. Building one by hand would mean reimplementing that
+# f64 → (mantissa, scale) inference.
+#
+# Not crates.io: a fork of duckdb-rs 1.10505.0 carrying two patches to the bundled engine —
+# see docs/duckdb-isolation.md for why, and for the exit path back to the crates.io crate.
+# Pinned by rev, not branch, so `cargo update` cannot move the engine under us.
+duckdb = { git = "https://github.com/windmill-labs/duckdb-rs", rev = "7190adfcf58624e7e9a7a2a1000bac18fed64c19", features = [
+    "bundled",
+    "rust_decimal",
+] }
 regex = "1"
 rust_decimal = "1.37.2"
 serde = { version = "1.0", features = ["derive"] }

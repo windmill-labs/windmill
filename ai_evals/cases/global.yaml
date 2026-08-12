@@ -1201,6 +1201,38 @@
     - closes the runs preview tab in the side panel
     - does not write, deploy, or delete anything
 
+# --- Artifact version history ---
+# Every content change to an artifact is snapshotted, and update_artifact requires a
+# change_note that the user reads in the version picker. A blank note makes the history
+# unreadable, so pin that the model fills it on every edit.
+
+- id: global-artifact-note-on-each-edit
+  prompt: |-
+    Write up a short rollout plan for me as a doc I can come back to, covering a staged
+    rollout in three phases. Then add a rollback section to it, and after that tighten
+    the wording of phase 2.
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - create_artifact
+      - update_artifact
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # The note is what the version picker shows; a blank one makes history unreadable.
+      - tool: update_artifact
+        field: change_note
+        nonEmpty: true
+  skipJudge: true
+  judgeChecklist:
+    - creates one artifact and revises it rather than creating a second artifact
+    - each revision carries a short description of what changed
+
 # --- Documentation search (search_docs) ---
 # Pure product-knowledge questions: the assistant should consult the docs via
 # search_docs and answer conversationally, not draft or mutate anything. No

@@ -1266,6 +1266,97 @@ impl std::ops::Deref for NextJob {
 //only matter if CLOUD_HOSTED
 pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 
+// Share of the worker's memory budget one SQL result may occupy. Collecting rows
+// costs several times the JSON they serialize to — a separately allocated value
+// per row, then a contiguous buffer holding all of them — and the worker still
+// needs the rest of its budget for what it already has resident.
+#[cfg(feature = "duckdb")]
+const SQL_RESULT_SIZE_FRACTION: f64 = 0.15;
+// Under this a result cannot threaten a worker of any size, so capping it would
+// only reject work that would have succeeded.
+#[cfg(feature = "duckdb")]
+const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
+
+/// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
+/// and binary, so `MB` and `MiB` both mean 1024².
+///
+/// Fractions are accepted because `format_byte_size` emits them, and the limit it
+/// renders into an error is meant to be usable as a setting verbatim.
+#[cfg(feature = "duckdb")]
+fn parse_byte_size(v: &str) -> Option<usize> {
+    let upper = v.trim().to_ascii_uppercase();
+    // Longest-first: `GB` would otherwise swallow `GIB`, and `B` every other suffix.
+    let (digits, mult) = [
+        ("GIB", 1u64 << 30),
+        ("GB", 1u64 << 30),
+        ("MIB", 1u64 << 20),
+        ("MB", 1u64 << 20),
+        ("KIB", 1u64 << 10),
+        ("KB", 1u64 << 10),
+        ("B", 1),
+    ]
+    .into_iter()
+    .find_map(|(suffix, mult)| upper.strip_suffix(suffix).map(|d| (d, mult)))
+    .unwrap_or((upper.as_str(), 1));
+    let n = digits.trim().parse::<f64>().ok()?;
+    if !n.is_finite() || n < 0.0 {
+        return None;
+    }
+    let bytes = n * mult as f64;
+    (bytes <= usize::MAX as f64).then(|| bytes as usize)
+}
+
+#[cfg(feature = "duckdb")]
+lazy_static::lazy_static! {
+    /// Bytes one duckdb job may collect before the executor gives up — the budget
+    /// spans every query block in the job, since what the worker cannot survive is
+    /// the total it ends up holding. Nothing else bounds it at collection time:
+    /// every row is accumulated before anything can stream the result out, so an
+    /// oversized one grows past the cgroup and the OOM killer takes the worker
+    /// process down — every job colocated on it, not just the one that asked.
+    /// (`MAX_RESULT_SIZE_MB` does bound the finished result, but only once the job
+    /// completes, which is after the memory has already been spent.)
+    ///
+    /// This is a worker-survival limit, not a product one, so it applies the same
+    /// on cloud as off it. `MAX_SQL_RESULT_SIZE` overrides it; `0` and a worker
+    /// with no cgroup reading to scale from both mean no cap.
+    ///
+    /// It bounds what is *collected*, not the process: the collected rows are
+    /// still live while `serde_json::to_string` builds a second whole copy, and
+    /// the worker parses that copy back for every strategy but
+    /// `AllStatementsAllRows`, so peak sits near twice the cap. The derived
+    /// default leaves room for that — it is a fraction of the worker's budget,
+    /// not the whole of it.
+    pub(crate) static ref MAX_SQL_RESULT_SIZE: usize = {
+        let explicit = std::env::var("MAX_SQL_RESULT_SIZE").ok().and_then(|v| {
+            let parsed = parse_byte_size(&v);
+            if parsed.is_none() {
+                // Falling back silently would leave the operator believing a
+                // limit is in force that never parsed.
+                tracing::warn!(
+                    "MAX_SQL_RESULT_SIZE={v:?} is not a byte size (e.g. 512MB, 2GiB); \
+                     falling back to the memory-derived limit"
+                );
+            }
+            parsed
+        });
+        match explicit {
+            // `0` turns the cap off. Normalized here rather than forwarded,
+            // so "no cap" is expressed as a limit nothing can exceed instead of
+            // a sentinel every consumer has to know to special-case.
+            Some(0) => usize::MAX,
+            // The floor guards the derived value only. An explicit setting is
+            // taken at face value, including one deliberately below it.
+            Some(limit) => limit,
+            None => windmill_common::worker::get_memory()
+                .filter(|bytes| *bytes > 0)
+                .map(|bytes| ((bytes as f64 * SQL_RESULT_SIZE_FRACTION) as usize)
+                    .max(MIN_MAX_SQL_RESULT_SIZE))
+                .unwrap_or(usize::MAX),
+        }
+    };
+}
+
 #[derive(Clone)]
 pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 
@@ -4867,6 +4958,39 @@ pub async fn write_module_files(
         tokio::fs::write(&full_path, &module.content).await?;
     }
     Ok(())
+}
+
+#[cfg(all(test, feature = "duckdb"))]
+mod byte_size_tests {
+    use super::*;
+
+    /// The suffix table is order-sensitive: `GB` matches the tail of `GIB` and
+    /// `B` the tail of every other suffix, so a reordering silently truncates
+    /// the multiplier instead of failing to parse.
+    #[test]
+    fn suffixes_do_not_shadow_each_other() {
+        assert_eq!(parse_byte_size("512"), Some(512));
+        assert_eq!(parse_byte_size("512B"), Some(512));
+        assert_eq!(parse_byte_size("512KB"), Some(512 << 10));
+        assert_eq!(parse_byte_size("300mb"), Some(300 << 20));
+        assert_eq!(parse_byte_size("2GiB"), Some(2 << 30));
+        assert_eq!(parse_byte_size("2 gb "), Some(2 << 30));
+        assert_eq!(parse_byte_size("many"), None);
+    }
+
+    /// The duckdb error renders the limit so it can be pasted straight into
+    /// `MAX_SQL_RESULT_SIZE`. That renderer lives in the FFI crate and emits a
+    /// fraction above 1 GiB, so an integer-only parser here would silently reject
+    /// the very value the error told the user to set.
+    #[test]
+    fn the_shapes_the_error_renders_all_parse() {
+        for rendered in ["512B", "8KB", "307MB", "1.0GB", "2.4GB"] {
+            assert!(
+                parse_byte_size(rendered).is_some(),
+                "{rendered} is rendered into errors but does not parse back"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

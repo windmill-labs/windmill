@@ -86,6 +86,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
     cd windmill-duckdb-ffi-internal && \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
 

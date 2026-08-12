@@ -1,10 +1,16 @@
 import { randomUUID } from '$lib/utils/uuid'
 import {
+	currentVersion,
 	deleteArtifact,
 	getArtifact,
+	getArtifactVersion,
+	listArtifactVersions,
 	listArtifactsForSession,
-	putArtifact,
+	mutateArtifact,
+	putArtifactWithVersions,
+	versionKey,
 	type ArtifactKind,
+	type ArtifactVersion,
 	type PersistedArtifact
 } from './artifactsDB'
 
@@ -18,6 +24,8 @@ export interface CreateArtifactInput {
 export interface UpdateArtifactInput {
 	name?: string
 	content?: string
+	/** Recorded on the snapshot this update produces; ignored if content is unchanged. */
+	note?: string
 }
 
 /**
@@ -87,9 +95,10 @@ export class SessionArtifactsStore {
 			name: input.name,
 			content: input.content,
 			createdAt: now,
-			updatedAt: now
+			updatedAt: now,
+			version: 1
 		}
-		await putArtifact(artifact)
+		await putArtifactWithVersions(artifact, [snapshotOf(artifact, 1)])
 		if (sessionId === this.#sessionId) {
 			this.#applyWrite(sortByUpdatedDesc([artifact, ...this.artifacts]))
 		}
@@ -105,20 +114,77 @@ export class SessionArtifactsStore {
 		input: UpdateArtifactInput,
 		opts?: { sessionId?: string }
 	): Promise<PersistedArtifact | undefined> {
-		const existing = this.artifacts.find((a) => a.id === id) ?? (await getArtifact(id))
-		if (!existing) return undefined
-		if (opts?.sessionId !== undefined && existing.sessionId !== opts.sessionId) return undefined
-		const updated: PersistedArtifact = {
-			...existing,
-			name: input.name ?? existing.name,
-			content: input.content ?? existing.content,
-			updatedAt: Date.now()
-		}
-		await putArtifact(updated)
+		const updated = await mutateArtifact(id, (stored) => {
+			// Read inside the mutator: hoisted out, it would weigh a stale copy against a fresh one.
+			const existing = furtherAlong(
+				stored,
+				this.artifacts.find((a) => a.id === id)
+			)
+			if (!existing) return undefined
+			if (opts?.sessionId !== undefined && existing.sessionId !== opts.sessionId) return undefined
+			// Only a content change earns a version: a rename or an identical rewrite would
+			// otherwise fill the picker with entries the user cannot tell apart.
+			const contentChanged = input.content !== undefined && input.content !== existing.content
+			const version = currentVersion(existing) + (contentChanged ? 1 : 0)
+			const artifact: PersistedArtifact = {
+				...existing,
+				name: input.name ?? existing.name,
+				content: input.content ?? existing.content,
+				updatedAt: Date.now(),
+				version
+			}
+			const snapshots: ArtifactVersion[] = []
+			// An artifact written before history existed has no snapshot of its current content,
+			// so capture one on *any* update, not just a content change: this write stamps
+			// `version`, and nothing afterwards would recognise it as pre-history.
+			if (existing.version === undefined) {
+				snapshots.push(snapshotOf(existing, currentVersion(existing)))
+			}
+			if (contentChanged) {
+				snapshots.push(snapshotOf(artifact, version, input.note))
+			}
+			return { artifact, snapshots }
+		})
+		if (!updated) return undefined
 		if (updated.sessionId === this.#sessionId) {
 			this.#applyWrite(sortByUpdatedDesc(this.artifacts.map((a) => (a.id === id ? updated : a))))
 		}
 		return updated
+	}
+
+	/**
+	 * Every snapshot of an artifact, newest first. Empty if `id` is unknown, or if
+	 * `opts.sessionId` is given and the artifact belongs to a different session — snapshots
+	 * carry the document's full text, so this scopes like update() rather than trusting
+	 * every caller to check first.
+	 */
+	async listVersions(id: string, opts?: { sessionId?: string }): Promise<ArtifactVersion[]> {
+		const artifact = await this.get(id)
+		if (opts?.sessionId !== undefined && artifact?.sessionId !== opts.sessionId) return []
+		const stored = await listArtifactVersions(id)
+		if (!artifact) return stored
+		const version = currentVersion(artifact)
+		// An artifact written before history existed has no snapshot of its current
+		// content, so stand one in — the picker must never show a document as absent
+		// from its own history.
+		if (!stored.some((v) => v.version === version)) {
+			return [snapshotOf(artifact, version), ...stored]
+		}
+		return stored
+	}
+
+	/** One snapshot; scoped by `opts.sessionId` like listVersions when it is given. */
+	async getVersion(
+		id: string,
+		version: number,
+		opts?: { sessionId?: string }
+	): Promise<ArtifactVersion | undefined> {
+		const artifact = await this.get(id)
+		if (opts?.sessionId !== undefined && artifact?.sessionId !== opts.sessionId) return undefined
+		const stored = await getArtifactVersion(id, version)
+		if (stored) return stored
+		if (artifact && currentVersion(artifact) === version) return snapshotOf(artifact, version)
+		return undefined
 	}
 
 	async remove(id: string): Promise<void> {
@@ -126,6 +192,36 @@ export class SessionArtifactsStore {
 		// Guard on presence: a no-op remove must not invalidate an in-flight load.
 		const next = this.artifacts.filter((a) => a.id !== id)
 		if (next.length !== this.artifacts.length) this.#applyWrite(next)
+	}
+}
+
+/**
+ * Neither copy is authoritative: only the store carries an edit another tab made, and only
+ * memory carries one the store refused (quota) and `update` handed back unpersisted.
+ * Always preferring one side reverts the other's text on the next edit, so the later wins.
+ */
+function furtherAlong(
+	stored: PersistedArtifact | undefined,
+	held: PersistedArtifact | undefined
+): PersistedArtifact | undefined {
+	if (!stored || !held) return stored ?? held
+	const heldVersion = currentVersion(held)
+	const storedVersion = currentVersion(stored)
+	// A rename earns no version, so at equal versions only the clock separates the two.
+	// Both are written by the same browser, which is what makes the stamps comparable.
+	if (heldVersion === storedVersion) return held.updatedAt > stored.updatedAt ? held : stored
+	return heldVersion > storedVersion ? held : stored
+}
+
+function snapshotOf(a: PersistedArtifact, version: number, note?: string): ArtifactVersion {
+	return {
+		key: versionKey(a.id, version),
+		artifactId: a.id,
+		version,
+		name: a.name,
+		content: a.content,
+		savedAt: a.updatedAt,
+		note
 	}
 }
 
