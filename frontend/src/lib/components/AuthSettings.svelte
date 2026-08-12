@@ -22,7 +22,8 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
-	import { ExternalLink, Plus, Circle, X } from 'lucide-svelte'
+	import { ClipboardCopy, ExternalLink, Plus, Circle, X } from 'lucide-svelte'
+	import { copyToClipboard } from '$lib/utils'
 	import AzureOauthSettings from './AzureOauthSettings.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
@@ -522,6 +523,26 @@
 										bind:password={oauths[k]['secret']}
 									/>
 								</label>
+								<div class="flex flex-col gap-1">
+									<span class="text-primary font-semibold text-xs">Redirect URL</span>
+									<span class="text-2xs text-tertiary">
+										Register this exact URL as the callback of the {k} app. It is built from the
+										instance base URL, so a wrong base URL makes the provider reject the callback.
+									</span>
+									<div class="flex flex-row items-center gap-2">
+										<code class="text-xs bg-surface-secondary px-2 py-1 rounded grow break-all">
+											{baseUrl}/oauth/callback/{k}
+										</code>
+										<Button
+											variant="subtle"
+											unifiedSize="sm"
+											startIcon={{ icon: ClipboardCopy }}
+											iconOnly
+											title="Copy redirect URL"
+											onClick={() => copyToClipboard(`${baseUrl}/oauth/callback/${k}`)}
+										/>
+									</div>
+								</div>
 								<div class="flex flex-col gap-2 mb-2">
 									<span class="text-xs font-semibold text-emphasis">These credentials are for</span>
 									{#if !windmillBuiltins.includes(k) || (registryCcCapable(k) && registryAuthCodeCapable(k))}
