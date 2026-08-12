@@ -3,8 +3,11 @@
 	import Label from '$lib/components/Label.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import AppConnectDrawer from '$lib/components/AppConnectDrawer.svelte'
 	import McpOAuthConnect from './McpOAuthConnect.svelte'
+	import OauthScopes from '$lib/components/OauthScopes.svelte'
+	import { sameTopDomainOrigin } from '$lib/cookies'
+	import { onDestroy } from 'svelte'
+	import { Pen } from 'lucide-svelte'
 	import { MCP_REGISTRY, findMcpEntry } from './registry'
 	import { OauthService, ResourceService, VariableService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
@@ -26,8 +29,13 @@
 	let entry = $derived(selected === CUSTOM ? undefined : findMcpEntry(selected))
 
 	let instanceConnects = $state<string[] | undefined>(undefined)
-	let appConnectDrawer: AppConnectDrawer | undefined = $state(undefined)
 	let showOAuth = $state(false)
+	let signingIn = $state(false)
+	let editScopes = $state(false)
+	// Seeded from the instance connect plus the scopes the server publishes, then
+	// left editable: the connect's own scopes are shared with other integrations,
+	// so this widens the request for this connection only.
+	let scopes = $state<string[]>([])
 
 	// Manual path: a URL and a token typed by hand.
 	let manualUrl = $state('')
@@ -60,6 +68,15 @@
 	)
 	let dcrReady = $derived(entry?.auth === 'dcr' && !!$enterpriseLicense)
 
+	$effect(() => {
+		const client = entry?.connectClient
+		if (client && oauthAppReady) {
+			OauthService.getOauthConnect({ client })
+				.then((c) => (scopes = [...new Set([...(c.scopes ?? []), ...(entry?.requiredScopes ?? [])])]))
+				.catch(() => (scopes = entry?.requiredScopes ?? []))
+		}
+	})
+
 	let items = $derived([
 		...MCP_REGISTRY.map((e) => ({ label: e.name, value: e.id })),
 		{ label: 'Other (enter a URL)', value: CUSTOM }
@@ -78,40 +95,92 @@
 		onConnected(path)
 	}
 
-	// The OAuth connect leaves the credential in a secret variable and points the
-	// provider resource's `token` at it; reuse that reference so the MCP resource
-	// rides the same variable (and, for OAuth, the account that refreshes it).
-	async function onProviderConnected(providerPath: string) {
-		if (!entry) return
+	function startProviderOAuth() {
+		const client = entry?.connectClient
+		if (!client || !manualPath) return
+		const url = new URL(`/api/oauth/connect/${client}`, window.location.origin)
+		url.searchParams.set('scopes', scopes.join('+'))
+		if (!window.open(url.toString(), '_blank', 'popup=true')) {
+			sendUserToast('Popup blocked. Allow popups for this site.', true)
+			return
+		}
+		window.addEventListener('message', onOAuthMessage)
+		window.addEventListener('storage', onOAuthStorage)
+		signingIn = true
+	}
+
+	function onOAuthMessage(event: MessageEvent) {
+		if (!sameTopDomainOrigin(event.origin, window.location.origin)) return
+		if (event.data?.type === 'success') {
+			cleanupOAuth()
+			void finishProviderOAuth(event.data.res)
+		} else if (event.data?.type === 'error') {
+			cleanupOAuth()
+			signingIn = false
+			sendUserToast(event.data.error, true)
+		}
+	}
+
+	function onOAuthStorage(event: StorageEvent) {
+		if (event.key !== 'oauth-callback') return
+		cleanupOAuth()
 		try {
-			const resource = await ResourceService.getResource({ workspace: ws, path: providerPath })
-			if (resource.resource_type !== entry.connectClient) {
-				throw new Error(
-					`${providerPath} is a ${resource.resource_type} resource, not ${entry.connectClient}`
+			const data = JSON.parse(event.newValue || '{}')
+			localStorage.removeItem('oauth-callback')
+			if (data.type === 'success') {
+				void finishProviderOAuth(data.res)
+			} else {
+				signingIn = false
+				sendUserToast(data.error, true)
+			}
+		} catch (e) {
+			signingIn = false
+			console.error('Error parsing oauth callback', e)
+		}
+	}
+
+	function cleanupOAuth() {
+		window.removeEventListener('message', onOAuthMessage)
+		window.removeEventListener('storage', onOAuthStorage)
+	}
+
+	onDestroy(cleanupOAuth)
+
+	/** Store the token like the resource connect does: a secret variable, plus an
+	 * account when the provider issues expiring tokens so refresh can run. */
+	async function finishProviderOAuth(res: any) {
+		try {
+			let account: number | undefined = undefined
+			if (res?.expires_in != undefined) {
+				account = Number(
+					await OauthService.createAccount({
+						workspace: ws,
+						requestBody: {
+							refresh_token: res.refresh_token ?? '',
+							expires_in: res.expires_in,
+							client: entry!.connectClient!,
+							scopes
+						}
+					})
 				)
 			}
-			const token = (resource.value as { token?: unknown } | undefined)?.token
-			if (typeof token !== 'string' || token === '') {
-				throw new Error(`No token found on ${providerPath}`)
-			}
-			let tokenRef = token
-			if (!token.startsWith('$var:')) {
-				const varPath = `${providerPath}_mcp_token`
-				await VariableService.createVariable({
-					workspace: ws,
-					requestBody: {
-						path: varPath,
-						value: token,
-						is_secret: true,
-						description: `${entry.name} token for the ${providerPath}_mcp MCP server`
-					}
-				})
-				tokenRef = `$var:${varPath}`
-			}
-			await createMcpResource(`${providerPath}_mcp`, entry.id, entry.url, tokenRef)
-			sendUserToast(`Connected ${entry.name}`)
+			await VariableService.createVariable({
+				workspace: ws,
+				requestBody: {
+					path: manualPath,
+					value: res.access_token,
+					is_secret: true,
+					is_oauth: true,
+					account,
+					description: `OAuth token for ${entry!.name}`
+				}
+			})
+			await createMcpResource(manualPath, entry!.id, entry!.url, `$var:${manualPath}`)
+			sendUserToast(`Connected ${entry!.name}`)
 		} catch (e) {
-			sendUserToast(`Failed to connect ${entry.name}: ${e.body ?? e.message}`, true)
+			sendUserToast(`Failed to connect ${entry?.name}: ${e.body ?? e.message}`, true)
+		} finally {
+			signingIn = false
 		}
 	}
 
@@ -161,6 +230,19 @@
 		</a>
 	{/if}
 
+	{#if selected !== CUSTOM || !$enterpriseLicense}
+		{#key selected}
+			<Path
+				bind:path={manualPath}
+				bind:error={manualPathError}
+				initialPath={suggestedPath}
+				namePlaceholder={entry?.id ?? 'mcp'}
+				kind="resource"
+				workspaceOverride={ws}
+			/>
+		{/key}
+	{/if}
+
 	{#if showOAuth && entry}
 		<McpOAuthConnect
 			preset={{ name: entry.name, url: entry.url }}
@@ -176,12 +258,27 @@
 				<div class="text-2xs text-secondary">
 					This instance has a {entry.name} OAuth app configured, so you can sign in with your own account.
 				</div>
+				<div class="flex flex-col gap-1">
+					<span class="text-xs font-semibold text-emphasis flex gap-2 items-center">
+						Scopes
+						<button onclick={() => (editScopes = !editScopes)}><Pen size={14} /></button>
+					</span>
+					{#if editScopes}
+						<OauthScopes bind:scopes />
+					{:else}
+						<div class="flex flex-col gap-1">
+							{#each scopes as scope}
+								<div class="py-0.5 pl-2 text-xs">- {scope}</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
 				<Button
 					size="sm"
-					onClick={() => appConnectDrawer?.open(entry?.connectClient)}
-					disabled={instanceConnects === undefined}
+					onClick={startProviderOAuth}
+					disabled={signingIn || !manualPath || manualPathError !== ''}
 				>
-					Sign in with {entry.name}
+					{signingIn ? 'Finish in the popup...' : `Sign in with ${entry.name}`}
 				</Button>
 			{:else}
 				<div class="text-2xs text-secondary">
@@ -218,16 +315,6 @@
 			<Label label="Token">
 				<input type="password" bind:value={manualToken} class="text-sm w-full" />
 			</Label>
-			{#key selected}
-				<Path
-					bind:path={manualPath}
-					bind:error={manualPathError}
-					initialPath={suggestedPath}
-					namePlaceholder={entry?.id ?? 'mcp'}
-					kind="resource"
-					workspaceOverride={ws}
-				/>
-			{/key}
 			<Button
 				size="sm"
 				onClick={saveManual}
@@ -243,9 +330,3 @@
 	{/if}
 </div>
 
-<AppConnectDrawer
-	bind:this={appConnectDrawer}
-	workspace={ws}
-	extraScopes={entry?.requiredScopes}
-	on:refresh={(e) => onProviderConnected(e.detail)}
-/>
