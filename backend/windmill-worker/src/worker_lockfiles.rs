@@ -281,6 +281,12 @@ pub async fn handle_dependency_job(
     );
     let script_path = job.runnable_path();
 
+    // A build pass reads the same script data but writes none of the deploy state below,
+    // including the `lock_error_logs` stamp on a fetch failure: the version it builds is
+    // already deployed and healthy, and a transient read error is not a broken lock.
+    let is_build_job =
+        windmill_queue::binary_prebuild::is_build_binary_job(job.args.as_ref().map(|x| &x.0));
+
     // `JobKind::Dependencies` job store either:
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
@@ -288,23 +294,25 @@ pub async fn handle_dependency_job(
         Some(hash) => match cache::script::fetch(&Connection::from(db.clone()), hash).await {
             Ok(d) => Cow::Owned(d.0),
             Err(e) => {
-                let logs2 = sqlx::query_scalar!(
-                    "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
-                    &job.id,
-                    &job.workspace_id
-                )
-                .fetch_optional(db)
-                .await?
-                .flatten()
-                .unwrap_or_else(|| "no logs".to_string());
-                sqlx::query!(
-                    "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
-                    &format!("{logs2}\n{e}"),
-                    &job.runnable_id.unwrap_or(ScriptHash(0)).0,
-                    &job.workspace_id
-                )
-                .execute(db)
-                .await?;
+                if !is_build_job {
+                    let logs2 = sqlx::query_scalar!(
+                        "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+                        &job.id,
+                        &job.workspace_id
+                    )
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+                    .unwrap_or_else(|| "no logs".to_string());
+                    sqlx::query!(
+                        "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
+                        &format!("{logs2}\n{e}"),
+                        &job.runnable_id.unwrap_or(ScriptHash(0)).0,
+                        &job.workspace_id
+                    )
+                    .execute(db)
+                    .await?;
+                }
                 return Err(Error::ExecutionErr(format!(
                     "Error creating schema validator: {e}"
                 )));
@@ -316,7 +324,7 @@ pub async fn handle_dependency_job(
         },
     };
 
-    if windmill_queue::binary_prebuild::is_build_binary_job(job.args.as_ref().map(|x| &x.0)) {
+    if is_build_job {
         // Not a deploy: the version being built was committed and tallied by the deploy
         // that queued this job, so a failure here must not tally it a second time.
         *deployment_tallied = true;

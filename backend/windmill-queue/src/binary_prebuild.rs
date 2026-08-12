@@ -64,12 +64,18 @@ pub async fn binary_prebuild_job(
     if lock.is_none_or(|l| l.is_empty()) {
         return Ok(None);
     }
-    if !MIN_VERSION_SUPPORTS_BINARY_PREBUILD.met().await {
-        return Ok(None);
-    }
     let Some(tag) = windmill_common::global_settings::auto_build_binary_on_deploy(db).await? else {
         return Ok(None);
     };
+    // Checked after the setting so the log only fires for someone who actually asked for
+    // this — an enabled setting that silently does nothing is otherwise undiagnosable.
+    if !MIN_VERSION_SUPPORTS_BINARY_PREBUILD.met().await {
+        tracing::info!(
+            "not building {path} at deploy time: some workers are older than {}",
+            MIN_VERSION_SUPPORTS_BINARY_PREBUILD.version()
+        );
+        return Ok(None);
+    }
 
     let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
     args.insert(BUILD_BINARY_ONLY_ARG.to_string(), to_raw_value(&true));
