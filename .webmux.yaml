@@ -5,9 +5,19 @@ workspace:
   mainBranch: main
   worktreeRoot: ../windmill__worktrees
   defaultAgent: claude
+  # A new worktree is branched from the *local* `main` ref, so a stale local main means every
+  # new worktree starts behind. This keeps it current: fetch origin/main + fast-forward merge.
+  # Fast-forward only — it no-ops rather than forcing if local main has diverged.
+  autoPull:
+    enabled: true
+    intervalSeconds: 300
 
 startupEnvs:
   CARGO_FEATURES: "quickjs"
+  # true clones the base `windmill` DB via CREATE DATABASE ... TEMPLATE, which first
+  # terminates every open connection to `windmill` — expect the main dev instance to drop.
+  # false creates an empty DB and runs migrations. Either way the license key is copied over
+  # and pre-remove drops the DB. See scripts/worktree-common.sh.
   WM_CLONE_DB: false
   USE_RUST_PLUGIN: false
 

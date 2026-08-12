@@ -50,9 +50,15 @@ Open-source platform for internal tools, workflows, API integrations, background
 > defaults in this section apply only to a plain single checkout. **Discover the real
 > values before running anything** — see "Per-worktree ports and database" below.
 
+**Check whether they are already running before starting anything.** In a webmux worktree
+(`$WEBMUX_WORKTREE_PATH` is set) the backend and frontend are already up in sibling tmux panes —
+use those, don't spawn your own. `tmux list-panes -t "$(tmux display-message -p -t "$TMUX_PANE"
+'#{window_id}')" -F '#{pane_index} #{pane_current_command}'` shows what is running; read its log
+with `tmux capture-pane`, and see `backend/CLAUDE.md` to restart it with different cargo features.
+A second server started in your own shell fights the first one for the port. The commands below
+are for a plain checkout with nothing running.
+
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
-- **DuckDB local jobs**: before running DuckDB scripts locally, build the FFI shared library with `cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh`. Re-run it after clean builds or when `backend/target/debug/libwindmill_duckdb_ffi_internal.*` is missing. The bundled DuckDB compile (~2min) is cached in a per-user dir shared across worktrees, so a fresh worktree reuses it and the build is near-instant.
-- **Data pipelines (DuckLake) from source**: a plain `cargo run` (even `--features quickjs`) advertises a `duckdb` worker tag but **cannot** execute DuckDB scripts and has **no** working S3 proxy (DuckLake writes 404). Build CE DuckLake with `cargo run --features quickjs,duckdb,parquet,private` (add `,python` for Python scripts, `,enterprise,license` for EE) **and** build the FFI (bullet above). See `backend/CLAUDE.md` → "Running data pipelines (DuckLake) from source" for the exact feature sets and the two feature-gate gotchas.
 - **Frontend**: `REMOTE=http://localhost:8000 npm run dev` from `frontend/` (port 3000+)
 - **DB**: `psql postgres://postgres:changeme@localhost:5432/windmill`
 - **Login**: `admin@windmill.dev` / `changeme`
@@ -61,10 +67,20 @@ Open-source platform for internal tools, workflows, API integrations, background
 
 ### Per-worktree ports and database
 
-A worktree's `.env` / `.env.local` (repo root) and `backend/.env` hold its own
-`DATABASE_URL` and `PORT`; the database is typically `windmill_<branch_with_underscores>`
-(branch `dbt-runtime` → `windmill_dbt_runtime`). Read them, or discover from what is
-already running:
+In a webmux worktree the authoritative values live in
+`$(git rev-parse --git-dir)/webmux/runtime.env` — `BACKEND_PORT`, `FRONTEND_PORT`,
+`DATABASE_URL`, `CARGO_FEATURES`, `WM_DB_NAME`. Every pane sources it at startup. Read that
+first: it is not a `.env*` file, so the repo's secret-file read rules don't stand in the way.
+
+In a plain checkout, fall back to `.env` / `.env.local` (repo root) and `backend/.env`.
+
+The database is named after the **worktree directory, not the branch** (`scripts/worktree-common.sh`):
+`windmill_` + the directory basename with `-` → `_`, which Postgres then truncates at 63
+characters. Branch `hugo/win-2340-ai-agent-evals-standalone-agent-runs-and-eval-datasets` sits in
+a worktree directory named `win-2340-…`, so its database is
+`windmill_win_2340_ai_agent_evals_standalone_agent_runs_and_eval` — no `hugo_`, and the tail
+chopped. Take `WM_DB_NAME` from `runtime.env` instead of reconstructing the name. Read those, or
+discover from what is already running:
 
 ```bash
 psql postgres://postgres:changeme@localhost:5432/postgres -tAc \

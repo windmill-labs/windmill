@@ -32,22 +32,68 @@ MUST **restart the backend with the appropriate features** for what you're worki
 
 ### Restarting the dev backend with the right features
 
-The backend runs in tmux pane 1 as `cargo watch -x "run --features <…>"`. To restart it with a
-different feature set — scope kills by pid/cwd, **never** `pkill -f target/debug/windmill` (it
-kills every sibling worktree's backend):
+Restart in the **same pane**, so the relaunch inherits that pane's `DATABASE_URL`, `BACKEND_PORT`
+and the rest of `runtime.env`. Scope every kill to this worktree — **never**
+`pkill -f target/debug/windmill`, which kills every sibling worktree's backend.
 
-1. Stop the current run: `tmux send-keys -t <pane1> C-c`, then kill *this worktree's*
-   `cargo-watch` pid (find it via `/proc/<pid>/cwd`).
-2. Relaunch in the same pane so it inherits the shell's `DATABASE_URL` etc.; the pane env's
-   `PORT` may be stale, so set it explicitly:
+1. Find the backend pane by what it is running, not by index. The index depends on the webmux
+   profile: pane 1 is the backend under `full`, but the *frontend* under `frontendOnly`.
+
    ```bash
-   export PORT=$BACKEND_PORT
-   cargo watch -x "run --features enterprise,private,parquet,quickjs"
+   WIN=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')
+   tmux list-panes -t "$WIN" -F '#{pane_index} #{pane_current_command} #{pane_pid}'
    ```
-3. Wait for `health check completed` in the pane before hitting the API.
+
+2. Read the feature set it is **actually** running. `CARGO_FEATURES` in `runtime.env` is only what
+   the pane started with, and goes stale the first time anyone restarts by hand:
+
+   ```bash
+   ps --ppid <pane_pid> -o args=
+   # /home/hugo/.cargo/bin/cargo-watch watch -x run --features quickjs
+   ```
+
+3. Stop it and relaunch with the extended set. `PORT` in the pane shell can be stale, so pass it
+   explicitly:
+
+   ```bash
+   tmux send-keys -t "$WIN.<idx>" C-c
+   tmux send-keys -t "$WIN.<idx>" 'PORT=$BACKEND_PORT cargo watch -x "run --features quickjs,private,parquet"' Enter
+   ```
+
+   Carry over every feature the old command had unless you mean to drop one — rebuilding the list
+   from memory is how a backend silently loses `quickjs`.
+
+4. Persist the new set so a recreated pane starts with it: set `CARGO_FEATURES` in
+   `$(git rev-parse --git-dir)/webmux/runtime.env`. That file is read at pane startup only, so it
+   changes nothing about the process you just relaunched — step 3 is what takes effect now.
+
+5. Re-capture the pane until `health check completed` appears before hitting the API. A cold
+   rebuild takes ~60s, and the previous run's success line is still in the scrollback, so a
+   capture taken too early reads as ready when it isn't.
 
 cargo-watch only re-runs on a file change, so after an idle/failed run `touch README.md` (from
 `backend/`, where the watch runs) is a cheap retrigger (touching a `.rs` forces a full rebuild).
+
+### An orphaned backend is holding the port
+
+If the pane's `cargo watch` looks alive but the API never answers, or the build ends in an
+address-already-in-use error, a backend from an earlier run is probably still bound to the port.
+It gets reparented to `systemd --user` when its shell dies, so it survives everything that looks
+like a cleanup.
+
+Confirm all three before killing anything — a dozen sibling worktrees run their own backend, and
+`pkill -f windmill` (or `-f target/debug/windmill`) kills every one of them:
+
+```bash
+ss -ltnp | grep ":$BACKEND_PORT"          # 1. which pid holds the port
+readlink /proc/<pid>/cwd                   # 2. must be THIS worktree's backend/
+ps -o ppid= -p <pid>                       # 3. parent is systemd/pid 1, not your pane's cargo-watch
+```
+
+Only when the port owner is this worktree's backend **and** it is orphaned, kill that single pid
+(`kill <pid>`, then `kill -9` if it does not exit). Ask first when there is a human in the loop;
+unattended, the three checks are what make it safe. Then `touch README.md` to retrigger the
+watch.
 
 ### What each feature gate does (the ones you'll actually toggle)
 
