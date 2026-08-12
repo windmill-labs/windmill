@@ -15,8 +15,21 @@
 	import { hasRoleAccess } from '$lib/tutorials/roleUtils'
 	import { onMount } from 'svelte'
 
-	let isDismissed = $state(false)
-	let hasCompletedAny = $state(false)
+	type BannerState = 'hidden' | 'start' | 'new'
+
+	// Caches the last resolved BannerState. Deciding what to show needs an API round-trip, so the
+	// banner paints this first: guessing wrong once in a while beats reflowing the home page on
+	// every load.
+	const TUTORIAL_BANNER_STATE_KEY = 'tutorial_banner_state'
+
+	// A brand-new device has nothing cached and stays hidden until the sync answers, which is the
+	// direction that keeps the page from jumping.
+	const cachedState =
+		getLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY) === 'true'
+			? 'hidden'
+			: getLocalSetting(TUTORIAL_BANNER_STATE_KEY)
+	let isDismissed = $state(cachedState !== 'start' && cachedState !== 'new')
+	let hasCompletedAny = $state(cachedState === 'new')
 
 	/**
 	 * Get all tutorial indexes that are accessible to the current user based on their role.
@@ -42,60 +55,65 @@
 		return indexes
 	})
 
+	function resolveState(state: BannerState) {
+		storeLocalSetting(TUTORIAL_BANNER_STATE_KEY, state)
+		isDismissed = state === 'hidden'
+		hasCompletedAny = state === 'new'
+	}
+
 	onMount(async () => {
+		// Manually dismissed via the X button (soft dismiss, per-device). Checked before the network
+		// call so a dismissed banner can never flash back in.
+		if (getLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY) === 'true') {
+			resolveState('hidden')
+			return
+		}
+
 		try {
 			// Sync tutorial progress from backend first
 			await syncTutorialsTodos()
-
-			// Check if banner has been manually dismissed via X button (soft dismiss, per-device)
-			const manuallyDismissed = getLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY) === 'true'
-			if (manuallyDismissed) {
-				isDismissed = true
-				return
-			}
-
-			// Check if user deliberately skipped all tutorials (permanent dismiss, from backend)
-			if ($skippedAll) {
-				isDismissed = true
-				return
-			}
-
-			// Safe to check tutorialsToDo here since we awaited syncTutorialsTodos() above
-			// Filter tutorialsToDo to only include tutorials accessible to the user's role
-			const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
-				accessibleTutorialIndexes.has(index)
-			)
-
-			// Calculate if user has completed at least one tutorial (for banner wording)
-			// This determines whether to show "New tutorial available!" or "Learn with interactive tutorials"
-			hasCompletedAny = remainingAccessibleTutorials.length < accessibleTutorialIndexes.size
-
-			// Hide banner if all accessible tutorials are completed (but can reappear with new tutorials)
-			if (remainingAccessibleTutorials.length === 0) {
-				isDismissed = true
-				return
-			}
-
-			// Show banner - user has accessible tutorials to complete
-			isDismissed = false
 		} catch (error) {
 			console.error('Failed to sync tutorial progress:', error)
-			// Fallback to manual dismissal check only if API call fails
-			isDismissed = getLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY) === 'true'
+			// Keep whatever the last successful sync resolved to rather than guessing again
+			return
 		}
+
+		// Check if user deliberately skipped all tutorials (permanent dismiss, from backend)
+		if ($skippedAll) {
+			resolveState('hidden')
+			return
+		}
+
+		// Safe to check tutorialsToDo here since we awaited syncTutorialsTodos() above
+		// Filter tutorialsToDo to only include tutorials accessible to the user's role
+		const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
+			accessibleTutorialIndexes.has(index)
+		)
+
+		// Hide banner if all accessible tutorials are completed (but can reappear with new tutorials)
+		if (remainingAccessibleTutorials.length === 0) {
+			resolveState('hidden')
+			return
+		}
+
+		// Having completed at least one accessible tutorial switches the wording to
+		// "New tutorial available!" instead of "Learn with interactive tutorials"
+		resolveState(
+			remainingAccessibleTutorials.length < accessibleTutorialIndexes.size ? 'new' : 'start'
+		)
 	})
 
 	async function handleSkipAllTutorials() {
 		// Skip all tutorials and set skipped_all flag in backend (permanent)
 		await skipAllTodos()
 		await syncTutorialsTodos()
-		// No need to set localStorage - backend skipped_all flag is the source of truth
-		isDismissed = true
+		// No need to set the dismissed flag - backend skipped_all flag is the source of truth
+		resolveState('hidden')
 	}
 
 	function dismissBanner() {
 		storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
-		isDismissed = true
+		resolveState('hidden')
 
 		const actions: ToastAction[] = [
 			{

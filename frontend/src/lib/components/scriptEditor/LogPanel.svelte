@@ -225,7 +225,8 @@
 										<div class="text-sm text-primary p-2 flex justify-between items-center">
 											<span>
 												{#if previewIsLoading}
-													<Loader2 class="animate-spin" />
+													<!-- Sized to the text line it replaces so the placeholder row keeps its height -->
+													<Loader2 size={14} class="animate-spin" />
 												{:else}
 													Test to see the result here
 												{/if}
