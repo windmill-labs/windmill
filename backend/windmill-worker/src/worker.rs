@@ -1270,9 +1270,11 @@ pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 // costs several times the JSON they serialize to — a separately allocated value
 // per row, then a contiguous buffer holding all of them — and the worker still
 // needs the rest of its budget for what it already has resident.
+#[cfg(feature = "duckdb")]
 const SQL_RESULT_SIZE_FRACTION: f64 = 0.15;
 // Under this a result cannot threaten a worker of any size, so capping it would
 // only reject work that would have succeeded.
+#[cfg(feature = "duckdb")]
 const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 
 /// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
@@ -1280,6 +1282,7 @@ const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 ///
 /// Fractions are accepted because `format_byte_size` emits them, and the limit it
 /// renders into an error is meant to be usable as a setting verbatim.
+#[cfg(feature = "duckdb")]
 fn parse_byte_size(v: &str) -> Option<usize> {
     let upper = v.trim().to_ascii_uppercase();
     // Longest-first: `GB` would otherwise swallow `GIB`, and `B` every other suffix.
@@ -1303,6 +1306,7 @@ fn parse_byte_size(v: &str) -> Option<usize> {
     (bytes <= usize::MAX as f64).then(|| bytes as usize)
 }
 
+#[cfg(feature = "duckdb")]
 lazy_static::lazy_static! {
     /// Bytes one duckdb job may collect before the executor gives up — the budget
     /// spans every query block in the job, since what the worker cannot survive is
@@ -4956,7 +4960,7 @@ pub async fn write_module_files(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "duckdb"))]
 mod byte_size_tests {
     use super::*;
 
