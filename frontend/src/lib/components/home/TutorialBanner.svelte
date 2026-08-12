@@ -61,6 +61,16 @@
 		hasCompletedAny = state === 'new'
 	}
 
+	// The banner is interactive while the initial sync is still in flight, so a dismiss or a skip
+	// can land mid-await. Once that happens the user's choice wins and the sync must not resurrect
+	// the banner.
+	let userHidBanner = false
+
+	function hideBannerForUser() {
+		userHidBanner = true
+		resolveState('hidden')
+	}
+
 	onMount(async () => {
 		// Manually dismissed via the X button (soft dismiss, per-device). Checked before the network
 		// call so a dismissed banner can never flash back in.
@@ -75,6 +85,10 @@
 		} catch (error) {
 			console.error('Failed to sync tutorial progress:', error)
 			// Keep whatever the last successful sync resolved to rather than guessing again
+			return
+		}
+
+		if (userHidBanner) {
 			return
 		}
 
@@ -108,12 +122,12 @@
 		await skipAllTodos()
 		await syncTutorialsTodos()
 		// No need to set the dismissed flag - backend skipped_all flag is the source of truth
-		resolveState('hidden')
+		hideBannerForUser()
 	}
 
 	function dismissBanner() {
 		storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
-		resolveState('hidden')
+		hideBannerForUser()
 
 		const actions: ToastAction[] = [
 			{
