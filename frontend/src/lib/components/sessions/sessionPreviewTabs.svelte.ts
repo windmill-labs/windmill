@@ -572,8 +572,9 @@ export class SessionPreviewTabs {
 	}
 
 	// Feed back the location an iframe reported on load (only the page can read
-	// contentWindow.location). Updates the observed `loc`, leaving `url` alone so
-	// the tab doesn't reload.
+	// contentWindow.location). Updates the observed `loc`; `url` follows only when a
+	// drawer closed (below), and the host navigates on a command it isn't already at,
+	// so that write does not move the frame.
 	observeLocation(id: string, loc: string): void {
 		const t = this.#tabs.find((x) => x.id === id)
 		if (!t) return

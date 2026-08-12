@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { whereIs } from './sessionPreviewTabs.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
@@ -167,6 +168,33 @@
 	})
 	$effect(() => () => clearTimeout(flashTimer))
 
+	// Where this frame boots. Captured once, from the observed location: `tab.url` is the
+	// last thing commanded, and a tab remounted after the user moved inside it should come
+	// back where they were, not where it started.
+	const initialSrc = withMenuHidden(whereIs(tab), workspaceId || undefined)
+
+	// A command navigates the frame, but only when it is not already there. Binding `src`
+	// reactively would navigate on every write to `tab.url` — including the anchor drop
+	// that follows the user closing a drawer, where the frame already shows the target and
+	// a fragment removal is a full load, not a same-document move.
+	let lastNavigated = initialSrc
+	$effect(() => {
+		const target = withMenuHidden(tab.url, workspaceId || undefined)
+		untrack(() => {
+			if (target === lastNavigated) return
+			lastNavigated = target
+			try {
+				const win = frame?.contentWindow
+				if (!win) return
+				const { pathname, search, hash } = win.location
+				if (pathname + search + hash === target) return
+				win.location.replace(target)
+			} catch {
+				// Cross-navigation timing — the next command navigates again.
+			}
+		})
+	})
+
 	// Forced-load signal for a navigation to the tab's exact current URL (see
 	// pulseReload) — without it the page never re-runs its URL-driven behavior.
 	// Seeded from the current nonce: a pulse from before this host mounted is
@@ -266,7 +294,7 @@
 {:else if mounted}
 	<iframe
 		bind:this={frame}
-		src={withMenuHidden(tab.url, workspaceId || undefined)}
+		src={initialSrc}
 		onload={(e) => {
 			const f = e.currentTarget as HTMLIFrameElement
 			// Re-apply after load so a toggle that happened while the frame was
