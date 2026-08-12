@@ -20,6 +20,8 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
+	import Password from './Password.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 
@@ -91,6 +93,7 @@
 	const providersType = providers.map((p) => p.type as string)
 
 	let showPassword = $state(false)
+	let passwordField = $state<Password | undefined>(undefined)
 	// Type argument rather than annotation: annotating narrows the declaration to the
 	// initializer's `undefined`, so a top-level read sees `never` instead of the array.
 	let logins = $state<OAuthLogin[] | undefined>(undefined)
@@ -272,10 +275,11 @@
 
 	checkSmtpConfigured()
 
-	function handleKeyUp(event: KeyboardEvent) {
+	function handleKeyDown(event: KeyboardEvent) {
 		const key = event.key
 
-		if (key === 'Enter') {
+		// Enter confirming an IME candidate must not submit
+		if (key === 'Enter' && !event.isComposing) {
 			event.preventDefault()
 			login()
 		}
@@ -525,19 +529,35 @@
 				<div class="space-y-1">
 					<label for="email" class="block text-xs font-semibold text-emphasis"> Email </label>
 					<div>
-						<input type="email" bind:value={email} id="email" autocomplete="email" />
+						<TextInput
+							size="md"
+							bind:value={email}
+							inputProps={{
+								id: 'email',
+								type: 'email',
+								autocomplete: 'email',
+								onkeydown: (e) => {
+									if (e.key === 'Enter' && !e.isComposing) {
+										e.preventDefault()
+										passwordField?.focus()
+									}
+								}
+							}}
+						/>
 					</div>
 				</div>
 
 				<div class="space-y-1">
 					<label for="password" class="block text-xs font-semibold text-emphasis"> Password </label>
 					<div>
-						<input
-							onkeyup={handleKeyUp}
-							bind:value={password}
+						<Password
+							bind:this={passwordField}
+							bind:password
 							id="password"
-							type="password"
+							placeholder=""
 							autocomplete="current-password"
+							allowMultiline={false}
+							onKeyDown={handleKeyDown}
 						/>
 					</div>
 					{#if smtpConfigured}

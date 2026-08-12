@@ -7,6 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { UserService } from '$lib/gen'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
+	import Password from '$lib/components/Password.svelte'
 	import { enterpriseLicense, whitelabelNameStore } from '$lib/stores'
 
 	const token = page.url.searchParams.get('token') ?? ''
@@ -15,6 +16,7 @@
 	let confirmPassword = $state('')
 	let loading = $state(false)
 	let success = $state(false)
+	let confirmPasswordField = $state<Password | undefined>(undefined)
 
 	async function resetPassword() {
 		if (!token) {
@@ -50,8 +52,8 @@
 		}
 	}
 
-	function handleKeyUp(event: KeyboardEvent) {
-		if (event.key === 'Enter') {
+	function handleKeyDown(event: KeyboardEvent) {
+		if (event.key === 'Enter' && !event.isComposing) {
 			event.preventDefault()
 			resetPassword()
 		}
@@ -105,12 +107,17 @@
 							New Password
 						</label>
 						<div>
-							<input
-								type="password"
-								bind:value={newPassword}
+							<Password
+								bind:password={newPassword}
 								id="new-password"
-								autocomplete="new-password"
-								onkeyup={handleKeyUp}
+								placeholder=""
+								allowMultiline={false}
+								onKeyDown={(e) => {
+									if (e.key === 'Enter' && !e.isComposing) {
+										e.preventDefault()
+										confirmPasswordField?.focus()
+									}
+								}}
 							/>
 						</div>
 					</div>
@@ -120,12 +127,13 @@
 							Confirm Password
 						</label>
 						<div>
-							<input
-								type="password"
-								bind:value={confirmPassword}
+							<Password
+								bind:this={confirmPasswordField}
+								bind:password={confirmPassword}
 								id="confirm-password"
-								autocomplete="new-password"
-								onkeyup={handleKeyUp}
+								placeholder=""
+								allowMultiline={false}
+								onKeyDown={handleKeyDown}
 							/>
 						</div>
 					</div>
