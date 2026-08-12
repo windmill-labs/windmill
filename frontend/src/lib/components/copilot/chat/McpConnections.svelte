@@ -7,7 +7,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Plug, Plus, Trash2 } from 'lucide-svelte'
+	import { Loader2, Plug, Plus, Square, SquareCheck, Trash2 } from 'lucide-svelte'
 	import type { Item } from '$lib/utils'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { clearMcpToolsCache } from './global/mcpTools'
@@ -69,8 +69,9 @@
 		return [
 			...servers.map((server) => ({
 				displayName: server.path,
-				icon: Plug,
-				selected: server.enabled,
+				// Independent on/off rows, so both states carry a control: a bare check
+				// would leave "off" looking like a plain command.
+				icon: server.enabled ? SquareCheck : Square,
 				action: () => toggle(server.path, !server.enabled)
 			})),
 			{
