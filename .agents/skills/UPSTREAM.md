@@ -16,9 +16,12 @@ Local changes on top of upstream, kept to the minimum so a refresh stays a diff:
 
 - Flattened the upstream `skills/engineering/` and `skills/productivity/` split, since this
   repo's skills are flat.
-- Rewrote each SKILL.md's links to its own bundled files as repo-root paths
-  (`.agents/skills/<skill>/FILE.md`). Relative links break when the file is read through the
-  `.claude/skills/<skill>/SKILL.md` symlink, which mirrors only SKILL.md.
+- Replaced each SKILL.md's markdown links to its own bundled files with plain repo-root paths
+  in prose (`.agents/skills/<skill>/FILE.md`). Upstream's sibling-relative links break when the
+  file is read through the `.claude/skills/<skill>/SKILL.md` symlink, which mirrors only
+  SKILL.md — and a repo-root *link* is equally wrong, since a markdown target resolves relative
+  to the file containing it. Companion files keep their sibling-relative links; they are only
+  ever read at their real path, never through the symlink.
 - Dropped the upstream `agents/openai.yaml` files — Codex packaging metadata for that repo's
   own plugin distribution, unused here.
 - **Removed every ADR path.** Upstream, `domain-modeling` offers to write Architecture Decision
