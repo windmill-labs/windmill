@@ -54,6 +54,7 @@ import {
 	parsePreviewItemRoute,
 	previewLocationContext,
 	previewLocationLabel,
+	promptSafe,
 	resolvePreviewTab
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -1085,7 +1086,8 @@ setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
 	const owner = getOrCreateRuntime(session).previewTabs
 	if (owner.tabs.length === 0) return 'The preview panel has no open tabs.'
 
-	const labelFor = (t: (typeof owner.tabs)[number]) => previewLocationLabel(t.loc || t.url)
+	const labelFor = (t: (typeof owner.tabs)[number]) =>
+		promptSafe(previewLocationLabel(t.loc || t.url))
 	// Resolve the doomed tabs to ids up front — close() re-indexes on each call.
 	const doomed = selectPreviewTabsToClose(owner.tabs, { all, match })
 	if (doomed.length === 0) {

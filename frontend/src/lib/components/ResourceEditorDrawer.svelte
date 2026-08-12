@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte'
 	import { Button, Drawer } from './common'
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -27,6 +28,7 @@
 
 	let resourceEditor:
 		| {
+				flushPendingChanges: () => void
 				save: () => void
 				localDraftDeployed: () => unknown
 				localDraftCurrent: () => unknown
@@ -73,9 +75,21 @@
 
 	// `selected`, not `effectiveWorkspace`: WsSpecificVersions re-points this drawer
 	// at another workspace's version, and the session must act on the one shown.
-	const sessionSource = $derived(
-		pageDrawerSessionSource(RESOURCES_PATH, path, selected ?? effectiveWorkspace)
-	)
+	const sessionSource = $derived.by(() => {
+		const source = pageDrawerSessionSource(RESOURCES_PATH, path, selected ?? effectiveWorkspace)
+		if (!source) return undefined
+		return {
+			...source,
+			// The code editors hold their last keystrokes behind their own debounce, so
+			// materialise them and let `args` settle before the draft is persisted —
+			// otherwise the session opens on the value from before them.
+			beforeOpen: async () => {
+				resourceEditor?.flushPendingChanges()
+				await tick()
+				await source.beforeOpen?.()
+			}
+		}
+	})
 </script>
 
 <Drawer bind:this={drawer} size="50rem" {disableChatOffset}>

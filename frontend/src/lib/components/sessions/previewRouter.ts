@@ -283,13 +283,13 @@ const ADDRESSING_PARAMS = new Set([
 	COMPARE_ITEMS_PARAM
 ])
 
-// These fields are rendered as `key: value` lines of the chat's ACTIVE PREVIEW block, so
-// a value carrying a newline would write a line of its own — a URL is attacker-shaped
-// input once a link can be shared. Control characters go, and each field is capped: a
-// path or a filter this long says nothing the model can use anyway.
 const CONTEXT_FIELD_MAX = 300
 
-function oneLine(text: string): string {
+/** Collapse a value to one field of prompt text or a tool result. Both are line-oriented
+ * formats with no escaping, so a value carrying a newline writes a line of its own — and
+ * these values are decoded out of URLs, which are attacker-shaped input the moment a link
+ * can be shared. Length is capped too: a path this long tells the model nothing. */
+export function promptSafe(text: string): string {
 	// eslint-disable-next-line no-control-regex
 	return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, CONTEXT_FIELD_MAX)
 }
@@ -321,9 +321,9 @@ export function previewLocationContext(loc: string): {
 		// Labels come from route shape (page name, trigger kind, run id, item leaf), so
 		// they carry no query or hash of their own — but a run id and an item leaf are
 		// decoded out of the path, so they still reach here as free text.
-		label: oneLine(previewLocationLabel(loc)),
-		location: oneLine(identity + (filters.length ? `?${filters.sort().join('&')}` : '')),
-		open: anchor ? oneLine(anchor) : undefined
+		label: promptSafe(previewLocationLabel(loc)),
+		location: promptSafe(identity + (filters.length ? `?${filters.sort().join('&')}` : '')),
+		open: anchor ? promptSafe(anchor) : undefined
 	}
 }
 

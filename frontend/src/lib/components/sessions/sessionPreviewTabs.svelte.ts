@@ -11,6 +11,7 @@ import {
 	parseArtifactRoute,
 	parsePipelineRoute,
 	previewLocationContext,
+	promptSafe,
 	parsePreviewItemRoute,
 	previewLocationLabel,
 	resolvePreviewTab,
@@ -645,7 +646,9 @@ export function describePreview(tabs: SessionPreviewTab[], activeId: string): st
 							`${stripBase(where)}${previewLocationDetail(where)}`
 		const live = resolvePreviewTab(t.url).kind === 'editor' ? ', live editor' : ''
 		const active = t.id === activeId ? ', active' : ''
-		return `- ${label}${live}${active}`
+		// One list entry per tab: an artifact's name, a pipeline folder and an item path
+		// all arrive decoded from a URL, so any of them could otherwise write a line here.
+		return `- ${promptSafe(label)}${live}${active}`
 	})
 	return `${tabs.length} preview tab${tabs.length === 1 ? '' : 's'} open in the side panel:\n${lines.join('\n')}`
 }

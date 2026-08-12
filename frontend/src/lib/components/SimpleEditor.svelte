@@ -149,6 +149,14 @@
 
 	const uri = `file:///${untrack(() => hash)}.${langToExt(untrack(() => lang))}`
 
+	/** Materialise the debounced buffer into `code` now. A consumer that must act on
+	 * what is on screen — persisting a draft before navigating away — cannot wait out
+	 * CHANGE_TIMEOUT. Mirrors `Editor.flushPendingChanges`. */
+	export function flushPendingChanges(): void {
+		cancelPendingChanges()
+		updateCode()
+	}
+
 	export function getCode(): string {
 		if (valueAfterDispose != undefined) {
 			return valueAfterDispose

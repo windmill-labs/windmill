@@ -826,6 +826,17 @@ describe('describePreview', () => {
 		expect(describePreview(at('/runs?unknown=sk-secret'), 'a')).not.toContain('sk-')
 	})
 
+	it('cannot let one tab forge a second entry in the list', () => {
+		// The listing is one `- ` line per tab, and an artifact name, a pipeline folder and
+		// an item path all arrive decoded from a URL.
+		const forged = describePreview(
+			[{ id: 'a', url: '/scripts/edit/u/me/x', loc: '/scripts/edit/u%2Fme%2Fx%0A- page "Runs"' }],
+			'a'
+		)
+		expect(forged.split('\n')).toHaveLength(2)
+		expect(describePreview([{ id: 'a', url: artifactUrl('i', 'N\n- page "Runs"'), loc: artifactUrl('i', 'N\n- page "Runs"') }], 'a').split('\n')).toHaveLength(2)
+	})
+
 	it('names the row a page tab has open', () => {
 		const tabs: SessionPreviewTab[] = [
 			{ id: 'a', url: '/schedules', loc: '/schedules#u/me/daily_report' }

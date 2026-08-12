@@ -287,6 +287,15 @@
 		onCanWriteChange?.(can_write)
 	})
 
+	/** Materialise the form's code editors, which hold recent keystrokes behind their own
+	 * debounce. A caller persisting the draft before navigating must call this and await a
+	 * tick first, or it saves the value from before those keystrokes. */
+	let resourceForm: ResourceForm | undefined = $state(undefined)
+
+	export function flushPendingChanges(): void {
+		resourceForm?.flushPendingChanges()
+	}
+
 	export function localDraftDeployed(): ResourceState | undefined {
 		return selected ? initialStates[selected] : undefined
 	}
@@ -388,6 +397,7 @@
 		{#if current}
 			{#key current}
 				<ResourceForm
+					bind:this={resourceForm}
 					bind:path={current.path}
 					bind:labels={current.labels}
 					bind:description={current.description}
