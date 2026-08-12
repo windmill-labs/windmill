@@ -172,6 +172,12 @@ export interface ToolCallArgumentRule {
    * the point is that the model filled it in at all rather than what it said.
    */
   nonEmpty?: boolean;
+  /**
+   * Universal over calls: no recorded call to `tool` may pass `field` at all.
+   * For partial-update tools, where supplying a field the model could not have
+   * read is itself the failure — e.g. `write_variable.value` on a secret.
+   */
+  fieldMustBeAbsent?: boolean;
 }
 
 /**

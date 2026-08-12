@@ -5,6 +5,7 @@ import type {
 	Flow,
 	Job,
 	ListableApp,
+	ListableVariable,
 	Script
 } from '../../../frontend/src/lib/gen'
 import type {
@@ -54,6 +55,15 @@ export interface BenchmarkWorkspaceApp {
 	}
 }
 
+export interface BenchmarkWorkspaceVariable {
+	path: string
+	value: string
+	is_secret: boolean
+	description?: string
+	labels?: string[]
+	ws_specific?: boolean
+}
+
 export interface BenchmarkWorkspaceJob {
 	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
 	id?: string
@@ -69,6 +79,7 @@ export interface BenchmarkWorkspaceRunnables {
 	scripts?: BenchmarkWorkspaceScript[]
 	flows?: BenchmarkWorkspaceFlow[]
 	apps?: BenchmarkWorkspaceApp[]
+	variables?: BenchmarkWorkspaceVariable[]
 	datatables?: BenchmarkDatatableSeed[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
@@ -204,6 +215,47 @@ export function getBenchmarkAppByPath(workspace: string, path: string): AppWithL
 		?.apps?.find((entry) => entry.path === path)
 
 	return app ? buildBenchmarkApp(app) : null
+}
+
+function buildBenchmarkVariable(
+	workspace: string,
+	seed: BenchmarkWorkspaceVariable,
+	decryptSecret: boolean
+): ListableVariable {
+	return {
+		workspace_id: workspace,
+		path: seed.path,
+		// Mirror `get_variable`: a secret's value is withheld unless decryption was
+		// asked for, so a reader genuinely cannot see it.
+		value: seed.is_secret && !decryptSecret ? undefined : seed.value,
+		is_secret: seed.is_secret,
+		description: seed.description,
+		labels: seed.labels,
+		ws_specific: seed.ws_specific ?? false,
+		extra_perms: {},
+		edited_at: BENCHMARK_TIMESTAMP
+	}
+}
+
+export function listBenchmarkVariables(workspace: string): ListableVariable[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		return null
+	}
+	// The list route never decrypts.
+	return (runnables.variables ?? []).map((seed) => buildBenchmarkVariable(workspace, seed, false))
+}
+
+export function getBenchmarkVariableByPath(
+	workspace: string,
+	path: string,
+	decryptSecret = true
+): ListableVariable | null {
+	const seed = benchmarkWorkspaceRunnables
+		.get(workspace)
+		?.variables?.find((entry) => entry.path === path)
+
+	return seed ? buildBenchmarkVariable(workspace, seed, decryptSecret) : null
 }
 
 export function createBenchmarkCompletedJob(input: {
@@ -411,7 +463,8 @@ function benchmarkDeployedExists(workspace: string, kind: UserDraftItemKind, pat
 	if (kind === 'script') return Boolean(getBenchmarkScriptByPath(workspace, path))
 	if (kind === 'flow') return Boolean(getBenchmarkFlowByPath(workspace, path))
 	if (kind === 'app' || kind === 'raw_app') return Boolean(getBenchmarkAppByPath(workspace, path))
-	// Drawer kinds (variables/resources/schedules/triggers) have no deployed
+	if (kind === 'variable') return Boolean(getBenchmarkVariableByPath(workspace, path))
+	// The remaining drawer kinds (resources/schedules/triggers) have no deployed
 	// benchmark stores today.
 	return false
 }
