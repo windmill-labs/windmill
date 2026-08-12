@@ -12,9 +12,9 @@
 //   node scripts/dev-supervisor.mjs -t 3340:/path --bind 0.0.0.0   # reachable off-host
 //
 // Proxying is at the TCP layer so HTTP, the HMR websocket, and the /api proxy all
-// pass through untouched. Under HTTPS=true the request head is encrypted, so a
-// connection cannot be told apart from an HMR one: reclaiming still works, but a tab
-// left open reaches the idle window later than it would over plaintext.
+// pass through untouched. Under HTTPS=true the request head is encrypted, so an HMR
+// socket cannot be told apart from real traffic: a target with no tab open is still
+// reclaimed, but a tab left open keeps its server alive rather than going dormant.
 import net from 'node:net'
 import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -250,7 +250,11 @@ class Target {
 		this.log(`stopping dev server${rss ? ` (reclaiming ${rss} MB)` : ''}`)
 		const child = this.child
 		killTree(child, 'SIGTERM')
-		setTimeout(() => killTree(child, 'SIGKILL'), KILL_GRACE_MS).unref()
+		// Only if it is still ours to kill: the pid may have been recycled by then, and the
+		// group signal would land on an unrelated process group.
+		setTimeout(() => {
+			if (liveChildren.has(child)) killTree(child, 'SIGKILL')
+		}, KILL_GRACE_MS).unref()
 		this.child = null
 		this.internalPort = null
 		this.ready = false
@@ -279,7 +283,7 @@ class Target {
 			chunks.push(chunk)
 			buffered += chunk.length
 			const head = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks)
-			if (head[0] === TLS_HANDSHAKE_BYTE) return dispatch(head)
+			if (head.length > 0 && head[0] === TLS_HANDSHAKE_BYTE) return dispatch(head)
 			if (head.indexOf('\r\n\r\n') === -1 && buffered < MAX_HEAD_BYTES) return
 			dispatch(head)
 		}
@@ -342,6 +346,9 @@ class Target {
 
 	tick() {
 		if (!this.child) return
+		// No bytes flow while vite boots, so an `--idle` shorter than a cold start would
+		// otherwise reap the server the waiting client is still queued behind.
+		if (this.starting) return
 		// Staleness alone, deliberately: an open socket is not proof of use, and gating on
 		// one being present lets a half-open connection (VPN drop, suspend), an idle SSE
 		// stream, or an opaque TLS socket pin the server forever. Every byte in either

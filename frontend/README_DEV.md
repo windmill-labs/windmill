@@ -104,7 +104,9 @@ node scripts/dev-supervisor.mjs -t 3340:/path/wt-a -t 3350:/path/wt-b --idle 15m
 
 `--bind 0.0.0.0` to reach it off-host, `--stats <file>` to record RSS samples. In dev the
 app also suspends its background polling after 5 minutes of an inactive tab
-(`VITE_DEV_DORMANT_MS`), so a tab left open does not keep a server resident.
+(`VITE_DEV_DORMANT_MS`), so a tab left open does not keep a server resident. That last
+part holds over plaintext only: with `HTTPS=true` the HMR socket is indistinguishable from
+real traffic, so an open tab keeps its server alive.
 
 ### Use a Local backend
 

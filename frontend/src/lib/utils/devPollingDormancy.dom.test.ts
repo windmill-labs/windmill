@@ -16,6 +16,8 @@ describe('devPollingDormancy', () => {
 	afterEach(() => {
 		window.setInterval = original.setInterval
 		window.clearInterval = original.clearInterval
+		// The install guard lives on `window`, so it is part of the global state to restore.
+		delete (window as unknown as Record<string, boolean>).__wmDevPollingDormancyInstalled
 		vi.useRealTimers()
 		vi.unstubAllEnvs()
 		vi.restoreAllMocks()
@@ -54,6 +56,20 @@ describe('devPollingDormancy', () => {
 		tick.mockClear()
 		vi.advanceTimersByTime(300)
 		expect(tick).not.toHaveBeenCalled()
+	})
+
+	it('does not re-patch when the module itself is hot-replaced', async () => {
+		vi.useFakeTimers()
+		vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+		setHidden(false)
+
+		await install()
+		const patched = window.setInterval
+
+		// A fresh module instance is what HMR hands the layout on the next edit.
+		await install()
+
+		expect(window.setInterval).toBe(patched)
 	})
 
 	it('arms intervals registered while dormant only once the tab is back', async () => {

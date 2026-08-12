@@ -17,14 +17,17 @@ type Registration = {
 	native: number | undefined
 }
 
-let installed = false
+const INSTALLED_FLAG = '__wmDevPollingDormancyInstalled'
 
 export function installDevPollingDormancy(): void {
 	if (!import.meta.env.DEV || typeof window === 'undefined') return
 	// The root layout's body re-runs on HMR, and a second install would bind its "native"
-	// setInterval to the already-patched one and stack another set of window listeners.
-	if (installed) return
-	installed = true
+	// setInterval to the already-patched one and stack another set of window listeners. The
+	// guard lives on `window` rather than in module scope because hot-replacing this very
+	// module resets module state while leaving the previous patch in place.
+	const flags = window as unknown as Record<string, boolean>
+	if (flags[INSTALLED_FLAG]) return
+	flags[INSTALLED_FLAG] = true
 
 	const configured = import.meta.env.VITE_DEV_DORMANT_MS
 	const dormantAfterMs = configured ? Number(configured) : DEFAULT_DORMANT_AFTER_MS
