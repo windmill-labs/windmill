@@ -52,6 +52,9 @@
 	let saving = $state(false)
 	let discoveryFoundOAuth = $state<boolean | undefined>(undefined)
 	let showToken = $state(false)
+	// `u/<me>` is private; a folder or group path means the token travels with the
+	// resource to everyone who can read it.
+	let sharedPath = $derived(!!manualPath && !manualPath.startsWith(`u/${$userStore?.username}/`))
 	let oauthConnect: McpOAuthConnect | undefined = $state()
 
 	/** Slug for the resource value's `name` and for the path suggestion. Hosts are
@@ -278,9 +281,9 @@
 						href={entry.docsUrl}
 						target="_blank"
 						rel="noopener noreferrer"
-						class="text-2xs text-secondary inline-flex items-center gap-1"
+						class="text-2xs text-accent hover:underline inline-flex items-center gap-1"
 					>
-						Docs <ExternalLink size={12} />
+						{entry.name} docs <ExternalLink size={12} />
 					</a>
 				{/if}
 			{/snippet}
@@ -312,7 +315,7 @@
 
 	{#if hasTarget && !awaitingConnects}
 		{#if showToken || !canSignIn}
-			<Label label="Token" tooltip={entry?.tokenHint}>
+			<Label label="Token">
 				<Password bind:password={manualToken} />
 			</Label>
 		{:else if oauthAppReady && entry}
@@ -372,13 +375,18 @@
 				<Path
 					bind:path={manualPath}
 					bind:error={manualPathError}
-					initialPath={suggestedPath}
+					initialPath=""
 					namePlaceholder={serverName}
 					kind="resource"
 					workspaceOverride={ws}
 				/>
 			{/key}
 		</Label>
+		{#if sharedPath}
+			<Alert type="warning" size="xs" title="Anyone who can read this path can use this connection">
+				Its tools run against the account the token belongs to.
+			</Alert>
+		{/if}
 
 		<div class="flex flex-col gap-2">
 			{#if showToken || !canSignIn}
