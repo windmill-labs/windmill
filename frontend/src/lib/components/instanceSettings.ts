@@ -534,6 +534,27 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build binaries on deployment',
+			description:
+				'When enabled and instance object storage is configured, deploying a Rust, Go or C# script queues a job that compiles it and uploads the binary to object storage, so the first run does not pay the compile. Requires instance object storage: without it the binary would only reach the building worker. Does nothing for languages whose artifact is not cached in object storage.',
+			key: 'auto_build_binary_on_deploy',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build worker tag',
+			description:
+				'Worker tag the auto-build jobs run on. Leave empty to use the script language tag, where its dependency job already runs. Set it to pin builds to a pool that has the toolchain and matches the platform of your runtime workers — the cache key includes the OS and architecture, so a binary built elsewhere is never reused.',
+			key: 'auto_build_binary_tag',
+			fieldType: 'text',
+			placeholder: 'e.g. build',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Private Hub': [

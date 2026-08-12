@@ -600,6 +600,58 @@ pub async fn build_rust_crate(
     }
 }
 
+/// Cache key of a Rust build. The run path and the deploy-time prebuild must derive it
+/// the same way or the prebuilt binary is never found and gets rebuilt on first run.
+async fn rust_cache_key(code: &str, requirements_o: Option<&String>, w_id: &str) -> String {
+    let mut hash = compute_rust_hash(code, requirements_o);
+    hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
+    hash
+}
+
+/// Compile a deployed Rust script ahead of its first run and push the binary to the
+/// shared cache.
+pub async fn prebuild_rust_binary(
+    job: &MiniPulledJob,
+    code: &str,
+    lock: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    base_internal_url: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> error::Result<Option<String>> {
+    ensure_rust_runtime_dirs();
+    check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
+
+    let hash = rust_cache_key(code, Some(&lock.to_string()), &job.workspace_id).await;
+    let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
+    let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
+    if crate::global_cache::exists_in_cache(&bin_path, &remote_path).await {
+        return Ok(None);
+    }
+
+    gen_cargo_crate(code, job_dir)?;
+    write_cargo_config(job_dir, &job.id, &job.workspace_id, conn).await?;
+    write_file(job_dir, "Cargo.lock", lock)?;
+
+    build_rust_crate(
+        job,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        conn,
+        worker_name,
+        base_internal_url,
+        &hash,
+        occupancy_metrics,
+        false,
+    )
+    .await
+    .map(Some)
+}
+
 pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String {
     calculate_hash(&format!(
         "{}{}",
@@ -631,9 +683,7 @@ pub async fn handle_rust_job(
     ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
-    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
-    let mut hash = compute_rust_hash(inner_content, requirements_o);
-    hash.push_str(&ws_suffix);
+    let hash = rust_cache_key(inner_content, requirements_o, &job.workspace_id).await;
     let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 

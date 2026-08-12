@@ -69,6 +69,20 @@ lazy_static::lazy_static! {
 const CSHARP_OBJECT_STORE_PREFIX: &str =
     const_format::concatcp!(crate::global_cache::TARGET, "_csharpbin/");
 
+/// Cache key of a C# build. The run path and the deploy-time prebuild must derive it the
+/// same way or the prebuilt binary is never found and gets rebuilt on first run.
+#[cfg(feature = "csharp")]
+async fn csharp_cache_key(code: &str, requirements_o: Option<&str>, w_id: &str) -> String {
+    let mut hash = calculate_hash(&format!(
+        "{}{}{}",
+        code,
+        requirements_o.unwrap_or(""),
+        DOTNET_TARGET_FRAMEWORK.as_str()
+    ));
+    hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
+    hash
+}
+
 #[cfg(feature = "csharp")]
 pub async fn generate_nuget_lockfile(
     job_id: &Uuid,
@@ -459,6 +473,50 @@ async fn build_cs_proj(
     }
 }
 
+/// Build a deployed C# script ahead of its first run and push the binary to the shared
+/// cache.
+#[cfg(feature = "csharp")]
+pub async fn prebuild_csharp_binary(
+    job: &MiniPulledJob,
+    code: &str,
+    lock: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    base_internal_url: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> error::Result<Option<String>> {
+    check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
+
+    let hash = csharp_cache_key(code, Some(lock), &job.workspace_id).await;
+    let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
+    let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
+    if crate::global_cache::exists_in_cache(&bin_path, &remote_path).await {
+        return Ok(None);
+    }
+
+    let (reqs, lines_to_remove) = parse_csharp_reqs(code);
+    gen_cs_proj(code, job_dir, reqs, lines_to_remove)?;
+    write_file(job_dir, "packages.lock.json", lock)?;
+
+    build_cs_proj(
+        &job.id,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        conn,
+        worker_name,
+        &job.workspace_id,
+        base_internal_url,
+        &hash,
+        occupancy_metrics,
+    )
+    .await
+    .map(Some)
+}
+
 #[cfg(feature = "csharp")]
 fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> String {
     let mut result = Vec::new();
@@ -513,14 +571,12 @@ pub async fn handle_csharp_job(
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
-    let mut hash = calculate_hash(&format!(
-        "{}{}{}",
+    let hash = csharp_cache_key(
         inner_content,
-        requirements_o.unwrap_or(&String::new()),
-        DOTNET_TARGET_FRAMEWORK.as_str()
-    ));
-    hash.push_str(&ws_suffix);
+        requirements_o.map(|x| x.as_str()),
+        &job.workspace_id,
+    )
+    .await;
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 

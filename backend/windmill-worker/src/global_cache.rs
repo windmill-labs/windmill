@@ -200,6 +200,20 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bo
     }
 }
 
+/// Whether the instance object store backing the shared binary/bundle cache is usable.
+/// False on builds without the object-store features, where `save_cache` only ever
+/// writes to the building worker's own disk.
+pub async fn object_store_configured() -> bool {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    {
+        windmill_object_store::get_object_store().await.is_some()
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    {
+        false
+    }
+}
+
 /// Check whether a binary/bundle exists in local cache or instance object store.
 pub async fn exists_in_cache(bin_path: &str, _remote_path: &str) -> bool {
     if tokio::fs::metadata(&bin_path).await.is_ok() {

@@ -79,6 +79,200 @@ use crate::{
     go_executor::install_go_dependencies,
 };
 
+/// Job arg that turns a dependency job into an auto-build pass: instead of regenerating
+/// the lock, it compiles the already-deployed version and pushes the artifact to the
+/// shared binary cache. Set only by [`maybe_queue_binary_prebuild`].
+const BUILD_BINARY_ONLY_ARG: &str = "build_binary_only";
+
+/// Languages whose compiled artifact lands in the instance object store, which is what
+/// makes building it at deploy time spare *every* worker the first-run compile. Bun
+/// bundles are already built inline by `capture_dependency_job`.
+fn supports_binary_prebuild(lang: ScriptLang) -> bool {
+    matches!(lang, ScriptLang::Rust | ScriptLang::Go | ScriptLang::CSharp)
+}
+
+/// Queue a build of the just-deployed script's binary when the instance opts into it.
+///
+/// It gets its own job rather than running inline: a release build takes minutes and the
+/// deploy must not block on it, and the configured tag lets the build land on a pool that
+/// has the toolchain and, since the cache key is per OS/arch, the platform the runtime
+/// workers use.
+async fn maybe_queue_binary_prebuild(db: &DB, job: &MiniPulledJob, lock: &str) -> Result<()> {
+    let (Some(hash), Some(path), Some(lang)) = (
+        job.runnable_id,
+        job.runnable_path.clone(),
+        job.script_lang.filter(|l| supports_binary_prebuild(*l)),
+    ) else {
+        return Ok(());
+    };
+    if lock.is_empty() {
+        return Ok(());
+    }
+    let Some(tag) = windmill_common::global_settings::auto_build_binary_on_deploy(db).await? else {
+        return Ok(());
+    };
+    // Without the instance object store the artifact never leaves the building worker's
+    // own disk, so every other worker would still compile it on first run.
+    if !crate::global_cache::object_store_configured().await {
+        tracing::warn!(
+            "auto-build binary on deploy is enabled but no instance object storage is \
+             configured, skipping build for {path}"
+        );
+        return Ok(());
+    }
+
+    let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
+    args.insert(BUILD_BINARY_ONLY_ARG.to_string(), to_raw_value(&true));
+
+    let (uuid, tx) = windmill_queue::push(
+        db,
+        windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
+        &job.workspace_id,
+        windmill_common::jobs::JobPayload::Dependencies {
+            hash,
+            language: lang,
+            path: path.clone(),
+            dedicated_worker: None,
+            debouncing_settings: Default::default(),
+        },
+        windmill_queue::PushArgs { args: &args, extra: None },
+        &job.created_by,
+        &job.permissioned_as_email,
+        job.permissioned_as.clone(),
+        Some("auto.build.binary.on.deploy"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        // `None` falls through to the script's language tag, where its dependency job
+        // already ran.
+        tag,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    tracing::info!("pushed auto-build binary job {uuid} for {path}");
+    Ok(())
+}
+
+/// Compile the already-deployed version of a script and push the artifact to the shared
+/// binary cache, so the first run of it does not pay the compile.
+async fn handle_build_binary_job(
+    job: &MiniPulledJob,
+    script_data: &cache::ScriptData,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    db: &DB,
+    worker_name: &str,
+    base_internal_url: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> Result<Box<RawValue>> {
+    let lang = job
+        .script_lang
+        .ok_or_else(|| Error::internal_err("Job language required for build jobs".to_owned()))?;
+    // A deploy of these languages always writes a lock, and the run path derives both the
+    // cache key and the build profile from it, so there is nothing sound to build without
+    // one — the artifact would land under a key no run looks up.
+    let Some(lock) = script_data.lock.as_deref().filter(|l| !l.is_empty()) else {
+        return Ok(to_raw_value_owned(
+            json!({ "status": "skipped", "reason": "script has no lockfile" }),
+        ));
+    };
+    let conn = Connection::from(db.clone());
+    let code = &script_data.code;
+
+    let logs = match lang {
+        ScriptLang::Rust => {
+            #[cfg(not(feature = "rust"))]
+            return Err(Error::internal_err(
+                "Rust requires the rust feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "rust")]
+            crate::rust_executor::prebuild_rust_binary(
+                job,
+                code,
+                lock,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                &conn,
+                worker_name,
+                base_internal_url,
+                occupancy_metrics,
+            )
+            .await?
+        }
+        ScriptLang::Go => {
+            crate::go_executor::prebuild_go_binary(
+                job,
+                code,
+                lock,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                &conn,
+                worker_name,
+                base_internal_url,
+                occupancy_metrics,
+            )
+            .await?
+        }
+        ScriptLang::CSharp => {
+            #[cfg(not(feature = "csharp"))]
+            return Err(Error::internal_err(
+                "C# requires the csharp feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "csharp")]
+            crate::csharp_executor::prebuild_csharp_binary(
+                job,
+                code,
+                lock,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                &conn,
+                worker_name,
+                base_internal_url,
+                occupancy_metrics,
+            )
+            .await?
+        }
+        _ => {
+            return Ok(to_raw_value_owned(json!({
+                "status": "skipped",
+                "reason": format!("{} binaries are not cached in object storage", lang.as_str()),
+            })))
+        }
+    };
+
+    Ok(match logs {
+        Some(logs) => {
+            append_logs(&job.id, &job.workspace_id, &logs, &conn).await;
+            to_raw_value_owned(json!({ "status": "Binary built and cached" }))
+        }
+        None => {
+            to_raw_value_owned(json!({ "status": "skipped", "reason": "binary already in cache" }))
+        }
+    })
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_dependency_job(
     job: &MiniPulledJob,
@@ -137,6 +331,28 @@ pub async fn handle_dependency_job(
             _ => return Err(Error::internal_err("expected script hash")),
         },
     };
+
+    if job
+        .args
+        .as_ref()
+        .is_some_and(|x| x.contains_key(BUILD_BINARY_ONLY_ARG))
+    {
+        // Not a deploy: the version being built was committed and tallied by the
+        // dependency job that queued this one, so a failure here must not tally again.
+        *deployment_tallied = true;
+        return handle_build_binary_job(
+            job,
+            script_data,
+            mem_peak,
+            canceled_by,
+            job_dir,
+            db,
+            worker_name,
+            base_internal_url,
+            occupancy_metrics,
+        )
+        .await;
+    }
 
     let triggered_by_relative_import = job
         .args
@@ -348,6 +564,10 @@ pub async fn handle_dependency_job(
                         tracing::error!(%e, "error triggering CI tests after script lock generation");
                     }
                 });
+            }
+
+            if let Err(e) = maybe_queue_binary_prebuild(db, job, &content).await {
+                tracing::error!(%e, "error queueing the auto-build binary job for {script_path}");
             }
 
             Ok(to_raw_value_owned(
