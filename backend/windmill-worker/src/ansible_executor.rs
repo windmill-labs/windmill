@@ -56,6 +56,12 @@ const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmill.ansible_vault_passwo
 
 const DELEGATE_GIT_REPO_TARGET: &str = "delegate_git_repository";
 
+/// Ansible's `Display` writes to `sys.stdout` and never flushes, relying on a terminal being
+/// line-buffered. Windmill hands it a pipe, where python block-buffers instead, so without this
+/// the job log arrives in bursts rather than as tasks run. No ansible.cfg knob covers it.
+/// The nsjail path sets the same var in `nsjail/run.ansible.config.proto`.
+const PYTHONUNBUFFERED_ENV: &str = "PYTHONUNBUFFERED";
+
 /// Usable bytes in `sockaddr_un.sun_path` (108 minus the NUL). An ABI constant, not a
 /// filesystem limit — which is why only the socket breaks while every regular file in the
 /// same job dir is fine.
@@ -662,6 +668,7 @@ async fn run_galaxy_install_from_requirements(
     galaxy_roles_cmd
         .current_dir(job_dir)
         .env_clear()
+        .env(PYTHONUNBUFFERED_ENV, "1")
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
@@ -700,6 +707,7 @@ async fn run_galaxy_install_from_requirements(
     galaxy_collections_cmd
         .current_dir(job_dir)
         .env_clear()
+        .env(PYTHONUNBUFFERED_ENV, "1")
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
@@ -1888,6 +1896,7 @@ fi
         ansible_cmd
             .current_dir(job_dir)
             .env_clear()
+            .env(PYTHONUNBUFFERED_ENV, "1")
             .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
