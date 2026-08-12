@@ -59,7 +59,12 @@ struct ListRunnablesQuery {
     path_start: Option<String>,
     /// Comma-separated labels; a row matches if it (or its folder) carries all.
     label: Option<String>,
-    /// Case-insensitive substring match on summary or path.
+    /// Case-insensitive fuzzy match on `summary (path)`, mirroring how the homepage
+    /// ranks: split into terms on anything but ASCII letters, digits and apostrophes,
+    /// then every term must appear whole and in order, with anything in between. Only
+    /// the first `MAX_SEARCH_TERMS` apply. Omitted or empty filters nothing; a query
+    /// that holds no ASCII-alphanumeric character at all — `" "`, `"_"`, `"привет"` —
+    /// yields no terms and matches nothing, as it does on the homepage.
     search: Option<String>,
     per_page: Option<usize>,
     /// Opaque keyset cursor from a previous page's `next_cursor`.
@@ -165,6 +170,28 @@ fn decode_cursor(raw: &str) -> Result<Cursor, Error> {
         .decode(raw)
         .map_err(|_| Error::BadRequest("invalid cursor".to_string()))?;
     serde_json::from_slice(&bytes).map_err(|_| Error::BadRequest("invalid cursor".to_string()))
+}
+
+/// Upper bound on the terms one search query contributes to the pattern, so a
+/// pasted paragraph cannot grow it without limit.
+const MAX_SEARCH_TERMS: usize = 8;
+
+/// Split a query into terms on runs of anything that is not an ASCII letter, digit
+/// or apostrophe — the rule the homepage's fuzzy matcher uses, so `f/foo_bar` looks
+/// for `foo` then `bar` rather than for the punctuation between them.
+fn search_terms(search: &str) -> Vec<&str> {
+    search
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '\''))
+        .filter(|t| !t.is_empty())
+        .take(MAX_SEARCH_TERMS)
+        .collect()
+}
+
+/// The string a search matches against: `summary (path)`, or the bare path when
+/// there is no summary — what the homepage concatenates before ranking, so both
+/// halves are searchable as one and a query may span them.
+fn searchable_name(path_expr: &str) -> String {
+    format!("COALESCE(NULLIF(o.summary, '') || ' (' || {path_expr} || ')', {path_expr})")
 }
 
 /// Escape LIKE/ILIKE wildcards so a caller value (search term, path/scope
@@ -406,11 +433,34 @@ async fn list_runnables(
         draft_common.push(format!("COALESCE(o.draft_path, o.path) LIKE {}", p));
     }
     if let Some(search) = q.search.as_ref().filter(|s| !s.is_empty()) {
-        let p = add_bind(&mut binds, format!("%{}%", escape_like(search)));
-        common.push(format!("(o.summary ILIKE {p} OR o.path ILIKE {p})"));
-        draft_common.push(format!(
-            "(o.summary ILIKE {p} OR o.path ILIKE {p} OR o.draft_path ILIKE {p})"
-        ));
+        let terms = search_terms(search);
+        if terms.is_empty() {
+            // A search of nothing but separators is still a search: it must match nothing,
+            // where no predicate at all would answer it with the whole workspace.
+            common.push("false".to_string());
+            draft_common.push("false".to_string());
+        } else {
+            // `%` between the terms is what makes them a fuzzy match rather than a literal
+            // one: each must appear whole, in this order, with anything in between. The
+            // haystack is the summary-and-path string the homepage matches on, so a query
+            // may span the two and the endpoint withholds nothing the homepage would rank.
+            let p = add_bind(
+                &mut binds,
+                format!(
+                    "%{}%",
+                    terms
+                        .iter()
+                        .map(|t| escape_like(t))
+                        .collect::<Vec<_>>()
+                        .join("%")
+                ),
+            );
+            common.push(format!("{} ILIKE {p}", searchable_name("o.path")));
+            draft_common.push(format!(
+                "{} ILIKE {p}",
+                searchable_name("COALESCE(o.draft_path, o.path)")
+            ));
+        }
     }
     if let Some(label) = q.label.as_ref().filter(|s| !s.is_empty()) {
         for l in label.split(',') {
