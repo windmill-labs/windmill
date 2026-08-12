@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.788.0](https://github.com/windmill-labs/windmill/compare/v1.787.0...v1.788.0) (2026-08-12)
+
+
+### Features
+
+* **sessions:** persist artifact version selection in preview tabs ([#10655](https://github.com/windmill-labs/windmill/issues/10655)) ([73b71a8](https://github.com/windmill-labs/windmill/commit/73b71a8fac61069274460ac8151041677c7c5f2d))
+
+
+### Bug Fixes
+
+* harden custom env var name handling in the nativets/bun prologue ([#10634](https://github.com/windmill-labs/windmill/issues/10634)) ([84f3b00](https://github.com/windmill-labs/windmill/commit/84f3b0094d0659ac3e458ef9ebe5768d181524c3))
+* home search matches each term instead of the whole query verbatim ([#10663](https://github.com/windmill-labs/windmill/issues/10663)) ([603b201](https://github.com/windmill-labs/windmill/commit/603b2012a7d2a03eb1a9bb4cb60bd59bc1859078))
+
 ## [1.787.0](https://github.com/windmill-labs/windmill/compare/v1.786.1...v1.787.0) (2026-08-12)
 
 
