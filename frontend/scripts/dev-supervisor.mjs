@@ -12,7 +12,9 @@
 //   node scripts/dev-supervisor.mjs -t 3340:/path --bind 0.0.0.0   # reachable off-host
 //
 // Proxying is at the TCP layer so HTTP, the HMR websocket, and the /api proxy all
-// pass through untouched.
+// pass through untouched. Under HTTPS=true the request head is encrypted, so a
+// connection cannot be told apart from an HMR one: reclaiming still works, but a tab
+// left open reaches the idle window later than it would over plaintext.
 import net from 'node:net'
 import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -23,9 +25,26 @@ const POLL_INTERVAL_MS = 250
 const TICK_MS = 15_000
 const KILL_GRACE_MS = 5_000
 const MAX_HEAD_BYTES = 8_192
+const HEAD_TIMEOUT_MS = 30_000
+const TLS_HANDSHAKE_BYTE = 0x16
 
 // Every spawned dev server, so no exit path can orphan one.
 const liveChildren = new Set()
+
+// Children are spawned detached, so signalling the negated pid reaches vite's own workers
+// too. Without that, a wedged vite leaves the esbuild/rollup processes this tool exists to
+// reclaim. Falls back to the direct child if the group is already gone.
+function killTree(child, signal) {
+	try {
+		process.kill(-child.pid, signal)
+	} catch {
+		try {
+			child.kill(signal)
+		} catch {
+			// already exited
+		}
+	}
+}
 
 function parseDuration(text) {
 	const m = /^(\d+)(ms|s|m|h)?$/.exec(text)
@@ -47,8 +66,16 @@ function parseArgs(argv) {
 			return value
 		}
 		if (arg === '-t' || arg === '--target') {
-			const [port, cwd] = next().split(':')
-			opts.targets.push({ port: Number(port), cwd: path.resolve(cwd ?? process.cwd()) })
+			// First colon only: a path may contain one, and an unvalidated port would reach
+			// `listen(NaN)`, which quietly binds a random port instead of failing.
+			const value = next()
+			const split = value.indexOf(':')
+			const port = Number(split === -1 ? value : value.slice(0, split))
+			if (!Number.isInteger(port) || port < 1 || port > 65535) {
+				throw new Error(`--target needs <port>[:<cwd>], got: ${value}`)
+			}
+			const cwd = split === -1 ? process.cwd() : value.slice(split + 1)
+			opts.targets.push({ port, cwd: path.resolve(cwd) })
 		} else if (arg === '--idle') opts.idleMs = parseDuration(next())
 		else if (arg === '--bind') opts.bind = next()
 		else if (arg === '--stats') opts.stats = path.resolve(next())
@@ -169,7 +196,8 @@ class Target {
 			{
 				cwd: this.cwd,
 				env: { ...process.env, FRONTEND_PORT: String(internalPort) },
-				stdio: ['ignore', 'pipe', 'pipe']
+				stdio: ['ignore', 'pipe', 'pipe'],
+				detached: true
 			}
 		)
 		this.child = child
@@ -221,8 +249,8 @@ class Target {
 		const rss = treeRssMb(this.child.pid)
 		this.log(`stopping dev server${rss ? ` (reclaiming ${rss} MB)` : ''}`)
 		const child = this.child
-		child.kill('SIGTERM')
-		setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS).unref()
+		killTree(child, 'SIGTERM')
+		setTimeout(() => killTree(child, 'SIGKILL'), KILL_GRACE_MS).unref()
 		this.child = null
 		this.internalPort = null
 		this.ready = false
@@ -233,20 +261,34 @@ class Target {
 	handle(client) {
 		client.on('error', () => client.destroy())
 		// TCP preserves no message boundaries, so the request head can arrive split across
-		// segments: classify only once the header terminator is in hand (or the cap is hit),
-		// otherwise an upgrade split mid-header reads as ordinary traffic and the HMR socket
-		// keeps a server alive that nobody is watching.
+		// segments: classify only once the header terminator is in hand, otherwise an upgrade
+		// split mid-header reads as ordinary traffic and the HMR socket keeps a server alive
+		// that nobody is watching. A TLS record (HTTPS=true) never contains that terminator,
+		// so it is dispatched opaquely rather than waited on forever.
 		const chunks = []
 		let buffered = 0
-		const onData = (chunk) => {
-			chunks.push(chunk)
-			buffered += chunk.length
-			const head = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks)
-			if (head.indexOf('\r\n\r\n') === -1 && buffered < MAX_HEAD_BYTES) return
+		let dispatched = false
+		const dispatch = (head) => {
+			dispatched = true
+			clearTimeout(headTimer)
 			client.off('data', onData)
 			client.pause()
 			this.#dispatch(client, head)
 		}
+		const onData = (chunk) => {
+			chunks.push(chunk)
+			buffered += chunk.length
+			const head = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks)
+			if (head[0] === TLS_HANDSHAKE_BYTE) return dispatch(head)
+			if (head.indexOf('\r\n\r\n') === -1 && buffered < MAX_HEAD_BYTES) return
+			dispatch(head)
+		}
+		// Nothing may sit here forever: a speculative preconnect that never sends a request
+		// would otherwise leak a socket per attempt.
+		const headTimer = setTimeout(() => {
+			if (!dispatched) client.destroy()
+		}, HEAD_TIMEOUT_MS)
+		headTimer.unref()
 		client.on('data', onData)
 	}
 
@@ -300,7 +342,10 @@ class Target {
 
 	tick() {
 		if (!this.child) return
-		if (this.liveSockets.size > 0) return
+		// Staleness alone, deliberately: an open socket is not proof of use, and gating on
+		// one being present lets a half-open connection (VPN drop, suspend), an idle SSE
+		// stream, or an opaque TLS socket pin the server forever. Every byte in either
+		// direction bumps lastActivity, so anything genuinely in flight keeps this fresh.
 		if (Date.now() - this.lastActivity < this.opts.idleMs) return
 		this.log(`idle for ${Math.round(this.opts.idleMs / 60_000)}m`)
 		this.stop()
@@ -347,13 +392,7 @@ setInterval(() => {
 // Whatever route we leave by, the dev servers are the thing this tool exists to
 // reclaim, so nothing may outlive the supervisor.
 process.on('exit', () => {
-	for (const child of liveChildren) {
-		try {
-			child.kill('SIGKILL')
-		} catch {
-			// already gone
-		}
-	}
+	for (const child of liveChildren) killTree(child, 'SIGKILL')
 })
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

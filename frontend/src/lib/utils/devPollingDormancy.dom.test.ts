@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { installDevPollingDormancy } from './devPollingDormancy'
+
+// Freshly imported per case: install is idempotent by design, so a shared module instance
+// would make the second case a no-op against a restored `window.setInterval`.
+async function install() {
+	vi.resetModules()
+	const module = await import('./devPollingDormancy')
+	module.installDevPollingDormancy()
+}
 
 // The patch is invisible in production and has no UI, so the freeze/re-arm pair is the
 // only thing standing between a forgotten tab and a dev server that never gets reclaimed.
@@ -19,13 +26,13 @@ describe('devPollingDormancy', () => {
 		document.dispatchEvent(new Event('visibilitychange'))
 	}
 
-	it('freezes intervals once the tab goes inactive and re-arms them on return', () => {
+	it('freezes intervals once the tab goes inactive and re-arms them on return', async () => {
 		vi.useFakeTimers()
 		vi.stubEnv('VITE_DEV_DORMANT_MS', '1000')
 		vi.spyOn(document, 'hasFocus').mockReturnValue(true)
 		setHidden(false)
 
-		installDevPollingDormancy()
+		await install()
 
 		const tick = vi.fn()
 		const handle = window.setInterval(tick, 100)
@@ -49,13 +56,13 @@ describe('devPollingDormancy', () => {
 		expect(tick).not.toHaveBeenCalled()
 	})
 
-	it('arms intervals registered while dormant only once the tab is back', () => {
+	it('arms intervals registered while dormant only once the tab is back', async () => {
 		vi.useFakeTimers()
 		vi.stubEnv('VITE_DEV_DORMANT_MS', '1000')
 		vi.spyOn(document, 'hasFocus').mockReturnValue(true)
 		setHidden(false)
 
-		installDevPollingDormancy()
+		await install()
 
 		setHidden(true)
 		vi.advanceTimersByTime(1000)

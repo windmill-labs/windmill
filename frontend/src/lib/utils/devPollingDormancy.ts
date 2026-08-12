@@ -17,8 +17,14 @@ type Registration = {
 	native: number | undefined
 }
 
+let installed = false
+
 export function installDevPollingDormancy(): void {
 	if (!import.meta.env.DEV || typeof window === 'undefined') return
+	// The root layout's body re-runs on HMR, and a second install would bind its "native"
+	// setInterval to the already-patched one and stack another set of window listeners.
+	if (installed) return
+	installed = true
 
 	const configured = import.meta.env.VITE_DEV_DORMANT_MS
 	const dormantAfterMs = configured ? Number(configured) : DEFAULT_DORMANT_AFTER_MS
