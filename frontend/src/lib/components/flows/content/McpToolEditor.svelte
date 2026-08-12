@@ -29,7 +29,7 @@
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { getContext, untrack } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import McpOAuthConnect from './McpOAuthConnect.svelte'
+	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import type { FlowEditorContext } from '../types'
 
 	interface Props {
@@ -124,11 +124,12 @@
 		{#if !resourcePath}
 			{#if !showOAuthForm}
 				<Button size="xs" color="light" onClick={() => (showOAuthForm = true)}>
-					Connect with OAuth
+					Connect a server
 				</Button>
 			{:else}
-				<McpOAuthConnect
-					onConnected={handleOAuthConnected}
+				<McpConnect
+					workspace={opWs}
+					onConnected={(path) => handleOAuthConnected(path, path.split('/').pop() ?? path)}
 					onCancel={() => (showOAuthForm = false)}
 				/>
 			{/if}

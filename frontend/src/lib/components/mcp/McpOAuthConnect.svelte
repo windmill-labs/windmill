@@ -12,20 +12,23 @@
 	import Path from '$lib/components/Path.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { sameTopDomainOrigin } from '$lib/cookies'
-	import { getContext, onDestroy } from 'svelte'
-	import type { FlowEditorContext } from '../types'
+	import { getContext, onDestroy, onMount } from 'svelte'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	interface Props {
 		onConnected: (resourcePath: string, resourceName: string) => void
 		onCancel: () => void
+		/** Preselected registry server: its URL is fixed and discovery runs on mount. */
+		preset?: { name: string; url: string }
+		workspace?: string
 	}
 
-	let { onConnected, onCancel }: Props = $props()
+	let { onConnected, onCancel, preset, workspace }: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(workspace ?? flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
-	let serverUrl = $state('')
+	let serverUrl = $state(preset?.url ?? '')
 	let discoveryResult = $state<DiscoverMcpOauthResponse | null>(null)
 	let selectedScopes = $state<string[]>([])
 	let resourceName = $state('')
@@ -42,11 +45,13 @@
 				requestBody: { mcp_server_url: serverUrl }
 			})
 			selectedScopes = discoveryResult?.scopes_supported ?? []
-			try {
-				const urlObj = new URL(serverUrl)
-				resourceName = urlObj.hostname.replace(/\./g, '_')
-			} catch {
-				resourceName = 'mcp_server'
+			if (!preset) {
+				try {
+					const urlObj = new URL(serverUrl)
+					resourceName = urlObj.hostname.replace(/\./g, '_')
+				} catch {
+					resourceName = 'mcp_server'
+				}
 			}
 			status = 'discovered'
 		} catch (e) {
@@ -161,12 +166,21 @@
 		}
 	}
 
+	onMount(() => {
+		if (preset) {
+			resourceName = preset.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
+			discoverOAuth()
+		}
+	})
+
 	onDestroy(cleanup)
 </script>
 
 <div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
 	<div class="flex justify-between items-center">
-		<span class="font-semibold text-sm">Connect MCP Server with OAuth</span>
+		<span class="font-semibold text-sm">
+			{preset ? `Connect ${preset.name}` : 'Connect MCP Server with OAuth'}
+		</span>
 		<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
 	</div>
 
@@ -176,7 +190,7 @@
 			bind:value={serverUrl}
 			placeholder="https://mcp.example.com"
 			class="text-sm w-full"
-			disabled={status === 'connecting'}
+			disabled={status === 'connecting' || preset !== undefined}
 		/>
 	</Label>
 
