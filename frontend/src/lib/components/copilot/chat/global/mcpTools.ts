@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ResourceService, type GetMcpToolsResponse } from '$lib/gen'
 import { createToolDef, type Tool } from '../shared'
-import { isMcpEnabled } from '$lib/components/mcp/enabledServers'
+import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
 
 /**
  * Access to the MCP servers the user has connected (resources of type `mcp`)
@@ -53,15 +53,17 @@ export function clearMcpToolsCache() {
  */
 export async function loadMcpServers(workspace: string): Promise<McpServer[]> {
 	if (!workspace) return []
+	// The enabled set is local, so a workspace with nothing turned on is settled
+	// without a request — this runs before every send.
+	const enabled = enabledMcpPaths(workspace)
+	if (enabled.length === 0) return []
 	try {
 		const resources = await ResourceService.listResource({
 			workspace,
 			resourceType: 'mcp',
 			perPage: 100
 		})
-		return resources
-			.filter((r) => isMcpEnabled(workspace, r.path))
-			.map((r) => ({ path: r.path }))
+		return resources.filter((r) => enabled.includes(r.path)).map((r) => ({ path: r.path }))
 	} catch (e) {
 		console.error('Failed to load MCP servers', e)
 		return []

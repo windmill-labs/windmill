@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getMcpToolsMock, callMcpToolMock } = vi.hoisted(() => ({
+const { getMcpToolsMock, callMcpToolMock, listResourceMock, session } = vi.hoisted(() => ({
 	getMcpToolsMock: vi.fn(),
-	callMcpToolMock: vi.fn()
+	callMcpToolMock: vi.fn(),
+	listResourceMock: vi.fn(),
+	session: { email: 'first@windmill.dev' }
 }))
 
 vi.mock('../shared', () => ({
@@ -15,11 +17,18 @@ vi.mock('../shared', () => ({
 vi.mock('$lib/gen', () => ({
 	ResourceService: {
 		getMcpTools: getMcpToolsMock,
-		callMcpTool: callMcpToolMock
+		callMcpTool: callMcpToolMock,
+		listResource: listResourceMock
 	}
 }))
 
-import { clearMcpToolsCache, createMcpTools, type McpServer } from './mcpTools'
+vi.mock('$lib/stores', () => ({
+	// Read at call time, so a test can switch accounts the way a logout does.
+	userStore: { subscribe: (run: (v: unknown) => void) => (run({ ...session }), () => {}) }
+}))
+
+import { clearMcpToolsCache, createMcpTools, loadMcpServers, type McpServer } from './mcpTools'
+import { setMcpEnabled } from '$lib/components/mcp/enabledServers'
 
 const SERVERS: McpServer[] = [{ path: 'u/hugo/github_mcp' }]
 
@@ -195,5 +204,44 @@ describe('search_mcp_tools', () => {
 		expect(result.matches).toHaveLength(1)
 		expect(result.unavailable).toHaveLength(1)
 		expect(result.unavailable[0]).toContain('u/hugo/broken_mcp')
+	})
+})
+
+// The opt-in boundary: a readable `mcp` resource is not a server the chat may
+// act through until its owner turns it on.
+describe('loadMcpServers', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		listResourceMock.mockResolvedValue([
+			{ path: 'u/hugo/github_mcp' },
+			{ path: 'f/team/shared_mcp' }
+		])
+	})
+
+	it('advertises nothing while no server is enabled, without listing resources', async () => {
+		expect(await loadMcpServers('test-ws')).toEqual([])
+		expect(listResourceMock).not.toHaveBeenCalled()
+	})
+
+	it('advertises only the enabled server', async () => {
+		setMcpEnabled('test-ws', 'u/hugo/github_mcp', true)
+		expect(await loadMcpServers('test-ws')).toEqual([{ path: 'u/hugo/github_mcp' }])
+	})
+
+	it('does not carry an enabled server into another workspace', async () => {
+		setMcpEnabled('test-ws', 'u/hugo/github_mcp', true)
+		expect(await loadMcpServers('other-ws')).toEqual([])
+	})
+
+	// Browser storage outlives a logout, so the next account must not inherit
+	// tools the previous one turned on.
+	it('does not carry an enabled server across accounts in the same browser', async () => {
+		setMcpEnabled('test-ws', 'f/team/shared_mcp', true)
+		session.email = 'second@windmill.dev'
+		try {
+			expect(await loadMcpServers('test-ws')).toEqual([])
+		} finally {
+			session.email = 'first@windmill.dev'
+		}
 	})
 })

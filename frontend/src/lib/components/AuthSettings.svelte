@@ -531,7 +531,14 @@
 								</label>
 								<div class="flex flex-col gap-1">
 									<span class="text-primary font-semibold text-xs">Redirect URL</span>
-									<ClipboardPanel content="{baseUrl}/oauth/callback/{k}" size="sm" />
+									{#if !baseUrl}
+										<Alert type="warning" title="No instance base url configured" size="xs">
+											Set it in Core settings. The redirect url is built from it, and {k} needs the exact
+											value.
+										</Alert>
+									{:else}
+										<ClipboardPanel content="{baseUrl}/oauth/callback/{k}" size="sm" />
+									{/if}
 									{#if baseUrlMismatch}
 										<Alert
 											type="warning"

@@ -12,6 +12,11 @@
 	import { clearMcpToolsCache } from './global/mcpTools'
 
 	const aiChatManager = getAiChatManager()
+	// A session chat operates on its own (possibly forked) workspace without
+	// switching `workspaceStore`, and that is the workspace the chat reads the
+	// enabled set under. Key everything here the same way or a toggle lands under
+	// a key nothing reads.
+	let ws = $derived(aiChatManager.operatingWorkspace ?? $workspaceStore!)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let showConnect = $state(false)
@@ -21,19 +26,19 @@
 	let pendingDisconnect = $state<string | undefined>(undefined)
 
 	async function loadServers() {
-		if (!$workspaceStore) return
+		if (!ws) return
 		loading = true
 		loadError = undefined
 		try {
 			const resources = await ResourceService.listResource({
-				workspace: $workspaceStore,
+				workspace: ws,
 				resourceType: 'mcp',
 				perPage: 100
 			})
 			servers = resources.map((r) => ({
 				path: r.path,
 				description: r.description,
-				enabled: isMcpEnabled($workspaceStore!, r.path)
+				enabled: isMcpEnabled(ws, r.path)
 			}))
 		} catch (e) {
 			// Without this the drawer would render the empty state, which reads as
@@ -57,16 +62,16 @@
 	async function disconnect(path: string) {
 		try {
 			const resource = await ResourceService.getResource({
-				workspace: $workspaceStore!,
+				workspace: ws,
 				path
 			})
 			const { token: _token, ...withoutToken } = (resource.value ?? {}) as Record<string, unknown>
 			await ResourceService.updateResource({
-				workspace: $workspaceStore!,
+				workspace: ws,
 				path,
 				requestBody: { value: withoutToken }
 			})
-			await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
+			await ResourceService.deleteResource({ workspace: ws, path })
 			sendUserToast(`Disconnected ${path}. Its token variable was kept.`)
 			await refresh()
 		} catch (e) {
@@ -108,7 +113,7 @@
 				<McpConnect
 					onConnected={async (path) => {
 						// Connecting one is the act of choosing it.
-						setMcpEnabled($workspaceStore!, path, true)
+						setMcpEnabled(ws, path, true)
 						showConnect = false
 						await refresh()
 					}}
@@ -145,7 +150,7 @@
 								on:change={async (e) => {
 									// Local preference only: nothing to re-read from the API, and the
 									// cached tool lists stay valid because the servers are unchanged.
-									setMcpEnabled($workspaceStore!, server.path, e.detail)
+									setMcpEnabled(ws, server.path, e.detail)
 									server.enabled = e.detail
 									await aiChatManager.refreshMcpServers()
 								}}

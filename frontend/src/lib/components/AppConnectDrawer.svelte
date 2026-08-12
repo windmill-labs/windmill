@@ -12,14 +12,12 @@
 		expressOAuthSetup?: boolean
 		workspace?: string
 		disableChatOffset?: boolean
-		extraScopes?: string[]
 	}
 
 	let {
 		expressOAuthSetup = false,
 		workspace = undefined,
-		disableChatOffset = false,
-		extraScopes = undefined
+		disableChatOffset = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -78,7 +76,6 @@
 			on:refresh
 			express={expressOAuthSetup}
 			{workspace}
-			{extraScopes}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">

@@ -44,9 +44,6 @@
 		manual?: boolean
 		express?: boolean
 		workspace?: string
-		/** Scopes to request on top of the instance connect's, for a caller that
-		 * knows the target API needs them (e.g. an MCP server's published scopes). */
-		extraScopes?: string[]
 	}
 
 	let {
@@ -56,8 +53,7 @@
 		disabled = $bindable(false),
 		manual = $bindable(true),
 		express = false,
-		workspace = undefined,
-		extraScopes = undefined
+		workspace = undefined
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
@@ -238,10 +234,6 @@
 	 * custom (non-registry) providers configured at the instance level have no
 	 * registry entry, so they keep their admin-configured scopes (`instanceScopes`)
 	 * instead of being zeroed. */
-	function withExtraScopes(base: string[]): string[] {
-		return extraScopes?.length ? [...new Set([...base, ...extraScopes])] : base
-	}
-
 	function defaultCcScopes(): string[] {
 		const entry = registryEntry()
 		return entry ? (entry.cc_scopes ?? []) : instanceScopes
@@ -508,14 +500,14 @@
 		if (!connects?.includes(connectClient)) {
 			// No instance OAuth client (registry-declared CC-only provider):
 			// defaults come from the static registry instead.
-			instanceScopes = withExtraScopes(registryEntry()?.scopes ?? [])
+			instanceScopes = registryEntry()?.scopes ?? []
 			scopes = useClientCredentials ? defaultCcScopes() : instanceScopes
 			extra_params = []
 			supportsClientCredentials = registryCcCapable()
 			return
 		}
 		const connect = await OauthService.getOauthConnect({ client: connectClient })
-		instanceScopes = withExtraScopes(connect.scopes ?? [])
+		instanceScopes = connect.scopes ?? []
 		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
 
 		/**
