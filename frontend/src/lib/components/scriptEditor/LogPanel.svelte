@@ -223,9 +223,10 @@
 										</div>
 									{:else}
 										<div class="text-sm text-primary p-2 flex justify-between items-center">
-											<span>
+											<!-- min-h pins this to the text-sm line box, and tracks it across root font
+											     sizes, so swapping the text for the spinner does not resize the row -->
+											<span class="flex items-center min-h-5">
 												{#if previewIsLoading}
-													<!-- Sized to the text line it replaces so the placeholder row keeps its height -->
 													<Loader2 size={14} class="animate-spin" />
 												{:else}
 													Test to see the result here

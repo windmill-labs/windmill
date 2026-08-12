@@ -17,13 +17,12 @@
 
 	type BannerState = 'hidden' | 'start' | 'new'
 
-	// Caches the last resolved BannerState. Deciding what to show needs an API round-trip, so the
-	// banner paints this first: guessing wrong once in a while beats reflowing the home page on
-	// every load.
+	// Deciding what to show needs an API round-trip, so the banner paints the state the last visit
+	// resolved to and reconciles once the sync answers. Guessing wrong once in a while beats
+	// reflowing the home page on every load; nothing cached means hidden, the direction that does
+	// not push the page down.
 	const TUTORIAL_BANNER_STATE_KEY = 'tutorial_banner_state'
 
-	// A brand-new device has nothing cached and stays hidden until the sync answers, which is the
-	// direction that keeps the page from jumping.
 	const cachedState =
 		getLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY) === 'true'
 			? 'hidden'
@@ -56,9 +55,11 @@
 	})
 
 	function resolveState(state: BannerState) {
-		storeLocalSetting(TUTORIAL_BANNER_STATE_KEY, state)
 		isDismissed = state === 'hidden'
 		hasCompletedAny = state === 'new'
+		// Last: persisting is best-effort, and a storage failure must not leave the banner stuck on
+		// whatever the cache said
+		storeLocalSetting(TUTORIAL_BANNER_STATE_KEY, state)
 	}
 
 	// The banner is interactive while the initial sync is still in flight, so a dismiss or a skip
