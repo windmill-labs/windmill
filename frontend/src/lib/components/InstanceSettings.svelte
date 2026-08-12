@@ -1063,18 +1063,19 @@
 						<li>job usage (language, total duration, count)</li>
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
-							>feature usage telemetry: aggregated AI chat and AI session usage counts, including AI
-							provider and model identifiers (last 30 days), plus anonymous counts of which trigger
-							kinds fired, where triggers were created from, Slack and Teams command invocations,
-							flow run tab selections, step output pinning, and which public hub scripts were picked
-							(identified by app and name, never a private hub's script names)</li
+							>feature usage: anonymous counts of which product features get used, over the last 30
+							days. Covers AI chat and AI sessions (including AI provider and model identifiers),
+							which trigger kinds fire, Slack and Teams command invocations, flow run tab
+							selections, step output pinning, and which public hub scripts are picked (identified
+							by app and script name; a private hub reports only that one was used)</li
 						>
 						<li
-							>feature adoption counts read from your database: how many flows use each step kind and
-							step setting, script kinds, captures and capture configs per trigger kind, how many
-							triggers of each kind exist, dedicated worker configuration shapes, whether Slack or
-							Teams command scripts are configured, and which public hub scripts appear in flows. No
-							path, code, expression or item name is included</li
+							>feature adoption: anonymous counts of which features your deployed items use, read
+							from your database. Covers flow step kinds and step settings, script kinds, captures
+							per trigger kind, how many triggers of each kind exist, dedicated worker
+							configuration, whether Slack or Teams command scripts are configured, and which
+							public hub scripts appear in flows. Counts only: no path, code, expression or item
+							name</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1120,18 +1121,19 @@
 						<li>user usage (author count, operator count)</li>
 						<li>development instance status</li>
 						<li
-							>feature usage telemetry: aggregated AI chat and AI session usage counts, including AI
-							provider and model identifiers (last 30 days), plus anonymous counts of which trigger
-							kinds fired, where triggers were created from, Slack and Teams command invocations,
-							flow run tab selections, step output pinning, and which public hub scripts were picked
-							(identified by app and name, never a private hub's script names)</li
+							>feature usage: anonymous counts of which product features get used, over the last 30
+							days. Covers AI chat and AI sessions (including AI provider and model identifiers),
+							which trigger kinds fire, Slack and Teams command invocations, flow run tab
+							selections, step output pinning, and which public hub scripts are picked (identified
+							by app and script name; a private hub reports only that one was used)</li
 						>
 						<li
-							>feature adoption counts read from your database: how many flows use each step kind and
-							step setting, script kinds, captures and capture configs per trigger kind, how many
-							triggers of each kind exist, dedicated worker configuration shapes, whether Slack or
-							Teams command scripts are configured, and which public hub scripts appear in flows. No
-							path, code, expression or item name is included</li
+							>feature adoption: anonymous counts of which features your deployed items use, read
+							from your database. Covers flow step kinds and step settings, script kinds, captures
+							per trigger kind, how many triggers of each kind exist, dedicated worker
+							configuration, whether Slack or Teams command scripts are configured, and which
+							public hub scripts appear in flows. Counts only: no path, code, expression or item
+							name</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
