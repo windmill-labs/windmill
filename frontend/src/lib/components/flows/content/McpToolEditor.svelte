@@ -97,19 +97,13 @@
 	<div class="flex flex-col gap-4 overflow-auto p-4" style="scrollbar-gutter: stable">
 		<div class="w-full">
 			<Label label="MCP resource">
-				<div class="flex flex-col gap-1">
-					<span class="text-2xs text-secondary">
-						An MCP resource points at a server. Pick one already connected in this workspace, or
-						connect a new one. The agent can call the tools it exposes.
-					</span>
-					<ResourcePicker
-						bind:this={resourcePicker}
-						resourceType="mcp"
-						placeholder="Select an MCP resource"
-						bind:value={tool.value.resource_path}
-						workspace={opWs}
-					/>
-				</div>
+				<ResourcePicker
+					bind:this={resourcePicker}
+					resourceType="mcp"
+					placeholder="Select an MCP resource"
+					bind:value={tool.value.resource_path}
+					workspace={opWs}
+				/>
 			</Label>
 		</div>
 
