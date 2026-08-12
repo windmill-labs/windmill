@@ -50,4 +50,15 @@ describe('nextId', () => {
 		const state = stateWith([...ids, 'process', 'my_step', 'failure'])
 		expect(nextId(state, flowWith(ids))).toBe('c')
 	})
+
+	// Regression for #10610: "ar" + 1 is "as", a reserved id. It must be skipped
+	// rather than assigned, otherwise it is reissued on every later call and the
+	// flow ends up with duplicate ids.
+	it('skips a reserved id instead of assigning it', () => {
+		expect(nextId(stateWith(['failure']), flowWith(['ar']))).toBe('at')
+	})
+
+	it('does not reissue a reserved id already present in the flow', () => {
+		expect(nextId(stateWith(['failure']), flowWith(['ar', 'as']))).toBe('at')
+	})
 })

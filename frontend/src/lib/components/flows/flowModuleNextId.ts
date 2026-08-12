@@ -25,13 +25,22 @@ function autoIdNumber(key: string): number | undefined {
 
 // Computes the next available id
 export function nextId(flowState: FlowState, fullFlow: OpenFlow): string {
-	const allIds = dfs(fullFlow.value.modules, (fm) => fm.id)
+	const allKeys = dfs(fullFlow.value.modules, (fm) => fm.id).concat(Object.keys(flowState))
+	const takenIds = new Set(allKeys)
 
-	const max = allIds.concat(Object.keys(flowState)).reduce((acc, key) => {
+	const max = allKeys.reduce((acc, key) => {
 		const num = autoIdNumber(key)
 		return num === undefined ? acc : Math.max(acc, num + 1)
 	}, 0)
-	return numberToChars(max)
+
+	// A reserved id (e.g. "as", after "ar") never raises `max`, so assigning
+	// numberToChars(max) when it is reserved would make every later call return
+	// it again; skip forward to a free, allowed id instead.
+	let candidate = max
+	while (reservedIds.has(numberToChars(candidate)) || takenIds.has(numberToChars(candidate))) {
+		candidate++
+	}
+	return numberToChars(candidate)
 }
 
 // Computes a copy id like "a2", "a3", etc. based on the original id
