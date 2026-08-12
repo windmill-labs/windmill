@@ -50,4 +50,10 @@ describe('nextId', () => {
 		const state = stateWith([...ids, 'process', 'my_step', 'failure'])
 		expect(nextId(state, flowWith(ids))).toBe('c')
 	})
+
+	// A reserved id never raises the max, so assigning it ("as", the successor of "ar")
+	// would hand it out again on every later call and leave the flow with duplicate ids.
+	it('skips a reserved id instead of assigning it', () => {
+		expect(nextId(stateWith(['failure']), flowWith(['ar']))).toBe('at')
+	})
 })
