@@ -182,12 +182,39 @@ describe('artifact route', () => {
 			['x', 'artifact:not-an-id#nope'],
 			['y', '']
 		] as const) {
-			expect(parseArtifactRoute(artifactUrl(id, name))).toEqual({ id, name })
+			expect(parseArtifactRoute(artifactUrl(id, name))).toEqual({ id, name, version: undefined })
 		}
 	})
 
+	it('round-trips a pinned version without disturbing the id or name', () => {
+		// The version rides between the id and the name, so the id capture has to stop at it
+		// rather than swallowing it.
+		expect(parseArtifactRoute(artifactUrl('abc', 'Onboarding plan', 4))).toEqual({
+			id: 'abc',
+			name: 'Onboarding plan',
+			version: 4
+		})
+	})
+
+	it('agrees with itself on what counts as a pinned version', () => {
+		// A url that stamps a version the parser then rejects is persisted with the tab, so it
+		// would outlive the bad call.
+		for (const bad of [0, -1, 1.5, NaN]) {
+			expect(parseArtifactRoute(artifactUrl('abc', 'Plan', bad))).toEqual({
+				id: 'abc',
+				name: 'Plan',
+				version: undefined
+			})
+		}
+		expect(parseArtifactRoute('artifact:abc?v=0#Plan')?.version).toBeUndefined()
+	})
+
 	it('parses a hash-less artifact url to an empty name', () => {
-		expect(parseArtifactRoute('artifact:abc')).toEqual({ id: 'abc', name: '' })
+		expect(parseArtifactRoute('artifact:abc')).toEqual({
+			id: 'abc',
+			name: '',
+			version: undefined
+		})
 	})
 
 	it('returns null for non-artifact urls', () => {
