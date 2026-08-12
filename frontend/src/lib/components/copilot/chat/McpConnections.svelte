@@ -2,6 +2,8 @@
 	import { Button, Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { isMcpEnabled, setMcpEnabled } from '$lib/components/mcp/enabledServers'
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -13,7 +15,7 @@
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let showConnect = $state(false)
-	let servers = $state<{ path: string; description?: string }[]>([])
+	let servers = $state<{ path: string; description?: string; enabled: boolean }[]>([])
 	let loading = $state(false)
 	let loadError = $state<string | undefined>(undefined)
 	let pendingDisconnect = $state<string | undefined>(undefined)
@@ -28,7 +30,11 @@
 				resourceType: 'mcp',
 				perPage: 100
 			})
-			servers = resources.map((r) => ({ path: r.path, description: r.description }))
+			servers = resources.map((r) => ({
+				path: r.path,
+				description: r.description,
+				enabled: isMcpEnabled($workspaceStore!, r.path)
+			}))
 		} catch (e) {
 			// Without this the drawer would render the empty state, which reads as
 			// "you have no connections" rather than "we could not load them".
@@ -101,7 +107,9 @@
 		<div class="flex flex-col gap-4">
 			{#if showConnect}
 				<McpConnect
-					onConnected={async () => {
+					onConnected={async (path) => {
+						// Connecting one is the act of choosing it.
+						setMcpEnabled($workspaceStore!, path, true)
 						showConnect = false
 						await refresh()
 					}}
@@ -127,13 +135,19 @@
 					Failed to load MCP connections: {loadError}
 				</div>
 			{:else if servers.length === 0}
-				<div class="text-xs text-tertiary">
-					No MCP server connected yet.
-				</div>
+				<div class="text-xs text-tertiary">No MCP server connected yet.</div>
 			{:else}
 				<div class="flex flex-col divide-y border rounded-md">
 					{#each servers as server (server.path)}
 						<div class="flex items-center gap-2 px-3 py-2">
+							<Toggle
+								size="xs"
+								checked={server.enabled}
+								on:change={async (e) => {
+									setMcpEnabled($workspaceStore!, server.path, e.detail)
+									await refresh()
+								}}
+							/>
 							<div class="min-w-0 grow">
 								<div class="text-sm truncate">{server.path}</div>
 								{#if server.description}
