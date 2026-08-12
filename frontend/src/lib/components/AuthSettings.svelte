@@ -530,16 +530,10 @@
 									/>
 								</label>
 								<div class="flex flex-col gap-1">
-									<span class="text-primary font-semibold text-xs flex items-center gap-1">
-										Redirect URL
-										<Tooltip
-											>Paste this into the callback (or redirect) URL field when registering the app
-											with {k}.</Tooltip
-										>
-									</span>
+									<span class="text-primary font-semibold text-xs">Redirect URL</span>
 									<ClipboardPanel content="{baseUrl}/oauth/callback/{k}" size="sm" />
 									{#if baseUrlMismatch}
-										<span class="text-2xs text-orange-600 dark:text-orange-400">
+										<span class="text-yellow-600 dark:text-yellow-500 text-2xs">
 											Built from the instance base url, which is not the URL you are on
 											({browserOrigin}). If the base url is wrong, update it in Core settings —
 											otherwise the provider will reject the callback.
