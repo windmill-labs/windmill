@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Password from '$lib/components/Password.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -242,8 +243,10 @@
 		<Button unifiedSize="2xs" variant="subtle" onClick={onCancel}>Cancel</Button>
 	</div>
 
+	<Alert type="info" size="xs" title="Only HTTP streamable MCP servers are supported" />
+
 	<div class="flex flex-col gap-1">
-		<Label label="MCP server URL" tooltip="Only HTTP streamable MCP servers are supported.">
+		<Label label="MCP server URL">
 			<TextInput
 				inputProps={{
 					type: 'url',
