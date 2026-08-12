@@ -49,6 +49,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Alert } from '$lib/components/common'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { logHubScriptPick } from '$lib/utils/featureUsage'
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
@@ -150,6 +151,10 @@
 
 	async function handlePickScript(item: (typeof items)[number]) {
 		if (item.path.startsWith('hub/')) {
+			// Rides the anonymous stats payload rather than a live call to the hub,
+			// so instances that cannot reach the hub still report which integrations
+			// they use.
+			logHubScriptPick(item.path, 'picker')
 			try {
 				await ScriptService.pickHubScriptByPath({ path: item.path })
 			} catch (error) {

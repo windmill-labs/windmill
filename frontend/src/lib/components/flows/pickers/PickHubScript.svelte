@@ -9,6 +9,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { disableHubStore } from '$lib/stores'
+	import { logHubScriptPick } from '$lib/utils/featureUsage'
 
 	interface Props {
 		kind?: HubScriptKind & string
@@ -119,6 +120,10 @@
 
 	async function handlePick(item: (typeof items)[number]) {
 		if (item.path.startsWith('hub/')) {
+			// Rides the anonymous stats payload rather than a live call to the hub,
+			// so instances that cannot reach the hub still report which integrations
+			// they use.
+			logHubScriptPick(item.path, 'picker')
 			try {
 				await ScriptService.pickHubScriptByPath({ path: item.path })
 			} catch (error) {

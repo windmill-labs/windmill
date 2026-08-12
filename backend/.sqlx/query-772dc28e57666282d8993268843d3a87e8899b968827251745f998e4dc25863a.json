@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO feature_usage (feature, kind, key, value)\n         SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::bigint[])\n         ON CONFLICT (feature, kind, key, entity_id, day)\n         DO UPDATE SET value = feature_usage.value + EXCLUDED.value, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "772dc28e57666282d8993268843d3a87e8899b968827251745f998e4dc25863a"
+}

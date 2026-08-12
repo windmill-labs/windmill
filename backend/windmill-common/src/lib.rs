@@ -56,6 +56,7 @@ pub mod email_ee;
 pub mod email_oss;
 pub mod error;
 pub mod external_ip;
+pub mod feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;

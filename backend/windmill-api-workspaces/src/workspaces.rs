@@ -11467,39 +11467,16 @@ struct LogFeatureUsagePayload {
     events: Vec<FeatureUsageEvent>,
 }
 
-// Only registered (feature, kind) actions are accepted, so telemetry stays
-// limited to predefined feature actions. Keys are shape-checked (identifier-like,
-// no spaces) rather than pinned to value sets: they come from our own frontend
-// (modes, tab/draft kinds, tool names, provider:model) and pinning every value
-// server-side was not worth the maintenance.
-const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
-    ("ai_session", "created"),
-    ("ai_session", "message"),
-    ("ai_session", "autonomy"),
-    ("ai_session", "tab"),
-    ("ai_session", "tokens"),
-    ("ai_session", "deployed"),
-    ("ai_session", "archived"),
-    ("ai_session", "deleted"),
-    ("ai_session", "beta_optout"),
-    ("ai_session", "beta_optin"),
-    ("ai_chat", "message"),
-    ("ai_chat", "model"),
-    ("ai_chat", "tool"),
-    ("flow_editor", "panel_placement"),
-];
-
-fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
-    !s.is_empty()
-        && s.len() <= max_len
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
-}
-
+// The registry of recordable actions and the key shape check live in
+// `windmill_common::feature_usage`, shared with the backend writer so both
+// admit exactly the same events.
 fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
+    use windmill_common::feature_usage::{
+        is_identifier_shaped, FEATURE_USAGE_KINDS, MAX_ENTITY_ID_LEN, MAX_KEY_LEN,
+    };
     FEATURE_USAGE_KINDS.contains(&(e.feature.as_str(), e.kind.as_str()))
-        && (e.key.is_empty() || is_identifier_shaped(&e.key, 100))
-        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50))
+        && (e.key.is_empty() || is_identifier_shaped(&e.key, MAX_KEY_LEN))
+        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, MAX_ENTITY_ID_LEN))
 }
 
 async fn log_feature_usage(

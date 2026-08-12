@@ -3242,6 +3242,19 @@ pub async fn monitor_db(
         }
     };
 
+    // Not gated on server_mode: feature-usage counters accumulate wherever an
+    // instrumented call site runs, and a worker that never flushed would lose
+    // its counts on shutdown.
+    let feature_usage_f = async {
+        if !initial_load {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = windmill_common::feature_usage::flush_feature_usage(db).await {
+                    tracing::error!("Error flushing feature_usage counters: {e}");
+                }
+            }
+        }
+    };
+
     let verify_license_key_f = async {
         #[cfg(feature = "enterprise")]
         if !initial_load {
@@ -3491,6 +3504,7 @@ pub async fn monitor_db(
 
     join!(
         expired_items_f,
+        feature_usage_f,
         zombie_jobs_f,
         stale_jobs_f,
         trim_resource_versions_f,

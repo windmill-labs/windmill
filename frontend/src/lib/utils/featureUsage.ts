@@ -1,6 +1,7 @@
 import { get } from 'svelte/store'
 import { OpenAPI } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
+import { PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 
 // Anonymous product-usage counters (e.g. AI session activity), batched into the
 // backend `feature_usage` accumulator. Only aggregated counts ever leave the
@@ -134,4 +135,36 @@ if (typeof document !== 'undefined') {
  */
 export function logFeatureUsage(feature: string, kind: string, opts: FeatureUsageOpts = {}): void {
 	buffer.log(feature, kind, opts)
+}
+
+/**
+ * Record a hub script being chosen, keyed so the counts stay usable and safe.
+ *
+ * The version id is dropped: it changes on every hub release, and keeping it
+ * would split one logical script across its versions. At or above
+ * `PRIVATE_HUB_MIN_VERSION` the app and slug are names a customer wrote on their
+ * own private hub, so only the fact that a private hub was used is recorded.
+ *
+ * Rust twin: `hub_script_usage_key` in `backend/windmill-common/src/feature_usage.rs`,
+ * which reduces the same paths for the flow inventory.
+ */
+export function logHubScriptPick(path: string, origin: 'picker' | 'ai'): void {
+	const key = hubScriptUsageKey(path)
+	if (key) {
+		logFeatureUsage('hub_script', origin === 'ai' ? 'picked_ai' : 'picked', { key })
+	}
+}
+
+const PRIVATE_HUB_KEY = 'private'
+
+export function hubScriptUsageKey(path: string): string | undefined {
+	if (!path.startsWith('hub/')) return undefined
+	const [versionId, app, slug] = path.slice('hub/'.length).split('/')
+	if (versionId == undefined) return undefined
+	const version = Number(versionId)
+	if (!Number.isFinite(version) || version >= PRIVATE_HUB_MIN_VERSION) return PRIVATE_HUB_KEY
+	if (!app) return undefined
+	const key = slug ? `${app}/${slug}` : app
+	// Same shape the backend accepts; anything else would be dropped there anyway.
+	return /^[A-Za-z0-9_:./-]{1,100}$/.test(key) ? key : PRIVATE_HUB_KEY
 }

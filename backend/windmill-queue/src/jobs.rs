@@ -6543,6 +6543,14 @@ async fn push_inner<'c, 'd>(
         )
         .unzip();
 
+    // Which trigger kinds an instance actually fires. Counted here rather than
+    // aggregated from `v2_job` later: that table's only usable index is
+    // (workspace_id, created_at), so a windowed GROUP BY over it is a full scan.
+    // Flow steps carry no trigger kind, so the hot path never reaches the lock.
+    if let Some(kind) = trigger_kind.as_ref() {
+        windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+    }
+
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         check_workspace_queue_cap(&mut *tx, workspace_id).await?;

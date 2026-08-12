@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import FlowStatusViewerInner from './FlowStatusViewerInner.svelte'
 
 	import {
@@ -1517,7 +1518,11 @@
 		{/if}
 		{#if render}
 			{#if innerModules && innerModules.length > 0 && !isListJob}
-				<Tabs class="mx-auto pt-2 {wideResults ? '' : 'max-w-7xl'}" bind:selected>
+				<Tabs
+					class="mx-auto pt-2 {wideResults ? '' : 'max-w-7xl'}"
+					bind:selected
+					on:selected={(e) => logFeatureUsage('flow_run', 'tab', { key: e.detail })}
+				>
 					<Tab value="graph" label="Graph" />
 					<Tab
 						value="logs"

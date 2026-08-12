@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*)::BIGINT AS \"count!\" FROM flow\n           WHERE archived = false AND pg_column_size(value) >= $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "255d37bb63595ebfcc61582d0b5e265b861b8b4d650435533e90eeb1d5ee3a68"
+}
