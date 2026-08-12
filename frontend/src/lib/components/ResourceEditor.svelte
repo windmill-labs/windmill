@@ -291,8 +291,11 @@
 		onCanWriteChange?.(can_write)
 	})
 
+	// Straight from the editor, never from draft dirtiness: text that does not parse never
+	// reaches `args`, so a first edit that breaks the JSON leaves the draft clean and a
+	// dirtiness-based signal reports nothing wrong.
 	$effect(() => {
-		onInvalidEditsChange?.(anyDirty && !dirtyValid)
+		onInvalidEditsChange?.(jsonError !== '')
 	})
 
 	export function localDraftDeployed(): ResourceState | undefined {
