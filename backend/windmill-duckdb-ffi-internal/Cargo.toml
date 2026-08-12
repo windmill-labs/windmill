@@ -21,7 +21,9 @@ duckdb = { git = "https://github.com/windmill-labs/duckdb-rs", rev = "7190adfcf5
 regex = "1"
 rust_decimal = "1.37.2"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+# 1.0.151 introduced RawValue::from_string_unchecked, which row collection uses
+# to avoid re-parsing every row.
+serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
 
 [lib]
 crate-type = ["cdylib"]

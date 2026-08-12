@@ -1405,6 +1405,12 @@ pub(crate) fn to_raw_value_within<T: serde::Serialize>(
     }
     impl std::io::Write for Budgeted {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.write_all(bytes)?;
+            Ok(bytes.len())
+        }
+        // `Vec<u8>` overrides this too: the default implementation loops over
+        // `write`, and serde_json emits a great many small pieces per row.
+        fn write_all(&mut self, bytes: &[u8]) -> std::io::Result<()> {
             if bytes.len() > self.left {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::WriteZero,
@@ -1413,7 +1419,7 @@ pub(crate) fn to_raw_value_within<T: serde::Serialize>(
             }
             self.left -= bytes.len();
             self.buf.extend_from_slice(bytes);
-            Ok(bytes.len())
+            Ok(())
         }
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
@@ -1422,9 +1428,15 @@ pub(crate) fn to_raw_value_within<T: serde::Serialize>(
 
     let mut writer = Budgeted { buf: Vec::new(), left: budget };
     serde_json::to_writer(&mut writer, value).ok()?;
-    String::from_utf8(writer.buf)
-        .ok()
-        .and_then(|s| serde_json::value::RawValue::from_string(s).ok())
+    let json = String::from_utf8(writer.buf).ok()?;
+    // SAFETY: `to_writer` returned `Ok`, so `json` holds one complete, well-formed
+    // JSON value with no surrounding whitespace. Running out of budget is the only
+    // way a partial write happens, and it takes the `?` above instead of reaching
+    // here. The safe constructor re-parses every row to learn the same thing, which
+    // measured ~1.8x the cost of serializing it in the first place; serde_json
+    // itself builds a `RawValue` this way in `to_raw_value`, and `debug_assert!`s
+    // the invariant by re-parsing in debug builds.
+    Some(unsafe { serde_json::value::RawValue::from_string_unchecked(json) })
 }
 
 /// Wording shared by the SQL executors that collect rows in the worker process.
@@ -1890,7 +1902,10 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
+        trigger_kind: arc_job
+            .trigger_kind
+            .as_ref()
+            .map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),
@@ -5098,7 +5113,12 @@ mod byte_size_tests {
 
         // A budget that the unescaped bytes would clear, and the escaped ones cannot.
         assert!(to_raw_value_within(&value, 2000).is_none());
-        assert!(to_raw_value_within(&value, serialized_len).is_some());
+
+        // The `RawValue` is built without re-parsing, so nothing but this check
+        // stands between a serializer change and a malformed value being handed
+        // out as valid JSON. Escaped text is the case most likely to expose it.
+        let fitted = to_raw_value_within(&value, serialized_len).expect("fits its own length");
+        assert_eq!(fitted.get(), serde_json::to_string(&value).unwrap());
     }
 
     /// The error quotes the limit so it can be set verbatim, which only holds if
