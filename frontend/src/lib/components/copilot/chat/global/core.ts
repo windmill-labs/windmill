@@ -136,6 +136,7 @@ import {
 import {
 	userStore,
 	superadmin,
+	devopsRole,
 	enterpriseLicense,
 	userWorkspaces,
 	workspaceStore
@@ -166,6 +167,8 @@ import {
 	buildCompareUrl,
 	WORKSPACE_SETTINGS_TABS
 } from './pageNavigation'
+import { runsTimeframes } from '$lib/components/runs/timeframes'
+import { jobTriggerKinds } from '$lib/components/triggers/utils'
 import {
 	COMPARE_ITEMS_PARAM,
 	parseItemsMaskParam
@@ -1204,7 +1207,7 @@ ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
-- Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
+- Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
 		previewTools
@@ -2284,6 +2287,13 @@ function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore))
 	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
 }
 
+// The Runs page only offers its cross-workspace filter to a superadmin or devops user in
+// the admins workspace (RunsPage builds its filter schema with the same condition, and
+// without the key the page ignores the query param), so the tool mirrors that gate.
+function allowsAllWorkspacesRuns(workspaceId: string | undefined = get(workspaceStore)): boolean {
+	return (!!get(superadmin) || !!get(devopsRole)) && workspaceId === 'admins'
+}
+
 // The advertised `items` description must match this chat's surface: only chats that
 // track their modified items (AI sessions) can honor "omitted = this chat's edits" —
 // on an untracked chat (the global side panel) an omitted mask falls through to the
@@ -2294,6 +2304,15 @@ const COMPARE_ITEMS_DESCRIPTIONS = {
 	untracked:
 		"Compare: preselect exactly these changed items, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). If omitted, the page preselects EVERY pending change in the workspace, not just this chat's — when you changed specific items, pass them so the review is scoped to them."
 } as const
+
+// The Runs filters the page accepts several values for, all encoded in one param: the
+// value is a comma-separated list, and for the negatable ones a leading `!` excludes
+// instead (the page rejects a list mixing included and excluded values).
+const RUNS_MULTI_VALUE_HINT =
+	'comma-separate to match several values, or prefix each with ! to exclude them instead (never mix included and excluded values in one filter).'
+const RUNS_MULTI_VALUE_HINT_WILDCARD =
+	'Comma-separate to match several values; * matches any substring.'
+const RUNS_TIMEFRAME_LABELS = runsTimeframes.map((tf) => tf.label) as [string, ...string[]]
 
 // One flat object (not a discriminated union): `page` selects the target and the
 // per-page fields are optional. Top-level `type: object` is what Anthropic's
@@ -2307,7 +2326,7 @@ const openPageFullSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Runs/Schedules/Variables/Resources/Assets: the script, flow or item path to filter by'
+			`Runs/Schedules/Variables/Resources/Assets: the script, flow or item path to filter by. On Runs, ${RUNS_MULTI_VALUE_HINT}`
 		),
 	status: z
 		.enum(['running', 'success', 'failure', 'canceled', 'waiting', 'suspended'])
@@ -2323,7 +2342,105 @@ const openPageFullSchema = z.object({
 		.enum(['all', 'runs', 'dependencies', 'previews', 'deploymentcallbacks'])
 		.optional()
 		.describe('Runs: filter by job category (defaults to top-level runs)'),
-	user: z.string().optional().describe('Runs: filter by the user who created the job'),
+	user: z
+		.string()
+		.optional()
+		.describe(
+			`Runs: filter by the user who created the job. ${RUNS_MULTI_VALUE_HINT} (e.g. 'admin' or '!admin')`
+		),
+	// Single positive folder only: the page turns this value into one `f/<folder>/` path
+	// prefix, so a comma list or a leading `!` would land inside the prefix and match
+	// nothing (`f/a,b/`, `f/!a/`). Excluding a folder isn't expressible here.
+	folder: z
+		.string()
+		.optional()
+		.describe(
+			"Runs: filter by the folder containing the script or flow — one folder name, without the 'f/' prefix and without ! or commas (use path for anything finer)"
+		),
+	job_trigger_kind: z
+		.string()
+		.optional()
+		.describe(
+			`Runs: filter by how the job was triggered — one of ${jobTriggerKinds.join(', ')}. ${RUNS_MULTI_VALUE_HINT} (e.g. '!schedule' to hide scheduled runs)`
+		),
+	label: z
+		.string()
+		.optional()
+		.describe(
+			`Runs: filter by a custom label attached to the job. ${RUNS_MULTI_VALUE_HINT_WILDCARD}`
+		),
+	tag: z
+		.string()
+		.optional()
+		.describe(`Runs: filter by worker tag. ${RUNS_MULTI_VALUE_HINT_WILDCARD}`),
+	worker: z
+		.string()
+		.optional()
+		.describe(
+			`Runs: filter by the worker instance that ran the job. ${RUNS_MULTI_VALUE_HINT_WILDCARD}`
+		),
+	concurrency_key: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: filter by concurrency limit key, e.g. custom-key or a full script path. Cannot be combined with worker, search, or a waiting/suspended status — that view has no way to apply them.'
+		),
+	arg: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs whose arguments contain these key/value pairs, as a JSON object string, e.g. {"customer_id":"42"}'
+		),
+	result: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs whose result contains these key/value pairs, as a JSON object string, e.g. {"status":"ko"}'
+		),
+	search: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: free-text search matched case-insensitively across several run fields at once. Prefer a specific filter when you know which one applies.'
+		),
+	timeframe: z
+		.enum(RUNS_TIMEFRAME_LABELS)
+		.optional()
+		.describe(
+			'Runs: relative time window to look at, ending now. Ignored when min_ts or max_ts is set.'
+		),
+	min_ts: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs after this instant, as an ISO 8601 timestamp (e.g. 2026-08-01T09:00:00Z); a bare 2026-08-01 means local midnight. Use it with max_ts for an absolute window; prefer timeframe for a relative one.'
+		),
+	max_ts: z
+		.string()
+		.optional()
+		.describe(
+			'Runs: only runs before this instant, as an ISO 8601 timestamp. A bare 2026-08-01 means local midnight, so it excludes that day — pass the next day, or an explicit time, to include it.'
+		),
+	resolved: z
+		.enum(['all', 'unresolved', 'resolved'])
+		.optional()
+		.describe(
+			"Runs: filter failures by whether they have been marked as handled — 'unresolved' hides the ones already resolved"
+		),
+	show_skipped: z
+		.boolean()
+		.optional()
+		.describe('Runs: include skipped flow steps (excluded by default)'),
+	show_future_jobs: z
+		.boolean()
+		.optional()
+		.describe('Runs: include jobs scheduled for later (included by default — pass false to hide)'),
+	all_workspaces: z
+		.boolean()
+		.optional()
+		.describe(
+			'Runs: show runs of every workspace, not just this one. Only available to a superadmin or devops user in the admins workspace.'
+		),
 	open: z
 		.string()
 		.optional()
@@ -2378,6 +2495,22 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 	schedule_path: ['runs', 'schedules'],
 	job_kinds: ['runs'],
 	user: ['runs'],
+	folder: ['runs'],
+	job_trigger_kind: ['runs'],
+	label: ['runs'],
+	tag: ['runs'],
+	worker: ['runs'],
+	concurrency_key: ['runs'],
+	arg: ['runs'],
+	result: ['runs'],
+	search: ['runs'],
+	timeframe: ['runs'],
+	min_ts: ['runs'],
+	max_ts: ['runs'],
+	resolved: ['runs'],
+	show_skipped: ['runs'],
+	show_future_jobs: ['runs'],
+	all_workspaces: ['runs'],
 	open: ['schedules', 'triggers', 'variables', 'resources'],
 	summary: ['schedules'],
 	trigger_kind: ['triggers'],
@@ -2393,11 +2526,13 @@ const OPEN_PAGE_FIELD_PAGES: Record<string, OpenPageName[]> = {
 
 // The model-facing schema for the given allowed pages: the `page` enum plus only the
 // fields relevant to those pages (reusing the full schema's field definitions). The
-// `trigger_kind` enum is narrowed to the license-available kinds.
+// `trigger_kind` enum is narrowed to the license-available kinds, and the Runs
+// `all_workspaces` filter is only advertised where the page itself offers it.
 function buildOpenPageDefSchema(
 	pages: readonly OpenPageName[],
 	triggerKinds: readonly PageTriggerKind[],
-	chatEditsTracked: boolean
+	chatEditsTracked: boolean,
+	allWorkspacesRuns: boolean
 ): z.ZodTypeAny {
 	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
 	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. an operator
@@ -2410,6 +2545,7 @@ function buildOpenPageDefSchema(
 	}
 	for (const [field, fieldPages] of Object.entries(OPEN_PAGE_FIELD_PAGES)) {
 		if (!fieldPages.some((p) => pages.includes(p))) continue
+		if (field === 'all_workspaces' && !allWorkspacesRuns) continue
 		shape[field] =
 			field === 'trigger_kind'
 				? z
@@ -2436,16 +2572,124 @@ const OPEN_PAGE_DESCRIPTION =
 // live modified-items mask backing the compare page's default preselection.
 type OpenPageUrlCtx = { workspaceId: string; chatItems?: readonly string[] }
 
+// The Runs page reads its two absolute bounds as `new Date(param)` and drops whatever
+// doesn't parse, so normalize to ISO here rather than passing a stamp the page will
+// silently ignore.
+function isoTimestamp(raw: string | undefined): string | undefined {
+	if (!raw) return undefined
+	// A bare date means local midnight, as the page's own date picker writes it; parsed
+	// as-is it would be read as UTC and shift the bound by the viewer's offset.
+	const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00` : raw)
+	return isNaN(d.getTime()) ? undefined : d.toISOString()
+}
+
+// One comma-separated list each, read back with the polarity of its FIRST item: " b" in
+// "a, b" is matched with its space, and a mixed "a,!b" quietly matches b as an inclusion.
+const RUNS_LIST_FIELDS = ['path', 'user', 'label', 'tag', 'worker', 'job_trigger_kind'] as const
+
+function normalizeRunsList(raw: string): { value: string | undefined } | { mixed: true } {
+	const items = raw
+		.split(',')
+		.map((v) => v.trim())
+		.filter((v) => v !== '')
+	const excluded = items.filter((v) => v.startsWith('!'))
+	if (excluded.length && excluded.length !== items.length) return { mixed: true }
+	return { value: items.length ? items.join(',') : undefined }
+}
+
+// Normalizes the Runs filters in place, and fails closed on the values the page applies
+// differently than asked or not at all — silently, so nothing downstream would catch it.
+function prepareRunsFilters(a: OpenPageArgs): string | undefined {
+	for (const [field, raw] of [
+		['arg', a.arg],
+		['result', a.result]
+	] as const) {
+		if (raw === undefined) continue
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(raw)
+		} catch {
+			parsed = undefined
+		}
+		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+			return `The ${field} filter must be a JSON object of key/value pairs to match, e.g. {"key":"value"} — got ${raw}`
+		}
+	}
+	// The page wraps this value into a single `f/<folder>/` path prefix, so anything but one
+	// bare folder name ends up inside the prefix and matches nothing (`f/f/infra/`, `f/a,b/`).
+	if (a.folder !== undefined) {
+		a.folder = a.folder.trim()
+		if (!VALID_FOLDER_NAME.test(a.folder)) {
+			return `The folder filter takes one bare folder name (letters, digits, _ or -), without the 'f/' prefix, commas or ! — got ${a.folder}. Use path to name several runnables or to exclude some.`
+		}
+	}
+	const fields = a as Record<(typeof RUNS_LIST_FIELDS)[number], string | undefined>
+	for (const field of RUNS_LIST_FIELDS) {
+		const raw = fields[field]
+		if (raw === undefined) continue
+		const normalized = normalizeRunsList(raw)
+		if ('mixed' in normalized) {
+			return `The ${field} filter cannot mix included and excluded values (got ${raw}) — prefix every value with ! to exclude them all, or none to include them all.`
+		}
+		fields[field] = normalized.value
+	}
+	const unknownKinds = (a.job_trigger_kind?.split(',') ?? [])
+		.map((k) => k.replace(/^!/, ''))
+		.filter((k) => !(jobTriggerKinds as string[]).includes(k))
+	if (unknownKinds.length) {
+		return `Unknown job_trigger_kind: ${unknownKinds.join(', ')}. Valid kinds are ${jobTriggerKinds.join(', ')}.`
+	}
+	// A concurrency key switches the page to its extended-jobs query, which has no worker,
+	// free-text or queue-status parameter — those chips would render and filter nothing.
+	if (a.concurrency_key !== undefined) {
+		const ignored: string[] = (['worker', 'search'] as const).filter((f) => a[f] !== undefined)
+		if (a.status === 'waiting' || a.status === 'suspended') ignored.push(`status=${a.status}`)
+		if (ignored.length) {
+			return `The Runs page ignores ${ignored.join(' and ')} when concurrency_key is set (that view can't filter on ${ignored.length > 1 ? 'them' : 'it'}). Open the page with either concurrency_key or ${ignored.join('/')}, not both.`
+		}
+	}
+	for (const [field, raw] of [
+		['min_ts', a.min_ts],
+		['max_ts', a.max_ts]
+	] as const) {
+		if (raw !== undefined && isoTimestamp(raw) === undefined) {
+			return `${field} must be an ISO 8601 timestamp, e.g. 2026-08-01T09:00:00Z or 2026-08-01 — got ${raw}`
+		}
+	}
+	return undefined
+}
+
 export function buildOpenPageUrl(page: OpenPageName, a: OpenPageArgs, ctx: OpenPageUrlCtx): string {
 	switch (page) {
-		case 'runs':
+		case 'runs': {
+			const min_ts = isoTimestamp(a.min_ts)
+			const max_ts = isoTimestamp(a.max_ts)
 			return buildRunsUrl({
 				status: a.status,
 				path: a.path,
 				schedule_path: a.schedule_path,
 				job_kinds: a.job_kinds,
-				user: a.user
+				user: a.user,
+				folder: a.folder,
+				job_trigger_kind: a.job_trigger_kind,
+				label: a.label,
+				tag: a.tag,
+				worker: a.worker,
+				concurrency_key: a.concurrency_key,
+				arg: a.arg,
+				result: a.result,
+				_default_: a.search,
+				min_ts,
+				max_ts,
+				// An absolute bound wins over a relative window on the page itself; drop the
+				// window so the summary doesn't advertise a filter that isn't applied.
+				timeframe: min_ts || max_ts ? undefined : a.timeframe,
+				resolved: a.resolved,
+				show_skipped: a.show_skipped,
+				show_future_jobs: a.show_future_jobs,
+				all_workspaces: a.all_workspaces
 			})
+		}
 		case 'schedules':
 			return buildSchedulesUrl({
 				open: a.open,
@@ -2517,7 +2761,12 @@ export const openPageTool: Tool<{}> = {
 	// The initial def assumes an untracked chat; setSchema below rebuilds it with the
 	// caller's real surface before each iteration.
 	def: createToolDef(
-		buildOpenPageDefSchema(allowedOpenPages(), allowedTriggerKinds(), false),
+		buildOpenPageDefSchema(
+			allowedOpenPages(),
+			allowedTriggerKinds(),
+			false,
+			allowsAllWorkspacesRuns()
+		),
 		'open_page',
 		OPEN_PAGE_DESCRIPTION
 	),
@@ -2533,7 +2782,8 @@ export const openPageTool: Tool<{}> = {
 			buildOpenPageDefSchema(
 				allowedOpenPages(operatingWorkspaceFromHelpers(helpers)),
 				allowedTriggerKinds(),
-				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined
+				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined,
+				allowsAllWorkspacesRuns(operatingWorkspaceFromHelpers(helpers))
 			),
 			'open_page',
 			OPEN_PAGE_DESCRIPTION
@@ -2555,6 +2805,15 @@ export const openPageTool: Tool<{}> = {
 		const triggerKind = parsed.trigger_kind as PageTriggerKind | undefined
 		if (page === 'triggers' && triggerKind && !allowedTriggerKinds().includes(triggerKind)) {
 			return `${TRIGGER_PAGES[triggerKind].label} aren't available on this instance.`
+		}
+		// Same for the cross-workspace Runs filter: drop it rather than build a link whose
+		// param the page would ignore anyway.
+		if (parsed.all_workspaces && !allowsAllWorkspacesRuns(workspaceId)) {
+			parsed.all_workspaces = undefined
+		}
+		if (page === 'runs') {
+			const filterError = prepareRunsFilters(parsed)
+			if (filterError) return filterError
 		}
 		// Headless callers (ai_evals) have neither helpers.operatingWorkspace nor a
 		// populated workspaceStore; the chat loop's workspace is still correct there.

@@ -295,6 +295,7 @@ vi.mock('$lib/infer', async () => ({
 	inferArgs: vi.fn(async () => {})
 }))
 
+import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
 import {
 	buildOpenPageUrl,
 	globalTools,
@@ -4859,6 +4860,114 @@ describe('prepareGlobalUserMessage', () => {
 		const message = prepareGlobalUserMessage('Create a draft')
 
 		expect(message.content).toBe('## INSTRUCTIONS:\nCreate a draft')
+	})
+})
+
+describe('buildOpenPageUrl runs filters', () => {
+	const runsArgs = {
+		page: 'runs' as const,
+		status: 'failure' as const,
+		path: 'f/foo/bar',
+		schedule_path: 'f/foo/nightly',
+		job_kinds: 'all' as const,
+		user: 'admin',
+		folder: 'foo',
+		job_trigger_kind: '!schedule',
+		label: 'my-label',
+		tag: 'flow',
+		worker: 'wk-1',
+		concurrency_key: 'custom-key',
+		arg: '{"a":1}',
+		result: '{"b":2}',
+		search: 'timeout',
+		resolved: 'unresolved' as const,
+		show_skipped: true,
+		show_future_jobs: false,
+		all_workspaces: true
+	}
+	const keysOf = (url: string) => [...new URL(url, 'http://x').searchParams.keys()]
+
+	// Guards the whole mapping at once: buildRunsUrl silently drops any param that isn't a
+	// real Runs filter key, so a renamed or added page filter must show up here.
+	it('covers every filter the Runs page reads', () => {
+		const relative = keysOf(
+			buildOpenPageUrl(
+				'runs',
+				{ ...runsArgs, timeframe: 'Within last 24 hours' },
+				{ workspaceId: 'ws' }
+			)
+		)
+		const absolute = keysOf(
+			buildOpenPageUrl(
+				'runs',
+				{ ...runsArgs, min_ts: '2026-08-01T09:00:00Z', max_ts: '2026-08-02' },
+				{ workspaceId: 'ws' }
+			)
+		)
+		expect([...new Set([...relative, ...absolute])].sort()).toEqual(
+			Object.keys(
+				buildRunsFilterSearchbarSchema({
+					paths: [],
+					usernames: [],
+					folders: [],
+					jobTriggerKinds: [],
+					isSuperAdminOrDevops: true,
+					isAdminsWorkspace: true
+				})
+			).sort()
+		)
+	})
+
+	// Each of these would open a Runs page filtered by something other than what was asked,
+	// with no error of the page's own — so the tool has to be the one to refuse.
+	it('rejects filter values the Runs page could only fail silently on', async () => {
+		const rejections: [Record<string, unknown>, string][] = [
+			[{ arg: 'customer_id=42' }, 'must be a JSON object'],
+			[{ job_trigger_kind: 'cron' }, 'Unknown job_trigger_kind'],
+			[{ min_ts: 'last tuesday' }, 'ISO 8601'],
+			[{ job_trigger_kind: 'schedule,!http' }, 'cannot mix included and excluded values'],
+			[{ folder: '!infra' }, 'takes one bare folder name'],
+			[{ folder: 'infra,billing' }, 'takes one bare folder name'],
+			// `f/infra` and `infra/sub` would become `f/f/infra/` and `f/infra/sub/`.
+			[{ folder: 'f/infra' }, 'takes one bare folder name'],
+			[{ folder: 'infra/sub' }, 'takes one bare folder name'],
+			[{ concurrency_key: 'ck', worker: 'wk-1' }, 'ignores worker'],
+			[{ concurrency_key: 'ck', search: 'timeout' }, 'ignores search'],
+			// The extended-jobs query has no queue-status parameter, so these two arrive with
+			// no status predicate at all — every job on the key, under a "waiting" chip.
+			[{ concurrency_key: 'ck', status: 'waiting' }, 'ignores status=waiting'],
+			[{ concurrency_key: 'ck', status: 'suspended' }, 'ignores status=suspended']
+		]
+		for (const [args, expected] of rejections) {
+			await expect(callGlobalTool('open_page', { page: 'runs', ...args })).resolves.toContain(
+				expected
+			)
+		}
+	})
+
+	// The backend reads the list with the polarity of its first item and matches the rest
+	// verbatim, so an untrimmed item would filter on " http".
+	it('trims the items of a multi-value filter', async () => {
+		await callGlobalTool('open_page', { page: 'runs', job_trigger_kind: '!schedule, !http' })
+		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				content: expect.stringContaining('job_trigger_kind=!schedule,!http')
+			})
+		)
+	})
+
+	it('reads a bare date as local midnight and drops the window an absolute bound overrides', () => {
+		const params = new URL(
+			buildOpenPageUrl(
+				'runs',
+				{ page: 'runs', timeframe: 'Within last 24 hours', min_ts: '2026-08-02' },
+				{ workspaceId: 'ws' }
+			),
+			'http://x'
+		).searchParams
+		expect(params.get('min_ts')).toBe(new Date('2026-08-02T00:00').toISOString())
+		expect(params.get('timeframe')).toBeNull()
 	})
 })
 

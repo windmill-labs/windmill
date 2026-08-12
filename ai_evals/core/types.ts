@@ -174,6 +174,17 @@ export interface ToolCallArgumentRule {
   nonEmpty?: boolean;
 }
 
+/**
+ * Several field constraints that must hold on the *same* call, where separate
+ * calls each satisfying one of them would not be the requested behavior — e.g.
+ * opening one Runs page filtered by both a label and a worker, rather than two
+ * pages each carrying one filter.
+ */
+export interface ToolCallSameCallRule {
+  tool: string;
+  args: { field: string; stringIncludesAnyOf: string[] }[];
+}
+
 export interface ToolValidationSpec {
   requiredToolsUsed?: string[];
   /**
@@ -185,6 +196,7 @@ export interface ToolValidationSpec {
   requiredToolsAnyOf?: string[][];
   forbiddenToolsUsed?: string[];
   toolCallArgs?: ToolCallArgumentRule[];
+  toolCallArgsSameCall?: ToolCallSameCallRule[];
 }
 
 export type EvalValidationSpec =
