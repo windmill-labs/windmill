@@ -143,9 +143,11 @@ $NAV --root backend callees "X"                           # what does X call?
 
 - **MUST `outline` before `Read`** on unfamiliar files — then `body` or `Read` with offset/limit for specifics
 - **Scratch stays outside the checkout.** Temp scripts, data dumps, cache backups and
-  screenshots go in the session scratch directory or `/tmp`, never in the repo — a temp file
-  in the tree has to be deleted again, and `rm` asks every time. When deletions are genuinely
-  needed, do them together as one `rm` at the end rather than one call each.
+  screenshots go in the session scratch directory or `/tmp`, so nothing temporary can end up
+  committed. Write `rm`/`mv`/`cp` as one plain unchained command: a PreToolUse hook
+  auto-allows those when every operand is under `/tmp` or inside this checkout, but it defers
+  on `&&`, `;`, redirects, quotes and `$VAR` — that deferral, not the delete itself, is what
+  turns a routine cleanup into a permission prompt.
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked
