@@ -280,8 +280,13 @@ export class SessionPreviewTabs {
 		// Drift is a change of what the frame *shows*, not of its URL string: a page
 		// writing its own filter defaults back is not the user navigating away.
 		const drifted = !sameView(tab.loc, url)
+		// Both cases the browser will not act on, decided here because this is where the
+		// old and new commands are both in hand: re-commanding the URL a drifted frame
+		// already carries moves nothing, and a fragment-only change resolves within the
+		// same document — so a list page never re-runs the `#<path>` read that opens a row.
+		const fragmentOnly = !commandUnchanged && tab.url.split('#')[0] === url.split('#')[0]
 		retargetTab(tab, url)
-		if (commandUnchanged && drifted) this.pulseReload(tab.id)
+		if ((commandUnchanged && drifted) || fragmentOnly) this.pulseReload(tab.id)
 	}
 
 	// Force the host to reload the iframe. A navigation onto the tab's exact current URL

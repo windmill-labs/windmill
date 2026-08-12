@@ -14,7 +14,6 @@
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
-	import { untrack } from 'svelte'
 
 	let {
 		tab,
@@ -167,20 +166,6 @@
 		flashTimer = setTimeout(() => (flashing = false), 800)
 	})
 	$effect(() => () => clearTimeout(flashTimer))
-
-	// Re-pointing within one document (`/routes#a` → `/routes#b`) only changes the src
-	// fragment, which the browser resolves without a load — and the trigger lists read
-	// their `#<path>` once per document, so the first row would stay on screen. Watches
-	// the commanded `url`, never `loc`: navigation inside the frame is the user's own.
-	let lastCommandedDoc: string | undefined = undefined
-	$effect(() => {
-		const doc = tab.url.split('#')[0]
-		untrack(() => {
-			const sameDocRetarget = lastCommandedDoc !== undefined && lastCommandedDoc === doc
-			lastCommandedDoc = doc
-			if (sameDocRetarget) reload()
-		})
-	})
 
 	// Forced-load signal for a navigation to the tab's exact current URL (see
 	// pulseReload) — without it the page never re-runs its URL-driven behavior.

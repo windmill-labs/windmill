@@ -498,6 +498,28 @@ describe('SessionPreviewTabs.observeLocation', () => {
 	})
 })
 
+describe('SessionPreviewTabs.open — forced loads', () => {
+	it('pulses when only the fragment changes, since the browser would not load', () => {
+		const o = owner()
+		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
+		const before = o.reloadPulse.nonce
+		o.open({ type: 'page', href: '/routes#u/me/b', label: 'R' })
+		// Same document: the browser resolves the new fragment without a load, so the
+		// list page never re-runs the `#<path>` read that opens the row.
+		expect(o.reloadPulse.nonce).toBeGreaterThan(before)
+		expect(o.tabs).toHaveLength(1)
+	})
+
+	it('does not pulse when the document itself changes', () => {
+		const o = owner()
+		o.open({ type: 'page', href: '/routes#u/me/a', label: 'R' })
+		const before = o.reloadPulse.nonce
+		o.open({ type: 'page', href: '/schedules#u/me/a', label: 'S' })
+		// Different page: src changes, the browser loads it, nothing to force.
+		expect(o.reloadPulse.nonce).toBe(before)
+	})
+})
+
 describe('SessionPreviewTabs.navigate', () => {
 	it('retargets the active tab to an editor item', () => {
 		const o = owner()
