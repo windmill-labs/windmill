@@ -437,18 +437,14 @@
 				}
 			}
 			observe()
-			// Opening a drawer only changes the hash and a filter change only
-			// rewrites the query, neither of which reloads the frame — `load` alone
-			// would leave `loc` frozen on the page the tab was seeded with. The
-			// listeners live on the framed document and die with it, so each load
-			// re-attaches exactly one set.
+			// A drawer only changes the hash and a filter only rewrites the query; neither
+			// reloads the frame, so `load` alone would leave `loc` frozen on the seeded page.
+			// These listeners die with the framed document, so each load attaches one set.
 			win.addEventListener('hashchange', observe)
 			win.addEventListener('popstate', observe)
-			// Filters write their params with `replaceState` (useSearchParams'
-			// shallow routing), which fires no event at all: the only way to see
-			// them is from the history methods themselves. Patched on the framed
-			// window — same-origin, our own app — and guarded so a re-load that
-			// reuses the window can't wrap the wrapper.
+			// Filters write params with `replaceState` (shallow routing), which fires no
+			// event at all — the history methods are the only way to see them. Guarded so a
+			// re-load reusing the window can't wrap the wrapper.
 			const w = win as Window & { __wmObservedHistory?: boolean }
 			if (!w.__wmObservedHistory) {
 				w.__wmObservedHistory = true

@@ -585,11 +585,9 @@ export class AIChatManager {
 	// sessions modules — and re-read on every system-message rebuild; the send
 	// path rebuilds after beforeSend, so a fork committed there is picked up.
 	sessionContextResolver: (() => SessionPromptContext | undefined) | undefined = undefined
-	// The page the session's side panel currently shows, stamped on each user
-	// message. Same seam as above (set by the session runtime): a page tab is an
-	// iframe in its own realm, so the tab model is the only place the chat can
-	// learn what the user is looking at. Undefined when the panel shows a live
-	// editor — ACTIVE EDITOR already covers those.
+	// The page the side panel shows, stamped on each user message. Same seam as above:
+	// a page tab is an iframe in its own realm, so the tab model is the only place the
+	// chat can learn it. Undefined for a live editor — ACTIVE EDITOR covers those.
 	activePreviewResolver: (() => GlobalActivePreviewContext | undefined) | undefined = undefined
 	// Resolves the workspace this chat operates on. Session chats set it to their
 	// own (possibly forked) workspace so the chat targets it WITHOUT switching the

@@ -848,13 +848,10 @@
 				placeholder="Filter runs..."
 				autofocus
 			/>
-			<!-- Opens this exact view (filters included) as the new session's preview
-			     tab. The filters live in shallow-routed query params, so the search is
-			     read off `window.location` at click time — `page.url` never sees them.
-			     Always the canonical `/runs`, never the `/runs/<path>` route: only the
-			     former is a recognized preview page (so the tab is labelled "Runs" and
-			     a later open_page reuses it), and the route's path is mirrored into
-			     `?path=` anyway, so the scoping survives. -->
+			<!-- The filters are shallow-routed, so the search has to come off
+			     `window.location` at click time — `page.url` never sees them. Always the
+			     canonical `/runs`: only that is a recognized preview page, and the
+			     `/runs/<path>` route mirrors its path into `?path=` anyway. -->
 			<OpenInSessionButton
 				source={{
 					page: () => pageHref(RUNS_PATH) + window.location.search,

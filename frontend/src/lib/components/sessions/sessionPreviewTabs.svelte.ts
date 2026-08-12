@@ -241,25 +241,21 @@ export class SessionPreviewTabs {
 		return this.#reloadPulse
 	}
 
-	// Ask the tab's host to reload its iframe. Needed when a navigation targets the
-	// tab's exact current URL: nothing changes, so URL-driven behavior in the page
-	// (e.g. a #<path> hash opening an edit drawer the user has since closed) would
-	// never re-fire without a forced load.
-	// Point a tab at `url` and make sure the frame actually goes there. The host
-	// navigates off a change of the commanded `url`, so re-commanding the URL a tab
-	// is already pointed at moves nothing — and since `loc` follows navigation
-	// *inside* the frame, that is exactly the case where the frame has drifted
-	// somewhere else (the user opened another row) and must be pulled back.
+	// Point a tab at `url` and make sure the frame follows. The host navigates off a
+	// change of the commanded `url`, so re-commanding one a tab already points at moves
+	// nothing — exactly the case where `loc` shows the frame drifted elsewhere.
 	#retarget(tab: SessionPreviewTab, url: string): void {
 		const commandUnchanged = tab.url === url
 		// Drift is a change of what the frame *shows*, not of its URL string: a page
-		// writing its own filter defaults back is not the user navigating away, and
-		// reloading on it would throw away the view they are looking at.
+		// writing its own filter defaults back is not the user navigating away.
 		const drifted = !sameView(tab.loc, url)
 		retargetTab(tab, url)
 		if (commandUnchanged && drifted) this.pulseReload(tab.id)
 	}
 
+	// Force the host to reload the iframe. A navigation onto the tab's exact current URL
+	// changes nothing, so URL-driven behavior — a `#<path>` opening a drawer the user has
+	// since closed — would never re-fire.
 	pulseReload(id: string): void {
 		this.#reloadPulse = { id, nonce: this.#reloadPulse.nonce + 1 }
 	}
@@ -383,11 +379,10 @@ export class SessionPreviewTabs {
 				return { status: same ? 'focused' : 'opened' }
 			}
 		}
-		// Focus the tab currently *showing* this destination rather than duplicating it.
 		// Matched on the observed `loc`, not `url`: a tab that navigated away no longer
-		// shows it. A tab already showing this exact view wins over any other tab on the
-		// page — `new_tab` puts two views of one page side by side, and retargeting
-		// whichever sits first would overwrite the other and leave both on the same row.
+		// shows this. The tab on this exact view wins over any other on the page —
+		// `new_tab` puts two views side by side, and retargeting whichever sits first
+		// would overwrite the other and leave both on the same row.
 		const shown = opts?.forceNewTab
 			? undefined
 			: (this.#tabs.find((t) => sameView(t.loc, url)) ??

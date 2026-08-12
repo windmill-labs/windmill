@@ -26,18 +26,13 @@ const DRAWER_DRAFT_KIND: Record<string, UserDraftItemKind> = {
 }
 
 /**
- * "Open in AI session" source for the edit drawer of a workspace list page — the
- * trigger lists, schedules, resources, variables. The session opens the page
- * itself with the drawer deep-linked, since none of these are editable items the
- * preview can host.
+ * "Open in AI session" source for the edit drawer of a workspace list page (trigger
+ * lists, schedules, resources, variables): none is an editable item the preview can
+ * host, so the session opens the page with `itemPath`'s drawer deep-linked.
  *
- * Returns undefined (so the button renders nothing) unless the page's own route
- * is the one on screen: the very same drawers open inside script/flow editors and
- * pickers, where the enclosing editor already carries its own entry point.
- *
- * `itemPath` is the row the drawer is editing, empty while one is being created.
- * The hash it deep-links through is this page's own convention — a bare path for
- * most, `/resource/<path>` for resources.
+ * Undefined — so the button renders nothing — unless that page's own route is on
+ * screen: these drawers also open inside script/flow editors and pickers, which carry
+ * their own entry point.
  */
 export function pageDrawerSessionSource(
 	pagePath: string,

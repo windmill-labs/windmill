@@ -1188,12 +1188,9 @@ const buildGlobalSystemPrompt = (
 	const pipelineAlphaNote = previewTools
 		? ' Data pipeline support in this chat is in ALPHA: the first time the user asks for a data pipeline in this session, briefly tell them it is an alpha feature before you start building.'
 		: ''
-	// Only a session chat has a side panel that can show a page, so only there can
-	// an ACTIVE PREVIEW section ever appear — elsewhere this rule is ~100 prompt
-	// tokens of dead weight on every request. Gated on `previewTools` (constant per
-	// chat) rather than on whether a preview is open right now: the system prompt is
-	// the cached prefix, so a line that appears and disappears between turns would
-	// invalidate that cache far more often than it would save a tool call.
+	// Gated on `previewTools` (constant per chat), never on whether a preview is open
+	// right now: the system prompt is the cached prefix, so a line appearing and
+	// disappearing between turns costs more cache than the tool call it saves.
 	const activePreviewRule = previewTools
 		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the row the page is anchored at, whose drawer the user opened) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
 		: ''

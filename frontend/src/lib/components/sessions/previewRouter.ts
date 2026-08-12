@@ -143,20 +143,10 @@ export function canonicalizeObservedLoc(loc: string): string {
 	}
 }
 
-// A location's query has two authors, and only one of them says anything about which
-// view was asked for: the params a request can set (below), against the ones the page
-// writes into its own URL after mount — filter defaults like `filter_path_of`, paging
-// like `page`/`perPage`. Read a page-written param as the view and the tab stops
-// recognizing itself; ignore a request-written one and a requested view is silently
-// dropped. This is the same set each page's URL builder passes as its `validKeys`,
-// which reads it back from here so the two cannot drift. Pages absent from the table
-// take no request params at all — the trigger lists deep-link only through their hash,
-// and Folders/Groups have no query.
-// Permission and feature flags are all set so the key set is the page's whole filter
-// vocabulary rather than one viewer's subset. A filter only some users can reach —
-// Runs' `all_workspaces` — still reaches a location, and a name missing here is read
-// as the page's own and silently ignored, so an all-workspaces tab would answer a
-// request for the workspace-scoped view.
+// The query params belonging to the request; every other one the page wrote into its own
+// URL (`filter_path_of`, `page`/`perPage`) and must not read as a view. A name missing
+// here is silently ignored, so the flags below stay on to cover permission-gated filters
+// like Runs' `all_workspaces`. The URL builders read this back as their `validKeys`.
 export const PAGE_REQUEST_PARAMS: Record<string, readonly string[]> = {
 	'/runs': Object.keys(
 		buildRunsFilterSearchbarSchema({
@@ -194,13 +184,10 @@ export type PreviewLocation = {
 	anchor: string
 }
 
-/** Decompose a preview location into what it means.
- *
- * Everything that compares two preview locations goes through this. A query or a hash
- * means something different on each class of page — the row a drawer is open at, a
- * filter the page wrote itself, a legacy app's `context.hash` — and answering that at
- * the call site is how a tab ends up duplicated, reloaded, or reported as showing a row
- * it is not. The page classes live here and only here. */
+/** Decompose a preview location into what it means. Everything comparing two locations
+ * goes through this: a query or a hash means something different per class of page, and
+ * answering that at the call site is how a tab ends up duplicated, reloaded, or reported
+ * as showing a row it is not. The page classes live here and only here. */
 export function describeLocation(loc: string): PreviewLocation {
 	const artifact = parseArtifactRoute(loc)
 	if (artifact) return { identity: `artifact:${artifact.id}`, view: '', anchor: '' }
