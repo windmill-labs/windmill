@@ -1389,7 +1389,9 @@ lazy_static::lazy_static! {
 /// the only way the toolchain understands it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct GoBuildLimits {
-    /// `GOMEMLIMIT`.
+    /// What the whole build may hold, and so what a step that is one process gets.
+    pub budget: usize,
+    /// `GOMEMLIMIT` for one process of a build that fans out.
     pub memlimit: usize,
     /// `GOMAXPROCS`, which is also `go build`'s default `-p`: how many compilers it
     /// runs at once.
@@ -1448,6 +1450,7 @@ fn resolve_go_build_limits(
     let cap = vcpus.max(1) + 1;
     let processes = (budget / GO_BUILD_TARGET_MEMLIMIT).clamp(MIN_GO_BUILD_PROCESSES.min(cap), cap);
     Some(GoBuildLimits {
+        budget,
         memlimit: (budget / processes).max(MIN_GO_BUILD_MEMLIMIT),
         parallelism: processes - 1,
     })
@@ -1461,8 +1464,8 @@ mod go_build_limits_tests {
 
     const GIB: i64 = 1024 * 1024 * 1024;
 
-    fn limits(memlimit: usize, parallelism: usize) -> Option<GoBuildLimits> {
-        Some(GoBuildLimits { memlimit, parallelism })
+    fn limits(budget: usize, memlimit: usize, parallelism: usize) -> Option<GoBuildLimits> {
+        Some(GoBuildLimits { budget, memlimit, parallelism })
     }
 
     #[test]
@@ -1471,30 +1474,30 @@ mod go_build_limits_tests {
         // they share 3GiB with the driver.
         assert_eq!(
             resolve_go_build_limits(None, Some(4 * GIB), 4),
-            limits(3 * GIB as usize / 5, 4)
+            limits(3 * GIB as usize, 3 * GIB as usize / 5, 4)
         );
         // More cores than it can feed at the target share: the extra cores idle
         // rather than shrink every compiler.
         assert_eq!(
             resolve_go_build_limits(None, Some(4 * GIB), 64),
-            limits(GO_BUILD_TARGET_MEMLIMIT, 7)
+            limits(3 * GIB as usize, GO_BUILD_TARGET_MEMLIMIT, 7)
         );
         // Too small to give even the minimum process count the target share: the
         // build keeps overlapping and the share absorbs it.
         assert_eq!(
             resolve_go_build_limits(None, Some(GIB), 64),
-            limits(3 * GIB as usize / 4 / 6, 5)
+            limits(3 * GIB as usize / 4, 3 * GIB as usize / 4 / 6, 5)
         );
         // Nothing to scale from leaves the toolchain unlimited, as it was before.
         assert_eq!(resolve_go_build_limits(None, None, 4), None);
         // Under the floor the budget gives instead of the share.
         assert_eq!(
             resolve_go_build_limits(None, Some(GIB / 8), 4),
-            limits(MIN_GO_BUILD_MEMLIMIT, 4)
+            limits(3 * GIB as usize / 32, MIN_GO_BUILD_MEMLIMIT, 4)
         );
         assert_eq!(
             resolve_go_build_limits(Some("2GiB"), Some(4 * GIB), 4),
-            limits(2 * GIB as usize / 5, 4)
+            limits(2 * GIB as usize, 2 * GIB as usize / 5, 4)
         );
         assert_eq!(resolve_go_build_limits(Some("off"), Some(4 * GIB), 4), None);
         assert_eq!(resolve_go_build_limits(Some("0MB"), Some(4 * GIB), 4), None);
@@ -1502,7 +1505,7 @@ mod go_build_limits_tests {
         // lifting the limit.
         assert_eq!(
             resolve_go_build_limits(Some("lots"), Some(4 * GIB), 4),
-            limits(3 * GIB as usize / 5, 4)
+            limits(3 * GIB as usize, 3 * GIB as usize / 5, 4)
         );
     }
 }
