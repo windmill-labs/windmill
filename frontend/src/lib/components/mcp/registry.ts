@@ -49,7 +49,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		auth: 'oauth_app',
 		connectClient: 'github',
 		tokenHint:
-			'Create a personal access token at github.com/settings/tokens. Grant the permissions you are willing to give the chat — repo and read:org cover most tools; a fine-grained token reaches fewer endpoints than a classic one.',
+			'A personal access token from github.com/settings/tokens. repo and read:org cover most tools.',
 		docsUrl: 'https://github.com/github/github-mcp-server'
 	},
 	{
@@ -58,8 +58,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: NotionIcon,
 		url: 'https://mcp.notion.com/mcp',
 		auth: 'dcr',
-		tokenHint:
-			'Notion documents OAuth for its hosted server, so a static integration token may be rejected.',
+		tokenHint: 'Notion documents OAuth only, so a static token may be rejected.',
 		docsUrl: 'https://developers.notion.com/docs/mcp'
 	},
 	{
@@ -68,8 +67,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: LinearIcon,
 		url: 'https://mcp.linear.app/mcp',
 		auth: 'dcr',
-		tokenHint:
-			'Use a Linear API key. A key with only the Read permission is enough for the read tools.',
+		tokenHint: 'A Linear API key. Read permission is enough for the read tools.',
 		docsUrl: 'https://linear.app/docs/mcp'
 	},
 	{
@@ -78,8 +76,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: SentryIcon,
 		url: 'https://mcp.sentry.dev/mcp',
 		auth: 'dcr',
-		tokenHint:
-			'Sentry documents OAuth only for its hosted server, so a static token may be rejected.',
+		tokenHint: 'Sentry documents OAuth only, so a static token may be rejected.',
 		docsUrl: 'https://docs.sentry.io/product/sentry-mcp/'
 	},
 	{
@@ -88,8 +85,7 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: StripeIcon,
 		url: 'https://mcp.stripe.com',
 		auth: 'dcr',
-		tokenHint:
-			'Use a restricted API key (rk_...) granting only the permissions you are willing to give the chat.',
+		tokenHint: 'A restricted API key (rk_...) with only the permissions you want to grant.',
 		docsUrl: 'https://docs.stripe.com/mcp'
 	}
 ]

@@ -20,14 +20,12 @@
 		server: { name: string; url: string }
 		/** Where the resource and its token variable land. */
 		path: string
-		/** The caller owns the path picker, so it owns whether the path is usable. */
-		pathValid?: boolean
 		/** Reports what discovery found, so the caller can offer the right fallback. */
 		onDiscovered?: (supportsOAuth: boolean) => void
 		workspace?: string
 	}
 
-	let { onConnected, server, path, pathValid = true, onDiscovered, workspace }: Props = $props()
+	let { onConnected, server, path, onDiscovered, workspace }: Props = $props()
 
 	let opWs = $derived(workspace ?? $workspaceStore)
 
@@ -159,6 +157,17 @@
 		}
 	}
 
+	/** The caller renders the action, below its own path picker. */
+	export function start() {
+		startOAuth()
+	}
+	export function canStart(): boolean {
+		return status === 'discovered'
+	}
+	export function isConnecting(): boolean {
+		return status === 'connecting'
+	}
+
 	onMount(discoverOAuth)
 
 	onDestroy(cleanup)
@@ -213,18 +222,8 @@
 				</div>
 			</Label>
 		{/if}
-
-		<Button
-			unifiedSize="sm"
-			variant="accent"
-			wrapperClasses="self-start"
-			onClick={startOAuth}
-			disabled={!path || !pathValid}
-		>
-			Sign in with {server.name}
-		</Button>
 	{:else if status === 'connecting'}
-		<div class="text-xs text-secondary">Complete authentication in the popup window...</div>
+		<div class="text-xs text-secondary">Complete authentication in the popup window.</div>
 	{/if}
 
 	{#if error}

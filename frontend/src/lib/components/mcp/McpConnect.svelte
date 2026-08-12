@@ -52,6 +52,7 @@
 	let saving = $state(false)
 	let discoveryFoundOAuth = $state<boolean | undefined>(undefined)
 	let showToken = $state(false)
+	let oauthConnect: McpOAuthConnect | undefined = $state()
 
 	/** Slug for the resource value's `name` and for the path suggestion. Hosts are
 	 * reduced to the label that names the service, so mcp.notion.com reads notion. */
@@ -103,11 +104,9 @@
 	)
 	let needsOauthApp = $derived(connectsLoaded && entry?.auth === 'oauth_app' && !oauthAppReady)
 	let canDiscover = $derived(hasTarget && connectsLoaded && !needsOauthApp && !oauthAppReady)
-	let detecting = $derived(
-		hasTarget &&
-			(!connectsLoaded ||
-				(canDiscover && !!$enterpriseLicense && discoveryFoundOAuth === undefined))
-	)
+	// Until the instance connects land we cannot say whether this server can sign
+	// in, and offering a token in that gap would answer the question wrongly.
+	let awaitingConnects = $derived(hasTarget && !connectsLoaded)
 	// A token is the only way in for some servers and a distraction for others, so
 	// it is offered outright only once detection says nothing here can sign in.
 	let canSignIn = $derived(
@@ -310,11 +309,15 @@
 		</a>
 	{/if}
 
-	{#if hasTarget}
-		{#if oauthAppReady && entry}
-			<div class="text-2xs text-secondary">
-				This instance has a {entry.name} OAuth app configured, so you can sign in with your own account.
-			</div>
+	{#if hasTarget && !awaitingConnects}
+		{#if showToken || !canSignIn}
+			{#if entry?.tokenHint}
+				<div class="text-2xs text-secondary">{entry.tokenHint}</div>
+			{/if}
+			<Label label="Token">
+				<Password bind:password={manualToken} />
+			</Label>
+		{:else if oauthAppReady && entry}
 			<div class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis flex gap-2 items-center">
 					Scopes
@@ -339,71 +342,31 @@
 			</div>
 			{#if scopesStatus === 'error'}
 				<div class="text-2xs text-secondary">
-					Could not load the scopes configured for the {entry.name} connect. Reload to try again, or
-					use a token instead.
+					Could not load the scopes for the {entry.name} connect. Reload to try again.
 				</div>
 			{/if}
-			<Button
-				unifiedSize="sm"
-				variant="accent"
-				wrapperClasses="self-start"
-				onClick={startProviderOAuth}
-				disabled={signingIn || scopesStatus !== 'loaded' || !manualPath || manualPathError !== ''}
-			>
-				{signingIn ? 'Finish in the popup...' : `Sign in with ${entry.name}`}
-			</Button>
-		{:else if needsOauthApp && entry}
-			<div class="text-2xs text-secondary">
-				{entry.name} does not support dynamic client registration, so signing in needs a {entry.name}
-				OAuth app registered on this instance. None is configured. An admin can add one in instance settings
-				to enable sign-in.
-			</div>
-		{:else if canDiscover}
-			{#if $enterpriseLicense}
-				{#key committedUrl}
-					<McpOAuthConnect
-						server={{ name: entry?.name ?? serverName, url: committedUrl }}
-						path={manualPath}
-						pathValid={manualPathError === ''}
-						onDiscovered={(supported) => (discoveryFoundOAuth = supported)}
-						workspace={ws}
-						onConnected={(path) => onConnected(path)}
-					/>
-				{/key}
-			{:else}
-				<div class="text-2xs text-secondary">
-					Signing in to an MCP server is an enterprise feature.
-				</div>
-			{/if}
+		{:else if canDiscover && $enterpriseLicense}
+			{#key committedUrl}
+				<McpOAuthConnect
+					bind:this={oauthConnect}
+					server={{ name: entry?.name ?? serverName, url: committedUrl }}
+					path={manualPath}
+					onDiscovered={(supported) => (discoveryFoundOAuth = supported)}
+					workspace={ws}
+					onConnected={(path) => onConnected(path)}
+				/>
+			{/key}
 		{/if}
 
-		{#if canSignIn && !showToken}
-			<Button
-				unifiedSize="2xs"
-				variant="subtle"
-				wrapperClasses="self-start"
-				onClick={() => (showToken = true)}
-			>
-				Connect with a token instead
-			</Button>
-		{:else if !detecting}
-			<div class="flex flex-col gap-3 border-t pt-3">
-				<span class="text-2xs uppercase tracking-wide text-secondary">Connect with a token</span>
-				{#if entry?.tokenHint}
-					<div class="text-2xs text-secondary">{entry.tokenHint}</div>
-				{/if}
-				<Label label="Token">
-					<Password bind:password={manualToken} />
-				</Label>
-				<Button
-					unifiedSize="sm"
-					wrapperClasses="self-start"
-					onClick={saveManual}
-					disabled={saving || !url || !manualToken || !manualPath || manualPathError !== ''}
-				>
-					Save
-				</Button>
+		{#if needsOauthApp && entry}
+			<div class="text-2xs text-secondary">
+				No {entry.name} OAuth app is configured on this instance. An admin can add one in instance settings
+				to enable signing in.
 			</div>
+		{:else if canDiscover && !$enterpriseLicense}
+			<div class="text-2xs text-secondary"
+				>Signing in to an MCP server is an enterprise feature.</div
+			>
 		{/if}
 
 		{#key suggestedPath}
@@ -416,5 +379,54 @@
 				workspaceOverride={ws}
 			/>
 		{/key}
+
+		<div class="flex flex-col gap-2">
+			{#if showToken || !canSignIn}
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					wrapperClasses="self-start"
+					onClick={saveManual}
+					disabled={saving || !url || !manualToken || !manualPath || manualPathError !== ''}
+				>
+					Save
+				</Button>
+			{:else if oauthAppReady && entry}
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					wrapperClasses="self-start"
+					onClick={startProviderOAuth}
+					disabled={signingIn || scopesStatus !== 'loaded' || !manualPath || manualPathError !== ''}
+				>
+					{signingIn ? 'Finish in the popup...' : `Sign in with ${entry.name}`}
+				</Button>
+			{:else if canDiscover && $enterpriseLicense}
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					wrapperClasses="self-start"
+					onClick={() => oauthConnect?.start()}
+					disabled={!oauthConnect?.canStart() || !manualPath || manualPathError !== ''}
+				>
+					{oauthConnect?.isConnecting()
+						? 'Finish in the popup...'
+						: `Sign in with ${entry?.name ?? serverName}`}
+				</Button>
+			{/if}
+
+			{#if canSignIn}
+				<Button
+					unifiedSize="2xs"
+					variant="subtle"
+					wrapperClasses="self-start"
+					onClick={() => (showToken = !showToken)}
+				>
+					{showToken
+						? `Sign in with ${entry?.name ?? serverName} instead`
+						: 'Connect with a token instead'}
+				</Button>
+			{/if}
+		</div>
 	{/if}
 </div>
