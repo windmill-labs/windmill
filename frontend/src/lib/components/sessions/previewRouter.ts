@@ -147,12 +147,9 @@ export function canonicalizeObservedLoc(loc: string): string {
 }
 
 // The query params belonging to the request; every other one the page wrote into its own
-// URL (`filter_path_of`, `page`/`perPage`) and must not read as a view. Where a page
-// declares a filter schema — what it hands FilterSearchbar — that schema is its own list
-// of the names, with every option on so the set is its whole vocabulary rather than one
-// viewer's subset; the rest read their params straight off the URL and are written out.
-// Built on first use: only the key names are ever needed, and this module is imported by
-// the Runs page and by every trigger drawer.
+// URL (`filter_path_of`, `page`/`perPage`) and must not read as a view. A page's own
+// filter schema is the list, with every option on so the set is its whole vocabulary and
+// not one viewer's subset. Built on first use — every trigger drawer imports this module.
 let requestParams: Record<string, readonly string[]> | undefined
 
 function pageRequestParamTable(): Record<string, readonly string[]> {
@@ -241,11 +238,10 @@ export function sameView(a: string, b: string): boolean {
 	return x.identity === y.identity && x.view === y.view && x.anchor === y.anchor
 }
 
-// Filters whose value addresses a workspace object — a path, an owner, a kind, a state,
-// a timestamp — and so may be repeated to the model. A filter absent here keeps its name
-// and loses its value, because the rest search *over* content: the free-text box, a job's
-// arguments or result, a variable's or resource's value. Withholding by default means a
-// filter added later leaks nothing until it is listed deliberately.
+// Filters whose value addresses a workspace object — a path, owner, kind, state, time —
+// and so may be repeated to the model. Any other keeps its name and loses its value: the
+// rest search *over* content (the free-text box, a job's result, a resource's value), and
+// withholding by default means a filter added later leaks nothing until it is listed.
 const ADDRESSING_PARAMS = new Set([
 	'path',
 	'path_start',
@@ -294,11 +290,10 @@ export function promptSafe(text: string): string {
 	return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, CONTEXT_FIELD_MAX)
 }
 
-/** How a preview location may be described to the model. Reassembled from the parts this
- * module recognizes, never passed through whole: an iframe tab can host a legacy app,
- * whose hash is app state its author chose, and a page can carry both filters that
- * address an object and filters that search its contents. The chat has no redaction
- * boundary of its own, so only the addressing ones keep their value. */
+/** How a preview location may be described to the model: reassembled from the parts this
+ * module recognizes, never passed through whole. A tab can host a legacy app whose hash is
+ * app state, and a filter can search contents rather than address them — so only the
+ * addressing ones keep their value, the chat having no redaction boundary of its own. */
 export function previewLocationContext(loc: string): {
 	label: string
 	location: string
