@@ -27,7 +27,7 @@ use crate::{
     },
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR,
-    GO_BUILD_MEMLIMIT, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    GO_BUILD_LIMITS, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -103,19 +103,30 @@ const GO_TOOLCHAIN_TUNING_ENVS: [&str; 3] = ["GOMEMLIMIT", "GOGC", "GOMAXPROCS"]
 /// the same names, as they do on the run step.
 fn go_toolchain_envs() -> Vec<(String, String)> {
     let worker_config = windmill_common::worker::WORKER_CONFIG.load();
+    let configured = |k: &str| {
+        worker_config
+            .env_vars
+            .get(k)
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+    };
+
     let mut envs: Vec<(String, String)> = GO_TOOLCHAIN_TUNING_ENVS
         .iter()
-        .filter_map(|k| {
-            worker_config
-                .env_vars
-                .get(*k)
-                .map(|v| (k.to_string(), v.clone()))
-        })
+        .filter_map(|k| configured(k).map(|v| (k.to_string(), v.to_string())))
         .collect();
 
-    if !envs.iter().any(|(k, _)| k == "GOMEMLIMIT") {
-        if let Some(memlimit) = *GO_BUILD_MEMLIMIT {
-            envs.push(("GOMEMLIMIT".to_string(), memlimit.to_string()));
+    // Values reach the toolchain as the worker group wrote them, the same way they
+    // reach the run step: a `GOMEMLIMIT` the Go runtime rejects then fails both
+    // steps alike instead of compiling under a rewritten value and dying on the
+    // binary it produced.
+    let pinned_by_worker_group = envs.iter().any(|(k, _)| k == "GOMEMLIMIT");
+    if let (false, Some(limits)) = (pinned_by_worker_group, *GO_BUILD_LIMITS) {
+        envs.push(("GOMEMLIMIT".to_string(), limits.memlimit.to_string()));
+        // The per-process cap only adds up to the budget while the number of
+        // compilers sharing it is held down too.
+        if !envs.iter().any(|(k, _)| k == "GOMAXPROCS") {
+            envs.push(("GOMAXPROCS".to_string(), limits.parallelism.to_string()));
         }
     }
     envs

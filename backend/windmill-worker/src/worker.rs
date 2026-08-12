@@ -1275,12 +1275,12 @@ const SQL_RESULT_SIZE_FRACTION: f64 = 0.15;
 // only reject work that would have succeeded.
 const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 
-// Share of the worker's memory budget a Go compilation is told to keep its heap
-// under. Set high enough that an ordinary build never approaches it, so the only
-// builds whose behavior changes are those that were about to take the worker down.
+// Share of the worker's memory budget a Go compilation may hold. Set high enough
+// that an ordinary build never approaches it, so the only builds whose behavior
+// changes are those that were about to take the worker down.
 const GO_BUILD_MEMLIMIT_FRACTION: f64 = 0.75;
-// Below this the toolchain would spend more time collecting than compiling, and a
-// build confined to that little cannot threaten a worker anyway.
+// Least heap worth handing a Go compiler: under it the process spends more time
+// collecting than compiling, so the budget buys fewer of them instead.
 const MIN_GO_BUILD_MEMLIMIT: usize = 256 * 1024 * 1024;
 
 /// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
@@ -1360,92 +1360,140 @@ lazy_static::lazy_static! {
         }
     };
 
-    /// Soft heap cap, in bytes, handed to the Go toolchain as `GOMEMLIMIT` when it
-    /// compiles a script. It is the only bound those subprocesses have: they run
-    /// with a cleared environment, so nothing configured on the worker reaches them
-    /// and a compilation grows until the cgroup OOM killer takes the worker process
-    /// down, every job colocated on it with it. `GOMEMLIMIT` is soft — the Go GC
-    /// works harder as the heap nears it instead of failing the allocation — so a
-    /// pathological build degrades into a slow one rather than a dead worker.
+    /// What a Go compilation is allowed to cost, derived from the worker's memory
+    /// budget. Nothing else bounds it: a compilation grows until the cgroup OOM
+    /// killer takes the worker process down, every job colocated on it with it.
+    /// `GOMEMLIMIT` is soft — the GC works harder as the heap nears it instead of
+    /// failing the allocation — so a pathological build turns into a slow one.
     ///
-    /// `GO_BUILD_MEMLIMIT` overrides the derived value (`512MB`, `2GiB`, …), and
-    /// `0`/`off` disables the cap, as does a worker with no cgroup memory reading to
-    /// scale from. A `GOMEMLIMIT` set on the worker group wins over both.
-    pub static ref GO_BUILD_MEMLIMIT: Option<usize> = {
-        let limit = resolve_go_build_memlimit(
+    /// `GO_BUILD_MEMLIMIT` overrides the budget (`512MB`, `2GiB`, …), and `0`/`off`
+    /// disables the whole thing, as does a worker with no cgroup memory reading to
+    /// scale from.
+    pub(crate) static ref GO_BUILD_LIMITS: Option<GoBuildLimits> = {
+        let limits = resolve_go_build_limits(
             std::env::var("GO_BUILD_MEMLIMIT").ok().as_deref(),
             windmill_common::worker::get_memory(),
+            worker_vcpus(),
         );
-        // A slow compilation is the symptom of a cap that is too low, and nothing
+        // A slow compilation is the symptom of a budget that is too low, and nothing
         // else would tell an operator one is in force or what it resolved to.
-        tracing::info!(
-            "Go compilation memory limit (GOMEMLIMIT): {}",
-            limit.map(format_byte_size).unwrap_or_else(|| "none".to_string())
-        );
-        limit
+        match limits {
+            Some(l) => tracing::info!(
+                "Go compilation limited to {} per process across {} compilers",
+                format_byte_size(l.memlimit),
+                l.parallelism
+            ),
+            None => tracing::info!("Go compilation memory is unlimited"),
+        }
+        limits
     };
 }
 
-fn resolve_go_build_memlimit(
+/// How much memory the Go toolchain may hold while compiling a script, expressed
+/// the only way the toolchain understands it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct GoBuildLimits {
+    /// `GOMEMLIMIT`, which caps one process rather than the build.
+    pub memlimit: usize,
+    /// `GOMAXPROCS`, which is also `go build`'s default `-p`: how many compilers it
+    /// runs at once.
+    pub parallelism: usize,
+}
+
+fn worker_vcpus() -> usize {
+    windmill_common::worker::get_vcpus()
+        // cgroup quota, in µs of CPU time per 100ms period.
+        .map(|quota| (quota / 100_000).max(1) as usize)
+        .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
+        .unwrap_or(1)
+}
+
+/// Split a build budget into the per-process cap and the parallelism it assumes.
+///
+/// `GOMEMLIMIT` bounds one process, and a build is a driver plus up to `-p`
+/// compilers that each inherit the same value, so the budget only holds if the
+/// number of processes sharing it is pinned alongside it.
+fn resolve_go_build_limits(
     env_override: Option<&str>,
     worker_memory: Option<i64>,
-) -> Option<usize> {
+    vcpus: usize,
+) -> Option<GoBuildLimits> {
     let derived = || {
-        worker_memory.filter(|bytes| *bytes > 0).map(|bytes| {
-            ((bytes as f64 * GO_BUILD_MEMLIMIT_FRACTION) as usize).max(MIN_GO_BUILD_MEMLIMIT)
-        })
+        worker_memory
+            .filter(|bytes| *bytes > 0)
+            .map(|bytes| (bytes as f64 * GO_BUILD_MEMLIMIT_FRACTION) as usize)
     };
 
-    match env_override.map(str::trim).filter(|v| !v.is_empty()) {
-        None => derived(),
-        Some(v) if v.eq_ignore_ascii_case("off") => None,
+    let budget = match env_override.map(str::trim).filter(|v| !v.is_empty()) {
+        None => derived()?,
+        Some(v) if v.eq_ignore_ascii_case("off") => return None,
         Some(v) => match parse_byte_size(v) {
-            // A zero cap would have the GC hold the heap at nothing, so it reads as
-            // "no cap" instead.
-            Some(0) => None,
-            Some(bytes) => Some(bytes),
+            // A zero budget would have the GC hold the heap at nothing, so it reads
+            // as "no limit" instead.
+            Some(0) => return None,
+            Some(bytes) => bytes,
             None => {
                 // Falling back silently would leave the operator believing the limit
                 // they wrote is in force.
                 tracing::warn!(
-                    "GO_BUILD_MEMLIMIT={v:?} is not a byte size (e.g. 512MB, 2GiB); \
-                     falling back to the memory-derived limit"
+                    "Go build memory budget {v:?} is not a byte size (e.g. 512MB, \
+                     2GiB); falling back to the worker's memory-derived budget"
                 );
-                derived()
+                derived()?
             }
         },
-    }
+    };
+
+    // The floor wins over the budget on a worker too small to honor both: a
+    // compiler squeezed under it makes no progress, so exceeding the budget is the
+    // lesser evil.
+    let processes = (budget / MIN_GO_BUILD_MEMLIMIT).clamp(2, vcpus.max(1) + 1);
+    Some(GoBuildLimits {
+        memlimit: (budget / processes).max(MIN_GO_BUILD_MEMLIMIT),
+        parallelism: processes - 1,
+    })
 }
 
 #[cfg(test)]
-mod go_build_memlimit_tests {
-    use super::{resolve_go_build_memlimit, MIN_GO_BUILD_MEMLIMIT};
+mod go_build_limits_tests {
+    use super::{resolve_go_build_limits, GoBuildLimits, MIN_GO_BUILD_MEMLIMIT};
 
     const GIB: i64 = 1024 * 1024 * 1024;
 
+    fn limits(memlimit: usize, parallelism: usize) -> Option<GoBuildLimits> {
+        Some(GoBuildLimits { memlimit, parallelism })
+    }
+
     #[test]
-    fn resolves_the_go_build_memlimit() {
+    fn splits_the_budget_across_the_build_tree() {
+        // 3GiB of budget over a driver plus 4 compilers, none under the floor.
         assert_eq!(
-            resolve_go_build_memlimit(None, Some(4 * GIB)),
-            Some(3 * GIB as usize)
+            resolve_go_build_limits(None, Some(4 * GIB), 4),
+            limits(3 * GIB as usize / 5, 4)
         );
-        // Nothing to scale from leaves the toolchain uncapped, as it was before.
-        assert_eq!(resolve_go_build_memlimit(None, None), None);
-        // A worker too small to derive a workable cap from keeps the floor.
+        // More cores than the budget can feed buys fewer compilers, not smaller ones.
         assert_eq!(
-            resolve_go_build_memlimit(None, Some(GIB / 8)),
-            Some(MIN_GO_BUILD_MEMLIMIT)
+            resolve_go_build_limits(None, Some(4 * GIB), 64),
+            limits(MIN_GO_BUILD_MEMLIMIT, 11)
+        );
+        // Nothing to scale from leaves the toolchain unlimited, as it was before.
+        assert_eq!(resolve_go_build_limits(None, None, 4), None);
+        // A worker too small for even one compiler still gets the floor.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(GIB / 8), 4),
+            limits(MIN_GO_BUILD_MEMLIMIT, 1)
         );
         assert_eq!(
-            resolve_go_build_memlimit(Some("2GiB"), Some(4 * GIB)),
-            Some(2 * GIB as usize)
+            resolve_go_build_limits(Some("2GiB"), Some(4 * GIB), 4),
+            limits(2 * GIB as usize / 5, 4)
         );
-        assert_eq!(resolve_go_build_memlimit(Some("off"), Some(4 * GIB)), None);
-        assert_eq!(resolve_go_build_memlimit(Some("0MB"), Some(4 * GIB)), None);
-        // An unparseable override falls back to the derived cap rather than uncapping.
+        assert_eq!(resolve_go_build_limits(Some("off"), Some(4 * GIB), 4), None);
+        assert_eq!(resolve_go_build_limits(Some("0MB"), Some(4 * GIB), 4), None);
+        // An unparseable override falls back to the derived budget rather than
+        // lifting the limit.
         assert_eq!(
-            resolve_go_build_memlimit(Some("lots"), Some(4 * GIB)),
-            Some(3 * GIB as usize)
+            resolve_go_build_limits(Some("lots"), Some(4 * GIB), 4),
+            limits(3 * GIB as usize / 5, 4)
         );
     }
 }
