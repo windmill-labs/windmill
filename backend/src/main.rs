@@ -70,8 +70,7 @@ use windmill_common::{
     stats_oss::schedule_stats,
     triggers::TriggerKind,
     utils::{
-        resolve_worker_suffix, worker_name_with_suffix, Mode, GIT_VERSION, HOSTNAME,
-        MODE_AND_ADDONS,
+        checked_worker_name, resolve_worker_suffix, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
     },
     worker::{
         is_native_mode_from_env, reload_custom_tags_setting, validate_worker_lifecycle_env,
@@ -1349,11 +1348,11 @@ Windmill Community Edition {GIT_VERSION}
                                         .build_http_client(&suffix),
                                 )
                             },
-                            worker_name: worker_name_with_suffix(
+                            worker_name: checked_worker_name(
                                 mode == Mode::Agent,
                                 WORKER_GROUP.as_str(),
                                 &suffix,
-                            ),
+                            )?,
                         };
                         workers.push(worker_conn);
                     }

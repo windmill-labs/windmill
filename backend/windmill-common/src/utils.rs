@@ -352,6 +352,8 @@ fn instance_name(hostname: &str) -> String {
 
 const DEFAULT_WORKER_SUFFIX_LEN: usize = 5;
 const MAX_WORKER_SUFFIX_LABEL_LEN: usize = 64;
+/// `worker_ping.worker` is a `VARCHAR(255)`.
+const MAX_WORKER_NAME_LEN: usize = 255;
 pub const SSH_AGENT_WORKER_SUFFIX: &'static str = "/ssh";
 
 pub fn create_worker_suffix(hostname: &str, rd_string_len: usize) -> String {
@@ -431,6 +433,26 @@ pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str)
     } else {
         format!("{}-{}-{}", WORKER_NAME_PREFIX, worker_group, suffix)
     }
+}
+
+/// The name is the `VARCHAR(255)` primary key of `worker_ping` and a component of the worker
+/// directory's path, and every part of it comes from the environment (`WORKER_GROUP`,
+/// hostname, `WORKER_SUFFIX`). A name that does not fit has to stop the process here rather
+/// than at the directory it creates or the initial ping it `expect`s.
+pub fn checked_worker_name(
+    is_agent: bool,
+    worker_group: &str,
+    suffix: &str,
+) -> anyhow::Result<String> {
+    let name = worker_name_with_suffix(is_agent, worker_group, suffix);
+    if name.len() > MAX_WORKER_NAME_LEN {
+        return Err(anyhow::anyhow!(
+            "worker name '{name}' is {} characters, more than the {MAX_WORKER_NAME_LEN} a worker \
+            name may have: shorten WORKER_GROUP or WORKER_SUFFIX",
+            name.len()
+        ));
+    }
+    Ok(name)
 }
 
 pub fn retrieve_common_worker_prefix(worker_name: &str) -> String {
@@ -1600,6 +1622,17 @@ mod tests {
                 "{rejected} should be rejected"
             );
         }
+    }
+
+    /// Every part of a worker name comes from the environment, so the name can only be kept
+    /// within what `worker_ping.worker` holds by checking the assembled thing.
+    #[test]
+    fn worker_name_longer_than_the_ping_key_is_refused() {
+        let suffix = "abcde-a1b2c_slot";
+        let room = MAX_WORKER_NAME_LEN - worker_name_with_suffix(false, "", suffix).len();
+        let fits = checked_worker_name(false, &"g".repeat(room), suffix).unwrap();
+        assert_eq!(fits.len(), MAX_WORKER_NAME_LEN);
+        assert!(checked_worker_name(false, &"g".repeat(room + 1), suffix).is_err());
     }
 
     /// The guards are only safe because they are never stricter than the DB
