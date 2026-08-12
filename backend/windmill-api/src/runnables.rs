@@ -62,7 +62,8 @@ struct ListRunnablesQuery {
     /// Case-insensitive fuzzy match on `summary (path)`, mirroring how the homepage
     /// ranks: split into terms on anything but letters, digits and apostrophes, then
     /// every term must appear whole and in order, with anything in between. Only the
-    /// first `MAX_SEARCH_TERMS` apply; a query holding no terms matches nothing.
+    /// first `MAX_SEARCH_TERMS` apply. Omitted or empty filters nothing; a query that
+    /// holds characters but no terms, such as `" "`, matches nothing.
     search: Option<String>,
     per_page: Option<usize>,
     /// Opaque keyset cursor from a previous page's `next_cursor`.
