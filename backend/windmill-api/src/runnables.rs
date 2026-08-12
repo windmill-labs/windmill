@@ -61,8 +61,8 @@ struct ListRunnablesQuery {
     label: Option<String>,
     /// Case-insensitive match on summary or path. Whitespace separates terms; a
     /// row must match each of the first `MAX_SEARCH_TERMS`, in any order and not
-    /// necessarily adjacent. Terms past that bound are ignored, and a query with
-    /// no terms at all filters nothing.
+    /// necessarily adjacent. Terms past that bound are ignored; a query holding
+    /// only whitespace matches nothing.
     search: Option<String>,
     per_page: Option<usize>,
     /// Opaque keyset cursor from a previous page's `next_cursor`.
@@ -412,12 +412,19 @@ async fn list_runnables(
         // `u/<caller>/draft_<uuid>` it is parked at.
         draft_common.push(format!("COALESCE(o.draft_path, o.path) LIKE {}", p));
     }
-    if let Some(search) = q.search.as_ref().filter(|s| !s.trim().is_empty()) {
+    if let Some(search) = q.search.as_ref().filter(|s| !s.is_empty()) {
         // A row must match every term rather than the query verbatim: callers rank with a
         // fuzzy matcher that tolerates gaps, so one contiguous ILIKE would withhold rows
         // they would have shown — "kafka dashboard" never reaching "Kafka offsets
         // dashboard". Terms past the cap are dropped, which only widens the response.
-        for term in search.split_whitespace().take(MAX_SEARCH_TERMS) {
+        let terms: Vec<&str> = search.split_whitespace().take(MAX_SEARCH_TERMS).collect();
+        if terms.is_empty() {
+            // Whitespace with nothing in it is still a search, and must match nothing —
+            // falling through to no predicate would answer it with the whole workspace.
+            common.push("false".to_string());
+            draft_common.push("false".to_string());
+        }
+        for term in terms {
             let p = add_bind(&mut binds, format!("%{}%", escape_like(term)));
             common.push(format!("(o.summary ILIKE {p} OR o.path ILIKE {p})"));
             draft_common.push(format!(

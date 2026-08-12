@@ -392,6 +392,10 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
     let none = list_once(port, "search=deploy%20beta").await;
     assert!(none.is_empty(), "terms must all match, got {none:?}");
 
+    // A search holding no terms must not degrade into an unfiltered page.
+    let blank = list_once(port, "search=%20").await;
+    assert!(blank.is_empty(), "whitespace-only search, got {blank:?}");
+
     // kinds filter selects a single kind.
     let flows = list_once(port, "kinds=flow").await;
     assert_eq!(flows, vec!["flow:f/alpha/flowy".to_string()], "kinds=flow");
