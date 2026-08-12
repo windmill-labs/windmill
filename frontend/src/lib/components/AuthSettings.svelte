@@ -22,8 +22,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
-	import { ClipboardCopy, ExternalLink, Plus, Circle, X } from 'lucide-svelte'
-	import { copyToClipboard } from '$lib/utils'
+	import { ExternalLink, Plus, Circle, X } from 'lucide-svelte'
 	import AzureOauthSettings from './AzureOauthSettings.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
@@ -53,6 +52,13 @@
 		tab = $bindable('sso'),
 		hideTabs = false
 	}: Props = $props()
+
+	// The callback lands on a frontend route, so a base url that is not the origin
+	// the admin is browsing is almost always a misconfiguration.
+	let browserOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+	let baseUrlMismatch = $derived(
+		!!baseUrl && !!browserOrigin && baseUrl.replace(/\/$/, '') !== browserOrigin
+	)
 
 	$effect(() => {
 		if (oauths == undefined) {
@@ -524,24 +530,21 @@
 									/>
 								</label>
 								<div class="flex flex-col gap-1">
-									<span class="text-primary font-semibold text-xs">Redirect URL</span>
-									<span class="text-2xs text-tertiary">
-										Register this exact URL as the callback of the {k} app. It is built from the
-										instance base URL, so a wrong base URL makes the provider reject the callback.
+									<span class="text-primary font-semibold text-xs flex items-center gap-1">
+										Redirect URL
+										<Tooltip
+											>Paste this into the callback (or redirect) URL field when registering the app
+											with {k}.</Tooltip
+										>
 									</span>
-									<div class="flex flex-row items-center gap-2">
-										<code class="text-xs bg-surface-secondary px-2 py-1 rounded grow break-all">
-											{baseUrl}/oauth/callback/{k}
-										</code>
-										<Button
-											variant="subtle"
-											unifiedSize="sm"
-											startIcon={{ icon: ClipboardCopy }}
-											iconOnly
-											title="Copy redirect URL"
-											onClick={() => copyToClipboard(`${baseUrl}/oauth/callback/${k}`)}
-										/>
-									</div>
+									<ClipboardPanel content="{baseUrl}/oauth/callback/{k}" size="sm" />
+									{#if baseUrlMismatch}
+										<span class="text-2xs text-orange-600 dark:text-orange-400">
+											Built from the instance base url, which is not the URL you are on
+											({browserOrigin}). If the base url is wrong, update it in Core settings —
+											otherwise the provider will reject the callback.
+										</span>
+									{/if}
 								</div>
 								<div class="flex flex-col gap-2 mb-2">
 									<span class="text-xs font-semibold text-emphasis">These credentials are for</span>
