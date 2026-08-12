@@ -146,14 +146,12 @@ oneshot:
     — note the choice in the PR description if it matters.
 
     # PR readiness
-    Default to opening the PR as a draft. If you are highly confident in the
-    change — the scope is small and well-understood, validation passed
-    cleanly, and you would not change anything if a reviewer pushed back —
-    open the PR as ready-for-review directly (omit `--draft` when invoking
-    `gh pr create`, or call `gh pr ready <number>` after creation). Err on
-    the side of draft when validation was partial, the change touches
-    public APIs or shared infrastructure, or you made a non-obvious judgment
-    call.
+    Always open the PR as a draft, then take it to ready before you stop.
+    Follow the `pr` skill's "Review rounds": run the review round, fix every
+    finding, repeat until all reviewer verdicts are a go, then post the
+    `✅ Review round clean @ <sha>` marker and `gh pr ready`. Never flip to
+    ready without a clean round behind it, and never leave the PR sitting in
+    draft — an unreviewed draft is an unfinished oneshot.
 
     # Ending your turn
     Never end your turn with a question, a suggestion to "take a look", or a

@@ -130,6 +130,10 @@ and continue once they confirm it's done.
 ## Review rounds (draft → ready)
 
 A PR leaves draft **only after a clean CI review round**. Never run `gh pr ready` before that.
+This is the rule in every mode, autonomous included. A clean round is necessary but not always
+sufficient — see "Flip, or ask first" below. The one standing exception is an explicit request to
+leave that PR in draft (usually so it can be tested first) — honour it for that PR, and don't
+carry it over to the next one.
 
 1. **Trigger a round and wait for it**: launch the waiter as a background Bash task (a round takes 10–30 min; you are woken when it exits — do not stop the session or poll in the foreground while it runs):
 
@@ -161,6 +165,76 @@ A PR leaves draft **only after a clean CI review round**. Never run `gh pr ready
    ```
 
    If any P0/P1 finding is unaddressed or the head moved for reasons other than nit fixes, do **not** post the marker or flip — run another round instead.
+
+### A round that never starts is usually a conflict
+
+The review workflows don't run on a PR that cannot merge, so a round that produces no verdict is
+more often a conflict with `main` than a CI outage. Check before assuming anything is broken:
+
+```bash
+gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus
+```
+
+Resolve by **merging, not rebasing** — a rebase rewrites the head SHA that round verdicts and the
+clean-round marker are keyed to, invalidating work you have already paid for:
+
+```bash
+git fetch origin main
+git merge origin/main
+```
+
+**If that merge changed `backend/ee-repo-ref.txt`, move the EE worktree to match.** The file pins
+the EE commit CE builds against, so a merge that advances it leaves the EE checkout behind what CE
+now expects, and `cargo check --features private` compiles a tree neither you nor CI intends:
+
+```bash
+git -C <ee-worktree> merge "$(tr -d '[:space:]' < backend/ee-repo-ref.txt)"
+```
+
+Push both, then start a fresh round — the head moved, so the earlier verdicts no longer apply.
+
+### Flip, or ask first
+
+A clean round earns the flip; it does not always earn it *unattended*. Judge the blast radius from
+the diff first — `git diff --name-only main...HEAD` answers most of these.
+
+**Ask before flipping** when the change:
+
+- touches `*_ee.rs` (it spans the EE repo through symlinks and has a companion PR)
+- adds a migration under `backend/migrations/`
+- changes `openapi.yaml`, `openflow.openapi.yaml`, or the generated client
+- touches auth, permission, or token paths
+- changes shared worker infrastructure — the job poller, `handle_child`, an executor
+- trips `REVIEW.md`'s "Checklist for new public surfaces"
+
+**Flip without asking** when it is self-contained: a single-file fix, test-only, docs-only, one
+call site, no new public surface.
+
+Unattended (webmux oneshot) there is nobody to ask, so the judgement holds and the action
+degrades: flip the self-contained ones, and leave the rest at a clean draft with a line in the PR
+description saying why — `left in draft: adds a migration, wants a human look before ready`.
+Don't flip a wide-blast-radius change just because the round came back clean, and don't ask a
+question nobody will read.
+
+When the call is genuinely ambiguous, ask, then record the answer under "PR ready calibration" in
+`AGENTS.local.md` so the next one is less ambiguous.
+
+### When rounds stop converging
+
+Three or more rounds without a clean verdict usually means the change's shape is wrong, not that
+there is an endless supply of independent bugs. The tells:
+
+- findings keep landing in the same files round after round
+- fixing one finding creates the next
+- the findings are about coupling, duplication, or state threaded through many places, rather
+  than logic errors
+
+When that pattern holds, stop running rounds — each one costs a CI cycle and is not going to
+converge. Say plainly that the remaining findings look structural rather than incidental, and
+name the module or seam they cluster around. With a user present, suggest they run
+`/improve-codebase-architecture` over that area: it is slash-only so you cannot invoke it
+yourself, and reshaping the code is a scope change they should choose. Unattended, put the
+diagnosis in the PR description and stop there rather than grinding out more rounds.
 
 ## EE Companion PR (when `*_ee.rs` files were modified)
 
