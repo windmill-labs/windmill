@@ -29,7 +29,8 @@ pub fn global_service() -> Router {
 /// The route carries no workspace, so `authed` is not workspace-scoped (no groups, no
 /// folders, `is_admin` only for superadmins). Re-resolve the caller's token against the
 /// job's own workspace before evaluating access — that also rejects non-members, for whom
-/// the job does not exist.
+/// the job does not exist. Members reaching [`require_job_read_access`] get its 403, which
+/// discloses existence only inside a workspace they belong to.
 async fn get_concurrency_key(
     _authed: ApiAuthed,
     Tokened { token }: Tokened,
@@ -39,20 +40,22 @@ async fn get_concurrency_key(
     OptViewToken(view_token): OptViewToken,
     Path(job_id): Path<Uuid>,
 ) -> JsonResult<Option<String>> {
-    let Some(job) = sqlx::query!(
+    let not_found = || Error::NotFound(format!("Job {job_id} not found"));
+
+    // A caller who cannot reach the job must not be able to tell it apart from a job
+    // that does not exist, so both answer with the same 404.
+    let job = sqlx::query!(
         "SELECT workspace_id, created_by FROM v2_job WHERE id = $1",
         job_id
     )
     .fetch_optional(&db)
     .await?
-    else {
-        return Ok(Json(None));
-    };
+    .ok_or_else(not_found)?;
 
     let authed_in_workspace = cache
         .get_authed(Some(job.workspace_id.clone()), &token)
         .await
-        .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
+        .ok_or_else(not_found)?;
 
     require_job_read_access(
         &db,
