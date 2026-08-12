@@ -10,6 +10,8 @@
 	import { Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { Check } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { getContext, onDestroy, onMount } from 'svelte'
@@ -17,13 +19,14 @@
 
 	interface Props {
 		onConnected: (resourcePath: string, resourceName: string) => void
-		onCancel: () => void
 		/** Preselected registry server: its URL is fixed and discovery runs on mount. */
 		preset?: { name: string; url: string }
+		/** Path picked by the caller; when set, this form does not ask for one. */
+		path?: string
 		workspace?: string
 	}
 
-	let { onConnected, onCancel, preset, workspace }: Props = $props()
+	let { onConnected, preset, path, workspace }: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	let opWs = $derived(workspace ?? flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
@@ -32,7 +35,8 @@
 	let discoveryResult = $state<DiscoverMcpOauthResponse | null>(null)
 	let selectedScopes = $state<string[]>([])
 	let resourceName = $state('')
-	let resourcePath = $state('')
+	let ownPath = $state('')
+	let resourcePath = $derived(path ?? ownPath)
 	let pathError = $state('')
 	let status = $state<'idle' | 'discovering' | 'discovered' | 'connecting'>('idle')
 	let error = $state<string | null>(null)
@@ -176,38 +180,42 @@
 	onDestroy(cleanup)
 </script>
 
-<div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
-	<div class="flex justify-between items-center">
-		<span class="font-semibold text-sm">
-			{preset ? `Connect ${preset.name}` : 'Connect MCP Server with OAuth'}
-		</span>
-		<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
-	</div>
-
-	<Label label="MCP Server URL">
-		<input
-			type="url"
-			bind:value={serverUrl}
-			placeholder="https://mcp.example.com"
-			class="text-sm w-full"
-			disabled={status === 'connecting' || preset !== undefined}
-		/>
-	</Label>
+<div class="flex flex-col gap-4">
+	{#if !preset}
+		<Label label="MCP server URL">
+			<TextInput
+				inputProps={{
+					type: 'url',
+					placeholder: 'https://mcp.example.com',
+					disabled: status === 'connecting'
+				}}
+				bind:value={serverUrl}
+			/>
+		</Label>
+	{/if}
 
 	{#if status === 'idle'}
-		<Button size="sm" onClick={discoverOAuth} disabled={!serverUrl}>Discover OAuth Settings</Button>
+		<Button
+			unifiedSize="sm"
+			wrapperClasses="self-start"
+			onClick={discoverOAuth}
+			disabled={!serverUrl}
+		>
+			Discover OAuth settings
+		</Button>
 	{:else if status === 'discovering'}
-		<div class="text-sm text-secondary">Discovering OAuth settings...</div>
+		<div class="text-xs text-secondary">Discovering OAuth settings...</div>
 	{:else if status === 'discovered' && discoveryResult}
-		<div class="text-xs text-green-600 dark:text-green-400">
-			&#10003; OAuth supported
+		<div class="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+			<Check size={14} />
+			OAuth supported
 			{#if discoveryResult.supports_dynamic_registration}
-				(Dynamic Client Registration available)
+				(dynamic client registration available)
 			{/if}
 		</div>
 
 		{#if discoveryResult.scopes_supported && discoveryResult.scopes_supported.length > 0}
-			<Label label="Select Scopes">
+			<Label label="Scopes">
 				<div class="flex flex-col flex-wrap gap-2">
 					{#each discoveryResult.scopes_supported as scope}
 						<label class="flex flex-row items-center gap-2 text-xs cursor-pointer">
@@ -231,29 +239,32 @@
 			</Label>
 		{/if}
 
-		<Label label="Resource Name">
-			<input
-				type="text"
-				bind:value={resourceName}
-				placeholder="my-mcp-server"
-				class="text-sm w-full"
+		{#if path === undefined}
+			<Label label="Resource name">
+				<TextInput inputProps={{ placeholder: 'my-mcp-server' }} bind:value={resourceName} />
+			</Label>
+
+			<Path
+				bind:path={ownPath}
+				bind:error={pathError}
+				initialPath=""
+				namePlaceholder={resourceName}
+				kind="resource"
+				workspaceOverride={opWs}
 			/>
-		</Label>
+		{/if}
 
-		<Path
-			bind:path={resourcePath}
-			bind:error={pathError}
-			initialPath=""
-			namePlaceholder={resourceName}
-			kind="resource"
-			workspaceOverride={opWs}
-		/>
-
-		<Button size="sm" onClick={startOAuth} disabled={!resourcePath || pathError !== ''}>
+		<Button
+			unifiedSize="sm"
+			variant="accent"
+			wrapperClasses="self-start"
+			onClick={startOAuth}
+			disabled={!resourcePath || pathError !== ''}
+		>
 			Connect with OAuth
 		</Button>
 	{:else if status === 'connecting'}
-		<div class="text-sm text-secondary">Complete authentication in popup window...</div>
+		<div class="text-xs text-secondary">Complete authentication in the popup window...</div>
 	{/if}
 
 	{#if error}

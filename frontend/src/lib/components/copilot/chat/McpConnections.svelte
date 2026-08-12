@@ -116,7 +116,7 @@
 					onCancel={() => (showConnect = false)}
 				/>
 			{:else}
-				<div>
+				<div class="flex">
 					<Button
 						variant="accent"
 						unifiedSize="sm"
@@ -135,7 +135,7 @@
 					Failed to load MCP connections: {loadError}
 				</div>
 			{:else if servers.length === 0}
-				<div class="text-xs text-tertiary">No MCP server connected yet.</div>
+				<div class="text-2xs text-tertiary">No MCP server connected yet.</div>
 			{:else}
 				<div class="flex flex-col divide-y border rounded-md">
 					{#each servers as server (server.path)}
@@ -149,13 +149,13 @@
 								}}
 							/>
 							<div class="min-w-0 grow">
-								<div class="text-sm truncate">{server.path}</div>
+								<div class="text-xs font-mono text-emphasis truncate">{server.path}</div>
 								{#if server.description}
-									<div class="text-2xs text-tertiary truncate">{server.description}</div>
+									<div class="text-2xs text-secondary truncate">{server.description}</div>
 								{/if}
 							</div>
 							{#if pendingDisconnect === server.path}
-								<span class="text-2xs text-tertiary shrink-0">Disconnect? Its token is kept.</span>
+								<span class="text-2xs text-secondary shrink-0">Disconnect? Its token is kept.</span>
 								<Button
 									unifiedSize="2xs"
 									variant="default"
@@ -188,4 +188,3 @@
 		</div>
 	</DrawerContent>
 </Drawer>
-

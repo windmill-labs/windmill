@@ -3,16 +3,17 @@
 	import Label from '$lib/components/Label.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import Password from '$lib/components/Password.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import McpOAuthConnect from './McpOAuthConnect.svelte'
 	import OauthScopes from '$lib/components/OauthScopes.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { onDestroy } from 'svelte'
-	import { Pen } from 'lucide-svelte'
+	import { ArrowLeft, ExternalLink, Pen } from 'lucide-svelte'
 	import { MCP_REGISTRY, findMcpEntry } from './registry'
 	import { OauthService, ResourceService, VariableService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { ExternalLink } from 'lucide-svelte'
 
 	interface Props {
 		onConnected: (resourcePath: string) => void
@@ -39,7 +40,7 @@
 
 	// Manual path: a URL and a token typed by hand.
 	let manualUrl = $state('')
-	let manualToken = $state('')
+	let manualToken = $state<string | undefined>(undefined)
 	let manualPath = $state('')
 	let manualPathError = $state('')
 	// Path derives its own suggestion from `namePlaceholder` only at mount, which
@@ -187,14 +188,15 @@
 	async function saveManual() {
 		const url = entry?.url ?? manualUrl
 		const name = entry?.id ?? 'mcp'
-		if (!url || !manualToken || !manualPath) return
+		const token = manualToken
+		if (!url || !token || !manualPath) return
 		saving = true
 		try {
 			await VariableService.createVariable({
 				workspace: ws,
 				requestBody: {
 					path: `${manualPath}_token`,
-					value: manualToken,
+					value: token,
 					is_secret: true,
 					description: `Token for the ${manualPath} MCP server`
 				}
@@ -211,8 +213,8 @@
 
 <div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
 	<div class="flex justify-between items-center">
-		<span class="font-semibold text-sm">Connect an MCP server</span>
-		<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
+		<span class="text-sm font-semibold text-emphasis">Connect an MCP server</span>
+		<Button unifiedSize="2xs" variant="subtle" onClick={onCancel}>Cancel</Button>
 	</div>
 
 	<Label label="Server">
@@ -246,12 +248,21 @@
 	{#if showOAuth && entry}
 		<McpOAuthConnect
 			preset={{ name: entry.name, url: entry.url }}
+			path={manualPath}
 			workspace={ws}
 			onConnected={(path) => onConnected(path)}
-			onCancel={() => (showOAuth = false)}
 		/>
+		<Button
+			unifiedSize="2xs"
+			variant="subtle"
+			wrapperClasses="self-start"
+			startIcon={{ icon: ArrowLeft }}
+			onClick={() => (showOAuth = false)}
+		>
+			Back
+		</Button>
 	{:else if selected === CUSTOM && $enterpriseLicense}
-		<McpOAuthConnect workspace={ws} onConnected={(path) => onConnected(path)} {onCancel} />
+		<McpOAuthConnect workspace={ws} onConnected={(path) => onConnected(path)} />
 	{:else}
 		{#if entry?.auth === 'oauth_app'}
 			{#if oauthAppReady}
@@ -261,7 +272,14 @@
 				<div class="flex flex-col gap-1">
 					<span class="text-xs font-semibold text-emphasis flex gap-2 items-center">
 						Scopes
-						<button onclick={() => (editScopes = !editScopes)}><Pen size={14} /></button>
+						<Button
+							unifiedSize="2xs"
+							variant="subtle"
+							iconOnly
+							title="Edit scopes"
+							startIcon={{ icon: Pen }}
+							onClick={() => (editScopes = !editScopes)}
+						/>
 					</span>
 					{#if editScopes}
 						<OauthScopes bind:scopes />
@@ -274,7 +292,9 @@
 					{/if}
 				</div>
 				<Button
-					size="sm"
+					unifiedSize="sm"
+					variant="accent"
+					wrapperClasses="self-start"
 					onClick={startProviderOAuth}
 					disabled={signingIn || !manualPath || manualPathError !== ''}
 				>
@@ -289,7 +309,15 @@
 			{/if}
 		{:else if entry?.auth === 'dcr'}
 			{#if dcrReady}
-				<Button size="sm" onClick={() => (showOAuth = true)}>Sign in with {entry.name}</Button>
+				<Button
+					unifiedSize="sm"
+					variant="accent"
+					wrapperClasses="self-start"
+					disabled={!manualPath || manualPathError !== ''}
+					onClick={() => (showOAuth = true)}
+				>
+					Sign in with {entry.name}
+				</Button>
 			{:else}
 				<div class="text-2xs text-secondary">
 					Signing in to an MCP server is an enterprise feature. Connect with a token below instead.
@@ -300,23 +328,22 @@
 		<div class="flex flex-col gap-3 border-t pt-3">
 			<span class="text-2xs uppercase tracking-wide text-secondary">Connect with a token</span>
 			{#if entry?.tokenHint}
-				<div class="text-2xs text-tertiary">{entry.tokenHint}</div>
+				<div class="text-2xs text-secondary">{entry.tokenHint}</div>
 			{/if}
 			{#if selected === CUSTOM}
 				<Label label="MCP server URL">
-					<input
-						type="url"
+					<TextInput
+						inputProps={{ type: 'url', placeholder: 'https://mcp.example.com' }}
 						bind:value={manualUrl}
-						placeholder="https://mcp.example.com"
-						class="text-sm w-full"
 					/>
 				</Label>
 			{/if}
 			<Label label="Token">
-				<input type="password" bind:value={manualToken} class="text-sm w-full" />
+				<Password bind:password={manualToken} />
 			</Label>
 			<Button
-				size="sm"
+				unifiedSize="sm"
+				wrapperClasses="self-start"
 				onClick={saveManual}
 				disabled={saving ||
 					!manualToken ||
@@ -329,4 +356,3 @@
 		</div>
 	{/if}
 </div>
-
