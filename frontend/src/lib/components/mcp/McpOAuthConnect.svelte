@@ -9,35 +9,28 @@
 	} from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
-	import Path from '$lib/components/Path.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Check } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { sameTopDomainOrigin } from '$lib/cookies'
-	import { getContext, onDestroy, onMount } from 'svelte'
-	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import { onDestroy, onMount } from 'svelte'
 
 	interface Props {
-		onConnected: (resourcePath: string, resourceName: string) => void
-		/** Preselected registry server: its URL is fixed and discovery runs on mount. */
-		preset?: { name: string; url: string }
-		/** Path picked by the caller; when set, this form does not ask for one. */
-		path?: string
+		onConnected: (path: string, resourceName: string) => void
+		/** The server to sign in to. Discovery runs against it on mount. */
+		server: { name: string; url: string }
+		/** Where the resource and its token variable land. */
+		path: string
 		workspace?: string
 	}
 
-	let { onConnected, preset, path, workspace }: Props = $props()
+	let { onConnected, server, path, workspace }: Props = $props()
 
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(workspace ?? flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(workspace ?? $workspaceStore)
 
-	let serverUrl = $state(preset?.url ?? '')
+	let serverUrl = $derived(server.url)
+	let resourceName = $derived(server.name.toLowerCase().replace(/[^a-z0-9]/g, '_'))
 	let discoveryResult = $state<DiscoverMcpOauthResponse | null>(null)
 	let selectedScopes = $state<string[]>([])
-	let resourceName = $state('')
-	let ownPath = $state('')
-	let resourcePath = $derived(path ?? ownPath)
-	let pathError = $state('')
 	let status = $state<'idle' | 'discovering' | 'discovered' | 'connecting'>('idle')
 	let error = $state<string | null>(null)
 
@@ -49,14 +42,6 @@
 				requestBody: { mcp_server_url: serverUrl }
 			})
 			selectedScopes = discoveryResult?.scopes_supported ?? []
-			if (!preset) {
-				try {
-					const urlObj = new URL(serverUrl)
-					resourceName = urlObj.hostname.replace(/\./g, '_')
-				} catch {
-					resourceName = 'mcp_server'
-				}
-			}
 			status = 'discovered'
 		} catch (e) {
 			console.error('Error discovering OAuth settings', e)
@@ -139,7 +124,7 @@
 			await VariableService.createVariable({
 				workspace: opWs!,
 				requestBody: {
-					path: resourcePath,
+					path: path,
 					value: data.access_token,
 					is_secret: true,
 					is_oauth: true,
@@ -152,48 +137,30 @@
 				workspace: opWs!,
 				requestBody: {
 					resource_type: 'mcp',
-					path: resourcePath,
+					path: path,
 					value: {
 						name: resourceName,
 						url: data.mcp_server_url,
-						token: `$var:${resourcePath}`
+						token: `$var:${path}`
 					},
 					description: `MCP server connected via OAuth`
 				}
 			})
 
 			sendUserToast('Connected to MCP server')
-			onConnected(resourcePath, resourceName)
+			onConnected(path, resourceName)
 		} catch (e: any) {
 			error = e.body?.message || e.message || 'Failed to create resource'
 			status = 'discovered'
 		}
 	}
 
-	onMount(() => {
-		if (preset) {
-			resourceName = preset.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
-			discoverOAuth()
-		}
-	})
+	onMount(discoverOAuth)
 
 	onDestroy(cleanup)
 </script>
 
 <div class="flex flex-col gap-4">
-	{#if !preset}
-		<Label label="MCP server URL">
-			<TextInput
-				inputProps={{
-					type: 'url',
-					placeholder: 'https://mcp.example.com',
-					disabled: status === 'connecting'
-				}}
-				bind:value={serverUrl}
-			/>
-		</Label>
-	{/if}
-
 	{#if status === 'idle'}
 		<Button
 			unifiedSize="sm"
@@ -239,27 +206,12 @@
 			</Label>
 		{/if}
 
-		{#if path === undefined}
-			<Label label="Resource name">
-				<TextInput inputProps={{ placeholder: 'my-mcp-server' }} bind:value={resourceName} />
-			</Label>
-
-			<Path
-				bind:path={ownPath}
-				bind:error={pathError}
-				initialPath=""
-				namePlaceholder={resourceName}
-				kind="resource"
-				workspaceOverride={opWs}
-			/>
-		{/if}
-
 		<Button
 			unifiedSize="sm"
 			variant="accent"
 			wrapperClasses="self-start"
 			onClick={startOAuth}
-			disabled={!resourcePath || pathError !== ''}
+			disabled={!path}
 		>
 			Connect with OAuth
 		</Button>
