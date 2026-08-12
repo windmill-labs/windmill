@@ -100,8 +100,8 @@ use windmill_common::{
 use windmill_queue::{
     append_logs, canceled_job_to_result, empty_result, get_same_worker_job, pull, push_init_job,
     push_periodic_bash_job, CanceledBy, JobAndPerms, JobCompleted, MiniPulledJob,
-    PrecomputedAgentInfo, PulledJob, SameWorkerPayload, HTTP_CLIENT, INIT_SCRIPT_TAG,
-    PERIODIC_SCRIPT_TAG,
+    PrecomputedAgentInfo, PulledJob, SameWorkerPayload, HTTP_CLIENT, INIT_SCRIPT_PATH_PREFIX,
+    INIT_SCRIPT_TAG, PERIODIC_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_TAG,
 };
 
 #[cfg(feature = "prometheus")]
@@ -2150,11 +2150,34 @@ pub async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> Str
 /// what `EXIT_AFTER_N_JOBS` counts. Flow orchestration, noop/identity steps and the warmup
 /// job run no user code at all, and the init/periodic scripts are the worker's own setup:
 /// counting any of them would burn a restart cycle without a single user job having run.
-fn dirties_worker_env(kind: JobKind, tag: &str, job_id: Uuid) -> bool {
-    !kind.is_flow()
-        && !matches!(kind, JobKind::Noop | JobKind::Identity)
-        && tag != INIT_SCRIPT_TAG
-        && tag != PERIODIC_SCRIPT_TAG
+///
+/// The internal scripts are recognized by the path this very worker queues them under, and
+/// not by their tag alone: a tag is only routing configuration, so a worker pulling
+/// `init_script` could otherwise be fed user jobs that never age its environment.
+fn dirties_worker_env(
+    kind: JobKind,
+    tag: &str,
+    runnable_path: Option<&str>,
+    job_id: Uuid,
+    rejected_before_run: bool,
+    worker_name: &str,
+) -> bool {
+    let own_script = |own_tag: &str, path_prefix: &str| {
+        tag == own_tag
+            && runnable_path.is_some_and(|p| p.starts_with(&format!("{path_prefix}{worker_name}")))
+    };
+    !rejected_before_run
+        && !kind.is_flow()
+        && !matches!(
+            kind,
+            JobKind::Noop
+                | JobKind::Identity
+                | JobKind::UnassignedScript
+                | JobKind::UnassignedFlow
+                | JobKind::UnassignedSinglestepFlow
+        )
+        && !own_script(INIT_SCRIPT_TAG, INIT_SCRIPT_PATH_PREFIX)
+        && !own_script(PERIODIC_SCRIPT_TAG, PERIODIC_SCRIPT_PATH_PREFIX)
         && job_id != Uuid::nil()
 }
 
@@ -2162,28 +2185,70 @@ fn dirties_worker_env(kind: JobKind, tag: &str, job_id: Uuid) -> bool {
 mod exit_after_n_jobs_tests {
     use super::*;
 
+    const WK: &str = "wk-default-host-a1b2c";
+
     /// A worker with `EXIT_AFTER_N_JOBS=1` that counted its own init script would shut down
-    /// before ever running a user job, restart, and loop on that forever.
+    /// before ever running a user job, restart, and loop on that forever. Jobs rejected
+    /// before the executor ran are the same waste of a restart.
     #[test]
     fn worker_own_jobs_do_not_count() {
-        assert!(dirties_worker_env(
-            JobKind::Script,
-            "bash",
-            Uuid::from_u128(1)
-        ));
-        for (kind, tag) in [
-            (JobKind::Script, INIT_SCRIPT_TAG),
-            (JobKind::Script, PERIODIC_SCRIPT_TAG),
-            (JobKind::Flow, "flow"),
-            (JobKind::Noop, "other"),
+        for (kind, tag, path) in [
+            (
+                JobKind::Script,
+                INIT_SCRIPT_TAG,
+                Some(format!("{INIT_SCRIPT_PATH_PREFIX}{WK}")),
+            ),
+            (
+                JobKind::Script,
+                PERIODIC_SCRIPT_TAG,
+                Some(format!("{PERIODIC_SCRIPT_PATH_PREFIX}{WK}_1700000000")),
+            ),
+            (JobKind::Flow, "flow", Some("u/admin/f".to_string())),
+            (JobKind::Noop, "other", None),
+            (JobKind::UnassignedScript, "bash", Some("u/admin/s".into())),
         ] {
             assert!(
-                !dirties_worker_env(kind, tag, Uuid::from_u128(1)),
+                !dirties_worker_env(kind, tag, path.as_deref(), Uuid::from_u128(1), false, WK),
                 "{kind:?}/{tag} should not count"
             );
         }
         // The dedicated worker warmup job, which runs no user code.
-        assert!(!dirties_worker_env(JobKind::Script, "bash", Uuid::nil()));
+        assert!(!dirties_worker_env(
+            JobKind::Script,
+            "bash",
+            Some("u/admin/s"),
+            Uuid::nil(),
+            false,
+            WK
+        ));
+        // Cancelled, or errored before the executor ran.
+        assert!(!dirties_worker_env(
+            JobKind::Script,
+            "bash",
+            Some("u/admin/s"),
+            Uuid::from_u128(1),
+            true,
+            WK
+        ));
+    }
+
+    /// The internal tags are ordinary routing tags: a worker can be configured to pull them,
+    /// and the user jobs it then runs must still age its environment.
+    #[test]
+    fn user_jobs_count_whatever_tag_they_are_routed_with() {
+        for (tag, path) in [
+            ("bash", Some("u/admin/s")),
+            (INIT_SCRIPT_TAG, Some("u/admin/s")),
+            (PERIODIC_SCRIPT_TAG, Some("u/admin/s")),
+            // Another worker's init script would not be this one's setup either.
+            (INIT_SCRIPT_TAG, Some("init_script_wk-default-host-99999")),
+            (PERIODIC_SCRIPT_TAG, None),
+        ] {
+            assert!(
+                dirties_worker_env(JobKind::Script, tag, path, Uuid::from_u128(1), false, WK),
+                "{tag}/{path:?} should count"
+            );
+        }
     }
 }
 
@@ -3116,7 +3181,14 @@ pub async fn run_worker(
 
                 last_executed_job = None;
                 jobs_executed += 1;
-                let dirties_env = dirties_worker_env(job.kind, &job.tag, job.id);
+                let dirties_env = dirties_worker_env(
+                    job.kind,
+                    &job.tag,
+                    job.runnable_path.as_deref(),
+                    job.id,
+                    job.canceled_by.is_some() || job.pre_run_error.is_some(),
+                    &worker_name,
+                );
 
                 tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
 
@@ -3546,21 +3618,23 @@ pub async fn run_worker(
                 if let Some(max_jobs) = *EXIT_AFTER_N_JOBS {
                     if dirties_env {
                         jobs_executed_in_env += 1;
-                        // Killpill rather than `break`: the main loop still has to drain the
-                        // same-worker jobs it owns (a same-worker flow runs to its end here, past
-                        // the limit) and let the background processor persist the results of what
-                        // it just ran, before the process goes away. `send` is the one that
-                        // reports whether this is the shutdown that got scheduled.
-                        if jobs_executed_in_env >= max_jobs && killpill_tx.send() {
-                            tracing::info!(
-                                worker = %worker_name, hostname = %hostname,
-                                "executed {jobs_executed_in_env} job(s), EXIT_AFTER_N_JOBS={max_jobs} \
-                                reached: shutting the worker process down so it restarts on a fresh environment"
-                            );
+                        if jobs_executed_in_env >= max_jobs {
+                            // Killpill rather than `break`: the main loop still has to drain the
+                            // same-worker jobs it owns (a same-worker flow runs to its end here,
+                            // past the limit) and let the background processor persist the results
+                            // of what it just ran, before the process goes away. `send` reports
+                            // whether this is the shutdown that got scheduled.
+                            if killpill_tx.send() {
+                                tracing::info!(
+                                    worker = %worker_name, hostname = %hostname,
+                                    "executed {jobs_executed_in_env} job(s), EXIT_AFTER_N_JOBS={max_jobs} \
+                                    reached: shutting the worker process down so it restarts on a fresh environment"
+                                );
+                            }
                             // `jobs_executed` only reaches the ping row every NUM_SECS_PING, which
-                            // this process is about to exit before: force one on the next (draining)
-                            // iteration so the row the restarted worker reclaims counts the jobs
-                            // this one ran.
+                            // this process is about to exit before: force one for every job counted
+                            // from here on, drained ones included, so the row the restarted worker
+                            // reclaims counts the jobs this one ran.
                             last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
                         }
                     }

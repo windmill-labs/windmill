@@ -202,7 +202,7 @@ pub async fn insert_ping(
 
     match db {
         Connection::Sql(db) => {
-            return Ok(insert_ping_query(
+            return insert_ping_query(
                 worker_instance,
                 worker_name,
                 WORKER_GROUP.as_str(),
@@ -217,7 +217,7 @@ pub async fn insert_ping(
                 native_mode,
                 db,
             )
-            .await?);
+            .await;
         }
         Connection::Http(client) => {
             client

@@ -12,7 +12,7 @@ use crate::ee_oss::LICENSE_KEY_ID;
 use crate::ee_oss::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
-use crate::worker::EXIT_AFTER_N_JOBS;
+use crate::worker::{EXIT_AFTER_N_JOBS, WORKER_SUFFIX};
 use crate::DB;
 use anyhow::Context;
 use gethostname::gethostname;
@@ -381,13 +381,28 @@ fn create_stable_worker_suffix(hostname: &str, index: usize) -> String {
 /// A worker name is the primary key of its `worker_ping` row, so it decides whether a
 /// restarted process appears as a new worker or resumes the previous one. Random by default
 /// (two processes must never share a row); deterministic when the worker is expected to
-/// restart in place, which is the case for `EXIT_AFTER_N_JOBS`.
+/// restart in place, which is the case for `EXIT_AFTER_N_JOBS`. `WORKER_SUFFIX` overrides
+/// both, for hosts running several worker processes of the same worker group: the hostname
+/// alone cannot tell those apart.
 pub fn resolve_worker_suffix(hostname: &str, index: usize) -> String {
-    if EXIT_AFTER_N_JOBS.is_some() {
-        create_stable_worker_suffix(hostname, index)
-    } else {
-        create_default_worker_suffix(hostname)
+    match &*WORKER_SUFFIX {
+        Some(label) => create_labelled_worker_suffix(hostname, label, index),
+        None if EXIT_AFTER_N_JOBS.is_some() => create_stable_worker_suffix(hostname, index),
+        None => create_default_worker_suffix(hostname),
     }
+}
+
+/// The operator's label takes the place of the random part, and stays confined to it: a `-`
+/// inside it would add a segment to the worker name, which [`retrieve_common_worker_prefix`]
+/// reads as the part to strip.
+fn create_labelled_worker_suffix(hostname: &str, label: &str, index: usize) -> String {
+    let label = label.replace('-', "_");
+    let label = if index > 1 {
+        format!("{label}_{index}")
+    } else {
+        label
+    };
+    format!("{}-{}", instance_name(hostname), label)
 }
 
 pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
@@ -1523,6 +1538,28 @@ mod tests {
             retrieve_common_worker_prefix(&worker_name_with_suffix(false, "default", &first)),
             "wk-default-abcde"
         );
+    }
+
+    /// The operator's label has to survive into the name for them to recognize the worker,
+    /// while staying one segment so it does not shift the interactive shell tag, and it must
+    /// still leave the workers of one process with distinct names.
+    #[test]
+    fn labelled_worker_suffix_stays_one_segment() {
+        let first = create_labelled_worker_suffix("wm-worker-abcde", "slot-a", 1);
+        assert_eq!(first, "abcde-slot_a");
+        assert_ne!(
+            first,
+            create_labelled_worker_suffix("wm-worker-abcde", "slot-a", 2)
+        );
+        for suffix in [
+            &first,
+            &create_labelled_worker_suffix("wm-worker-abcde", "slot-a", 2),
+        ] {
+            assert_eq!(
+                retrieve_common_worker_prefix(&worker_name_with_suffix(false, "default", suffix)),
+                "wk-default-abcde"
+            );
+        }
     }
 
     /// The guards are only safe because they are never stricter than the DB
