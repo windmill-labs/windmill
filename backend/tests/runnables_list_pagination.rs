@@ -379,6 +379,25 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         "search must substring-match the summary only"
     );
 
+    // Terms may be spread across the summary and the path, in any order and with
+    // anything in between: clients rank with a fuzzy matcher that matches this way,
+    // so a query it would accept must not come back empty from the server.
+    for query in [
+        "search=deploy%20one",
+        "search=one%20deploy",
+        "search=alpha%20tool",
+    ] {
+        assert_eq!(
+            list_once(port, query).await,
+            vec!["script:f/alpha/one".to_string()],
+            "{query} must reach 'Deploy tool' at f/alpha/one"
+        );
+    }
+
+    // Terms are AND-ed: each one matches something here, no row matches both.
+    let none = list_once(port, "search=deploy%20beta").await;
+    assert!(none.is_empty(), "terms must all match, got {none:?}");
+
     // kinds filter selects a single kind.
     let flows = list_once(port, "kinds=flow").await;
     assert_eq!(flows, vec!["flow:f/alpha/flowy".to_string()], "kinds=flow");

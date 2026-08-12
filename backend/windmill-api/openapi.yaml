@@ -10958,7 +10958,9 @@ paths:
             type: string
         - name: search
           in: query
-          description: case-insensitive substring match on summary or path
+          description: >-
+            case-insensitive match on summary or path; every whitespace-separated
+            term must match, in any order and not necessarily adjacent
           schema:
             type: string
         - $ref: "#/components/parameters/PerPage"

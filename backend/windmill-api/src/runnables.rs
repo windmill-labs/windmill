@@ -59,7 +59,8 @@ struct ListRunnablesQuery {
     path_start: Option<String>,
     /// Comma-separated labels; a row matches if it (or its folder) carries all.
     label: Option<String>,
-    /// Case-insensitive substring match on summary or path.
+    /// Case-insensitive match on summary or path. Whitespace separates terms,
+    /// all of which must match, in any order and not necessarily adjacent.
     search: Option<String>,
     per_page: Option<usize>,
     /// Opaque keyset cursor from a previous page's `next_cursor`.
@@ -166,6 +167,10 @@ fn decode_cursor(raw: &str) -> Result<Cursor, Error> {
         .map_err(|_| Error::BadRequest("invalid cursor".to_string()))?;
     serde_json::from_slice(&bytes).map_err(|_| Error::BadRequest("invalid cursor".to_string()))
 }
+
+/// Upper bound on the terms one search query contributes to the predicate, so a
+/// pasted paragraph cannot grow it without limit.
+const MAX_SEARCH_TERMS: usize = 8;
 
 /// Escape LIKE/ILIKE wildcards so a caller value (search term, path/scope
 /// prefix) matches literally. Relies on the default `\` escape character.
@@ -406,11 +411,19 @@ async fn list_runnables(
         draft_common.push(format!("COALESCE(o.draft_path, o.path) LIKE {}", p));
     }
     if let Some(search) = q.search.as_ref().filter(|s| !s.is_empty()) {
-        let p = add_bind(&mut binds, format!("%{}%", escape_like(search)));
-        common.push(format!("(o.summary ILIKE {p} OR o.path ILIKE {p})"));
-        draft_common.push(format!(
-            "(o.summary ILIKE {p} OR o.path ILIKE {p} OR o.draft_path ILIKE {p})"
-        ));
+        // Every whitespace-separated term must match, rather than the query having to
+        // appear verbatim: callers rank these results with a fuzzy matcher that tolerates
+        // gaps between terms, so one contiguous ILIKE would withhold rows the caller would
+        // have shown — "kafka dashboard" never reaching "Kafka offsets dashboard".
+        // Terms only ever narrow and the caller re-filters what comes back, so dropping
+        // the tail of an absurd query widens the response at worst.
+        for term in search.split_whitespace().take(MAX_SEARCH_TERMS) {
+            let p = add_bind(&mut binds, format!("%{}%", escape_like(term)));
+            common.push(format!("(o.summary ILIKE {p} OR o.path ILIKE {p})"));
+            draft_common.push(format!(
+                "(o.summary ILIKE {p} OR o.path ILIKE {p} OR o.draft_path ILIKE {p})"
+            ));
+        }
     }
     if let Some(label) = q.label.as_ref().filter(|s| !s.is_empty()) {
         for l in label.split(',') {
