@@ -159,12 +159,7 @@ async fn test_group_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "create igroup: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 200, "create igroup: {}", resp.text().await?);
 
     // --- list instance groups ---
     let resp = authed(client().get(format!("{global_base}/list")))
@@ -199,12 +194,7 @@ async fn test_group_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "update igroup: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 200, "update igroup: {}", resp.text().await?);
 
     // verify update
     let resp = authed(client().get(format!("{global_base}/get/test_igroup")))
@@ -220,12 +210,7 @@ async fn test_group_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "adduser igroup: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 200, "adduser igroup: {}", resp.text().await?);
 
     // verify membership
     let resp = authed(client().get(format!("{global_base}/get/test_igroup")))
@@ -243,13 +228,11 @@ async fn test_group_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // --- removeuser from instance group ---
-    let resp = authed(client().post(format!(
-        "{global_base}/removeuser/test_igroup"
-    )))
-    .json(&json!({"email": "test@windmill.dev"}))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().post(format!("{global_base}/removeuser/test_igroup")))
+        .json(&json!({"email": "test@windmill.dev"}))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     // --- export (EE-gated) ---
@@ -280,12 +263,7 @@ async fn test_group_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "delete igroup: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 200, "delete igroup: {}", resp.text().await?);
 
     // verify deleted
     let resp = authed(client().get(format!("{global_base}/list")))
@@ -301,9 +279,9 @@ async fn test_group_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 /// Deleting an instance group must not revoke workspace access a member still holds through
 /// another configured group.
 ///
-/// `cleanup_removed_instance_groups` drops a workspace user whenever `added_via.group` names the
-/// deleted group, and that field records only their highest-precedence group — so without a
-/// reprocessing pass, deleting the top group also evicts members who still qualify via a lower one.
+/// `added_via.group` records only the member's highest-precedence group, so any cleanup keyed
+/// on that field alone evicts members who still qualify via a lower-precedence one. Membership
+/// must be re-derived from all the groups the workspace still references.
 #[cfg(feature = "private")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_delete_instance_group_preserves_access_via_other_group(
@@ -385,7 +363,12 @@ async fn test_delete_instance_group_preserves_access_via_other_group(
     let resp = authed(client().delete(format!("{global_base}/delete/igroup_a")))
         .send()
         .await?;
-    assert_eq!(resp.status(), 200, "delete igroup_a: {}", resp.text().await?);
+    assert_eq!(
+        resp.status(),
+        200,
+        "delete igroup_a: {}",
+        resp.text().await?
+    );
 
     // Still a member, downgraded to igroup_b's role rather than evicted.
     let (is_admin, is_operator, via): (bool, bool, Option<String>) = sqlx::query_as(
@@ -408,7 +391,10 @@ async fn test_delete_instance_group_preserves_access_via_other_group(
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(favorites, 1, "favorite must survive losing a non-sole group");
+    assert_eq!(
+        favorites, 1,
+        "favorite must survive losing a non-sole group"
+    );
     let drafts: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM draft WHERE workspace_id = 'test-workspace' AND path LIKE 'u/%/keep'",
     )
@@ -445,9 +431,9 @@ async fn test_delete_instance_group_preserves_access_via_other_group(
 /// Removing a member from one instance group must re-derive their role from the groups they
 /// still belong to, not leave the privileges the removed group granted.
 ///
-/// Regression: once still-qualifying members stopped being deleted and re-added, the removal
-/// paths had to recompute roles explicitly — otherwise a member dropped from an admin group
-/// kept `is_admin` through their stale row.
+/// Still-qualifying members keep their `usr` row (deleting it would destroy their workspace
+/// data), so the removal path must recompute that row's role — otherwise a member dropped
+/// from an admin group keeps `is_admin` through the stale row.
 #[cfg(feature = "private")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_remove_user_from_instance_group_rederives_role(
@@ -514,10 +500,10 @@ async fn test_remove_user_from_instance_group_rederives_role(
 /// An overwrite import that moves a member from a dropped group to a retained one must keep
 /// their workspace data.
 ///
-/// Regression: the qualification check ran before the imported memberships were installed, so
-/// the member's new group was not yet visible, they were deleted, and the reprocess pass
-/// re-added them stripped of everything workspace-scoped.
-#[cfg(feature = "private")]
+/// Qualification must be judged against the imported membership, not the pre-import state:
+/// judged too early, the member's new group is not yet visible, they are deleted, and any
+/// re-add creates a fresh row stripped of everything workspace-scoped.
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_overwrite_igroups_preserves_moved_member_data(
     db: Pool<Postgres>,
@@ -578,7 +564,10 @@ async fn test_overwrite_igroups_preserves_moved_member_data(
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(remaining, 1, "member should still be in the workspace via move_to");
+    assert_eq!(
+        remaining, 1,
+        "member should still be in the workspace via move_to"
+    );
 
     let favorites: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM favorite WHERE workspace_id = 'test-workspace' AND path = 'f/moved/keep'",
@@ -696,7 +685,10 @@ async fn test_overwrite_igroups_reconciles_retained_group_membership(
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(favorites, 1, "re-roling in place must not destroy workspace data");
+    assert_eq!(
+        favorites, 1,
+        "re-roling in place must not destroy workspace data"
+    );
 
     // dropped@ lost their only configured group even though the group itself was retained.
     let remaining: i64 = sqlx::query_scalar(

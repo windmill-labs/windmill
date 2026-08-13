@@ -579,6 +579,48 @@ pub async fn remove_instance_groups_from_workspace_settings(
     Ok(())
 }
 
+/// Follow an instance-group rename through every workspace's auto-assignment config.
+///
+/// Workspaces reference instance groups by name, so a rename that leaves the old name behind
+/// strands those references: the reconciler resolves membership from the groups a workspace
+/// references, and a name that no longer matches any group reads as "no members", which would
+/// evict everyone granted through it on the next reconcile.
+///
+/// Mutates every workspace's settings, so callers must have established superadmin first.
+pub async fn rename_instance_group_in_workspace_settings(
+    old_name: &str,
+    new_name: &str,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<()> {
+    // Row filter must stay `?`: it yields false on a JSON `null` instance_groups, where
+    // jsonb_array_elements would instead raise and abort the whole transaction.
+    sqlx::query!(
+        r#"UPDATE workspace_settings SET
+             auto_invite = jsonb_set(
+                 jsonb_set(
+                     COALESCE(auto_invite, '{}'::jsonb),
+                     '{instance_groups}',
+                     (SELECT COALESCE(jsonb_agg(
+                          CASE WHEN elem #>> '{}' = $1 THEN to_jsonb($2::text) ELSE elem END), '[]'::jsonb)
+                      FROM jsonb_array_elements(COALESCE(auto_invite->'instance_groups', '[]'::jsonb)) elem)
+                 ),
+                 '{instance_groups_roles}',
+                 CASE WHEN COALESCE(auto_invite->'instance_groups_roles', '{}'::jsonb) ? $1
+                      THEN (COALESCE(auto_invite->'instance_groups_roles', '{}'::jsonb) - $1)
+                           || jsonb_build_object($2::text, auto_invite->'instance_groups_roles'->$1)
+                      ELSE COALESCE(auto_invite->'instance_groups_roles', '{}'::jsonb)
+                 END
+             )
+           WHERE auto_invite->'instance_groups' ? $1"#,
+        old_name,
+        new_name
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 async fn delete_igroup(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
