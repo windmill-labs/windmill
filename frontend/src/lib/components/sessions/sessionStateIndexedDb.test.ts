@@ -73,23 +73,21 @@ function freshUser() {
 	return asUser(`u${n++}@x.com`)
 }
 
-// Hydration is fire-and-forget off the user store, so it can land after the test
-// body has already populated sessionState.sessions and overwrite it with what the
-// DB held at read time. `hydrated` flips once the read has been applied, so wait
-// on it rather than on a fixed number of ticks.
+// Hydration is fire-and-forget off the user store, so it can land after the test body
+// has populated sessionState.sessions and overwrite it with what the DB held at read
+// time; `hydrated` flips once the read has been applied. The logout is load-bearing:
+// onUserChange short-circuits on an unchanged email, so the barrier would never lift.
 async function login(user: UserExt) {
+	userStore.set(undefined)
+	await flush()
 	sessionState.hydrated = false
 	userStore.set(user)
 	await vi.waitFor(() => expect(sessionState.hydrated).toBe(true))
 }
 
-// Re-hydrate the in-memory list by toggling the user off and on (the only
-// public path that triggers sessionState's onUserChange hydration).
-async function rehydrate(user: UserExt) {
-	userStore.set(undefined)
-	await flush()
-	await login(user)
-}
+// Re-reading the list from IndexedDB is the same operation: a user change is the only
+// public path that triggers sessionState's onUserChange hydration.
+const rehydrate = login
 
 beforeEach(async () => {
 	;(globalThis as any).indexedDB = new IDBFactory()
