@@ -44,8 +44,9 @@ use windmill_common::{
     schema::{should_validate_schema, SchemaValidator},
     utils::{create_directory_async, WarnAfterExt},
     worker::{
-        is_allowed_file_location, make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
-        MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
+        is_allowed_file_location, make_pull_query, write_file, Connection, HttpClient,
+        EXIT_AFTER_N_JOBS, MAX_TIMEOUT, MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR,
+        ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
     },
     worker_group_job_stats::JobStatsMap,
     KillpillSender,
@@ -99,8 +100,8 @@ use windmill_common::{
 use windmill_queue::{
     append_logs, canceled_job_to_result, empty_result, get_same_worker_job, pull, push_init_job,
     push_periodic_bash_job, CanceledBy, JobAndPerms, JobCompleted, MiniPulledJob,
-    PrecomputedAgentInfo, PulledJob, SameWorkerPayload, HTTP_CLIENT, INIT_SCRIPT_TAG,
-    PERIODIC_SCRIPT_TAG,
+    PrecomputedAgentInfo, PulledJob, SameWorkerPayload, HTTP_CLIENT, INIT_SCRIPT_PATH_PREFIX,
+    INIT_SCRIPT_TAG, PERIODIC_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_TAG,
 };
 
 #[cfg(feature = "prometheus")]
@@ -2031,6 +2032,9 @@ pub enum JobOutcome {
     /// or was suspended waiting for child jobs (WAC v2).
     /// All of these leave the span `Status` `Unset`.
     Completed,
+    /// A valid cached result was found for the job's args and path, so it was
+    /// answered without running anything.
+    CompletedFromCache,
     /// Job was attempted but its execution returned an error; the failure has
     /// been dispatched to the result processor. `description` holds the
     /// truncated error string for the outer span's `Status.message`.
@@ -2044,7 +2048,14 @@ impl JobOutcome {
     /// True when the job completed successfully on this worker. Used by
     /// callers that previously matched on `Ok(true)`.
     pub fn is_success(&self) -> bool {
-        matches!(self, Self::Completed)
+        matches!(self, Self::Completed | Self::CompletedFromCache)
+    }
+
+    /// Whether anything ran here. Only a cached result is a true no-run:
+    /// `AlreadyCompleted` is raised when the queue row disappears *while* the
+    /// child process is running, so that job did execute, and was interrupted.
+    fn ran_on_this_worker(&self) -> bool {
+        !matches!(self, Self::CompletedFromCache)
     }
 }
 
@@ -2058,7 +2069,7 @@ impl JobOutcome {
 /// description that reflects the actual cause.
 pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<JobOutcome>) {
     let description = match result {
-        Ok(JobOutcome::Completed) => return,
+        Ok(JobOutcome::Completed) | Ok(JobOutcome::CompletedFromCache) => return,
         Ok(JobOutcome::Failed { description }) => description.clone(),
         Ok(JobOutcome::AlreadyCompleted) => "job already completed by another worker".to_string(),
         Err(err) => truncate_description(&err.to_string()),
@@ -2354,12 +2365,128 @@ pub async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> Str
     job_dir_path
 }
 
+/// Whether running this job may leave anything behind in the worker's environment, which is
+/// what `EXIT_AFTER_N_JOBS` counts. Flow orchestration, noop/identity steps and the warmup
+/// job run no user code at all, and the init/periodic scripts are the worker's own setup:
+/// counting any of them would burn a restart cycle without a single user job having run.
+///
+/// The internal scripts are recognized by the path this very worker queues them under, and
+/// not by their tag alone: a tag is only routing configuration, so a worker pulling
+/// `init_script` could otherwise be fed user jobs that never age its environment.
+fn dirties_worker_env(
+    kind: JobKind,
+    tag: &str,
+    runnable_path: Option<&str>,
+    job_id: Uuid,
+    rejected_before_run: bool,
+    worker_name: &str,
+) -> bool {
+    let own_script = |own_tag: &str, path_prefix: &str| {
+        tag == own_tag
+            && runnable_path.is_some_and(|p| p.starts_with(&format!("{path_prefix}{worker_name}")))
+    };
+    !rejected_before_run
+        && !kind.is_flow()
+        && !matches!(
+            kind,
+            JobKind::Noop
+                | JobKind::Identity
+                | JobKind::UnassignedScript
+                | JobKind::UnassignedFlow
+                | JobKind::UnassignedSinglestepFlow
+        )
+        && !own_script(INIT_SCRIPT_TAG, INIT_SCRIPT_PATH_PREFIX)
+        && !own_script(PERIODIC_SCRIPT_TAG, PERIODIC_SCRIPT_PATH_PREFIX)
+        && job_id != Uuid::nil()
+}
+
+#[cfg(test)]
+mod exit_after_n_jobs_tests {
+    use super::*;
+
+    const WK: &str = "wk-default-host-a1b2c";
+
+    /// A worker with `EXIT_AFTER_N_JOBS=1` that counted its own init script would shut down
+    /// before ever running a user job, restart, and loop on that forever. Jobs rejected
+    /// before the executor ran are the same waste of a restart.
+    #[test]
+    fn worker_own_jobs_do_not_count() {
+        for (kind, tag, path) in [
+            (
+                JobKind::Script,
+                INIT_SCRIPT_TAG,
+                Some(format!("{INIT_SCRIPT_PATH_PREFIX}{WK}")),
+            ),
+            (
+                JobKind::Script,
+                PERIODIC_SCRIPT_TAG,
+                Some(format!("{PERIODIC_SCRIPT_PATH_PREFIX}{WK}_1700000000")),
+            ),
+            (JobKind::Flow, "flow", Some("u/admin/f".to_string())),
+            (JobKind::Noop, "other", None),
+            (JobKind::UnassignedScript, "bash", Some("u/admin/s".into())),
+        ] {
+            assert!(
+                !dirties_worker_env(kind, tag, path.as_deref(), Uuid::from_u128(1), false, WK),
+                "{kind:?}/{tag} should not count"
+            );
+        }
+        // The dedicated worker warmup job, which runs no user code.
+        assert!(!dirties_worker_env(
+            JobKind::Script,
+            "bash",
+            Some("u/admin/s"),
+            Uuid::nil(),
+            false,
+            WK
+        ));
+        // Cancelled, or errored before the executor ran.
+        assert!(!dirties_worker_env(
+            JobKind::Script,
+            "bash",
+            Some("u/admin/s"),
+            Uuid::from_u128(1),
+            true,
+            WK
+        ));
+    }
+
+    /// A job whose queue row vanished mid-execution ran here all the same, and one that
+    /// failed left behind whatever it had written before it did.
+    #[test]
+    fn only_a_cached_result_means_nothing_ran() {
+        assert!(!JobOutcome::CompletedFromCache.ran_on_this_worker());
+        assert!(JobOutcome::AlreadyCompleted.ran_on_this_worker());
+        assert!(JobOutcome::Completed.ran_on_this_worker());
+        assert!(JobOutcome::Failed { description: "boom".to_string() }.ran_on_this_worker());
+    }
+
+    /// The internal tags are ordinary routing tags: a worker can be configured to pull them,
+    /// and the user jobs it then runs must still age its environment.
+    #[test]
+    fn user_jobs_count_whatever_tag_they_are_routed_with() {
+        for (tag, path) in [
+            ("bash", Some("u/admin/s")),
+            (INIT_SCRIPT_TAG, Some("u/admin/s")),
+            (PERIODIC_SCRIPT_TAG, Some("u/admin/s")),
+            // Another worker's init script would not be this one's setup either.
+            (INIT_SCRIPT_TAG, Some("init_script_wk-default-host-99999")),
+            (PERIODIC_SCRIPT_TAG, None),
+        ] {
+            assert!(
+                dirties_worker_env(JobKind::Script, tag, path, Uuid::from_u128(1), false, WK),
+                "{tag}/{path:?} should count"
+            );
+        }
+    }
+}
+
 pub async fn run_worker(
     conn: &Connection,
     hostname: &str,
     worker_name: String,
     i_worker: u64,
-    _num_workers: u32,
+    num_workers: u32,
     ip: &str,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     killpill_tx: KillpillSender,
@@ -2456,7 +2583,7 @@ pub async fn run_worker(
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
-    insert_ping(hostname, &worker_name, ip, conn)
+    let previous_jobs_executed = insert_ping(hostname, &worker_name, ip, conn)
         .await
         .expect("initial ping could be sent");
 
@@ -2656,7 +2783,12 @@ pub async fn run_worker(
     // let counter = meter.u64_counter("jobs.execution").build();
 
     let mut occupancy_metrics = OccupancyMetrics::new(start_time);
-    let mut jobs_executed = 0;
+    // Seeded from the ping row so a worker that reclaimed its name keeps counting from where
+    // the previous process left off instead of resetting the total shown for that worker.
+    let mut jobs_executed = previous_jobs_executed;
+    // Only jobs run by this process count towards EXIT_AFTER_N_JOBS: the point is the age of
+    // the environment, not the lifetime total.
+    let mut jobs_executed_in_env: u64 = 0;
 
     let is_dedicated_worker: bool = {
         let config = WORKER_CONFIG.load();
@@ -2666,6 +2798,25 @@ pub async fn run_worker(
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty())
     };
+
+    if EXIT_AFTER_N_JOBS.is_some() && i_worker == 1 {
+        if num_workers > 1 {
+            tracing::warn!(
+                worker = %worker_name, hostname = %hostname,
+                "EXIT_AFTER_N_JOBS is set but this process runs {num_workers} workers: they share \
+                the environment it recycles, so the first one to reach the limit shuts the others \
+                down as well, cancelling any job they still run in a container or a dedicated \
+                worker. Run a single worker per process instead."
+            );
+        }
+        if is_dedicated_worker {
+            tracing::warn!(
+                worker = %worker_name, hostname = %hostname,
+                "EXIT_AFTER_N_JOBS does not apply to the jobs this worker hands to its dedicated \
+                workers: those run outside its main loop and are never counted."
+            );
+        }
+    }
 
     #[cfg(feature = "benchmark")]
     let benchmark_jobs: i32 = std::env::var("BENCHMARK_JOBS")
@@ -3259,6 +3410,14 @@ pub async fn run_worker(
 
                 last_executed_job = None;
                 jobs_executed += 1;
+                let mut dirties_env = dirties_worker_env(
+                    job.kind,
+                    &job.tag,
+                    job.runnable_path.as_deref(),
+                    job.id,
+                    job.canceled_by.is_some() || job.pre_run_error.is_some(),
+                    &worker_name,
+                );
 
                 tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
 
@@ -3580,6 +3739,12 @@ pub async fn run_worker(
                     )
                     .await;
 
+                    // A result served from the cache went through the loop without running
+                    // anything here.
+                    dirties_env &= job_result
+                        .as_ref()
+                        .map_or(true, JobOutcome::ran_on_this_worker);
+
                     match job_result {
                         Ok(ref outcome) if !outcome.is_success() && is_init_script => {
                             tracing::error!("init script job failed, exiting");
@@ -3682,6 +3847,31 @@ pub async fn run_worker(
 
                     if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
+                    }
+                }
+
+                if let Some(max_jobs) = *EXIT_AFTER_N_JOBS {
+                    if dirties_env {
+                        jobs_executed_in_env += 1;
+                    }
+                    if jobs_executed_in_env >= max_jobs {
+                        // Killpill rather than `break`: the main loop still has to drain the
+                        // same-worker jobs it owns (a same-worker flow runs to its end here, past
+                        // the limit) and let the background processor persist the results of what
+                        // it just ran, before the process goes away. `send` reports whether this is
+                        // the shutdown that got scheduled.
+                        if killpill_tx.send() {
+                            tracing::info!(
+                                worker = %worker_name, hostname = %hostname,
+                                "executed {jobs_executed_in_env} job(s), EXIT_AFTER_N_JOBS={max_jobs} \
+                                reached: shutting the worker process down so it restarts on a fresh environment"
+                            );
+                        }
+                        // `jobs_executed` only reaches the ping row every NUM_SECS_PING, which this
+                        // process is about to exit before: force one after every job from here on,
+                        // drained ones included, so the row the restarted worker reclaims counts
+                        // the jobs this one ran.
+                        last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
                     }
                 }
 
@@ -4351,7 +4541,7 @@ pub async fn handle_queued_job(
                     }
                 }
 
-                return Ok(JobOutcome::Completed);
+                return Ok(JobOutcome::CompletedFromCache);
             }
         };
     }

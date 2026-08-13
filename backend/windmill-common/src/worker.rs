@@ -263,6 +263,31 @@ lazy_static::lazy_static! {
 
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 
+    /// Shut the worker process down once it has executed this many jobs, so a supervisor
+    /// (docker restart policy, kubernetes, systemd, ...) restarts it on a pristine
+    /// environment. Meant for deployments that cannot sandbox jobs with nsjail and rely on
+    /// the process/container lifetime to isolate one execution from the next. `0` (or unset)
+    /// disables it. Only the jobs the worker's own main loop ran count: ones handed off to a
+    /// dedicated worker or a flow runner are executed by another task and never counted.
+    /// Workers of one process share that environment, so with `NUM_WORKERS > 1` the first of
+    /// them to reach the limit takes the whole process down, cancelling whatever the others
+    /// still run in a container or a dedicated worker. Run one worker per process.
+    /// A value that does not parse is rejected at startup by [`validate_worker_lifecycle_env`]
+    /// rather than read as "disabled" here: a deployment that isolates executions this way
+    /// would otherwise keep running with no isolation at all.
+    pub static ref EXIT_AFTER_N_JOBS: Option<u64> = std::env::var("EXIT_AFTER_N_JOBS")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .filter(|x| *x > 0);
+
+    /// Replaces the random part of the worker name, which is what makes a restarted process
+    /// reclaim its `worker_ping` row rather than register as a new worker. Two worker
+    /// processes must never share it: it is only needed when several of them run on one host
+    /// under the same worker group, since the name is otherwise derived from the hostname.
+    pub static ref WORKER_SUFFIX: Option<String> = std::env::var("WORKER_SUFFIX")
+        .ok()
+        .filter(|x| !x.is_empty());
+
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
@@ -448,6 +473,18 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
     pub static ref ROOT_CACHE_NOMOUNT_DIR: String = format!("{}/cache_nomount/", *WINDMILL_DIR);
+}
+
+/// Refuses to start on an `EXIT_AFTER_N_JOBS` that does not parse. Silently ignoring it
+/// would leave a worker meant to recycle its environment running forever without doing so,
+/// which is exactly the guarantee the deployment set it for.
+pub fn validate_worker_lifecycle_env() -> anyhow::Result<()> {
+    match std::env::var("EXIT_AFTER_N_JOBS") {
+        Ok(v) if !v.is_empty() && v.parse::<u64>().is_err() => Err(anyhow::anyhow!(
+            "EXIT_AFTER_N_JOBS must be a positive integer (or 0 to disable), got '{v}'"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Whether native mode is forced by the environment (NATIVE_MODE=true env var or WORKER_GROUP=native).
@@ -1858,6 +1895,16 @@ pub async fn fetch_raw_script_from_app_query(
     .map(|r| RawScript { content: r.code, lock: r.lock, meta: None, modules: None })
 }
 
+/// Returns the number of jobs the row already accounted for: non-zero when a worker of the
+/// same name pinged before, i.e. when this process is a restart of an earlier one (see
+/// [`crate::utils::resolve_worker_suffix`]) and its counter is meant to keep climbing.
+///
+/// Everything else describing the process is overwritten on such a restart — a row left
+/// reporting the version or the isolation mode of the process that died would, for
+/// `wm_version`, hold the instance-wide `MIN_VERSION` back forever, and one still naming the
+/// job that process was killed mid-way through skews the zombie/OOM diagnostics that read it.
+/// `started_at` and `jobs_executed` are the only two columns carried over, being the
+/// continuity itself.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
@@ -1872,10 +1919,11 @@ pub async fn insert_ping_query(
     job_isolation: Option<String>,
     native_mode: bool,
     db: &DB,
-) -> anyhow::Result<()> {
-    sqlx::query!(
+) -> anyhow::Result<i32> {
+    let previous_jobs_executed = sqlx::query_scalar!(
         "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers, native_mode = EXCLUDED.native_mode",
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        RETURNING jobs_executed",
         worker_instance,
         worker_name,
         ip,
@@ -1889,9 +1937,9 @@ pub async fn insert_ping_query(
         job_isolation.as_deref(),
         native_mode,
         )
-        .execute(db)
+        .fetch_one(db)
         .await?;
-    Ok(())
+    Ok(previous_jobs_executed)
 }
 
 pub async fn update_worker_ping_from_job_query(
