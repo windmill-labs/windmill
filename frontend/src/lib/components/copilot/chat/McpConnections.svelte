@@ -118,15 +118,19 @@
 		)
 		const shown = ordered.slice(0, MAX_MENU_SERVERS)
 		return [
-			...shown.map((server) => ({
-				displayName: server.path,
-				icon: server.icon,
-				// A getter, not a snapshot: the menu stays open across a click, so the
-				// switch has to read the state at render time to repaint.
-				get toggle() {
-					return server.enabled
+			...shown.map(({ path }) => ({
+				displayName: path,
+				// Getters, not snapshots: the menu stays open across a click, and it has
+				// to read through the live list rather than the row captured here, since
+				// a reload replaces every row object and a getter bound to the old one
+				// would go on reporting the state it was built with.
+				get icon() {
+					return row(path)?.icon
 				},
-				action: () => toggle(server.path, !server.enabled)
+				get toggle() {
+					return row(path)?.enabled ?? false
+				},
+				action: () => toggle(path, !row(path)?.enabled)
 			})),
 			...(ordered.length > shown.length
 				? [
@@ -150,6 +154,10 @@
 				}
 			}
 		]
+	}
+
+	function row(path: string) {
+		return servers.find((s) => s.path === path)
 	}
 
 	async function toggle(path: string, enabled: boolean) {
@@ -300,18 +308,18 @@
 				</div>
 			{/if}
 		</div>
+
+		<ConfirmationModal
+			open={pendingDisconnect !== undefined}
+			title="Disconnect MCP server"
+			confirmationText="Disconnect"
+			onConfirmed={() => pendingDisconnect && disconnect(pendingDisconnect)}
+			onCanceled={() => (pendingDisconnect = undefined)}
+		>
+			<span class="text-xs text-primary">
+				This deletes the resource at <span class="font-semibold">{pendingDisconnect}</span>, so the chat
+				and any flow pointing at it lose the server. Its token variable is kept.
+			</span>
+		</ConfirmationModal>
 	</DrawerContent>
 </Drawer>
-
-<ConfirmationModal
-	open={pendingDisconnect !== undefined}
-	title="Disconnect MCP server"
-	confirmationText="Disconnect"
-	onConfirmed={() => pendingDisconnect && disconnect(pendingDisconnect)}
-	onCanceled={() => (pendingDisconnect = undefined)}
->
-	<span class="text-xs text-primary">
-		This deletes the resource at <span class="font-semibold">{pendingDisconnect}</span>, so the chat
-		and any flow pointing at it lose the server. Its token variable is kept.
-	</span>
-</ConfirmationModal>

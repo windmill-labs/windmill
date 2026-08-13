@@ -38,7 +38,10 @@ export function providerKey(url: unknown): string | undefined {
 	}
 	const labels = hostname.split('.').filter((l) => !['www', 'mcp', 'api', 'app'].includes(l))
 	const name = labels[0]?.toLowerCase().replace(/[^a-z0-9]/g, '')
-	return name && name !== 'localhost' ? name : undefined
+	// An address names nobody, and a self-hosted server on one would otherwise be
+	// cached under a key like `127`.
+	if (!name || name === 'localhost' || /^\d+$/.test(name)) return undefined
+	return name
 }
 
 const cache = new Map<string, Component<any> | undefined>()
