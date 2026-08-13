@@ -3022,14 +3022,27 @@ async fn validate_git_url(url: &str) -> Result<()> {
             ));
         }
     } else {
-        // Hostname — resolve via DNS and reject if any address is private
-        if let Ok(addrs) = tokio::net::lookup_host(format!("{}:443", host)).await {
-            for addr in addrs {
-                if is_private_or_reserved_ip(&addr.ip()) {
-                    return Err(Error::BadRequest(
-                        "Git URL hostname resolves to a private or reserved IP address".to_string(),
-                    ));
-                }
+        // Hostname — resolve via DNS and reject if any address is private. Fail
+        // closed: a resolution error (or an empty answer) must not skip the
+        // private-IP check, else an unresolvable-at-check-time host slips
+        // straight through to git.
+        let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(format!("{}:443", host))
+            .await
+            .map_err(|e| {
+                Error::BadRequest(format!("Failed to resolve git URL host '{}': {}", host, e))
+            })?
+            .collect();
+        if addrs.is_empty() {
+            return Err(Error::BadRequest(format!(
+                "Git URL host '{}' did not resolve to any address",
+                host
+            )));
+        }
+        for addr in addrs {
+            if is_private_or_reserved_ip(&addr.ip()) {
+                return Err(Error::BadRequest(
+                    "Git URL hostname resolves to a private or reserved IP address".to_string(),
+                ));
             }
         }
     }
@@ -3227,6 +3240,16 @@ async fn get_git_ssh_cmd(
 /// process behind — `kill_on_drop` reaps it when the timeout fires).
 const GIT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// `git` command for a remote probe, with HTTP redirects disabled. `validate_git_url`
+/// only vets the host in the URL; git's default (`http.followRedirects=initial`)
+/// would let a validated public remote 302 the probe onto a private or link-local
+/// address that no check ever sees. Build every probe through this.
+fn git_probe_command() -> Command {
+    let mut git_cmd = Command::new("git");
+    git_cmd.args(["-c", "http.followRedirects=false"]);
+    git_cmd
+}
+
 async fn run_git_probe(mut git_cmd: Command, what: &str) -> Result<std::process::Output> {
     git_cmd.kill_on_drop(true);
     match tokio::time::timeout(GIT_PROBE_TIMEOUT, git_cmd.output()).await {
@@ -3259,7 +3282,7 @@ async fn get_repo_latest_commit_hash(
         validate_git_ref(ref_spec)?;
     }
 
-    let mut git_cmd = Command::new("git");
+    let mut git_cmd = git_probe_command();
     git_cmd.args(["ls-remote", &git_resource.url, ref_spec]);
     if let Some(git_ssh_command) = git_ssh_command {
         git_cmd.env("GIT_SSH_COMMAND", git_ssh_command);
@@ -3390,7 +3413,7 @@ pub async fn get_git_repo_head_for_autopull(
     // its head in one call. Fork sync needs the concrete name to scope
     // `wm-fork/<branch>/*`, so a bare "HEAD" ref would silently disable it.
     validate_git_url(&git_resource.url).await?;
-    let mut git_cmd = Command::new("git");
+    let mut git_cmd = git_probe_command();
     git_cmd.args(["ls-remote", "--symref", &git_resource.url, "HEAD"]);
     git_cmd.stderr(Stdio::piped());
     let output = run_git_probe(git_cmd, "ls-remote --symref HEAD").await?;
@@ -3494,7 +3517,7 @@ pub async fn get_git_repo_fork_heads_for_autopull(
     validate_git_url(&git_resource.url).await?;
     validate_git_ref(base_branch)?;
 
-    let mut git_cmd = Command::new("git");
+    let mut git_cmd = git_probe_command();
     git_cmd.args([
         "ls-remote",
         &git_resource.url,
@@ -3913,9 +3936,79 @@ mod tests {
         assert!(validate_git_url("./local/repo").await.is_err());
     }
 
+    /// Minimal loopback HTTP server: replies to every request with `response`
+    /// and counts the requests it saw. Returns its port and that counter.
+    async fn spawn_http_stub(
+        response: String,
+    ) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let _ = sock.read(&mut [0u8; 4096]).await;
+                hits_srv.fetch_add(1, Ordering::SeqCst);
+                let _ = sock.write_all(response.as_bytes()).await;
+            }
+        });
+        (port, hits)
+    }
+
+    #[tokio::test]
+    async fn test_git_probe_refuses_redirects() {
+        // `validate_git_url` only vets the URL's host, so a probe that follows a
+        // 302 dials an address nothing validated. Redirect one probe and require
+        // git to stop at the 302 without ever reaching the target.
+        let (target_port, target_hits) = spawn_http_stub(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".to_string(),
+        )
+        .await;
+        let (redirector_port, _) = spawn_http_stub(format!(
+            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/internal/info/refs?service=git-upload-pack\r\nContent-Length: 0\r\n\r\n",
+            target_port
+        ))
+        .await;
+
+        let mut git_cmd = git_probe_command();
+        git_cmd.args([
+            "ls-remote",
+            &format!("http://127.0.0.1:{}/repo.git", redirector_port),
+            "HEAD",
+        ]);
+        git_cmd.env("GIT_TERMINAL_PROMPT", "0");
+        git_cmd.stderr(Stdio::piped());
+
+        let output = run_git_probe(git_cmd, "ls-remote (test)").await.unwrap();
+        assert!(!output.status.success());
+        assert_eq!(
+            target_hits.load(Ordering::SeqCst),
+            0,
+            "git followed the redirect to the unvalidated target"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("302"),
+            "git should have reported the refused redirect, got: {stderr}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_fails_closed_on_unresolvable_host() {
+        // `.invalid` never resolves (RFC 6761). The private-IP check is only
+        // meaningful if a failed lookup rejects instead of falling through.
+        let result = validate_git_url("https://this-host-does-not-exist.invalid/repo.git").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("resolve"));
+    }
+
     #[tokio::test]
     async fn test_validate_git_url_allows_valid_urls() {
-        // These should succeed (host resolution may fail but validation passes)
+        // Needs DNS: validation fails closed on a host it cannot resolve.
         assert!(validate_git_url("https://github.com/user/repo.git")
             .await
             .is_ok());
