@@ -19,6 +19,9 @@ export type McpServer = { path: string }
 const MAX_SEARCH_RESULTS = 10
 const MAX_DESCRIPTION_CHARS = 200
 const MAX_RESULT_CHARS = 20_000
+// A server writes its own error text, and every enabled server can contribute
+// one, so search results are capped the same way call results are.
+const MAX_SERVER_ERROR_CHARS = 500
 // Listing costs a full MCP handshake against a third party, so it is cached —
 // but bounded, because `readOnlyHint` decides whether a call needs the user's
 // confirmation and must not stay pinned to a stale answer for a whole session.
@@ -222,6 +225,34 @@ function bounded(payload: {
 	})
 }
 
+/**
+ * The search payload under the same ceiling as a call result. Server error text
+ * goes first: the matches are what the model asked for.
+ */
+function boundedSearch(payload: { matches: unknown[]; [k: string]: unknown }): string {
+	let { unavailable, ...rest } = payload
+	let out = JSON.stringify(payload, null, 2)
+	if (out.length <= MAX_RESULT_CHARS) return out
+	const matches = [...payload.matches]
+	const build = () =>
+		JSON.stringify(
+			{
+				...rest,
+				matches,
+				truncated: true,
+				note: `Truncated to ${MAX_RESULT_CHARS} characters. Refine the query.`
+			},
+			null,
+			2
+		)
+	out = build()
+	while (out.length > MAX_RESULT_CHARS && matches.length > 0) {
+		matches.pop()
+		out = build()
+	}
+	return out
+}
+
 const searchMcpToolsSchema = z.object({
 	query: z
 		.string()
@@ -261,17 +292,24 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 				}),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = callMcpToolSchema.parse(args)
-			const resolved = await resolveTool(workspace, servers, parsed.server, parsed.tool)
+			// Listing is a live call to a third party: a server that has gone away
+			// must fail this tool, not the chat loop around it.
+			let resolved: Awaited<ReturnType<typeof resolveTool>>
+			try {
+				resolved = await resolveTool(workspace, servers, parsed.server, parsed.tool)
+			} catch (e) {
+				resolved = { error: `Could not reach ${parsed.server}: ${errorMessage(e)}` }
+			}
 			if ('error' in resolved) {
 				toolCallbacks.setToolStatus(toolId, { content: resolved.error, error: resolved.error })
-				return JSON.stringify({ success: false, error: resolved.error })
+				return bounded({ success: false, error: resolved.error })
 			}
 			if (isReadOnly(resolved.tool) !== isRead) {
 				const error = isRead
 					? `"${parsed.tool}" is not marked read-only — use call_mcp_write_tool.`
 					: `"${parsed.tool}" is read-only — use call_mcp_read_tool (no confirmation needed).`
 				toolCallbacks.setToolStatus(toolId, { content: error, error })
-				return JSON.stringify({ success: false, error })
+				return bounded({ success: false, error })
 			}
 			toolCallbacks.setToolStatus(toolId, { content: `Calling ${parsed.tool}...` })
 			const result = await executeTool(
@@ -320,7 +358,9 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 							const tools = await loadServerTools(workspace, server.path)
 							return tools.map((tool) => ({ server, tool }))
 						} catch (e) {
-							unavailable.push(`${server.path}: ${errorMessage(e)}`)
+							unavailable.push(
+								`${server.path}: ${errorMessage(e).slice(0, MAX_SERVER_ERROR_CHARS)}`
+							)
 							return []
 						}
 					})
@@ -332,32 +372,24 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 					.sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
 
 				if (scored.length === 0) {
-					const result = JSON.stringify(
-						{
-							matches: [],
-							hint: `No tool matched on ${serverList}. Retry with different keywords.`,
-							...(unavailable.length > 0 ? { unavailable } : {})
-						},
-						null,
-						2
-					)
+					const result = boundedSearch({
+						matches: [],
+						hint: `No tool matched on ${serverList}. Retry with different keywords.`,
+						...(unavailable.length > 0 ? { unavailable } : {})
+					})
 					toolCallbacks.setToolStatus(toolId, { content: 'No matching MCP tool', result })
 					return result
 				}
 				const top = scored.slice(0, MAX_SEARCH_RESULTS)
-				const result = JSON.stringify(
-					{
-						matches: top.map((s) => summarizeTool(s.server, s.tool)),
-						...(scored.length > top.length
-							? {
-									note: `${scored.length - top.length} more match(es) — refine the query to see them.`
-								}
-							: {}),
-						...(unavailable.length > 0 ? { unavailable } : {})
-					},
-					null,
-					2
-				)
+				const result = boundedSearch({
+					matches: top.map((s) => summarizeTool(s.server, s.tool)),
+					...(scored.length > top.length
+						? {
+								note: `${scored.length - top.length} more match(es) — refine the query to see them.`
+							}
+						: {}),
+					...(unavailable.length > 0 ? { unavailable } : {})
+				})
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Found ${top.length} MCP tool(s) for "${parsed.query}"`,
 					result

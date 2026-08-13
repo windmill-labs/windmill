@@ -128,9 +128,9 @@
 				workspace: workspace,
 				path,
 				value: data.access_token,
+				resourcePath: path,
 				isOauth: true,
-				account: accountId,
-				description: `MCP OAuth token for ${data.mcp_server_url}`
+				account: accountId
 			})
 
 			await ResourceService.createResource({

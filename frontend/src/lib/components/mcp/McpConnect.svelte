@@ -167,9 +167,9 @@
 		discoveryFoundOAuth = undefined
 	}
 
-	async function createMcpResource(path: string, tokenRef: string) {
+	async function createMcpResource(workspace: string, path: string, tokenRef: string) {
 		await ResourceService.createResource({
-			workspace: ws,
+			workspace,
 			requestBody: {
 				resource_type: 'mcp',
 				path,
@@ -241,12 +241,16 @@
 	/** Store the token like the resource connect does: a secret variable, plus an
 	 * account when the provider issues expiring tokens so refresh can run. */
 	async function finishProviderOAuth(res: any) {
+		// Pinned for the whole sequence: a workspace switch between these requests
+		// would leave the variable in one workspace and the resource in another.
+		const workspace = ws
+		const path = manualPath
 		try {
 			let account: number | undefined = undefined
 			if (res?.expires_in != undefined) {
 				account = Number(
 					await OauthService.createAccount({
-						workspace: ws,
+						workspace,
 						requestBody: {
 							refresh_token: res.refresh_token ?? '',
 							expires_in: res.expires_in,
@@ -257,14 +261,14 @@
 				)
 			}
 			await upsertSecretVariable({
-				workspace: ws,
-				path: manualPath,
+				workspace,
+				path,
 				value: res.access_token,
+				resourcePath: path,
 				isOauth: true,
-				account,
-				description: `OAuth token for ${entry!.name}`
+				account
 			})
-			await createMcpResource(manualPath, `$var:${manualPath}`)
+			await createMcpResource(workspace, path, `$var:${path}`)
 			sendUserToast(`Connected ${entry!.name}`)
 		} catch (e) {
 			sendUserToast(`Failed to connect ${entry?.name}: ${e.body ?? e.message}`, true)
@@ -275,16 +279,18 @@
 
 	async function saveManual() {
 		const token = manualToken
-		if (!url || !token || !manualPath) return
+		const workspace = ws
+		const path = manualPath
+		if (!url || !token || !path) return
 		saving = true
 		try {
 			await upsertSecretVariable({
-				workspace: ws,
-				path: `${manualPath}_token`,
+				workspace,
+				path: `${path}_token`,
 				value: token,
-				description: `Token for the ${manualPath} MCP server`
+				resourcePath: path
 			})
-			await createMcpResource(manualPath, `$var:${manualPath}_token`)
+			await createMcpResource(workspace, path, `$var:${path}_token`)
 			sendUserToast(`Connected ${entry?.name ?? url}`)
 		} catch (e) {
 			sendUserToast(`Failed to connect: ${e.body ?? e.message}`, true)

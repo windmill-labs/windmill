@@ -233,6 +233,12 @@ describe('search_mcp_tools', () => {
 // A server controls its error text as much as its output, so the cap has to hold
 // on the failure path too.
 describe('result size cap', () => {
+	it('truncates an oversized tools/list failure in search', async () => {
+		getMcpToolsMock.mockRejectedValue(new Error('x'.repeat(80_000)))
+		const result = await run('search_mcp_tools', { query: 'issue' })
+		expect(result.unavailable[0].length).toBeLessThan(1_000)
+	})
+
 	it('truncates an oversized isError payload', async () => {
 		callMcpToolMock.mockResolvedValue({
 			isError: true,

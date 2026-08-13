@@ -60,11 +60,14 @@
 	// user who never opens the menu. The two entry points load what they need.
 	let loadSeq = 0
 	$effect(() => {
-		ws
+		const target = ws
 		untrack(() => {
 			loadSeq++
 			servers = []
 			pendingDisconnect = undefined
+			// A drawer already on screen is neither entry point, and would sit there
+			// reporting that the new workspace has no connections.
+			if (drawer?.isOpen()) void loadServers(target)
 		})
 	})
 
@@ -186,22 +189,25 @@
 	// here can never destroy a credential something else still uses; the variable
 	// is left for the user to remove from the Variables page.
 	async function disconnect(path: string) {
+		// Pinned for the whole sequence: a switch midway would strip and delete the
+		// resource that happens to share this path in the workspace switched to.
+		const target = ws
 		try {
 			const resource = await ResourceService.getResource({
-				workspace: ws,
+				workspace: target,
 				path
 			})
 			const { token: _token, ...withoutToken } = (resource.value ?? {}) as Record<string, unknown>
 			await ResourceService.updateResource({
-				workspace: ws,
+				workspace: target,
 				path,
 				requestBody: { value: withoutToken }
 			})
-			await ResourceService.deleteResource({ workspace: ws, path })
+			await ResourceService.deleteResource({ workspace: target, path })
 			// A later resource at this path is a different server; it must be turned
 			// on deliberately rather than inherit this one's enablement.
-			setMcpEnabled(ws, path, false)
-			forgetProviderKey(ws, path)
+			setMcpEnabled(target, path, false)
+			forgetProviderKey(target, path)
 			sendUserToast(`Disconnected ${path}. Its token variable was kept.`)
 			await refresh()
 		} catch (e) {
