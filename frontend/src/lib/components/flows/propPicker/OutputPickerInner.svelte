@@ -171,9 +171,9 @@
 	}
 
 	function togglePin() {
-		// Pinning is a dev-time action people undo before deploying, so the flow
-		// inventory in the stats payload barely sees it. Counted per direction:
-		// unpinning is how often a pin was temporary rather than kept.
+		// The adoption read counts pins still enabled on a deployed flow; this counts
+		// the act, including the pins undone before deploying. Keyed per direction,
+		// so unpinning shows how often a pin was temporary.
 		logFeatureUsage('flow_step', 'pinned', {
 			key: mock?.enabled && !preview ? 'off' : 'on'
 		})

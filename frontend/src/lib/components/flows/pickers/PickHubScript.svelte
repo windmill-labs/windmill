@@ -36,6 +36,8 @@
 	let items: {
 		path: string
 		summary: string
+		/** The hub's own wording, before `summary` is rewritten as the display label. */
+		hubSummary: string
 		id: number
 		version_id: number
 		ask_id: number
@@ -107,6 +109,9 @@
 				}) => ({
 					...x,
 					path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+					// `summary` below becomes the display label; keep the hub's own wording,
+					// which is what telemetry keys off.
+					hubSummary: x.summary,
 					summary: `${x.summary} (${x.app})`
 				})
 			)
@@ -123,7 +128,10 @@
 			// Rides the anonymous stats payload rather than a live call to the hub,
 			// so instances that cannot reach the hub still report which integrations
 			// they use.
-			logHubScriptPick(item.path)
+			logHubScriptPick(
+				{ version_id: item.version_id, app: item.app, summary: item.hubSummary },
+				'picker'
+			)
 			try {
 				await ScriptService.pickHubScriptByPath({ path: item.path })
 			} catch (error) {

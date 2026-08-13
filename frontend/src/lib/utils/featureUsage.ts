@@ -138,33 +138,36 @@ export function logFeatureUsage(feature: string, kind: string, opts: FeatureUsag
 }
 
 /**
- * Record a hub script being chosen, keyed so the counts stay usable and safe.
+ * Record a hub script being chosen, from the hub's own metadata.
  *
- * The version id is dropped: it changes on every hub release, and keeping it
- * would split one logical script across its versions. At or above
- * `PRIVATE_HUB_MIN_VERSION` the app and slug are names a customer wrote on their
- * own private hub, so only the fact that a private hub was used is recorded.
+ * Takes the structured fields the hub API returned rather than a
+ * `hub/<version>/<app>/<slug>` path. A path stored in a flow is workspace-authored
+ * text that nothing validates against the hub, so its segments could hold any name
+ * a user wrote; these fields came from the hub itself and are safe to report.
  *
- * Rust twin: `hub_script_usage_key` in `backend/windmill-common/src/feature_usage.rs`,
- * which reduces the same paths for the flow inventory.
+ * A script from a private hub is still the customer's own content, so at or above
+ * `PRIVATE_HUB_MIN_VERSION` only the fact that one was used is recorded.
  */
-export function logHubScriptPick(path: string): void {
-	const key = hubScriptUsageKey(path)
-	if (key) {
-		logFeatureUsage('hub_script', 'picked', { key })
-	}
+export function logHubScriptPick(
+	script: { version_id: number; app: string; summary: string },
+	origin: 'picker' | 'ai'
+): void {
+	logFeatureUsage('hub_script', origin === 'ai' ? 'picked_ai' : 'picked', {
+		key: hubScriptUsageKey(script)
+	})
 }
 
 const PRIVATE_HUB_KEY = 'private'
 
-export function hubScriptUsageKey(path: string): string | undefined {
-	if (!path.startsWith('hub/')) return undefined
-	const [versionId, app, slug] = path.slice('hub/'.length).split('/')
-	if (versionId == undefined) return undefined
-	const version = Number(versionId)
-	if (!Number.isFinite(version) || version >= PRIVATE_HUB_MIN_VERSION) return PRIVATE_HUB_KEY
-	if (!app) return undefined
-	const key = slug ? `${app}/${slug}` : app
+export function hubScriptUsageKey(script: {
+	version_id: number
+	app: string
+	summary: string
+}): string {
+	if (!Number.isInteger(script.version_id) || script.version_id >= PRIVATE_HUB_MIN_VERSION) {
+		return PRIVATE_HUB_KEY
+	}
+	const key = `${script.app}/${script.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
 	// Same shape the backend accepts; anything else would be dropped there anyway.
 	return /^[A-Za-z0-9_:./-]{1,100}$/.test(key) ? key : PRIVATE_HUB_KEY
 }

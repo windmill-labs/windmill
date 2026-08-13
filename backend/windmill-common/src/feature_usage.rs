@@ -46,6 +46,7 @@ pub const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
     ("trigger", "fired"),
     ("command_script", "invoked"),
     ("hub_script", "picked"),
+    ("hub_script", "picked_ai"),
 ];
 
 pub fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
@@ -113,17 +114,29 @@ pub async fn flush_feature_usage(db: &Pool<Postgres>) -> Result<(), sqlx::Error>
         pending.drain().collect()
     };
 
-    let mut features = Vec::new();
-    let mut kinds = Vec::new();
-    let mut keys = Vec::new();
-    let mut values = Vec::new();
-    for ((feature, kind), counters) in drained {
-        for (key, value) in counters {
-            features.push(feature.to_string());
-            kinds.push(kind.to_string());
-            keys.push(key);
-            values.push(value);
-        }
+    // Sorted, not in HashMap order: every server and worker flushes the same few
+    // rows on the same cadence, and two batches upserting them in opposite orders
+    // deadlock. Postgres aborts one, and its counts are already drained from
+    // memory, so they would be lost rather than retried.
+    let mut rows: Vec<(&'static str, &'static str, String, i64)> = drained
+        .into_iter()
+        .flat_map(|((feature, kind), counters)| {
+            counters
+                .into_iter()
+                .map(move |(key, value)| (feature, kind, key, value))
+        })
+        .collect();
+    rows.sort_unstable_by(|a, b| (a.0, a.1, &a.2).cmp(&(b.0, b.1, &b.2)));
+
+    let mut features = Vec::with_capacity(rows.len());
+    let mut kinds = Vec::with_capacity(rows.len());
+    let mut keys = Vec::with_capacity(rows.len());
+    let mut values = Vec::with_capacity(rows.len());
+    for (feature, kind, key, value) in rows {
+        features.push(feature.to_string());
+        kinds.push(kind.to_string());
+        keys.push(key);
+        values.push(value);
     }
     if features.is_empty() {
         return Ok(());
@@ -145,67 +158,34 @@ pub async fn flush_feature_usage(db: &Pool<Postgres>) -> Result<(), sqlx::Error>
     Ok(())
 }
 
-/// The public hub's ids are below [`crate::PRIVATE_HUB_MIN_VERSION`]; at or above
-/// it the script comes from a customer's private hub, where the app and summary
-/// segments are names they wrote. Those must not leave the instance, so a private
-/// hub reports only that it was used.
-pub const PRIVATE_HUB_KEY: &str = "private";
-
-/// Reduce `hub/<version_id>/<app>/<slug>` to the `<app>/<slug>` key used for hub
-/// telemetry. Dropping the version id keeps one logical script from fragmenting
-/// across its versions. Returns `None` for a path that is not a hub script.
-pub fn hub_script_usage_key(path: &str) -> Option<String> {
-    let rest = path.strip_prefix("hub/")?;
-    let mut segments = rest.split('/');
-    let version_id = segments.next()?;
-    if version_id
-        .parse::<i32>()
-        .is_ok_and(|v| v >= crate::PRIVATE_HUB_MIN_VERSION)
-    {
-        return Some(PRIVATE_HUB_KEY.to_string());
-    }
-    let app = segments.next()?;
-    let key = match segments.next() {
-        Some(slug) => format!("{app}/{slug}"),
-        None => app.to_string(),
-    };
-    if !is_identifier_shaped(&key, MAX_KEY_LEN) {
-        return Some(PRIVATE_HUB_KEY.to_string());
-    }
-    Some(key)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn hub_key_drops_the_version_so_versions_aggregate() {
-        assert_eq!(
-            hub_script_usage_key("hub/9084/slack/send_message"),
-            Some("slack/send_message".to_string())
-        );
-        assert_eq!(
-            hub_script_usage_key("hub/7771/slack/send_message"),
-            Some("slack/send_message".to_string())
-        );
+    fn count_of(feature: &str, kind: &str, key: &str) -> i64 {
+        PENDING
+            .lock()
+            .unwrap()
+            .get(&(feature, kind))
+            .and_then(|c| c.get(key))
+            .copied()
+            .unwrap_or(0)
     }
 
     #[test]
-    fn hub_key_never_reports_a_private_hub_name() {
-        // At or above PRIVATE_HUB_MIN_VERSION the app and slug are customer-authored.
-        assert_eq!(
-            hub_script_usage_key("hub/10000000/acme_internal/payroll_export"),
-            Some(PRIVATE_HUB_KEY.to_string())
-        );
-        assert_eq!(hub_script_usage_key("u/admin/not_a_hub_script"), None);
-    }
+    fn only_registered_actions_with_a_well_shaped_key_are_recorded() {
+        // Unique keys: the accumulator is a process-wide global shared with any
+        // other test that logs.
+        log_feature_usage("trigger", "fired", "registered_ok_key");
+        log_feature_usage("trigger", "fired", "registered_ok_key");
+        assert_eq!(count_of("trigger", "fired", "registered_ok_key"), 2);
 
-    #[test]
-    fn hub_key_falls_back_rather_than_emitting_an_odd_shape() {
-        assert_eq!(
-            hub_script_usage_key("hub/9084/slack/send message"),
-            Some(PRIVATE_HUB_KEY.to_string())
-        );
+        // Unregistered pair: nothing an unreviewed call site emits reaches the table.
+        log_feature_usage("not_a_feature", "nope", "unregistered_key");
+        assert_eq!(count_of("not_a_feature", "nope", "unregistered_key"), 0);
+
+        // A key that is not identifier-shaped could carry arbitrary text.
+        log_feature_usage("trigger", "fired", "has spaces and <html>");
+        assert_eq!(count_of("trigger", "fired", "has spaces and <html>"), 0);
     }
 }

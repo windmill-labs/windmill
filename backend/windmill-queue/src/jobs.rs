@@ -6546,9 +6546,15 @@ async fn push_inner<'c, 'd>(
     // Which trigger kinds an instance actually fires. Counted here rather than
     // aggregated from `v2_job` later: that table's only usable index is
     // (workspace_id, created_at), so a windowed GROUP BY over it is a full scan.
-    // Flow steps carry no trigger kind, so the hot path never reaches the lock.
-    if let Some(kind) = trigger_kind.as_ref() {
-        windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+    //
+    // Root jobs only. A scheduled flow hands every step push its own
+    // `schedule_path` (see `FlowJob::schedule_path`), so counting per push would
+    // score one run of a 1000-iteration loop as 1001 fires and bury every other
+    // kind — and would put this on the per-step hot path.
+    if flow_step_id.is_none() {
+        if let Some(kind) = trigger_kind.as_ref() {
+            windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+        }
     }
 
     #[cfg(feature = "cloud")]
