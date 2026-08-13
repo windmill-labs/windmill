@@ -1,8 +1,11 @@
 import type { Component } from 'svelte'
-import { findMcpEntryByUrl } from './registry'
+import { findMcpEntry, findMcpEntryByUrl } from './registry'
 
 /**
- * The provider icon for a server url, loaded on demand.
+ * Provider icons for connected servers, resolved in two halves so a cached key
+ * is enough to draw one: `providerKey` needs the server url (one read per
+ * resource, since the list endpoint strips values), `loadProviderIcon` needs
+ * only the key.
  *
  * Windmill ships an icon per integration, but importing them through
  * `appIconComponent` would pull all ~230 into whatever chunk asks for one, and
@@ -15,16 +18,24 @@ const iconModules = import.meta.glob('$lib/components/icons/*.svelte') as Record
 	() => Promise<{ default: Component<any> }>
 >
 
-function hostnameOf(url: string): string | undefined {
+/**
+ * Who a server url belongs to, as a stable string worth caching.
+ *
+ * Registry servers answer with their entry id, because their host does not
+ * always name them: github's mcp server answers on api.githubcopilot.com.
+ * Anything else is named by its host, since `mcp.notion.com` says notion while
+ * the transport labels say nothing about who it is.
+ */
+export function providerKey(url: unknown): string | undefined {
+	if (typeof url !== 'string') return undefined
+	const known = findMcpEntryByUrl(url)
+	if (known) return known.id
+	let hostname: string
 	try {
-		return new URL(url).hostname
+		hostname = new URL(url).hostname
 	} catch {
 		return undefined
 	}
-}
-
-/** `mcp.notion.com` names notion; the transport labels say nothing about who it is. */
-function providerLabel(hostname: string): string | undefined {
 	const labels = hostname.split('.').filter((l) => !['www', 'mcp', 'api', 'app'].includes(l))
 	const name = labels[0]?.toLowerCase().replace(/[^a-z0-9]/g, '')
 	return name && name !== 'localhost' ? name : undefined
@@ -32,24 +43,18 @@ function providerLabel(hostname: string): string | undefined {
 
 const cache = new Map<string, Component<any> | undefined>()
 
-export async function loadProviderIcon(url: unknown): Promise<Component<any> | undefined> {
-	if (typeof url !== 'string') return undefined
-	const hostname = hostnameOf(url)
-	if (!hostname) return undefined
-
-	// A registry server carries its own icon, and its host does not always name
-	// it: github's mcp server answers on api.githubcopilot.com.
-	const known = findMcpEntryByUrl(url)
-	if (known) return known.icon
-
-	const name = providerLabel(hostname)
-	if (!name) return undefined
-	if (cache.has(name)) return cache.get(name)
+export async function loadProviderIcon(
+	key: string | undefined | null
+): Promise<Component<any> | undefined> {
+	if (!key) return undefined
+	const entry = findMcpEntry(key)
+	if (entry) return entry.icon
+	if (cache.has(key)) return cache.get(key)
 
 	// Both shapes exist in the icon folder (`NotionIcon.svelte`, `Slack.svelte`).
 	const match = Object.keys(iconModules).find((path) => {
 		const file = path.split('/').pop()?.replace('.svelte', '').toLowerCase()
-		return file === `${name}icon` || file === name
+		return file === `${key}icon` || file === key
 	})
 	let icon: Component<any> | undefined
 	if (match) {
@@ -59,6 +64,6 @@ export async function loadProviderIcon(url: unknown): Promise<Component<any> | u
 			icon = undefined
 		}
 	}
-	cache.set(name, icon)
+	cache.set(key, icon)
 	return icon
 }

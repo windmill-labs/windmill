@@ -5,6 +5,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { isMcpEnabled, setMcpEnabled } from '$lib/components/mcp/enabledServers'
 	import { loadProviderIcon } from '$lib/components/mcp/providerIcon'
+	import {
+		cachedProviderKey,
+		forgetProviderKey,
+		rememberProviderKey
+	} from '$lib/components/mcp/iconCache'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { Component } from 'svelte'
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -34,7 +40,13 @@
 	// after a connection is what clears the fields for the next one.
 	let connectSeq = $state(0)
 	let servers = $state<
-		{ path: string; description?: string; enabled: boolean; icon?: Component<any> }[]
+		{
+			path: string
+			description?: string
+			editedAt?: string
+			enabled: boolean
+			icon?: Component<any>
+		}[]
 	>([])
 	let loading = $state(false)
 	let loadError = $state<string | undefined>(undefined)
@@ -67,6 +79,7 @@
 			servers = resources.map((r) => ({
 				path: r.path,
 				description: r.description,
+				editedAt: r.edited_at,
 				enabled: isMcpEnabled(target, r.path)
 			}))
 			void loadIcons(target, seq)
@@ -106,9 +119,8 @@
 		const shown = ordered.slice(0, MAX_MENU_SERVERS)
 		return [
 			...shown.map((server) => ({
-				// No provider icon here: the submenu is narrow, and an icon on some rows
-				// only truncates the path and ragged-aligns the rest.
 				displayName: server.path,
+				icon: server.icon,
 				// A getter, not a snapshot: the menu stays open across a click, so the
 				// switch has to read the state at render time to repaint.
 				get toggle() {
@@ -170,6 +182,7 @@
 			// A later resource at this path is a different server; it must be turned
 			// on deliberately rather than inherit this one's enablement.
 			setMcpEnabled(ws, path, false)
+			forgetProviderKey(ws, path)
 			sendUserToast(`Disconnected ${path}. Its token variable was kept.`)
 			await refresh()
 		} catch (e) {
@@ -179,28 +192,38 @@
 		}
 	}
 
-	// The list endpoint strips resource values, so the url each server points at
-	// (and with it, which provider it is) takes one read per row. Rows render
-	// without waiting for it, and a long list stops asking rather than firing a
-	// request storm at a screen nobody is reading that far down.
+	// A row whose provider is already cached paints from the cache; the rest cost
+	// one read each, and a long list stops asking rather than firing a request
+	// storm at a screen nobody is reading that far down.
 	const MAX_ICON_LOOKUPS = 20
 	async function loadIcons(target: string, seq: number) {
-		const rows = servers.slice(0, MAX_ICON_LOOKUPS)
-		const icons = await Promise.all(
-			rows.map(async (server) => {
-				try {
-					const resource = await ResourceService.getResource({
-						workspace: target,
-						path: server.path
-					})
-					return await loadProviderIcon((resource.value as { url?: unknown } | undefined)?.url)
-				} catch {
-					return undefined
+		let lookups = 0
+		await Promise.all(
+			servers.map(async (server) => {
+				let key = cachedProviderKey(target, server.path, server.editedAt)
+				if (key === undefined) {
+					if (lookups >= MAX_ICON_LOOKUPS) return
+					lookups++
+					try {
+						const resource = await ResourceService.getResource({
+							workspace: target,
+							path: server.path
+						})
+						key = rememberProviderKey(
+							target,
+							server.path,
+							(resource.value as { url?: unknown } | undefined)?.url,
+							server.editedAt
+						)
+					} catch {
+						return
+					}
 				}
+				const icon = await loadProviderIcon(key)
+				if (seq !== loadSeq) return
+				server.icon = icon
 			})
 		)
-		if (seq !== loadSeq) return
-		rows.forEach((server, i) => (server.icon = icons[i]))
 	}
 
 	async function refresh() {
@@ -242,16 +265,11 @@
 					Failed to load MCP connections: {loadError}
 				</div>
 			{:else if servers.length === 0}
-				<div class="text-2xs text-tertiary">No MCP server connected yet.</div>
+				<div class="text-xs text-secondary">No MCP server connected yet.</div>
 			{:else}
-				<div class="flex flex-col divide-y border rounded-md">
+				<div class="flex flex-col divide-y border rounded-md bg-surface-tertiary">
 					{#each servers as server (server.path)}
-						<div class="flex items-center gap-2 px-3 py-2">
-							<Toggle
-								size="xs"
-								checked={server.enabled}
-								on:change={async (e) => await toggle(server.path, e.detail)}
-							/>
+						<div class="flex items-center gap-3 px-4 py-3">
 							{#if server.icon}
 								{@const Icon = server.icon}
 								<Icon width="16px" height="16px" class="shrink-0" />
@@ -259,38 +277,24 @@
 								<Plug size={16} class="shrink-0 text-tertiary" />
 							{/if}
 							<div class="min-w-0 grow">
-								<div class="text-xs font-mono text-emphasis truncate">{server.path}</div>
+								<div class="text-xs font-semibold text-emphasis truncate">{server.path}</div>
 								{#if server.description}
-									<div class="text-2xs text-secondary truncate">{server.description}</div>
+									<div class="text-xs text-secondary truncate">{server.description}</div>
 								{/if}
 							</div>
-							{#if pendingDisconnect === server.path}
-								<span class="text-2xs text-secondary shrink-0">Disconnect? Its token is kept.</span>
-								<Button
-									unifiedSize="2xs"
-									variant="default"
-									onClick={() => (pendingDisconnect = undefined)}
-								>
-									Cancel
-								</Button>
-								<Button
-									unifiedSize="2xs"
-									variant="accent"
-									destructive
-									onClick={() => disconnect(server.path)}
-								>
-									Disconnect
-								</Button>
-							{:else}
-								<Button
-									unifiedSize="2xs"
-									variant="subtle"
-									startIcon={{ icon: Trash2 }}
-									iconOnly
-									title="Disconnect"
-									onClick={() => (pendingDisconnect = server.path)}
-								/>
-							{/if}
+							<Toggle
+								size="xs"
+								checked={server.enabled}
+								on:change={async (e) => await toggle(server.path, e.detail)}
+							/>
+							<Button
+								unifiedSize="2xs"
+								variant="subtle"
+								startIcon={{ icon: Trash2 }}
+								iconOnly
+								title="Disconnect"
+								onClick={() => (pendingDisconnect = server.path)}
+							/>
 						</div>
 					{/each}
 				</div>
@@ -298,3 +302,16 @@
 		</div>
 	</DrawerContent>
 </Drawer>
+
+<ConfirmationModal
+	open={pendingDisconnect !== undefined}
+	title="Disconnect MCP server"
+	confirmationText="Disconnect"
+	onConfirmed={() => pendingDisconnect && disconnect(pendingDisconnect)}
+	onCanceled={() => (pendingDisconnect = undefined)}
+>
+	<span class="text-xs text-primary">
+		This deletes the resource at <span class="font-semibold">{pendingDisconnect}</span>, so the chat
+		and any flow pointing at it lose the server. Its token variable is kept.
+	</span>
+</ConfirmationModal>

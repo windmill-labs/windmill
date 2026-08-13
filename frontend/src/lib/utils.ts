@@ -1702,8 +1702,9 @@ export type Item = {
 	id?: string
 	tooltip?: string
 	separatorTop?: boolean
-	/** Renders an on/off switch in the row's leading slot. Presentational: the
-	 * row's own click is what flips it, so `action` must apply the change. */
+	/** Renders an on/off switch at the end of the row, so `icon` keeps the leading
+	 * slot. Presentational: the row's own click is what flips it, so `action` must
+	 * apply the change. */
 	toggle?: boolean
 	submenuItems?: Item[]
 	shortcut?: string
