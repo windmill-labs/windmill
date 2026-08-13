@@ -297,13 +297,10 @@ class Target {
 	}
 
 	#dispatch(client, first) {
-		// No websocket may start a stopped server, and none counts as activity. Every
-		// websocket client on this port reconnects on an unconditional timer — vite's own
-		// restart probe, y-websocket at a 2.5s ceiling, the language-server retry — so
-		// starting on one means a reclaimed server is back within seconds and stays
-		// resident for as long as any tab is open. Recovery is the client's job instead:
-		// `devPollingDormancy` warms the server over HTTP the moment someone returns, and
-		// these sockets reconnect into it on their own retries.
+		// No websocket may start a stopped server, nor count as activity: every websocket
+		// client here reconnects on an unconditional timer (y-websocket at a 2.5s ceiling),
+		// so starting on one keeps a reclaimed server alive for as long as a tab is open.
+		// `devPollingDormancy` warms it over HTTP on return instead, before they retry.
 		const head = first.toString('latin1', 0, Math.min(first.length, MAX_HEAD_BYTES))
 		const isWebsocket = /\r\nupgrade:\s*websocket/i.test(head)
 		if (isWebsocket && !this.child) {
