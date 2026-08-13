@@ -58,11 +58,19 @@ profiles:
         split: right
         workingDir: backend
         command: PORT=${BACKEND_PORT:-8000} cargo watch -x "run ${CARGO_FEATURES:+--features $CARGO_FEATURES}"
+      # dev-supervisor runs vite only while someone is looking at the preview, which keeps
+      # the worktrees nobody has open from each costing 1.1-1.7 GB. The guard keeps panes
+      # working on branches cut before the script landed.
       - id: frontend
         kind: command
         split: bottom
         workingDir: frontend
-        command: npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0
+        command: >-
+          npm run generate-backend-client && bash -c 'export
+          REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}}; if [ -f
+          scripts/dev-supervisor.mjs ]; then exec node scripts/dev-supervisor.mjs -t
+          ${FRONTEND_PORT:-3000} --bind 0.0.0.0 --idle ${DEV_SUPERVISOR_IDLE:-15m}; else
+          exec npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0; fi'
         
   frontendOnly:
     runtime: host
@@ -87,7 +95,11 @@ profiles:
         kind: command
         split: right
         workingDir: frontend
-        command: npm run generate-backend-client && npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0
+        command: >-
+          npm run generate-backend-client && bash -c 'if [ -f scripts/dev-supervisor.mjs
+          ]; then exec node scripts/dev-supervisor.mjs -t ${FRONTEND_PORT:-3000} --bind
+          0.0.0.0 --idle ${DEV_SUPERVISOR_IDLE:-15m}; else exec npm run dev -- --port
+          ${FRONTEND_PORT:-3000} --host 0.0.0.0; fi'
 
   agentOnly:
     runtime: host
