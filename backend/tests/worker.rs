@@ -4429,10 +4429,8 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
                         "lock": null,
                         "path": null,
                         "type": "rawscript",
-                        // Resolved from jsr rather than `deno.land/x`, which is being sunset
-                        // and today serves `std@0.165.0` — what the old windmill client here
-                        // pulled in — with a corrupt brotli encoding, failing this module's
-                        // lock generation. Any remote specifier exercises the same path.
+                        // Any remote specifier exercises deno lock generation; jsr is the
+                        // registry Deno maintains, so prefer it over `deno.land/x`.
                         "content": "import { encodeBase64 } from \"jsr:@std/encoding@1/base64\"\n\nexport async function main() {\n  return encodeBase64(\"test\")\n}\n",
                         "language": "deno",
                         "input_transforms": {}
@@ -4485,14 +4483,10 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
         &format!("http://localhost:{port}"),
         "SECRET_TOKEN".to_owned(),
     );
-    // Locking these modules resolves third-party dependencies over the network (PyPI,
-    // deno.land, proxy.golang.org). A registry hiccup fails one module's lock generation,
-    // which still writes the flow — with `lock: null` on that module — and then fails the
-    // dependency job. A single attempt therefore makes this test a coin flip on registry
-    // availability, and the assertion below reports it as a bare module dump that says
-    // nothing about why the lock is missing. So: deploy again under a fresh path before
-    // giving up, and carry the job's own error into the failure message. A real breakage
-    // fails both attempts and names itself.
+    // Every module resolves a dependency from an external registry, and a registry failure
+    // writes `lock: null` for that module and fails the job — which the assertion below can
+    // only report as a module dump. So retry once, and keep the job's own error: without it
+    // a registry outage is indistinguishable from a broken locker.
     let mut locked_path = None;
     let mut last_error = None;
     for attempt in 0..2 {
