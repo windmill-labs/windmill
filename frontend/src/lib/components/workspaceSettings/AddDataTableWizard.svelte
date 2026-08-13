@@ -177,7 +177,14 @@
 	// in PostgreSQL, and a collision with a database created for something else still fails.
 	let instanceNameError = $derived(
 		wiz.provider === 'instance' && wiz.instance.mode === 'create'
-			? instanceDbNameError(wiz.instance.dbName ?? '', Object.keys(customInstanceDbs.current ?? {}))
+			? instanceDbNameError(
+					wiz.instance.dbName ?? '',
+					// `setup_custom_instance_db` registers the name whether it succeeds or fails, so
+					// after a failed attempt the instance holds a database this very wizard asked
+					// for. Counting it as taken would refuse the retry, on the step the user cannot
+					// see it from.
+					Object.keys(customInstanceDbs.current ?? {}).filter((n) => n !== claimedInstanceDb)
+				)
 			: undefined
 	)
 	let connectionStringError = $derived(
@@ -348,6 +355,10 @@
 		// earn the name and the path again, or it would write over its predecessor's secret.
 		claimedName = undefined
 		claimedPath = undefined
+		claimedInstanceDb = undefined
+		leftBehind = false
+		createdProjectName = undefined
+		createdProjectPath = undefined
 		nameConflict = ''
 		pathTakenError = ''
 		poolerUnavailable = undefined
@@ -480,6 +491,20 @@
 	let probePassed = $derived(!!wiz.probe.report?.can_create_table && !wiz.probe.error)
 
 	/**
+	 * A run in this session left something behind -- a row, a secret, a database, a project.
+	 * It outlives the checklist, which `backToReview` clears, because what was created does too.
+	 */
+	let leftBehind = $state(false)
+	/**
+	 * The Supabase project this session created. Held here rather than read off `run.result` for
+	 * the same reason: the checklist is cleared by every return to review, and the project is not.
+	 */
+	let createdProjectName = $state<string | undefined>(undefined)
+	/** Where its password went, so a later attempt cannot write over it from another branch. */
+	let createdProjectPath = $state<string | undefined>(undefined)
+	/** The instance database this session asked for, which is registered even when it failed. */
+	let claimedInstanceDb = $state<string | undefined>(undefined)
+	/**
 	 * The name this run has already claimed. `writeRow` merges into whatever the server holds
 	 * under the name, so a name that is free in the table on screen but taken on the server --
 	 * an unsaved rename here, or another admin since the page loaded -- would repoint someone
@@ -509,6 +534,16 @@
 	 * Supabase can never give back.
 	 */
 	let submitting = $state(false)
+
+	/**
+	 * A failed run can always be sent back to be corrected. What a run already created is
+	 * protected by `runSetup` refusing to mint a second Supabase password over the first one's
+	 * variable, not by keeping the fields out of reach -- a lock here would only take away the
+	 * rename that undoes the mistake.
+	 */
+	let canEditAfterFailure = $derived(
+		!!run.steps.length && !run.running && !submitting && !run.result?.ok
+	)
 
 	async function finish() {
 		if (submitting) return
@@ -557,6 +592,12 @@
 			return
 		}
 		run = { steps: planSteps(wiz), running: true }
+		// The database is registered by the call whatever it answers, so asking for one is
+		// already leaving something behind.
+		if (wiz.provider === 'instance' && wiz.instance.mode === 'create') {
+			claimedInstanceDb = wiz.instance.dbName?.trim()
+			leftBehind = true
+		}
 		let result: RunResult | undefined = undefined
 		try {
 			result = await runSetup(wiz, {
@@ -566,15 +607,24 @@
 					await customInstanceDbs.refetch()
 				},
 				onProgress: (steps) => (run.steps = steps),
-				onPoolerUnavailable: (reason) => (poolerUnavailable = reason)
+				onPoolerUnavailable: (reason) => (poolerUnavailable = reason),
+				createdProjectName,
+				createdProjectPath
 			})
 		} finally {
 			// `runSetup` catches per step, but anything escaping it would otherwise leave the
 			// button spinning with a page reload the only way out.
 			// Kept, not replaced: what an earlier attempt wrote is still out there, so a later
 			// one failing sooner must not hand its own row or secret back to the collision
-			// checks. Claimed only once the row exists.
+			// checks. Claimed while the row exists, and given up again the moment a refused run
+			// takes it back out -- the name is then free, and free is somebody else's to take.
+			if (result?.createdProjectName) {
+				createdProjectName = result.createdProjectName
+				createdProjectPath = result.createdProjectPath
+			}
+			if (result?.rowWritten || result?.mintedPath || result?.createdProjectName) leftBehind = true
 			if (result?.rowWritten) claimedName = name
+			else if (result?.rowRolledBack) claimedName = undefined
 			claimedPath = result?.mintedPath ?? claimedPath
 			run = {
 				...run,
@@ -608,7 +658,11 @@
 		dismissing = true
 		const confirmed = await confirmationModal.ask({
 			title: 'Leave without adding a data table?',
-			children: 'Nothing has been created yet, and what you have filled in here will be lost.',
+			// A run that failed and was sent back to be edited leaves whatever it got through
+			// behind it, so promising otherwise would be a lie exactly when it matters most.
+			children: leftBehind
+				? 'The setup that already ran left what it created behind, and what you have filled in here will be lost.'
+				: 'Nothing has been created yet, and what you have filled in here will be lost.',
 			confirmationText: 'Discard'
 		})
 		dismissing = false
@@ -830,6 +884,12 @@
 							>
 								Back
 							</Button>
+						{:else if canEditAfterFailure}
+							<!-- Try again repeats the same inputs, so it cannot help a run that failed on
+							one of them -- a database name already taken on the instance, a project name
+							Supabase refuses. Dropping the checklist puts the earlier steps back within
+							reach, which is the only way to edit those. -->
+							<Button size="xs" variant="default" onClick={backToReview}>Back</Button>
 						{/if}
 					</div>
 					<Button

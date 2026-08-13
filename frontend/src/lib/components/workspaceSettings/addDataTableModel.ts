@@ -335,16 +335,47 @@ export type RunDeps = {
 	onProgress: (steps: SetupStep[]) => void
 	/** Session pooling was asked for but could not be read; a direct host was written. */
 	onPoolerUnavailable?: (reason: string) => void
+	/**
+	 * The Supabase project an earlier attempt in this session created. Minting a second password
+	 * over the first one's variable would lose the only copy of credentials Supabase will not
+	 * repeat, so a run that would do that refuses -- but only once it has seen that the project
+	 * is really there, since the name is also recorded when a create could not be confirmed.
+	 */
+	createdProjectName?: string
+	/** Where that project's password was written, which nothing later may write over. */
+	createdProjectPath?: string
 }
 
 export type RunResult = {
 	ok: boolean
 	report?: TestDataTableConnectionResponse
 	error?: string
-	/** The workspace config now holds this data table, whether or not the run went on to pass. */
+	/**
+	 * The workspace config still holds this data table. False when the run never got that far,
+	 * and when a refused instance database was taken back out again -- so the name is free and
+	 * the caller must not claim it.
+	 */
 	rowWritten?: boolean
+	/** A row this run had written is gone again, so a claim on the name has to go with it. */
+	rowRolledBack?: boolean
+	/**
+	 * The Supabase project this run created, or could not prove it had not created, and the path
+	 * its password went to. Supabase never shows that password again, so the variable there is
+	 * the only copy and no later attempt may write over it.
+	 */
+	createdProjectName?: string
+	createdProjectPath?: string
 	/** The secret variable this run wrote, so a retry knows the path is occupied by its own. */
 	mintedPath?: string
+}
+
+/**
+ * Why a run will not write at a path that already holds a created project's password. Names
+ * the path the password is actually at, which is not always the one the wizard is pointing at
+ * now -- the review step can be edited after a failure.
+ */
+function createdSecretRefusal(projectName: string, passwordPath: string): string {
+	return `The password of the Supabase project ${projectName}, which this setup created, is stored at ${passwordPath}. Writing here would replace it and Supabase cannot show that password again. Name the project ${projectName} again to carry on with it, or use a different path.`
 }
 
 async function exists(kind: 'variable' | 'resource', workspace: string, path: string) {
@@ -370,6 +401,27 @@ async function writeRow(
 		workspace: deps.workspace,
 		requestBody: { settings: { datatables }, renames: [], deleted_datatables: [] }
 	})
+}
+
+/**
+ * Take back a row this run wrote. Reports whether it went, since a failure to undo leaves the
+ * data table in the config and the caller has to keep saying so.
+ */
+async function removeRow(deps: RunDeps, name: string): Promise<boolean> {
+	try {
+		const settings = await WorkspaceService.getSettings({ workspace: deps.workspace })
+		const datatables: Record<string, any> = { ...(settings.datatable?.datatables ?? {}) }
+		delete datatables[name]
+		// Not `deleted_datatables`: that exists to cascade migration bookkeeping and deployment
+		// records for a data table that was really in use, and this one never got that far.
+		await WorkspaceService.editDataTableConfig({
+			workspace: deps.workspace,
+			requestBody: { settings: { datatables }, renames: [], deleted_datatables: [] }
+		})
+		return true
+	} catch {
+		return false
+	}
 }
 
 async function writeSecret(workspace: string, path: string, value: string, description: string) {
@@ -427,14 +479,33 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 		deps.onProgress([...steps])
 	}
 	let rowWritten = false
+	let rowRolledBack = false
 	let mintedPath: string | undefined = undefined
+	let createdProjectName: string | undefined = undefined
+	let createdProjectPath: string | undefined = undefined
 	const fail = (message: string): RunResult => {
 		advance('failed', message)
-		return { ok: false, error: message, rowWritten, mintedPath }
+		return {
+			ok: false,
+			error: message,
+			rowWritten,
+			rowRolledBack,
+			mintedPath,
+			createdProjectName,
+			createdProjectPath
+		}
 	}
 
 	const path = resourcePathOf(state)
 	const name = state.review.name.trim()
+	/**
+	 * This run is pointed at the path where an earlier attempt stored a created project's
+	 * password. Supabase hands that password out once, and every write to the path upserts, so
+	 * the three routes back to it -- connecting the new project as an existing one, pointing the
+	 * wizard at a hand-written connection, and creating a second project -- all refuse on it.
+	 * Aim the run somewhere else and there is nothing left to protect.
+	 */
+	const guardsCreatedSecret = !!deps.createdProjectPath && deps.createdProjectPath === path
 	const instanceName = state.instance.dbName?.trim() ?? ''
 
 	let project = state.supabase.project
@@ -450,9 +521,10 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 				// that dies right after creation is then still repairable; the reverse order
 				// would strand a billed project nobody holds the password to.
 				const wanted = state.supabase.projectName.trim()
-				const existing = (await listSupabaseProjects(deps.supabaseToken!)).find(
-					(p) => p.name === wanted && (!state.supabase.org || projectOrg(p) === state.supabase.org)
-				)
+				const inOrg = (name: string) => (p: SupabaseProject) =>
+					p.name === name && (!state.supabase.org || projectOrg(p) === state.supabase.org)
+				const projects = await listSupabaseProjects(deps.supabaseToken!)
+				const existing = projects.find(inOrg(wanted))
 				if (existing) {
 					if (!(await exists('variable', deps.workspace, path)))
 						return fail(
@@ -460,6 +532,20 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						)
 					project = existing
 				} else {
+					// The earlier attempt's project has to still be there for its password to be worth
+					// protecting. A name recorded because a create could not be confirmed, with no
+					// project behind it, was a false alarm -- and refusing on it would leave the
+					// session with nothing it could do.
+					// By name alone, not `inOrg`: the earlier project was created under whatever
+					// organization was selected then, and the one selected now may be a different
+					// one -- which is itself a way to arrive here. Refusing a namesake in another
+					// organization costs a rename; missing the real one costs the password.
+					const earlier = deps.createdProjectName
+					if (guardsCreatedSecret && earlier && projects.some((p) => p.name === earlier)) {
+						createdProjectName = earlier
+						createdProjectPath = deps.createdProjectPath
+						return fail(createdSecretRefusal(earlier, deps.createdProjectPath ?? path))
+					}
 					const password = generateDbPassword()
 					await writeSecret(
 						deps.workspace,
@@ -468,12 +554,36 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						`Password for the ${wanted} Supabase database`
 					)
 					mintedPath = path
-					project = await createSupabaseProject(deps.supabaseToken!, {
-						name: wanted,
-						organizationSlug: state.supabase.org!,
-						region: state.supabase.region,
-						dbPass: password
-					})
+					try {
+						project = await createSupabaseProject(deps.supabaseToken!, {
+							name: wanted,
+							organizationSlug: state.supabase.org!,
+							region: state.supabase.region,
+							dbPass: password
+						})
+						// From here the password in `path` is the only copy of a billed project's
+						// credentials, and every later write to that path upserts.
+						createdProjectName = wanted
+						createdProjectPath = path
+					} catch (err) {
+						// A refusal and a lost response look the same from here, and only one of them
+						// bills. Ask Supabase which it was: a project that turned up is ours, holds the
+						// password just written, and is what the rest of the run is for. If even that
+						// cannot be answered -- an expired token answers nothing -- record the name
+						// anyway, and let the next attempt's own lookup decide whether it was real.
+						const appeared = await listSupabaseProjects(deps.supabaseToken!).then(
+							(after) => after.find(inOrg(wanted)),
+							() => {
+								createdProjectName = wanted
+								createdProjectPath = path
+								return undefined
+							}
+						)
+						if (!appeared) throw err
+						createdProjectName = wanted
+						createdProjectPath = path
+						project = appeared
+					}
 				}
 			} else if (planned[index].key === 'wait_healthy') {
 				// Minutes of polling with nothing else to show: hang what Supabase reports off the
@@ -486,6 +596,8 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 			} else if (planned[index].key === 'save_credentials') {
 				if (state.provider === 'supabase') {
 					if (state.supabase.mode === 'existing') {
+						if (guardsCreatedSecret)
+							return fail(createdSecretRefusal(deps.createdProjectName!, path))
 						await writeSecret(
 							deps.workspace,
 							path,
@@ -509,6 +621,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						`Supabase project ${project!.name}`
 					)
 				} else {
+					if (guardsCreatedSecret) return fail(createdSecretRefusal(deps.createdProjectName!, path))
 					const parts = newResourceParts(state)!
 					await writeSecret(
 						deps.workspace,
@@ -537,36 +650,84 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 				const checks = instanceSetupSteps(instanceName, status, false)
 				if (!status.success) {
 					advance('failed', status.error ?? 'Setup failed', checks)
-					return { ok: false, error: status.error ?? 'Setup failed', rowWritten, mintedPath }
+					return {
+						ok: false,
+						error: status.error ?? 'Setup failed',
+						rowWritten,
+						rowRolledBack,
+						mintedPath,
+						createdProjectName,
+						createdProjectPath
+					}
 				}
 				advance('running', undefined, checks)
-			} else {
-				// The row goes in before the check rather than after it: an instance data table
-				// is probed by name, through the very entry being written here.
-				await writeRow(
-					deps,
-					name,
-					state.provider === 'instance'
-						? { resource_type: 'instance', resource_path: instanceName }
-						: { resource_type: 'postgresql', resource_path: resourcePath }
-				)
+			} else if (state.provider === 'instance') {
+				// An instance data table is probed by name, through the very entry being written
+				// here, so this is the one branch that cannot check first. A database Windmill
+				// cannot store data in must not stay in the config, so a refusal takes the row
+				// back out -- leaving it would also block retrying under the same name.
+				const database = { resource_type: 'instance' as const, resource_path: instanceName }
+				await writeRow(deps, name, database)
 				rowWritten = true
-				const report =
-					state.provider === 'instance'
-						? await WorkspaceService.testDataTableConnection({
-								workspace: deps.workspace,
-								datatableName: name
-							})
-						: await WorkspaceService.testDataTableResourceConnection({
-								workspace: deps.workspace,
-								resourcePath
-							})
+				const report = await WorkspaceService.testDataTableConnection({
+					workspace: deps.workspace,
+					datatableName: name
+				})
 				if (!report.can_create_table) {
+					rowRolledBack = await removeRow(deps, name)
+					rowWritten = !rowRolledBack
 					advance('failed', 'The database is reachable but its user cannot create tables.')
-					return { ok: false, report, rowWritten, mintedPath }
+					return {
+						ok: false,
+						report,
+						rowWritten,
+						rowRolledBack,
+						mintedPath,
+						createdProjectName,
+						createdProjectPath
+					}
 				}
 				advance('done')
-				return { ok: true, report, rowWritten, mintedPath }
+				return {
+					ok: true,
+					report,
+					rowWritten,
+					rowRolledBack,
+					mintedPath,
+					createdProjectName,
+					createdProjectPath
+				}
+			} else {
+				// Checked through the resource, so nothing is written until the database has proved
+				// it can hold a data table.
+				const report = await WorkspaceService.testDataTableResourceConnection({
+					workspace: deps.workspace,
+					resourcePath
+				})
+				if (!report.can_create_table) {
+					advance('failed', 'The database is reachable but its user cannot create tables.')
+					return {
+						ok: false,
+						report,
+						rowWritten,
+						rowRolledBack,
+						mintedPath,
+						createdProjectName,
+						createdProjectPath
+					}
+				}
+				await writeRow(deps, name, { resource_type: 'postgresql', resource_path: resourcePath })
+				rowWritten = true
+				advance('done')
+				return {
+					ok: true,
+					report,
+					rowWritten,
+					rowRolledBack,
+					mintedPath,
+					createdProjectName,
+					createdProjectPath
+				}
 			}
 			advance('done')
 		} catch (err: any) {
@@ -574,5 +735,5 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 		}
 	}
 
-	return { ok: true, rowWritten, mintedPath }
+	return { ok: true, rowWritten, rowRolledBack, mintedPath, createdProjectName, createdProjectPath }
 }
