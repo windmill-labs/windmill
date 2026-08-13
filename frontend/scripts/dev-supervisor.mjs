@@ -57,6 +57,9 @@ function parseArgs(argv) {
 	// Loopback by default: the supervised port fronts the /api proxy to a local backend
 	// and serves source over /@fs, and `server.allowedHosts` does not stop a non-browser
 	// client from sending whatever Host header it likes. Widening is opt-in.
+	// Keep `--idle` above the app's 5-minute background poll. Below it, a tab that never
+	// went dormant can have its server reclaimed with no way back: websockets cannot start
+	// one, and the dormancy warm-up only fires on a dormant-to-awake transition.
 	const opts = { targets: [], idleMs: parseDuration('15m'), bind: '127.0.0.1', stats: null }
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]
@@ -297,28 +300,27 @@ class Target {
 	}
 
 	#dispatch(client, first) {
-		// Three kinds of connection, told apart by the subprotocol vite gives its own
-		// sockets. Vite's must not restart a reclaimed server, because its reconnect probe
-		// (`vite-ping`) would resurrect every one we stop. The app's `/ws/*` language-server
-		// and multiplayer sockets must, or a parked script editor loses its smart assistant
-		// until reload. Neither counts as activity: a tab nobody is looking at still
-		// heartbeats, and treating that as use is what pinned servers forever.
+		// No websocket may start a stopped server, nor count as activity: every websocket
+		// client here reconnects on an unconditional timer (y-websocket at a 2.5s ceiling),
+		// so starting on one keeps a reclaimed server alive for as long as a tab is open.
+		// `devPollingDormancy` warms it over HTTP on return instead, before they retry.
 		const head = first.toString('latin1', 0, Math.min(first.length, MAX_HEAD_BYTES))
 		const isWebsocket = /\r\nupgrade:\s*websocket/i.test(head)
-		const isViteSocket =
-			isWebsocket && /\r\nsec-websocket-protocol:[^\r\n]*vite-(hmr|ping)/i.test(head)
-		if (isViteSocket && !this.child) {
+		// `starting` too, not just `child`: a start is in flight before the child exists, and
+		// the warm-up opens exactly that window for the sockets retrying alongside it. A
+		// socket may join a start someone else asked for; it still never initiates one.
+		if (isWebsocket && !this.child && !this.starting) {
 			client.destroy()
 			return
 		}
-		if (!isWebsocket) this.lastActivity = Date.now()
-		if (!isViteSocket) {
-			this.liveSockets.add(client)
-			// Registered at insertion, not after the upstream connects: a client that gives
-			// up during a cold start would otherwise stay in the set forever and silently
-			// wedge the idle reaper for the life of the process.
-			client.once('close', () => this.liveSockets.delete(client))
+		if (!isWebsocket) {
+			this.lastActivity = Date.now()
 		}
+		this.liveSockets.add(client)
+		// Registered at insertion, not after the upstream connects: a client that gives up
+		// during a cold start would otherwise stay in the set forever and silently wedge the
+		// idle reaper for the life of the process.
+		client.once('close', () => this.liveSockets.delete(client))
 
 		this.ensureStarted().then(
 			(port) => {

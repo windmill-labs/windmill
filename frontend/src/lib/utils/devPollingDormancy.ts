@@ -92,6 +92,9 @@ export function installDevPollingDormancy(): void {
 		}
 		if (!dormant) return
 		dormant = false
+		// The dev supervisor may have reclaimed the server while we were quiet, and only HTTP
+		// restarts it, so put it back up before the app's sockets retry into it.
+		void fetch(`${location.origin}/`, { method: 'HEAD', cache: 'no-store' }).catch(() => {})
 		for (const registration of registrations.values()) {
 			registration.native = nativeSetInterval(
 				registration.handler,
