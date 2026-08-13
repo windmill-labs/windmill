@@ -3480,6 +3480,16 @@ fn parse_azure_devops_placeholder(url: &str) -> Result<Option<(&str, &str)>> {
     )))
 }
 
+/// Hosts an Azure DevOps token may be sent to. The minted token is an AAD token for
+/// the Azure DevOps resource id, so Microsoft is the only party it is meaningful to.
+fn is_azure_devops_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.');
+    host == "dev.azure.com"
+        || host.ends_with(".dev.azure.com")
+        || host == "visualstudio.com"
+        || host.ends_with(".visualstudio.com")
+}
+
 /// Expand an `AZURE_DEVOPS_TOKEN(...)` placeholder in a git URL, or return the URL
 /// unchanged when it has none. The referenced resource is read through `dba`, so an
 /// authed caller only reaches credentials they can already read.
@@ -3499,7 +3509,22 @@ async fn resolve_azure_devops_url(
     // Vet the destination before minting: a URL the host checks would reject must not
     // cost a live credential (nor cache one), and whoever can edit the URL would
     // otherwise drive a token mint per poll tick.
-    validate_git_url(&url.replace(placeholder, "windmill")).await?;
+    let probe_url = url.replace(placeholder, "windmill");
+    validate_git_url(&probe_url).await?;
+
+    // The background poller reads the referenced resource under the system identity,
+    // which bypasses RLS. Confining the destination is what keeps that from becoming an
+    // exfiltration primitive: whoever can write this URL picks both the resource path
+    // and the host, so an unconfined splice would hand a credential they cannot read to
+    // a host they choose. Unlike `$var:`, which substitutes a whole value and so cannot
+    // place a secret inside a caller-chosen URL, this placeholder is a substring.
+    let host = extract_host_from_git_url(&probe_url)
+        .ok_or_else(|| Error::BadRequest("Could not parse hostname from git URL".to_string()))?;
+    if !is_azure_devops_host(&host) {
+        return Err(Error::BadRequest(format!(
+            "An AZURE_DEVOPS_TOKEN(...) placeholder is only allowed on an Azure DevOps URL (dev.azure.com or visualstudio.com), not '{host}'"
+        )));
+    }
 
     let value =
         get_resource_value_interpolated_internal(dba, w_id, resource_path, None, None, allow_cache)
@@ -4495,6 +4520,18 @@ mod tests {
                 .unwrap(),
             Some(("AZURE_DEVOPS_TOKEN(f/azure)", "f/azure"))
         );
+    }
+
+    #[test]
+    fn test_is_azure_devops_host() {
+        assert!(is_azure_devops_host("dev.azure.com"));
+        assert!(is_azure_devops_host("vssps.dev.azure.com"));
+        assert!(is_azure_devops_host("myorg.visualstudio.com"));
+        // The whole point: a token must never be splice-able onto a chosen host.
+        assert!(!is_azure_devops_host("attacker.example"));
+        assert!(!is_azure_devops_host("dev.azure.com.attacker.example"));
+        assert!(!is_azure_devops_host("notvisualstudio.com"));
+        assert!(!is_azure_devops_host("github.com"));
     }
 
     #[test]
