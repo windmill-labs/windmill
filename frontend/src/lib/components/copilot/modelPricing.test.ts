@@ -27,13 +27,24 @@ describe('resolveModelPrice', () => {
 		expect(resolveModelPrice('customai', 'some-in-house-model', undefined)).toBeUndefined()
 	})
 
-	it('does not let a newer revision inherit an older one’s price', () => {
-		// `gpt-5.6` normalizes to `gpt-5-6`, which the `gpt-5` entry would otherwise
-		// claim — pricing a model we do not track at a rate that is several times off.
+	it('does not let another model inherit a price through a shared prefix', () => {
+		// A sub-model (`-pro`) or a newer revision (`gpt-5.6` → `gpt-5-6`) is a
+		// different model at a different rate; inheriting `gpt-5`'s would be off by
+		// an order of magnitude, and silently so.
 		expect(resolveModelPrice('openai', 'gpt-5', undefined)?.price.input).toBe(1.25)
 		expect(resolveModelPrice('openai', 'gpt-5-mini', undefined)?.price.input).toBe(0.25)
+		expect(resolveModelPrice('openai', 'gpt-5-pro', undefined)).toBeUndefined()
 		expect(resolveModelPrice('openai', 'gpt-5.6', undefined)).toBeUndefined()
 		expect(resolveModelPrice('googleai', 'gemini-3.1', undefined)).toBeUndefined()
+	})
+
+	it('still resolves the route decorations that name the same model', () => {
+		// Dates and Bedrock's -v1 are ways of spelling one model, not sub-models.
+		expect(resolveModelPrice('anthropic', 'claude-opus-4-5-20251101', undefined)?.price.input).toBe(5)
+		expect(
+			resolveModelPrice('bedrock', 'anthropic.claude-sonnet-4-6-20250101-v1:0', undefined)?.price
+				.input
+		).toBe(3)
 	})
 
 	it('prefers a workspace override, keeping the model’s own cache ratios', () => {

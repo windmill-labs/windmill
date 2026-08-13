@@ -129,10 +129,24 @@ function normalizeVersionSeparators(model: string): string {
  * Family fallbacks ending on a letter get no such guard — a version welded
  * straight onto the name (`llama3.1`) is exactly what they exist to catch.
  */
-export function buildModelMatchers<T>(entries: [name: string, value: T][]): [RegExp, T][] {
+export function buildModelMatchers<T>(
+	entries: [name: string, value: T][],
+	{ strictVariants = false }: { strictVariants?: boolean } = {}
+): [RegExp, T][] {
 	return entries.map(([name, value]) => {
 		const pattern = normalizeVersionSeparators(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-		return [new RegExp(/\d$/.test(pattern) ? `${pattern}(?!\\d)` : pattern), value]
+		const guards = [
+			// An entry ending on a version digit must not run into a longer version.
+			/\d$/.test(pattern) ? '(?!\\d)' : '',
+			// A named sub-model (`gpt-5-pro`, `gpt-5-mini`) is a different model with
+			// its own price, not another route to this one — so under strictVariants an
+			// entry does not match when a further *name* segment follows. Date suffixes
+			// (`-20251101`) and Bedrock's `-v1` are route decorations, not sub-models,
+			// and still match. Off by default: for a context window an inherited value
+			// is a safe approximation, for a price it is a wrong number.
+			strictVariants ? '(?!-(?!v\\d)[a-z])' : ''
+		].join('')
+		return [new RegExp(pattern + guards), value]
 	})
 }
 

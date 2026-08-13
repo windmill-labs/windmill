@@ -53,10 +53,17 @@ type PriceEntry = {
  * Providers whose catalogue turns over too quickly to track (DeepSeek, Mistral,
  * Groq, TogetherAI, custom deployments) are deliberately absent.
  *
- * `null` marks a model that is known to exist but whose rates are not: it stops a
- * newer revision from falling through to an older one's family entry and being
- * quietly mispriced. Unpriced is a supported state (the UI says so and points at
- * the override); a confidently wrong number is not.
+ * `null` marks a model that is known to exist but whose rates are not. Unpriced is
+ * a supported state (the UI says so and points at the override); a confidently
+ * wrong number is not — which is also why these matchers are built with
+ * `strictVariants`, so an unlisted sub-model (`gpt-5-pro`) reports no rate instead
+ * of inheriting its family's.
+ *
+ * One known gap the per-model shape cannot express: a few vendors charge more
+ * above a context threshold (Gemini 2.5 Pro past 200k input, Anthropic's 1M-context
+ * beta). Usage is aggregated per model before pricing, so those requests are
+ * estimated at the standard tier and understate. An affected workspace can set the
+ * higher rate as its override.
  */
 const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	// Anthropic — Opus 4.1 and older bill at the pre-4.5 Opus rate, so the family
@@ -84,8 +91,9 @@ const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	// rate. There is no charge for writing the cache and no usage field reporting
 	// one, so the write rate never applies. The -mini/-nano entries must precede
 	// the family entry, which would otherwise claim them.
-	// Revisions past gpt-5 are priced separately by OpenAI and are not tracked here;
-	// without these the `gpt-5` entry below would claim them at gpt-5's rates.
+	// Revisions past gpt-5 are priced separately by OpenAI and are not tracked here.
+	// `strictVariants` does not cover these: a version bump is digits, not a name
+	// segment, so `gpt-5-6` would otherwise still match `gpt-5`.
 	['gpt-5.6', null],
 	['gpt-5.5', null],
 	['gpt-5.4', null],
@@ -120,7 +128,8 @@ const MODEL_PRICE_MATCHERS = buildModelMatchers(
 			cacheRead: entry.cacheRead ?? entry.input * CACHE_READ_RATIO,
 			cacheWrite: entry.cacheWrite ?? entry.input * CACHE_WRITE_RATIO
 		}
-	])
+	]),
+	{ strictVariants: true }
 )
 
 export function getKnownModelPrice(model: string): ModelPrice | undefined {
