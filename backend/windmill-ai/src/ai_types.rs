@@ -175,3 +175,45 @@ pub struct OpenAIMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Vec<UrlCitation>>,
 }
+
+// ============================================================================
+// Model pricing
+// ============================================================================
+
+/// Far above any real per-million-token rate, so a value beyond it is a unit
+/// mistake rather than a price. The floor matters more: a negative rate would make
+/// spend subtract, and NaN/infinity would poison every total derived from it.
+pub const MAX_MODEL_RATE: f64 = 1000.0;
+
+/// Bound the `model_pricing` map of an AI config that is only available untyped —
+/// the instance config is stored through the generic global-settings endpoint,
+/// which never deserializes it into `AIConfig`, so the typed check on the
+/// workspace path does not cover it.
+pub fn validate_model_pricing_json(ai_config: &serde_json::Value) -> Result<(), String> {
+    let Some(pricing) = ai_config.get("model_pricing").and_then(|v| v.as_object()) else {
+        return Ok(());
+    };
+    for (key, price) in pricing {
+        let Some(price) = price.as_object() else {
+            return Err(format!("Price override for {} is not an object", key));
+        };
+        for field in ["input", "output", "cache_read", "cache_write"] {
+            let Some(rate) = price.get(field) else { continue };
+            let rate = rate
+                .as_f64()
+                .filter(|r| r.is_finite() && *r >= 0.0 && *r <= MAX_MODEL_RATE);
+            if rate.is_none() {
+                return Err(format!(
+                    "Price override for {}: {} must be between 0 and {}",
+                    key, field, MAX_MODEL_RATE
+                ));
+            }
+        }
+        for required in ["input", "output"] {
+            if !price.contains_key(required) {
+                return Err(format!("Price override for {} is missing {}", key, required));
+            }
+        }
+    }
+    Ok(())
+}

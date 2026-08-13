@@ -101,10 +101,13 @@
 			{#each Object.entries(modelsByProvider).filter(([_, models]) => models.length > 0) as [provider, models]}
 				{@const isExpanded = !collapsedProviders[provider]}
 				<div class="border rounded-md bg-surface-tertiary">
-					<button
-						type="button"
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
 						onclick={() => toggleProvider(provider)}
-						class="w-full px-4 py-1 min-h-8 flex items-center justify-between hover:bg-surface-hover transition-colors rounded-t-md"
+						wrapperClasses="w-full"
+						btnClasses="w-full px-4 min-h-8 justify-between rounded-t-md rounded-b-none"
+						endIcon={{ icon: isExpanded ? ChevronUp : ChevronDown }}
 					>
 						<div class="flex items-center gap-2">
 							<h4 class="font-medium text-xs capitalize">{provider}</h4>
@@ -112,12 +115,7 @@
 								<Badge color="blue">Modified</Badge>
 							{/if}
 						</div>
-						{#if isExpanded}
-							<ChevronUp size={16} class="text-gray-500" />
-						{:else}
-							<ChevronDown size={16} class="text-gray-500" />
-						{/if}
-					</button>
+					</Button>
 
 					{#if isExpanded}
 						<div transition:slide|local={{ duration: 200 }} class="p-4 border-t">

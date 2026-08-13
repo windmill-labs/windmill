@@ -672,6 +672,12 @@ export class AIChatManager {
 	 * Only token counts leave the browser — rates are applied when the usage is
 	 * read, so a corrected price also corrects everything already recorded. */
 	private recordUsage(usage: ChatTokenUsage, provider: AIProvider, model: string) {
+		// A provider that reports no usage still yields an all-zero report. Recording
+		// it would add a model row of zeros to the chip and a $0 line to the workspace
+		// view, both claiming a request cost nothing rather than that it went uncounted.
+		if (usage.total === 0 && usage.prompt === 0 && usage.completion === 0) {
+			return
+		}
 		this.usageByModel = addModelTokenUsage(this.usageByModel, provider, model, usage)
 		const tokens = billedTokens(usage)
 		logAiUsage({

@@ -122,8 +122,8 @@
 			</div>
 			{#if usage.current?.truncated}
 				<p class="text-xs text-tertiary">
-					More rows matched than are shown; the biggest spenders are listed. Narrow the range or
-					group differently to see the rest.
+					More rows matched than are shown; the highest-volume ones are listed. Narrow the range
+					or group differently to see the rest.
 				</p>
 			{/if}
 			<div class="overflow-x-auto border rounded-md">

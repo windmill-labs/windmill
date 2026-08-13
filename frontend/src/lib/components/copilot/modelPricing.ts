@@ -113,24 +113,31 @@ export function getKnownModelPrice(model: string): ModelPrice | undefined {
 }
 
 /**
- * The rate a workspace should be billed at for one model: its override when an
- * admin set one, otherwise the published list price, otherwise nothing. An
- * override that omits the cache rates keeps the usual multiples of its own input
- * rate, so an admin who only knows their input/output pricing does not have to
- * invent the other two.
+ * Rates the API bounds on the way in — but an instance-level config is stored as an
+ * untyped settings blob that bypasses that handler, so the reader enforces the same
+ * bounds rather than rendering a negative, infinite or absurd total.
  */
-/** A rate that would make spend negative, infinite or NaN is not a price. The API
- * validates what it stores, but an instance-level config is written as an untyped
- * settings blob, so the reader refuses bad values rather than rendering nonsense. */
+const MAX_MODEL_RATE = 1000
+
 function isUsableRate(rate: number | undefined): boolean {
-	return rate === undefined || (Number.isFinite(rate) && rate >= 0)
+	return rate === undefined || (Number.isFinite(rate) && rate >= 0 && rate <= MAX_MODEL_RATE)
 }
 
+/**
+ * The rate a workspace should be billed at for one model: its override when an
+ * admin set one, otherwise the published list price, otherwise nothing.
+ *
+ * An override that omits the cache rates inherits them from the model's own
+ * built-in entry — the cached-read discount is a property of the provider, not of
+ * the negotiated price, and the settings editor only asks for input/output. Only a
+ * model with no built-in entry falls back to the generic ratios.
+ */
 export function resolveModelPrice(
 	provider: AIProvider | string,
 	model: string,
 	overrides: Record<string, ModelPriceOverride> | undefined
 ): ResolvedModelPrice | undefined {
+	const builtin = getKnownModelPrice(model)
 	const candidate = overrides?.[modelKey(provider, model)]
 	const override =
 		candidate &&
@@ -141,17 +148,18 @@ export function resolveModelPrice(
 			? candidate
 			: undefined
 	if (override) {
+		const cacheReadRatio = builtin ? builtin.cacheRead / builtin.input : CACHE_READ_RATIO
+		const cacheWriteRatio = builtin ? builtin.cacheWrite / builtin.input : CACHE_WRITE_RATIO
 		return {
 			source: 'override',
 			price: {
 				input: override.input,
 				output: override.output,
-				cacheRead: override.cache_read ?? override.input * CACHE_READ_RATIO,
-				cacheWrite: override.cache_write ?? override.input * CACHE_WRITE_RATIO
+				cacheRead: override.cache_read ?? override.input * cacheReadRatio,
+				cacheWrite: override.cache_write ?? override.input * cacheWriteRatio
 			}
 		}
 	}
-	const builtin = getKnownModelPrice(model)
 	return builtin ? { source: 'builtin', price: builtin } : undefined
 }
 

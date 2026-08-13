@@ -23,6 +23,7 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
+use windmill_ai::ai_types::MAX_MODEL_RATE;
 use windmill_ai::credentials::ProviderCredentials;
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
@@ -441,11 +442,6 @@ pub struct ModelPriceOverride {
     pub cache_write: Option<f64>,
 }
 
-/// Far above any real per-million-token rate, so a value beyond it is a unit
-/// mistake rather than a price. The floor matters more: a negative rate would make
-/// spend subtract, and NaN/infinity would poison every total derived from it.
-pub const MAX_MODEL_RATE: f64 = 1000.0;
-
 impl ModelPriceOverride {
     pub fn validate(&self, key: &str) -> Result<()> {
         for (field, rate) in [
@@ -708,8 +704,10 @@ async fn list_ai_usage(
         )));
     }
 
-    // Fetch one past the cap to detect truncation, and order by spend so a capped
-    // listing keeps the buckets worth looking at rather than an arbitrary slice.
+    // Fetch one past the cap to detect truncation. Ordering is by token volume, not
+    // by cost: rates are applied by the caller, so this query cannot know what a
+    // bucket cost. Volume is the closest proxy available here, and the caller is told
+    // the listing was capped rather than being left to sum a partial set silently.
     let mut rows = sqlx::query_as!(
         AITokenUsageBucket,
         r#"SELECT

@@ -27,14 +27,33 @@ describe('resolveModelPrice', () => {
 		expect(resolveModelPrice('customai', 'some-in-house-model', undefined)).toBeUndefined()
 	})
 
-	it('prefers a workspace override, defaulting its cache rates off its own input rate', () => {
+	it('prefers a workspace override, keeping the model’s own cache ratios', () => {
 		const resolved = resolveModelPrice('anthropic', 'claude-opus-5', {
 			'anthropic:claude-opus-5': { input: 2, output: 8 }
 		})
 		expect(resolved?.source).toBe('override')
 		expect(resolved?.price.input).toBe(2)
+		// Anthropic reads a cached prefix at a tenth and writes at 1.25x.
 		expect(resolved?.price.cacheRead).toBeCloseTo(0.2)
 		expect(resolved?.price.cacheWrite).toBeCloseTo(2.5)
+	})
+
+	it('applies the overridden model’s own cache discount, not Anthropic’s', () => {
+		// gpt-4o discounts a cached read by half, not by a tenth — an override that
+		// only states input/output must not silently inherit the Anthropic ratio.
+		const resolved = resolveModelPrice('openai', 'gpt-4o', {
+			'openai:gpt-4o': { input: 2, output: 8 }
+		})
+		expect(resolved?.price.cacheRead).toBeCloseTo(1)
+	})
+
+	it('ignores an override whose rates could not be a price', () => {
+		for (const bad of [{ input: -1, output: 8 }, { input: 1e9, output: 8 }]) {
+			const resolved = resolveModelPrice('anthropic', 'claude-opus-5', {
+				'anthropic:claude-opus-5': bad
+			})
+			expect(resolved?.source).toBe('builtin')
+		}
 	})
 })
 
