@@ -542,6 +542,23 @@ pub async fn workspaces_referencing_instance_groups(
     Ok(workspaces)
 }
 
+/// Compute and advisory-lock every workspace whose auto-assignment config references any of
+/// `groups`. Mutation paths call this before taking any other row lock in the transaction —
+/// the per-workspace advisory lock is the first lock in the hierarchy (see
+/// `reconcile_workspace_instance_groups`). Same authorization contract as
+/// `workspaces_referencing_instance_groups`.
+#[cfg(feature = "private")]
+pub async fn lock_workspaces_referencing_instance_groups(
+    groups: &[String],
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<Vec<String>> {
+    use windmill_api_workspaces::workspaces_ee::lock_instance_group_workspaces;
+
+    let workspaces = workspaces_referencing_instance_groups(groups, tx).await?;
+    lock_instance_group_workspaces(&workspaces, tx).await?;
+    Ok(workspaces)
+}
+
 /// Drop `groups` from every workspace's instance-group auto-assignment config.
 ///
 /// Workspaces reference instance groups by name in `workspace_settings.auto_invite`, and
@@ -659,10 +676,10 @@ async fn delete_igroup(
         vec![]
     };
 
-    // Captured before the settings update strips the group from them.
+    // Captured and advisory-locked before the settings update strips the group from them.
     #[cfg(feature = "private")]
     let affected_workspaces =
-        workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
+        lock_workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
 
     remove_instance_groups_from_workspace_settings(std::slice::from_ref(&name), &mut tx).await?;
 
@@ -981,17 +998,19 @@ async fn add_user_igroup(
     )
     .await?;
 
+    // First lock in the hierarchy — before the instance-role updates below.
+    #[cfg(feature = "private")]
+    let affected_workspaces =
+        lock_workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
+
     // Apply instance-level role from group membership
     let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
     apply_instance_role(&email, effective_role.as_deref(), &mut tx).await?;
 
-    // Sync workspace membership derived from this instance group. Last, per the
-    // reconciler's lock-ordering contract.
+    // Sync workspace membership derived from this instance group.
     #[cfg(feature = "private")]
     {
         use windmill_api_workspaces::workspaces_ee::reconcile_workspace_instance_groups;
-        let affected_workspaces =
-            workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
         reconcile_workspace_instance_groups(&affected_workspaces, &mut tx, &authed).await?;
     }
 
@@ -1192,18 +1211,21 @@ async fn remove_user_igroup(
     )
     .await?;
 
+    // First lock in the hierarchy — before the instance-role updates below.
+    #[cfg(feature = "private")]
+    let affected_workspaces =
+        lock_workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
+
     // Recompute instance-level role after group removal
     let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
     apply_instance_role(&email, effective_role.as_deref(), &mut tx).await?;
 
     // Re-derive workspace membership now that the base tables reflect the removal: drops the
     // user where this group was their only access source, or re-roles them from the groups
-    // they still belong to. Last, per the reconciler's lock-ordering contract.
+    // they still belong to.
     #[cfg(feature = "private")]
     {
         use windmill_api_workspaces::workspaces_ee::reconcile_workspace_instance_groups;
-        let affected_workspaces =
-            workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
         reconcile_workspace_instance_groups(&affected_workspaces, &mut tx, &authed).await?;
     }
 
@@ -1346,13 +1368,13 @@ async fn overwrite_igroups(
     .await?;
 
     // Membership of retained groups is wiped and re-imported below, so workspaces referencing
-    // either side of the import may see their projection change. Captured before the settings
-    // update strips the dropped groups from them.
+    // either side of the import may see their projection change. Captured and advisory-locked
+    // before the settings update strips the dropped groups from them.
     #[cfg(feature = "private")]
     let affected_workspaces = {
         let mut all_names = previous_names.clone();
         all_names.extend(imported_names.iter().cloned());
-        workspaces_referencing_instance_groups(&all_names, &mut tx).await?
+        lock_workspaces_referencing_instance_groups(&all_names, &mut tx).await?
     };
 
     remove_instance_groups_from_workspace_settings(&previous_names, &mut tx).await?;
