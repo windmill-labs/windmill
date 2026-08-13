@@ -17,6 +17,8 @@ Open-source platform for internal tools, workflows, API integrations, background
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Operator role**: `docs/operator-capabilities.md` — what an operator's token can reach, where
+  the boundary is enforced, and why `operator_settings` is not an authorization check
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
 - **Frontend UUIDs**: do not call `crypto.randomUUID()` in frontend code. Import `randomUUID` from `$lib/utils/uuid` instead.
