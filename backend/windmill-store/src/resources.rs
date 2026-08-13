@@ -3279,10 +3279,15 @@ fn git_probe_stderr(stderr: Vec<u8>) -> String {
 fn dot_git_url(url: &str) -> Option<String> {
     let url = url.trim().trim_end_matches('/');
     let lower = url.to_lowercase();
-    if !lower.starts_with("http://") && !lower.starts_with("https://") {
-        return None;
-    }
-    if lower.ends_with(".git") || url.is_empty() {
+    let after_scheme = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))?;
+    // Only a non-empty path may be extended. With nothing after the authority,
+    // appending lands inside it instead — `https://host` becomes the unvalidated
+    // host `https://host.git`, `https://host:8443` a bogus port — which is the hop
+    // onto an unchecked address that refusing redirects exists to prevent.
+    let path = after_scheme.split_once('/')?.1;
+    if path.is_empty() || path.ends_with(".git") {
         return None;
     }
     Some(format!("{}.git", url))
@@ -4117,6 +4122,15 @@ mod tests {
             dot_git_url("https://gitlab.com/group/project/").as_deref(),
             Some("https://gitlab.com/group/project.git")
         );
+        assert_eq!(
+            dot_git_url("https://user:tok@gitlab.com:8443/group/project").as_deref(),
+            Some("https://user:tok@gitlab.com:8443/group/project.git")
+        );
+        // A pathless URL has only its authority to extend, so `example.com` would
+        // become the unvalidated host `example.com.git`. Never retry those.
+        assert_eq!(dot_git_url("https://example.com"), None);
+        assert_eq!(dot_git_url("https://example.com/"), None);
+        assert_eq!(dot_git_url("http://example.com:8080/"), None);
         // Nothing to retry: already the `.git` form, or no HTTP redirect surface.
         assert_eq!(dot_git_url("https://gitlab.com/group/project.git"), None);
         assert_eq!(dot_git_url("git@github.com:user/repo"), None);
