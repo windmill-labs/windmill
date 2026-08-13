@@ -22,6 +22,7 @@ Two things are worth knowing before reading the rest:
 | Resolved into | `Authed.is_operator` (`windmill-common/src/auth.rs:245`) |
 | Instance groups | best matching role wins, `"operator"` → `is_operator` (`windmill-common/src/users.rs:277-311`) |
 | Superadmins | always `is_admin = true`, `is_operator = false` (`auth.rs:391`) |
+| **Non-workspace-scoped routes** | `is_operator = true` for *every* caller, workspace admins included, with empty groups and folders — there is no `usr` row to read when the path carries no workspace (`windmill-api-auth/src/auth.rs:403-497`). So `is_operator` implies `usr.operator = true` only on `/api/w/{workspace}/…` routes; on global routes it is not a discriminator at all |
 | Job tokens | the flag is persisted in `job_perms` and rebuilt from it, so a `$WM_TOKEN` minted for an operator's job is itself operator-flagged (`windmill-queue/src/jobs.rs:6769`, `auth.rs:514`) |
 | Token scopes | orthogonal — scopes only ever *narrow*. An operator may mint themselves API tokens (`POST /users/tokens/create`, verified `201`) but never a token more privileged than they are (`ensure_scopes_within_caller`) |
 
@@ -35,7 +36,9 @@ RLS       (operator-blind) .......... ordinary member ACLs on every table.
 
 ## 3. Hard denials — the complete list
 
-Every place an operator is rejected outright. Grep-stable via `authed.is_operator`.
+Every place an operator is rejected outright. Grep-stable via `authed.is_operator` — but run
+that grep against a checkout **with `windmill-ee-private` present**, or the `*_ee.rs` symlinks
+dangle and the EE rows below are invisible.
 
 | Area | Handler | Location |
 |---|---|---|
@@ -54,8 +57,12 @@ Every place an operator is rejected outright. Grep-stable via `authed.is_operato
 | | `run/dynamic_select` **when the runnable is inline** | `jobs.rs:9075` |
 | | resolve jobs | `jobs.rs:11144` |
 | Triggers | use of an admin-configured native integration (calendar/drive/repo pickers) | `windmill-native-triggers/src/lib.rs:1639` |
+| OAuth (EE) | connect an account with the shared instance credentials, and the client-credentials token exchange — `is_operator \|\| read_only` → *"Connecting with the shared instance credentials requires a read-write workspace member"* | `windmill-api/src/oauth2_ee.rs:591, 697` (lines as of `backend/ee-repo-ref.txt` `88568d1`) |
 
-The common thread is **arbitrary request-supplied code** and **deploying runnables**. Nothing else.
+Two threads run through this: **arbitrary request-supplied code** and **deploying runnables**
+account for all but the last row. The OAuth pair is a third, narrower one — the `account`
+table has no RLS, so spending the admin-configured shared credentials is restricted to
+read-write members by an explicit check rather than by ACLs.
 
 ## 4. List-shaping (not denials)
 
@@ -172,6 +179,9 @@ is enforcing a UI preference, not a boundary. That is fine for shaping what a to
    *not*, so "operators are read-only" is false and should not be assumed anywhere.
 6. **`operator_settings` cannot be used to justify exposing less or more.** Filter tools with
    it for UX consistency, but derive the security boundary from §3–§5.
+7. **Never gate on `is_operator` outside a workspace-scoped route.** On `/api/…` routes with
+   no workspace in the path the flag is unconditionally `true` (§1), so such a check would
+   reject workspace admins and superadmins too.
 
 ## 8. How this was verified
 
@@ -188,5 +198,13 @@ Roughly 110 endpoints were exercised with the operator token and the same set wi
 member token, recording status and body. The scripts live in the session scratchpad
 (`setup.sh`, `probe.sh`); they are throwaway harnesses, not committed.
 
-Known gap: no trigger cargo feature is compiled into the dev backend, so the trigger-CRUD
-row in §5 rests on reading `windmill-trigger/src/handler.rs` rather than on a live call.
+**The runtime probe only covers the compiled feature set**, which for a CE dev backend is
+`quickjs` alone. Anything behind a cargo feature was read rather than called: no trigger
+feature is compiled, so the trigger-CRUD row in §5 rests on
+`windmill-trigger/src/handler.rs`; `oauth2_ee` needs `oauth2` + `private`
+(`windmill-api/src/lib.rs:132`), so §3's OAuth row rests on the EE sources. Re-run the audit
+against an EE build before treating §5's ✅/❌ as exhaustive for a feature you care about.
+
+The cheap re-check that does *not* need a running backend: diff
+`grep -rn 'authed\.is_operator' backend/ --include=*.rs` (from a checkout with
+`windmill-ee-private` linked) against §3's table.
