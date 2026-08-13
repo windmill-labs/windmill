@@ -5,9 +5,19 @@ workspace:
   mainBranch: main
   worktreeRoot: ../windmill__worktrees
   defaultAgent: claude
+  # A new worktree is branched from the *local* `main` ref, so a stale local main means every
+  # new worktree starts behind. This keeps it current: fetch origin/main + fast-forward merge.
+  # Fast-forward only — it no-ops rather than forcing if local main has diverged.
+  autoPull:
+    enabled: true
+    intervalSeconds: 300
 
 startupEnvs:
   CARGO_FEATURES: "quickjs"
+  # true clones the base `windmill` DB via CREATE DATABASE ... TEMPLATE, which first
+  # terminates every open connection to `windmill` — expect the main dev instance to drop.
+  # false creates an empty DB and runs migrations. Either way the license key is copied over
+  # and pre-remove drops the DB. See scripts/worktree-common.sh.
   WM_CLONE_DB: false
   USE_RUST_PLUGIN: false
 
@@ -48,7 +58,6 @@ profiles:
       To connect to the database, use this connection string: ${DATABASE_URL}
       Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check.
       For UI verification, use the Playwright MCP (`mcp__playwright__*`) — the `playwright` server is headless and works without a display. Navigate to http://localhost:${FRONTEND_PORT}, log in as admin@windmill.dev / changeme.
-      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     panes:
       - id: agent
         kind: agent
@@ -86,7 +95,6 @@ profiles:
       To connect to the database, use this connection string: ${DATABASE_URL}
       Because we are running frontend with npm run dev, to verify your changes, just check the logs in the frontend pane. No need for npm run build.
       For UI verification, use the Playwright MCP (`mcp__playwright__*`) — the `playwright` server is headless and works without a display. Navigate to http://localhost:${FRONTEND_PORT}, log in as admin@windmill.dev / changeme.
-      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     panes:
       - id: agent
         kind: agent
@@ -105,8 +113,6 @@ profiles:
     runtime: host
     yolo: true
     envPassthrough: []
-    systemPrompt: >
-      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     panes:
       - id: agent
         kind: agent
@@ -152,14 +158,12 @@ oneshot:
     — note the choice in the PR description if it matters.
 
     # PR readiness
-    Default to opening the PR as a draft. If you are highly confident in the
-    change — the scope is small and well-understood, validation passed
-    cleanly, and you would not change anything if a reviewer pushed back —
-    open the PR as ready-for-review directly (omit `--draft` when invoking
-    `gh pr create`, or call `gh pr ready <number>` after creation). Err on
-    the side of draft when validation was partial, the change touches
-    public APIs or shared infrastructure, or you made a non-obvious judgment
-    call.
+    Always open the PR as a draft, then drive the `pr` skill's "Review rounds"
+    until every reviewer verdict is a go. Never flip to ready without a clean
+    round behind it, and never stop at an *unreviewed* draft — that is an
+    unfinished oneshot. Whether a clean round then flips the PR is the skill's
+    "Flip, or ask first" call, not this prompt's: self-contained changes flip,
+    wide-blast-radius ones stay a clean draft with the reason in the PR body.
 
     # Ending your turn
     Never end your turn with a question, a suggestion to "take a look", or a

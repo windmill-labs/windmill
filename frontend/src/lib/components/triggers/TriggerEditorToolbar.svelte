@@ -9,6 +9,11 @@
 	import TriggerSuspendedJobsModal from './TriggerSuspendedJobsModal.svelte'
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { stripBase, TRIGGER_PAGES, SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
+	import { pageDrawerSessionSource } from '../sessions/pageDrawerSession'
+	import { page } from '$app/state'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		saveDisabled: any
@@ -27,6 +32,9 @@
 		trigger?: Trigger
 		suspendedJobsModal?: TriggerSuspendedJobsModal | null
 		disableSuspendedMode?: boolean
+		/** Path of the trigger being edited, used to deep-link "Open in AI session"
+		 * at this trigger. Empty while creating one. */
+		triggerPath?: string
 	}
 
 	let {
@@ -45,14 +53,35 @@
 		cloudDisabled = false,
 		trigger,
 		suspendedJobsModal,
-		disableSuspendedMode = false
+		disableSuspendedMode = false,
+		triggerPath
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
+
+	// "Open in AI session", on the standalone trigger list pages only: the route
+	// gate inside pageDrawerSessionSource is what keeps it off this same toolbar
+	// when it renders in a script/flow editor's Triggers panel, which has the
+	// editor's own button. A trigger being created has no path to deep-link at.
+	const triggerPagePath = $derived.by(() => {
+		const route = stripBase(page.url.pathname)
+		if (route === SCHEDULES_PATH) return route
+		return Object.values(TRIGGER_PAGES).some((p) => p.path === route) ? route : undefined
+	})
+	const sessionSource = $derived(
+		triggerPagePath
+			? pageDrawerSessionSource(
+					triggerPagePath,
+					trigger?.isDraft ? undefined : triggerPath || trigger?.path,
+					$workspaceStore ?? undefined
+				)
+			: undefined
+	)
 </script>
 
 {#if !allowDraft}
 	{@render extra?.()}
+	<OpenInSessionButton source={sessionSource} />
 	{#if edit}
 		<TriggerModeToggle
 			canWrite={canSave}
@@ -78,6 +107,7 @@
 	{/if}
 {:else}
 	<div class="flex flex-row gap-2 items-center">
+		<OpenInSessionButton source={sessionSource} />
 		{#if !trigger?.draftConfig}
 			<div class="center-center">
 				<TriggerModeToggle
