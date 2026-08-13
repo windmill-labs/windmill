@@ -11497,12 +11497,18 @@ async fn log_feature_usage(
     if agg.is_empty() {
         return Ok(StatusCode::NO_CONTENT);
     }
-    let mut features = Vec::with_capacity(agg.len());
-    let mut kinds = Vec::with_capacity(agg.len());
-    let mut keys = Vec::with_capacity(agg.len());
-    let mut entity_ids = Vec::with_capacity(agg.len());
-    let mut values = Vec::with_capacity(agg.len());
-    for ((feature, kind, key, entity_id), value) in agg {
+    // Sorted for the same reason as `flush_feature_usage`: this endpoint and the
+    // backend flusher upsert the same rows, and two batches touching them in
+    // opposite orders deadlock.
+    let mut rows: Vec<((String, String, String, String), i64)> = agg.into_iter().collect();
+    rows.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+    let mut features = Vec::with_capacity(rows.len());
+    let mut kinds = Vec::with_capacity(rows.len());
+    let mut keys = Vec::with_capacity(rows.len());
+    let mut entity_ids = Vec::with_capacity(rows.len());
+    let mut values = Vec::with_capacity(rows.len());
+    for ((feature, kind, key, entity_id), value) in rows {
         features.push(feature);
         kinds.push(kind);
         keys.push(key);

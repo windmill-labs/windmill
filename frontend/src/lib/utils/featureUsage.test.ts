@@ -101,15 +101,9 @@ describe('hubScriptUsageKey', () => {
 		).toBe('private')
 	})
 
-	it('falls back rather than emitting a name of an unexpected shape', () => {
-		expect(hubScriptUsageKey({ version_id: 12, app: 'acme', summary: 'a<b>c' })).toBe('private')
-	})
-
-	it('keys off the hub wording, not a display label', () => {
-		// The pickers rewrite `summary` to "<summary> (<app>)" for display; keying off
-		// that would fail the shape check and record every public pick as private.
+	it('slugifies punctuation rather than filing the script under private', () => {
 		expect(
-			hubScriptUsageKey({ version_id: 9084, app: 'slack', summary: 'Send message (slack)' })
-		).toBe('private')
+			hubScriptUsageKey({ version_id: 12, app: 'acme', summary: "List a user's items, sorted" })
+		).toBe('acme/list_a_user_s_items_sorted')
 	})
 })

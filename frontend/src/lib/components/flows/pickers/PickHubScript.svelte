@@ -125,9 +125,6 @@
 
 	async function handlePick(item: (typeof items)[number]) {
 		if (item.path.startsWith('hub/')) {
-			// Rides the anonymous stats payload rather than a live call to the hub,
-			// so instances that cannot reach the hub still report which integrations
-			// they use.
 			logHubScriptPick(
 				{ version_id: item.version_id, app: item.app, summary: item.hubSummary },
 				'picker'

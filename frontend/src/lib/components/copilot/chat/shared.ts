@@ -1256,8 +1256,8 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 				if (!withContent) {
 					return { path, summary: s.summary }
 				}
-				// Only the content fetch counts as the AI settling on a script; the
-				// listing above is the search hits, which it has not chosen between.
+				// The content fetch, not the listing above: these are the few candidates
+				// the AI pulled to choose between, which is the closest signal we have.
 				logHubScriptPick(s, 'ai')
 				try {
 					// get_full, not the raw content endpoint: callers are told to match the

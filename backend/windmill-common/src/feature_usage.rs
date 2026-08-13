@@ -46,7 +46,7 @@ pub const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
     ("trigger", "fired"),
     ("command_script", "invoked"),
     ("hub_script", "picked"),
-    ("hub_script", "picked_ai"),
+    ("hub_script", "considered_ai"),
 ];
 
 pub fn is_identifier_shaped(s: &str, max_len: usize) -> bool {

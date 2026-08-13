@@ -1064,7 +1064,7 @@
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers and the names of public hub scripts picked, last 30 days)</li
+							model identifiers and the names of public hub scripts used, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your
@@ -1115,7 +1115,7 @@
 						<li>development instance status</li>
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers and the names of public hub scripts picked, last 30 days)</li
+							model identifiers and the names of public hub scripts used, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your

@@ -138,12 +138,16 @@ export function logFeatureUsage(feature: string, kind: string, opts: FeatureUsag
 }
 
 /**
- * Record a hub script being chosen, from the hub's own metadata.
+ * Record a hub script the user or the AI settled on.
  *
  * Takes the structured fields the hub API returned rather than a
  * `hub/<version>/<app>/<slug>` path. A path stored in a flow is workspace-authored
  * text that nothing validates against the hub, so its segments could hold any name
  * a user wrote; these fields came from the hub itself and are safe to report.
+ *
+ * `considered` rather than `picked` for the AI: the AI pulls a handful of
+ * candidates' content before choosing between them, and nothing downstream records
+ * which one it went on to use.
  *
  * A script from a private hub is still the customer's own content, so at or above
  * `PRIVATE_HUB_MIN_VERSION` only the fact that one was used is recorded.
@@ -152,12 +156,20 @@ export function logHubScriptPick(
 	script: { version_id: number; app: string; summary: string },
 	origin: 'picker' | 'ai'
 ): void {
-	logFeatureUsage('hub_script', origin === 'ai' ? 'picked_ai' : 'picked', {
+	logFeatureUsage('hub_script', origin === 'ai' ? 'considered_ai' : 'picked', {
 		key: hubScriptUsageKey(script)
 	})
 }
 
 const PRIVATE_HUB_KEY = 'private'
+
+/** Lowercase, with every run of other characters collapsed to a single `_`. */
+function slugify(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '_')
+		.replace(/^_+|_+$/g, '')
+}
 
 export function hubScriptUsageKey(script: {
 	version_id: number
@@ -167,7 +179,11 @@ export function hubScriptUsageKey(script: {
 	if (!Number.isInteger(script.version_id) || script.version_id >= PRIVATE_HUB_MIN_VERSION) {
 		return PRIVATE_HUB_KEY
 	}
-	const key = `${script.app}/${script.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
-	// Same shape the backend accepts; anything else would be dropped there anyway.
-	return /^[A-Za-z0-9_:./-]{1,100}$/.test(key) ? key : PRIVATE_HUB_KEY
+	// Slugified rather than shape-checked: hub summaries carry commas, apostrophes
+	// and parentheses, and rejecting those would file real public scripts under
+	// `private` and undercount exactly the integrations this is meant to surface.
+	const app = slugify(script.app)
+	const summary = slugify(script.summary)
+	if (!app) return PRIVATE_HUB_KEY
+	return (summary ? `${app}/${summary}` : app).slice(0, 100)
 }
