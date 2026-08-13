@@ -549,6 +549,8 @@ pub async fn workspaces_referencing_instance_groups(
 /// created later.
 ///
 /// Mutates every workspace's settings, so callers must have established superadmin first.
+/// Deliberately not audited per workspace: the mutation is instance-scoped and recorded by
+/// the caller's global igroup audit event.
 pub async fn remove_instance_groups_from_workspace_settings(
     groups: &[String],
     tx: &mut Transaction<'_, Postgres>,
@@ -595,6 +597,8 @@ pub async fn remove_instance_groups_from_workspace_settings(
 /// evict everyone granted through it on the next reconcile.
 ///
 /// Mutates every workspace's settings, so callers must have established superadmin first.
+/// Deliberately not audited per workspace: the mutation is instance-scoped and recorded by
+/// the caller's global igroup audit event.
 pub async fn rename_instance_group_in_workspace_settings(
     old_name: &str,
     new_name: &str,

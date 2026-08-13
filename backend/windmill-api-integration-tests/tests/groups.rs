@@ -825,3 +825,71 @@ async fn test_reconcile_ignores_non_instance_group_members(
 
     Ok(())
 }
+
+/// The upgrade migration converts every member the reconciler would evict — those whose
+/// granting group was deleted and those dropped from a group that still exists — and leaves
+/// still-qualifying members alone. The migration has already run against the empty test
+/// database by the time this executes, so the test fabricates pre-fix state and re-executes
+/// the migration's statements, which are idempotent plain UPDATEs.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_preserve_orphaned_members_migration(db: Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO workspace (id, name, owner) VALUES ('mig-ws', 'mig-ws', 'admin@windmill.dev');
+        INSERT INTO workspace_settings (workspace_id, auto_invite) VALUES
+          ('mig-ws', '{"instance_groups": ["gone_grp", "live_grp"], "instance_groups_roles": {"gone_grp": "admin", "live_grp": "developer"}}'::jsonb);
+        INSERT INTO instance_group (name) VALUES ('live_grp');
+        INSERT INTO email_to_igroup (email, igroup) VALUES ('live@example.com', 'live_grp');
+        INSERT INTO usr (workspace_id, username, email, is_admin, operator, added_via) VALUES
+          ('mig-ws', 'orphan', 'orphan@example.com', true, false, '{"source": "instance_group", "group": "gone_grp"}'::jsonb),
+          ('mig-ws', 'droppedu', 'dropped@example.com', false, false, '{"source": "instance_group", "group": "live_grp"}'::jsonb),
+          ('mig-ws', 'livemember', 'live@example.com', false, false, '{"source": "instance_group", "group": "live_grp"}'::jsonb);
+        "#,
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::raw_sql(include_str!(
+        "../../migrations/20260813195023_preserve_orphaned_instance_group_members.up.sql"
+    ))
+    .execute(&db)
+    .await?;
+
+    // Deleted-group orphan and retained-group-dropped orphan both become manual members
+    // with the original group recorded; the still-qualifying member is untouched.
+    for (email, expected_group) in [
+        ("orphan@example.com", "gone_grp"),
+        ("dropped@example.com", "live_grp"),
+    ] {
+        let (source, migrated_from): (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT added_via->>'source', added_via->>'migrated_from_instance_group'
+             FROM usr WHERE workspace_id = 'mig-ws' AND email = $1",
+        )
+        .bind(email)
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(source.as_deref(), Some("manual"), "{email} should be converted");
+        assert_eq!(migrated_from.as_deref(), Some(expected_group), "{email} marker");
+    }
+
+    let (source, group): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT added_via->>'source', added_via->>'group'
+         FROM usr WHERE workspace_id = 'mig-ws' AND email = 'live@example.com'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(source.as_deref(), Some("instance_group"), "still-qualifying member spared");
+    assert_eq!(group.as_deref(), Some("live_grp"));
+
+    // The dangling reference is stripped from both auto_invite fields; the live one stays.
+    let (groups, roles): (serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "SELECT auto_invite->'instance_groups', auto_invite->'instance_groups_roles'
+         FROM workspace_settings WHERE workspace_id = 'mig-ws'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(groups, json!(["live_grp"]));
+    assert_eq!(roles, json!({ "live_grp": "developer" }));
+
+    Ok(())
+}
