@@ -420,7 +420,7 @@
 					onClick={saveManual}
 					disabled={saving || !url || !manualToken || !manualPath || manualPathError !== ''}
 				>
-					Connect
+					Save
 				</Button>
 			{:else if oauthAppReady && entry}
 				<Button
