@@ -84,12 +84,17 @@
 		// Every connector on the page hears this, so one only takes the completion
 		// for the server it opened. Two connectors aimed at the same server cannot
 		// be told apart — the callback carries nothing else to match on.
+		// Same window, both ways: another connector's completion must not be taken as
+		// ours, and its failure must not tear this one down while its popup is open.
+		if (event.source !== popup) return
 		if (event.data.type === 'MCP_CONNECTED') {
-			if (event.source !== popup || event.data.mcp_server_url !== pending?.serverUrl) return
+			if (event.data.mcp_server_url !== pending?.serverUrl) return
 			cleanup()
 			createMcpResource(event.data)
 		} else if (event.data.type === 'MCP_ERROR') {
 			cleanup()
+			pending = undefined
+			popup = null
 			error = event.data.error
 			status = 'discovered'
 		}

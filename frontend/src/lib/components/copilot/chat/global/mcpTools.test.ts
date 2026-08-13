@@ -250,6 +250,31 @@ describe('result size cap', () => {
 		expect(getMcpToolsMock).toHaveBeenCalledTimes(2)
 	})
 
+	// A path can be reconnected to a different server through the resource UI, which
+	// this module never hears about. The listing carries the annotations the gate
+	// reads, so it is keyed on the revision rather than on the path alone.
+	it('does not reuse a tool list across a resource revision', async () => {
+		callMcpToolMock.mockResolvedValue({ content: [] })
+		const call = (editedAt: string) =>
+			createMcpTools([{ path: 'u/hugo/github_mcp', editedAt }])
+				.find((t) => t.def.function.name === 'call_mcp_read_tool')!
+				.fn({
+					args: { server: 'u/hugo/github_mcp', tool: 'get_issue', arguments: {} },
+					workspace: 'test-ws',
+					helpers: {},
+					toolCallbacks: createToolCallbacks(),
+					toolId: 'tool-1'
+				})
+
+		await call('2026-01-01T00:00:00Z')
+		getMcpToolsMock.mockResolvedValue([{ ...TOOLS[0], annotations: { readOnlyHint: false } }])
+		const result = JSON.parse(await call('2026-01-02T00:00:00Z'))
+
+		expect(getMcpToolsMock).toHaveBeenCalledTimes(2)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('call_mcp_write_tool')
+	})
+
 	it('refuses to answer a call from a listing that was invalidated mid-flight', async () => {
 		// Invalidated while in flight, every time: the tool list may describe the
 		// server that was replaced, and its `readOnlyHint` is what decides whether

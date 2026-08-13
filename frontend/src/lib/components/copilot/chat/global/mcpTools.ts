@@ -14,7 +14,7 @@ import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
 
 type McpToolDef = GetMcpToolsResponse[number]
 
-export type McpServer = { path: string }
+export type McpServer = { path: string; editedAt?: string }
 
 const MAX_SEARCH_RESULTS = 10
 const MAX_DESCRIPTION_CHARS = 200
@@ -27,17 +27,22 @@ const MAX_SERVER_ERROR_CHARS = 500
 // confirmation and must not stay pinned to a stale answer for a whole session.
 const TOOLS_CACHE_TTL_MS = 60_000
 
-// Keyed by workspace as well as path: the same path names different servers in
-// different workspaces (a fork, most obviously), and `readOnlyHint` decides
-// whether a call needs confirmation — one workspace must never answer for another.
+// Keyed by workspace and revision as well as path: the same path names different
+// servers in different workspaces (a fork, most obviously) and, once edited or
+// recreated, a different server in the same one. `readOnlyHint` decides whether a
+// call needs confirmation, so no listing may outlive the server it describes.
 let toolsCache: Record<string, { tools: McpToolDef[]; at: number }> = {}
 // Bumped on every clear. A listing in flight when a path is reconnected would
 // otherwise land in the fresh cache and answer for the new server with the old
 // server's `readOnlyHint` until it expires.
 let cacheGeneration = 0
 
-async function loadServerTools(workspace: string, path: string): Promise<McpToolDef[]> {
-	const key = `${workspace}:${path}`
+async function loadServerTools(
+	workspace: string,
+	path: string,
+	revision?: string
+): Promise<McpToolDef[]> {
+	const key = `${workspace}:${path}:${revision ?? ''}`
 	const cached = toolsCache[key]
 	if (cached && Date.now() - cached.at < TOOLS_CACHE_TTL_MS) {
 		return cached.tools
@@ -78,7 +83,9 @@ export async function loadMcpServers(workspace: string): Promise<McpServer[]> {
 			resourceType: 'mcp',
 			perPage: 100
 		})
-		return resources.filter((r) => enabled.includes(r.path)).map((r) => ({ path: r.path }))
+		return resources
+			.filter((r) => enabled.includes(r.path))
+			.map((r) => ({ path: r.path, editedAt: r.edited_at }))
 	} catch (e) {
 		console.error('Failed to load MCP servers', e)
 		return []
@@ -155,7 +162,7 @@ async function resolveTool(
 			error: `Unknown MCP server "${serverPath}". Connected servers: ${servers.map((s) => s.path).join(', ')}`
 		}
 	}
-	const tools = await loadServerTools(workspace, server.path)
+	const tools = await loadServerTools(workspace, server.path, server.editedAt)
 	const tool = tools.find((t) => t.name === toolName)
 	if (!tool) {
 		return {
@@ -380,7 +387,7 @@ export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
 				const perServer = await Promise.all(
 					servers.map(async (server) => {
 						try {
-							const tools = await loadServerTools(workspace, server.path)
+							const tools = await loadServerTools(workspace, server.path, server.editedAt)
 							return tools.map((tool) => ({ server, tool }))
 						} catch (e) {
 							unavailable.push(

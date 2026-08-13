@@ -65,7 +65,7 @@
 	// resource to everyone who can read it.
 	let sharedPath = $derived(!!manualPath && !manualPath.startsWith(`u/${$userStore?.username}/`))
 	let oauthConnect: McpServerOAuthConnect | undefined = $state()
-	let pending: (Target & { client: string }) | undefined = undefined
+	let pending: (Target & { client: string; scopes: string[] }) | undefined = undefined
 	let popup: Window | null = null
 
 	/** Slug for the resource value's `name` and for the path suggestion. Hosts are
@@ -171,7 +171,13 @@
 		discoveryFoundOAuth = undefined
 	}
 
-	type Target = { workspace: string; path: string; url: string; name: string; label: string }
+	type Target = {
+		workspace: string
+		path: string
+		url: string
+		name: string
+		label: string
+	}
 
 	/** The server this operation is for, read once: the url field and the
 	 * suggestions stay editable while a request or a popup is pending, and the
@@ -202,11 +208,13 @@
 	function startProviderOAuth() {
 		const client = entry?.connectClient
 		if (!client || !manualPath || scopesStatus !== 'loaded') return
-		// The popup outlives any change on this page: what it comes back to must be
-		// the server, path and provider it was opened for.
-		pending = { ...target(), client }
+		// The popup outlives any change on this page, so what it comes back to must be
+		// the server, path, provider and scopes it was opened for. The scope list in
+		// particular stays editable behind it, and the account records what the grant
+		// was actually asked for: a mismatch there breaks the refresh, not the connect.
+		pending = { ...target(), client, scopes: [...scopes] }
 		const connectUrl = new URL(`/api/oauth/connect/${client}`, window.location.origin)
-		connectUrl.searchParams.set('scopes', scopes.join('+'))
+		connectUrl.searchParams.set('scopes', pending.scopes.join('+'))
 		popup = window.open(connectUrl.toString(), '_blank', 'popup=true')
 		if (!popup) {
 			pending = undefined
@@ -280,7 +288,7 @@
 							refresh_token: res.refresh_token ?? '',
 							expires_in: res.expires_in,
 							client: t.client,
-							scopes
+							scopes: t.scopes
 						}
 					})
 				)

@@ -1936,10 +1936,13 @@ export class AIChatManager {
 	refreshMcpServers = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.mcpServersRefreshId
 		const servers = await loadMcpServers(workspace)
-		if (refreshId !== this.mcpServersRefreshId || workspace !== (this.operatingWorkspace ?? '')) {
+		if (refreshId !== this.mcpServersRefreshId) {
 			return
 		}
-		this.mcpServers = servers
+		// Dropping the stale answer is not enough on its own: leaving the previous
+		// workspace's servers installed would go on advertising its paths against
+		// the workspace switched to.
+		this.mcpServers = workspace === (this.operatingWorkspace ?? '') ? servers : []
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
