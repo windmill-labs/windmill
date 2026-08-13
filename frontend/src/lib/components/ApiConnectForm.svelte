@@ -219,8 +219,12 @@
 			{#if wizardEnabled}
 				<SupabaseResourceConnect onPicked={applySupabasePick} />
 			{:else}
+				<!-- `noopener` is what the callback reads to tell this leg from the wizard's popup,
+				which hands its token back through `window.opener`. Browsers imply it for
+				`target="_blank"`, but only since 2021 -- stating it keeps older ones on this path. -->
 				<a
 					target="_blank"
+					rel="noopener"
 					href="{base}/api/oauth/connect/supabase_wizard"
 					class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
 				>
