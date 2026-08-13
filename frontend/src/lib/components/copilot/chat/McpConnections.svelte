@@ -30,7 +30,9 @@
 	})
 
 	let drawer: Drawer | undefined = $state(undefined)
-	let showConnect = $state(false)
+	// Connecting is what the drawer is for, so the card is always up; remounting it
+	// after a connection is what clears the fields for the next one.
+	let connectSeq = $state(0)
 	let servers = $state<
 		{ path: string; description?: string; enabled: boolean; icon?: Component<any> }[]
 	>([])
@@ -78,8 +80,7 @@
 		}
 	}
 
-	export async function open(startConnect = false) {
-		showConnect = startConnect
+	export async function open() {
 		drawer?.openDrawer()
 		await loadServers()
 	}
@@ -133,7 +134,7 @@
 				separatorTop: servers.length > 0,
 				action: () => {
 					closeMenu?.()
-					void open(true)
+					void open()
 				}
 			}
 		]
@@ -220,7 +221,7 @@
 		tooltip="Connect an external MCP server to this chat. The chat calls its tools with your own credentials, so it can only reach what you can."
 	>
 		<div class="flex flex-col gap-4">
-			{#if showConnect}
+			{#key connectSeq}
 				<McpConnect
 					workspace={ws}
 					onConnected={async (path) => {
@@ -228,23 +229,11 @@
 						if (!setMcpEnabled(ws, path, true)) {
 							sendUserToast(`Connected ${path}, but could not turn it on. Toggle it here.`, true)
 						}
-						showConnect = false
+						connectSeq++
 						await refresh()
 					}}
-					onCancel={() => (showConnect = false)}
 				/>
-			{:else}
-				<div class="flex">
-					<Button
-						variant="accent"
-						unifiedSize="sm"
-						startIcon={{ icon: Plug }}
-						onClick={() => (showConnect = true)}
-					>
-						Connect a server
-					</Button>
-				</div>
-			{/if}
+			{/key}
 
 			{#if loading}
 				<div class="flex justify-center p-4"><Loader2 class="animate-spin" /></div>

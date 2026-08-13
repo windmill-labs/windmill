@@ -19,7 +19,9 @@
 
 	interface Props {
 		onConnected: (resourcePath: string) => void
-		onCancel: () => void
+		/** Omitted where the card is the drawer's own content and there is nothing
+		 * to collapse back to. */
+		onCancel?: () => void
 		/** Required: a caller that forgot it would create the connection in whichever
 		 * workspace the ui happens to be showing, not the one it operates on. */
 		workspace: string
@@ -271,7 +273,9 @@
 <div class="border rounded p-4 bg-surface-tertiary flex flex-col gap-4">
 	<div class="flex justify-between items-center">
 		<span class="text-sm font-semibold text-emphasis">Connect an MCP server</span>
-		<Button unifiedSize="2xs" variant="subtle" onClick={onCancel}>Cancel</Button>
+		{#if onCancel}
+			<Button unifiedSize="2xs" variant="subtle" onClick={onCancel}>Cancel</Button>
+		{/if}
 	</div>
 
 	<Alert type="info" size="xs" title="Only HTTP streamable MCP servers are supported" />
