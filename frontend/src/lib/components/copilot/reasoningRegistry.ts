@@ -60,10 +60,7 @@ const PROVIDER_REASONING_LEVELS: Partial<Record<AIProvider, ReasoningEffort[]>> 
 	// DeepSeek accepts the full five-token vocabulary but only two levels are
 	// real: low/medium are server-mapped to high and xhigh to max — offering
 	// them would be a no-op knob.
-	deepseek: ['high', 'max'],
-	// Mistral's only effort token besides the 'none' disable is 'high'
-	// (anything else is rejected), so the knob is effectively on/off.
-	mistral: ['high']
+	deepseek: ['high', 'max']
 }
 
 /**
@@ -78,7 +75,7 @@ const PROVIDER_REASONING_LEVELS: Partial<Record<AIProvider, ReasoningEffort[]>> 
 function openrouterReasoningLevels(model: string): ReasoningEffort[] {
 	const m = model.toLowerCase()
 	const base = baseModelId(model)
-	if (/claude-(opus|sonnet)-4/.test(m)) {
+	if (/claude-(opus|sonnet)-(4|5)/.test(m)) {
 		return ['minimal', 'low', 'medium', 'high', 'xhigh']
 	}
 	if (m.includes('gemini-')) {
@@ -95,11 +92,15 @@ function openrouterReasoningLevels(model: string): ReasoningEffort[] {
 
 /**
  * OpenAI's effort vocabulary is model-dependent: `minimal` exists on gpt-5 but
- * not on gpt-5.1+, `xhigh` only on gpt-5.5; o-series take low/medium/high.
- * An unsupported level is rejected, so scope the list to the model.
+ * not on gpt-5.1+, `xhigh` arrived on gpt-5.5 and `max` on gpt-5.6; o-series
+ * take low/medium/high. An unsupported level is rejected, so scope the list to
+ * the model. (`none` is the disable token, handled by `explicitOffToken`.)
  */
 function openaiReasoningLevels(model: string): ReasoningEffort[] {
 	const base = baseModelId(model)
+	if (/^gpt-5\.6/.test(base)) {
+		return ['low', 'medium', 'high', 'xhigh', 'max']
+	}
 	if (/^gpt-5\.5/.test(base)) {
 		return ['low', 'medium', 'high', 'xhigh']
 	}
@@ -138,16 +139,36 @@ function geminiCanDisable(model: string): boolean {
 }
 
 /**
- * Anthropic's effort ladder is model-dependent: `xhigh` exists only on Opus 4.7/4.8
- * and Fable; `max` on Opus 4.6+ and Sonnet 4.6. Offering an unsupported level would
- * 400, so scope the list to the model.
+ * Anthropic's effort ladder is model-dependent: `xhigh` exists on Opus 4.7/4.8,
+ * the 5 family and Fable/Mythos; `max` also on Opus 4.6 and Sonnet 4.6.
+ * Offering an unsupported level would 400, so scope the list to the model.
  */
 function anthropicReasoningLevels(model: string): ReasoningEffort[] {
 	const m = model.toLowerCase()
-	if (/claude-opus-4-(7|8)/.test(m) || m.includes('fable')) {
+	if (
+		/claude-(opus|sonnet)-5/.test(m) ||
+		/claude-opus-4-(7|8)/.test(m) ||
+		m.includes('fable') ||
+		m.includes('mythos')
+	) {
 		return ['low', 'medium', 'high', 'xhigh', 'max']
 	}
 	return ['low', 'medium', 'high', 'max']
+}
+
+/**
+ * Mistral Medium 3.5 takes the low/medium/high ladder; Mistral Small only turns
+ * reasoning on at `high`, so the knob there is effectively on/off.
+ */
+function mistralReasoningLevels(model: string): ReasoningEffort[] {
+	return normalizeMistralId(model).startsWith('mistral-medium')
+		? ['low', 'medium', 'high']
+		: ['high']
+}
+
+/** Mistral writes both `mistral-medium-3.5` and `mistral-medium-3-5`. */
+function normalizeMistralId(model: string): string {
+	return baseModelId(model).replace(/\./g, '-')
 }
 
 /**
@@ -165,7 +186,10 @@ function supportsReasoningStatic(provider: AIProvider, model: string): boolean {
 			// 4.6+ only: Opus 4.5 rejects adaptive thinking (and, on Bedrock,
 			// the whole output_config surface) — live-verified hard 400.
 			return (
-				/claude-opus-4-(6|7|8)/.test(m) || /claude-sonnet-(4-6|5)/.test(m) || m.includes('fable')
+				/claude-opus-(4-(6|7|8)|5)/.test(m) ||
+				/claude-sonnet-(4-6|5)/.test(m) ||
+				m.includes('fable') ||
+				m.includes('mythos')
 			)
 		case 'openai':
 		case 'azure_openai':
@@ -177,7 +201,7 @@ function supportsReasoningStatic(provider: AIProvider, model: string): boolean {
 			return (
 				base.startsWith('gpt-5') ||
 				/^o\d/.test(base) ||
-				/claude-(opus|sonnet)-4/.test(m) ||
+				/claude-(opus|sonnet)-(4|5)/.test(m) ||
 				/gemini-(2\.5|3)/.test(m) ||
 				m.includes('deepseek-r') ||
 				m.includes('deepseek-v4') ||
@@ -187,15 +211,15 @@ function supportsReasoningStatic(provider: AIProvider, model: string): boolean {
 		case 'googleai':
 			return /gemini-(2\.5|3)/.test(m)
 		case 'deepseek':
-			// All current API models take reasoning_effort (live-verified). The
-			// deprecated `deepseek-chat` alias is excluded: its documented meaning
-			// is "non-thinking mode", and sending an effort would silently flip it
-			// into thinking mode — picking that alias is itself an off choice.
-			return base.startsWith('deepseek') && base !== 'deepseek-chat'
+			// All current API models take reasoning_effort (live-verified).
+			return base.startsWith('deepseek')
 		case 'mistral':
 			// Only the ids verified to accept reasoning_effort; other models
 			// (large, magistral, ministral, pinned versions) reject the param.
-			return /^mistral-(small|medium)-latest$/.test(base) || base.startsWith('mistral-medium-3-5')
+			return (
+				/^mistral-(small|medium)-latest$/.test(base) ||
+				normalizeMistralId(model).startsWith('mistral-medium-3-5')
+			)
 		default:
 			return false
 	}
@@ -230,7 +254,9 @@ export function getReasoningCapability(provider: AIProvider, model: string): Rea
 					? openaiReasoningLevels(bareModel)
 					: family === 'openrouter'
 						? openrouterReasoningLevels(bareModel)
-						: (PROVIDER_REASONING_LEVELS[family] ?? ['low', 'medium', 'high'])
+						: family === 'mistral'
+							? mistralReasoningLevels(bareModel)
+							: (PROVIDER_REASONING_LEVELS[family] ?? ['low', 'medium', 'high'])
 	return { supported, levels, canDisable: canDisableReasoning(provider, bareModel) }
 }
 
@@ -246,9 +272,15 @@ function canDisableReasoning(provider: AIProvider, model: string): boolean {
 	switch (reasoningProviderFamily(provider, model)) {
 		case 'anthropic':
 		case 'aws_bedrock':
-			// Claude 4.6+ only think when asked, so omission is a real off —
-			// except Fable, where thinking is always on (explicit disable 400s).
-			return !m.includes('fable')
+			// Claude 4.6/4.7/4.8 only think when asked, so omission is a real
+			// off. Fable and Mythos always think (an explicit disable 400s), and
+			// Opus 5 / Sonnet 5 think by default — omitting the field leaves
+			// them reasoning, so an off switch there would be a lie.
+			return !(
+				m.includes('fable') ||
+				m.includes('mythos') ||
+				/claude-(opus|sonnet)-5/.test(m)
+			)
 		case 'googleai':
 			return geminiCanDisable(model)
 		case 'openai':
@@ -262,6 +294,9 @@ function canDisableReasoning(provider: AIProvider, model: string): boolean {
 			// family, like the levels.
 			if (/claude-(opus|sonnet)-4/.test(m)) {
 				return true
+			}
+			if (/claude-(opus|sonnet)-5/.test(m)) {
+				return false
 			}
 			if (m.includes('gemini-')) {
 				return geminiCanDisable(m)

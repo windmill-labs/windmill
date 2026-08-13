@@ -267,6 +267,15 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('deepseek-reasoner')).toBe(1000000)
 	})
 
+	it('gives the gpt-5.6 family its own window instead of the 400K gpt-5 one', () => {
+		expect(getKnownModelContextWindow('gpt-5.6-sol')).toBe(1050000)
+		expect(getKnownModelContextWindow('gpt-5.6-terra')).toBe(1050000)
+		expect(getKnownModelContextWindow('openai/gpt-5.6-luna')).toBe(1050000)
+		// the older families keep theirs
+		expect(getKnownModelContextWindow('gpt-5.5')).toBe(1000000)
+		expect(getKnownModelContextWindow('gpt-5-mini')).toBe(400000)
+	})
+
 	it('maps Qwen3-Max to 256K and leaves other Qwen ids to the assumed window', () => {
 		expect(getKnownModelContextWindow('qwen3-max')).toBe(256000)
 		expect(getKnownModelContextWindow('qwen3-max-2025-09-23')).toBe(256000)

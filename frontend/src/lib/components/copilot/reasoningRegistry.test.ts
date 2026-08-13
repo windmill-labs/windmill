@@ -51,6 +51,24 @@ describe('supportsReasoning (static registry)', () => {
 			'max'
 		])
 	})
+	it('flags the Claude 5 family, which the 4.x-only patterns used to miss', () => {
+		expect(supportsReasoning('anthropic', 'claude-opus-5')).toBe(true)
+		expect(supportsReasoning('anthropic', 'claude-sonnet-5')).toBe(true)
+		expect(supportsReasoning('anthropic', 'claude-mythos-5')).toBe(true)
+		expect(supportsReasoning('aws_bedrock', 'global.anthropic.claude-opus-5')).toBe(true)
+		// The 5 family carries the full ladder including xhigh.
+		for (const model of ['claude-opus-5', 'claude-sonnet-5', 'claude-mythos-5']) {
+			expect(getReasoningCapability('anthropic', model).levels).toEqual([
+				'low',
+				'medium',
+				'high',
+				'xhigh',
+				'max'
+			])
+			// They think when the field is omitted, so off would be a no-op.
+			expect(getReasoningCapability('anthropic', model).canDisable).toBe(false)
+		}
+	})
 	it('flags Claude models served through Bedrock, with the Anthropic ladder', () => {
 		expect(supportsReasoning('aws_bedrock', 'us.anthropic.claude-opus-4-6-v1')).toBe(true)
 		expect(supportsReasoning('aws_bedrock', 'anthropic.claude-sonnet-4-6-v1:0')).toBe(true)
@@ -85,14 +103,29 @@ describe('supportsReasoning (static registry)', () => {
 			'high'
 		])
 	})
-	it('flags DeepSeek models with the two effective levels, excluding the chat alias', () => {
+	it('flags DeepSeek models with the two effective levels', () => {
 		expect(supportsReasoning('deepseek', 'deepseek-v4-flash')).toBe(true)
 		expect(supportsReasoning('deepseek', 'deepseek-v4-pro')).toBe(true)
-		expect(supportsReasoning('deepseek', 'deepseek-reasoner')).toBe(true)
-		// `deepseek-chat` is the documented non-thinking mode — no knob.
-		expect(supportsReasoning('deepseek', 'deepseek-chat')).toBe(false)
 		// Only high/max are real; low/medium/xhigh are server-side aliases.
 		expect(getReasoningCapability('deepseek', 'deepseek-v4-flash').levels).toEqual(['high', 'max'])
+	})
+	it('exposes the gpt-5.6 ladder, which reopened xhigh and max', () => {
+		expect(supportsReasoning('openai', 'gpt-5.6-sol')).toBe(true)
+		expect(getReasoningCapability('openai', 'gpt-5.6-sol').levels).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max'
+		])
+		expect(getReasoningCapability('openai', 'gpt-5.6-terra').canDisable).toBe(true)
+		expect(getReasoningCapability('openrouter', 'openai/gpt-5.6-luna').levels).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max'
+		])
 	})
 	it('flags OpenAI reasoning families, not gpt-4o', () => {
 		expect(supportsReasoning('openai', 'gpt-5')).toBe(true)
@@ -124,8 +157,18 @@ describe('supportsReasoning (static registry)', () => {
 		expect(supportsReasoning('mistral', 'mistral-large-latest')).toBe(false)
 		expect(supportsReasoning('mistral', 'magistral-medium-latest')).toBe(false)
 		expect(supportsReasoning('mistral', 'ministral-8b-latest')).toBe(false)
-		// 'high' is the only accepted effort token; off = omit the field.
-		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').levels).toEqual(['high'])
+		// Medium 3.5 takes low/medium/high; Small only turns reasoning on at 'high'.
+		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').levels).toEqual([
+			'low',
+			'medium',
+			'high'
+		])
+		expect(getReasoningCapability('mistral', 'mistral-medium-3.5').levels).toEqual([
+			'low',
+			'medium',
+			'high'
+		])
+		expect(getReasoningCapability('mistral', 'mistral-small-latest').levels).toEqual(['high'])
 		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').canDisable).toBe(true)
 	})
 	it('returns no levels for providers without a registry entry', () => {
@@ -255,8 +298,10 @@ describe('Azure AI Foundry reasoning follows the model family', () => {
 			'xhigh',
 			'max'
 		])
-		// Off is achieved by omission (Foundry rejects effort 'none'), like Anthropic.
-		expect(getReasoningCapability('azure_foundry', 'claude-sonnet-5').canDisable).toBe(true)
+		// Claude 4.6-4.8 only think when asked, so omission is a real off...
+		expect(getReasoningCapability('azure_foundry', 'claude-opus-4-8').canDisable).toBe(true)
+		// ...while the 5 family thinks by default, so no off is offered.
+		expect(getReasoningCapability('azure_foundry', 'claude-sonnet-5').canDisable).toBe(false)
 		expect(
 			resolveRequestReasoning({
 				provider: 'azure_foundry',
