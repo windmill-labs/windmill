@@ -90,7 +90,6 @@
 		} catch (e) {
 			jsonError = e.message
 		}
-		setEditorUnparseable(unparseableKey, jsonError !== '')
 	}
 
 	function parseTextFileContent() {
@@ -108,6 +107,14 @@
 
 	$effect(() => {
 		if (rawCode !== undefined) parseJson()
+	})
+
+	// Both halves, and from the current parse rather than from a transition: `rawCode`
+	// outlives the raw editor, so text that does not parse is the user's to fix exactly
+	// while that editor is the active input — which the schema loading and the resource
+	// type flip as well as the toggle, and only the toggle reseeds `rawCode`.
+	$effect(() => {
+		setEditorUnparseable(unparseableKey, usesRawEditor && jsonError !== '')
 	})
 
 	$effect(() => {

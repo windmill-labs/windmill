@@ -1,4 +1,4 @@
-// Every mounted code editor, so a caller can materialise what the user typed without
+// Every mounted `SimpleEditor`, so a caller can materialise what the user typed without
 // knowing which editors a page contains — a drawer nests them through SchemaForm and
 // ArgInput, so enumerating them from the container does not scale. Plain module rather
 // than the editor component: importing that pulls Monaco's side-effect imports into every
@@ -28,7 +28,9 @@ export function setEditorUnparseable(key: object, invalid: boolean): void {
 	else unparseable.delete(key)
 }
 
-/** Whether any mounted editor holds text that cannot be persisted as written. */
+/** Whether any editor on screen holds text that cannot be persisted as written. Registry-
+ * wide rather than per-item: the editors that parse are nested arbitrarily deep and none
+ * of them knows which draft it belongs to. */
 export function anyEditorUnparseable(): boolean {
 	return unparseable.size > 0
 }

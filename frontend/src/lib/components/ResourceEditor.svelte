@@ -277,7 +277,6 @@
 		canSave = anyDirty && dirtyValid && dirtyCanWrite
 	})
 
-
 	// Drive the parent drawer's "unsaved changes" banner. The drawer chrome
 	// (header + banner slot) lives in ResourceEditorDrawer, above this
 	// lazily-imported content, so the state is lifted up via these accessors.
@@ -287,7 +286,6 @@
 	$effect(() => {
 		onCanWriteChange?.(can_write)
 	})
-
 
 	export function localDraftDeployed(): ResourceState | undefined {
 		return selected ? initialStates[selected] : undefined
