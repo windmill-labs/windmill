@@ -1278,6 +1278,11 @@ const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 // Share of the worker's memory budget a Go compilation may hold. Set high enough
 // that an ordinary build never approaches it, so the only builds whose behavior
 // changes are those that were about to take the worker down.
+//
+// What the rest covers is not the worker process, which is tens of MB and would
+// argue for a constant: it is everything `GOMEMLIMIT` does not count and that grows
+// with the build — the toolchain's mmapped inputs and outputs, its non-Go
+// allocations, and the page cache its writes charge to the cgroup.
 const GO_BUILD_MEMLIMIT_FRACTION: f64 = 0.75;
 // Heap a Go compiler is comfortable in: cores are only put to work while the budget
 // still affords each of them this much.

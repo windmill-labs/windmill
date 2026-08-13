@@ -120,6 +120,14 @@ A crash like this takes down every job on that worker, not just yours, so check 
 backend log after the run rather than only the job's own status. If you cannot run one,
 say which path went unexercised instead of implying it was verified.
 
+### A worker runs one job at a time
+
+`NUM_WORKERS > 1` falls back to 1 outside native mode (`backend/src/main.rs`, unless
+`I_ACK_NUM_WORKERS_IS_UNSAFE`), and native workers only serve the lightweight tags in
+`NATIVE_TAGS` — no `go`, `python3`, `dependency` or `flow`. So anything sizing a per-job
+resource budget (memory, CPU, temp space) is sharing the worker with the worker process
+itself, not with a second script job.
+
 ## Banned Patterns
 
 ### `$bindable(default_value)` on optional props
