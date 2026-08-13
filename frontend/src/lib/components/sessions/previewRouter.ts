@@ -230,12 +230,18 @@ export function showsView(observed: string, commanded: string): boolean {
 	if (x.view === y.view) return true
 	const seeded = PAGE_SEEDED_PARAMS[x.identity]
 	if (!seeded?.length) return false
-	// One direction only: the page may add what the request left out, never drop what it
-	// asked for. Dropping it in both would let a tab answer a request it does not satisfy.
-	const shown = new URLSearchParams(x.view)
-	const asked = new URLSearchParams(y.view)
-	for (const key of seeded) if (!asked.has(key)) shown.delete(key)
-	return [...shown].sort().join('&') === [...asked].sort().join('&')
+	// Both views come out of `requestedParams` already sorted and encoded, so they compare
+	// as strings once the seeded params are dropped. One direction only: the page may add
+	// what the request left out, never drop what it asked for — dropping in both would let
+	// a tab answer a request it does not satisfy.
+	const pairs = (view: string) => (view ? view.split('&') : [])
+	const keyOf = (pair: string) => decodeURIComponent(pair.split('=')[0])
+	const asked = new Set(pairs(y.view).map(keyOf))
+	return (
+		pairs(x.view)
+			.filter((pair) => !seeded.includes(keyOf(pair)) || asked.has(keyOf(pair)))
+			.join('&') === y.view
+	)
 }
 
 // Filters whose value addresses a workspace object — a path, owner, kind, state, time —
