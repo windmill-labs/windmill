@@ -31,6 +31,10 @@ const TOOLS_CACHE_TTL_MS = 60_000
 // different workspaces (a fork, most obviously), and `readOnlyHint` decides
 // whether a call needs confirmation — one workspace must never answer for another.
 let toolsCache: Record<string, { tools: McpToolDef[]; at: number }> = {}
+// Bumped on every clear. A listing in flight when a path is reconnected would
+// otherwise land in the fresh cache and answer for the new server with the old
+// server's `readOnlyHint` until it expires.
+let cacheGeneration = 0
 
 async function loadServerTools(workspace: string, path: string): Promise<McpToolDef[]> {
 	const key = `${workspace}:${path}`
@@ -38,12 +42,16 @@ async function loadServerTools(workspace: string, path: string): Promise<McpTool
 	if (cached && Date.now() - cached.at < TOOLS_CACHE_TTL_MS) {
 		return cached.tools
 	}
+	const generation = cacheGeneration
 	const tools = await ResourceService.getMcpTools({ workspace, path })
-	toolsCache[key] = { tools, at: Date.now() }
+	if (generation === cacheGeneration) {
+		toolsCache[key] = { tools, at: Date.now() }
+	}
 	return tools
 }
 
 export function clearMcpToolsCache() {
+	cacheGeneration++
 	toolsCache = {}
 }
 
@@ -230,7 +238,8 @@ function bounded(payload: {
  * goes first: the matches are what the model asked for.
  */
 function boundedSearch(payload: { matches: unknown[]; [k: string]: unknown }): string {
-	let { unavailable, ...rest } = payload
+	const { unavailable, ...rest } = payload
+	const dropped = Array.isArray(unavailable) ? { unavailableCount: unavailable.length } : {}
 	let out = JSON.stringify(payload, null, 2)
 	if (out.length <= MAX_RESULT_CHARS) return out
 	const matches = [...payload.matches]
@@ -238,6 +247,7 @@ function boundedSearch(payload: { matches: unknown[]; [k: string]: unknown }): s
 		JSON.stringify(
 			{
 				...rest,
+				...dropped,
 				matches,
 				truncated: true,
 				note: `Truncated to ${MAX_RESULT_CHARS} characters. Refine the query.`

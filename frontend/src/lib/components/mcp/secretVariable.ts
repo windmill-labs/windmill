@@ -5,7 +5,7 @@ import { ResourceService, VariableService } from '$lib/gen'
  * proof of ownership available: nothing else records that a variable belongs to
  * an MCP connection, and the path alone proves nothing.
  */
-export function mcpTokenDescription(resourcePath: string): string {
+function mcpTokenDescription(resourcePath: string): string {
 	return `MCP connection token for ${resourcePath}`
 }
 
@@ -23,8 +23,8 @@ export function mcpTokenDescription(resourcePath: string): string {
  * or `is_oauth`, so the variable would go on refreshing through the previous
  * authorization and the old grant would overwrite the token just minted. It has
  * to be recreated — and `delete_variable` takes the resource at the same path
- * with it (`variables.rs`, symmetric with `delete_resource`), so that branch also
- * refuses when a resource is sitting there.
+ * with it (`variables.rs`, symmetric with `delete_resource`), which the occupied
+ * path check above also covers, since that path is the resource's own.
  */
 export async function upsertSecretVariable(args: {
 	workspace: string
@@ -37,6 +37,14 @@ export async function upsertSecretVariable(args: {
 }): Promise<void> {
 	const { workspace, path, value, resourcePath, isOauth, account } = args
 	const description = mcpTokenDescription(resourcePath)
+
+	// The path picker rejects an occupied path, but it validates on a debounce and
+	// this runs on the click: without the check, a fast save would rotate the token
+	// of the connection already living there and only then fail to create its
+	// resource, leaving that server holding a credential meant for another one.
+	if (await ResourceService.existsResource({ workspace, path: resourcePath })) {
+		throw new Error(`A connection already exists at ${resourcePath}. Pick another path.`)
+	}
 
 	if (await VariableService.existsVariable({ workspace, path })) {
 		const current = await VariableService.getVariable({ workspace, path, decryptSecret: false })
@@ -52,9 +60,6 @@ export async function upsertSecretVariable(args: {
 				requestBody: { value, is_secret: true }
 			})
 			return
-		}
-		if (await ResourceService.existsResource({ workspace, path })) {
-			throw new Error(`A resource already exists at ${path}. Pick another path.`)
 		}
 		await VariableService.deleteVariable({ workspace, path })
 	}

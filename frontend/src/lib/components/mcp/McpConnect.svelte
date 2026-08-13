@@ -18,7 +18,9 @@
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
-		onConnected: (resourcePath: string) => void
+		/** Carries the workspace the connection was created in, which is not always
+		 * the one on screen by the time a popup comes back. */
+		onConnected: (workspace: string, resourcePath: string) => void
 		/** Omitted where the card is the drawer's own content and there is nothing
 		 * to collapse back to. */
 		onCancel?: () => void
@@ -63,6 +65,7 @@
 	// resource to everyone who can read it.
 	let sharedPath = $derived(!!manualPath && !manualPath.startsWith(`u/${$userStore?.username}/`))
 	let oauthConnect: McpServerOAuthConnect | undefined = $state()
+	let pending: { workspace: string; path: string; client: string } | undefined = undefined
 
 	/** Slug for the resource value's `name` and for the path suggestion. Hosts are
 	 * reduced to the label that names the service, so mcp.notion.com reads notion. */
@@ -177,12 +180,15 @@
 				description: `${entry?.name ?? serverName} MCP server`
 			}
 		})
-		onConnected(path)
+		onConnected(workspace, path)
 	}
 
 	function startProviderOAuth() {
 		const client = entry?.connectClient
 		if (!client || !manualPath || scopesStatus !== 'loaded') return
+		// The popup outlives any change on this page: what it comes back to must be
+		// the workspace, path and provider it was opened for.
+		pending = { workspace: ws, path: manualPath, client }
 		const connectUrl = new URL(`/api/oauth/connect/${client}`, window.location.origin)
 		connectUrl.searchParams.set('scopes', scopes.join('+'))
 		if (!window.open(connectUrl.toString(), '_blank', 'popup=true')) {
@@ -202,7 +208,7 @@
 		// an error is taken at face value, since dropping it would leave this card
 		// waiting on a popup that is already gone.
 		if (event.data?.type === 'success') {
-			if (event.data.resource_type !== entry?.connectClient) return
+			if (!pending || event.data.resource_type !== pending.client) return
 			cleanupOAuth()
 			void finishProviderOAuth(event.data.res)
 		} else if (event.data?.type === 'error') {
@@ -216,7 +222,7 @@
 		if (event.key !== 'oauth-callback') return
 		try {
 			const data = JSON.parse(event.newValue || '{}')
-			if (data.type === 'success' && data.resource_type !== entry?.connectClient) return
+			if (data.type === 'success' && (!pending || data.resource_type !== pending.client)) return
 			cleanupOAuth()
 			localStorage.removeItem('oauth-callback')
 			if (data.type === 'success') {
@@ -241,10 +247,9 @@
 	/** Store the token like the resource connect does: a secret variable, plus an
 	 * account when the provider issues expiring tokens so refresh can run. */
 	async function finishProviderOAuth(res: any) {
-		// Pinned for the whole sequence: a workspace switch between these requests
-		// would leave the variable in one workspace and the resource in another.
-		const workspace = ws
-		const path = manualPath
+		const target = pending
+		if (!target) return
+		const { workspace, path } = target
 		try {
 			let account: number | undefined = undefined
 			if (res?.expires_in != undefined) {
@@ -273,6 +278,7 @@
 		} catch (e) {
 			sendUserToast(`Failed to connect ${entry?.name}: ${e.body ?? e.message}`, true)
 		} finally {
+			pending = undefined
 			signingIn = false
 		}
 	}
@@ -397,7 +403,7 @@
 					path={manualPath}
 					onDiscovered={(supported) => (discoveryFoundOAuth = supported)}
 					workspace={ws}
-					onConnected={(path) => onConnected(path)}
+					onConnected={(connectedWorkspace, path) => onConnected(connectedWorkspace, path)}
 				/>
 			{/key}
 		{/if}

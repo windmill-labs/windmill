@@ -233,6 +233,23 @@ describe('search_mcp_tools', () => {
 // A server controls its error text as much as its output, so the cap has to hold
 // on the failure path too.
 describe('result size cap', () => {
+	// A listing in flight when a path is reconnected must not land in the cache it
+	// was cleared from: it would answer for the new server with the old server's
+	// annotations, and those decide whether a call needs confirmation.
+	it('drops a tool list that was already in flight when the cache was cleared', async () => {
+		let release: (tools: unknown) => void = () => {}
+		getMcpToolsMock.mockReturnValueOnce(new Promise((resolve) => (release = resolve)))
+		const inFlight = run('search_mcp_tools', { query: 'issue' })
+
+		clearMcpToolsCache()
+		release(TOOLS)
+		await inFlight
+
+		getMcpToolsMock.mockResolvedValue(TOOLS)
+		await run('search_mcp_tools', { query: 'issue' })
+		expect(getMcpToolsMock).toHaveBeenCalledTimes(2)
+	})
+
 	it('truncates an oversized tools/list failure in search', async () => {
 		getMcpToolsMock.mockRejectedValue(new Error('x'.repeat(80_000)))
 		const result = await run('search_mcp_tools', { query: 'issue' })

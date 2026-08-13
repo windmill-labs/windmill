@@ -108,7 +108,7 @@
 		{#if !resourcePath}
 			<McpConnect
 				workspace={opWs!}
-				onConnected={(path) => handleOAuthConnected(path, path.split('/').pop() ?? path)}
+				onConnected={(_ws, path) => handleOAuthConnected(path, path.split('/').pop() ?? path)}
 			/>
 		{/if}
 

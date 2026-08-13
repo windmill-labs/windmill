@@ -13,7 +13,9 @@
 	import { onDestroy, onMount } from 'svelte'
 
 	interface Props {
-		onConnected: (path: string, resourceName: string) => void
+		/** Carries the workspace the connection was created in: a popup outlives a
+		 * workspace switch on the page behind it. */
+		onConnected: (workspace: string, path: string) => void
 		/** The server to sign in to. Discovery runs against it on mount. */
 		server: { name: string; url: string }
 		/** Where the resource and its token variable land. */
@@ -34,6 +36,7 @@
 	let status = $state<'idle' | 'discovering' | 'discovered' | 'connecting'>('idle')
 	let error = $state<string | null>(null)
 	let noOAuth = $state(false)
+	let pending: { workspace: string; path: string; serverUrl: string } | undefined = undefined
 
 	async function discoverOAuth() {
 		status = 'discovering'
@@ -55,6 +58,9 @@
 	}
 
 	function startOAuth() {
+		// Fixed when the popup opens: the page behind it can move on, and the
+		// callback must still land where the user aimed it.
+		pending = { workspace, path, serverUrl }
 		const url = new URL(`/api/mcp/oauth/start`, window.location.origin)
 		url.searchParams.set('mcp_server_url', serverUrl)
 		url.searchParams.set('scopes', selectedScopes.join(','))
@@ -73,7 +79,11 @@
 	function handleOAuthMessage(event: MessageEvent) {
 		if (!sameTopDomainOrigin(event.origin, window.location.origin)) return
 
+		// Every connector on the page hears this, so one only takes the completion
+		// for the server it opened. Two connectors aimed at the same server cannot
+		// be told apart — the callback carries nothing else to match on.
 		if (event.data.type === 'MCP_CONNECTED') {
+			if (event.data.mcp_server_url !== pending?.serverUrl) return
 			cleanup()
 			createMcpResource(event.data)
 		} else if (event.data.type === 'MCP_ERROR') {
@@ -88,8 +98,9 @@
 			cleanup()
 			try {
 				const data = JSON.parse(event.newValue || '{}')
-				localStorage.removeItem('mcp-oauth-callback')
 				if (data.type === 'MCP_CONNECTED') {
+					if (data.mcp_server_url !== pending?.serverUrl) return
+					localStorage.removeItem('mcp-oauth-callback')
 					createMcpResource(data)
 				}
 			} catch (e) {
@@ -109,11 +120,14 @@
 		expires_in?: number
 		mcp_server_url: string
 	}) {
+		const target = pending
+		if (!target) return
+		const { workspace, path } = target
 		try {
 			let accountId: number | undefined
 			if (data.expires_in && data.refresh_token) {
 				const accountIdStr = await OauthService.createAccount({
-					workspace: workspace,
+					workspace,
 					requestBody: {
 						refresh_token: data.refresh_token,
 						expires_in: data.expires_in,
@@ -125,7 +139,7 @@
 			}
 
 			await upsertSecretVariable({
-				workspace: workspace,
+				workspace,
 				path,
 				value: data.access_token,
 				resourcePath: path,
@@ -134,7 +148,7 @@
 			})
 
 			await ResourceService.createResource({
-				workspace: workspace,
+				workspace,
 				requestBody: {
 					resource_type: 'mcp',
 					path: path,
@@ -148,7 +162,7 @@
 			})
 
 			sendUserToast('Connected to MCP server')
-			onConnected(path, resourceName)
+			onConnected(workspace, path)
 		} catch (e: any) {
 			error = e.body?.message || e.message || 'Failed to create resource'
 			status = 'discovered'

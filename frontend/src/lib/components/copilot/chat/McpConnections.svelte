@@ -272,9 +272,12 @@
 			{#key connectSeq}
 				<McpConnect
 					workspace={ws}
-					onConnected={async (path) => {
-						// Connecting one is the act of choosing it.
-						if (!setMcpEnabled(ws, path, true)) {
+					onConnected={async (connectedWs, path) => {
+						// Connecting one is the act of choosing it, and it is keyed on where
+						// it was created rather than on what is on screen now: a switch
+						// during the popup would otherwise enable the path in a workspace
+						// that has no such connection.
+						if (!setMcpEnabled(connectedWs, path, true)) {
 							sendUserToast(`Connected ${path}, but could not turn it on. Toggle it here.`, true)
 						}
 						connectSeq++
