@@ -724,7 +724,9 @@ async fn test_overwrite_igroups_reconciles_retained_group_membership(
 /// also appear in a configured group's membership.
 #[cfg(feature = "private")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_reconcile_ignores_non_instance_group_members(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_reconcile_ignores_non_instance_group_members(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -745,10 +747,13 @@ async fn test_reconcile_ignores_non_instance_group_members(db: Pool<Postgres>) -
     }
 
     // shielded@ is already in the workspace through a non-instance_group source (the shape
-    // the migration leaves behind), at a role the group config would not grant.
+    // the migration leaves behind), at a role the group config would not grant. The username
+    // deliberately differs from the instance-derived one ('shielded'): an unguarded
+    // auto_add_user would then insert a second usr row for the email instead of no-op'ing on
+    // a username conflict, so the count assertions below can catch it.
     sqlx::query(
         r#"INSERT INTO usr (workspace_id, username, email, is_admin, operator, added_via)
-           VALUES ('test-workspace', 'shielded', 'shielded@example.com', true, false,
+           VALUES ('test-workspace', 'shielded_legacy', 'shielded@example.com', true, false,
                    '{"source": "manual", "migrated_from_instance_group": "gone_grp"}'::jsonb)"#,
     )
     .execute(&db)
@@ -763,7 +768,7 @@ async fn test_reconcile_ignores_non_instance_group_members(db: Pool<Postgres>) -
         .await?;
     assert_eq!(resp.status(), 200, "edit: {}", resp.text().await?);
 
-    // kept@ was auto-added via the group; shielded@ kept their manual row untouched.
+    // kept@ was auto-added via the group; shielded@ kept their single manual row untouched.
     let kept: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM usr WHERE workspace_id = 'test-workspace' AND email = 'kept@example.com'
          AND added_via->>'source' = 'instance_group'",
@@ -771,6 +776,16 @@ async fn test_reconcile_ignores_non_instance_group_members(db: Pool<Postgres>) -
     .fetch_one(&db)
     .await?;
     assert_eq!(kept, 1, "group member should be auto-added");
+
+    let shielded_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM usr WHERE workspace_id = 'test-workspace' AND email = 'shielded@example.com'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        shielded_rows, 1,
+        "reconciliation must not create a second usr row for a member already present under a non-instance_group source"
+    );
 
     // Dropping both users from the group removes the instance_group-sourced member but must
     // leave the manual row alone.
@@ -787,15 +802,25 @@ async fn test_reconcile_ignores_non_instance_group_members(db: Pool<Postgres>) -
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(kept, 0, "instance_group-sourced member loses access with their only group");
+    assert_eq!(
+        kept, 0,
+        "instance_group-sourced member loses access with their only group"
+    );
 
-    let (is_admin, via_source): (bool, Option<String>) = sqlx::query_as(
-        "SELECT is_admin, added_via->>'source' FROM usr
+    let (username, is_admin, via_source): (String, bool, Option<String>) = sqlx::query_as(
+        "SELECT username, is_admin, added_via->>'source' FROM usr
          WHERE workspace_id = 'test-workspace' AND email = 'shielded@example.com'",
     )
     .fetch_one(&db)
     .await?;
-    assert!(is_admin, "manual member's role must not be touched by reconciliation");
+    assert_eq!(
+        username, "shielded_legacy",
+        "the original manual row must be the only one"
+    );
+    assert!(
+        is_admin,
+        "manual member's role must not be touched by reconciliation"
+    );
     assert_eq!(via_source.as_deref(), Some("manual"));
 
     Ok(())
