@@ -3380,6 +3380,33 @@ const AZURE_TOKEN_EXPIRY_MARGIN_S: i64 = 60;
 /// Lifetime assumed when the token response omits `expires_in`.
 const AZURE_TOKEN_FALLBACK_LIFETIME_S: i64 = 300;
 
+/// Whether the span `start..end` of `url` is the userinfo of an http(s) authority.
+/// The placeholder contains '/', which truncates the authority for any left-to-right
+/// parse, so terminators falling inside the span are skipped rather than honored.
+fn span_is_http_userinfo(url: &str, start: usize, end: usize) -> bool {
+    let Some(scheme_sep) = url.find("://") else {
+        return false;
+    };
+    let scheme = &url[..scheme_sep];
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return false;
+    }
+    let body_start = scheme_sep + 3;
+    if start < body_start {
+        return false;
+    }
+    let authority_end = url[body_start..]
+        .char_indices()
+        .map(|(i, c)| (body_start + i, c))
+        .find(|&(i, c)| (i < start || i >= end) && (c == '/' || c == '?' || c == '#'))
+        .map_or(url.len(), |(i, _)| i);
+    // An '@' inside the span is not a userinfo terminator: the span must end at or
+    // before the last one that isn't.
+    url[body_start..authority_end]
+        .rfind('@')
+        .is_some_and(|rel| end <= body_start + rel)
+}
+
 /// Locate the placeholder in a git URL, returning `(whole placeholder, resource path)`.
 fn parse_azure_devops_placeholder(url: &str) -> Result<Option<(&str, &str)>> {
     let Some(start) = url.find(AZURE_DEVOPS_TOKEN_PLACEHOLDER) else {
@@ -3393,9 +3420,18 @@ fn parse_azure_devops_placeholder(url: &str) -> Result<Option<(&str, &str)>> {
                 .to_string(),
         )
     })?;
+    let end = start + AZURE_DEVOPS_TOKEN_PLACEHOLDER.len() + end + 1;
+    // Anywhere but the userinfo, the minted token would be spliced into a part of the
+    // URL that git echoes verbatim in its failure messages (which are persisted as the
+    // repository's sync status) and that credential redaction does not cover.
+    if !span_is_http_userinfo(url, start, end) {
+        return Err(Error::BadRequest(
+            "The AZURE_DEVOPS_TOKEN(...) placeholder must be the credentials of an http(s) git URL, i.e. directly before the '@'".to_string(),
+        ));
+    }
     Ok(Some((
-        &url[start..start + AZURE_DEVOPS_TOKEN_PLACEHOLDER.len() + end + 1],
-        &after[..end],
+        &url[start..end],
+        &after[..end - start - AZURE_DEVOPS_TOKEN_PLACEHOLDER.len() - 1],
     )))
 }
 
@@ -4380,6 +4416,22 @@ mod tests {
             "https://AZURE_DEVOPS_TOKEN(f/azure@dev.azure.com/o"
         )
         .is_err());
+        // Outside the userinfo the minted token would land in a URL component that git
+        // echoes back in its errors and redaction does not cover.
+        assert!(parse_azure_devops_placeholder(
+            "https://dev.azure.com/org/AZURE_DEVOPS_TOKEN(f/azure)/repo"
+        )
+        .is_err());
+        assert!(parse_azure_devops_placeholder(
+            "ssh://AZURE_DEVOPS_TOKEN(f/azure)@dev.azure.com/o"
+        )
+        .is_err());
+        // A `user:token` userinfo is still the credentials position.
+        assert_eq!(
+            parse_azure_devops_placeholder("https://u:AZURE_DEVOPS_TOKEN(f/azure)@dev.azure.com/o")
+                .unwrap(),
+            Some(("AZURE_DEVOPS_TOKEN(f/azure)", "f/azure"))
+        );
     }
 
     #[tokio::test]
