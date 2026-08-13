@@ -1144,10 +1144,11 @@
 				description="Configure where secrets (secret variables) are stored."
 				link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
 			/>
-		{:else if category == 'GitHub Enterprise App'}
+		{:else if category == 'GitHub App'}
 			<SettingsPageHeader
-				title="GitHub Enterprise App"
-				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
+				title="GitHub App"
+				description="Configure a self-managed GitHub App for git sync on GitHub.com, GHE Cloud or GitHub Enterprise Server."
+				link="https://www.windmill.dev/docs/integrations/git_repository#self-managed-github-app"
 			/>
 		{:else if category == 'DB Health'}
 			<SettingsPageHeader
