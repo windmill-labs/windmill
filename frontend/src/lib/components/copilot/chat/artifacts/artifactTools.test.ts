@@ -126,6 +126,19 @@ describe('artifact tools', () => {
 		expect(res.error).toMatch(/No artifact/)
 	})
 
+	it('read_artifact reports a failed version read as retryable, not as a missing version', async () => {
+		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'v1' }))
+		await ctx.call('update_artifact', { id: a.id, content: 'v2', change_note: 'second' })
+		vi.spyOn(ctx.dbMod, 'getArtifactVersion').mockRejectedValue(new Error('read failed'))
+
+		// Naming it absent would send the model to list_artifact_versions and have it conclude
+		// the version is gone, when nothing has been read at all.
+		const res = JSON.parse(await ctx.call('read_artifact', { id: a.id, version: 1 }))
+		expect(res.success).toBe(false)
+		expect(res.error).toMatch(/unavailable/)
+		expect(res.error).not.toMatch(/no version/)
+	})
+
 	it('read_artifact reports a missing id', async () => {
 		const res = JSON.parse(await ctx.call('read_artifact', { id: 'nope' }))
 		expect(res.success).toBe(false)
