@@ -212,7 +212,9 @@ jobs:
 
       - name: Install Pi CLI
         if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        run: npm install --global @mariozechner/pi-coding-agent
+        # Pinned: this job holds DEEPSEEK_API_KEY and PR write access, and an
+        # unpinned reviewer also makes verdicts non-reproducible across runs.
+        run: npm install --global @earendil-works/pi-coding-agent@0.84.1
 
       - name: Pre-fetch base and head refs for the PR
         if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
@@ -362,13 +364,14 @@ jobs:
           # The context file lives in RUNNER_TEMP (outside the checkout); tell the
           # agent its absolute path.
           printf '\nReview context file (absolute path): %s\n' "$CTX" >> /tmp/pi-prompt.md
-          # DeepSeek exposes only two reasoning levels; pi's default (medium) is
-          # unsupported for this model and silently clamps to reasoning_effort=high.
-          # xhigh is the only way to reach "max", which is what a review needs.
+          # DeepSeek's reasoning_effort accepts low/high/max and silently maps both
+          # medium and xhigh onto high. Set the level explicitly rather than letting
+          # pi's default clamp onto it, so a change to either the default or the
+          # clamping is a visible diff here instead of a silent shift in review depth.
           pi -p \
             --provider deepseek \
             --model deepseek-v4-pro \
-            --thinking xhigh \
+            --thinking high \
             --tools "$PI_TOOLS" \
             "${PI_HARDEN_FLAGS[@]}" \
             --mode json \
@@ -402,6 +405,14 @@ jobs:
             | last
             | (.content[]? | select(.type == "text") | .text)
           ' "$OUT_DIR/pi-events.jsonl" > "$OUT_DIR/pi-final-message.md"
+
+          # The final message often opens with chatter ("Now I have all the context
+          # I need..."), which would land above the verdict in the posted comment.
+          # Keep the trim conditional: without the heading there is nothing to cut
+          # and the range expression would empty the file.
+          if grep -q '^## Pi Review' "$OUT_DIR/pi-final-message.md"; then
+            sed -i -n '/^## Pi Review/,$p' "$OUT_DIR/pi-final-message.md"
+          fi
 
       - name: Post Pi review comment
         if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
