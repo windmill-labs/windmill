@@ -27,6 +27,15 @@ describe('resolveModelPrice', () => {
 		expect(resolveModelPrice('customai', 'some-in-house-model', undefined)).toBeUndefined()
 	})
 
+	it('does not let a newer revision inherit an older one’s price', () => {
+		// `gpt-5.6` normalizes to `gpt-5-6`, which the `gpt-5` entry would otherwise
+		// claim — pricing a model we do not track at a rate that is several times off.
+		expect(resolveModelPrice('openai', 'gpt-5', undefined)?.price.input).toBe(1.25)
+		expect(resolveModelPrice('openai', 'gpt-5-mini', undefined)?.price.input).toBe(0.25)
+		expect(resolveModelPrice('openai', 'gpt-5.6', undefined)).toBeUndefined()
+		expect(resolveModelPrice('googleai', 'gemini-3.1', undefined)).toBeUndefined()
+	})
+
 	it('prefers a workspace override, keeping the model’s own cache ratios', () => {
 		const resolved = resolveModelPrice('anthropic', 'claude-opus-5', {
 			'anthropic:claude-opus-5': { input: 2, output: 8 }

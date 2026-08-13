@@ -52,8 +52,13 @@ type PriceEntry = {
  * guessed at, and any entry can be corrected per workspace from the AI settings.
  * Providers whose catalogue turns over too quickly to track (DeepSeek, Mistral,
  * Groq, TogetherAI, custom deployments) are deliberately absent.
+ *
+ * `null` marks a model that is known to exist but whose rates are not: it stops a
+ * newer revision from falling through to an older one's family entry and being
+ * quietly mispriced. Unpriced is a supported state (the UI says so and points at
+ * the override); a confidently wrong number is not.
  */
-const MODEL_PRICES: [name: string, price: PriceEntry][] = [
+const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	// Anthropic — Opus 4.1 and older bill at the pre-4.5 Opus rate, so the family
 	// fallback sits below the explicit entries rather than covering them.
 	['claude-fable-5', { input: 10, output: 50 }],
@@ -79,6 +84,13 @@ const MODEL_PRICES: [name: string, price: PriceEntry][] = [
 	// rate. There is no charge for writing the cache and no usage field reporting
 	// one, so the write rate never applies. The -mini/-nano entries must precede
 	// the family entry, which would otherwise claim them.
+	// Revisions past gpt-5 are priced separately by OpenAI and are not tracked here;
+	// without these the `gpt-5` entry below would claim them at gpt-5's rates.
+	['gpt-5.6', null],
+	['gpt-5.5', null],
+	['gpt-5.4', null],
+	['gpt-5.2', null],
+	['gpt-5.1', null],
 	['gpt-5-mini', { input: 0.25, output: 2, cacheRead: 0.025 }],
 	['gpt-5-nano', { input: 0.05, output: 0.4, cacheRead: 0.005 }],
 	['gpt-5', { input: 1.25, output: 10, cacheRead: 0.125 }],
@@ -90,16 +102,19 @@ const MODEL_PRICES: [name: string, price: PriceEntry][] = [
 	['o4-mini', { input: 1.1, output: 4.4, cacheRead: 0.275 }],
 	['o3-mini', { input: 1.1, output: 4.4, cacheRead: 0.55 }],
 	['o3', { input: 2, output: 8, cacheRead: 0.5 }],
-	// Google — a cached read is a quarter of input across the 2.5 family
+	// Google — a cached read is a quarter of input across the 2.5 family; the 3.x
+	// families are not tracked
+	['gemini-3.1', null],
+	['gemini-3', null],
 	['gemini-2.5-flash-lite', { input: 0.1, output: 0.4, cacheRead: 0.025 }],
 	['gemini-2.5-flash', { input: 0.3, output: 2.5, cacheRead: 0.075 }],
 	['gemini-2.5-pro', { input: 1.25, output: 10, cacheRead: 0.31 }]
 ]
 
 const MODEL_PRICE_MATCHERS = buildModelMatchers(
-	MODEL_PRICES.map(([name, entry]): [string, ModelPrice] => [
+	MODEL_PRICES.map(([name, entry]): [string, ModelPrice | null] => [
 		name,
-		{
+		entry && {
 			input: entry.input,
 			output: entry.output,
 			cacheRead: entry.cacheRead ?? entry.input * CACHE_READ_RATIO,
@@ -109,7 +124,7 @@ const MODEL_PRICE_MATCHERS = buildModelMatchers(
 )
 
 export function getKnownModelPrice(model: string): ModelPrice | undefined {
-	return matchModel(MODEL_PRICE_MATCHERS, model)
+	return matchModel(MODEL_PRICE_MATCHERS, model) ?? undefined
 }
 
 /**

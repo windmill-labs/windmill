@@ -895,7 +895,7 @@ async fn run_setting_pre_write_hook(
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.
-        "ai_config" => {
+        AI_CONFIG_SETTING => {
             windmill_ai::ai_types::validate_model_pricing_json(value)
                 .map_err(error::Error::BadRequest)?;
         }

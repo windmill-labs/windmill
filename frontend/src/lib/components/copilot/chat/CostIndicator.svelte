@@ -50,9 +50,10 @@
 		</div>
 		{#snippet text()}
 			<div class="text-xs whitespace-nowrap">
-				<p class="font-semibold">
-					{aiChatManager.isSessionChat ? 'Session cost' : 'Chat cost'}
-				</p>
+				<!-- One conversation's spend, not the session's: a session can hold several
+				     conversations and each keeps its own usage. The workspace AI usage view
+				     is where they add up per session. -->
+				<p class="font-semibold">Chat cost</p>
 				<div class="mt-1 flex flex-col gap-1">
 					{#each priced.rows as row (`${row.provider}:${row.model}`)}
 						<div>

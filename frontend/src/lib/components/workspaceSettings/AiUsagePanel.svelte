@@ -8,9 +8,10 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { resource } from 'runed'
 
-	// The workspace is passed in rather than read from the store: this settings
-	// component is also mounted for the instance scope, where the workspace in
-	// focus has nothing to do with the config being edited.
+	// Workspace and rates are both passed in rather than read from a store: the
+	// settings component that mounts this one also serves the instance scope, and
+	// the rates that priced a chat are the workspace's *effective* ones, which an
+	// inheriting workspace does not hold itself.
 	let {
 		workspace,
 		modelPricing
@@ -86,7 +87,7 @@
 
 <SettingCard
 	label="AI usage"
-	description="Token spend across this workspace's AI chats. Costs are estimated from the rates above unless the provider reported one."
+	description="Token spend across this workspace's AI chats, grouped by day, user, model or session. Costs are estimated from the workspace's effective model rates unless the provider reported one."
 >
 	<div class="flex flex-col gap-3">
 		<div class="flex flex-row items-center gap-2 flex-wrap">
