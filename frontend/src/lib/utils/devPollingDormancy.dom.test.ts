@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Freshly imported per case: install is idempotent by design, so a shared module instance
 // would make the second case a no-op against a restored `window.setInterval`.
@@ -12,6 +12,15 @@ async function install() {
 // only thing standing between a forgotten tab and a dev server that never gets reclaimed.
 describe('devPollingDormancy', () => {
 	const original = { setInterval: window.setInterval, clearInterval: window.clearInterval }
+	let fetchSpy: ReturnType<typeof vi.fn>
+
+	// Stubbed for every case, not just the one that asserts on it: waking issues a real
+	// request otherwise, and jsdom's default origin is localhost:3000 — the frontend port
+	// of the first worktree, whose dev server the suite would then resurrect.
+	beforeEach(() => {
+		fetchSpy = vi.fn(() => Promise.resolve(new Response()))
+		vi.stubGlobal('fetch', fetchSpy)
+	})
 
 	afterEach(() => {
 		window.setInterval = original.setInterval
@@ -20,6 +29,8 @@ describe('devPollingDormancy', () => {
 		delete (window as unknown as Record<string, boolean>).__wmDevPollingDormancyInstalled
 		vi.useRealTimers()
 		vi.unstubAllEnvs()
+		// restoreAllMocks does not undo stubGlobal, and the config sets no unstubGlobals.
+		vi.unstubAllGlobals()
 		vi.restoreAllMocks()
 	})
 
@@ -63,8 +74,6 @@ describe('devPollingDormancy', () => {
 		vi.stubEnv('VITE_DEV_DORMANT_MS', '1000')
 		vi.spyOn(document, 'hasFocus').mockReturnValue(true)
 		setHidden(false)
-		const fetchSpy = vi.fn(() => Promise.resolve(new Response()))
-		vi.stubGlobal('fetch', fetchSpy)
 
 		await install()
 
@@ -74,6 +83,8 @@ describe('devPollingDormancy', () => {
 
 		setHidden(false)
 		expect(fetchSpy).toHaveBeenCalledTimes(1)
+		// The origin is the load-bearing half: it has to reach the supervised port.
+		expect(fetchSpy.mock.calls[0][0]).toBe(`${location.origin}/`)
 		expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: 'HEAD' })
 	})
 
