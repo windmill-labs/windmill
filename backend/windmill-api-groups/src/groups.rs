@@ -518,6 +518,10 @@ async fn update_igroup(
 /// Reads `workspace_settings` across the whole instance without checking the caller's rights.
 /// Callers must have established superadmin beforehand; the result leaks which workspaces are
 /// configured with a given instance group.
+///
+/// This and every reconcile call site are gated on `private` alone, NOT `enterprise`: CE
+/// builds ship `private` without `enterprise`, and gating on `enterprise` would scrub
+/// references while stranding the affected workspace members on CE.
 #[cfg(feature = "private")]
 pub async fn workspaces_referencing_instance_groups(
     groups: &[String],
@@ -554,9 +558,10 @@ pub async fn remove_instance_groups_from_workspace_settings(
     }
 
     // Row filter must stay `?|`: it yields false on a JSON `null` instance_groups, where
-    // jsonb_array_elements_text would instead raise and abort the whole transaction. It is not
-    // index-backed — the GIN index covers the auto_invite column, not this expression — which
-    // is acceptable since workspace_settings holds one row per workspace.
+    // jsonb_array_elements_text would instead raise and abort the whole transaction; the
+    // jsonb_typeof guard rules out the same class of value for the roles object. The filter is
+    // not index-backed — the GIN index covers the auto_invite column, not this expression —
+    // which is acceptable since workspace_settings holds one row per workspace.
     sqlx::query!(
         r#"UPDATE workspace_settings SET
              auto_invite = jsonb_set(
@@ -568,7 +573,10 @@ pub async fn remove_instance_groups_from_workspace_settings(
                       WHERE elem #>> '{}' <> ALL($1))
                  ),
                  '{instance_groups_roles}',
-                 COALESCE(auto_invite->'instance_groups_roles', '{}'::jsonb) - $1::text[]
+                 CASE WHEN jsonb_typeof(auto_invite->'instance_groups_roles') = 'object'
+                      THEN (auto_invite->'instance_groups_roles') - $1::text[]
+                      ELSE '{}'::jsonb
+                 END
              )
            WHERE auto_invite->'instance_groups' ?| $1"#,
         groups
@@ -667,8 +675,6 @@ async fn delete_igroup(
         apply_instance_role(email, effective_role.as_deref(), &mut tx).await?;
     }
 
-    // Gated on `private` alone, matching the auto-add path it reverses — CE builds include
-    // `private` without `enterprise`.
     #[cfg(feature = "private")]
     {
         use windmill_api_workspaces::workspaces_ee::reconcile_workspace_instance_groups;
@@ -970,9 +976,7 @@ async fn add_user_igroup(
     )
     .await?;
 
-    // Sync workspace membership derived from this instance group. Gated on `private` alone,
-    // matching where the reconciler is compiled — CE builds include `private` without
-    // `enterprise`.
+    // Sync workspace membership derived from this instance group.
     #[cfg(feature = "private")]
     {
         use windmill_api_workspaces::workspaces_ee::reconcile_workspace_instance_groups;
@@ -1184,8 +1188,7 @@ async fn remove_user_igroup(
 
     // Re-derive workspace membership now that the base tables reflect the removal: drops the
     // user where this group was their only access source, or re-roles them from the groups
-    // they still belong to. Gated on `private` alone — CE builds include `private` without
-    // `enterprise`.
+    // they still belong to.
     #[cfg(feature = "private")]
     {
         use windmill_api_workspaces::workspaces_ee::reconcile_workspace_instance_groups;
@@ -1410,8 +1413,7 @@ async fn overwrite_igroups(
 
     // Runs after the re-insert so the reconciler judges membership against the imported
     // state: a member who moved from a dropped group to a retained one is re-roled in place
-    // instead of losing workspace access. Gated on `private` alone — CE builds include
-    // `private` without `enterprise`.
+    // instead of losing workspace access.
     #[cfg(feature = "private")]
     {
         use windmill_api_workspaces::workspaces_ee::reconcile_workspace_instance_groups;

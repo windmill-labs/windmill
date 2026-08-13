@@ -717,3 +717,86 @@ async fn test_overwrite_igroups_reconciles_retained_group_membership(
 
     Ok(())
 }
+
+/// Members whose `added_via` source is not 'instance_group' — manually added users, and the
+/// orphaned members the `preserve_orphaned_instance_group_members` migration converted to
+/// manual — are invisible to reconciliation: never re-roled and never removed, even when they
+/// also appear in a configured group's membership.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_reconcile_ignores_non_instance_group_members(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let global_base = format!("http://localhost:{port}/api/groups");
+    let ws_base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let resp = authed(client().post(format!("{global_base}/create")))
+        .json(&json!({ "name": "visible_grp" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "create");
+    for email in ["kept@example.com", "shielded@example.com"] {
+        let resp = authed(client().post(format!("{global_base}/adduser/visible_grp")))
+            .json(&json!({ "email": email }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200, "adduser {email}");
+    }
+
+    // shielded@ is already in the workspace through a non-instance_group source (the shape
+    // the migration leaves behind), at a role the group config would not grant.
+    sqlx::query(
+        r#"INSERT INTO usr (workspace_id, username, email, is_admin, operator, added_via)
+           VALUES ('test-workspace', 'shielded', 'shielded@example.com', true, false,
+                   '{"source": "manual", "migrated_from_instance_group": "gone_grp"}'::jsonb)"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!("{ws_base}/edit_instance_groups")))
+        .json(&json!({
+            "groups": ["visible_grp"],
+            "roles": { "visible_grp": "developer" }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "edit: {}", resp.text().await?);
+
+    // kept@ was auto-added via the group; shielded@ kept their manual row untouched.
+    let kept: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM usr WHERE workspace_id = 'test-workspace' AND email = 'kept@example.com'
+         AND added_via->>'source' = 'instance_group'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(kept, 1, "group member should be auto-added");
+
+    // Dropping both users from the group removes the instance_group-sourced member but must
+    // leave the manual row alone.
+    for email in ["kept@example.com", "shielded@example.com"] {
+        let resp = authed(client().post(format!("{global_base}/removeuser/visible_grp")))
+            .json(&json!({ "email": email }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200, "removeuser {email}");
+    }
+
+    let kept: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM usr WHERE workspace_id = 'test-workspace' AND email = 'kept@example.com'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(kept, 0, "instance_group-sourced member loses access with their only group");
+
+    let (is_admin, via_source): (bool, Option<String>) = sqlx::query_as(
+        "SELECT is_admin, added_via->>'source' FROM usr
+         WHERE workspace_id = 'test-workspace' AND email = 'shielded@example.com'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(is_admin, "manual member's role must not be touched by reconciliation");
+    assert_eq!(via_source.as_deref(), Some("manual"));
+
+    Ok(())
+}
