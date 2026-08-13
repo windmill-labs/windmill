@@ -39,12 +39,22 @@ describe('resolveModelPrice', () => {
 	})
 
 	it('still resolves the route decorations that name the same model', () => {
-		// Dates and Bedrock's -v1 are ways of spelling one model, not sub-models.
+		// Dates, Bedrock's -v1 and floating aliases are ways of spelling one model,
+		// not sub-models. `claude-3-5-haiku-latest` is a shipped picker default, so
+		// unpricing it would silently disable cost tracking out of the box.
 		expect(resolveModelPrice('anthropic', 'claude-opus-4-5-20251101', undefined)?.price.input).toBe(5)
 		expect(
 			resolveModelPrice('bedrock', 'anthropic.claude-sonnet-4-6-20250101-v1:0', undefined)?.price
 				.input
 		).toBe(3)
+		expect(resolveModelPrice('anthropic', 'claude-3-5-haiku-latest', undefined)?.price.input).toBe(
+			0.8
+		)
+		expect(
+			resolveModelPrice('openrouter', '~anthropic/claude-sonnet-latest', undefined)?.price.input
+		).toBe(3)
+		// …while a genuine sub-model stays unpriced.
+		expect(resolveModelPrice('openai', 'gpt-5-pro', undefined)).toBeUndefined()
 	})
 
 	it('prefers a workspace override, keeping the model’s own cache ratios', () => {

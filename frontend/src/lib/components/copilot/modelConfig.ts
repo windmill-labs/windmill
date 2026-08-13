@@ -116,6 +116,9 @@ function normalizeVersionSeparators(model: string): string {
 	return model.replace(/\./g, '-')
 }
 
+/** Suffixes that name a route to a model rather than a different model. */
+const DECORATIVE_SUFFIXES = ['latest', 'preview', 'beta', 'stable']
+
 /**
  * Compile a most-specific-first `[name, value]` table into matchers against the
  * bare model id. Shared with the pricing table so both resolve the same set of
@@ -140,11 +143,13 @@ export function buildModelMatchers<T>(
 			/\d$/.test(pattern) ? '(?!\\d)' : '',
 			// A named sub-model (`gpt-5-pro`, `gpt-5-mini`) is a different model with
 			// its own price, not another route to this one — so under strictVariants an
-			// entry does not match when a further *name* segment follows. Date suffixes
-			// (`-20251101`) and Bedrock's `-v1` are route decorations, not sub-models,
-			// and still match. Off by default: for a context window an inherited value
-			// is a safe approximation, for a price it is a wrong number.
-			strictVariants ? '(?!-(?!v\\d)[a-z])' : ''
+			// entry does not match when a further *name* segment follows. What follows
+			// is only a decoration when it is a date (`-20251101`), Bedrock's `-v1`, or
+			// one of the alias words below (`claude-3-5-haiku-latest` is the same model
+			// as `claude-3-5-haiku`, and is a shipped default). Off by default: for a
+			// context window an inherited value is a safe approximation, for a price it
+			// is a wrong number.
+			strictVariants ? `(?!-(?!v\\d|${DECORATIVE_SUFFIXES.join('|')})[a-z])` : ''
 		].join('')
 		return [new RegExp(pattern + guards), value]
 	})
