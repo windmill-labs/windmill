@@ -333,7 +333,9 @@
 			open={pendingDisconnect !== undefined}
 			title="Disconnect MCP server"
 			confirmationText="Disconnect"
-			onConfirmed={() => pendingDisconnect && disconnect(pendingDisconnect)}
+			onConfirmed={() => {
+				if (pendingDisconnect) void disconnect(pendingDisconnect)
+			}}
 			onCanceled={() => (pendingDisconnect = undefined)}
 		>
 			<span class="text-xs text-primary">
