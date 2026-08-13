@@ -73,13 +73,22 @@ function freshUser() {
 	return asUser(`u${n++}@x.com`)
 }
 
+// Hydration is fire-and-forget off the user store, so it can land after the test
+// body has already populated sessionState.sessions and overwrite it with what the
+// DB held at read time. `hydrated` flips once the read has been applied, so wait
+// on it rather than on a fixed number of ticks.
+async function login(user: UserExt) {
+	sessionState.hydrated = false
+	userStore.set(user)
+	await vi.waitFor(() => expect(sessionState.hydrated).toBe(true))
+}
+
 // Re-hydrate the in-memory list by toggling the user off and on (the only
 // public path that triggers sessionState's onUserChange hydration).
 async function rehydrate(user: UserExt) {
 	userStore.set(undefined)
 	await flush()
-	userStore.set(user)
-	await flush()
+	await login(user)
 }
 
 beforeEach(async () => {
@@ -101,8 +110,7 @@ beforeEach(async () => {
 describe('sessionState IndexedDB persistence', () => {
 	it('persists a session and hydrates it back, newest-first by createdAt', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		await putSession(session({ id: 's1', createdAt: 100 }))
 		await putSession(session({ id: 's2', createdAt: 200 }))
@@ -113,8 +121,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('does not persist a transient (untouched) session — it is in-memory only', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		const s = session({ id: 't1', transient: true, pending_workspace_id: 'wsA' })
 		sessionState.sessions = [s]
@@ -128,8 +135,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('persists a pending session to IndexedDB on first touch, keeping its pending workspace and tabs', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		const s = session({ id: 't1b', transient: true, pending_workspace_id: 'wsA' })
 		sessionState.sessions = [s]
@@ -152,25 +158,30 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('setSessionPreviewSize persists a dragged width and round-trips it', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		const s = session({ id: 'ps1', createdAt: 1 })
 		sessionState.sessions = [s]
 		await putSession(s)
 
 		setSessionPreviewSize('ps1', 42)
-		await flush()
+		// The write is fire-and-forget: wait for it to land, or the re-hydrating
+		// read races the transaction.
+		const db = await openDB(`windmill-sessions::${user.email}`, 1)
+		await vi.waitFor(async () =>
+			expect(((await db.get('sessions' as never, 'ps1')) as Session | undefined)?.previewSize).toBe(
+				42
+			)
+		)
+		db.close()
 
 		await rehydrate(user)
-		await flush()
 		expect(sessionState.sessions.find((x) => x.id === 'ps1')?.previewSize).toBe(42)
 	})
 
 	it('materializeTransient promotes an in-memory draft to a persisted IndexedDB record', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		const s = session({ id: 't2', transient: true })
 		sessionState.sessions = [s]
@@ -184,8 +195,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('round-trips the unsent draft prompt on the session record', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		const s = session({ id: 't3', transient: true, pending_workspace_id: 'wsA' })
 		sessionState.sessions = [s]
@@ -200,8 +210,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('persists parallel drafts independently — a keystroke in one never cancels another', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		const a = session({ id: 'da', transient: true, pending_workspace_id: 'wsA' })
 		const b = session({ id: 'db', transient: true, pending_workspace_id: 'wsA' })
@@ -222,8 +231,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('deleteSession removes an in-memory transient draft', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		const s = session({ id: 't4', transient: true })
 		sessionState.sessions = [s]
@@ -237,8 +245,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('deleting a draft inside the debounce window does not resurrect it', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		const s = session({ id: 't4b', transient: true, pending_workspace_id: 'wsA' })
 		sessionState.sessions = [s]
@@ -255,8 +262,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('removes a session record', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		await putSession(session({ id: 'keep', createdAt: 1 }))
 		await putSession(session({ id: 'drop', createdAt: 2 }))
@@ -270,8 +276,7 @@ describe('sessionState IndexedDB persistence', () => {
 		const a = freshUser()
 		const b = freshUser()
 
-		userStore.set(a)
-		await flush()
+		await login(a)
 		await putSession(session({ id: 'a1', createdAt: 1 }))
 
 		// Switch to B: empty list, A's record not visible.
@@ -288,8 +293,7 @@ describe('sessionState IndexedDB persistence', () => {
 		const a = freshUser()
 		const b = freshUser()
 
-		userStore.set(a)
-		await flush()
+		await login(a)
 		// A starts an unsent draft — transient, in-memory only, never persisted.
 		sessionState.sessions = [session({ id: 'a-draft', transient: true }), ...sessionState.sessions]
 
@@ -303,8 +307,7 @@ describe('sessionState IndexedDB persistence', () => {
 	it('resets the active session pointer on user switch', async () => {
 		const a = freshUser()
 		const b = freshUser()
-		userStore.set(a)
-		await flush()
+		await login(a)
 		sessionState.currentSessionId = 'a1'
 		userStore.set(b)
 		await vi.waitFor(() => expect(sessionState.currentSessionId).toBeUndefined())
@@ -375,8 +378,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('archiveSessionsForWorkspace tags only the sessions it archives, preserving user-archived ones', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		// One clean session and one the user already archived by hand, same workspace.
 		await putSession(session({ id: 'clean', createdAt: 100, workspace_id: 'wsA' }))
@@ -405,8 +407,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it("GCs each session's attached files when its workspace is torn down", async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 		await putSession(session({ id: 'f1', createdAt: 1, workspace_id: 'wsX' }))
 		await putSession(session({ id: 'f2', createdAt: 2, workspace_id: 'wsX' }))
 		await rehydrate(user)
@@ -431,8 +432,7 @@ describe('sessionState IndexedDB persistence', () => {
 			email: user.email,
 			workspaces: [{ id: 'gone-ws', name: 'gone', disabled: false }] as never
 		})
-		userStore.set(user)
-		await flush()
+		await login(user)
 		await putSession(session({ id: 'arch', createdAt: 1, workspace_id: 'gone-ws', archived: true }))
 		await rehydrate(user)
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['arch']))
@@ -498,8 +498,7 @@ describe('sessionState IndexedDB persistence', () => {
 			email: user.email,
 			workspaces: [{ id: 'doomed-ws', name: 'doomed', disabled: false }] as never
 		})
-		userStore.set(user)
-		await flush()
+		await login(user)
 
 		const doomed = session({ id: 'doomed', createdAt: 1, workspace_id: 'doomed-ws' })
 		await putSession(doomed)
@@ -544,8 +543,7 @@ describe('sessionState IndexedDB persistence', () => {
 			'wm-fork-fork_of_fork': 'active'
 		} as never)
 
-		userStore.set(user)
-		await flush()
+		await login(user)
 		// Seed with a STALE root pointing at the now-deleted grandparent.
 		await putSession(
 			session({
@@ -575,8 +573,7 @@ describe('sessionState IndexedDB persistence', () => {
 			email: user.email,
 			workspaces: [{ id: 'pending-ws', name: 'pending', disabled: false }] as never
 		})
-		userStore.set(user)
-		await flush()
+		await login(user)
 		// A touched (persisted) but still-unsent draft scoped to its pre-send workspace.
 		await putSession(session({ id: 'draft', createdAt: 1, pending_workspace_id: 'pending-ws' }))
 
@@ -595,8 +592,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('counts persisted pending drafts alongside committed sessions for a workspace', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 		// One committed session and one still-unsent draft, both bound to wsCount —
 		// reconcile removes both on teardown, so the confirmation count must see both.
 		await putSession(session({ id: 'committed', createdAt: 1, workspace_id: 'wsCount' }))
@@ -613,8 +609,7 @@ describe('sessionState IndexedDB persistence', () => {
 			email: user.email,
 			workspaces: [{ id: 'pending-ws2', name: 'pending', disabled: false }] as never
 		})
-		userStore.set(user)
-		await flush()
+		await login(user)
 		await putSession(session({ id: 'draft2', createdAt: 1, pending_workspace_id: 'pending-ws2' }))
 
 		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
@@ -635,8 +630,7 @@ describe('sessionState IndexedDB persistence', () => {
 			email: user.email,
 			workspaces: [{ id: 'wsRec', name: 'rec', disabled: false }] as never
 		})
-		userStore.set(user)
-		await flush()
+		await login(user)
 		// A committed session gives reconcile a workspace to query, so it proceeds to
 		// hydrateSessions (which rebuilds the list as in-memory-transients + DB rows).
 		await putSession(session({ id: 'committed', createdAt: 1, workspace_id: 'wsRec' }))
@@ -663,8 +657,7 @@ describe('sessionState IndexedDB persistence', () => {
 
 	it('clears the in-memory list on logout', async () => {
 		const user = freshUser()
-		userStore.set(user)
-		await flush()
+		await login(user)
 		await putSession(session({ id: 's1', createdAt: 1 }))
 		await rehydrate(user)
 		await vi.waitFor(() => expect(sessionState.sessions.length).toBe(1))
