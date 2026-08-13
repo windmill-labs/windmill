@@ -479,7 +479,10 @@ where
         let bytes = Bytes::from_request(request, _state)
             .await
             .map_err(IntoResponse::into_response)?;
-        if no_content_type && bytes.is_empty() {
+        // A request carries a body only when it signals one with Content-Length or
+        // Transfer-Encoding (RFC 9112 §6), yet it may advertise a Content-Type
+        // regardless. An empty body is therefore no args, not a malformed document.
+        if bytes.is_empty() {
             Ok(RawWebhookArgs { body: RawBody::Empty, metadata })
         } else {
             let str = String::from_utf8(bytes.to_vec())
@@ -710,6 +713,26 @@ impl WebhookArgs {
 mod tests {
 
     use super::*;
+
+    #[tokio::test]
+    async fn test_bodyless_request_with_json_content_type() {
+        let request = Request::builder()
+            .method(http::Method::GET)
+            .uri("/api/r/customer/test")
+            .header(CONTENT_TYPE, "application/json")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let args = try_from_request_body(request, &(), true)
+            .await
+            .unwrap_or_else(|_| panic!("bodyless GET should be accepted"));
+
+        assert!(
+            matches!(args.body, RawBody::Empty),
+            "bodyless GET should carry no args, got {:?}",
+            args.body
+        );
+    }
 
     #[tokio::test]
     async fn test_cloudevents_json_payload() {

@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -165,6 +170,7 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(SCHEDULES_PATH, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
@@ -729,6 +735,7 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
@@ -1396,7 +1403,7 @@
 {/snippet}
 
 {#if useDrawer}
-	<Drawer size="900px" bind:this={drawer}>
+	<Drawer size="900px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(SCHEDULES_PATH)}>
 		<DrawerContent
 			bannerReserved={draftSync.hasBaseline}
 			title={edit

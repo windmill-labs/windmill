@@ -1,5 +1,6 @@
 import type { SessionPreviewTab } from './sessionState.svelte'
-import { stripBase, TRIGGER_PAGES, type TriggerKind } from './previewRouter'
+import { whereIs } from './sessionPreviewTabs.svelte'
+import { stripBase, TRIGGER_PAGES, type TriggerKind } from './previewPaths'
 
 // Which list pages a completed chat tool can change, as base-stripped paths
 // (e.g. `/schedules`). This allowlist is the single source of truth for "does
@@ -71,5 +72,5 @@ export function tabsToReload(
 	pages: ReadonlySet<string>
 ): SessionPreviewTab[] {
 	if (pages.size === 0) return []
-	return tabs.filter((t) => pages.has(stripBase(t.loc || t.url)))
+	return tabs.filter((t) => pages.has(stripBase(whereIs(t))))
 }

@@ -1140,6 +1140,19 @@ async fn create_resource(
     }
     let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
 
+    authorize_azure_devops_reference(
+        &authed,
+        &db,
+        &user_db,
+        &w_id,
+        resource
+            .value
+            .as_deref()
+            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
+            .as_ref(),
+    )
+    .await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     let update_if_exists = q.update_if_exists.unwrap_or(false);
@@ -1821,6 +1834,18 @@ async fn update_resource(
     sqlb.returning("path");
     let authed = maybe_refresh_folders(path, &w_id, authed, &db).await;
 
+    authorize_azure_devops_reference(
+        &authed,
+        &db,
+        &user_db,
+        &w_id,
+        ns.value
+            .as_deref()
+            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
+            .as_ref(),
+    )
+    .await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     if let Some(npath) = ns.path.clone() {
@@ -2098,6 +2123,8 @@ async fn set_resource_value(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
+
     let mut tx = user_db.clone().begin(authed).await?;
 
     // `RETURNING resource_type` rather than a second lookup: the advisory below has to know the
@@ -2954,6 +2981,50 @@ fn extract_host_from_git_url(url: &str) -> Option<String> {
     None
 }
 
+/// Strip the userinfo from a git URL. These probes run against URLs that embed a
+/// credential (a `$var:` token, or one minted from an `AZURE_DEVOPS_TOKEN(...)`
+/// placeholder), and their errors are persisted as the repository's sync status and
+/// rendered in the UI. git's own redaction cannot be relied on — it drops the userinfo
+/// from `unable to access '<url>'` but echoes it in `could not read Password for
+/// '<url>'` — so anything that formats a probe URL has to strip it here.
+fn redact_git_url_credentials(url: &str) -> String {
+    match git_url_userinfo_range(url) {
+        Some(r) => format!("{}***{}", &url[..r.start], &url[r.end..]),
+        None => url.to_string(),
+    }
+}
+
+/// Byte range of a git URL's userinfo (the credentials before the authority's '@'),
+/// for both `scheme://user[:pass]@host/path` and SCP-style `user@host:path`.
+///
+/// The authority ends at the first '/', '?' or '#' and the credentials are the *last*
+/// '@' within it, so an '@' planted in the path cannot mis-scope the split
+/// (GHSA-p5cj-8cfh-mjv6).
+fn git_url_userinfo_range(url: &str) -> Option<std::ops::Range<usize>> {
+    let (authority_start, authority) = match url.find("://") {
+        Some(scheme_sep) => {
+            let start = scheme_sep + 3;
+            let after = &url[start..];
+            let end = after
+                .find(|c| c == '/' || c == '?' || c == '#')
+                .unwrap_or(after.len());
+            (start, &after[..end])
+        }
+        // SCP-style `[user@]host:path` has no scheme, and its authority is bounded by
+        // the first ':' — never by the last '@', which an '@' in the path would move
+        // (the same mis-scoping `extract_host_from_git_url` guards against). scp syntax
+        // has no password field, so bounding this way cannot cut a credential in half.
+        None if url.contains('@') => (0, url.split(':').next().unwrap_or(url)),
+        None => return None,
+    };
+    let at = authority.rfind('@')?;
+    (at > 0).then(|| authority_start..authority_start + at)
+}
+
+fn git_url_userinfo(url: &str) -> Option<&str> {
+    git_url_userinfo_range(url).map(|r| &url[r])
+}
+
 /// Validates a git URL to prevent option injection, SSRF, and local file read.
 async fn validate_git_url(url: &str) -> Result<()> {
     let url = url.trim();
@@ -2977,6 +3048,14 @@ async fn validate_git_url(url: &str) -> Result<()> {
     if url.contains('?') || url.contains('#') {
         return Err(Error::BadRequest(
             "Git URL cannot contain '?' or '#' characters".to_string(),
+        ));
+    }
+    // Every probe URL is validated, so this catches a caller that reached git without
+    // expanding the placeholder — which git would otherwise report as an unresolvable
+    // host, the placeholder's own '/' having truncated the authority.
+    if url.contains(AZURE_DEVOPS_TOKEN_PLACEHOLDER) {
+        return Err(Error::BadRequest(
+            "Git URL still contains an unexpanded AZURE_DEVOPS_TOKEN(...) placeholder".to_string(),
         ));
     }
 
@@ -3022,14 +3101,27 @@ async fn validate_git_url(url: &str) -> Result<()> {
             ));
         }
     } else {
-        // Hostname — resolve via DNS and reject if any address is private
-        if let Ok(addrs) = tokio::net::lookup_host(format!("{}:443", host)).await {
-            for addr in addrs {
-                if is_private_or_reserved_ip(&addr.ip()) {
-                    return Err(Error::BadRequest(
-                        "Git URL hostname resolves to a private or reserved IP address".to_string(),
-                    ));
-                }
+        // Hostname — resolve via DNS and reject if any address is private. Fail
+        // closed: a resolution error (or an empty answer) must not skip the
+        // private-IP check, else an unresolvable-at-check-time host slips
+        // straight through to git.
+        let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(format!("{}:443", host))
+            .await
+            .map_err(|e| {
+                Error::BadRequest(format!("Failed to resolve git URL host '{}': {}", host, e))
+            })?
+            .collect();
+        if addrs.is_empty() {
+            return Err(Error::BadRequest(format!(
+                "Git URL host '{}' did not resolve to any address",
+                host
+            )));
+        }
+        for addr in addrs {
+            if is_private_or_reserved_ip(&addr.ip()) {
+                return Err(Error::BadRequest(
+                    "Git URL hostname resolves to a private or reserved IP address".to_string(),
+                ));
             }
         }
     }
@@ -3099,12 +3191,14 @@ async fn get_git_commit_hash(
     .await
     .map_err(|e| Error::NotFound(format!("Access to resource {} denied: ({e})", path)))?;
 
-    let git_resource: GitRepositoryResource = match git_repo_resource_value {
+    let mut git_resource: GitRepositoryResource = match git_repo_resource_value {
         Some(value) => serde_json::from_value(value).map_err(|e| {
             Error::BadRequest(format!("Invalid git repository resource format: {}", e))
         })?,
         None => return Err(Error::NotFound(format!("Resource {} not found", path)).into()),
     };
+    git_resource.url =
+        resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
 
     let identities: Vec<String> = query
         .git_ssh_identity
@@ -3227,6 +3321,97 @@ async fn get_git_ssh_cmd(
 /// process behind — `kill_on_drop` reaps it when the timeout fires).
 const GIT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// `git` command for a remote probe, with HTTP redirects disabled. `validate_git_url`
+/// only vets the host in the URL; git's default (`http.followRedirects=initial`)
+/// would let a validated public remote 302 the probe onto a private or link-local
+/// address that no check ever sees. Build every probe through this.
+fn git_probe_command() -> Command {
+    let mut git_cmd = Command::new("git");
+    git_cmd.args(["-c", "http.followRedirects=false"]);
+    git_cmd
+}
+
+/// Whether git gave up on a redirect it was told not to follow. libcurl reports it
+/// as a plain status, so the code is all there is to key on.
+fn is_refused_redirect(stderr: &str) -> bool {
+    stderr.contains("returned error: 30")
+}
+
+/// Decode a failed probe's stderr, naming the remedy when the remote redirected
+/// somewhere the `.git` retry could not reach (an `http://` URL upgraded to https,
+/// say) — `git_probe_command` refuses redirects, so nothing else explains the status.
+///
+/// `probe_url` is the URL the probe ran against, and its userinfo is scrubbed from the
+/// output: git strips credentials from some messages but not all — a token in the
+/// username position comes back verbatim in `could not read Password for
+/// 'https://<token>@host'` — and these strings are persisted as a repository's sync
+/// status and rendered in the UI.
+fn git_probe_stderr(stderr: Vec<u8>, probe_url: &str) -> String {
+    let stderr =
+        String::from_utf8(stderr).unwrap_or_else(|_| "Failed to decode stderr".to_string());
+    // Scrub the `<userinfo>@` form git prints, not the bare userinfo: a one-character
+    // username would otherwise be replaced everywhere it happens to occur.
+    let stderr = match git_url_userinfo(probe_url) {
+        Some(userinfo) => stderr.replace(&format!("{userinfo}@"), "***@"),
+        None => stderr,
+    };
+    if is_refused_redirect(&stderr) {
+        format!(
+            "{} (the remote redirects, and redirects are not followed; set the repository URL to the address it redirects to)",
+            stderr.trim_end()
+        )
+    } else {
+        stderr
+    }
+}
+
+/// The `.git` form of an http(s) repository URL, when that is a different URL.
+/// Hosts that serve the bare path as a redirect (gitlab.com answers
+/// `/group/project` with a 301 to `/group/project.git`) are otherwise unreachable
+/// now that probes refuse redirects.
+fn dot_git_url(url: &str) -> Option<String> {
+    let url = url.trim().trim_end_matches('/');
+    let lower = url.to_lowercase();
+    let after_scheme = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))?;
+    // Only a non-empty path may be extended. With nothing after the authority,
+    // appending lands inside it instead — `https://host` becomes the unvalidated
+    // host `https://host.git`, `https://host:8443` a bogus port — which is the hop
+    // onto an unchecked address that refusing redirects exists to prevent.
+    let path = after_scheme.split_once('/')?.1;
+    if path.is_empty() || path.ends_with(".git") {
+        return None;
+    }
+    Some(format!("{}.git", url))
+}
+
+/// Run a remote probe, retrying against [`dot_git_url`] if the remote answered the
+/// URL as given with a redirect. Extending the path keeps the retry on the host
+/// `validate_git_url` already cleared, which is exactly what following the redirect
+/// would not guarantee. `build` must produce the probe for the URL it is handed.
+///
+/// A retry that also fails reports the *original* failure, so the caller's message
+/// describes the URL the user configured.
+async fn run_git_probe_for_url<F>(url: &str, what: &str, build: F) -> Result<std::process::Output>
+where
+    F: Fn(&str) -> Command,
+{
+    let output = run_git_probe(build(url), what).await?;
+    if output.status.success() || !is_refused_redirect(&String::from_utf8_lossy(&output.stderr)) {
+        return Ok(output);
+    }
+    let Some(retry_url) = dot_git_url(url) else {
+        return Ok(output);
+    };
+    let retried = run_git_probe(build(&retry_url), what).await?;
+    Ok(if retried.status.success() {
+        retried
+    } else {
+        output
+    })
+}
+
 async fn run_git_probe(mut git_cmd: Command, what: &str) -> Result<std::process::Output> {
     git_cmd.kill_on_drop(true);
     match tokio::time::timeout(GIT_PROBE_TIMEOUT, git_cmd.output()).await {
@@ -3238,6 +3423,317 @@ async fn run_git_probe(mut git_cmd: Command, what: &str) -> Result<std::process:
             what,
             GIT_PROBE_TIMEOUT.as_secs()
         ))),
+    }
+}
+
+/// Git-sync repository URLs may carry `AZURE_DEVOPS_TOKEN(<path/to/azure/resource>)`
+/// where a credential belongs: an Azure DevOps access token minted at use time from
+/// that `azure` resource's client credentials. The hub sync scripts expand it in
+/// TypeScript before running git; the probes below shell out to git from the backend,
+/// so they must expand it too or git is handed the literal placeholder (whose '/'
+/// truncates the authority, and curl rejects the resulting hostname).
+const AZURE_DEVOPS_TOKEN_PLACEHOLDER: &str = "AZURE_DEVOPS_TOKEN(";
+
+/// Azure DevOps resource id the token is minted for, and the endpoint that mints it —
+/// both identical to the hub sync scripts', so a repository that authenticates for a
+/// sync job authenticates for these probes too.
+const AZURE_DEVOPS_RESOURCE_ID: &str = "499b84ac-1321-427f-aa17-267ca6975798/.default";
+const AZURE_LOGIN_HOST: &str = "https://login.microsoftonline.com";
+
+/// Minted tokens, keyed by a digest of the credentials they came from — never by
+/// resource path, so a cache hit cannot hand a token to a caller who was not able to
+/// read the resource itself. Auto-pull probes every repository on an interval; without
+/// this, every tick would mint a fresh token.
+static AZURE_DEVOPS_TOKEN_CACHE: LazyLock<DashMap<String, (String, i64)>> =
+    LazyLock::new(DashMap::new);
+
+/// Shaved off a token's advertised lifetime so one is never handed out as it expires.
+const AZURE_TOKEN_EXPIRY_MARGIN_S: i64 = 60;
+
+/// Lifetime assumed when the token response omits `expires_in`.
+const AZURE_TOKEN_FALLBACK_LIFETIME_S: i64 = 300;
+
+/// Whether the span `start..end` of `url` is the userinfo of an https authority.
+/// The placeholder contains '/', which truncates the authority for any left-to-right
+/// parse, so terminators falling inside the span are skipped rather than honored.
+///
+/// https only: over plaintext an on-path attacker answers the probe's first request
+/// with a Basic challenge, and git retries carrying the minted token.
+fn span_is_https_userinfo(url: &str, start: usize, end: usize) -> bool {
+    let Some(scheme_sep) = url.find("://") else {
+        return false;
+    };
+    if !url[..scheme_sep].eq_ignore_ascii_case("https") {
+        return false;
+    }
+    let body_start = scheme_sep + 3;
+    if start < body_start {
+        return false;
+    }
+    let authority_end = url[body_start..]
+        .char_indices()
+        .map(|(i, c)| (body_start + i, c))
+        .find(|&(i, c)| (i < start || i >= end) && (c == '/' || c == '?' || c == '#'))
+        .map_or(url.len(), |(i, _)| i);
+    // Taking the authority's *last* '@' is what makes one inside the span harmless:
+    // such a match sits before `end` and fails the comparison.
+    url[body_start..authority_end]
+        .rfind('@')
+        .is_some_and(|rel| end <= body_start + rel)
+}
+
+/// Locate the placeholder in a git URL, returning `(whole placeholder, resource path)`.
+fn parse_azure_devops_placeholder(url: &str) -> Result<Option<(&str, &str)>> {
+    let Some(start) = url.find(AZURE_DEVOPS_TOKEN_PLACEHOLDER) else {
+        return Ok(None);
+    };
+    let after = &url[start + AZURE_DEVOPS_TOKEN_PLACEHOLDER.len()..];
+    // Greedy to the last ')', matching the hub scripts' `AZURE_DEVOPS_TOKEN\((.+)\)`.
+    let end = after.rfind(')').ok_or_else(|| {
+        Error::BadRequest(
+            "Git repository URL has an unterminated AZURE_DEVOPS_TOKEN(...) placeholder"
+                .to_string(),
+        )
+    })?;
+    let end = start + AZURE_DEVOPS_TOKEN_PLACEHOLDER.len() + end + 1;
+    // Anywhere but the userinfo, the minted token would be spliced into a part of the
+    // URL that git echoes verbatim in its failure messages (which are persisted as the
+    // repository's sync status) and that credential redaction does not cover.
+    if !span_is_https_userinfo(url, start, end) {
+        return Err(Error::BadRequest(
+            "The AZURE_DEVOPS_TOKEN(...) placeholder must be the credentials of an https git URL, i.e. directly before the '@'".to_string(),
+        ));
+    }
+    Ok(Some((
+        &url[start..end],
+        &after[..end - start - AZURE_DEVOPS_TOKEN_PLACEHOLDER.len() - 1],
+    )))
+}
+
+/// Hosts an Azure DevOps token may be sent to. The minted token is an AAD token for
+/// the Azure DevOps resource id, so Microsoft is the only party it is meaningful to.
+fn is_azure_devops_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.');
+    host == "dev.azure.com"
+        || host.ends_with(".dev.azure.com")
+        || host == "visualstudio.com"
+        || host.ends_with(".visualstudio.com")
+}
+
+/// Expand an `AZURE_DEVOPS_TOKEN(...)` placeholder in a git URL, or return the URL
+/// unchanged when it has none. The referenced resource is read through `dba`, so an
+/// authed caller only reaches credentials they can already read.
+async fn resolve_azure_devops_url(
+    dba: &DbWithOptAuthed<'_, ApiAuthed>,
+    w_id: &str,
+    url: &str,
+    allow_cache: bool,
+) -> Result<String> {
+    // Trim first: the http(s) gates the callers apply trim too, so a stored URL with
+    // leading whitespace must not reach the scheme check here as a non-http one.
+    let url = url.trim();
+    let Some((placeholder, resource_path)) = parse_azure_devops_placeholder(url)? else {
+        return Ok(url.to_string());
+    };
+
+    // Vet the destination before minting: a URL the host checks would reject must not
+    // cost a live credential (nor cache one), and whoever can edit the URL would
+    // otherwise drive a token mint per poll tick.
+    let probe_url = url.replace(placeholder, "windmill");
+    validate_git_url(&probe_url).await?;
+
+    // The background poller reads the referenced resource under the system identity,
+    // which bypasses RLS. Confining the destination is what keeps that from becoming an
+    // exfiltration primitive: whoever can write this URL picks both the resource path
+    // and the host, so an unconfined splice would hand a credential they cannot read to
+    // a host they choose. Unlike `$var:`, which substitutes a whole value and so cannot
+    // place a secret inside a caller-chosen URL, this placeholder is a substring.
+    let host = extract_host_from_git_url(&probe_url)
+        .ok_or_else(|| Error::BadRequest("Could not parse hostname from git URL".to_string()))?;
+    if !is_azure_devops_host(&host) {
+        return Err(Error::BadRequest(format!(
+            "An AZURE_DEVOPS_TOKEN(...) placeholder is only allowed on an Azure DevOps URL (dev.azure.com or visualstudio.com), not '{host}'"
+        )));
+    }
+
+    let value =
+        get_resource_value_interpolated_internal(dba, w_id, resource_path, None, None, allow_cache)
+            .await
+            .map_err(|e| {
+                Error::BadRequest(format!(
+                    "Azure resource '{resource_path}' referenced by the git repository URL could not be read: {e}"
+                ))
+            })?
+            .ok_or_else(|| {
+                Error::NotFound(format!(
+                    "Azure resource '{resource_path}' referenced by the git repository URL was not found"
+                ))
+            })?;
+
+    let field = |name: &str| -> Result<String> {
+        value
+            .get(name)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "Azure resource '{resource_path}' referenced by the git repository URL has no '{name}'"
+                ))
+            })
+    };
+    let token = mint_azure_devops_token(
+        &field("azureTenantId")?,
+        &field("azureClientId")?,
+        &field("azureClientSecret")?,
+        allow_cache,
+    )
+    .await?;
+
+    Ok(url.replace(placeholder, &token))
+}
+
+/// Gate writing an `AZURE_DEVOPS_TOKEN(...)` reference into a resource value.
+///
+/// The background probes mint from the named `azure` resource under the system identity,
+/// which bypasses RLS, and no principal exists at that point to authorize against — so
+/// authorization cannot be enforced where the credential is used, only where the
+/// reference is introduced. A read check alone would not survive that gap: the reference
+/// names a resource whose own value stays mutable, and repointing it at `$res:`/`$var:`
+/// the writer cannot read would be a later write this never sees.
+///
+/// Hence workspace admin, who can already read every resource in the workspace: the
+/// escalation a mutable reference would otherwise buy is one the configurer already has.
+/// The read check stays as a typo guard, so a reference to a nonexistent resource fails
+/// at configuration time rather than as a puzzling sync error later.
+///
+/// Only the `url` field is inspected, and with the same parser the probes use, so the
+/// path checked here is exactly the path they will resolve.
+pub async fn authorize_azure_devops_reference(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    value: Option<&serde_json::Value>,
+) -> Result<()> {
+    let Some(url) = value.and_then(|v| v.get("url")).and_then(|u| u.as_str()) else {
+        return Ok(());
+    };
+    let Some((_, resource_path)) = parse_azure_devops_placeholder(url.trim())? else {
+        return Ok(());
+    };
+
+    if !authed.is_admin {
+        return Err(Error::PermissionDenied(format!(
+            "Only a workspace admin can point a git repository URL at AZURE_DEVOPS_TOKEN({resource_path}): background sync mints that credential under an identity that bypasses resource permissions"
+        )));
+    }
+
+    let dba = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+    let readable =
+        get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, false)
+            .await
+            .unwrap_or(None);
+    if readable.is_none() {
+        return Err(Error::PermissionDenied(format!(
+            "Cannot reference AZURE_DEVOPS_TOKEN({resource_path}) in a git repository URL: no such resource"
+        )));
+    }
+    Ok(())
+}
+
+/// `allow_cache` carries the caller's freshness requirement through to the token, not
+/// just to the resource read: an on-demand check must not succeed on a token minted
+/// before the Azure app's permissions were last changed.
+async fn mint_azure_devops_token(
+    tenant_id: &str,
+    client_id: &str,
+    client_secret: &str,
+    allow_cache: bool,
+) -> Result<String> {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    for part in [tenant_id, client_id, client_secret] {
+        hasher.update(part.as_bytes());
+        hasher.update([0u8]);
+    }
+    let cache_key = hex::encode(hasher.finalize());
+    let now = chrono::Utc::now().timestamp();
+    // Entries are only ever replaced by a later mint for the same credentials, so a
+    // rotated secret's entry would otherwise sit here for the process's lifetime.
+    AZURE_DEVOPS_TOKEN_CACHE.retain(|_, (_, expires_at)| *expires_at > now);
+    if allow_cache {
+        let cached = AZURE_DEVOPS_TOKEN_CACHE
+            .get(&cache_key)
+            .map(|e| e.value().0.clone());
+        if let Some(token) = cached {
+            return Ok(token);
+        }
+    }
+
+    let response = windmill_common::utils::HTTP_CLIENT
+        .post(format!("{AZURE_LOGIN_HOST}/{tenant_id}/oauth2/token"))
+        .form(&[
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+            ("grant_type", "client_credentials"),
+            ("resource", AZURE_DEVOPS_RESOURCE_ID),
+        ])
+        .send()
+        .await
+        .map_err(|e| {
+            Error::BadRequest(format!("Failed to request an Azure DevOps token: {e:#}"))
+        })?;
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(Error::BadRequest(format!(
+            "Azure DevOps token request failed ({status}): {}",
+            windmill_common::utils::truncate_with_ellipsis(&body, 500)
+        )));
+    }
+
+    #[derive(Deserialize)]
+    struct AzureTokenResponse {
+        access_token: String,
+        expires_in: Option<Value>,
+    }
+    let parsed: AzureTokenResponse = serde_json::from_str(&body)
+        .map_err(|e| Error::BadRequest(format!("Unexpected Azure DevOps token response: {e}")))?;
+
+    // The v1 token endpoint returns `expires_in` as a string, the v2 one as a number.
+    let lifetime = parsed
+        .expires_in
+        .as_ref()
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+        })
+        .unwrap_or(AZURE_TOKEN_FALLBACK_LIFETIME_S);
+    AZURE_DEVOPS_TOKEN_CACHE.insert(
+        cache_key,
+        (
+            parsed.access_token.clone(),
+            now + (lifetime - AZURE_TOKEN_EXPIRY_MARGIN_S).max(0),
+        ),
+    );
+
+    Ok(parsed.access_token)
+}
+
+/// System identity used by background git-sync polling. SECURITY: bypasses resource
+/// RLS — see [`resolve_git_repository_resource`] for the caller obligations.
+fn git_sync_system_dba(db: &DB) -> DbWithOptAuthed<'static, ApiAuthed> {
+    DbWithOptAuthed::DB {
+        db: db.clone(),
+        audit_author: windmill_common::audit::AuditAuthor {
+            username: "git_sync_auto_pull".to_string(),
+            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
+            username_override: None,
+            token_prefix: None,
+        },
     }
 }
 
@@ -3259,18 +3755,19 @@ async fn get_repo_latest_commit_hash(
         validate_git_ref(ref_spec)?;
     }
 
-    let mut git_cmd = Command::new("git");
-    git_cmd.args(["ls-remote", &git_resource.url, ref_spec]);
-    if let Some(git_ssh_command) = git_ssh_command {
-        git_cmd.env("GIT_SSH_COMMAND", git_ssh_command);
-    }
-    git_cmd.stderr(Stdio::piped());
-
-    let output = run_git_probe(git_cmd, "ls-remote").await?;
+    let output = run_git_probe_for_url(&git_resource.url, "ls-remote", |url| {
+        let mut git_cmd = git_probe_command();
+        git_cmd.args(["ls-remote", url, ref_spec]);
+        if let Some(git_ssh_command) = git_ssh_command.as_deref() {
+            git_cmd.env("GIT_SSH_COMMAND", git_ssh_command);
+        }
+        git_cmd.stderr(Stdio::piped());
+        git_cmd
+    })
+    .await?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8(output.stderr)
-            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        let stderr = git_probe_stderr(output.stderr, &git_resource.url);
         return Err(Error::BadRequest(format!(
             "Error getting git repo commit hash: {}",
             stderr
@@ -3285,7 +3782,8 @@ async fn get_repo_latest_commit_hash(
     if lines.is_empty() {
         return Err(Error::BadRequest(format!(
             "No commits found for reference '{}' in repository '{}'",
-            ref_spec, git_resource.url
+            ref_spec,
+            redact_git_url_credentials(&git_resource.url)
         )));
     }
 
@@ -3306,7 +3804,9 @@ async fn get_repo_latest_commit_hash(
 ///
 /// SECURITY: reads under the system identity (`SUPERADMIN_SYNC_EMAIL`), so it
 /// **bypasses resource RLS** and returns fully-interpolated JSON that **may
-/// contain credentials** (an embedded `$var:` token in the URL). Callers must
+/// contain credentials** — an embedded `$var:` token in the URL, or the `azure`
+/// resource named by an `AZURE_DEVOPS_TOKEN(...)` placeholder. Both name a path
+/// chosen by whoever can write the repository URL, not by the reader. Callers must
 /// have already authorized access to `w_id`, must use it only for git-sync
 /// `git_repository` resources, and must **not** return the resolved value to a
 /// client — derive and return only non-sensitive facts. Pass `allow_cache=true`
@@ -3318,24 +3818,19 @@ pub async fn resolve_git_repository_resource(
     git_repo_resource_path: &str,
     allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
-    use windmill_common::db::DbWithOptAuthed;
-
     let resource_path = git_repo_resource_path
         .strip_prefix("$res:")
         .unwrap_or(git_repo_resource_path);
 
-    let dba: DbWithOptAuthed<'_, ApiAuthed> = DbWithOptAuthed::DB {
-        db: db.clone(),
-        audit_author: windmill_common::audit::AuditAuthor {
-            username: "git_sync_auto_pull".to_string(),
-            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
-            username_override: None,
-            token_prefix: None,
-        },
-    };
-
-    get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, allow_cache)
-        .await
+    get_resource_value_interpolated_internal(
+        &git_sync_system_dba(db),
+        w_id,
+        resource_path,
+        None,
+        None,
+        allow_cache,
+    )
+    .await
 }
 
 /// Resolve a workspace git-sync repository and return its current head commit
@@ -3366,19 +3861,22 @@ pub async fn get_git_repo_head_for_autopull(
         return Ok(None);
     }
 
-    let git_resource: GitRepositoryResource = serde_json::from_value(value)
+    let mut git_resource: GitRepositoryResource = serde_json::from_value(value)
         .map_err(|e| Error::BadRequest(format!("Invalid git repository resource: {}", e)))?;
 
     // The SSH identity is supplied per-call in the authed commit-hash path; the
     // background poller has none, so an SSH remote can't authenticate here. Fail
     // with an actionable message instead of a confusing ls-remote auth error —
     // these repos should use an HTTPS token URL or the GitHub App for auto-pull.
-    let url = git_resource.url.trim_start();
-    if !url.starts_with("http://") && !url.starts_with("https://") {
+    if !git_resource.url.trim_start().starts_with("http://")
+        && !git_resource.url.trim_start().starts_with("https://")
+    {
         return Err(Error::BadRequest(
             "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
         ));
     }
+    git_resource.url =
+        resolve_azure_devops_url(&git_sync_system_dba(db), w_id, &git_resource.url, true).await?;
 
     if let Some(branch) = git_resource.branch.as_deref().filter(|s| !s.is_empty()) {
         let branch = branch.to_string();
@@ -3390,13 +3888,15 @@ pub async fn get_git_repo_head_for_autopull(
     // its head in one call. Fork sync needs the concrete name to scope
     // `wm-fork/<branch>/*`, so a bare "HEAD" ref would silently disable it.
     validate_git_url(&git_resource.url).await?;
-    let mut git_cmd = Command::new("git");
-    git_cmd.args(["ls-remote", "--symref", &git_resource.url, "HEAD"]);
-    git_cmd.stderr(Stdio::piped());
-    let output = run_git_probe(git_cmd, "ls-remote --symref HEAD").await?;
+    let output = run_git_probe_for_url(&git_resource.url, "ls-remote --symref HEAD", |url| {
+        let mut git_cmd = git_probe_command();
+        git_cmd.args(["ls-remote", "--symref", url, "HEAD"]);
+        git_cmd.stderr(Stdio::piped());
+        git_cmd
+    })
+    .await?;
     if !output.status.success() {
-        let stderr = String::from_utf8(output.stderr)
-            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        let stderr = git_probe_stderr(output.stderr, &git_resource.url);
         return Err(Error::BadRequest(format!(
             "Error resolving git repo HEAD: {}",
             stderr
@@ -3408,7 +3908,7 @@ pub async fn get_git_repo_head_for_autopull(
     let sha = sha.ok_or_else(|| {
         Error::BadRequest(format!(
             "No HEAD found in repository '{}'",
-            git_resource.url
+            redact_git_url_credentials(&git_resource.url)
         ))
     })?;
     Ok(Some((branch.unwrap_or_else(|| "HEAD".to_string()), sha)))
@@ -3450,21 +3950,11 @@ pub async fn get_git_repo_fork_heads_for_autopull(
     base_branch: &str,
     extra_refs: &[String],
 ) -> Result<Option<Vec<(String, String)>>> {
-    use windmill_common::db::DbWithOptAuthed;
-
     let resource_path = git_repo_resource_path
         .strip_prefix("$res:")
         .unwrap_or(git_repo_resource_path);
 
-    let dba: DbWithOptAuthed<'_, ApiAuthed> = DbWithOptAuthed::DB {
-        db: db.clone(),
-        audit_author: windmill_common::audit::AuditAuthor {
-            username: "git_sync_auto_pull".to_string(),
-            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
-            username_override: None,
-            token_prefix: None,
-        },
-    };
+    let dba = git_sync_system_dba(db);
     let value =
         get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, true)
             .await?
@@ -3483,32 +3973,39 @@ pub async fn get_git_repo_fork_heads_for_autopull(
         return Ok(None);
     }
 
-    let git_resource: GitRepositoryResource = serde_json::from_value(value)
+    let mut git_resource: GitRepositoryResource = serde_json::from_value(value)
         .map_err(|e| Error::BadRequest(format!("Invalid git repository resource: {}", e)))?;
-    let url = git_resource.url.trim_start();
-    if !url.starts_with("http://") && !url.starts_with("https://") {
+    if !git_resource.url.trim_start().starts_with("http://")
+        && !git_resource.url.trim_start().starts_with("https://")
+    {
         return Err(Error::BadRequest(
             "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
         ));
     }
+    git_resource.url = resolve_azure_devops_url(&dba, w_id, &git_resource.url, true).await?;
     validate_git_url(&git_resource.url).await?;
     validate_git_ref(base_branch)?;
 
-    let mut git_cmd = Command::new("git");
-    git_cmd.args([
-        "ls-remote",
-        &git_resource.url,
-        &format!("refs/heads/wm-fork/{}/*", base_branch),
-    ]);
     for r in extra_refs {
         validate_git_ref(r)?;
-        git_cmd.arg(format!("refs/heads/{}", r));
     }
-    git_cmd.stderr(Stdio::piped());
-    let output = run_git_probe(git_cmd, "ls-remote (fork branches)").await?;
+
+    let output = run_git_probe_for_url(&git_resource.url, "ls-remote (fork branches)", |url| {
+        let mut git_cmd = git_probe_command();
+        git_cmd.args([
+            "ls-remote",
+            url,
+            &format!("refs/heads/wm-fork/{}/*", base_branch),
+        ]);
+        for r in extra_refs {
+            git_cmd.arg(format!("refs/heads/{}", r));
+        }
+        git_cmd.stderr(Stdio::piped());
+        git_cmd
+    })
+    .await?;
     if !output.status.success() {
-        let stderr = String::from_utf8(output.stderr)
-            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        let stderr = git_probe_stderr(output.stderr, &git_resource.url);
         return Err(Error::BadRequest(format!(
             "Error listing fork branches: {}",
             stderr
@@ -3560,6 +4057,7 @@ pub async fn interpolate(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::{Arc, Mutex};
     use windmill_common::audit::AuditAuthor;
     use windmill_common::db::DbWithOptAuthed;
 
@@ -3913,9 +4411,144 @@ mod tests {
         assert!(validate_git_url("./local/repo").await.is_err());
     }
 
+    /// Minimal loopback HTTP server: replies to every request with `response` and
+    /// records the request lines it saw. Returns its port and that log.
+    async fn spawn_http_stub(response: String) -> (u16, Arc<Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let requests_srv = requests.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 4096];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                let line = String::from_utf8_lossy(&buf[..n])
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                requests_srv.lock().unwrap().push(line);
+                let _ = sock.write_all(response.as_bytes()).await;
+            }
+        });
+        (port, requests)
+    }
+
+    /// A probe against `path` on a stub that redirects everything to `target_port`.
+    async fn probe_redirecting_stub(
+        path: &str,
+        target_port: u16,
+    ) -> (std::process::Output, Arc<Mutex<Vec<String>>>) {
+        let (redirector_port, redirector_requests) = spawn_http_stub(format!(
+            "HTTP/1.1 301 Moved Permanently\r\nLocation: http://127.0.0.1:{}/moved/info/refs?service=git-upload-pack\r\nContent-Length: 0\r\n\r\n",
+            target_port
+        ))
+        .await;
+        let url = format!("http://127.0.0.1:{}{}", redirector_port, path);
+        let output = run_git_probe_for_url(&url, "ls-remote (test)", |url| {
+            let mut git_cmd = git_probe_command();
+            git_cmd.args(["ls-remote", url, "HEAD"]);
+            git_cmd.env("GIT_TERMINAL_PROMPT", "0");
+            // curl routes even loopback through an ambient `http_proxy`, which
+            // would leave the stub unreached and the assertions vacuously true.
+            git_cmd.env("no_proxy", "*").env("NO_PROXY", "*");
+            git_cmd.stderr(Stdio::piped());
+            git_cmd
+        })
+        .await
+        .unwrap();
+        (output, redirector_requests)
+    }
+
+    #[tokio::test]
+    async fn test_git_probe_refuses_redirects() {
+        // `validate_git_url` only vets the URL's host, so a probe that follows a
+        // 301 dials an address nothing validated. Redirect one probe and require
+        // git to stop at the 301 without ever reaching the target.
+        let (target_port, target_requests) = spawn_http_stub(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".to_string(),
+        )
+        .await;
+        let (output, _) = probe_redirecting_stub("/repo.git", target_port).await;
+
+        assert!(!output.status.success());
+        assert!(
+            target_requests.lock().unwrap().is_empty(),
+            "git followed the redirect to the unvalidated target"
+        );
+        let stderr = git_probe_stderr(output.stderr, "");
+        assert!(
+            stderr.contains("301") && stderr.contains("redirects are not followed"),
+            "the failure should name the refused redirect and its remedy, got: {stderr}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_git_probe_retries_dot_git_on_redirect() {
+        // gitlab.com answers `/group/project` with a redirect to the `.git` form,
+        // which refusing redirects would otherwise make unreachable. The retry must
+        // extend the path only — never leave the host `validate_git_url` cleared.
+        let (target_port, target_requests) = spawn_http_stub(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".to_string(),
+        )
+        .await;
+        let (_, redirector_requests) = probe_redirecting_stub("/group/project", target_port).await;
+
+        let requests = redirector_requests.lock().unwrap().clone();
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.contains("/group/project.git/info/refs")),
+            "the redirect should have been retried against the .git path, saw: {requests:?}"
+        );
+        assert!(
+            target_requests.lock().unwrap().is_empty(),
+            "the retry left the validated host"
+        );
+    }
+
+    #[test]
+    fn test_dot_git_url_only_extends_the_path() {
+        assert_eq!(
+            dot_git_url("https://gitlab.com/group/project").as_deref(),
+            Some("https://gitlab.com/group/project.git")
+        );
+        assert_eq!(
+            dot_git_url("https://gitlab.com/group/project/").as_deref(),
+            Some("https://gitlab.com/group/project.git")
+        );
+        assert_eq!(
+            dot_git_url("https://user:tok@gitlab.com:8443/group/project").as_deref(),
+            Some("https://user:tok@gitlab.com:8443/group/project.git")
+        );
+        // A pathless URL has only its authority to extend, so `example.com` would
+        // become the unvalidated host `example.com.git`. Never retry those.
+        assert_eq!(dot_git_url("https://example.com"), None);
+        assert_eq!(dot_git_url("https://example.com/"), None);
+        assert_eq!(dot_git_url("http://example.com:8080/"), None);
+        // Nothing to retry: already the `.git` form, or no HTTP redirect surface.
+        assert_eq!(dot_git_url("https://gitlab.com/group/project.git"), None);
+        assert_eq!(dot_git_url("git@github.com:user/repo"), None);
+        assert_eq!(dot_git_url("ssh://git@github.com/user/repo"), None);
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_fails_closed_on_unresolvable_host() {
+        // `.invalid` never resolves (RFC 6761). The private-IP check is only
+        // meaningful if a failed lookup rejects instead of falling through.
+        let result = validate_git_url("https://this-host-does-not-exist.invalid/repo.git").await;
+        assert!(
+            result.is_err(),
+            "an unresolvable host was allowed — does this resolver synthesize records for NXDOMAIN?"
+        );
+        assert!(result.unwrap_err().to_string().contains("resolve"));
+    }
+
     #[tokio::test]
     async fn test_validate_git_url_allows_valid_urls() {
-        // These should succeed (host resolution may fail but validation passes)
+        // Needs DNS: validation fails closed on a host it cannot resolve.
         assert!(validate_git_url("https://github.com/user/repo.git")
             .await
             .is_ok());
@@ -3931,6 +4564,94 @@ mod tests {
     async fn test_validate_git_url_blocks_option_injection() {
         assert!(validate_git_url("-evil").await.is_err());
         assert!(validate_git_url("--upload-pack=evil").await.is_err());
+    }
+
+    #[test]
+    fn test_parse_azure_devops_placeholder() {
+        // The resource path holds '/', so the placeholder must be cut at its own
+        // closing ')' rather than at the first path separator.
+        let url = "https://AZURE_DEVOPS_TOKEN(f/azure/devops)@dev.azure.com/org/proj/_git/repo";
+        assert_eq!(
+            parse_azure_devops_placeholder(url).unwrap(),
+            Some(("AZURE_DEVOPS_TOKEN(f/azure/devops)", "f/azure/devops"))
+        );
+        assert_eq!(
+            parse_azure_devops_placeholder("https://token@github.com/user/repo.git").unwrap(),
+            None
+        );
+        assert!(parse_azure_devops_placeholder(
+            "https://AZURE_DEVOPS_TOKEN(f/azure@dev.azure.com/o"
+        )
+        .is_err());
+        // Outside the userinfo the minted token would land in a URL component that git
+        // echoes back in its errors and redaction does not cover.
+        assert!(parse_azure_devops_placeholder(
+            "https://dev.azure.com/org/AZURE_DEVOPS_TOKEN(f/azure)/repo"
+        )
+        .is_err());
+        assert!(parse_azure_devops_placeholder(
+            "ssh://AZURE_DEVOPS_TOKEN(f/azure)@dev.azure.com/o"
+        )
+        .is_err());
+        // Plaintext would let an on-path Basic challenge harvest the minted token.
+        assert!(parse_azure_devops_placeholder(
+            "http://AZURE_DEVOPS_TOKEN(f/azure)@dev.azure.com/o"
+        )
+        .is_err());
+        // A `user:token` userinfo is still the credentials position.
+        assert_eq!(
+            parse_azure_devops_placeholder("https://u:AZURE_DEVOPS_TOKEN(f/azure)@dev.azure.com/o")
+                .unwrap(),
+            Some(("AZURE_DEVOPS_TOKEN(f/azure)", "f/azure"))
+        );
+    }
+
+    #[test]
+    fn test_is_azure_devops_host() {
+        assert!(is_azure_devops_host("dev.azure.com"));
+        assert!(is_azure_devops_host("vssps.dev.azure.com"));
+        assert!(is_azure_devops_host("myorg.visualstudio.com"));
+        // The whole point: a token must never be splice-able onto a chosen host.
+        assert!(!is_azure_devops_host("attacker.example"));
+        assert!(!is_azure_devops_host("dev.azure.com.attacker.example"));
+        assert!(!is_azure_devops_host("notvisualstudio.com"));
+        assert!(!is_azure_devops_host("github.com"));
+    }
+
+    #[test]
+    fn test_redact_git_url_credentials() {
+        assert_eq!(
+            redact_git_url_credentials("https://tok@dev.azure.com/o/p"),
+            "https://***@dev.azure.com/o/p"
+        );
+        assert_eq!(
+            redact_git_url_credentials("https://user:tok@github.com/u/r.git"),
+            "https://***@github.com/u/r.git"
+        );
+        // SCP-style `[user@]host:path` carries its credential in the user position.
+        assert_eq!(
+            redact_git_url_credentials("tok@github.com:u/r.git"),
+            "***@github.com:u/r.git"
+        );
+        // A '@' in the path must not be mistaken for the credentials separator.
+        assert_eq!(
+            redact_git_url_credentials("https://github.com/u/r@v1.git"),
+            "https://github.com/u/r@v1.git"
+        );
+        // A userinfo that also occurs in the scheme must not be redacted there.
+        assert_eq!(
+            redact_git_url_credentials("https://s@https.com/r"),
+            "https://***@https.com/r"
+        );
+    }
+
+    #[test]
+    fn test_git_probe_stderr_scrubs_the_probe_url_credentials() {
+        // git echoes a username-position token verbatim in this message, and the result
+        // is persisted as the repository's sync status.
+        let stderr = b"fatal: could not read Password for 'https://SECRET@dev.azure.com'".to_vec();
+        let out = git_probe_stderr(stderr, "https://SECRET@dev.azure.com/o/p");
+        assert!(!out.contains("SECRET"), "token survived redaction: {out}");
     }
 
     #[tokio::test]

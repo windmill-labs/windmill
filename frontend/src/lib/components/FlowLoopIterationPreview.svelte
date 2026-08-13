@@ -89,7 +89,7 @@
 		runPreview(previewArgs, undefined)
 	}
 
-	const { flowStateStore, pathStore, opWorkspace } =
+	const { flowStateStore, flowStore, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
@@ -98,7 +98,9 @@
 		restartedFrom: RestartedFrom | undefined
 	) {
 		progressBar?.reset()
-		const newFlow = { value: { modules }, summary: '' }
+		// The preview flow holds only the loop body, so it inherits none of the flow's settings:
+		// carry the tag over so the iteration lands on the worker group the flow runs on.
+		const newFlow = { value: { modules }, summary: '', tag: flowStore.val.tag }
 		jobId = await runFlowPreview(
 			whileLoop ? withWhileLoopIter(args) : args,
 			newFlow,

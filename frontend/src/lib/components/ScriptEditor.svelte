@@ -2270,14 +2270,10 @@
 							</div>
 						{:else}
 							{#key previewLayout}
-								<Splitpanes
-									horizontal={previewLayout !== 'bottom'}
-									class="!max-h-[calc(100%-{debugMode && isDebuggableScript
-										? '83'
-										: previewLayout === 'bottom'
-											? '0'
-											: '43'}px)]"
-								>
+								<!-- min-h-0 lets this shrink to the space the header row leaves it. Without it the
+								     100% height wins, the panes settle one header too tall, and any reflow during a
+								     run snaps them up and back. -->
+								<Splitpanes horizontal={previewLayout !== 'bottom'} class="min-h-0">
 									<Pane size={previewLayout === 'bottom' ? 40 : 33}>
 										{#if previewLayout === 'bottom' && !(debugMode && isDebuggableScript)}
 											<div class="px-3 pt-2 pb-1 flex items-center gap-2">

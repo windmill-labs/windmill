@@ -42,4 +42,11 @@ fi
 
 CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release -p windmill_duckdb_ffi_internal
 mkdir -p ../target/debug/
-cp "$CARGO_TARGET_DIR/release/"libwindmill_duckdb_ffi_internal.* ../target/debug/
+# Install through a rename rather than writing over the destination: a running worker
+# has the cdylib mapped, and rewriting those pages under it kills the process with
+# SIGBUS. A rename swaps the directory entry and leaves the old inode alone.
+for artifact in "$CARGO_TARGET_DIR/release/"libwindmill_duckdb_ffi_internal.*; do
+  dest="../target/debug/$(basename "$artifact")"
+  cp "$artifact" "$dest.tmp"
+  mv -f "$dest.tmp" "$dest"
+done

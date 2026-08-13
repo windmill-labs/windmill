@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.784.0
+  version: 1.789.0
   title: Windmill API
 
   contact:
@@ -5725,6 +5725,12 @@ paths:
               properties:
                 name:
                   type: string
+                  description: >-
+                    Environment variable name. New names must be a plain JS
+                    identifier (matching ^[A-Za-z_$][A-Za-z0-9_$]*$) since the
+                    name is spliced into the NativeTS/Bun worker prologue;
+                    otherwise the request is rejected with 400. Existing names
+                    can still be updated regardless of shape.
                 value:
                   type: string
               required: [name]
@@ -8304,6 +8310,27 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/npm_proxy/config:
+    get:
+      summary: get npm proxy configuration
+      operationId: getNpmProxyConfig
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: npm proxy configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registry_configured:
+                    type: boolean
+                required:
+                  - registry_configured
+
   /w/{workspace}/npm_proxy/metadata/{package}:
     get:
       summary: get npm package metadata from private registry
@@ -8438,6 +8465,35 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/npm_proxy/tarball/{package}/{version}:
+    get:
+      summary: get npm package tarball from private registry
+      operationId: getNpmPackageTarball
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          description: package version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: package tarball
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
 
   /w/{workspace}/embeddings/query_resource_types:
     get:
@@ -10963,7 +11019,15 @@ paths:
             type: string
         - name: search
           in: query
-          description: case-insensitive substring match on summary or path
+          description: >-
+            case-insensitive fuzzy match on "summary (path)": the query is split into
+            terms on runs of anything but ASCII letters, digits and apostrophes, and
+            each of the first 8 must appear whole and in order, with anything in
+            between. Terms past the 8th are ignored, so an over-long query matches more
+            rows rather than fewer. Omitted or empty filters nothing; a query holding no
+            ASCII-alphanumeric character at all (a lone space, "_", or text in a
+            non-Latin script) yields no terms and matches nothing, mirroring the
+            homepage, whose matcher discards those queries too.
           schema:
             type: string
         - $ref: "#/components/parameters/PerPage"
@@ -22866,6 +22930,7 @@ paths:
   /concurrency_groups/{id}/key:
     get:
       summary: Get the concurrency key for a job that has concurrency limits enabled
+      description: Requires read access to the job, the same as reading the run itself. Returns 403 for a workspace member who cannot see the run, and 404 when the caller is not a member of the job's workspace.
       operationId: getConcurrencyKey
       tags:
         - concurrencyGroups
@@ -29167,6 +29232,56 @@ components:
         - interval_secs
         - message
 
+    TriggerFilter:
+      description: >
+        Either a leaf filter, matching a field of the message (parsed as JSON) against a
+        value by equality (or superset, when the value is an object or array) — addressed
+        by `key` for a top-level field or `path` for a dotted path into nested objects —
+        or a group nesting sub-filters under a boolean operator (`none_of` matches when
+        none of its sub-filters do).
+      oneOf:
+        - type: object
+          properties:
+            key:
+              type: string
+            value: {}
+          required:
+            - key
+            - value
+        - type: object
+          properties:
+            path:
+              type: string
+              description: Dotted path into nested objects, e.g. `a.b.c`. Does not traverse arrays.
+            value: {}
+          required:
+            - path
+            - value
+        - type: object
+          properties:
+            any_of:
+              type: array
+              items:
+                $ref: "#/components/schemas/TriggerFilter"
+          required:
+            - any_of
+        - type: object
+          properties:
+            all_of:
+              type: array
+              items:
+                $ref: "#/components/schemas/TriggerFilter"
+          required:
+            - all_of
+        - type: object
+          properties:
+            none_of:
+              type: array
+              items:
+                $ref: "#/components/schemas/TriggerFilter"
+          required:
+            - none_of
+
     WebsocketTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -29187,23 +29302,16 @@ components:
           description: Last error message if the trigger failed
         filters:
           type: array
-          description: Array of key-value filters to match incoming messages (only matching messages trigger the script)
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         initial_messages:
           type: array
           nullable: true
@@ -29259,23 +29367,16 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         filters:
           type: array
-          description: Array of key-value filters to match incoming messages (only matching messages trigger the script)
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         initial_messages:
           type: array
           nullable: true
@@ -29342,23 +29443,16 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         filters:
           type: array
-          description: Array of key-value filters to match incoming messages (only matching messages trigger the script)
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         initial_messages:
           type: array
           nullable: true
@@ -30614,22 +30708,16 @@ components:
           description: Array of Kafka topic names to subscribe to
         filters:
           type: array
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         auto_offset_reset:
           type: string
           enum:
@@ -30692,22 +30780,16 @@ components:
           description: Array of Kafka topic names to subscribe to
         filters:
           type: array
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         auto_offset_reset:
           type: string
           enum:
@@ -30766,22 +30848,16 @@ components:
           description: Array of Kafka topic names to subscribe to
         filters:
           type: array
+          description: "Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."
           items:
-            type: object
-            properties:
-              key:
-                type: string
-              value: {}
-            required:
-              - key
-              - value
+            $ref: "#/components/schemas/TriggerFilter"
         filter_logic:
           type: string
           enum:
             - and
             - or
           default: and
-          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
+          description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
         auto_offset_reset:
           type: string
           enum:
