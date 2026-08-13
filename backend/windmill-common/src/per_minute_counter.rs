@@ -3,7 +3,7 @@ use std::borrow::Borrow;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Recorded events between eviction sweeps.
+/// Calls between eviction sweeps.
 const EVICTION_INTERVAL: u64 = 256;
 
 struct Bucket {
@@ -14,16 +14,16 @@ struct Bucket {
 /// Events recorded per key within the current wall-clock minute, held in process memory.
 ///
 /// Counts are per process and reset on restart, so N servers raise any threshold built on
-/// this to N times its configured value. Stale keys are swept as events are recorded, which
-/// keeps the map bounded without a background task.
+/// this to N times its configured value. Stale keys are swept as calls come in, which keeps the
+/// map bounded without a background task.
 pub struct PerMinuteCounter<K: Eq + Hash> {
     buckets: DashMap<K, Bucket>,
-    recorded: AtomicU64,
+    calls: AtomicU64,
 }
 
 impl<K: Eq + Hash> PerMinuteCounter<K> {
     pub fn new() -> Self {
-        Self { buckets: DashMap::new(), recorded: AtomicU64::new(0) }
+        Self { buckets: DashMap::new(), calls: AtomicU64::new(0) }
     }
 
     /// Events recorded for `key` in the current minute, without recording one. A key never
@@ -74,7 +74,9 @@ impl<K: Eq + Hash> PerMinuteCounter<K> {
             }
         };
         // Periodically drop what neither the current nor the previous minute can still need.
-        if self.recorded.fetch_add(1, Ordering::Relaxed) % EVICTION_INTERVAL == 0 {
+        // Counts every call, refusals included: a key pinned at its limit must still drive
+        // sweeps, or a sustained burst of refusals would leave the map unbounded.
+        if self.calls.fetch_add(1, Ordering::Relaxed) % EVICTION_INTERVAL == 0 {
             self.buckets.retain(|_, bucket| bucket.minute >= minute - 1);
         }
         outcome
@@ -113,9 +115,9 @@ mod tests {
         let counter = PerMinuteCounter::new();
         counter.bump_at("stale".to_string(), None, 100);
         counter.bump_at("previous".to_string(), None, 199);
-        // Sweeps fire every EVICTION_INTERVAL recorded events; drive the counter to the next
-        // one with filler events that all land in minute 200.
-        while counter.recorded.load(Ordering::Relaxed) <= EVICTION_INTERVAL {
+        // Sweeps fire every EVICTION_INTERVAL calls; drive the counter to the next one with
+        // filler events that all land in minute 200.
+        while counter.calls.load(Ordering::Relaxed) <= EVICTION_INTERVAL {
             counter.bump_at("filler".to_string(), None, 200);
         }
         assert!(!counter.buckets.contains_key("stale"));
