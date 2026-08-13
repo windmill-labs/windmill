@@ -562,6 +562,43 @@
 
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
 
+	// Ways to edit what this run executed, offered from the "View" button's dropdown. Only a
+	// deployed script or flow has an editor to open — hub scripts and previews have no path in
+	// this workspace to edit.
+	let editDropdownItems = $derived.by(() => {
+		const kind = job?.job_kind
+		const path = job?.script_path ?? ''
+		if ((kind !== 'script' && kind !== 'flow') || $userStore?.operator) return []
+		return [
+			...(canWrite(path, {}, $userStore)
+				? [
+						{
+							label: `Edit ${kind}`,
+							icon: Pen,
+							href: `/${kind}s/edit/${path}?workspace=${$workspaceStore}`,
+							disabled: !showEditButton,
+							onClick: () => {
+								$initialArgsStore = job?.args
+							}
+						}
+					]
+				: []),
+			...(!showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
+				? [
+						{
+							label: editInForkLabel($workspaceStore, $userWorkspaces),
+							icon: Pen,
+							// The href is what a modifier click opens, and where the no-dev-workspace case
+							// lands; a plain click preventDefaults synchronously and resolves the real
+							// destination asynchronously instead — hence `hasHref`.
+							href: buildForkEditUrl(kind, path),
+							onClick: (e?: Event) => onEditInForkClick(e, kind, path, { hasHref: true })
+						}
+					]
+				: [])
+		]
+	})
+
 	// Admins always pass the backend gate. Everyone else fails closed while the rulesets
 	// are still loading, so the item is never briefly offered to a restricted user.
 	let canSharePublicly = $derived(
@@ -927,41 +964,12 @@
 					Run again
 				</Button>
 			{/if}
-			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-				{#if !$userStore?.operator}
-					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-						<Button
-							href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}`}
-							on:click={() => {
-								$initialArgsStore = job?.args
-							}}
-							unifiedSize="md"
-							variant="default"
-							disabled={!showEditButton}
-							size="sm"
-							startIcon={{ icon: Pen }}>Edit</Button
-						>
-					{/if}
-					{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
-						<Button
-							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
-							onClick={(e) =>
-								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '', {
-									hasHref: true
-								})}
-							unifiedSize="md"
-							variant="default"
-							size="sm"
-							startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
-						>
-					{/if}
-				{/if}
-			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					href={viewHref}
 					unifiedSize="md"
 					variant="accent"
+					dropdownItems={editDropdownItems}
 					startIcon={{
 						icon:
 							job?.job_kind === 'script' || job?.job_kind === 'script_hub'
