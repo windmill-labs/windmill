@@ -10,7 +10,7 @@ Two things are worth knowing before reading the rest:
   `is_admin`, username, groups, and the read/write folder lists — not `is_operator`
   (`windmill-common/src/db.rs:242`). So at the data layer an operator is an ordinary
   member, and every table's policies grant them exactly what their ACLs grant.
-- **The operator boundary is a hand-maintained deny list in ~28 request handlers.**
+- **The operator boundary is a hand-maintained deny list in 30 request handlers.**
   Anything not on that list is reachable. The workspace's `operator_settings` is *not*
   part of it: it only filters the sidebar and the AI chat's page list in the browser.
 
@@ -21,7 +21,7 @@ Two things are worth knowing before reading the rest:
 | Storage | `usr.operator` (per workspace, per user) |
 | Resolved into | `Authed.is_operator` (`windmill-common/src/auth.rs:245`) |
 | Instance groups | best matching role wins, `"operator"` → `is_operator` (`windmill-common/src/users.rs:277-311`) |
-| Superadmins | always `is_admin = true`, `is_operator = false` (`auth.rs:391`) |
+| Superadmins | `is_admin = true`, `is_operator = false` — on the workspace-scoped paths (`windmill-common/src/auth.rs:391`, `windmill-api-auth/src/auth.rs:463`, `:525`), not on the global ones below |
 | **Non-workspace-scoped routes** | `is_operator = true` for *every* caller, workspace admins included, with empty groups and folders — there is no `usr` row to read when the path carries no workspace (`windmill-api-auth/src/auth.rs:403-497`). So `is_operator` implies `usr.operator = true` only on `/api/w/{workspace}/…` routes; on global routes it is not a discriminator at all |
 | Job tokens | the flag is persisted in `job_perms` and rebuilt from it, so a `$WM_TOKEN` minted for an operator's job is itself operator-flagged (`windmill-queue/src/jobs.rs:6769`, `auth.rs:514`) |
 | Token scopes | orthogonal — scopes only ever *narrow*. An operator may mint themselves API tokens (`POST /users/tokens/create`, verified `201`) but never a token more privileged than they are (`ensure_scopes_within_caller`) |
@@ -30,7 +30,7 @@ Two things are worth knowing before reading the rest:
 
 ```
 frontend  operator_settings ......... sidebar + AI-chat page list only. NOT enforced server-side.
-handlers  `if authed.is_operator` ... 28 hard denials (§3) + 14 list-shaping filters (§4).
+handlers  `if authed.is_operator` ... 30 hard denials (§3) + 16 list-shaping filters (§4).
 RLS       (operator-blind) .......... ordinary member ACLs on every table.
 ```
 
