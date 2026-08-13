@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::LazyLock;
