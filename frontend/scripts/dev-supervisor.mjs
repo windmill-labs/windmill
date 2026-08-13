@@ -297,18 +297,22 @@ class Target {
 	}
 
 	#dispatch(client, first) {
-		// A lone HMR socket from a tab left open is not someone looking at the page, so
-		// websocket bytes neither hold the dev server alive nor start it. Vite's client
-		// probes for a restart with a websocket too (subprotocol `vite-ping`), so starting
-		// on one would have the reconnect loop resurrect every server we just stopped.
+		// Three kinds of connection, told apart by the subprotocol vite gives its own
+		// sockets. Vite's must not restart a reclaimed server, because its reconnect probe
+		// (`vite-ping`) would resurrect every one we stop. The app's `/ws/*` language-server
+		// and multiplayer sockets must, or a parked script editor loses its smart assistant
+		// until reload. Neither counts as activity: a tab nobody is looking at still
+		// heartbeats, and treating that as use is what pinned servers forever.
 		const head = first.toString('latin1', 0, Math.min(first.length, MAX_HEAD_BYTES))
 		const isWebsocket = /\r\nupgrade:\s*websocket/i.test(head)
-		if (isWebsocket && !this.child) {
+		const isViteSocket =
+			isWebsocket && /\r\nsec-websocket-protocol:[^\r\n]*vite-(hmr|ping)/i.test(head)
+		if (isViteSocket && !this.child) {
 			client.destroy()
 			return
 		}
-		if (!isWebsocket) {
-			this.lastActivity = Date.now()
+		if (!isWebsocket) this.lastActivity = Date.now()
+		if (!isViteSocket) {
 			this.liveSockets.add(client)
 			// Registered at insertion, not after the upstream connects: a client that gives
 			// up during a cold start would otherwise stay in the set forever and silently
@@ -325,6 +329,7 @@ class Target {
 					client.resume()
 				})
 				const bump = isWebsocket ? () => {} : () => (this.lastActivity = Date.now())
+
 				client.on('data', bump)
 				upstream.on('data', bump)
 				const teardown = () => {
@@ -402,7 +407,10 @@ process.on('exit', () => {
 	for (const child of liveChildren) killTree(child, 'SIGKILL')
 })
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
+// SIGHUP included: as a tmux pane the supervisor is hung up when the pane closes, and
+// without a listener node dies on the default disposition without running `exit` — which
+// would strand the detached child, since it has its own session and misses the hangup.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 	process.on(signal, async () => {
 		for (const target of targets) target.stop()
 		const deadline = Date.now() + KILL_GRACE_MS
