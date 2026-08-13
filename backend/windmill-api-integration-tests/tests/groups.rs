@@ -833,16 +833,23 @@ async fn test_reconcile_ignores_non_instance_group_members(
 /// the migration's statements, which are idempotent plain UPDATEs.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_preserve_orphaned_members_migration(db: Pool<Postgres>) -> anyhow::Result<()> {
+    // ghost_grp pins the statement order: it is referenced by the workspace and still has a
+    // membership row, but no instance_group row. Only when the reference strip runs before
+    // the conversion does ghost@ read as unconverted-by-membership nowhere and get preserved;
+    // converting first would spare them on the doomed reference and then strand them.
     sqlx::raw_sql(
         r#"
         INSERT INTO workspace (id, name, owner) VALUES ('mig-ws', 'mig-ws', 'admin@windmill.dev');
         INSERT INTO workspace_settings (workspace_id, auto_invite) VALUES
-          ('mig-ws', '{"instance_groups": ["gone_grp", "live_grp"], "instance_groups_roles": {"gone_grp": "admin", "live_grp": "developer"}}'::jsonb);
+          ('mig-ws', '{"instance_groups": ["gone_grp", "ghost_grp", "live_grp"], "instance_groups_roles": {"gone_grp": "admin", "ghost_grp": "developer", "live_grp": "developer"}}'::jsonb);
         INSERT INTO instance_group (name) VALUES ('live_grp');
-        INSERT INTO email_to_igroup (email, igroup) VALUES ('live@example.com', 'live_grp');
+        INSERT INTO email_to_igroup (email, igroup) VALUES
+          ('live@example.com', 'live_grp'),
+          ('ghost@example.com', 'ghost_grp');
         INSERT INTO usr (workspace_id, username, email, is_admin, operator, added_via) VALUES
           ('mig-ws', 'orphan', 'orphan@example.com', true, false, '{"source": "instance_group", "group": "gone_grp"}'::jsonb),
           ('mig-ws', 'droppedu', 'dropped@example.com', false, false, '{"source": "instance_group", "group": "live_grp"}'::jsonb),
+          ('mig-ws', 'ghostmember', 'ghost@example.com', false, false, '{"source": "instance_group", "group": "ghost_grp"}'::jsonb),
           ('mig-ws', 'livemember', 'live@example.com', false, false, '{"source": "instance_group", "group": "live_grp"}'::jsonb);
         "#,
     )
@@ -860,6 +867,7 @@ async fn test_preserve_orphaned_members_migration(db: Pool<Postgres>) -> anyhow:
     for (email, expected_group) in [
         ("orphan@example.com", "gone_grp"),
         ("dropped@example.com", "live_grp"),
+        ("ghost@example.com", "ghost_grp"),
     ] {
         let (source, migrated_from): (Option<String>, Option<String>) = sqlx::query_as(
             "SELECT added_via->>'source', added_via->>'migrated_from_instance_group'
@@ -868,8 +876,16 @@ async fn test_preserve_orphaned_members_migration(db: Pool<Postgres>) -> anyhow:
         .bind(email)
         .fetch_one(&db)
         .await?;
-        assert_eq!(source.as_deref(), Some("manual"), "{email} should be converted");
-        assert_eq!(migrated_from.as_deref(), Some(expected_group), "{email} marker");
+        assert_eq!(
+            source.as_deref(),
+            Some("manual"),
+            "{email} should be converted"
+        );
+        assert_eq!(
+            migrated_from.as_deref(),
+            Some(expected_group),
+            "{email} marker"
+        );
     }
 
     let (source, group): (Option<String>, Option<String>) = sqlx::query_as(
@@ -878,10 +894,14 @@ async fn test_preserve_orphaned_members_migration(db: Pool<Postgres>) -> anyhow:
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(source.as_deref(), Some("instance_group"), "still-qualifying member spared");
+    assert_eq!(
+        source.as_deref(),
+        Some("instance_group"),
+        "still-qualifying member spared"
+    );
     assert_eq!(group.as_deref(), Some("live_grp"));
 
-    // The dangling reference is stripped from both auto_invite fields; the live one stays.
+    // The dangling references are stripped from both auto_invite fields; the live one stays.
     let (groups, roles): (serde_json::Value, serde_json::Value) = sqlx::query_as(
         "SELECT auto_invite->'instance_groups', auto_invite->'instance_groups_roles'
          FROM workspace_settings WHERE workspace_id = 'mig-ws'",
