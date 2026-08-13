@@ -35,6 +35,14 @@ describe('parsePostgresConnectionString', () => {
 		expect(parsePostgresConnectionString('mysql://u:p@host/db')).toBeUndefined()
 		expect(parsePostgresConnectionString('')).toBeUndefined()
 	})
+
+	// Verified against psql: `postgres://role:p%40ss@host/db` authenticates as `p@ss`, and an
+	// unencoded `@` puts the rest of the password in libpq's host too. Reading these any other
+	// way would make the same string mean something here that it means nowhere else.
+	it('decodes percent escapes in credentials, as libpq does', () => {
+		expect(parsePostgresConnectionString('postgres://u:p%40ss@host/db')?.password).toBe('p@ss')
+		expect(parsePostgresConnectionString('postgres://u%40corp:p@host/db')?.user).toBe('u@corp')
+	})
 })
 
 // The wizard offers the same connection as a string or as fields and switches between them

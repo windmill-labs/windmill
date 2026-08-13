@@ -8,6 +8,11 @@
  * The wizard offers the same connection as a string or as fields and lets the
  * user switch, so parse and compose have to be inverses: whatever one produces,
  * the other must read back unchanged.
+ *
+ * libpq is the arbiter of what a connection string means, so this follows it rather than
+ * RFC 3986 where they differ: credentials are split at the *first* `@` -- an unencoded one
+ * lands in the host for libpq too -- and percent escapes in them are decoded, so `p%40ss`
+ * authenticates as `p@ss`.
  */
 
 const CONNECTION_STRING =
