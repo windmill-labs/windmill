@@ -981,7 +981,12 @@ async fn add_user_igroup(
     )
     .await?;
 
-    // Sync workspace membership derived from this instance group.
+    // Apply instance-level role from group membership
+    let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
+    apply_instance_role(&email, effective_role.as_deref(), &mut tx).await?;
+
+    // Sync workspace membership derived from this instance group. Last, per the
+    // reconciler's lock-ordering contract.
     #[cfg(feature = "private")]
     {
         use windmill_api_workspaces::workspaces_ee::reconcile_workspace_instance_groups;
@@ -989,10 +994,6 @@ async fn add_user_igroup(
             workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
         reconcile_workspace_instance_groups(&affected_workspaces, &mut tx, &authed).await?;
     }
-
-    // Apply instance-level role from group membership
-    let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
-    apply_instance_role(&email, effective_role.as_deref(), &mut tx).await?;
 
     tx.commit().await?;
     Ok(format!("Added {} to igroup {}", email, name))
@@ -1191,9 +1192,13 @@ async fn remove_user_igroup(
     )
     .await?;
 
+    // Recompute instance-level role after group removal
+    let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
+    apply_instance_role(&email, effective_role.as_deref(), &mut tx).await?;
+
     // Re-derive workspace membership now that the base tables reflect the removal: drops the
     // user where this group was their only access source, or re-roles them from the groups
-    // they still belong to.
+    // they still belong to. Last, per the reconciler's lock-ordering contract.
     #[cfg(feature = "private")]
     {
         use windmill_api_workspaces::workspaces_ee::reconcile_workspace_instance_groups;
@@ -1201,10 +1206,6 @@ async fn remove_user_igroup(
             workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
         reconcile_workspace_instance_groups(&affected_workspaces, &mut tx, &authed).await?;
     }
-
-    // Recompute instance-level role after group removal
-    let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
-    apply_instance_role(&email, effective_role.as_deref(), &mut tx).await?;
 
     tx.commit().await?;
     Ok(format!("Removed {} from igroup {}", email, name))
