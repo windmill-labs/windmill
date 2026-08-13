@@ -5005,6 +5005,26 @@ describe('prepareGlobalSystemMessage', () => {
 	})
 })
 
+describe('plan-mode safety classification', () => {
+	it('allows inspection but not preview execution', () => {
+		const tool = (name: string) => globalTools.find((t) => t.def.function.name === name)
+		expect(tool('diff')?.planModeSafe).toBe(true)
+		expect(tool('get_db_schema')?.planModeSafe).toBe(true)
+		expect(tool('open_preview')?.planModeSafe).not.toBe(true)
+	})
+
+	it('never tags a tool that stops to ask the user before it acts', () => {
+		// The tag's dangerous direction: omitting it only over-blocks, but adding it to a tool
+		// that stops to ask lets that tool run unasked for the whole posture, silently. This
+		// covers the deploy and delete tools rather than everything mutating — the plan tools
+		// are the deliberate exception, and the controller registers those, not this list.
+		const leaked = globalTools
+			.filter((t) => t.requiresConfirmation === true && t.planModeSafe === true)
+			.map((t) => t.def.function.name)
+		expect(leaked).toEqual([])
+	})
+})
+
 describe('session-only preview tools gating', () => {
 	const toolNames = (sessionPreview: boolean) =>
 		globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)
