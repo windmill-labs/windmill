@@ -1140,6 +1140,19 @@ async fn create_resource(
     }
     let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
 
+    authorize_azure_devops_reference(
+        &authed,
+        &db,
+        &user_db,
+        &w_id,
+        resource
+            .value
+            .as_deref()
+            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
+            .as_ref(),
+    )
+    .await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     let update_if_exists = q.update_if_exists.unwrap_or(false);
@@ -1821,6 +1834,18 @@ async fn update_resource(
     sqlb.returning("path");
     let authed = maybe_refresh_folders(path, &w_id, authed, &db).await;
 
+    authorize_azure_devops_reference(
+        &authed,
+        &db,
+        &user_db,
+        &w_id,
+        ns.value
+            .as_deref()
+            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
+            .as_ref(),
+    )
+    .await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     if let Some(npath) = ns.path.clone() {
@@ -2098,6 +2123,8 @@ async fn set_resource_value(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
+
     let mut tx = user_db.clone().begin(authed).await?;
 
     // `RETURNING resource_type` rather than a second lookup: the advisory below has to know the
@@ -3425,15 +3452,17 @@ const AZURE_TOKEN_EXPIRY_MARGIN_S: i64 = 60;
 /// Lifetime assumed when the token response omits `expires_in`.
 const AZURE_TOKEN_FALLBACK_LIFETIME_S: i64 = 300;
 
-/// Whether the span `start..end` of `url` is the userinfo of an http(s) authority.
+/// Whether the span `start..end` of `url` is the userinfo of an https authority.
 /// The placeholder contains '/', which truncates the authority for any left-to-right
 /// parse, so terminators falling inside the span are skipped rather than honored.
-fn span_is_http_userinfo(url: &str, start: usize, end: usize) -> bool {
+///
+/// https only: over plaintext an on-path attacker answers the probe's first request
+/// with a Basic challenge, and git retries carrying the minted token.
+fn span_is_https_userinfo(url: &str, start: usize, end: usize) -> bool {
     let Some(scheme_sep) = url.find("://") else {
         return false;
     };
-    let scheme = &url[..scheme_sep];
-    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+    if !url[..scheme_sep].eq_ignore_ascii_case("https") {
         return false;
     }
     let body_start = scheme_sep + 3;
@@ -3469,9 +3498,9 @@ fn parse_azure_devops_placeholder(url: &str) -> Result<Option<(&str, &str)>> {
     // Anywhere but the userinfo, the minted token would be spliced into a part of the
     // URL that git echoes verbatim in its failure messages (which are persisted as the
     // repository's sync status) and that credential redaction does not cover.
-    if !span_is_http_userinfo(url, start, end) {
+    if !span_is_https_userinfo(url, start, end) {
         return Err(Error::BadRequest(
-            "The AZURE_DEVOPS_TOKEN(...) placeholder must be the credentials of an http(s) git URL, i.e. directly before the '@'".to_string(),
+            "The AZURE_DEVOPS_TOKEN(...) placeholder must be the credentials of an https git URL, i.e. directly before the '@'".to_string(),
         ));
     }
     Ok(Some((
@@ -3566,6 +3595,43 @@ async fn resolve_azure_devops_url(
 /// `allow_cache` carries the caller's freshness requirement through to the token, not
 /// just to the resource read: an on-demand check must not succeed on a token minted
 /// before the Azure app's permissions were last changed.
+/// Authorize an `AZURE_DEVOPS_TOKEN(...)` reference in a resource value being written.
+///
+/// The background probes mint from the named `azure` resource under the system identity
+/// (RLS bypassed) and there is no principal at that point to authorize against, so the
+/// write is where the reference has to be vetted: otherwise someone who can edit a
+/// git-sync repository URL, but not read the credential it names, can have the poller
+/// mint that credential and pull a repository they could not otherwise reach.
+///
+/// Only the `url` field is inspected, and with the same parser the probes use, so the
+/// path authorized here is exactly the path they will resolve.
+pub async fn authorize_azure_devops_reference(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    value: Option<&serde_json::Value>,
+) -> Result<()> {
+    let Some(url) = value.and_then(|v| v.get("url")).and_then(|u| u.as_str()) else {
+        return Ok(());
+    };
+    let Some((_, resource_path)) = parse_azure_devops_placeholder(url.trim())? else {
+        return Ok(());
+    };
+
+    let dba = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+    let readable =
+        get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, false)
+            .await
+            .unwrap_or(None);
+    if readable.is_none() {
+        return Err(Error::PermissionDenied(format!(
+            "Cannot reference AZURE_DEVOPS_TOKEN({resource_path}) in a git repository URL without access to that resource"
+        )));
+    }
+    Ok(())
+}
+
 async fn mint_azure_devops_token(
     tenant_id: &str,
     client_id: &str,
@@ -4512,6 +4578,11 @@ mod tests {
         .is_err());
         assert!(parse_azure_devops_placeholder(
             "ssh://AZURE_DEVOPS_TOKEN(f/azure)@dev.azure.com/o"
+        )
+        .is_err());
+        // Plaintext would let an on-path Basic challenge harvest the minted token.
+        assert!(parse_azure_devops_placeholder(
+            "http://AZURE_DEVOPS_TOKEN(f/azure)@dev.azure.com/o"
         )
         .is_err());
         // A `user:token` userinfo is still the credentials position.
