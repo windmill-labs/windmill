@@ -26,8 +26,9 @@ use crate::{
         OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR,
-    GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry, GoBuildLimits, DISABLE_NUSER, GOPRIVATE, GOPROXY,
+    GO_BIN_CACHE_DIR, GO_BUILD_LIMITS, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -84,6 +85,149 @@ lazy_static::lazy_static! {
 
 pub const GO_OBJECT_STORE_PREFIX: &str =
     const_format::concatcp!(crate::global_cache::TARGET, "_gobin/");
+
+/// Worker group env vars forwarded to the Go toolchain (`go build`, `go mod …`).
+///
+/// Restricted to the GC and scheduler knobs, which bound what a compilation costs
+/// without changing what it produces: the built binary is cached under a hash of
+/// the source and lockfile alone, so a var that alters codegen (`GOFLAGS`, build
+/// tags) would let two worker groups disagree about the contents of one cache
+/// entry — including the one shared through the object store.
+const GO_TOOLCHAIN_TUNING_ENVS: [&str; 3] = ["GOMEMLIMIT", "GOGC", "GOMAXPROCS"];
+
+/// The two shapes a Go toolchain invocation takes, which spend the budget
+/// differently: a build fans out into a driver plus compilers, while the module
+/// steps are one process with nothing else running.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GoToolchainStep {
+    Build,
+    Mod,
+}
+
+impl GoToolchainStep {
+    fn label(&self) -> &'static str {
+        match self {
+            GoToolchainStep::Build => "Go compilation",
+            GoToolchainStep::Mod => "Go dependency resolution",
+        }
+    }
+}
+
+/// Memory and parallelism settings for the Go toolchain subprocesses, which
+/// otherwise inherit nothing (they are spawned with a cleared environment).
+///
+/// Must be applied before the explicit `.env` calls of each command so the
+/// worker's own `PATH`/`GOPATH`/`GOCACHE`/`HOME` win over a worker group setting
+/// the same names, as they do on the run step.
+fn go_toolchain_envs(step: GoToolchainStep) -> Vec<(String, String)> {
+    let worker_config = windmill_common::worker::WORKER_CONFIG.load();
+    let envs = merge_go_toolchain_envs(&worker_config.env_vars, *GO_BUILD_LIMITS, step);
+    log_go_toolchain_limits(step, &envs);
+    envs
+}
+
+/// A slow compilation is the symptom of a limit set too low, and nothing else would
+/// tell an operator that one is in force or what it resolved to. Reports what the
+/// toolchain is actually given, since a worker group can pin values of its own, and
+/// once per distinct setting rather than per job, since it can move them at runtime.
+fn log_go_toolchain_limits(step: GoToolchainStep, envs: &[(String, String)]) {
+    lazy_static::lazy_static! {
+        static ref LOGGED: std::sync::Mutex<std::collections::HashSet<String>> =
+            Default::default();
+    }
+
+    let limits = envs
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    // Neutral wording: the settings are reported rather than characterized, since
+    // a worker group can pin ones that lift the limit (`GOMEMLIMIT=off`) as easily
+    // as ones that impose it.
+    let line = if limits.is_empty() {
+        format!("{} runs with no limits", step.label())
+    } else {
+        format!("{} runs with {limits}", step.label())
+    };
+
+    let Ok(mut logged) = LOGGED.lock() else {
+        return;
+    };
+    if logged.insert(line.clone()) {
+        tracing::info!("{line}");
+    }
+}
+
+fn merge_go_toolchain_envs(
+    worker_envs: &HashMap<String, String>,
+    derived: Option<GoBuildLimits>,
+    step: GoToolchainStep,
+) -> Vec<(String, String)> {
+    // Values reach the toolchain as the worker group wrote them, the same way they
+    // reach the run step: a `GOMEMLIMIT` the Go runtime rejects then fails both
+    // steps alike instead of compiling under a rewritten value and dying on the
+    // binary it produced. An allowlisted name the worker never set resolves to an
+    // empty string, which would shadow the derived pair with nothing.
+    let configured = |k: &str| worker_envs.get(k).filter(|v| !v.trim().is_empty());
+
+    let mut envs: Vec<(String, String)> = GO_TOOLCHAIN_TUNING_ENVS
+        .iter()
+        .filter_map(|k| configured(k).map(|v| (k.to_string(), v.clone())))
+        .collect();
+
+    // Half of the derived pair is not a weaker limit but no limit (see
+    // `resolve_go_build_limits`), so a worker group that sets either one owns both.
+    let pinned_by_worker_group = envs
+        .iter()
+        .any(|(k, _)| k == "GOMEMLIMIT" || k == "GOMAXPROCS");
+    if let (false, Some(limits)) = (pinned_by_worker_group, derived) {
+        match step {
+            GoToolchainStep::Build => {
+                envs.push(("GOMEMLIMIT".to_string(), limits.memlimit.to_string()));
+                envs.push(("GOMAXPROCS".to_string(), limits.parallelism.to_string()));
+            }
+            // Nothing shares the budget with a single process, and its work queue
+            // is sized from `GOMAXPROCS` — throttling it would only slow fetches
+            // down without bounding anything.
+            GoToolchainStep::Mod => {
+                envs.push(("GOMEMLIMIT".to_string(), limits.budget.to_string()));
+            }
+        }
+    }
+    envs
+}
+
+/// `go build`'s `-p`, so the parallelism the aggregate assumes is the one it gets.
+///
+/// `GOMAXPROCS` only supplies the *default* for `-p`, which a `GOFLAGS=-p=…`
+/// persisted in the toolchain's own env file outranks — and that file is read,
+/// since the command keeps `HOME`. A flag on the command line is applied last.
+fn go_build_parallelism_args(envs: &[(String, String)]) -> Vec<String> {
+    envs.iter()
+        .find(|(k, _)| k == "GOMAXPROCS")
+        .and_then(|(_, v)| go_runtime_int32(v))
+        .filter(|parallelism| *parallelism > 0)
+        .map(|parallelism| vec!["-p".to_string(), parallelism.to_string()])
+        .unwrap_or_default()
+}
+
+/// `GOMAXPROCS` as the Go runtime reads it: a signed 32-bit decimal, no padding of
+/// any kind, and `None` for everything else — which the runtime silently ignores.
+///
+/// A worker group's value is forwarded verbatim, so it is not necessarily one the
+/// `-p` flag would take, and the two parsers disagree in both directions: `-p`
+/// infers the base and rejects the `08` the runtime reads as 8, while it accepts
+/// the `2147483648` and the `"8 "` the runtime discards — and it would then start
+/// that many build workers. Reading the value the runtime's way keeps `-p` in step
+/// with it, so a spelling the runtime ignores leaves the flag off and the build
+/// keeps the default the runtime itself would have used.
+fn go_runtime_int32(v: &str) -> Option<i32> {
+    let digits = v.strip_prefix(['+', '-']).unwrap_or(v);
+    (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| v.parse::<i32>().ok())
+        .flatten()
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     mem_peak: &mut i32,
@@ -229,10 +373,19 @@ func Run(req Req) (interface{{}}, error){{
             }
         }
 
+        let toolchain_envs = go_toolchain_envs(GoToolchainStep::Build);
+        let build_args = [
+            vec!["build".to_string()],
+            go_build_parallelism_args(&toolchain_envs),
+            vec!["main.go".to_string()],
+        ]
+        .concat();
+
         let mut build_go_cmd = Command::new(GO_PATH.as_str());
         build_go_cmd
             .current_dir(job_dir)
             .env_clear()
+            .envs(toolchain_envs)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", {
@@ -248,7 +401,7 @@ func Run(req Req) (interface{{}}, error){{
             .env("HOME", HOME_ENV.as_str())
             .env("GOCACHE", GO_CACHE_DIR.as_str())
             .envs(PROXY_ENVS.clone())
-            .args(vec!["build", "main.go"])
+            .args(build_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -526,6 +679,7 @@ pub async fn install_go_dependencies(
                     child_cmd
                         .current_dir(job_dir)
                         .env_clear()
+                        .envs(go_toolchain_envs(GoToolchainStep::Mod))
                         .args(vec!["mod", "init", "mymod"])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped());
@@ -610,6 +764,7 @@ pub async fn install_go_dependencies(
     child_cmd
         .current_dir(job_dir)
         .env_clear()
+        .envs(go_toolchain_envs(GoToolchainStep::Mod))
         .env("HOME", HOME_ENV.as_str())
         .env("PATH", PATH_ENV.as_str())
         .envs(PROXY_ENVS.clone())
@@ -718,4 +873,114 @@ async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     write_file(&mymod_dir, "inner_main.go", &code)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod go_toolchain_envs_tests {
+    use super::{
+        go_build_parallelism_args, merge_go_toolchain_envs, GoBuildLimits, GoToolchainStep, HashMap,
+    };
+
+    const DERIVED: Option<GoBuildLimits> =
+        Some(GoBuildLimits { budget: 2048, memlimit: 512, parallelism: 3 });
+
+    fn worker_envs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn merged(pairs: &[(&str, &str)], derived: Option<GoBuildLimits>) -> Vec<(String, String)> {
+        let mut envs =
+            merge_go_toolchain_envs(&worker_envs(pairs), derived, GoToolchainStep::Build);
+        envs.sort();
+        envs
+    }
+
+    fn expect(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        let mut envs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        envs.sort();
+        envs
+    }
+
+    #[test]
+    fn worker_group_settings_replace_the_derived_pair_whole() {
+        assert_eq!(
+            merged(&[], DERIVED),
+            expect(&[("GOMEMLIMIT", "512"), ("GOMAXPROCS", "3")])
+        );
+        // Either half configured hands the whole policy over, since a cap without a
+        // process count (or the reverse) bounds nothing.
+        assert_eq!(
+            merged(&[("GOMEMLIMIT", "2GiB")], DERIVED),
+            expect(&[("GOMEMLIMIT", "2GiB")])
+        );
+        assert_eq!(
+            merged(&[("GOMAXPROCS", "32")], DERIVED),
+            expect(&[("GOMAXPROCS", "32")])
+        );
+        // GOGC is orthogonal to the pair, so it rides along with it.
+        assert_eq!(
+            merged(&[("GOGC", "50")], DERIVED),
+            expect(&[("GOGC", "50"), ("GOMEMLIMIT", "512"), ("GOMAXPROCS", "3")])
+        );
+        // Forwarded untouched: a trimmed value would compile under a spelling the
+        // run step then rejects.
+        assert_eq!(
+            merged(&[("GOMEMLIMIT", " 2GiB ")], DERIVED),
+            expect(&[("GOMEMLIMIT", " 2GiB ")])
+        );
+        // An allowlisted name the worker never set must not shadow the pair.
+        assert_eq!(
+            merged(&[("GOMEMLIMIT", "  ")], DERIVED),
+            expect(&[("GOMEMLIMIT", "512"), ("GOMAXPROCS", "3")])
+        );
+        assert_eq!(merged(&[], None), expect(&[]));
+    }
+
+    #[test]
+    fn the_module_steps_get_the_whole_budget() {
+        // One process, nothing sharing with it, and no compilers to hold back.
+        assert_eq!(
+            merge_go_toolchain_envs(&worker_envs(&[]), DERIVED, GoToolchainStep::Mod),
+            expect(&[("GOMEMLIMIT", "2048")])
+        );
+    }
+
+    #[test]
+    fn parallelism_is_passed_on_the_command_line_when_it_is_a_number() {
+        assert_eq!(
+            go_build_parallelism_args(&merged(&[], DERIVED)),
+            vec!["-p".to_string(), "3".to_string()]
+        );
+        // A worker group value is forwarded verbatim, so `-p` is only asserted over
+        // `GOFLAGS` when it is one the toolchain would accept.
+        assert!(go_build_parallelism_args(&merged(&[("GOMAXPROCS", "many")], DERIVED)).is_empty());
+        // `-p` infers the base and rejects `08`, which the runtime reads as 8, so
+        // the number is emitted rather than the spelling it arrived in.
+        assert_eq!(
+            go_build_parallelism_args(&merged(&[("GOMAXPROCS", "08")], DERIVED)),
+            vec!["-p".to_string(), "8".to_string()]
+        );
+        // Past the signed 32-bit range, and padded with whitespace, the runtime
+        // ignores the value, so `-p` has to as well: the flag would take either and
+        // start that many workers.
+        assert!(
+            go_build_parallelism_args(&merged(&[("GOMAXPROCS", "2147483648")], DERIVED)).is_empty()
+        );
+        assert!(
+            go_build_parallelism_args(&merged(&[("GOMAXPROCS", "2147483647 ")], DERIVED))
+                .is_empty()
+        );
+        // A leading `+` is one the runtime does take, so the flag keeps it too.
+        assert_eq!(
+            go_build_parallelism_args(&merged(&[("GOMAXPROCS", "+8")], DERIVED)),
+            vec!["-p".to_string(), "8".to_string()]
+        );
+        assert!(go_build_parallelism_args(&merged(&[], None)).is_empty());
+    }
 }

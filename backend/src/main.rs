@@ -70,12 +70,12 @@ use windmill_common::{
     stats_oss::schedule_stats,
     triggers::TriggerKind,
     utils::{
-        create_default_worker_suffix, worker_name_with_suffix, Mode, GIT_VERSION, HOSTNAME,
-        MODE_AND_ADDONS,
+        checked_worker_name, resolve_worker_suffix, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
     },
     worker::{
-        is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
-        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
+        is_native_mode_from_env, reload_custom_tags_setting, validate_worker_lifecycle_env,
+        Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR,
+        WINDMILL_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, INSTANCE_NAME, METRICS_ENABLED,
 };
@@ -782,6 +782,8 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
     }
 
+    validate_worker_lifecycle_env()?;
+
     let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -813,7 +815,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             agent_config.base_internal_url
         );
-        let suffix = create_default_worker_suffix(&hostname);
+        let suffix = resolve_worker_suffix(&hostname, 1)?;
         (
             Connection::Http(agent_config.build_http_client(&suffix)),
             Some(suffix),
@@ -1332,7 +1334,7 @@ Windmill Community Edition {GIT_VERSION}
                         let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
-                            create_default_worker_suffix(&hostname)
+                            resolve_worker_suffix(&hostname, i as usize + 1)?
                         };
 
                         let worker_conn = WorkerConn {
@@ -1346,11 +1348,11 @@ Windmill Community Edition {GIT_VERSION}
                                         .build_http_client(&suffix),
                                 )
                             },
-                            worker_name: worker_name_with_suffix(
+                            worker_name: checked_worker_name(
                                 mode == Mode::Agent,
                                 WORKER_GROUP.as_str(),
                                 &suffix,
-                            ),
+                            )?,
                         };
                         workers.push(worker_conn);
                     }

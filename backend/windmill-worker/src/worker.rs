@@ -44,8 +44,9 @@ use windmill_common::{
     schema::{should_validate_schema, SchemaValidator},
     utils::{create_directory_async, WarnAfterExt},
     worker::{
-        is_allowed_file_location, make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
-        MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
+        is_allowed_file_location, make_pull_query, write_file, Connection, HttpClient,
+        EXIT_AFTER_N_JOBS, MAX_TIMEOUT, MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR,
+        ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
     },
     worker_group_job_stats::JobStatsMap,
     KillpillSender,
@@ -99,8 +100,8 @@ use windmill_common::{
 use windmill_queue::{
     append_logs, canceled_job_to_result, empty_result, get_same_worker_job, pull, push_init_job,
     push_periodic_bash_job, CanceledBy, JobAndPerms, JobCompleted, MiniPulledJob,
-    PrecomputedAgentInfo, PulledJob, SameWorkerPayload, HTTP_CLIENT, INIT_SCRIPT_TAG,
-    PERIODIC_SCRIPT_TAG,
+    PrecomputedAgentInfo, PulledJob, SameWorkerPayload, HTTP_CLIENT, INIT_SCRIPT_PATH_PREFIX,
+    INIT_SCRIPT_TAG, PERIODIC_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_TAG,
 };
 
 #[cfg(feature = "prometheus")]
@@ -1275,6 +1276,28 @@ const SQL_RESULT_SIZE_FRACTION: f64 = 0.15;
 // only reject work that would have succeeded.
 const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 
+// Share of the worker's memory budget a Go compilation may hold. Set high enough
+// that an ordinary build never approaches it, so the only builds whose behavior
+// changes are those that were about to take the worker down.
+//
+// What the rest covers is not the worker process, which is tens of MB and would
+// argue for a constant: it is everything `GOMEMLIMIT` does not count and that grows
+// with the build — the toolchain's mmapped inputs and outputs, its non-Go
+// allocations, and the page cache its writes charge to the cgroup.
+const GO_BUILD_MEMLIMIT_FRACTION: f64 = 0.75;
+// Heap a Go compiler is comfortable in: cores are only put to work while the budget
+// still affords each of them this much.
+const GO_BUILD_TARGET_MEMLIMIT: usize = 384 * 1024 * 1024;
+// Driver plus the compilers below which a build stops overlapping and starts
+// waiting. Measured on a dependency-heavy build: at a budget too small to give this
+// many the target share, splitting it further still compiles faster than handing
+// fewer processes more — one compiler alone costs ~3x what five of them do on the
+// same budget — so the process count holds and the share absorbs the difference.
+const MIN_GO_BUILD_PROCESSES: usize = 6;
+// Floor under the share, past which dividing the budget again buys nothing: the
+// processes only trade compiling time for collecting time.
+const MIN_GO_BUILD_MEMLIMIT: usize = 128 * 1024 * 1024;
+
 /// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
 /// and binary, so `MB` and `MiB` both mean 1024².
 ///
@@ -1351,6 +1374,193 @@ lazy_static::lazy_static! {
                 .unwrap_or(usize::MAX),
         }
     };
+
+    /// What a Go compilation is allowed to cost, derived from the worker's memory
+    /// budget. Nothing else bounds it: a compilation grows until the cgroup OOM
+    /// killer takes the worker process down, every job colocated on it with it.
+    /// `GOMEMLIMIT` is soft — the GC works harder as the heap nears it instead of
+    /// failing the allocation — so a pathological build turns into a slow one.
+    ///
+    /// `GO_BUILD_MEMLIMIT` overrides the budget (`512MB`, `2GiB`, …), and `0`/`off`
+    /// disables the whole thing, as does a worker with no cgroup memory reading to
+    /// scale from.
+    pub(crate) static ref GO_BUILD_LIMITS: Option<GoBuildLimits> = resolve_go_build_limits(
+        std::env::var("GO_BUILD_MEMLIMIT").ok().as_deref(),
+        windmill_common::worker::get_memory(),
+        worker_vcpus(),
+    );
+}
+
+/// How much memory the Go toolchain may hold while compiling a script, expressed
+/// the only way the toolchain understands it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct GoBuildLimits {
+    /// What the whole build may hold, and so what a step that is one process gets.
+    pub budget: usize,
+    /// `GOMEMLIMIT` for one process of a build that fans out.
+    pub memlimit: usize,
+    /// `GOMAXPROCS`, which is also `go build`'s default `-p`: how many compilers it
+    /// runs at once.
+    pub parallelism: usize,
+}
+
+fn worker_vcpus() -> usize {
+    effective_vcpus(
+        windmill_common::worker::get_vcpus(),
+        windmill_common::worker::get_cpu_period(),
+        windmill_common::worker::get_affinity_cpus()
+            .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
+            .unwrap_or(1),
+    )
+}
+
+/// CPUs worth of work the worker can actually run at once.
+///
+/// The cgroup states its allowance as a quota over a period, and only their ratio
+/// is a number of CPUs — `1500m` is `150000/100000`. A fraction still runs work, so
+/// it rounds up the way the Go runtime's own container-aware `GOMAXPROCS` does:
+/// flooring would call that worker single-core and serialize its builds.
+///
+/// `host_cpus` counts the CPUs the worker may run on, quota aside, and is both the
+/// answer when there is no quota and the floor under one: Go's own container-aware
+/// default never drops below two while the machine has two to give, since even a
+/// fraction of a CPU compiles two packages faster than it compiles them in series.
+fn effective_vcpus(quota_us: Option<i64>, period_us: Option<i64>, host_cpus: usize) -> usize {
+    quota_us
+        .zip(period_us)
+        .filter(|(quota, period)| *quota > 0 && *period > 0)
+        .map(|(quota, period)| ((quota + period - 1) / period) as usize)
+        .unwrap_or(host_cpus)
+        .max(host_cpus.min(2))
+        .max(1)
+}
+
+/// Split a build budget into the per-process cap and the parallelism it assumes.
+///
+/// `GOMEMLIMIT` bounds one process, and a build is a driver plus up to `-p`
+/// compilers that each inherit the same value, so the budget only holds if the
+/// number of processes sharing it is pinned alongside it.
+fn resolve_go_build_limits(
+    env_override: Option<&str>,
+    worker_memory: Option<i64>,
+    vcpus: usize,
+) -> Option<GoBuildLimits> {
+    let derived = || {
+        worker_memory
+            .filter(|bytes| *bytes > 0)
+            .map(|bytes| (bytes as f64 * GO_BUILD_MEMLIMIT_FRACTION) as usize)
+    };
+
+    let budget = match env_override.map(str::trim).filter(|v| !v.is_empty()) {
+        None => derived()?,
+        Some(v) if v.eq_ignore_ascii_case("off") => return None,
+        Some(v) => match parse_byte_size(v) {
+            // A zero budget would have the GC hold the heap at nothing, so it reads
+            // as "no limit" instead.
+            Some(0) => return None,
+            Some(bytes) => bytes,
+            None => {
+                // Falling back silently would leave the operator believing the limit
+                // they wrote is in force.
+                tracing::warn!(
+                    "Go build memory budget {v:?} is not a byte size (e.g. 512MB, \
+                     2GiB); falling back to the worker's memory-derived budget"
+                );
+                derived()?
+            }
+        },
+    };
+
+    // One compiler per core while the budget affords each the target share, never
+    // so few that the build stops overlapping, and never more than the cores can
+    // run. The floor is the last word: on a worker too small to honor both, the
+    // budget is the one that gives, since processes squeezed under it make no
+    // progress to bound.
+    let cap = vcpus.max(1) + 1;
+    let processes = (budget / GO_BUILD_TARGET_MEMLIMIT).clamp(MIN_GO_BUILD_PROCESSES.min(cap), cap);
+    Some(GoBuildLimits {
+        // Floored like the share it is an alternative to: a step that holds the
+        // whole budget must never end up with less than one of six compilers.
+        budget: budget.max(MIN_GO_BUILD_MEMLIMIT),
+        memlimit: (budget / processes).max(MIN_GO_BUILD_MEMLIMIT),
+        parallelism: processes - 1,
+    })
+}
+
+#[cfg(test)]
+mod go_build_limits_tests {
+    use super::{
+        effective_vcpus, resolve_go_build_limits, GoBuildLimits, GO_BUILD_TARGET_MEMLIMIT,
+        MIN_GO_BUILD_MEMLIMIT,
+    };
+
+    const GIB: i64 = 1024 * 1024 * 1024;
+
+    fn limits(budget: usize, memlimit: usize, parallelism: usize) -> Option<GoBuildLimits> {
+        Some(GoBuildLimits { budget, memlimit, parallelism })
+    }
+
+    #[test]
+    fn reads_the_cgroup_allowance_as_cpus() {
+        // 1500m: a fraction of a CPU still runs work, so it is two compilers' worth
+        // of concurrency rather than one.
+        assert_eq!(effective_vcpus(Some(150_000), Some(100_000), 24), 2);
+        assert_eq!(effective_vcpus(Some(400_000), Some(100_000), 24), 4);
+        // The period is configurable, so only the ratio means anything.
+        assert_eq!(effective_vcpus(Some(400_000), Some(50_000), 24), 8);
+        // The quota is the answer whenever there is one to read, since the count
+        // it would otherwise be clamped to has already floored it.
+        assert_eq!(effective_vcpus(Some(4_000_000), Some(100_000), 4), 40);
+        assert_eq!(effective_vcpus(None, None, 8), 8);
+        // Under a whole CPU the floor is two, as the Go runtime's own default is —
+        // but only where there are two to give.
+        assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 24), 2);
+        assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 1), 1);
+        // A one-CPU allowance stays one when that is all the worker may use, which
+        // is how the Windows 1CU cap reports itself.
+        assert_eq!(effective_vcpus(Some(100_000), Some(100_000), 1), 1);
+    }
+
+    #[test]
+    fn splits_the_budget_across_the_build_tree() {
+        // Fewer cores than the budget could feed: every core gets a compiler, and
+        // they share 3GiB with the driver.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(4 * GIB), 4),
+            limits(3 * GIB as usize, 3 * GIB as usize / 5, 4)
+        );
+        // More cores than it can feed at the target share: the extra cores idle
+        // rather than shrink every compiler.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(4 * GIB), 64),
+            limits(3 * GIB as usize, GO_BUILD_TARGET_MEMLIMIT, 7)
+        );
+        // Too small to give even the minimum process count the target share: the
+        // build keeps overlapping and the share absorbs it.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(GIB), 64),
+            limits(3 * GIB as usize / 4, 3 * GIB as usize / 4 / 6, 5)
+        );
+        // Nothing to scale from leaves the toolchain unlimited, as it was before.
+        assert_eq!(resolve_go_build_limits(None, None, 4), None);
+        // Under the floor the budget gives instead of the share.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(GIB / 8), 4),
+            limits(MIN_GO_BUILD_MEMLIMIT, MIN_GO_BUILD_MEMLIMIT, 4)
+        );
+        assert_eq!(
+            resolve_go_build_limits(Some("2GiB"), Some(4 * GIB), 4),
+            limits(2 * GIB as usize, 2 * GIB as usize / 5, 4)
+        );
+        assert_eq!(resolve_go_build_limits(Some("off"), Some(4 * GIB), 4), None);
+        assert_eq!(resolve_go_build_limits(Some("0MB"), Some(4 * GIB), 4), None);
+        // An unparseable override falls back to the derived budget rather than
+        // lifting the limit.
+        assert_eq!(
+            resolve_go_build_limits(Some("lots"), Some(4 * GIB), 4),
+            limits(3 * GIB as usize, 3 * GIB as usize / 5, 4)
+        );
+    }
 }
 
 /// The limit postgres collection is bounded by: the cloud product cap where one
@@ -1822,6 +2032,9 @@ pub enum JobOutcome {
     /// or was suspended waiting for child jobs (WAC v2).
     /// All of these leave the span `Status` `Unset`.
     Completed,
+    /// A valid cached result was found for the job's args and path, so it was
+    /// answered without running anything.
+    CompletedFromCache,
     /// Job was attempted but its execution returned an error; the failure has
     /// been dispatched to the result processor. `description` holds the
     /// truncated error string for the outer span's `Status.message`.
@@ -1835,7 +2048,14 @@ impl JobOutcome {
     /// True when the job completed successfully on this worker. Used by
     /// callers that previously matched on `Ok(true)`.
     pub fn is_success(&self) -> bool {
-        matches!(self, Self::Completed)
+        matches!(self, Self::Completed | Self::CompletedFromCache)
+    }
+
+    /// Whether anything ran here. Only a cached result is a true no-run:
+    /// `AlreadyCompleted` is raised when the queue row disappears *while* the
+    /// child process is running, so that job did execute, and was interrupted.
+    fn ran_on_this_worker(&self) -> bool {
+        !matches!(self, Self::CompletedFromCache)
     }
 }
 
@@ -1849,7 +2069,7 @@ impl JobOutcome {
 /// description that reflects the actual cause.
 pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<JobOutcome>) {
     let description = match result {
-        Ok(JobOutcome::Completed) => return,
+        Ok(JobOutcome::Completed) | Ok(JobOutcome::CompletedFromCache) => return,
         Ok(JobOutcome::Failed { description }) => description.clone(),
         Ok(JobOutcome::AlreadyCompleted) => "job already completed by another worker".to_string(),
         Err(err) => truncate_description(&err.to_string()),
@@ -2145,12 +2365,128 @@ pub async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> Str
     job_dir_path
 }
 
+/// Whether running this job may leave anything behind in the worker's environment, which is
+/// what `EXIT_AFTER_N_JOBS` counts. Flow orchestration, noop/identity steps and the warmup
+/// job run no user code at all, and the init/periodic scripts are the worker's own setup:
+/// counting any of them would burn a restart cycle without a single user job having run.
+///
+/// The internal scripts are recognized by the path this very worker queues them under, and
+/// not by their tag alone: a tag is only routing configuration, so a worker pulling
+/// `init_script` could otherwise be fed user jobs that never age its environment.
+fn dirties_worker_env(
+    kind: JobKind,
+    tag: &str,
+    runnable_path: Option<&str>,
+    job_id: Uuid,
+    rejected_before_run: bool,
+    worker_name: &str,
+) -> bool {
+    let own_script = |own_tag: &str, path_prefix: &str| {
+        tag == own_tag
+            && runnable_path.is_some_and(|p| p.starts_with(&format!("{path_prefix}{worker_name}")))
+    };
+    !rejected_before_run
+        && !kind.is_flow()
+        && !matches!(
+            kind,
+            JobKind::Noop
+                | JobKind::Identity
+                | JobKind::UnassignedScript
+                | JobKind::UnassignedFlow
+                | JobKind::UnassignedSinglestepFlow
+        )
+        && !own_script(INIT_SCRIPT_TAG, INIT_SCRIPT_PATH_PREFIX)
+        && !own_script(PERIODIC_SCRIPT_TAG, PERIODIC_SCRIPT_PATH_PREFIX)
+        && job_id != Uuid::nil()
+}
+
+#[cfg(test)]
+mod exit_after_n_jobs_tests {
+    use super::*;
+
+    const WK: &str = "wk-default-host-a1b2c";
+
+    /// A worker with `EXIT_AFTER_N_JOBS=1` that counted its own init script would shut down
+    /// before ever running a user job, restart, and loop on that forever. Jobs rejected
+    /// before the executor ran are the same waste of a restart.
+    #[test]
+    fn worker_own_jobs_do_not_count() {
+        for (kind, tag, path) in [
+            (
+                JobKind::Script,
+                INIT_SCRIPT_TAG,
+                Some(format!("{INIT_SCRIPT_PATH_PREFIX}{WK}")),
+            ),
+            (
+                JobKind::Script,
+                PERIODIC_SCRIPT_TAG,
+                Some(format!("{PERIODIC_SCRIPT_PATH_PREFIX}{WK}_1700000000")),
+            ),
+            (JobKind::Flow, "flow", Some("u/admin/f".to_string())),
+            (JobKind::Noop, "other", None),
+            (JobKind::UnassignedScript, "bash", Some("u/admin/s".into())),
+        ] {
+            assert!(
+                !dirties_worker_env(kind, tag, path.as_deref(), Uuid::from_u128(1), false, WK),
+                "{kind:?}/{tag} should not count"
+            );
+        }
+        // The dedicated worker warmup job, which runs no user code.
+        assert!(!dirties_worker_env(
+            JobKind::Script,
+            "bash",
+            Some("u/admin/s"),
+            Uuid::nil(),
+            false,
+            WK
+        ));
+        // Cancelled, or errored before the executor ran.
+        assert!(!dirties_worker_env(
+            JobKind::Script,
+            "bash",
+            Some("u/admin/s"),
+            Uuid::from_u128(1),
+            true,
+            WK
+        ));
+    }
+
+    /// A job whose queue row vanished mid-execution ran here all the same, and one that
+    /// failed left behind whatever it had written before it did.
+    #[test]
+    fn only_a_cached_result_means_nothing_ran() {
+        assert!(!JobOutcome::CompletedFromCache.ran_on_this_worker());
+        assert!(JobOutcome::AlreadyCompleted.ran_on_this_worker());
+        assert!(JobOutcome::Completed.ran_on_this_worker());
+        assert!(JobOutcome::Failed { description: "boom".to_string() }.ran_on_this_worker());
+    }
+
+    /// The internal tags are ordinary routing tags: a worker can be configured to pull them,
+    /// and the user jobs it then runs must still age its environment.
+    #[test]
+    fn user_jobs_count_whatever_tag_they_are_routed_with() {
+        for (tag, path) in [
+            ("bash", Some("u/admin/s")),
+            (INIT_SCRIPT_TAG, Some("u/admin/s")),
+            (PERIODIC_SCRIPT_TAG, Some("u/admin/s")),
+            // Another worker's init script would not be this one's setup either.
+            (INIT_SCRIPT_TAG, Some("init_script_wk-default-host-99999")),
+            (PERIODIC_SCRIPT_TAG, None),
+        ] {
+            assert!(
+                dirties_worker_env(JobKind::Script, tag, path, Uuid::from_u128(1), false, WK),
+                "{tag}/{path:?} should count"
+            );
+        }
+    }
+}
+
 pub async fn run_worker(
     conn: &Connection,
     hostname: &str,
     worker_name: String,
     i_worker: u64,
-    _num_workers: u32,
+    num_workers: u32,
     ip: &str,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     killpill_tx: KillpillSender,
@@ -2247,7 +2583,7 @@ pub async fn run_worker(
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
-    insert_ping(hostname, &worker_name, ip, conn)
+    let previous_jobs_executed = insert_ping(hostname, &worker_name, ip, conn)
         .await
         .expect("initial ping could be sent");
 
@@ -2447,7 +2783,12 @@ pub async fn run_worker(
     // let counter = meter.u64_counter("jobs.execution").build();
 
     let mut occupancy_metrics = OccupancyMetrics::new(start_time);
-    let mut jobs_executed = 0;
+    // Seeded from the ping row so a worker that reclaimed its name keeps counting from where
+    // the previous process left off instead of resetting the total shown for that worker.
+    let mut jobs_executed = previous_jobs_executed;
+    // Only jobs run by this process count towards EXIT_AFTER_N_JOBS: the point is the age of
+    // the environment, not the lifetime total.
+    let mut jobs_executed_in_env: u64 = 0;
 
     let is_dedicated_worker: bool = {
         let config = WORKER_CONFIG.load();
@@ -2457,6 +2798,25 @@ pub async fn run_worker(
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty())
     };
+
+    if EXIT_AFTER_N_JOBS.is_some() && i_worker == 1 {
+        if num_workers > 1 {
+            tracing::warn!(
+                worker = %worker_name, hostname = %hostname,
+                "EXIT_AFTER_N_JOBS is set but this process runs {num_workers} workers: they share \
+                the environment it recycles, so the first one to reach the limit shuts the others \
+                down as well, cancelling any job they still run in a container or a dedicated \
+                worker. Run a single worker per process instead."
+            );
+        }
+        if is_dedicated_worker {
+            tracing::warn!(
+                worker = %worker_name, hostname = %hostname,
+                "EXIT_AFTER_N_JOBS does not apply to the jobs this worker hands to its dedicated \
+                workers: those run outside its main loop and are never counted."
+            );
+        }
+    }
 
     #[cfg(feature = "benchmark")]
     let benchmark_jobs: i32 = std::env::var("BENCHMARK_JOBS")
@@ -3050,6 +3410,14 @@ pub async fn run_worker(
 
                 last_executed_job = None;
                 jobs_executed += 1;
+                let mut dirties_env = dirties_worker_env(
+                    job.kind,
+                    &job.tag,
+                    job.runnable_path.as_deref(),
+                    job.id,
+                    job.canceled_by.is_some() || job.pre_run_error.is_some(),
+                    &worker_name,
+                );
 
                 tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
 
@@ -3371,6 +3739,12 @@ pub async fn run_worker(
                     )
                     .await;
 
+                    // A result served from the cache went through the loop without running
+                    // anything here.
+                    dirties_env &= job_result
+                        .as_ref()
+                        .map_or(true, JobOutcome::ran_on_this_worker);
+
                     match job_result {
                         Ok(ref outcome) if !outcome.is_success() && is_init_script => {
                             tracing::error!("init script job failed, exiting");
@@ -3473,6 +3847,31 @@ pub async fn run_worker(
 
                     if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
+                    }
+                }
+
+                if let Some(max_jobs) = *EXIT_AFTER_N_JOBS {
+                    if dirties_env {
+                        jobs_executed_in_env += 1;
+                    }
+                    if jobs_executed_in_env >= max_jobs {
+                        // Killpill rather than `break`: the main loop still has to drain the
+                        // same-worker jobs it owns (a same-worker flow runs to its end here, past
+                        // the limit) and let the background processor persist the results of what
+                        // it just ran, before the process goes away. `send` reports whether this is
+                        // the shutdown that got scheduled.
+                        if killpill_tx.send() {
+                            tracing::info!(
+                                worker = %worker_name, hostname = %hostname,
+                                "executed {jobs_executed_in_env} job(s), EXIT_AFTER_N_JOBS={max_jobs} \
+                                reached: shutting the worker process down so it restarts on a fresh environment"
+                            );
+                        }
+                        // `jobs_executed` only reaches the ping row every NUM_SECS_PING, which this
+                        // process is about to exit before: force one after every job from here on,
+                        // drained ones included, so the row the restarted worker reclaims counts
+                        // the jobs this one ran.
+                        last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
                     }
                 }
 
@@ -4142,7 +4541,7 @@ pub async fn handle_queued_job(
                     }
                 }
 
-                return Ok(JobOutcome::Completed);
+                return Ok(JobOutcome::CompletedFromCache);
             }
         };
     }
@@ -5532,8 +5931,17 @@ pub async fn run_language_executor(
             reserved_variables
                 .iter()
                 .map(|(k, v)| {
-                    let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
-                    format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, escaped, k, escaped)
+                    let escaped = windmill_common::variables::escape_js_single_quoted(v);
+                    let key_literal = windmill_common::variables::escape_js_single_quoted(k);
+                    if windmill_common::variables::can_bind_as_prologue_const(k) {
+                        format!("const {k} = '{escaped}';\nprocess.env['{key_literal}'] = '{escaped}';\n")
+                    } else {
+                        // Names that can't safely bind to `const {k}` (non-identifiers,
+                        // reserved words, prologue-owned names) are exposed only through
+                        // process.env with the key escaped — a `const` for them would be
+                        // an injection or a SyntaxError.
+                        format!("process.env['{key_literal}'] = '{escaped}';\n")
+                    }
                 })
                 .collect::<Vec<String>>()
                 .join("\n"));
