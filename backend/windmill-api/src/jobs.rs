@@ -1426,7 +1426,7 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for OptViewToken {
 }
 
 /// Otherwise returns 404 — matching `scripts/get` and avoiding existence disclosure.
-async fn require_job_read_access(
+pub(crate) async fn require_job_read_access(
     db: &DB,
     user_db: &UserDB,
     authed: &ApiAuthed,

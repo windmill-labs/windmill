@@ -4677,6 +4677,28 @@ async fn set_environment_variable(
 
     match value {
         Some(value) => {
+            // The worker escapes the name when it splices it into the NativeTS/Bun
+            // prologue, so this is a friendly guard against new non-identifier
+            // names, not the injection defense. Skip it for names that already
+            // exist so a value edit of a grandfathered name (the edit UI resubmits
+            // the name) isn't rejected with no in-product way to fix it.
+            if !windmill_common::variables::is_valid_js_identifier(&name) {
+                let already_exists = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM workspace_env WHERE workspace_id = $1 AND name = $2)",
+                    &w_id,
+                    name
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false);
+
+                if !already_exists {
+                    return Err(Error::BadRequest(format!(
+                        "Invalid environment variable name '{name}': must start with a letter, underscore or '$' and contain only letters, digits, underscores or '$'"
+                    )));
+                }
+            }
+
             sqlx::query!(
                 "INSERT INTO workspace_env (workspace_id, name, value) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, name) DO UPDATE SET value = EXCLUDED.value",
                 &w_id,

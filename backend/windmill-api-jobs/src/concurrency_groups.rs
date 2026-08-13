@@ -22,11 +22,12 @@ use sql_builder::bind::Bind;
 use sql_builder::SqlBuilder;
 use uuid::Uuid;
 
+/// `/{job_id}/key` is added by `windmill-api`, which is where the shared job read gate
+/// it needs lives.
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
         .route("/prune/{*concurrency_key}", delete(prune_concurrency_group))
-        .route("/{job_id}/key", get(get_concurrency_key))
 }
 
 pub fn workspaced_service() -> Router {
@@ -355,15 +356,4 @@ async fn get_concurrent_intervals(
             omitted_obscured_jobs: !should_fetch_obscured_jobs,
         }))
     }
-}
-
-async fn get_concurrency_key(
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(job_id): Path<Uuid>,
-) -> JsonResult<Option<String>> {
-    let key = sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", job_id)
-        .fetch_optional(&db)
-        .await?;
-    Ok(Json(key))
 }
