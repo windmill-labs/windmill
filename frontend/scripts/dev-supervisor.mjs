@@ -297,28 +297,27 @@ class Target {
 	}
 
 	#dispatch(client, first) {
-		// Three kinds of connection, told apart by the subprotocol vite gives its own
-		// sockets. Vite's must not restart a reclaimed server, because its reconnect probe
-		// (`vite-ping`) would resurrect every one we stop. The app's `/ws/*` language-server
-		// and multiplayer sockets must, or a parked script editor loses its smart assistant
-		// until reload. Neither counts as activity: a tab nobody is looking at still
-		// heartbeats, and treating that as use is what pinned servers forever.
+		// No websocket may start a stopped server, and none counts as activity. Every
+		// websocket client on this port reconnects on an unconditional timer — vite's own
+		// restart probe, y-websocket at a 2.5s ceiling, the language-server retry — so
+		// starting on one means a reclaimed server is back within seconds and stays
+		// resident for as long as any tab is open. Recovery is the client's job instead:
+		// `devPollingDormancy` warms the server over HTTP the moment someone returns, and
+		// these sockets reconnect into it on their own retries.
 		const head = first.toString('latin1', 0, Math.min(first.length, MAX_HEAD_BYTES))
 		const isWebsocket = /\r\nupgrade:\s*websocket/i.test(head)
-		const isViteSocket =
-			isWebsocket && /\r\nsec-websocket-protocol:[^\r\n]*vite-(hmr|ping)/i.test(head)
-		if (isViteSocket && !this.child) {
+		if (isWebsocket && !this.child) {
 			client.destroy()
 			return
 		}
-		if (!isWebsocket) this.lastActivity = Date.now()
-		if (!isViteSocket) {
-			this.liveSockets.add(client)
-			// Registered at insertion, not after the upstream connects: a client that gives
-			// up during a cold start would otherwise stay in the set forever and silently
-			// wedge the idle reaper for the life of the process.
-			client.once('close', () => this.liveSockets.delete(client))
+		if (!isWebsocket) {
+			this.lastActivity = Date.now()
 		}
+		this.liveSockets.add(client)
+		// Registered at insertion, not after the upstream connects: a client that gives up
+		// during a cold start would otherwise stay in the set forever and silently wedge the
+		// idle reaper for the life of the process.
+		client.once('close', () => this.liveSockets.delete(client))
 
 		this.ensureStarted().then(
 			(port) => {

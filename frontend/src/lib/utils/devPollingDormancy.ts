@@ -92,6 +92,11 @@ export function installDevPollingDormancy(): void {
 		}
 		if (!dormant) return
 		dormant = false
+		// The dev supervisor may have reclaimed the server while we were quiet, and it only
+		// restarts on HTTP: websockets deliberately cannot wake it, or their unconditional
+		// reconnect timers would keep every reclaimed server alive. So put the server back
+		// up front, before the language-server and multiplayer sockets retry into it.
+		void fetch(`${location.origin}/`, { method: 'HEAD', cache: 'no-store' }).catch(() => {})
 		for (const registration of registrations.values()) {
 			registration.native = nativeSetInterval(
 				registration.handler,

@@ -58,6 +58,25 @@ describe('devPollingDormancy', () => {
 		expect(tick).not.toHaveBeenCalled()
 	})
 
+	it('warms the dev server on wake, since websockets cannot restart it', async () => {
+		vi.useFakeTimers()
+		vi.stubEnv('VITE_DEV_DORMANT_MS', '1000')
+		vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+		setHidden(false)
+		const fetchSpy = vi.fn(() => Promise.resolve(new Response()))
+		vi.stubGlobal('fetch', fetchSpy)
+
+		await install()
+
+		setHidden(true)
+		vi.advanceTimersByTime(1000)
+		expect(fetchSpy).not.toHaveBeenCalled()
+
+		setHidden(false)
+		expect(fetchSpy).toHaveBeenCalledTimes(1)
+		expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: 'HEAD' })
+	})
+
 	it('does not re-patch when the module itself is hot-replaced', async () => {
 		vi.useFakeTimers()
 		vi.spyOn(document, 'hasFocus').mockReturnValue(true)
