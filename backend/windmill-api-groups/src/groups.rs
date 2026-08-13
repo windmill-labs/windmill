@@ -543,9 +543,9 @@ pub async fn workspaces_referencing_instance_groups(
 }
 
 /// Compute and advisory-lock every workspace whose auto-assignment config references any of
-/// `groups`. Mutation paths call this before taking any other row lock in the transaction —
-/// the per-workspace advisory lock is the first lock in the hierarchy (see
-/// `reconcile_workspace_instance_groups`). Same authorization contract as
+/// `groups`. Mutation paths call this after locking their `instance_group` rows and before
+/// any other row lock — the hierarchy is group rows → workspace advisory locks → all other
+/// row locks (see `reconcile_workspace_instance_groups`). Same authorization contract as
 /// `workspaces_referencing_instance_groups`.
 #[cfg(feature = "private")]
 pub async fn lock_workspaces_referencing_instance_groups(
@@ -1369,11 +1369,14 @@ async fn overwrite_igroups(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
-    // FOR UPDATE: every existing group row is the group-level mutex for its membership,
-    // taken in sorted order before the workspace advisory locks (see
-    // reconcile_workspace_instance_groups).
-    sqlx::query_scalar!("SELECT name FROM instance_group ORDER BY name FOR UPDATE")
-        .fetch_all(&mut *tx)
+    // The import replaces the whole group catalog, so the whole-table lock is its
+    // group-mutex phase, taken first like every path's group locks (see
+    // reconcile_workspace_instance_groups). Per-row FOR UPDATE would miss rows committed
+    // after the scan, which the unqualified deletes below would then lock after the
+    // workspace locks — the inverted order. EXCLUSIVE conflicts with the writes and the
+    // FOR UPDATE of every other mutation path while leaving plain reads unblocked.
+    sqlx::query("LOCK TABLE instance_group IN EXCLUSIVE MODE")
+        .execute(&mut *tx)
         .await?;
 
     let imported_names: Vec<String> = igroups.iter().map(|g| g.name.clone()).collect();
