@@ -126,8 +126,8 @@
 	// says what clicking it will leave behind.
 	let pathNote = $derived(
 		canSignIn && !showToken
-			? 'Signing in saves the connection at this path, with your other'
-			: 'The connection is saved at this path, with your other'
+			? 'Signing in saves the connection at this path, as an'
+			: 'The connection is saved at this path, as an'
 	)
 	// Why the token field is the only way in, said where the token is asked for.
 	let tokenNote = $derived(
@@ -398,7 +398,7 @@
 					rel="noopener noreferrer"
 					class="text-accent hover:underline inline-flex items-center gap-1"
 				>
-					resources <ExternalLink size={12} />
+					MCP resource <ExternalLink size={12} />
 				</a>
 			</span>
 			{#key suggestedPath}
