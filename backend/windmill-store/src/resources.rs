@@ -6,10 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use dashmap::DashMap;
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 
 use windmill_api_auth::{
@@ -17,6 +15,7 @@ use windmill_api_auth::{
     require_super_admin, ApiAuthed, Tokened,
 };
 use windmill_common::db::DB;
+use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
@@ -1041,17 +1040,11 @@ pub const MAX_RESOURCE_VERSIONS: i64 = 100;
 /// low is the safe direction for something that only ever logs.
 const RESOURCE_WRITE_ADVISORY_PER_MIN: u32 = 20;
 
-struct ResourceWriteRate {
-    count: u32,
-    minute_bucket: i64,
-}
-
 /// Writes seen per (workspace, path) per minute. Purely advisory, and deliberately so: nothing
 /// is throttled, the count is per process and resets on restart, so it undercounts across
 /// servers. That is affordable for a log line and is what keeps this off the write path proper.
-static RESOURCE_WRITE_RATES: LazyLock<DashMap<(String, String), ResourceWriteRate>> =
-    LazyLock::new(DashMap::new);
-static RESOURCE_WRITES_SEEN: AtomicU64 = AtomicU64::new(0);
+static RESOURCE_WRITE_RATES: LazyLock<PerMinuteCounter<(String, String)>> =
+    LazyLock::new(PerMinuteCounter::new);
 
 /// Notice a caller rewriting one resource in a loop and point them at a store meant for it.
 /// Counts writes rather than versions: an unchanged value records nothing, but it still costs a
@@ -1063,29 +1056,10 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
     if INTERNAL_RESOURCE_TYPES.contains(&resource_type) {
         return;
     }
-    let minute_bucket = chrono::Utc::now().timestamp() / 60;
-    // The entry guard holds a lock on its DashMap shard, and `retain` below takes every shard.
-    // Keeping the guard alive across that call deadlocks the request handler, so this block is
-    // load-bearing: it must end before the eviction, not be flattened into the function body.
-    let reached_cap = {
-        let mut rate = RESOURCE_WRITE_RATES
-            .entry((w_id.to_string(), path.to_string()))
-            .or_insert(ResourceWriteRate { count: 0, minute_bucket });
-        if rate.minute_bucket != minute_bucket {
-            rate.minute_bucket = minute_bucket;
-            rate.count = 0;
-        }
-        rate.count += 1;
-        rate.count == RESOURCE_WRITE_ADVISORY_PER_MIN
-    };
-    // Bounded without a background task: periodically drop what neither the current nor the
-    // previous minute can still need.
-    if RESOURCE_WRITES_SEEN.fetch_add(1, Ordering::Relaxed) % 256 == 0 {
-        RESOURCE_WRITE_RATES.retain(|_, rate| rate.minute_bucket >= minute_bucket - 1);
-    }
+    let writes = RESOURCE_WRITE_RATES.increment((w_id.to_string(), path.to_string()));
     // Once per minute per path: `==` rather than `>=` so a sustained loop logs at the crossing
     // and then stays quiet until the bucket rolls over.
-    if reached_cap {
+    if writes == RESOURCE_WRITE_ADVISORY_PER_MIN {
         tracing::warn!(
             workspace_id = %w_id,
             path = %path,
