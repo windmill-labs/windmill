@@ -3250,14 +3250,19 @@ fn git_probe_command() -> Command {
     git_cmd
 }
 
-/// Decode a failed probe's stderr. A remote that answers with a redirect (a plain
-/// `http://` URL upgraded to https, say) only surfaces as a bare curl status here,
-/// since `git_probe_command` refuses to follow it — name the remedy, which is to
-/// point the resource at the address the remote redirects to.
+/// Whether git gave up on a redirect it was told not to follow. libcurl reports it
+/// as a plain status, so the code is all there is to key on.
+fn is_refused_redirect(stderr: &str) -> bool {
+    stderr.contains("returned error: 30")
+}
+
+/// Decode a failed probe's stderr, naming the remedy when the remote redirected
+/// somewhere the `.git` retry could not reach (an `http://` URL upgraded to https,
+/// say) — `git_probe_command` refuses redirects, so nothing else explains the status.
 fn git_probe_stderr(stderr: Vec<u8>) -> String {
     let stderr =
         String::from_utf8(stderr).unwrap_or_else(|_| "Failed to decode stderr".to_string());
-    if stderr.contains("returned error: 30") {
+    if is_refused_redirect(&stderr) {
         format!(
             "{} (the remote redirects, and redirects are not followed; set the repository URL to the address it redirects to)",
             stderr.trim_end()
@@ -3265,6 +3270,48 @@ fn git_probe_stderr(stderr: Vec<u8>) -> String {
     } else {
         stderr
     }
+}
+
+/// The `.git` form of an http(s) repository URL, when that is a different URL.
+/// Hosts that serve the bare path as a redirect (gitlab.com answers
+/// `/group/project` with a 301 to `/group/project.git`) are otherwise unreachable
+/// now that probes refuse redirects.
+fn dot_git_url(url: &str) -> Option<String> {
+    let url = url.trim().trim_end_matches('/');
+    let lower = url.to_lowercase();
+    if !lower.starts_with("http://") && !lower.starts_with("https://") {
+        return None;
+    }
+    if lower.ends_with(".git") || url.is_empty() {
+        return None;
+    }
+    Some(format!("{}.git", url))
+}
+
+/// Run a remote probe, retrying against [`dot_git_url`] if the remote answered the
+/// URL as given with a redirect. Extending the path keeps the retry on the host
+/// `validate_git_url` already cleared, which is exactly what following the redirect
+/// would not guarantee. `build` must produce the probe for the URL it is handed.
+///
+/// A retry that also fails reports the *original* failure, so the caller's message
+/// describes the URL the user configured.
+async fn run_git_probe_for_url<F>(url: &str, what: &str, build: F) -> Result<std::process::Output>
+where
+    F: Fn(&str) -> Command,
+{
+    let output = run_git_probe(build(url), what).await?;
+    if output.status.success() || !is_refused_redirect(&String::from_utf8_lossy(&output.stderr)) {
+        return Ok(output);
+    }
+    let Some(retry_url) = dot_git_url(url) else {
+        return Ok(output);
+    };
+    let retried = run_git_probe(build(&retry_url), what).await?;
+    Ok(if retried.status.success() {
+        retried
+    } else {
+        output
+    })
 }
 
 async fn run_git_probe(mut git_cmd: Command, what: &str) -> Result<std::process::Output> {
@@ -3299,14 +3346,16 @@ async fn get_repo_latest_commit_hash(
         validate_git_ref(ref_spec)?;
     }
 
-    let mut git_cmd = git_probe_command();
-    git_cmd.args(["ls-remote", &git_resource.url, ref_spec]);
-    if let Some(git_ssh_command) = git_ssh_command {
-        git_cmd.env("GIT_SSH_COMMAND", git_ssh_command);
-    }
-    git_cmd.stderr(Stdio::piped());
-
-    let output = run_git_probe(git_cmd, "ls-remote").await?;
+    let output = run_git_probe_for_url(&git_resource.url, "ls-remote", |url| {
+        let mut git_cmd = git_probe_command();
+        git_cmd.args(["ls-remote", url, ref_spec]);
+        if let Some(git_ssh_command) = git_ssh_command.as_deref() {
+            git_cmd.env("GIT_SSH_COMMAND", git_ssh_command);
+        }
+        git_cmd.stderr(Stdio::piped());
+        git_cmd
+    })
+    .await?;
 
     if !output.status.success() {
         let stderr = git_probe_stderr(output.stderr);
@@ -3429,10 +3478,13 @@ pub async fn get_git_repo_head_for_autopull(
     // its head in one call. Fork sync needs the concrete name to scope
     // `wm-fork/<branch>/*`, so a bare "HEAD" ref would silently disable it.
     validate_git_url(&git_resource.url).await?;
-    let mut git_cmd = git_probe_command();
-    git_cmd.args(["ls-remote", "--symref", &git_resource.url, "HEAD"]);
-    git_cmd.stderr(Stdio::piped());
-    let output = run_git_probe(git_cmd, "ls-remote --symref HEAD").await?;
+    let output = run_git_probe_for_url(&git_resource.url, "ls-remote --symref HEAD", |url| {
+        let mut git_cmd = git_probe_command();
+        git_cmd.args(["ls-remote", "--symref", url, "HEAD"]);
+        git_cmd.stderr(Stdio::piped());
+        git_cmd
+    })
+    .await?;
     if !output.status.success() {
         let stderr = git_probe_stderr(output.stderr);
         return Err(Error::BadRequest(format!(
@@ -3532,18 +3584,24 @@ pub async fn get_git_repo_fork_heads_for_autopull(
     validate_git_url(&git_resource.url).await?;
     validate_git_ref(base_branch)?;
 
-    let mut git_cmd = git_probe_command();
-    git_cmd.args([
-        "ls-remote",
-        &git_resource.url,
-        &format!("refs/heads/wm-fork/{}/*", base_branch),
-    ]);
     for r in extra_refs {
         validate_git_ref(r)?;
-        git_cmd.arg(format!("refs/heads/{}", r));
     }
-    git_cmd.stderr(Stdio::piped());
-    let output = run_git_probe(git_cmd, "ls-remote (fork branches)").await?;
+
+    let output = run_git_probe_for_url(&git_resource.url, "ls-remote (fork branches)", |url| {
+        let mut git_cmd = git_probe_command();
+        git_cmd.args([
+            "ls-remote",
+            url,
+            &format!("refs/heads/wm-fork/{}/*", base_branch),
+        ]);
+        for r in extra_refs {
+            git_cmd.arg(format!("refs/heads/{}", r));
+        }
+        git_cmd.stderr(Stdio::piped());
+        git_cmd
+    })
+    .await?;
     if !output.status.success() {
         let stderr = git_probe_stderr(output.stderr);
         return Err(Error::BadRequest(format!(
@@ -3597,6 +3655,7 @@ pub async fn interpolate(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::{Arc, Mutex};
     use windmill_common::audit::AuditAuthor;
     use windmill_common::db::DbWithOptAuthed;
 
@@ -3950,68 +4009,118 @@ mod tests {
         assert!(validate_git_url("./local/repo").await.is_err());
     }
 
-    /// Minimal loopback HTTP server: replies to every request with `response`
-    /// and counts the requests it saw. Returns its port and that counter.
-    async fn spawn_http_stub(
-        response: String,
-    ) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-        use std::sync::atomic::AtomicUsize;
-        use std::sync::Arc;
+    /// Minimal loopback HTTP server: replies to every request with `response` and
+    /// records the request lines it saw. Returns its port and that log.
+    async fn spawn_http_stub(response: String) -> (u16, Arc<Mutex<Vec<String>>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        let hits = Arc::new(AtomicUsize::new(0));
-        let hits_srv = hits.clone();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let requests_srv = requests.clone();
         tokio::spawn(async move {
             while let Ok((mut sock, _)) = listener.accept().await {
-                let _ = sock.read(&mut [0u8; 4096]).await;
-                hits_srv.fetch_add(1, Ordering::SeqCst);
+                let mut buf = vec![0u8; 4096];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                let line = String::from_utf8_lossy(&buf[..n])
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                requests_srv.lock().unwrap().push(line);
                 let _ = sock.write_all(response.as_bytes()).await;
             }
         });
-        (port, hits)
+        (port, requests)
+    }
+
+    /// A probe against `path` on a stub that redirects everything to `target_port`.
+    async fn probe_redirecting_stub(
+        path: &str,
+        target_port: u16,
+    ) -> (std::process::Output, Arc<Mutex<Vec<String>>>) {
+        let (redirector_port, redirector_requests) = spawn_http_stub(format!(
+            "HTTP/1.1 301 Moved Permanently\r\nLocation: http://127.0.0.1:{}/moved/info/refs?service=git-upload-pack\r\nContent-Length: 0\r\n\r\n",
+            target_port
+        ))
+        .await;
+        let url = format!("http://127.0.0.1:{}{}", redirector_port, path);
+        let output = run_git_probe_for_url(&url, "ls-remote (test)", |url| {
+            let mut git_cmd = git_probe_command();
+            git_cmd.args(["ls-remote", url, "HEAD"]);
+            git_cmd.env("GIT_TERMINAL_PROMPT", "0");
+            // curl routes even loopback through an ambient `http_proxy`, which
+            // would leave the stub unreached and the assertions vacuously true.
+            git_cmd.env("no_proxy", "*").env("NO_PROXY", "*");
+            git_cmd.stderr(Stdio::piped());
+            git_cmd
+        })
+        .await
+        .unwrap();
+        (output, redirector_requests)
     }
 
     #[tokio::test]
     async fn test_git_probe_refuses_redirects() {
         // `validate_git_url` only vets the URL's host, so a probe that follows a
-        // 302 dials an address nothing validated. Redirect one probe and require
-        // git to stop at the 302 without ever reaching the target.
-        let (target_port, target_hits) = spawn_http_stub(
+        // 301 dials an address nothing validated. Redirect one probe and require
+        // git to stop at the 301 without ever reaching the target.
+        let (target_port, target_requests) = spawn_http_stub(
             "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".to_string(),
         )
         .await;
-        let (redirector_port, _) = spawn_http_stub(format!(
-            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/internal/info/refs?service=git-upload-pack\r\nContent-Length: 0\r\n\r\n",
-            target_port
-        ))
-        .await;
+        let (output, _) = probe_redirecting_stub("/repo.git", target_port).await;
 
-        let mut git_cmd = git_probe_command();
-        git_cmd.args([
-            "ls-remote",
-            &format!("http://127.0.0.1:{}/repo.git", redirector_port),
-            "HEAD",
-        ]);
-        git_cmd.env("GIT_TERMINAL_PROMPT", "0");
-        // curl routes even loopback through an ambient `http_proxy`, which would
-        // leave the stub unreached and the redirect assertion vacuously true.
-        git_cmd.env("no_proxy", "*").env("NO_PROXY", "*");
-        git_cmd.stderr(Stdio::piped());
-
-        let output = run_git_probe(git_cmd, "ls-remote (test)").await.unwrap();
         assert!(!output.status.success());
-        assert_eq!(
-            target_hits.load(Ordering::SeqCst),
-            0,
+        assert!(
+            target_requests.lock().unwrap().is_empty(),
             "git followed the redirect to the unvalidated target"
         );
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = git_probe_stderr(output.stderr);
         assert!(
-            stderr.contains("302"),
-            "git should have reported the refused redirect, got: {stderr}"
+            stderr.contains("301") && stderr.contains("redirects are not followed"),
+            "the failure should name the refused redirect and its remedy, got: {stderr}"
         );
+    }
+
+    #[tokio::test]
+    async fn test_git_probe_retries_dot_git_on_redirect() {
+        // gitlab.com answers `/group/project` with a redirect to the `.git` form,
+        // which refusing redirects would otherwise make unreachable. The retry must
+        // extend the path only — never leave the host `validate_git_url` cleared.
+        let (target_port, target_requests) = spawn_http_stub(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".to_string(),
+        )
+        .await;
+        let (_, redirector_requests) = probe_redirecting_stub("/group/project", target_port).await;
+
+        let requests = redirector_requests.lock().unwrap().clone();
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.contains("/group/project.git/info/refs")),
+            "the redirect should have been retried against the .git path, saw: {requests:?}"
+        );
+        assert!(
+            target_requests.lock().unwrap().is_empty(),
+            "the retry left the validated host"
+        );
+    }
+
+    #[test]
+    fn test_dot_git_url_only_extends_the_path() {
+        assert_eq!(
+            dot_git_url("https://gitlab.com/group/project").as_deref(),
+            Some("https://gitlab.com/group/project.git")
+        );
+        assert_eq!(
+            dot_git_url("https://gitlab.com/group/project/").as_deref(),
+            Some("https://gitlab.com/group/project.git")
+        );
+        // Nothing to retry: already the `.git` form, or no HTTP redirect surface.
+        assert_eq!(dot_git_url("https://gitlab.com/group/project.git"), None);
+        assert_eq!(dot_git_url("git@github.com:user/repo"), None);
+        assert_eq!(dot_git_url("ssh://git@github.com/user/repo"), None);
     }
 
     #[tokio::test]
@@ -4019,7 +4128,10 @@ mod tests {
         // `.invalid` never resolves (RFC 6761). The private-IP check is only
         // meaningful if a failed lookup rejects instead of falling through.
         let result = validate_git_url("https://this-host-does-not-exist.invalid/repo.git").await;
-        assert!(result.is_err());
+        assert!(
+            result.is_err(),
+            "an unresolvable host was allowed — does this resolver synthesize records for NXDOMAIN?"
+        );
         assert!(result.unwrap_err().to_string().contains("resolve"));
     }
 
