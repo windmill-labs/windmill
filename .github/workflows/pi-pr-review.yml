@@ -362,9 +362,13 @@ jobs:
           # The context file lives in RUNNER_TEMP (outside the checkout); tell the
           # agent its absolute path.
           printf '\nReview context file (absolute path): %s\n' "$CTX" >> /tmp/pi-prompt.md
+          # DeepSeek exposes only two reasoning levels; pi's default (medium) is
+          # unsupported for this model and silently clamps to reasoning_effort=high.
+          # xhigh is the only way to reach "max", which is what a review needs.
           pi -p \
             --provider deepseek \
             --model deepseek-v4-pro \
+            --thinking xhigh \
             --tools "$PI_TOOLS" \
             "${PI_HARDEN_FLAGS[@]}" \
             --mode json \
