@@ -60,7 +60,10 @@ const PROVIDER_REASONING_LEVELS: Partial<Record<AIProvider, ReasoningEffort[]>> 
 	// DeepSeek accepts the full five-token vocabulary but only two levels are
 	// real: low/medium are server-mapped to high and xhigh to max — offering
 	// them would be a no-op knob.
-	deepseek: ['high', 'max']
+	deepseek: ['high', 'max'],
+	// Mistral's only effort token besides the 'none' disable is 'high'
+	// (anything else is rejected), so the knob is effectively on/off.
+	mistral: ['high']
 }
 
 /**
@@ -156,16 +159,6 @@ function anthropicReasoningLevels(model: string): ReasoningEffort[] {
 	return ['low', 'medium', 'high', 'max']
 }
 
-/**
- * Mistral Medium 3.5 takes the low/medium/high ladder; Mistral Small only turns
- * reasoning on at `high`, so the knob there is effectively on/off.
- */
-function mistralReasoningLevels(model: string): ReasoningEffort[] {
-	return normalizeMistralId(model).startsWith('mistral-medium')
-		? ['low', 'medium', 'high']
-		: ['high']
-}
-
 /** Mistral writes both `mistral-medium-3.5` and `mistral-medium-3-5`. */
 function normalizeMistralId(model: string): string {
 	return baseModelId(model).replace(/\./g, '-')
@@ -211,8 +204,11 @@ function supportsReasoningStatic(provider: AIProvider, model: string): boolean {
 		case 'googleai':
 			return /gemini-(2\.5|3)/.test(m)
 		case 'deepseek':
-			// All current API models take reasoning_effort (live-verified).
-			return base.startsWith('deepseek')
+			// All current API models take reasoning_effort (live-verified). The
+			// retired `deepseek-chat` alias stays excluded: its documented meaning
+			// is "non-thinking mode", so a saved selection on it must not silently
+			// become a thinking request.
+			return base.startsWith('deepseek') && base !== 'deepseek-chat'
 		case 'mistral':
 			// Only the ids verified to accept reasoning_effort; other models
 			// (large, magistral, ministral, pinned versions) reject the param.
@@ -254,9 +250,7 @@ export function getReasoningCapability(provider: AIProvider, model: string): Rea
 					? openaiReasoningLevels(bareModel)
 					: family === 'openrouter'
 						? openrouterReasoningLevels(bareModel)
-						: family === 'mistral'
-							? mistralReasoningLevels(bareModel)
-							: (PROVIDER_REASONING_LEVELS[family] ?? ['low', 'medium', 'high'])
+						: (PROVIDER_REASONING_LEVELS[family] ?? ['low', 'medium', 'high'])
 	return { supported, levels, canDisable: canDisableReasoning(provider, bareModel) }
 }
 
@@ -441,8 +435,9 @@ export function applyReasoningToConfig<T extends Record<string, any>>(
 	}
 	switch (apiKind) {
 		case 'anthropic': {
-			// Sending the disable without an effort leaves Opus 5 at its default
-			// `high`, where it is accepted — pairing it with xhigh/max 400s.
+			// The disable must not carry an effort: Opus 5 rejects it at xhigh
+			// and max, and dropping the field leaves the model at its default
+			// effort, where the disable is accepted.
 			if (effort === ANTHROPIC_OFF_SENTINEL) {
 				return { ...config, thinking: { type: 'disabled' } } as unknown as T
 			}

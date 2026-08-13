@@ -120,7 +120,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	groq: {
 		label: 'Groq',
-		defaultModels: ['openai/gpt-oss-120b', 'qwen/qwen3.6-27b', 'openai/gpt-oss-20b']
+		defaultModels: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']
 	},
 	openrouter: {
 		label: 'OpenRouter',

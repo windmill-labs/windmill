@@ -113,6 +113,7 @@ const BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_IDS: &[&str] = &[
 /// model (`anthropic.claude-sonnet-4-6`, `...-4-6-v1`, `...-4-6-v1:0`), so they
 /// are matched by family prefix rather than by exact id.
 const BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_PREFIXES: &[&str] = &[
+    "anthropic.claude-fable-5",
     "anthropic.claude-opus-4-6",
     "anthropic.claude-opus-4-7",
     "anthropic.claude-opus-4-8",
@@ -135,7 +136,7 @@ fn normalize_bedrock_model_id(model: &str) -> String {
         .unwrap_or(model)
         .to_ascii_lowercase();
 
-    for prefix in ["global.", "us.", "eu.", "apac."] {
+    for prefix in ["global.", "us.", "eu.", "apac.", "au."] {
         if let Some(normalized_model) = model.strip_prefix(prefix) {
             return normalized_model.to_string();
         }
@@ -1267,6 +1268,8 @@ mod tests {
             "global.anthropic.claude-opus-4-8",
             "anthropic.claude-opus-5",
             "eu.anthropic.claude-sonnet-5-v1:0",
+            "au.anthropic.claude-sonnet-5",
+            "anthropic.claude-fable-5",
         ] {
             assert!(
                 bedrock_model_supports_prompt_caching(model),

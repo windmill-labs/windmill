@@ -115,9 +115,11 @@ describe('supportsReasoning (static registry)', () => {
 			'high'
 		])
 	})
-	it('flags DeepSeek models with the two effective levels', () => {
+	it('flags DeepSeek models with the two effective levels, excluding the chat alias', () => {
 		expect(supportsReasoning('deepseek', 'deepseek-v4-flash')).toBe(true)
 		expect(supportsReasoning('deepseek', 'deepseek-v4-pro')).toBe(true)
+		// `deepseek-chat` is the documented non-thinking mode — no knob.
+		expect(supportsReasoning('deepseek', 'deepseek-chat')).toBe(false)
 		// Only high/max are real; low/medium/xhigh are server-side aliases.
 		expect(getReasoningCapability('deepseek', 'deepseek-v4-flash').levels).toEqual(['high', 'max'])
 	})
@@ -169,18 +171,10 @@ describe('supportsReasoning (static registry)', () => {
 		expect(supportsReasoning('mistral', 'mistral-large-latest')).toBe(false)
 		expect(supportsReasoning('mistral', 'magistral-medium-latest')).toBe(false)
 		expect(supportsReasoning('mistral', 'ministral-8b-latest')).toBe(false)
-		// Medium 3.5 takes low/medium/high; Small only turns reasoning on at 'high'.
-		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').levels).toEqual([
-			'low',
-			'medium',
-			'high'
-		])
-		expect(getReasoningCapability('mistral', 'mistral-medium-3.5').levels).toEqual([
-			'low',
-			'medium',
-			'high'
-		])
-		expect(getReasoningCapability('mistral', 'mistral-small-latest').levels).toEqual(['high'])
+		// 'high' is the only accepted effort token; off = omit the field.
+		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').levels).toEqual(['high'])
+		// both spellings of the version resolve, so neither is left unsupported
+		expect(supportsReasoning('mistral', 'mistral-medium-3.5')).toBe(true)
 		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').canDisable).toBe(true)
 	})
 	it('returns no levels for providers without a registry entry', () => {
@@ -402,6 +396,8 @@ describe('resolveRequestReasoning', () => {
 				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
 			).toBeUndefined()
 		}
+		// Bedrock has no disable route, so off stays omission there — while the
+		// same model on the native provider now sends the explicit disable.
 		expect(
 			resolveRequestReasoning({
 				provider: 'aws_bedrock',
@@ -409,6 +405,13 @@ describe('resolveRequestReasoning', () => {
 				reasoning: REASONING_OFF
 			})
 		).toBeUndefined()
+		expect(
+			resolveRequestReasoning({
+				provider: 'anthropic',
+				model: 'claude-opus-4-8',
+				reasoning: REASONING_OFF
+			})
+		).toBe('none')
 	})
 
 	it('turns the Anthropic off sentinel into an explicit thinking disable', () => {
