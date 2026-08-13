@@ -577,6 +577,9 @@
 							icon: Pen,
 							href: `/${kind}s/edit/${path}?workspace=${$workspaceStore}`,
 							disabled: !showEditButton,
+							// Only while disabled: an enabled item renders this as an ⓘ next to the label,
+							// which would be noise on an entry that needs no explanation.
+							tooltip: showEditButton ? undefined : 'Direct edits are disabled in this workspace',
 							onClick: () => {
 								$initialArgsStore = job?.args
 							}
