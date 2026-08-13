@@ -6589,8 +6589,8 @@ async fn push_inner<'c, 'd>(
     //
     // Root jobs only. A scheduled flow hands every step push its own
     // `schedule_path` (see `FlowJob::schedule_path`), so counting per push would
-    // score one run of a 1000-iteration loop as 1001 fires and bury every other
-    // kind — and would put this on the per-step hot path.
+    // score one run as a fire per step job — a loop pushes two of those per
+    // iteration — burying every other kind, and would sit on the per-step path.
     if flow_step_id.is_none() {
         if let Some(kind) = trigger_kind.as_ref() {
             windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
