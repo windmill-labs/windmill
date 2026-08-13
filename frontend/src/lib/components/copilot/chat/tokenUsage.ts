@@ -193,7 +193,12 @@ export function openAICompletionsUsageToChatTokenUsage(
 				prompt_tokens?: number | null
 				completion_tokens?: number | null
 				total_tokens?: number | null
-				prompt_tokens_details?: { cached_tokens?: number | null } | null
+				prompt_tokens_details?: {
+					cached_tokens?: number | null
+					/** OpenRouter surfaces Anthropic's cache creation here; OpenAI, whose
+					 * caching is automatic and unbilled, reports no such field. */
+					cache_write_tokens?: number | null
+				} | null
 				/** OpenRouter reports what it actually charged when the request opts in. */
 				cost?: number | null
 		  }
@@ -208,7 +213,7 @@ export function openAICompletionsUsageToChatTokenUsage(
 		completion,
 		total: usage?.total_tokens ?? prompt + completion,
 		cacheRead: usage?.prompt_tokens_details?.cached_tokens ?? 0,
-		cacheWrite: 0,
+		cacheWrite: usage?.prompt_tokens_details?.cache_write_tokens ?? 0,
 		...(typeof usage?.cost === 'number' ? { cost: usage.cost } : {})
 	}
 }

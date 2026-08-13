@@ -145,11 +145,14 @@ export function buildModelMatchers<T>(
 			// its own price, not another route to this one — so under strictVariants an
 			// entry does not match when a further *name* segment follows. What follows
 			// is only a decoration when it is a date (`-20251101`), Bedrock's `-v1`, or
-			// one of the alias words below (`claude-3-5-haiku-latest` is the same model
-			// as `claude-3-5-haiku`, and is a shipped default). Off by default: for a
-			// context window an inherited value is a safe approximation, for a price it
-			// is a wrong number.
-			strictVariants ? `(?!-(?!v\\d|${DECORATIVE_SUFFIXES.join('|')})[a-z])` : ''
+			// one of the alias words below, at the very end of the id
+			// (`claude-3-5-haiku-latest` is the same model as `claude-3-5-haiku`, and is
+			// a shipped default; `gpt-5-preview-pro` would be a different one again).
+			// Off by default: for a context window an inherited value is a safe
+			// approximation, for a price it is a wrong number.
+			strictVariants
+				? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])`
+				: ''
 		].join('')
 		return [new RegExp(pattern + guards), value]
 	})

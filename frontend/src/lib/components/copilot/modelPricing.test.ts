@@ -53,8 +53,10 @@ describe('resolveModelPrice', () => {
 		expect(
 			resolveModelPrice('openrouter', '~anthropic/claude-sonnet-latest', undefined)?.price.input
 		).toBe(3)
-		// …while a genuine sub-model stays unpriced.
+		// …while a genuine sub-model stays unpriced, including one hiding behind a
+		// decoration.
 		expect(resolveModelPrice('openai', 'gpt-5-pro', undefined)).toBeUndefined()
+		expect(resolveModelPrice('openai', 'gpt-5-preview-pro', undefined)).toBeUndefined()
 	})
 
 	it('prefers a workspace override, keeping the model’s own cache ratios', () => {

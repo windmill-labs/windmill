@@ -110,13 +110,13 @@ const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	['o4-mini', { input: 1.1, output: 4.4, cacheRead: 0.275 }],
 	['o3-mini', { input: 1.1, output: 4.4, cacheRead: 0.55 }],
 	['o3', { input: 2, output: 8, cacheRead: 0.5 }],
-	// Google — a cached read is a quarter of input across the 2.5 family; the 3.x
-	// families are not tracked
+	// Google — left unpriced. Gemini's cached-input rates do not follow a single
+	// ratio and its Pro tier charges more above a context threshold, which a flat
+	// per-model rate cannot express; an estimate here would be wrong in a direction
+	// nobody can see. A workspace that runs Gemini sets its own rates.
 	['gemini-3.1', null],
 	['gemini-3', null],
-	['gemini-2.5-flash-lite', { input: 0.1, output: 0.4, cacheRead: 0.025 }],
-	['gemini-2.5-flash', { input: 0.3, output: 2.5, cacheRead: 0.075 }],
-	['gemini-2.5-pro', { input: 1.25, output: 10, cacheRead: 0.31 }]
+	['gemini-2.5', null]
 ]
 
 const MODEL_PRICE_MATCHERS = buildModelMatchers(

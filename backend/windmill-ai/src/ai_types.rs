@@ -190,6 +190,12 @@ pub const MAX_MODEL_RATE: f64 = 1000.0;
 /// which never deserializes it into `AIConfig`, so the typed check on the
 /// workspace path does not cover it.
 pub fn validate_model_pricing_json(ai_config: &serde_json::Value) -> Result<(), String> {
+    // The container itself has to be checked too: a non-object `ai_config` persists
+    // here and then fails to deserialize as `AIConfig`, which drops the whole
+    // instance config back to its default for every workspace inheriting it.
+    if !ai_config.is_null() && !ai_config.is_object() {
+        return Err("ai_config must be an object".to_string());
+    }
     let pricing = match ai_config.get("model_pricing") {
         None | Some(serde_json::Value::Null) => return Ok(()),
         // A present-but-wrong shape must be rejected, not skipped: it would persist
