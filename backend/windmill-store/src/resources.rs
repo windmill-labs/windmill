@@ -2984,8 +2984,9 @@ fn extract_host_from_git_url(url: &str) -> Option<String> {
 /// Strip the userinfo from a git URL. These probes run against URLs that embed a
 /// credential (a `$var:` token, or one minted from an `AZURE_DEVOPS_TOKEN(...)`
 /// placeholder), and their errors are persisted as the repository's sync status and
-/// rendered in the UI. git itself redacts userinfo in its own messages; anything we
-/// format the URL into must do the same.
+/// rendered in the UI. git's own redaction cannot be relied on — it drops the userinfo
+/// from `unable to access '<url>'` but echoes it in `could not read Password for
+/// '<url>'` — so anything that formats a probe URL has to strip it here.
 fn redact_git_url_credentials(url: &str) -> String {
     match git_url_userinfo_range(url) {
         Some(r) => format!("{}***{}", &url[..r.start], &url[r.end..]),
@@ -3592,19 +3593,22 @@ async fn resolve_azure_devops_url(
     Ok(url.replace(placeholder, &token))
 }
 
-/// `allow_cache` carries the caller's freshness requirement through to the token, not
-/// just to the resource read: an on-demand check must not succeed on a token minted
-/// before the Azure app's permissions were last changed.
-/// Authorize an `AZURE_DEVOPS_TOKEN(...)` reference in a resource value being written.
+/// Gate writing an `AZURE_DEVOPS_TOKEN(...)` reference into a resource value.
 ///
-/// The background probes mint from the named `azure` resource under the system identity
-/// (RLS bypassed) and there is no principal at that point to authorize against, so the
-/// write is where the reference has to be vetted: otherwise someone who can edit a
-/// git-sync repository URL, but not read the credential it names, can have the poller
-/// mint that credential and pull a repository they could not otherwise reach.
+/// The background probes mint from the named `azure` resource under the system identity,
+/// which bypasses RLS, and no principal exists at that point to authorize against — so
+/// authorization cannot be enforced where the credential is used, only where the
+/// reference is introduced. A read check alone would not survive that gap: the reference
+/// names a resource whose own value stays mutable, and repointing it at `$res:`/`$var:`
+/// the writer cannot read would be a later write this never sees.
+///
+/// Hence workspace admin, who can already read every resource in the workspace: the
+/// escalation a mutable reference would otherwise buy is one the configurer already has.
+/// The read check stays as a typo guard, so a reference to a nonexistent resource fails
+/// at configuration time rather than as a puzzling sync error later.
 ///
 /// Only the `url` field is inspected, and with the same parser the probes use, so the
-/// path authorized here is exactly the path they will resolve.
+/// path checked here is exactly the path they will resolve.
 pub async fn authorize_azure_devops_reference(
     authed: &ApiAuthed,
     db: &DB,
@@ -3619,6 +3623,8 @@ pub async fn authorize_azure_devops_reference(
         return Ok(());
     };
 
+    require_admin(authed.is_admin, &authed.username)?;
+
     let dba = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
     let readable =
         get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, false)
@@ -3626,12 +3632,15 @@ pub async fn authorize_azure_devops_reference(
             .unwrap_or(None);
     if readable.is_none() {
         return Err(Error::PermissionDenied(format!(
-            "Cannot reference AZURE_DEVOPS_TOKEN({resource_path}) in a git repository URL without access to that resource"
+            "Cannot reference AZURE_DEVOPS_TOKEN({resource_path}) in a git repository URL: no such resource"
         )));
     }
     Ok(())
 }
 
+/// `allow_cache` carries the caller's freshness requirement through to the token, not
+/// just to the resource read: an on-demand check must not succeed on a token minted
+/// before the Azure app's permissions were last changed.
 async fn mint_azure_devops_token(
     tenant_id: &str,
     client_id: &str,
