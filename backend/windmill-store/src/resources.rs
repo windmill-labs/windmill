@@ -2954,6 +2954,24 @@ fn extract_host_from_git_url(url: &str) -> Option<String> {
     None
 }
 
+/// Strip the userinfo from a git URL. These probes run against URLs that embed a
+/// credential (a `$var:` token, or one minted from an `AZURE_DEVOPS_TOKEN(...)`
+/// placeholder), and their errors are persisted as the repository's sync status and
+/// rendered in the UI. git itself redacts userinfo in its own messages; anything we
+/// format the URL into must do the same.
+fn redact_git_url_credentials(url: &str) -> String {
+    let Some((scheme, after_scheme)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let authority_end = after_scheme
+        .find(|c| c == '/' || c == '?' || c == '#')
+        .unwrap_or(after_scheme.len());
+    match after_scheme[..authority_end].rfind('@') {
+        Some(pos) => format!("{scheme}://***{}", &after_scheme[pos..]),
+        None => url.to_string(),
+    }
+}
+
 /// Validates a git URL to prevent option injection, SSRF, and local file read.
 async fn validate_git_url(url: &str) -> Result<()> {
     let url = url.trim();
@@ -3112,12 +3130,14 @@ async fn get_git_commit_hash(
     .await
     .map_err(|e| Error::NotFound(format!("Access to resource {} denied: ({e})", path)))?;
 
-    let git_resource: GitRepositoryResource = match git_repo_resource_value {
+    let mut git_resource: GitRepositoryResource = match git_repo_resource_value {
         Some(value) => serde_json::from_value(value).map_err(|e| {
             Error::BadRequest(format!("Invalid git repository resource format: {}", e))
         })?,
         None => return Err(Error::NotFound(format!("Resource {} not found", path)).into()),
     };
+    git_resource.url =
+        resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
 
     let identities: Vec<String> = query
         .git_ssh_identity
@@ -3333,6 +3353,189 @@ async fn run_git_probe(mut git_cmd: Command, what: &str) -> Result<std::process:
     }
 }
 
+/// Git-sync repository URLs may carry `AZURE_DEVOPS_TOKEN(<path/to/azure/resource>)`
+/// where a credential belongs: an Azure DevOps access token minted at use time from
+/// that `azure` resource's client credentials. The hub sync scripts expand it in
+/// TypeScript before running git; the probes below shell out to git from the backend,
+/// so they must expand it too or git is handed the literal placeholder (whose '/'
+/// truncates the authority, and curl rejects the resulting hostname).
+const AZURE_DEVOPS_TOKEN_PLACEHOLDER: &str = "AZURE_DEVOPS_TOKEN(";
+
+/// Azure DevOps resource id the token is minted for, and the endpoint that mints it —
+/// both identical to the hub sync scripts', so a repository that authenticates for a
+/// sync job authenticates for these probes too.
+const AZURE_DEVOPS_RESOURCE_ID: &str = "499b84ac-1321-427f-aa17-267ca6975798/.default";
+const AZURE_LOGIN_HOST: &str = "https://login.microsoftonline.com";
+
+/// Minted tokens, keyed by a digest of the credentials they came from — never by
+/// resource path, so a cache hit cannot hand a token to a caller who was not able to
+/// read the resource itself. Auto-pull probes every repository on an interval; without
+/// this, every tick would mint a fresh token.
+static AZURE_DEVOPS_TOKEN_CACHE: LazyLock<DashMap<String, (String, i64)>> =
+    LazyLock::new(DashMap::new);
+
+/// Shaved off a token's advertised lifetime so one is never handed out as it expires.
+const AZURE_TOKEN_EXPIRY_MARGIN_S: i64 = 60;
+
+/// Lifetime assumed when the token response omits `expires_in`.
+const AZURE_TOKEN_FALLBACK_LIFETIME_S: i64 = 300;
+
+/// Locate the placeholder in a git URL, returning `(whole placeholder, resource path)`.
+fn parse_azure_devops_placeholder(url: &str) -> Result<Option<(&str, &str)>> {
+    let Some(start) = url.find(AZURE_DEVOPS_TOKEN_PLACEHOLDER) else {
+        return Ok(None);
+    };
+    let after = &url[start + AZURE_DEVOPS_TOKEN_PLACEHOLDER.len()..];
+    // Greedy to the last ')', matching the hub scripts' `AZURE_DEVOPS_TOKEN\((.+)\)`.
+    let end = after.rfind(')').ok_or_else(|| {
+        Error::BadRequest(
+            "Git repository URL has an unterminated AZURE_DEVOPS_TOKEN(...) placeholder"
+                .to_string(),
+        )
+    })?;
+    Ok(Some((
+        &url[start..start + AZURE_DEVOPS_TOKEN_PLACEHOLDER.len() + end + 1],
+        &after[..end],
+    )))
+}
+
+/// Expand an `AZURE_DEVOPS_TOKEN(...)` placeholder in a git URL, or return the URL
+/// unchanged when it has none. The referenced resource is read through `dba`, so an
+/// authed caller only reaches credentials they can already read.
+async fn resolve_azure_devops_url(
+    dba: &DbWithOptAuthed<'_, ApiAuthed>,
+    w_id: &str,
+    url: &str,
+    allow_cache: bool,
+) -> Result<String> {
+    let Some((placeholder, resource_path)) = parse_azure_devops_placeholder(url)? else {
+        return Ok(url.to_string());
+    };
+
+    let value =
+        get_resource_value_interpolated_internal(dba, w_id, resource_path, None, None, allow_cache)
+            .await
+            .map_err(|e| {
+                Error::BadRequest(format!(
+                    "Azure resource '{resource_path}' referenced by the git repository URL could not be read: {e}"
+                ))
+            })?
+            .ok_or_else(|| {
+                Error::NotFound(format!(
+                    "Azure resource '{resource_path}' referenced by the git repository URL was not found"
+                ))
+            })?;
+
+    let field = |name: &str| -> Result<String> {
+        value
+            .get(name)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "Azure resource '{resource_path}' referenced by the git repository URL has no '{name}'"
+                ))
+            })
+    };
+    let token = mint_azure_devops_token(
+        &field("azureTenantId")?,
+        &field("azureClientId")?,
+        &field("azureClientSecret")?,
+    )
+    .await?;
+
+    Ok(url.replace(placeholder, &token))
+}
+
+async fn mint_azure_devops_token(
+    tenant_id: &str,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<String> {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    for part in [tenant_id, client_id, client_secret] {
+        hasher.update(part.as_bytes());
+        hasher.update([0u8]);
+    }
+    let cache_key = hex::encode(hasher.finalize());
+    let now = chrono::Utc::now().timestamp();
+    let cached = AZURE_DEVOPS_TOKEN_CACHE.get(&cache_key).and_then(|e| {
+        let (token, expires_at) = e.value();
+        (*expires_at > now).then(|| token.clone())
+    });
+    if let Some(token) = cached {
+        return Ok(token);
+    }
+
+    let response = windmill_common::utils::HTTP_CLIENT
+        .post(format!("{AZURE_LOGIN_HOST}/{tenant_id}/oauth2/token"))
+        .form(&[
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+            ("grant_type", "client_credentials"),
+            ("resource", AZURE_DEVOPS_RESOURCE_ID),
+        ])
+        .send()
+        .await
+        .map_err(|e| {
+            Error::BadRequest(format!("Failed to request an Azure DevOps token: {e:#}"))
+        })?;
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let mut body = body;
+        body.truncate(500);
+        return Err(Error::BadRequest(format!(
+            "Azure DevOps token request failed ({status}): {body}"
+        )));
+    }
+
+    #[derive(Deserialize)]
+    struct AzureTokenResponse {
+        access_token: String,
+        expires_in: Option<Value>,
+    }
+    let parsed: AzureTokenResponse = serde_json::from_str(&body)
+        .map_err(|e| Error::BadRequest(format!("Unexpected Azure DevOps token response: {e}")))?;
+
+    // The v1 token endpoint returns `expires_in` as a string, the v2 one as a number.
+    let lifetime = parsed
+        .expires_in
+        .as_ref()
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+        })
+        .unwrap_or(AZURE_TOKEN_FALLBACK_LIFETIME_S);
+    AZURE_DEVOPS_TOKEN_CACHE.insert(
+        cache_key,
+        (
+            parsed.access_token.clone(),
+            now + (lifetime - AZURE_TOKEN_EXPIRY_MARGIN_S).max(0),
+        ),
+    );
+
+    Ok(parsed.access_token)
+}
+
+/// System identity used by background git-sync polling. SECURITY: bypasses resource
+/// RLS — see [`resolve_git_repository_resource`] for the caller obligations.
+fn git_sync_system_dba(db: &DB) -> DbWithOptAuthed<'static, ApiAuthed> {
+    DbWithOptAuthed::DB {
+        db: db.clone(),
+        audit_author: windmill_common::audit::AuditAuthor {
+            username: "git_sync_auto_pull".to_string(),
+            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
+            username_override: None,
+            token_prefix: None,
+        },
+    }
+}
+
 async fn get_repo_latest_commit_hash(
     git_resource: &GitRepositoryResource,
     git_ssh_command: Option<String>,
@@ -3378,7 +3581,8 @@ async fn get_repo_latest_commit_hash(
     if lines.is_empty() {
         return Err(Error::BadRequest(format!(
             "No commits found for reference '{}' in repository '{}'",
-            ref_spec, git_resource.url
+            ref_spec,
+            redact_git_url_credentials(&git_resource.url)
         )));
     }
 
@@ -3411,24 +3615,19 @@ pub async fn resolve_git_repository_resource(
     git_repo_resource_path: &str,
     allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
-    use windmill_common::db::DbWithOptAuthed;
-
     let resource_path = git_repo_resource_path
         .strip_prefix("$res:")
         .unwrap_or(git_repo_resource_path);
 
-    let dba: DbWithOptAuthed<'_, ApiAuthed> = DbWithOptAuthed::DB {
-        db: db.clone(),
-        audit_author: windmill_common::audit::AuditAuthor {
-            username: "git_sync_auto_pull".to_string(),
-            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
-            username_override: None,
-            token_prefix: None,
-        },
-    };
-
-    get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, allow_cache)
-        .await
+    get_resource_value_interpolated_internal(
+        &git_sync_system_dba(db),
+        w_id,
+        resource_path,
+        None,
+        None,
+        allow_cache,
+    )
+    .await
 }
 
 /// Resolve a workspace git-sync repository and return its current head commit
@@ -3459,19 +3658,22 @@ pub async fn get_git_repo_head_for_autopull(
         return Ok(None);
     }
 
-    let git_resource: GitRepositoryResource = serde_json::from_value(value)
+    let mut git_resource: GitRepositoryResource = serde_json::from_value(value)
         .map_err(|e| Error::BadRequest(format!("Invalid git repository resource: {}", e)))?;
 
     // The SSH identity is supplied per-call in the authed commit-hash path; the
     // background poller has none, so an SSH remote can't authenticate here. Fail
     // with an actionable message instead of a confusing ls-remote auth error —
     // these repos should use an HTTPS token URL or the GitHub App for auto-pull.
-    let url = git_resource.url.trim_start();
-    if !url.starts_with("http://") && !url.starts_with("https://") {
+    if !git_resource.url.trim_start().starts_with("http://")
+        && !git_resource.url.trim_start().starts_with("https://")
+    {
         return Err(Error::BadRequest(
             "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
         ));
     }
+    git_resource.url =
+        resolve_azure_devops_url(&git_sync_system_dba(db), w_id, &git_resource.url, true).await?;
 
     if let Some(branch) = git_resource.branch.as_deref().filter(|s| !s.is_empty()) {
         let branch = branch.to_string();
@@ -3503,7 +3705,7 @@ pub async fn get_git_repo_head_for_autopull(
     let sha = sha.ok_or_else(|| {
         Error::BadRequest(format!(
             "No HEAD found in repository '{}'",
-            git_resource.url
+            redact_git_url_credentials(&git_resource.url)
         ))
     })?;
     Ok(Some((branch.unwrap_or_else(|| "HEAD".to_string()), sha)))
@@ -3545,21 +3747,11 @@ pub async fn get_git_repo_fork_heads_for_autopull(
     base_branch: &str,
     extra_refs: &[String],
 ) -> Result<Option<Vec<(String, String)>>> {
-    use windmill_common::db::DbWithOptAuthed;
-
     let resource_path = git_repo_resource_path
         .strip_prefix("$res:")
         .unwrap_or(git_repo_resource_path);
 
-    let dba: DbWithOptAuthed<'_, ApiAuthed> = DbWithOptAuthed::DB {
-        db: db.clone(),
-        audit_author: windmill_common::audit::AuditAuthor {
-            username: "git_sync_auto_pull".to_string(),
-            email: windmill_common::users::SUPERADMIN_SYNC_EMAIL.to_string(),
-            username_override: None,
-            token_prefix: None,
-        },
-    };
+    let dba = git_sync_system_dba(db);
     let value =
         get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, true)
             .await?
@@ -3578,14 +3770,16 @@ pub async fn get_git_repo_fork_heads_for_autopull(
         return Ok(None);
     }
 
-    let git_resource: GitRepositoryResource = serde_json::from_value(value)
+    let mut git_resource: GitRepositoryResource = serde_json::from_value(value)
         .map_err(|e| Error::BadRequest(format!("Invalid git repository resource: {}", e)))?;
-    let url = git_resource.url.trim_start();
-    if !url.starts_with("http://") && !url.starts_with("https://") {
+    if !git_resource.url.trim_start().starts_with("http://")
+        && !git_resource.url.trim_start().starts_with("https://")
+    {
         return Err(Error::BadRequest(
             "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
         ));
     }
+    git_resource.url = resolve_azure_devops_url(&dba, w_id, &git_resource.url, true).await?;
     validate_git_url(&git_resource.url).await?;
     validate_git_ref(base_branch)?;
 
@@ -4167,6 +4361,25 @@ mod tests {
     async fn test_validate_git_url_blocks_option_injection() {
         assert!(validate_git_url("-evil").await.is_err());
         assert!(validate_git_url("--upload-pack=evil").await.is_err());
+    }
+
+    #[test]
+    fn test_parse_azure_devops_placeholder() {
+        // The resource path holds '/', so the placeholder must be cut at its own
+        // closing ')' rather than at the first path separator.
+        let url = "https://AZURE_DEVOPS_TOKEN(f/azure/devops)@dev.azure.com/org/proj/_git/repo";
+        assert_eq!(
+            parse_azure_devops_placeholder(url).unwrap(),
+            Some(("AZURE_DEVOPS_TOKEN(f/azure/devops)", "f/azure/devops"))
+        );
+        assert_eq!(
+            parse_azure_devops_placeholder("https://token@github.com/user/repo.git").unwrap(),
+            None
+        );
+        assert!(parse_azure_devops_placeholder(
+            "https://AZURE_DEVOPS_TOKEN(f/azure@dev.azure.com/o"
+        )
+        .is_err());
     }
 
     #[tokio::test]
