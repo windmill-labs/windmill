@@ -6,8 +6,12 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
-	import { clearPageDrawerAnchor, pageDrawerSessionSource } from './sessions/pageDrawerSession'
-	import { VARIABLES_PATH } from './copilot/chat/global/pageNavigation'
+	import {
+		clearPageDrawerAnchor,
+		pageDrawerSessionSource,
+		setPageDrawerAnchor
+	} from './sessions/pageDrawerSession'
+	import { VARIABLES_PATH } from './sessions/previewPaths'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite } from '$lib/utils'
@@ -230,6 +234,7 @@
 		editPath = edit_path
 		selected = curWs!
 		drawer?.openDrawer()
+		setPageDrawerAnchor(VARIABLES_PATH, edit_path)
 	}
 
 	async function loadSecret(): Promise<void> {

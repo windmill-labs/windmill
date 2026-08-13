@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
-	import { clearPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
-	import { SCHEDULES_PATH } from '$lib/components/copilot/chat/global/pageNavigation'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -167,6 +170,7 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(SCHEDULES_PATH, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath

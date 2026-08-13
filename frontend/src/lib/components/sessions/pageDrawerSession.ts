@@ -5,15 +5,20 @@ import {
 	anyEditorUnparseable,
 	flushAllPendingEditorChanges
 } from '$lib/components/pendingEditorFlush'
-import { buildFilterUrl } from '$lib/navigation'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { UserDraftItemKind } from '$lib/gen'
-import { pageHref, stripBase, TRIGGER_PAGES, type TriggerKind } from './previewRouter'
+// From the path leaf rather than `previewRouter`: these drawers mount inside script and
+// flow editors, where pulling the filter schemas that module reads views from would make
+// every trigger's save utils eager.
 import {
+	pageHref,
+	stripBase,
+	TRIGGER_PAGES,
 	RESOURCES_PATH,
 	SCHEDULES_PATH,
-	VARIABLES_PATH
-} from '$lib/components/copilot/chat/global/pageNavigation'
+	VARIABLES_PATH,
+	type TriggerKind
+} from './previewPaths'
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
 
 // The draft each page's drawer edits. The preview loads the page in its own
@@ -31,17 +36,20 @@ const DRAWER_DRAFT_KIND: Record<string, UserDraftItemKind> = {
 	)
 }
 
-// Push the drawer's pending autosave, and refuse to leave if it did not land: `flush`
+// Push the drawer's pending autosave and refuse to leave if it did not land: `flush`
 // reports a failed or conflicting POST through its state rather than by throwing, so
-// routing regardless would open the preview on the server's older draft while the
-// drawer the user is looking at still holds the edit.
+// routing regardless would open the preview on the server's older draft while the drawer
+// the user is looking at still holds the edit. The flush is the explicit kind, saving even
+// with auto-save off: asking for a session is asking for the edit to come along.
 async function flushOrRefuse(query: Parameters<typeof UserDraftDbSyncer.flush>[0]): Promise<void> {
-	await UserDraftDbSyncer.flush(query)
-	// Text that does not parse never reached the draft, so leaving now would open the
-	// session on the last value that did and drop the buffer with the drawer.
+	// Before the save, not after: text that does not parse never reached the draft, so
+	// leaving now would open the session on the last value that did and drop the buffer
+	// with the drawer — and saving first would write that stale value on the way to
+	// refusing. The editors were materialised before this call, so the check is current.
 	if (anyEditorUnparseable()) {
-		throw new Error('This drawer has changes that are not valid JSON. Fix them first.')
+		throw new Error('This page has changes that are not valid JSON. Fix them first.')
 	}
+	await UserDraftDbSyncer.flush(query)
 	if (UserDraftDbSyncer.getConflict(query).conflict) {
 		throw new Error(
 			'This draft has a newer conflicting version on the server. Resolve it here before opening a session.'
@@ -55,6 +63,30 @@ async function flushOrRefuse(query: Parameters<typeof UserDraftDbSyncer.flush>[0
 	}
 }
 
+// How each page addresses a row in its hash. Resources route theirs through an extra
+// segment; every other page names the path directly.
+const drawerHashFor = (pagePath: string, itemPath: string) =>
+	pagePath === RESOURCES_PATH ? `/resource/${itemPath}` : itemPath
+
+/**
+ * Deep-link the row whose drawer just opened, so the location says what is on screen — a
+ * drawer opened from a row's Edit button is as open as one reached by link, and the chat
+ * is told what the session shows through the location alone. No-op off that page, where
+ * these drawers also open inside editors and pickers with no row convention to keep.
+ *
+ * Written straight to history rather than through the router: these pages open their
+ * drawer *from* the hash, so a router-visible write would come back as a second open on
+ * the row the user is already editing. The preview observes `replaceState` either way.
+ */
+export function setPageDrawerAnchor(pagePath: string, itemPath: string | undefined): void {
+	if (!itemPath) return
+	const { pathname, search, hash } = window.location
+	if (stripBase(pathname) !== pagePath) return
+	const anchor = `#${drawerHashFor(pagePath, itemPath)}`
+	if (hash === anchor) return
+	history.replaceState(history.state, '', `${pathname}${search}${anchor}`)
+}
+
 /**
  * Drop the row a list page deep-links, once its drawer closes. The hash is how the row was
  * requested; leaving it behind makes the location claim a drawer that is no longer open —
@@ -62,8 +94,12 @@ async function flushOrRefuse(query: Parameters<typeof UserDraftDbSyncer.flush>[0
  * where the same drawers open without a hash convention.
  */
 export async function clearPageDrawerAnchor(pagePath: string): Promise<void> {
-	if (stripBase(page.url.pathname) !== pagePath || !page.url.hash) return
-	await goto(`${page.url.pathname}${page.url.search}`, { replaceState: true, noScroll: true })
+	// Read the location from the document, never from `page.url`: these pages write their
+	// filters with shallow routing, which never reaches `page.url`, so rebuilding the query
+	// from it would drop the filters the user typed along with the anchor.
+	const { pathname, search, hash } = window.location
+	if (stripBase(pathname) !== pagePath || !hash) return
+	await goto(`${pathname}${search}`, { replaceState: true, noScroll: true })
 }
 
 /**
@@ -81,11 +117,13 @@ export function pageDrawerSessionSource(
 	workspaceId: string | undefined
 ): OpenInSessionSource | undefined {
 	if (!itemPath || stripBase(page.url.pathname) !== pagePath) return undefined
-	const anchor = pagePath === RESOURCES_PATH ? `/resource/${itemPath}` : itemPath
-	const href = pageHref(buildFilterUrl(pagePath, {}, { hash: anchor }))
+	const anchor = drawerHashFor(pagePath, itemPath)
 	const itemKind = DRAWER_DRAFT_KIND[pagePath]
 	return {
-		page: () => href,
+		// The list behind the drawer is part of what the user is looking at, and its filters
+		// are written with shallow routing — so the query has to come from the document at
+		// click time, as the thunk exists for.
+		page: () => `${pageHref(pagePath)}${window.location.search}#${anchor}`,
 		workspaceId,
 		// Autosave is debounced, and the preview reads the draft back through the server
 		// from a document of its own — routing before the POST lands opens the drawer on a

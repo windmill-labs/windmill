@@ -9,8 +9,12 @@
 	import { isOwner } from '$lib/utils'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
-	import { clearPageDrawerAnchor, pageDrawerSessionSource } from './sessions/pageDrawerSession'
-	import { RESOURCES_PATH } from './copilot/chat/global/pageNavigation'
+	import {
+		clearPageDrawerAnchor,
+		pageDrawerSessionSource,
+		setPageDrawerAnchor
+	} from './sessions/pageDrawerSession'
+	import { RESOURCES_PATH } from './sessions/previewPaths'
 	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
 
 	let {
@@ -56,6 +60,7 @@
 		path = p
 		selected = effectiveWorkspace
 		drawer?.openDrawer?.()
+		setPageDrawerAnchor(RESOURCES_PATH, p)
 	}
 
 	export async function initNew(

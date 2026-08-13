@@ -10,9 +10,8 @@
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
-	import { stripBase, TRIGGER_PAGES } from '../sessions/previewRouter'
+	import { stripBase, TRIGGER_PAGES, SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import { pageDrawerSessionSource } from '../sessions/pageDrawerSession'
-	import { SCHEDULES_PATH } from '$lib/components/copilot/chat/global/pageNavigation'
 	import { page } from '$app/state'
 	import { workspaceStore } from '$lib/stores'
 

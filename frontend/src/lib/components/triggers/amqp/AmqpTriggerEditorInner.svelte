@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { clearPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
-	import { TRIGGER_PAGES } from '$lib/components/sessions/previewRouter'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import { Alert } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -161,6 +164,7 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.amqp.path, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
@@ -394,7 +398,11 @@
 {/if}
 
 {#if useDrawer}
-	<Drawer size="800px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.amqp.path)}>
+	<Drawer
+		size="800px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.amqp.path)}
+	>
 		<DrawerContent
 			bannerReserved={draftSync.hasBaseline}
 			title={edit

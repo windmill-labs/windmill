@@ -10,16 +10,29 @@ import {
 	serializeItemsMaskParam
 } from '$lib/components/sessions/modifiedItemsMask'
 
-// In-app paths for the deep-linkable preview pages the AI chat can open.
-export const RUNS_PATH = '/runs'
-export const SCHEDULES_PATH = '/schedules'
-export const VARIABLES_PATH = '/variables'
-export const RESOURCES_PATH = '/resources'
-export const ASSETS_PATH = '/assets'
-export const AUDIT_LOGS_PATH = '/audit_logs'
-export const WORKSPACE_SETTINGS_PATH = '/workspace_settings'
-export const FOLDERS_PATH = '/folders'
-export const GROUPS_PATH = '/groups'
+import {
+	RUNS_PATH,
+	SCHEDULES_PATH,
+	VARIABLES_PATH,
+	RESOURCES_PATH,
+	ASSETS_PATH,
+	AUDIT_LOGS_PATH,
+	WORKSPACE_SETTINGS_PATH,
+	FOLDERS_PATH,
+	GROUPS_PATH
+} from '$lib/components/sessions/previewPaths'
+
+export {
+	RUNS_PATH,
+	SCHEDULES_PATH,
+	VARIABLES_PATH,
+	RESOURCES_PATH,
+	ASSETS_PATH,
+	AUDIT_LOGS_PATH,
+	WORKSPACE_SETTINGS_PATH,
+	FOLDERS_PATH,
+	GROUPS_PATH
+}
 
 // Selectable tabs on the Workspace settings page (the `?tab=` query param). Mirrors the
 // union in routes/(root)/(logged)/workspace_settings/+page.svelte.
