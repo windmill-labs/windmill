@@ -268,7 +268,7 @@
 	}
 </script>
 
-<div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
+<div class="border rounded p-4 bg-surface-tertiary flex flex-col gap-4">
 	<div class="flex justify-between items-center">
 		<span class="text-sm font-semibold text-emphasis">Connect an MCP server</span>
 		<Button unifiedSize="2xs" variant="subtle" onClick={onCancel}>Cancel</Button>
@@ -374,17 +374,7 @@
 		{/if}
 
 		<Label label="Save MCP connection to">
-			{#key suggestedPath}
-				<Path
-					bind:path={manualPath}
-					bind:error={manualPathError}
-					initialPath=""
-					namePlaceholder={serverName}
-					kind="resource"
-					workspaceOverride={ws}
-				/>
-			{/key}
-			<span class="text-2xs text-secondary">
+			<span class="text-xs text-secondary">
 				The connection is saved as a resource, listed with your other
 				<a
 					href="{base}/resources?workspace={ws}"
@@ -395,6 +385,16 @@
 					resources <ExternalLink size={12} />
 				</a>
 			</span>
+			{#key suggestedPath}
+				<Path
+					bind:path={manualPath}
+					bind:error={manualPathError}
+					initialPath=""
+					namePlaceholder={serverName}
+					kind="resource"
+					workspaceOverride={ws}
+				/>
+			{/key}
 		</Label>
 		{#if sharedPath}
 			<Alert type="warning" size="xs" title="Anyone who can read this path can use this connection">
