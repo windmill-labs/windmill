@@ -125,7 +125,9 @@
 				// a reload replaces every row object and a getter bound to the old one
 				// would go on reporting the state it was built with.
 				get icon() {
-					return row(path)?.icon
+					// Plug where the provider is unknown, so one nameless server does not
+					// pull its label out of line with the rest.
+					return row(path)?.icon ?? Plug
 				},
 				get toggle() {
 					return row(path)?.enabled ?? false
