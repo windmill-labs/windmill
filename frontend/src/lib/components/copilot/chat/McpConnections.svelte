@@ -4,7 +4,7 @@
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { isMcpEnabled, setMcpEnabled } from '$lib/components/mcp/enabledServers'
-	import { findMcpEntryByUrl } from '$lib/components/mcp/registry'
+	import { loadProviderIcon } from '$lib/components/mcp/providerIcon'
 	import type { Component } from 'svelte'
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -192,7 +192,7 @@
 						workspace: target,
 						path: server.path
 					})
-					return findMcpEntryByUrl((resource.value as { url?: unknown } | undefined)?.url)?.icon
+					return await loadProviderIcon((resource.value as { url?: unknown } | undefined)?.url)
 				} catch {
 					return undefined
 				}

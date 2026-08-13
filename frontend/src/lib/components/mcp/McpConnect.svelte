@@ -8,6 +8,7 @@
 	import McpServerOAuthConnect from './McpServerOAuthConnect.svelte'
 	import OauthScopes from '$lib/components/OauthScopes.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
+	import { base } from '$lib/base'
 	import { onDestroy, untrack } from 'svelte'
 	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { MCP_REGISTRY, findMcpEntry } from './registry'
@@ -372,7 +373,7 @@
 			>
 		{/if}
 
-		<Label label="Path">
+		<Label label="Save MCP connection to">
 			{#key suggestedPath}
 				<Path
 					bind:path={manualPath}
@@ -383,6 +384,17 @@
 					workspaceOverride={ws}
 				/>
 			{/key}
+			<span class="text-2xs text-secondary">
+				The connection is saved as a resource, listed with your other
+				<a
+					href="{base}/resources?workspace={ws}"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="text-accent hover:underline inline-flex items-center gap-1"
+				>
+					resources <ExternalLink size={12} />
+				</a>
+			</span>
 		</Label>
 		{#if sharedPath}
 			<Alert type="warning" size="xs" title="Anyone who can read this path can use this connection">
