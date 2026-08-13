@@ -122,6 +122,13 @@
 	let canSignIn = $derived(
 		oauthAppReady || (canDiscover && !!$enterpriseLicense && discoveryFoundOAuth !== false)
 	)
+	// The action button names the credential, not the outcome, so the path field
+	// says what clicking it will leave behind.
+	let pathNote = $derived(
+		canSignIn && !showToken
+			? 'Signing in saves the connection at this path, with your other'
+			: 'The connection is saved at this path, with your other'
+	)
 	// Why the token field is the only way in, said where the token is asked for.
 	let tokenNote = $derived(
 		needsOauthApp && entry
@@ -384,7 +391,7 @@
 
 		<Label label="Save MCP connection to">
 			<span class="text-xs text-secondary">
-				The connection is saved as a resource, listed with your other
+				{pathNote}
 				<a
 					href="{base}/resources?workspace={ws}"
 					target="_blank"
@@ -430,7 +437,7 @@
 					onClick={startProviderOAuth}
 					disabled={signingIn || scopesStatus !== 'loaded' || !manualPath || manualPathError !== ''}
 				>
-					{signingIn ? 'Finish in the popup...' : `Connect with ${entry.name}`}
+					{signingIn ? 'Finish in the popup...' : `Sign in with ${entry.name}`}
 				</Button>
 			{:else if canDiscover && $enterpriseLicense}
 				<Button
@@ -442,7 +449,7 @@
 				>
 					{oauthConnect?.isConnecting()
 						? 'Finish in the popup...'
-						: `Connect with ${entry?.name ?? serverName}`}
+						: `Sign in with ${entry?.name ?? serverName}`}
 				</Button>
 			{/if}
 
@@ -454,7 +461,7 @@
 					onClick={() => (showToken = !showToken)}
 				>
 					{showToken
-						? `Connect with ${entry?.name ?? serverName} instead`
+						? `Sign in with ${entry?.name ?? serverName} instead`
 						: 'Connect with a token instead'}
 				</Button>
 			{/if}
