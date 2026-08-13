@@ -4429,7 +4429,11 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
                         "lock": null,
                         "path": null,
                         "type": "rawscript",
-                        "content": "import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main() {\n  return wmill\n}\n",
+                        // Resolved from jsr rather than `deno.land/x`, which is being sunset
+                        // and today serves `std@0.165.0` — what the old windmill client here
+                        // pulled in — with a corrupt brotli encoding, failing this module's
+                        // lock generation. Any remote specifier exercises the same path.
+                        "content": "import { encodeBase64 } from \"jsr:@std/encoding@1/base64\"\n\nexport async function main() {\n  return encodeBase64(\"test\")\n}\n",
                         "language": "deno",
                         "input_transforms": {}
                     },
@@ -4481,33 +4485,62 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
         &format!("http://localhost:{port}"),
         "SECRET_TOKEN".to_owned(),
     );
-    client
-        .create_flow(
-            "test-workspace",
-            &CreateFlowBody {
-                open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
-                    open_flow: flow,
-                    path: "g/all/flow_lock_all".to_owned(),
-                    tag: None,
-                    ws_error_handler_muted: None,
-                    priority: None,
-                    dedicated_worker: None,
-                    timeout: None,
-                    visible_to_runner_only: None,
-                    on_behalf_of_email: None,
+    // Locking these modules resolves third-party dependencies over the network (PyPI,
+    // deno.land, proxy.golang.org). A registry hiccup fails one module's lock generation,
+    // which still writes the flow — with `lock: null` on that module — and then fails the
+    // dependency job. A single attempt therefore makes this test a coin flip on registry
+    // availability, and the assertion below reports it as a bare module dump that says
+    // nothing about why the lock is missing. So: deploy again under a fresh path before
+    // giving up, and carry the job's own error into the failure message. A real breakage
+    // fails both attempts and names itself.
+    let mut locked_path = None;
+    let mut last_error = None;
+    for attempt in 0..2 {
+        let path = format!(
+            "g/all/flow_lock_all{}",
+            if attempt == 0 { "" } else { "_retry" }
+        );
+        client
+            .create_flow(
+                "test-workspace",
+                &CreateFlowBody {
+                    open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
+                        open_flow: flow.clone(),
+                        path: path.clone(),
+                        tag: None,
+                        ws_error_handler_muted: None,
+                        priority: None,
+                        dedicated_worker: None,
+                        timeout: None,
+                        visible_to_runner_only: None,
+                        on_behalf_of_email: None,
+                    },
+                    deployment_message: None,
+                    draft_only: None,
                 },
-                deployment_message: None,
-                draft_only: None,
-            },
-        )
-        .await
-        .unwrap();
-    let mut str = listen_for_completed_jobs(&db).await;
-    let listen_first_job = str.next();
-    in_test_worker(&db, listen_first_job, port).await;
+            )
+            .await
+            .unwrap();
+        let mut str = listen_for_completed_jobs(&db).await;
+        let listen_first_job = str.next();
+        let uuid = in_test_worker(&db, listen_first_job, port)
+            .await
+            .expect("the flow dependency job should complete");
+        let job = completed_job(uuid, &db).await;
+        if job.success {
+            locked_path = Some(path);
+            break;
+        }
+        last_error = Some(job.result);
+    }
+    let Some(locked_path) = locked_path else {
+        panic!(
+            "flow dependency job failed to lock every module, twice. Last error: {last_error:?}"
+        );
+    };
 
     let modules = client
-        .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
+        .get_flow_by_path("test-workspace", &locked_path, None)
         .await
         .unwrap()
         .open_flow
