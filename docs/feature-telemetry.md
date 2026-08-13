@@ -76,6 +76,10 @@ under-discloses what it sends. This has already drifted once.
 SELECT feature, kind, key, entity_id, day, value FROM feature_usage ORDER BY updated_at DESC LIMIT 10;
 ```
 
+Collection sits behind the `private` feature, so a public build records nothing from either the
+HTTP route or the Rust helper. Run the backend with `--features enterprise,private` or this query
+stays empty however correct the instrumentation is.
+
 ## Privacy rules
 
 Only aggregated counts ever leave the instance, and only when telemetry is enabled and minimal
@@ -102,8 +106,5 @@ until it hits the per-action cap and starts dropping new keys.
 
 There is no `entity_id` and no explicit `value` on this path: it counts occurrences.
 
-Collection is a `private` feature. `feature_usage_ee` holds the registry and the writer, and the
-public build gets `feature_usage_oss`, which is inert — a CE build never sends a stats payload, so
-it records nothing at all, from either the Rust helper or the HTTP route. Verifying a new call
-site locally therefore needs `--features enterprise,private`; on a plain `cargo run` the row never
-appears and nothing tells you why.
+`feature_usage_ee` holds the registry and the writer; the public build gets the inert
+`feature_usage_oss`, since a CE instance never sends a stats payload.
