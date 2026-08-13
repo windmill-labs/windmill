@@ -220,19 +220,19 @@
 
 	function onOAuthMessage(event: MessageEvent) {
 		if (!sameTopDomainOrigin(event.origin, window.location.origin)) return
-		// The callback page is shared by every connect on this origin, so without the
-		// client check a flow finishing in another tab would hand us its token to
-		// store as this server's credential. Only success carries `resource_type`;
-		// an error is taken at face value, since dropping it would leave this card
-		// waiting on a popup that is already gone.
+		// The callback page is shared by every connect on this origin, and every open
+		// card listens on the same window: without identifying the popup, another
+		// card's success would be stored as this server's credential and another
+		// card's failure would tear this one down while its own popup is still open.
+		if (!pending || event.source !== popup) return
 		if (event.data?.type === 'success') {
-			// Identifies the window, not just the provider: a second card connecting
-			// the same provider would otherwise take this completion as its own.
-			if (!pending || event.source !== popup || event.data.resource_type !== pending.client) return
+			if (event.data.resource_type !== pending.client) return
 			cleanupOAuth()
 			void finishProviderOAuth(event.data.res)
 		} else if (event.data?.type === 'error') {
 			cleanupOAuth()
+			pending = undefined
+			popup = null
 			signingIn = false
 			sendUserToast(event.data.error, true)
 		}

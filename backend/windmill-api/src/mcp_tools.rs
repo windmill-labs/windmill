@@ -12,6 +12,27 @@ use windmill_common::{
 };
 use windmill_store::{resources::explain_resource_perm_error, variables::get_value_internal};
 
+/// A connected MCP server is a third party the user chose, reached over a
+/// connection this request holds open: without a deadline one that never answers
+/// pins an API worker and the chat turn behind it for as long as it likes.
+const MCP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+/// Best-effort courtesy to the server, so it cannot extend the deadline above.
+const MCP_SHUTDOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+async fn with_deadline<T>(
+    what: &str,
+    fut: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    tokio::time::timeout(MCP_DEADLINE, fut)
+        .await
+        .map_err(|_| {
+            Error::ExecutionErr(format!(
+                "MCP server did not answer within {}s ({what})",
+                MCP_DEADLINE.as_secs()
+            ))
+        })?
+}
+
 /// Connect to the MCP server described by the `mcp` resource at `path`.
 ///
 /// The caller is responsible for the scope check; everything else (resource
@@ -111,8 +132,10 @@ async fn connect_mcp_client(
 }
 
 async fn shutdown_mcp_client(client: windmill_mcp::McpClient) {
-    if let Err(e) = client.shutdown().await {
-        tracing::warn!("Failed to shutdown MCP client: {}", e);
+    match tokio::time::timeout(MCP_SHUTDOWN_DEADLINE, client.shutdown()).await {
+        Ok(Err(e)) => tracing::warn!("Failed to shutdown MCP client: {}", e),
+        Err(_) => tracing::warn!("MCP client shutdown timed out"),
+        Ok(Ok(())) => {}
     }
 }
 
@@ -125,7 +148,11 @@ pub(crate) async fn get_mcp_tools(
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
-    let client = connect_mcp_client(&authed, &db, &user_db, &w_id, path).await?;
+    let client = with_deadline(
+        "listing tools",
+        connect_mcp_client(&authed, &db, &user_db, &w_id, path),
+    )
+    .await?;
 
     let tools: Vec<serde_json::Value> = client
         .available_tools()
@@ -157,10 +184,15 @@ pub(crate) async fn call_mcp_tool(
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
 
-    let client = connect_mcp_client(&authed, &db, &user_db, &w_id, path).await?;
-
     let arguments = req.arguments.as_ref().map(|a| a.get()).unwrap_or("{}");
-    let result = client.call_tool(&req.tool, arguments).await;
+    // One deadline over the whole exchange (connect, then call), so a server that
+    // stalls after answering the handshake is bounded too.
+    let (client, result) = with_deadline(&format!("calling {}", req.tool), async {
+        let client = connect_mcp_client(&authed, &db, &user_db, &w_id, path).await?;
+        let result = client.call_tool(&req.tool, arguments).await;
+        Ok((client, result))
+    })
+    .await?;
 
     shutdown_mcp_client(client).await;
 

@@ -1923,10 +1923,15 @@ export class AIChatManager {
 	// Same shape as refreshGlobalSkills: rebuild GLOBAL mode once the connected
 	// MCP servers resolve so the next chat-loop iteration advertises their tools,
 	// ignoring stale resolves so a workspace change cannot overwrite newer ones.
+	//
+	// A server is a path, and the workspace a call runs against is read at call
+	// time, so a listing that resolves after the operating workspace moved must be
+	// dropped rather than installed: the same path in the workspace switched to is
+	// a different server, and one the user has not opted into.
 	refreshMcpServers = async (workspace = this.operatingWorkspace ?? '') => {
 		const refreshId = ++this.mcpServersRefreshId
 		const servers = await loadMcpServers(workspace)
-		if (refreshId !== this.mcpServersRefreshId) {
+		if (refreshId !== this.mcpServersRefreshId || workspace !== (this.operatingWorkspace ?? '')) {
 			return
 		}
 		this.mcpServers = servers
