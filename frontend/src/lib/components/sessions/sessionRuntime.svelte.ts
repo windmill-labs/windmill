@@ -485,8 +485,9 @@ function createRuntime(session: Session): SessionRuntime {
 		previewTabs.open({ type: 'artifact', id, name })
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
-	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
+	// Key the stores before any configureGlobalMode runs, so a new session's first create shows at once.
 	void manager.artifacts.setSession(session.id)
+	void manager.tasks.setSession(session.id)
 
 	// Pipeline target state lives on the runtime (not the PipelineEditorView
 	// component) so the in-session drafts survive hide/show of the editor pane —

@@ -23,6 +23,15 @@ vi.mock('../copilot/chat/artifacts/artifactsDB', async (orig) => ({
 	deleteArtifactsForSession: deleteArtifactsForSessionMock
 }))
 
+const { deleteTasksForSessionMock } = vi.hoisted(() => ({
+	deleteTasksForSessionMock: vi.fn()
+}))
+// Bare (no `orig()` spread): sessionState imports only this one symbol, and pulling the
+// real module in would drag $lib/userScopedDb's store graph into this suite.
+vi.mock('../copilot/chat/tasks/tasksDB', () => ({
+	deleteTasksForSession: deleteTasksForSessionMock
+}))
+
 // sessionState imports WorkspaceService; these tests don't touch the network.
 vi.mock('$lib/gen', async (orig) => {
 	const actual = await orig<typeof import('$lib/gen')>()
@@ -64,6 +73,32 @@ function session(over: Partial<Session> = {}): Session {
 	return { id: 's1', name: 'sess', createdAt: 0, ...over }
 }
 const flush = () => new Promise<void>((r) => setTimeout(r, 0))
+
+// Poll the stored record until `check` holds. A tick of `flush` is not a write
+// barrier: the persisting calls are fire-and-forget, so anything that reads the
+// store back has to wait for the record itself.
+async function waitForRecord(user: UserExt, id: string, check: (rec: Session | undefined) => void) {
+	const name = `windmill-sessions::${user.email}`
+	// Generous, because the wait covers opening sessionState's own scoped handle as well
+	// as the write, and a loaded machine running the whole suite can take seconds over it.
+	// Callers raise their own test timeout to match.
+	await vi.waitFor(
+		async () => {
+			// Opening before the writer has created the database would create it here
+			// instead — at version 1, with no object store, which silently breaks every
+			// later write to it.
+			const exists = (await indexedDB.databases()).some((d) => d.name === name)
+			expect(exists).toBe(true)
+			const db = await openDB(name, 1)
+			try {
+				check((await db.get('sessions' as never, id)) as Session | undefined)
+			} finally {
+				db.close()
+			}
+		},
+		{ timeout: 15000 }
+	)
+}
 
 // Each test uses a distinct email: the module-level sessionsDb handle gates its
 // legacy migration to once-per-scoped-name for the process, and fresh emails
@@ -160,12 +195,15 @@ describe('sessionState IndexedDB persistence', () => {
 		await putSession(s)
 
 		setSessionPreviewSize('ps1', 42)
-		await flush()
+		// The write is fire-and-forget, and rehydrating reads the store once: start it
+		// before the put lands and the hydrated list is simply stale forever.
+		await waitForRecord(user, 'ps1', (r) => expect(r?.previewSize).toBe(42))
 
 		await rehydrate(user)
-		await flush()
-		expect(sessionState.sessions.find((x) => x.id === 'ps1')?.previewSize).toBe(42)
-	})
+		await vi.waitFor(() =>
+			expect(sessionState.sessions.find((x) => x.id === 'ps1')?.previewSize).toBe(42)
+		)
+	}, 20000)
 
 	it('materializeTransient promotes an in-memory draft to a persisted IndexedDB record', async () => {
 		const user = freshUser()
@@ -176,11 +214,12 @@ describe('sessionState IndexedDB persistence', () => {
 		sessionState.sessions = [s]
 		materializeTransient('t2')
 		expect(s.transient).toBeUndefined()
+		await waitForRecord(user, 't2', (r) => expect(r).toBeTruthy())
 
 		await rehydrate(user)
 		await vi.waitFor(() => expect(sessionState.sessions.map((x) => x.id)).toEqual(['t2']))
 		expect(sessionState.sessions[0].transient).toBeUndefined()
-	})
+	}, 20000)
 
 	it('round-trips the unsent draft prompt on the session record', async () => {
 		const user = freshUser()
@@ -414,13 +453,17 @@ describe('sessionState IndexedDB persistence', () => {
 
 		deleteItemsForSessionMock.mockClear()
 		deleteArtifactsForSessionMock.mockClear()
+		deleteTasksForSessionMock.mockClear()
 		await deleteSessionsForWorkspace('wsX')
 
-		// Both deleted sessions' linked files and artifacts must be GC'd, not just their records.
+		// Both deleted sessions' linked files, artifacts and task plans must be GC'd,
+		// not just their records.
 		const cleaned = deleteItemsForSessionMock.mock.calls.map((c) => c[0]).sort()
 		expect(cleaned).toEqual(['f1', 'f2'])
 		const cleanedArtifacts = deleteArtifactsForSessionMock.mock.calls.map((c) => c[0]).sort()
 		expect(cleanedArtifacts).toEqual(['f1', 'f2'])
+		const cleanedTasks = deleteTasksForSessionMock.mock.calls.map((c) => c[0]).sort()
+		expect(cleanedTasks).toEqual(['f1', 'f2'])
 	})
 
 	it('does not persist a per-session unarchive when the workspace is gone (resurrection guard)', async () => {

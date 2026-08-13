@@ -29,6 +29,7 @@
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
+	import SessionPlanIndicator from '$lib/components/copilot/chat/tasks/SessionPlanIndicator.svelte'
 	import {
 		composerFocusRequest,
 		createSession,
@@ -52,12 +53,17 @@
 
 	// headerInset: extra left padding on the chat header so it clears a floating
 	// control (the collapsed-rail launcher) sitting at the screen's top-left.
+	// headerRightInset: the same on the right, for the "Open side panel" launcher the
+	// page floats over the header's right edge while the preview is collapsed. Only
+	// the page knows whether it is showing that button, so it owns the flag.
 	let {
 		sessionId,
-		headerInset = false
+		headerInset = false,
+		headerRightInset = false
 	}: {
 		sessionId: string
 		headerInset?: boolean
+		headerRightInset?: boolean
 	} = $props()
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
@@ -334,9 +340,9 @@
 		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 			<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
 				<header
-					class="flex flex-row items-center gap-1 {headerInset
-						? 'pl-11'
-						: 'pl-4'} pr-4 py-2 shrink-0"
+					class="flex flex-row items-center gap-1 {headerInset ? 'pl-11' : 'pl-4'} {headerRightInset
+						? 'pr-44'
+						: 'pr-4'} py-2 shrink-0"
 				>
 					<EditableInput
 						bind:this={summaryInput}
@@ -415,6 +421,10 @@
 							</NameIdTooltip>
 						</div>
 					{/if}
+					<!-- Right-aligned: every other header child sizes to its content, so this
+					     spacer is the only flexible one. -->
+					<div class="flex-1 min-w-[0.5rem]"></div>
+					<SessionPlanIndicator store={runtime.manager.tasks} loading={runtime.manager.loading} />
 				</header>
 				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
 					<AIChat

@@ -779,7 +779,10 @@
 										: 'z-0 opacity-0 pointer-events-none'}"
 									aria-hidden={s.id !== activeSession?.id}
 								>
-									<SessionWrapper sessionId={s.id} />
+									<SessionWrapper
+										sessionId={s.id}
+										headerRightInset={previewCollapsed && !fullscreen}
+									/>
 								</div>
 							{/each}
 						</div>
