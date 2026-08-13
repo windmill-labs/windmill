@@ -57,6 +57,9 @@ function parseArgs(argv) {
 	// Loopback by default: the supervised port fronts the /api proxy to a local backend
 	// and serves source over /@fs, and `server.allowedHosts` does not stop a non-browser
 	// client from sending whatever Host header it likes. Widening is opt-in.
+	// Keep `--idle` above the app's 5-minute background poll. Below it, a tab that never
+	// went dormant can have its server reclaimed with no way back: websockets cannot start
+	// one, and the dormancy warm-up only fires on a dormant-to-awake transition.
 	const opts = { targets: [], idleMs: parseDuration('15m'), bind: '127.0.0.1', stats: null }
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]
@@ -303,7 +306,10 @@ class Target {
 		// `devPollingDormancy` warms it over HTTP on return instead, before they retry.
 		const head = first.toString('latin1', 0, Math.min(first.length, MAX_HEAD_BYTES))
 		const isWebsocket = /\r\nupgrade:\s*websocket/i.test(head)
-		if (isWebsocket && !this.child) {
+		// `starting` too, not just `child`: a start is in flight before the child exists, and
+		// the warm-up opens exactly that window for the sockets retrying alongside it. A
+		// socket may join a start someone else asked for; it still never initiates one.
+		if (isWebsocket && !this.child && !this.starting) {
 			client.destroy()
 			return
 		}
