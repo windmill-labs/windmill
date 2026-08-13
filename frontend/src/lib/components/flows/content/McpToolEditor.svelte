@@ -41,7 +41,6 @@
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
-	let showOAuthForm = $state(false)
 	let refreshCount = $state(0)
 	let resourcePicker: ResourcePicker | undefined = $state()
 
@@ -89,7 +88,6 @@
 		await resourcePicker?.refreshResources()
 		tool.value.resource_path = resourcePath
 		tool.summary = `MCP: ${resourceName}`
-		showOAuthForm = false
 	}
 </script>
 
@@ -108,17 +106,10 @@
 		</div>
 
 		{#if !resourcePath}
-			{#if !showOAuthForm}
-				<Button unifiedSize="sm" wrapperClasses="self-start" onClick={() => (showOAuthForm = true)}>
-					Connect a new MCP resource
-				</Button>
-			{:else}
-				<McpConnect
-					workspace={opWs!}
-					onConnected={(path) => handleOAuthConnected(path, path.split('/').pop() ?? path)}
-					onCancel={() => (showOAuthForm = false)}
-				/>
-			{/if}
+			<McpConnect
+				workspace={opWs!}
+				onConnected={(path) => handleOAuthConnected(path, path.split('/').pop() ?? path)}
+			/>
 		{/if}
 
 		{#if resourcePath?.length > 0}
