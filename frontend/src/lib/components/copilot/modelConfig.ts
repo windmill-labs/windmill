@@ -106,8 +106,11 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Alibaba — Qwen3-Max is 256K. No qwen family fallback: variant windows range
 	// from 8K (character models) to 1M, too wide for even a conservative guess
 	['qwen3-max', 256_000],
-	// Others
+	// Others — Mistral Medium 3.5 is 256K, reachable under both its version and
+	// the `-latest` alias. There is deliberately no `mistral-medium` family row:
+	// pinned older snapshots are 128K, and over-claiming a window overflows it.
 	['mistral-medium-3.5', 256_000],
+	['mistral-medium-latest', 256_000],
 	['llama', 128_000],
 	['codestral', 32_000]
 ]

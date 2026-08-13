@@ -291,11 +291,10 @@ function canDisableReasoning(provider: AIProvider, model: string): boolean {
 			// 'none' is in OpenRouter's vocabulary, but the gateway can't
 			// disable a model whose upstream can't — scope off per underlying
 			// family, like the levels.
-			if (/claude-(opus|sonnet)-4/.test(m)) {
+			// The 5 family thinks by default, but its upstream takes an explicit
+			// disable, so the gateway's 'none' has something to translate to.
+			if (/claude-(opus|sonnet)-(4|5)/.test(m)) {
 				return true
-			}
-			if (/claude-(opus|sonnet)-5/.test(m)) {
-				return false
 			}
 			if (m.includes('gemini-')) {
 				return geminiCanDisable(m)

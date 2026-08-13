@@ -233,6 +233,8 @@ describe('supportsReasoning (static registry)', () => {
 			false
 		)
 		expect(getReasoningCapability('openrouter', 'openai/o3').canDisable).toBe(false)
+		// Claude 5 routed through OpenRouter keeps the off that the 4 family has.
+		expect(getReasoningCapability('openrouter', 'anthropic/claude-opus-5').canDisable).toBe(true)
 		expect(getReasoningCapability('openrouter', 'openai/gpt-5-mini').canDisable).toBe(false)
 		expect(getReasoningCapability('openrouter', 'x-ai/grok-4').canDisable).toBe(false)
 		expect(getReasoningCapability('openrouter', 'deepseek/deepseek-r1').canDisable).toBe(false)

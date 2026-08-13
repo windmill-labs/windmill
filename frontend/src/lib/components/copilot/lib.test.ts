@@ -276,6 +276,13 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('gpt-5-mini')).toBe(400000)
 	})
 
+	it('maps both Mistral Medium 3.5 spellings to 256K, not the 128K fallback', () => {
+		expect(getKnownModelContextWindow('mistral-medium-3.5')).toBe(256000)
+		expect(getKnownModelContextWindow('mistral-medium-latest')).toBe(256000)
+		// a pinned older snapshot must not inherit the 256K window
+		expect(getKnownModelContextWindow('mistral-medium-2505')).toBeUndefined()
+	})
+
 	it('maps Qwen3-Max to 256K and leaves other Qwen ids to the assumed window', () => {
 		expect(getKnownModelContextWindow('qwen3-max')).toBe(256000)
 		expect(getKnownModelContextWindow('qwen3-max-2025-09-23')).toBe(256000)
