@@ -116,21 +116,44 @@ function normalizeVersionSeparators(model: string): string {
 	return model.replace(/\./g, '-')
 }
 
-// An entry that ends on a version digit must not run into a longer version:
-// `gpt-4.1` collapses to `gpt-4-1`, which would otherwise claim the 128K
-// `gpt-4-1106-preview` as a 1M model. Suffixes that continue with a separator
-// (`claude-opus-4-8` in `...-4-8-v1`, `gpt-5` in `gpt-5-mini`) still match.
-// Family fallbacks ending on a letter get no such guard — a version welded
-// straight onto the name (`llama3.1`) is exactly what they exist to catch.
-const MODEL_CONTEXT_WINDOW_MATCHERS: [matcher: RegExp, contextWindow: number][] =
-	MODEL_CONTEXT_WINDOWS.map(([name, contextWindow]) => {
+/**
+ * Compile a most-specific-first `[name, value]` table into matchers against the
+ * bare model id. Shared with the pricing table so both resolve the same set of
+ * ids — a model whose window is known but whose price is not (or vice versa)
+ * should be a gap in one table, never a difference in matching.
+ *
+ * An entry that ends on a version digit must not run into a longer version:
+ * `gpt-4.1` collapses to `gpt-4-1`, which would otherwise claim
+ * `gpt-4-1106-preview`. Suffixes that continue with a separator
+ * (`claude-opus-4-8` in `...-4-8-v1`, `gpt-5` in `gpt-5-mini`) still match.
+ * Family fallbacks ending on a letter get no such guard — a version welded
+ * straight onto the name (`llama3.1`) is exactly what they exist to catch.
+ */
+export function buildModelMatchers<T>(entries: [name: string, value: T][]): [RegExp, T][] {
+	return entries.map(([name, value]) => {
 		const pattern = normalizeVersionSeparators(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-		return [new RegExp(/\d$/.test(pattern) ? `${pattern}(?!\\d)` : pattern), contextWindow]
+		return [new RegExp(/\d$/.test(pattern) ? `${pattern}(?!\\d)` : pattern), value]
 	})
+}
+
+/**
+ * The `provider:model` key the workspace AI settings use for their per-model maps
+ * (`max_tokens_per_model`, `model_pricing`). A bare model id is not enough: the
+ * same id can be served by more than one provider at different rates.
+ */
+export function modelKey(provider: AIProvider | string, model: string): string {
+	return `${provider}:${model}`
+}
+
+export function matchModel<T>(matchers: [RegExp, T][], model: string): T | undefined {
+	const id = normalizeVersionSeparators(parseModelId(model).base)
+	return matchers.find(([matcher]) => matcher.test(id))?.[1]
+}
+
+const MODEL_CONTEXT_WINDOW_MATCHERS = buildModelMatchers(MODEL_CONTEXT_WINDOWS)
 
 export function getKnownModelContextWindow(model: string): number | undefined {
-	const id = normalizeVersionSeparators(parseModelId(model).base)
-	return MODEL_CONTEXT_WINDOW_MATCHERS.find(([matcher]) => matcher.test(id))?.[1]
+	return matchModel(MODEL_CONTEXT_WINDOW_MATCHERS, model)
 }
 
 export function getModelContextWindow(model: string) {

@@ -1832,7 +1832,13 @@ describe('AIChatManager context compaction', () => {
 		// compaction-time save) so a rolled-back turn keeps a consistent value
 		// 4th arg: the modified-items mask rides on every save (undefined here —
 		// this bare manager never initialised tracking).
-		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 650_000, undefined)
+		expect(saveChat).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.anything(),
+			650_000,
+			undefined,
+			undefined
+		)
 		// At commit, the no-report turn clears the stored value; the readable
 		// number falls back to estimating the now-tiny compacted history
 		expect(manager.contextUsage).toBeUndefined()
@@ -2898,14 +2904,14 @@ describe('AIChatManager background job completion', () => {
 		expect(saveChat).not.toHaveBeenCalled()
 		manager.updateJob('job-1', { status: 'success' })
 		await vi.waitFor(() => expect(saveChat).toHaveBeenCalledTimes(1))
-		expect(saveChat.mock.calls[0][4]).toEqual([
+		expect(saveChat.mock.calls[0][5]).toEqual([
 			expect.objectContaining({ jobId: 'job-1', status: 'success' })
 		])
 
 		// Reviewing persists the flag; re-reviewing is a no-op (no extra write).
 		manager.markJobsReviewed(['job-1'])
 		await vi.waitFor(() => expect(saveChat).toHaveBeenCalledTimes(2))
-		expect(saveChat.mock.calls[1][4]).toEqual([
+		expect(saveChat.mock.calls[1][5]).toEqual([
 			expect.objectContaining({ jobId: 'job-1', reviewed: true })
 		])
 		manager.markJobsReviewed(['job-1'])

@@ -1,0 +1,217 @@
+import type { AIProvider, ModelPriceOverride } from '$lib/gen'
+import { buildModelMatchers, matchModel, modelKey } from './modelConfig'
+
+/** Rates in USD per million tokens, one per billed token class. */
+export type ModelPrice = {
+	input: number
+	output: number
+	cacheRead: number
+	cacheWrite: number
+}
+
+export type ModelPriceSource = 'override' | 'builtin'
+
+export type ResolvedModelPrice = {
+	price: ModelPrice
+	source: ModelPriceSource
+}
+
+/** What a chat spent on one model, in tokens. */
+export type PricedTokens = {
+	input: number
+	cacheRead: number
+	cacheWrite: number
+	output: number
+}
+
+// Rates that fall out of the input rate unless a provider prices them separately.
+// Anthropic reads a cached prefix at a tenth of the input rate and writes one at
+// 1.25x (5-minute TTL, the default the chat uses). Providers whose caching is
+// automatic never report a cache write, so their write rate is unused.
+const CACHE_READ_RATIO = 0.1
+const CACHE_WRITE_RATIO = 1.25
+
+type PriceEntry = {
+	input: number
+	output: number
+	cacheRead?: number
+	cacheWrite?: number
+}
+
+/**
+ * Published list prices, most specific entry first — the first name found in the
+ * bare model id wins, so vendor-namespaced and date-suffixed ids
+ * (anthropic/claude-opus-5, gpt-5-2026-01-01) still resolve. Matching is shared
+ * with the context-window table via `buildModelMatchers`.
+ *
+ * This is a best-effort snapshot: vendors change rates, ship models faster than
+ * this table is updated, and negotiated rates differ from list. A model that is
+ * not listed resolves to undefined and is reported as unpriced rather than
+ * guessed at, and any entry can be corrected per workspace from the AI settings.
+ * Providers whose catalogue turns over too quickly to track (DeepSeek, Mistral,
+ * Groq, TogetherAI, custom deployments) are deliberately absent.
+ */
+const MODEL_PRICES: [name: string, price: PriceEntry][] = [
+	// Anthropic — Opus 4.1 and older bill at the pre-4.5 Opus rate, so the family
+	// fallback sits below the explicit entries rather than covering them.
+	['claude-fable-5', { input: 10, output: 50 }],
+	['claude-mythos-5', { input: 10, output: 50 }],
+	['claude-opus-5', { input: 5, output: 25 }],
+	['claude-opus-4-8', { input: 5, output: 25 }],
+	['claude-opus-4-7', { input: 5, output: 25 }],
+	['claude-opus-4-6', { input: 5, output: 25 }],
+	['claude-opus-4-5', { input: 5, output: 25 }],
+	['claude-opus-4-1', { input: 15, output: 75 }],
+	['claude-opus-4', { input: 15, output: 75 }],
+	['claude-sonnet-5', { input: 3, output: 15 }],
+	['claude-sonnet-4-6', { input: 3, output: 15 }],
+	['claude-sonnet-4-5', { input: 3, output: 15 }],
+	['claude-sonnet-4', { input: 3, output: 15 }],
+	['claude-haiku-4-5', { input: 1, output: 5 }],
+	['claude-3-5-haiku', { input: 0.8, output: 4 }],
+	['claude-opus', { input: 5, output: 25 }],
+	['claude-sonnet', { input: 3, output: 15 }],
+	['claude-haiku', { input: 1, output: 5 }],
+	// OpenAI — cached input is a tenth of input, and there is no separate charge
+	// for writing the cache, so the write rate never applies (the OpenAI usage
+	// parsers report no cache-write tokens). The -mini/-nano entries must precede
+	// the family entry, which would otherwise claim them.
+	['gpt-5-mini', { input: 0.25, output: 2 }],
+	['gpt-5-nano', { input: 0.05, output: 0.4 }],
+	['gpt-5', { input: 1.25, output: 10 }],
+	['gpt-4.1-mini', { input: 0.4, output: 1.6 }],
+	['gpt-4.1-nano', { input: 0.1, output: 0.4 }],
+	['gpt-4.1', { input: 2, output: 8 }],
+	['gpt-4o-mini', { input: 0.15, output: 0.6 }],
+	['gpt-4o', { input: 2.5, output: 10 }],
+	['o4-mini', { input: 1.1, output: 4.4 }],
+	['o3-mini', { input: 1.1, output: 4.4 }],
+	['o3', { input: 2, output: 8 }],
+	// Google
+	['gemini-2.5-flash-lite', { input: 0.1, output: 0.4 }],
+	['gemini-2.5-flash', { input: 0.3, output: 2.5 }],
+	['gemini-2.5-pro', { input: 1.25, output: 10 }]
+]
+
+const MODEL_PRICE_MATCHERS = buildModelMatchers(
+	MODEL_PRICES.map(([name, entry]): [string, ModelPrice] => [
+		name,
+		{
+			input: entry.input,
+			output: entry.output,
+			cacheRead: entry.cacheRead ?? entry.input * CACHE_READ_RATIO,
+			cacheWrite: entry.cacheWrite ?? entry.input * CACHE_WRITE_RATIO
+		}
+	])
+)
+
+export function getKnownModelPrice(model: string): ModelPrice | undefined {
+	return matchModel(MODEL_PRICE_MATCHERS, model)
+}
+
+/**
+ * The rate a workspace should be billed at for one model: its override when an
+ * admin set one, otherwise the published list price, otherwise nothing. An
+ * override that omits the cache rates keeps the usual multiples of its own input
+ * rate, so an admin who only knows their input/output pricing does not have to
+ * invent the other two.
+ */
+export function resolveModelPrice(
+	provider: AIProvider | string,
+	model: string,
+	overrides: Record<string, ModelPriceOverride> | undefined
+): ResolvedModelPrice | undefined {
+	const override = overrides?.[modelKey(provider, model)]
+	if (override) {
+		return {
+			source: 'override',
+			price: {
+				input: override.input,
+				output: override.output,
+				cacheRead: override.cache_read ?? override.input * CACHE_READ_RATIO,
+				cacheWrite: override.cache_write ?? override.input * CACHE_WRITE_RATIO
+			}
+		}
+	}
+	const builtin = getKnownModelPrice(model)
+	return builtin ? { source: 'builtin', price: builtin } : undefined
+}
+
+/** Cost in USD of `tokens` at `price`. */
+export function estimateCost(tokens: PricedTokens, price: ModelPrice): number {
+	return (
+		(tokens.input * price.input +
+			tokens.cacheRead * price.cacheRead +
+			tokens.cacheWrite * price.cacheWrite +
+			tokens.output * price.output) /
+		1_000_000
+	)
+}
+
+/** Tokens spent on one model, from a chat's running totals or the usage API. */
+export type ModelSpend = {
+	provider: string
+	model: string
+	tokens: PricedTokens
+	/** What the provider billed, where it reports a figure. */
+	reportedCostUsd?: number
+}
+
+export type Priced = {
+	/** Undefined when no rate is known for the model — reported as unpriced, never guessed. */
+	cost: number | undefined
+	source: ModelPriceSource | 'reported' | undefined
+}
+
+export type PricedSpend<T extends ModelSpend> = {
+	/** The input entries, each with its cost — callers carry their own fields through
+	 * rather than zipping the result back against the input by index. */
+	rows: (T & Priced)[]
+	total: number
+	/** True when at least one row has no rate, so `total` understates the truth. */
+	hasUnpriced: boolean
+	/** True when at least one row is a figure the provider billed rather than an estimate. */
+	hasReported: boolean
+}
+
+/**
+ * Cost a set of per-model token counts. A provider-reported figure always wins:
+ * it is what was actually charged, where everything else is list price times
+ * tokens. Shared by the chat's cost chip and the workspace usage view so both
+ * apply the same rates and the same estimated/reported labelling.
+ */
+export function priceSpend<T extends ModelSpend>(
+	spend: T[],
+	overrides: Record<string, ModelPriceOverride> | undefined
+): PricedSpend<T> {
+	let total = 0
+	let hasUnpriced = false
+	let hasReported = false
+	const rows = spend.map((entry): T & Priced => {
+		if (entry.reportedCostUsd !== undefined) {
+			hasReported = true
+			total += entry.reportedCostUsd
+			return { ...entry, cost: entry.reportedCostUsd, source: 'reported' }
+		}
+		const resolved = resolveModelPrice(entry.provider, entry.model, overrides)
+		if (!resolved) {
+			hasUnpriced = true
+			return { ...entry, cost: undefined, source: undefined }
+		}
+		const cost = estimateCost(entry.tokens, resolved.price)
+		total += cost
+		return { ...entry, cost, source: resolved.source }
+	})
+	return { rows, total, hasUnpriced, hasReported }
+}
+
+/**
+ * Money, at the precision the amount deserves: sub-cent spend is where a chat
+ * spends most of its life, and rounding it to `$0.00` would read as free.
+ */
+export function formatUsd(amount: number): string {
+	if (amount === 0) return '$0'
+	if (amount < 0.01) return `$${amount.toFixed(4)}`
+	if (amount < 1) return `$${amount.toFixed(3)}`
+	return `$${amount.toFixed(2)}`
+}

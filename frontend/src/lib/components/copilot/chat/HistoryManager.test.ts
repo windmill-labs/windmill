@@ -712,7 +712,14 @@ describe('HistoryManager mirror convergence under concurrent metadata saves', ()
 		// mirror, or s3's backgroundJobs fallback below reads the stale record
 		// and permanently erases the job.
 		const p1 = hm.saveChat(display, [] as ChatCompletionMessageParam[], undefined, ['script:a'])
-		const p2 = hm.saveChat(display, [] as ChatCompletionMessageParam[], undefined, undefined, [job])
+		const p2 = hm.saveChat(
+			display,
+			[] as ChatCompletionMessageParam[],
+			undefined,
+			undefined,
+			undefined,
+			[job]
+		)
 		await p1
 		const p3 = hm.saveChat(display, [] as ChatCompletionMessageParam[], undefined, [
 			'script:a',

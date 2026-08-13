@@ -5,7 +5,8 @@
 		type AIConfig,
 		type AIProvider,
 		type GetCopilotSettingsStateResponse,
-		type InstanceAISummary
+		type InstanceAISummary,
+		type ModelPriceOverride
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -25,6 +26,8 @@
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
+	import ModelPricing from './ModelPricing.svelte'
+	import AiUsagePanel from './AiUsagePanel.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
@@ -73,6 +76,7 @@
 	let metadataModel: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
+	let modelPricing: Record<string, ModelPriceOverride> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
 	let workspaceOverrideEditorOpened = $state(false)
 
@@ -83,6 +87,7 @@
 	let initialMetadataModel: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
+	let initialModelPricing: Record<string, ModelPriceOverride> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
 	let lastLoadedConfigKey = $state<string | undefined>(undefined)
 
@@ -110,6 +115,7 @@
 		codeCompletionModel = config?.code_completion_model?.model
 		customPrompts = clone(config?.custom_prompts ?? {})
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
+		modelPricing = clone(config?.model_pricing ?? {})
 		for (const mode of ['edit', 'fix', 'gen']) {
 			if (!(mode in customPrompts)) {
 				customPrompts[mode] = ''
@@ -124,6 +130,7 @@
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
+		initialModelPricing = clone(modelPricing)
 		initialPrompts = clone(customPrompts)
 	}
 
@@ -139,6 +146,7 @@
 		codeCompletionModel = initialCodeCompletionModel
 		customPrompts = clone(initialCustomPrompts)
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
+		modelPricing = clone(initialModelPricing)
 	}
 
 	$effect(() => {
@@ -172,7 +180,8 @@
 			metadataModel !== initialMetadataModel ||
 			codeCompletionModel !== initialCodeCompletionModel ||
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
-			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
+			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel) ||
+			JSON.stringify(modelPricing) !== JSON.stringify(initialModelPricing)
 	)
 
 	$effect(() => {
@@ -285,7 +294,8 @@
 					metadata_model,
 					custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
 					max_tokens_per_model:
-						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
+						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined,
+					model_pricing: Object.keys(modelPricing).length > 0 ? modelPricing : undefined
 				}
 			: {}
 	}
@@ -575,6 +585,10 @@
 		</div>
 
 		<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
+
+		<ModelPricing {aiProviders} bind:modelPricing />
+
+		<AiUsagePanel {modelPricing} />
 
 		<SettingCard label="Custom system prompts" description={promptDescription}>
 			<div class="flex items-center gap-2 pt-1">

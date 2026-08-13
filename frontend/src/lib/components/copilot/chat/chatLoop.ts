@@ -21,7 +21,13 @@ import {
 } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
 import { sanitizeToolCallArguments } from './toolCallArguments'
-import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
+import {
+	addChatTokenUsage,
+	addModelTokenUsage,
+	emptyChatTokenUsage,
+	type ChatTokenUsage,
+	type ModelTokenUsageTotals
+} from './tokenUsage'
 
 export interface ChatClients {
 	openai: OpenAI
@@ -83,6 +89,8 @@ export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
 	/** Sum of usage across all loop iterations (suitable for cost accounting). */
 	tokenUsage: ChatTokenUsage
+	/** The same usage split per model, so a turn that switched model prices correctly. */
+	tokenUsageByModel: ModelTokenUsageTotals
 	lastIterationUsage: ChatTokenUsage | null
 	hitMaxIterations: boolean
 }
@@ -325,12 +333,25 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 	const addedMessages: ChatCompletionMessageParam[] = config.addedMessages ?? []
 	let tokenUsage = emptyChatTokenUsage()
+	let tokenUsageByModel: ModelTokenUsageTotals = {}
 	let lastIterationUsage: ChatTokenUsage | null = null
 	let iterations = 0
 	let hitMaxIterations = false
+	// The model of the iteration currently in flight; re-read per iteration like
+	// `config.modelProvider` itself, so usage is attributed to the model that
+	// actually served it rather than to whatever is selected when the loop ends.
+	let iterationModel: ReasoningProviderModel | undefined
 
 	const trackUsage = (usage: ChatTokenUsage | null | undefined) => {
 		tokenUsage = addChatTokenUsage(tokenUsage, usage)
+		if (iterationModel) {
+			tokenUsageByModel = addModelTokenUsage(
+				tokenUsageByModel,
+				iterationModel.provider,
+				iterationModel.model,
+				usage
+			)
+		}
 		// Some providers/paths report no usage (prompt 0); keep the last real one.
 		if (usage && usage.prompt > 0) {
 			lastIterationUsage = usage
@@ -351,6 +372,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const helpers = config.helpers
 		const systemMessage = config.systemMessage
 		const modelProvider = config.modelProvider
+		iterationModel = modelProvider
 		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
 		const webSearch =
 			(config.webSearch ?? true) &&
@@ -572,5 +594,5 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		}
 	}
 
-	return { addedMessages, tokenUsage, lastIterationUsage, hitMaxIterations }
+	return { addedMessages, tokenUsage, tokenUsageByModel, lastIterationUsage, hitMaxIterations }
 }

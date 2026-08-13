@@ -11838,6 +11838,58 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai/usage:
+    post:
+      summary: record AI token usage for the calling user
+      operationId: recordAiUsage
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - events
+              properties:
+                events:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AITokenUsageEvent"
+      responses:
+        "204":
+          description: usage recorded
+    get:
+      summary: list aggregated AI token usage for the workspace (admin only)
+      operationId: listAiUsage
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+        - name: group_by
+          in: query
+          schema:
+            type: string
+            enum: [day, user, model, session]
+      responses:
+        "200":
+          description: usage buckets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AITokenUsageBucket"
+
   /w/{workspace}/ai_skills/list:
     get:
       summary: list the workspace AI chat skills (name + description only)
@@ -25999,6 +26051,84 @@ components:
             type: integer
             minimum: 1
             maximum: 2000000
+        model_pricing:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ModelPriceOverride"
+
+    ModelPriceOverride:
+      type: object
+      description: negotiated rates in USD per million tokens, keyed `provider:model`
+      properties:
+        input:
+          type: number
+        output:
+          type: number
+        cache_read:
+          type: number
+        cache_write:
+          type: number
+      required:
+        - input
+        - output
+
+    AITokenUsageEvent:
+      type: object
+      properties:
+        provider:
+          $ref: "#/components/schemas/AIProvider"
+        model:
+          type: string
+        session_id:
+          type: string
+        input_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        cache_write_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        reported_cost_nano_usd:
+          type: integer
+          description: only set by providers that bill back an exact figure
+        requests:
+          type: integer
+      required:
+        - provider
+        - model
+
+    AITokenUsageBucket:
+      type: object
+      properties:
+        key:
+          type: string
+          description: the grouped dimension's value; empty when grouping by model
+        provider:
+          type: string
+        model:
+          type: string
+        input_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        cache_write_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        reported_cost_nano_usd:
+          type: integer
+        requests:
+          type: integer
+      required:
+        - key
+        - provider
+        - model
+        - input_tokens
+        - cache_read_tokens
+        - cache_write_tokens
+        - output_tokens
+        - requests
 
     InstanceAIProviderSummary:
       type: object
