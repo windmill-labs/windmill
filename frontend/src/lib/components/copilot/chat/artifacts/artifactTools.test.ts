@@ -85,8 +85,66 @@ describe('artifact tools', () => {
 		const b = JSON.parse(await ctx.call('create_artifact', { name: 'B', content: 'b' }))
 		const list = JSON.parse(await ctx.call('list_artifacts', {}))
 		expect(list.map((x: any) => x.id).sort()).toEqual([a.id, b.id].sort())
-		expect(list.find((x: any) => x.id === b.id)).toEqual({ id: b.id, name: 'B', kind: 'md' })
+		expect(list.find((x: any) => x.id === b.id)).toEqual({
+			id: b.id,
+			name: 'B',
+			kind: 'md',
+			version: 1
+		})
 		expect(list[0]).not.toHaveProperty('content')
+	})
+
+	it('creates the plan as a draft, and refuses a second one for the session', async () => {
+		// This tool asks for no confirmation, so the model writing a plan document is not the
+		// user agreeing to one. It holds the session's plan slot, but stays a draft until an
+		// approval lands on it.
+		const plan = JSON.parse(
+			await ctx.call('create_artifact', { name: 'Ship it', content: '# Ship it', role: 'plan' })
+		)
+		expect(plan.id).toBe(ctx.dbMod.planArtifactId('s1'))
+		expect(await ctx.dbMod.getArtifact(plan.id)).toMatchObject({
+			role: 'plan',
+			approvedVersion: undefined
+		})
+
+		// The slot is taken, and the refusal has to name what holds it — the model's next
+		// move is to rewrite that document, which it cannot do without the id.
+		const second = JSON.parse(
+			await ctx.call('create_artifact', { name: 'Other', content: '# Other', role: 'plan' })
+		)
+		expect(second.success).toBe(false)
+		expect(second.error).toContain(plan.id)
+		const list = JSON.parse(await ctx.call('list_artifacts', {}))
+		expect(list.filter((x: any) => x.role === 'plan').map((x: any) => x.id)).toEqual([plan.id])
+	})
+
+	it('reports which version of a plan the user approved, if any', async () => {
+		// A plan is written when it is proposed, so one they refused stays on disk, and an
+		// approved one keeps collecting versions afterwards. Without the pointer the model
+		// reads whatever the document currently says as the plan they signed off.
+		const plan = await ctx.store.create('s1', {
+			name: 'Drafted',
+			content: '# Drafted',
+			role: 'plan',
+			chatId: 'c1'
+		})
+		const drafted = JSON.parse(await ctx.call('list_artifacts', {})).find(
+			(x: any) => x.id === plan.id
+		)
+		expect(drafted).toMatchObject({ role: 'plan', version: 1 })
+		// Absent, not null: nothing here was ever approved.
+		expect(drafted).not.toHaveProperty('approvedVersion')
+
+		await ctx.store.update(plan.id, { approvedVersion: 1 })
+		await ctx.store.update(plan.id, { content: '# Drafted, proposed anew' })
+		const list = JSON.parse(await ctx.call('list_artifacts', {}))
+
+		// Approved at v1, current text is v2: a proposal the user has not decided on.
+		expect(list.find((x: any) => x.id === plan.id)).toMatchObject({
+			role: 'plan',
+			version: 2,
+			approvedVersion: 1
+		})
 	})
 
 	it('read_artifact returns the full content', async () => {
