@@ -168,24 +168,31 @@
 	})
 	$effect(() => () => clearTimeout(flashTimer))
 
-	// Where this frame boots. Captured once, from the observed location: `tab.url` is the
-	// last thing commanded, and a tab remounted after the user moved inside it should come
-	// back where they were, not where it started.
-	const initialSrc = withMenuHidden(whereIs(tab), workspaceId || undefined)
+	// Where a booting frame starts, from the observed location: a tab remounted after the
+	// user moved inside it should come back where they were, not where it started. Only
+	// written while there is no frame — this host outlives the iframe (eviction keeps the
+	// component, `mounted` gates only the markup below), so a value captured once would
+	// send a remount back to whatever the tab held when it was opened.
+	let bootSrc = $state(untrack(() => withMenuHidden(whereIs(tab), workspaceId || undefined)))
 
-	// A command navigates the frame, but only when it is not already there. Binding `src`
-	// reactively would navigate on every write to `tab.url` — including the anchor drop
-	// that follows the user closing a drawer, where the frame already shows the target and
-	// a fragment removal is a full load, not a same-document move.
-	let lastNavigated = initialSrc
+	// A live frame is navigated instead, and only when it is not already there. Binding
+	// `src` reactively would navigate on every write to `tab.url` — including the anchor
+	// drop that follows the user closing a drawer, where the frame already shows the
+	// target and a fragment removal is a full load, not a same-document move.
+	let lastCommanded = untrack(() => withMenuHidden(tab.url, workspaceId || undefined))
 	$effect(() => {
 		const target = withMenuHidden(tab.url, workspaceId || undefined)
+		const live = mounted
 		untrack(() => {
-			if (target === lastNavigated) return
-			lastNavigated = target
+			const win = live ? frame?.contentWindow : undefined
+			if (!win) {
+				bootSrc = withMenuHidden(whereIs(tab), workspaceId || undefined)
+				lastCommanded = target
+				return
+			}
+			if (target === lastCommanded) return
+			lastCommanded = target
 			try {
-				const win = frame?.contentWindow
-				if (!win) return
 				const { pathname, search, hash } = win.location
 				if (pathname + search + hash === target) return
 				win.location.replace(target)
@@ -294,7 +301,7 @@
 {:else if mounted}
 	<iframe
 		bind:this={frame}
-		src={initialSrc}
+		src={bootSrc}
 		onload={(e) => {
 			const f = e.currentTarget as HTMLIFrameElement
 			// Re-apply after load so a toggle that happened while the frame was
