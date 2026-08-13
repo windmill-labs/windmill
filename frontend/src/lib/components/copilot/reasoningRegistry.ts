@@ -271,16 +271,15 @@ function canDisableReasoning(provider: AIProvider, model: string): boolean {
 	const base = baseModelId(model)
 	switch (reasoningProviderFamily(provider, model)) {
 		case 'anthropic':
+			// Every Claude but Fable and Mythos takes an explicit
+			// `thinking: {type: "disabled"}` (see `explicitOffToken`), which is
+			// the only off that also holds for the 5 family — it thinks by
+			// default, so omitting the field would leave it reasoning.
+			return !ANTHROPIC_ALWAYS_THINKING.test(m)
 		case 'aws_bedrock':
-			// Claude 4.6/4.7/4.8 only think when asked, so omission is a real
-			// off. Fable and Mythos always think (an explicit disable 400s), and
-			// Opus 5 / Sonnet 5 think by default — omitting the field leaves
-			// them reasoning, so an off switch there would be a lie.
-			return !(
-				m.includes('fable') ||
-				m.includes('mythos') ||
-				/claude-(opus|sonnet)-5/.test(m)
-			)
+			// Bedrock routes through the OpenAI-compatible surface, where off is
+			// omission — a no-op on the models that think by default.
+			return !(ANTHROPIC_ALWAYS_THINKING.test(m) || /claude-(opus|sonnet)-5/.test(m))
 		case 'googleai':
 			return geminiCanDisable(model)
 		case 'openai':
@@ -349,12 +348,30 @@ export function resolveEffectiveReasoning(
 export const DEEPSEEK_OFF_SENTINEL: ReasoningEffort = 'none'
 
 /**
+ * Sentinel for the Anthropic off case. Like the DeepSeek one it never reaches
+ * the wire as an effort: the 'anthropic' branch of `applyReasoningToConfig`
+ * translates it to `thinking: {type: "disabled"}`, which is the only off the
+ * always-on 5 family respects.
+ */
+export const ANTHROPIC_OFF_SENTINEL: ReasoningEffort = 'none'
+
+/** Claude models whose thinking cannot be turned off — an explicit disable 400s. */
+const ANTHROPIC_ALWAYS_THINKING = /fable|mythos/
+
+/**
  * Disable token to forward when the user explicitly turns reasoning off on a
  * model that reasons *by default* — omitting the field would silently keep
  * the default-on behavior. Undefined means omission is the correct off.
  */
 export function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
 	switch (reasoningProviderFamily(provider, model)) {
+		case 'anthropic':
+			// Omission is not an off for the 5 family, which thinks by default,
+			// so send the explicit disable instead. Fable and Mythos reject it
+			// outright, so they get no off token at all.
+			return ANTHROPIC_ALWAYS_THINKING.test(model.toLowerCase())
+				? undefined
+				: ANTHROPIC_OFF_SENTINEL
 		case 'googleai':
 			// Gemini 2.5/3 think by default (dynamic budget / level). The backend
 			// proxy maps 'none' to off on Flash, or the floor on Pro (only
@@ -425,6 +442,11 @@ export function applyReasoningToConfig<T extends Record<string, any>>(
 	}
 	switch (apiKind) {
 		case 'anthropic': {
+			// Sending the disable without an effort leaves Opus 5 at its default
+			// `high`, where it is accepted — pairing it with xhigh/max 400s.
+			if (effort === ANTHROPIC_OFF_SENTINEL) {
+				return { ...config, thinking: { type: 'disabled' } } as unknown as T
+			}
 			// Adaptive thinking rejects sampling params; strip them when reasoning is on.
 			const { temperature: _t, top_p: _p, top_k: _k, ...rest } = config as Record<string, any>
 			return {

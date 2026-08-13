@@ -65,9 +65,21 @@ describe('supportsReasoning (static registry)', () => {
 				'xhigh',
 				'max'
 			])
-			// They think when the field is omitted, so off would be a no-op.
-			expect(getReasoningCapability('anthropic', model).canDisable).toBe(false)
 		}
+		// Opus 5 / Sonnet 5 think when the field is omitted, so off is the
+		// explicit disable rather than dropping the field. (Mythos, like Fable,
+		// rejects the disable — covered with Fable below.)
+		for (const model of ['claude-opus-5', 'claude-sonnet-5']) {
+			expect(getReasoningCapability('anthropic', model).canDisable).toBe(true)
+			expect(
+				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
+			).toBe('none')
+		}
+		// Bedrock routes them over the OpenAI-compatible surface, where the only
+		// off is omission — which these models ignore.
+		expect(
+			getReasoningCapability('aws_bedrock', 'global.anthropic.claude-opus-5').canDisable
+		).toBe(false)
 	})
 	it('flags Claude models served through Bedrock, with the Anthropic ladder', () => {
 		expect(supportsReasoning('aws_bedrock', 'us.anthropic.claude-opus-4-6-v1')).toBe(true)
@@ -298,17 +310,16 @@ describe('Azure AI Foundry reasoning follows the model family', () => {
 			'xhigh',
 			'max'
 		])
-		// Claude 4.6-4.8 only think when asked, so omission is a real off...
 		expect(getReasoningCapability('azure_foundry', 'claude-opus-4-8').canDisable).toBe(true)
-		// ...while the 5 family thinks by default, so no off is offered.
-		expect(getReasoningCapability('azure_foundry', 'claude-sonnet-5').canDisable).toBe(false)
+		expect(getReasoningCapability('azure_foundry', 'claude-sonnet-5').canDisable).toBe(true)
+		// Off is the explicit thinking disable, which Foundry serves like Anthropic.
 		expect(
 			resolveRequestReasoning({
 				provider: 'azure_foundry',
 				model: 'claude-sonnet-5',
 				reasoning: REASONING_OFF
 			})
-		).toBeUndefined()
+		).toBe('none')
 	})
 
 	it('treats Foundry OpenAI deployments like the OpenAI provider', () => {
@@ -382,14 +393,33 @@ describe('resolveRequestReasoning', () => {
 			resolveRequestReasoning({ provider: 'openai', model: 'o3', reasoning: REASONING_OFF })
 		).toBeUndefined()
 	})
-	it('keeps off as undefined for providers without default-on reasoning', () => {
+	it('keeps off as undefined only where no disable token exists', () => {
+		// Fable and Mythos reject an explicit disable, so there is nothing to send.
+		for (const model of ['claude-fable-5', 'claude-mythos-5']) {
+			expect(
+				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
+			).toBeUndefined()
+		}
 		expect(
 			resolveRequestReasoning({
-				provider: 'anthropic',
-				model: 'claude-sonnet-4-6',
+				provider: 'aws_bedrock',
+				model: 'us.anthropic.claude-opus-4-8-v1',
 				reasoning: REASONING_OFF
 			})
 		).toBeUndefined()
+	})
+
+	it('turns the Anthropic off sentinel into an explicit thinking disable', () => {
+		expect(
+			applyReasoningToConfig({ model: 'claude-opus-5', max_tokens: 1 }, 'anthropic', 'none')
+		).toEqual({ model: 'claude-opus-5', max_tokens: 1, thinking: { type: 'disabled' } })
+		// An effort still produces adaptive thinking, not the disable.
+		expect(
+			applyReasoningToConfig({ model: 'claude-opus-5', max_tokens: 1 }, 'anthropic', 'xhigh')
+		).toMatchObject({
+			output_config: { effort: 'xhigh' },
+			thinking: { type: 'adaptive', display: 'summarized' }
+		})
 	})
 	it('never sends a disable token for non-capable models', () => {
 		expect(

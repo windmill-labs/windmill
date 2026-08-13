@@ -306,21 +306,25 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	) {
 		return 100000
 	} else if (
-		// One budget for the whole Claude line: every current Claude model can
-		// emit at least this much. Raising it further would also raise the
-		// worst case of the non-streaming completion path, which the Anthropic
-		// SDK refuses once the request could run past ~10 minutes.
+		// Raising this further would also raise the worst case of the
+		// non-streaming completion path, which the Anthropic SDK refuses once
+		// the request could run past ~10 minutes.
 		model.includes('claude-sonnet') ||
-		model.includes('claude-opus') ||
 		model.includes('claude-haiku') ||
 		model.includes('claude-fable') ||
 		model.includes('claude-mythos') ||
+		// Opus only from 4.5 on. Opus 4.1 and older cap at 32K and fall through
+		// to the row below. Dots are normalized because OpenRouter writes
+		// `anthropic/claude-opus-4.5` where Anthropic writes `claude-opus-4-5`.
+		/claude-opus-(4-(5|6|7|8)|5)(?!\d)/.test(model.replace(/\./g, '-')) ||
 		model.includes('gemini-2.5') ||
 		model.includes('gemini-3')
 	) {
 		return 64000
 	} else if (model.includes('gpt-4.1')) {
 		return 32768
+	} else if (model.includes('claude-opus')) {
+		return 32000
 	} else if (model.includes('gpt-4o') || model.includes('codestral')) {
 		return 16384
 	} else if (model.includes('gpt-4-turbo') || model.includes('gpt-3.5')) {
