@@ -3088,6 +3088,9 @@ pub struct MiniCompletedJob {
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
     pub runnable_settings_handle: Option<i64>,
+    /// A `dependencies` job that only rebuilt a binary. It deployed nothing, so consumers
+    /// that react to a dependency job as "a new version is live" must skip it.
+    pub build_binary_only: bool,
 }
 
 impl From<QueuedJobV2> for MiniCompletedJob {
@@ -3115,6 +3118,9 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            // `QueuedJobV2` carries no args, and nothing reaches the restart gate
+            // through this conversion — the worker completes jobs from the pulled job.
+            build_binary_only: false,
         }
     }
 }
@@ -3145,6 +3151,9 @@ impl From<MiniPulledJob> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            build_binary_only: crate::binary_prebuild::is_build_binary_job(
+                job.args.as_ref().map(|x| &x.0),
+            ),
         }
     }
 }
@@ -3174,6 +3183,9 @@ impl From<Arc<MiniPulledJob>> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            build_binary_only: crate::binary_prebuild::is_build_binary_job(
+                job.args.as_ref().map(|x| &x.0),
+            ),
         }
     }
 }
@@ -5061,7 +5073,8 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
             MiniCompletedJob,
             "SELECT
             j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as,
-            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle,
+            COALESCE((j.args->>'build_binary_only')::boolean, false) AS \"build_binary_only!\"
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,
