@@ -24,10 +24,12 @@ export type PricedTokens = {
 	output: number
 }
 
-// Rates that fall out of the input rate unless a provider prices them separately.
-// Anthropic reads a cached prefix at a tenth of the input rate and writes one at
-// 1.25x (5-minute TTL, the default the chat uses). Providers whose caching is
-// automatic never report a cache write, so their write rate is unused.
+// Fallbacks for entries that do not price their cache separately: Anthropic reads a
+// cached prefix at a tenth of the input rate and writes one at 1.25x (5-minute TTL,
+// the default the chat uses). The read ratio is NOT universal — OpenAI and Google
+// discount a cached read far less — so every non-Anthropic entry below states its own
+// `cacheRead` rather than inheriting this. Providers whose caching is automatic never
+// report a cache write, so their write rate is unused.
 const CACHE_READ_RATIO = 0.1
 const CACHE_WRITE_RATIO = 1.25
 
@@ -72,25 +74,26 @@ const MODEL_PRICES: [name: string, price: PriceEntry][] = [
 	['claude-opus', { input: 5, output: 25 }],
 	['claude-sonnet', { input: 3, output: 15 }],
 	['claude-haiku', { input: 1, output: 5 }],
-	// OpenAI — cached input is a tenth of input, and there is no separate charge
-	// for writing the cache, so the write rate never applies (the OpenAI usage
-	// parsers report no cache-write tokens). The -mini/-nano entries must precede
+	// OpenAI — the cached-input discount varies by family (a tenth on gpt-5, a
+	// quarter on 4.1 and the o-series, half on 4o), so each entry carries its own
+	// rate. There is no charge for writing the cache and no usage field reporting
+	// one, so the write rate never applies. The -mini/-nano entries must precede
 	// the family entry, which would otherwise claim them.
-	['gpt-5-mini', { input: 0.25, output: 2 }],
-	['gpt-5-nano', { input: 0.05, output: 0.4 }],
-	['gpt-5', { input: 1.25, output: 10 }],
-	['gpt-4.1-mini', { input: 0.4, output: 1.6 }],
-	['gpt-4.1-nano', { input: 0.1, output: 0.4 }],
-	['gpt-4.1', { input: 2, output: 8 }],
-	['gpt-4o-mini', { input: 0.15, output: 0.6 }],
-	['gpt-4o', { input: 2.5, output: 10 }],
-	['o4-mini', { input: 1.1, output: 4.4 }],
-	['o3-mini', { input: 1.1, output: 4.4 }],
-	['o3', { input: 2, output: 8 }],
-	// Google
-	['gemini-2.5-flash-lite', { input: 0.1, output: 0.4 }],
-	['gemini-2.5-flash', { input: 0.3, output: 2.5 }],
-	['gemini-2.5-pro', { input: 1.25, output: 10 }]
+	['gpt-5-mini', { input: 0.25, output: 2, cacheRead: 0.025 }],
+	['gpt-5-nano', { input: 0.05, output: 0.4, cacheRead: 0.005 }],
+	['gpt-5', { input: 1.25, output: 10, cacheRead: 0.125 }],
+	['gpt-4.1-mini', { input: 0.4, output: 1.6, cacheRead: 0.1 }],
+	['gpt-4.1-nano', { input: 0.1, output: 0.4, cacheRead: 0.025 }],
+	['gpt-4.1', { input: 2, output: 8, cacheRead: 0.5 }],
+	['gpt-4o-mini', { input: 0.15, output: 0.6, cacheRead: 0.075 }],
+	['gpt-4o', { input: 2.5, output: 10, cacheRead: 1.25 }],
+	['o4-mini', { input: 1.1, output: 4.4, cacheRead: 0.275 }],
+	['o3-mini', { input: 1.1, output: 4.4, cacheRead: 0.55 }],
+	['o3', { input: 2, output: 8, cacheRead: 0.5 }],
+	// Google — a cached read is a quarter of input across the 2.5 family
+	['gemini-2.5-flash-lite', { input: 0.1, output: 0.4, cacheRead: 0.025 }],
+	['gemini-2.5-flash', { input: 0.3, output: 2.5, cacheRead: 0.075 }],
+	['gemini-2.5-pro', { input: 1.25, output: 10, cacheRead: 0.31 }]
 ]
 
 const MODEL_PRICE_MATCHERS = buildModelMatchers(
@@ -116,12 +119,27 @@ export function getKnownModelPrice(model: string): ModelPrice | undefined {
  * rate, so an admin who only knows their input/output pricing does not have to
  * invent the other two.
  */
+/** A rate that would make spend negative, infinite or NaN is not a price. The API
+ * validates what it stores, but an instance-level config is written as an untyped
+ * settings blob, so the reader refuses bad values rather than rendering nonsense. */
+function isUsableRate(rate: number | undefined): boolean {
+	return rate === undefined || (Number.isFinite(rate) && rate >= 0)
+}
+
 export function resolveModelPrice(
 	provider: AIProvider | string,
 	model: string,
 	overrides: Record<string, ModelPriceOverride> | undefined
 ): ResolvedModelPrice | undefined {
-	const override = overrides?.[modelKey(provider, model)]
+	const candidate = overrides?.[modelKey(provider, model)]
+	const override =
+		candidate &&
+		isUsableRate(candidate.input) &&
+		isUsableRate(candidate.output) &&
+		isUsableRate(candidate.cache_read) &&
+		isUsableRate(candidate.cache_write)
+			? candidate
+			: undefined
 	if (override) {
 		return {
 			source: 'override',

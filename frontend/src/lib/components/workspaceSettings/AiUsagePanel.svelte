@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { AiService, type AITokenUsageBucket, type ModelPriceOverride } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { formatUsd, priceSpend, type ModelSpend } from '../copilot/modelPricing'
 	import { formatTokenCount } from '../copilot/chat/tokenUsage'
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
@@ -9,7 +8,13 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { resource } from 'runed'
 
-	let { modelPricing }: { modelPricing: Record<string, ModelPriceOverride> } = $props()
+	// The workspace is passed in rather than read from the store: this settings
+	// component is also mounted for the instance scope, where the workspace in
+	// focus has nothing to do with the config being edited.
+	let {
+		workspace,
+		modelPricing
+	}: { workspace: string; modelPricing: Record<string, ModelPriceOverride> } = $props()
 
 	type GroupBy = 'day' | 'user' | 'model' | 'session'
 
@@ -23,9 +28,9 @@
 	]
 
 	let usage = resource(
-		() => ({ workspace: $workspaceStore, days, groupBy }),
+		() => ({ workspace, days, groupBy }),
 		async ({ workspace, days, groupBy }) =>
-			workspace ? await AiService.listAiUsage({ workspace, days, groupBy }) : []
+			workspace ? await AiService.listAiUsage({ workspace, days, groupBy }) : undefined
 	)
 
 	// The API groups by (dimension, provider, model) so every bucket resolves to a
@@ -52,7 +57,7 @@
 		}
 	}
 
-	let priced = $derived(priceSpend((usage.current ?? []).map(toSpend), modelPricing))
+	let priced = $derived(priceSpend((usage.current?.buckets ?? []).map(toSpend), modelPricing))
 
 	let rows = $derived.by(() => {
 		const byKey = new Map<
@@ -110,9 +115,17 @@
 			<div class="flex flex-row items-baseline gap-2">
 				<span class="text-lg font-semibold tabular-nums">{formatUsd(priced.total)}</span>
 				<span class="text-xs text-tertiary">
-					total{priced.hasUnpriced ? ', excluding models with no price' : ''}
+					{usage.current?.truncated ? 'across the rows below' : 'total'}{priced.hasUnpriced
+						? ', excluding models with no price'
+						: ''}
 				</span>
 			</div>
+			{#if usage.current?.truncated}
+				<p class="text-xs text-tertiary">
+					More rows matched than are shown; the biggest spenders are listed. Narrow the range or
+					group differently to see the rest.
+				</p>
+			{/if}
 			<div class="overflow-x-auto border rounded-md">
 				<table class="w-full text-xs">
 					<thead class="bg-surface-secondary">

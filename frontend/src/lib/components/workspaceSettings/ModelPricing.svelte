@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { AIConfig, AIProvider, ModelPriceOverride } from '$lib/gen'
 	import { Badge, Button } from '../common'
+	import TextInput from '../text_input/TextInput.svelte'
 	import { getKnownModelPrice } from '../copilot/modelPricing'
 	import { modelKey } from '../copilot/modelConfig'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
@@ -133,21 +134,26 @@
 											{#each ['input', 'output'] as const as field}
 												<div class="flex items-center gap-1">
 													<span class="text-xs text-secondary">{field}</span>
-													<input
-														type="number"
-														min="0"
-														max={MAX_RATE}
-														step="0.01"
-														value={rates?.[field] ?? ''}
-														placeholder="—"
-														oninput={(e) => {
-															const value = parseFloat(e.currentTarget.value)
-															if (!isNaN(value)) {
-																updateRate(provider as AIProvider, model, field, value)
-															}
-														}}
-														class="w-20 px-2 py-1 text-xs text-center border border-gray-200 dark:border-gray-700 rounded bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-													/>
+													<div class="w-24">
+														<TextInput
+															value={rates?.[field] ?? ''}
+															size="sm"
+															error={!!errors[key]}
+															inputProps={{
+																type: 'number',
+																min: 0,
+																max: MAX_RATE,
+																step: 0.01,
+																placeholder: '—',
+																oninput: (e: Event & { currentTarget: HTMLInputElement }) => {
+																	const value = parseFloat(e.currentTarget.value)
+																	if (!isNaN(value)) {
+																		updateRate(provider as AIProvider, model, field, value)
+																	}
+																}
+															}}
+														/>
+													</div>
 												</div>
 											{/each}
 											<span class="text-xs text-secondary whitespace-nowrap">$ / 1M</span>
@@ -156,6 +162,11 @@
 											<div class="text-xs text-tertiary">
 												No built-in price — usage on this model is reported without a cost until you
 												set one.
+											</div>
+										{/if}
+										{#if overridden && (rates?.input === 0 || rates?.output === 0)}
+											<div class="text-xs text-red-500">
+												A rate left at 0 prices those tokens as free — set both.
 											</div>
 										{/if}
 										{#if overridden}

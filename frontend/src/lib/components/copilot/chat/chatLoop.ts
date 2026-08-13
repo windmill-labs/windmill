@@ -21,13 +21,7 @@ import {
 } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
 import { sanitizeToolCallArguments } from './toolCallArguments'
-import {
-	addChatTokenUsage,
-	addModelTokenUsage,
-	emptyChatTokenUsage,
-	type ChatTokenUsage,
-	type ModelTokenUsageTotals
-} from './tokenUsage'
+import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 export interface ChatClients {
 	openai: OpenAI
@@ -83,14 +77,17 @@ export interface ChatLoopConfig {
 		helpers: any,
 		modelProvider: ReasoningProviderModel
 	) => Promise<void>
+	/** Fired for each completed provider response, before the loop continues. The
+	 * loop can fail or be aborted at any iteration, so spend has to be handed over
+	 * as it happens — a callback only at the end would discard everything the
+	 * earlier iterations were already billed for. */
+	onUsage?: (usage: ChatTokenUsage, modelProvider: ReasoningProviderModel) => void
 }
 
 export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
-	/** Sum of usage across all loop iterations (suitable for cost accounting). */
+	/** Sum of usage across all loop iterations. */
 	tokenUsage: ChatTokenUsage
-	/** The same usage split per model, so a turn that switched model prices correctly. */
-	tokenUsageByModel: ModelTokenUsageTotals
 	lastIterationUsage: ChatTokenUsage | null
 	hitMaxIterations: boolean
 }
@@ -333,7 +330,6 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 	const addedMessages: ChatCompletionMessageParam[] = config.addedMessages ?? []
 	let tokenUsage = emptyChatTokenUsage()
-	let tokenUsageByModel: ModelTokenUsageTotals = {}
 	let lastIterationUsage: ChatTokenUsage | null = null
 	let iterations = 0
 	let hitMaxIterations = false
@@ -344,13 +340,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 	const trackUsage = (usage: ChatTokenUsage | null | undefined) => {
 		tokenUsage = addChatTokenUsage(tokenUsage, usage)
-		if (iterationModel) {
-			tokenUsageByModel = addModelTokenUsage(
-				tokenUsageByModel,
-				iterationModel.provider,
-				iterationModel.model,
-				usage
-			)
+		if (usage && iterationModel) {
+			config.onUsage?.(usage, iterationModel)
 		}
 		// Some providers/paths report no usage (prompt 0); keep the last real one.
 		if (usage && usage.prompt > 0) {
@@ -594,5 +585,5 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		}
 	}
 
-	return { addedMessages, tokenUsage, tokenUsageByModel, lastIterationUsage, hitMaxIterations }
+	return { addedMessages, tokenUsage, lastIterationUsage, hitMaxIterations }
 }

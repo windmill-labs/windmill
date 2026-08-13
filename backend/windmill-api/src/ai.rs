@@ -6,7 +6,7 @@ use axum::routing::get;
 use axum::Json;
 use axum::{
     body::Bytes,
-    extract::{Path, Query},
+    extract::{DefaultBodyLimit, Path, Query},
     response::IntoResponse,
     routing::post,
     Extension, Router,
@@ -441,7 +441,39 @@ pub struct ModelPriceOverride {
     pub cache_write: Option<f64>,
 }
 
+/// Far above any real per-million-token rate, so a value beyond it is a unit
+/// mistake rather than a price. The floor matters more: a negative rate would make
+/// spend subtract, and NaN/infinity would poison every total derived from it.
+pub const MAX_MODEL_RATE: f64 = 1000.0;
+
+impl ModelPriceOverride {
+    pub fn validate(&self, key: &str) -> Result<()> {
+        for (field, rate) in [
+            ("input", Some(self.input)),
+            ("output", Some(self.output)),
+            ("cache_read", self.cache_read),
+            ("cache_write", self.cache_write),
+        ] {
+            let Some(rate) = rate else { continue };
+            if !rate.is_finite() || rate < 0.0 || rate > MAX_MODEL_RATE {
+                return Err(Error::BadRequest(format!(
+                    "Price override for {}: {} must be between 0 and {}",
+                    key, field, MAX_MODEL_RATE
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 impl AIConfig {
+    pub fn validate_model_pricing(&self) -> Result<()> {
+        for (key, price) in self.model_pricing.iter().flatten() {
+            price.validate(key)?;
+        }
+        Ok(())
+    }
+
     pub fn has_providers(&self) -> bool {
         self.providers
             .as_ref()
@@ -456,7 +488,16 @@ pub fn global_service() -> Router {
 pub fn workspaced_service() -> Router {
     let router = Router::new()
         .route("/proxy/{*ai}", post(proxy).get(proxy))
-        .route("/usage", post(record_ai_usage).get(list_ai_usage));
+        .route(
+            "/usage",
+            post(record_ai_usage)
+                .get(list_ai_usage)
+                // The handler caps how many events it *stores*, but Json deserializes
+                // the whole array first — without a body limit an authenticated member
+                // could make the server allocate and parse an arbitrarily large one.
+                // Sized well above a full batch of the shape below.
+                .layer(DefaultBodyLimit::max(AI_USAGE_BODY_LIMIT)),
+        );
 
     #[cfg(feature = "bedrock")]
     let router = router.route("/check_bedrock_credentials", get(check_bedrock_credentials));
@@ -492,6 +533,8 @@ struct RecordAIUsagePayload {
 }
 
 const MAX_AI_USAGE_EVENTS: usize = 50;
+/// 64 KiB — a 50-event batch is a few kB even with the longest model ids.
+const AI_USAGE_BODY_LIMIT: usize = 64 * 1024;
 /// Well above any single conversation and far below an i64 overflow, so a client
 /// bug caps out at one absurd row instead of poisoning the running total.
 const MAX_TOKENS_PER_EVENT: i64 = 100_000_000;
@@ -636,12 +679,24 @@ struct AITokenUsageBucket {
     requests: i64,
 }
 
+/// Grouping by session (or by day over a long range) can produce more buckets than
+/// a table is worth rendering, so the listing is capped. `truncated` says so
+/// explicitly — a caller that sums the rows into a total must be able to tell that
+/// the total is partial rather than silently under-reporting spend.
+#[derive(Serialize)]
+struct AITokenUsageListing {
+    buckets: Vec<AITokenUsageBucket>,
+    truncated: bool,
+}
+
+const AI_USAGE_MAX_BUCKETS: i64 = 1000;
+
 async fn list_ai_usage(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(query): Query<ListAIUsageQuery>,
-) -> Result<Json<Vec<AITokenUsageBucket>>> {
+) -> Result<Json<AITokenUsageListing>> {
     require_admin(authed.is_admin, &authed.username)?;
 
     let days = query.days.unwrap_or(30).clamp(1, 365);
@@ -653,7 +708,9 @@ async fn list_ai_usage(
         )));
     }
 
-    let rows = sqlx::query_as!(
+    // Fetch one past the cap to detect truncation, and order by spend so a capped
+    // listing keeps the buckets worth looking at rather than an arbitrary slice.
+    let mut rows = sqlx::query_as!(
         AITokenUsageBucket,
         r#"SELECT
             (CASE $3::text
@@ -671,18 +728,22 @@ async fn list_ai_usage(
             SUM(reported_cost_nano_usd)::bigint AS "reported_cost_nano_usd",
             SUM(requests)::bigint AS "requests!"
          FROM ai_token_usage
-         WHERE workspace_id = $1 AND day >= CURRENT_DATE - $2::int
+         WHERE workspace_id = $1 AND day > CURRENT_DATE - $2::int
          GROUP BY 1, provider, model
-         ORDER BY 1 DESC, SUM(input_tokens + output_tokens) DESC
-         LIMIT 1000"#,
+         ORDER BY SUM(input_tokens + cache_read_tokens + cache_write_tokens + output_tokens) DESC
+         LIMIT $4"#,
         &w_id,
         days,
-        group_by
+        group_by,
+        AI_USAGE_MAX_BUCKETS + 1
     )
     .fetch_all(&db)
     .await?;
 
-    Ok(Json(rows))
+    let truncated = rows.len() as i64 > AI_USAGE_MAX_BUCKETS;
+    rows.truncate(AI_USAGE_MAX_BUCKETS as usize);
+
+    Ok(Json(AITokenUsageListing { buckets: rows, truncated }))
 }
 
 /// Check if AWS Bedrock credentials are available from environment variables.

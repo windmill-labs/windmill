@@ -56,7 +56,7 @@ import {
 import { dfs } from '$lib/components/flows/previousResults'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { createLongHash } from '$lib/editorLangUtils'
-import type { UserDraftItemKind } from '$lib/gen'
+import type { AIProvider, UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
@@ -103,6 +103,7 @@ import {
 	addModelTokenUsage,
 	billedTokens,
 	normalizeContextUsage,
+	type ChatTokenUsage,
 	type ModelTokenUsageTotals
 } from './tokenUsage'
 import { logAiUsage } from '$lib/utils/aiUsageReporter'
@@ -663,33 +664,27 @@ export class AIChatManager {
 		return Object.keys(snapshot).length > 0 ? snapshot : undefined
 	}
 
-	/** Fold a completed turn's usage into the conversation's running spend and
-	 * report it for the workspace usage view. Only token counts leave the browser:
-	 * rates are applied when the usage is read, so a corrected price also corrects
-	 * everything already recorded. */
-	private recordUsage(byModel: ModelTokenUsageTotals | undefined) {
-		// Accounting must never take a turn down with it: a path that reports no
-		// per-model breakdown simply records nothing.
-		for (const entry of Object.values(byModel ?? {})) {
-			this.usageByModel = addModelTokenUsage(
-				this.usageByModel,
-				entry.provider,
-				entry.model,
-				entry.usage
-			)
-			const tokens = billedTokens(entry.usage)
-			logAiUsage({
-				provider: entry.provider,
-				model: entry.model,
-				sessionId: this.sessionId,
-				inputTokens: tokens.input,
-				cacheReadTokens: tokens.cacheRead,
-				cacheWriteTokens: tokens.cacheWrite,
-				outputTokens: tokens.output,
-				costUsd: entry.usage.cost,
-				workspace: this.operatingWorkspace
-			})
-		}
+	/** Fold one completed provider response into the conversation's running spend
+	 * and report it for the workspace usage view. Called per response rather than
+	 * per turn: a tool loop makes several, each separately billed, and a turn that
+	 * fails partway through has still spent everything up to that point.
+	 *
+	 * Only token counts leave the browser — rates are applied when the usage is
+	 * read, so a corrected price also corrects everything already recorded. */
+	private recordUsage(usage: ChatTokenUsage, provider: AIProvider, model: string) {
+		this.usageByModel = addModelTokenUsage(this.usageByModel, provider, model, usage)
+		const tokens = billedTokens(usage)
+		logAiUsage({
+			provider,
+			model,
+			sessionId: this.sessionId,
+			inputTokens: tokens.input,
+			cacheReadTokens: tokens.cacheRead,
+			cacheWriteTokens: tokens.cacheWrite,
+			outputTokens: tokens.output,
+			costUsd: usage.cost,
+			workspace: this.operatingWorkspace
+		})
 	}
 
 	// Serialized, snapshot-at-write-time persistence: two rapid dock actions
@@ -2384,6 +2379,14 @@ export class AIChatManager {
 					}
 					return undefined
 				},
+				onUsage: (usage, modelProvider) => {
+					// Accounting must never take a turn down with it.
+					try {
+						this.recordUsage(usage, modelProvider.provider, modelProvider.model)
+					} catch (e) {
+						console.error('Failed to record AI usage', e)
+					}
+				},
 				onBeforeIteration: async (tools, _helpers, modelProvider) => {
 					this.lastIterationModel = modelProvider
 					for (const tool of tools) {
@@ -2393,9 +2396,6 @@ export class AIChatManager {
 					}
 				}
 			})
-			if (result.tokenUsage.total > 0) {
-				this.recordUsage(result.tokenUsageByModel)
-			}
 			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
 				logFeatureUsage('ai_session', 'tokens', {
 					entityId: this.sessionId,

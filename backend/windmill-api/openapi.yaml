@@ -11886,9 +11886,18 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/AITokenUsageBucket"
+                type: object
+                required:
+                  - buckets
+                  - truncated
+                properties:
+                  buckets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AITokenUsageBucket"
+                  truncated:
+                    type: boolean
+                    description: more buckets matched than were returned, so summing them under-reports
 
   /w/{workspace}/ai_skills/list:
     get:
@@ -26062,12 +26071,20 @@ components:
       properties:
         input:
           type: number
+          minimum: 0
+          maximum: 1000
         output:
           type: number
+          minimum: 0
+          maximum: 1000
         cache_read:
           type: number
+          minimum: 0
+          maximum: 1000
         cache_write:
           type: number
+          minimum: 0
+          maximum: 1000
       required:
         - input
         - output

@@ -140,6 +140,12 @@ export function buildModelMatchers<T>(entries: [name: string, value: T][]): [Reg
  * The `provider:model` key the workspace AI settings use for their per-model maps
  * (`max_tokens_per_model`, `model_pricing`). A bare model id is not enough: the
  * same id can be served by more than one provider at different rates.
+ *
+ * Matched exactly, unlike the fuzzy tables above. Those tables generalize across
+ * every route to one model on purpose; a per-model *setting* must not, or an
+ * admin could not give two variants of a family different values — and the key is
+ * built from the exact id the provider config lists, which is the same string the
+ * chat sends.
  */
 export function modelKey(provider: AIProvider | string, model: string): string {
 	return `${provider}:${model}`

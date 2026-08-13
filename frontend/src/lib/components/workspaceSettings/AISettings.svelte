@@ -588,8 +588,6 @@
 
 		<ModelPricing {aiProviders} bind:modelPricing />
 
-		<AiUsagePanel {modelPricing} />
-
 		<SettingCard label="Custom system prompts" description={promptDescription}>
 			<div class="flex items-center gap-2 pt-1">
 				<Button
@@ -623,6 +621,10 @@
 	hasChanges={hasPromptsChanges}
 	scope={promptScope}
 />
+
+{#if promptScope === 'workspace'}
+	<AiUsagePanel workspace={effectiveWorkspace} {modelPricing} />
+{/if}
 
 {#if showWorkspaceOverrideEditor}
 	<SettingsFooter
