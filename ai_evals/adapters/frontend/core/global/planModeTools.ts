@@ -1,11 +1,11 @@
 import {
   EXIT_PLAN_MODE_TOOL,
   EXIT_PLAN_MODE_TOOL_DESCRIPTION,
-  PLAN_MODE_MESSAGES,
   derivePlanTitle,
   exitPlanModeArgs,
   planSummaryOf,
 } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
+import { PLAN_MODE_MESSAGES } from "../../../../../frontend/src/lib/components/copilot/chat/planModeMessages";
 import { createToolDef } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
 
