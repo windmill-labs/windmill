@@ -75,8 +75,10 @@ first: it is not a `.env*` file, so the repo's secret-file read rules don't stan
 In a plain checkout, fall back to `.env` / `.env.local` (repo root) and `backend/.env`.
 
 Each worktree gets a **brand-new database**, created and migrated from scratch by the post-create
-hook. It is not a copy of the main dev instance, so it starts with none of your workspaces,
-scripts or flows — create whatever a test needs. Cloning the base `windmill` database instead is
+hook. It is not a copy of the main dev instance: you get the `admins` workspace, the
+`admin@windmill.dev` superadmin, the license key copied from the base database, and whatever the
+migrations seed — and none of your own workspaces, scripts, flows or apps. Create whatever a test
+needs. Cloning the base `windmill` database instead is
 opt-in per project via `WM_CLONE_DB` in `.webmux.yaml`; read the note there before turning it on.
 
 The database is named after the **worktree directory, not the branch** (`scripts/worktree-common.sh`):
