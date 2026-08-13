@@ -324,7 +324,7 @@
 		{:else if oauthAppReady && entry}
 			<div class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis flex gap-2 items-center">
-					Scopes
+					OAuth scopes
 					<Button
 						unifiedSize="2xs"
 						variant="subtle"

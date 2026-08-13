@@ -7,7 +7,6 @@
 	} from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
-	import { Check } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { upsertSecretVariable } from './secretVariable'
 	import { sameTopDomainOrigin } from '$lib/cookies'
@@ -189,16 +188,8 @@
 	{:else if status === 'discovering'}
 		<div class="text-xs text-secondary">Checking what {server.name} supports...</div>
 	{:else if status === 'discovered' && discoveryResult}
-		<div class="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-			<Check size={14} />
-			OAuth supported
-			{#if discoveryResult.supports_dynamic_registration}
-				(dynamic client registration available)
-			{/if}
-		</div>
-
 		{#if discoveryResult.scopes_supported && discoveryResult.scopes_supported.length > 0}
-			<Label label="Scopes">
+			<Label label="OAuth scopes">
 				<div class="flex flex-col flex-wrap gap-2">
 					{#each discoveryResult.scopes_supported as scope}
 						<label class="flex flex-row items-center gap-2 text-xs cursor-pointer">
