@@ -102,24 +102,24 @@
 	let initialResourcePath = $state('')
 	let resourcePathError = $state('')
 	/**
-	 * The run writes a resource *and* a secret variable at this one path, and both writes
-	 * upsert so a retry can repair its own half-finished attempt. `Path` only knows about the
-	 * resource namespace, so without this a variable already sitting there is overwritten
-	 * with no warning.
+	 * Whichever namespace refused this path. The run writes a resource *and* a secret variable
+	 * at the one path, and both writes upsert, so anything already sitting at either would be
+	 * overwritten. `Path` reports the resource namespace itself; the effect below covers the
+	 * variable one, and the check in `finish()` covers both.
 	 */
-	let variablePathError = $state('')
+	let pathTakenError = $state('')
 	let variableCheck: ReturnType<typeof setTimeout> | undefined = undefined
 	$effect(() => {
 		const path = resourcePath
 		if (wiz.step !== 3 || !mintsResource || !path) {
-			variablePathError = ''
+			pathTakenError = ''
 			return
 		}
 		// A path this wizard already wrote is not somebody else's to protect -- the same
 		// exemption the hard check in `finish()` makes, or a retry would refuse its own secret
 		// and leave Finish permanently disabled.
 		if (path === claimedPath) {
-			variablePathError = ''
+			pathTakenError = ''
 			return
 		}
 		clearTimeout(variableCheck)
@@ -129,10 +129,27 @@
 			// that is no longer the one on screen is not merely stale: a `false` for an older
 			// path would clear the error guarding the path actually about to be written.
 			if (path !== resourcePath) return
-			variablePathError = taken ? 'a variable already exists at this path' : ''
+			pathTakenError = taken ? 'a variable already exists at this path' : ''
 		}, 500)
 		return () => clearTimeout(variableCheck)
 	})
+
+	/**
+	 * Both namespaces at once, for the check that has to be right rather than quick. While the
+	 * user is still typing the two halves are reported separately -- `Path` does the resource
+	 * one, the debounced effect above does the variable one -- and either debounce can still be
+	 * in flight when Finish is pressed.
+	 */
+	async function pathConflictMessage(path: string): Promise<string | undefined> {
+		const workspace = $workspaceStore!
+		const [variable, resource] = await Promise.all([
+			VariableService.existsVariable({ workspace, path }),
+			ResourceService.existsResource({ workspace, path })
+		])
+		if (variable) return 'a variable already exists at this path'
+		if (resource) return 'a resource already exists at this path'
+		return undefined
+	}
 	/** Furthest step reached, so going back to check something does not cost the progress. */
 	let maxStep = $state(1)
 
@@ -171,8 +188,9 @@
 	let resourcePath = $derived(resourcePathOf(wiz))
 
 	/**
-	 * Another data table on the same database. They would share one `_wm_migrations` table,
-	 * so each would see the other's migrations as already applied.
+	 * Another data table on the same database. They would share one schema, so their tables are
+	 * visible to each other and two of the same name collide. Migration bookkeeping is keyed by
+	 * data table, so that part stays separate.
 	 */
 	let sharesDatabaseWith = $derived(
 		wiz.provider === 'resource' && !wiz.own.creating && wiz.own.resourcePath
@@ -331,7 +349,7 @@
 		claimedName = undefined
 		claimedPath = undefined
 		nameConflict = ''
-		variablePathError = ''
+		pathTakenError = ''
 		poolerUnavailable = undefined
 		if (resume) {
 			wiz.provider = 'supabase'
@@ -520,17 +538,16 @@
 				nameConflict = ''
 			}
 			// The debounced path check is advisory -- it can still be in flight when Finish is
-			// pressed -- and the write that follows replaces a secret in place. Ask once more
-			// here, where refusing costs nothing. Skipped for a path this wizard already wrote:
-			// Try again has to be able to repair its own half-finished attempt.
-			if (
-				mintsResource &&
-				claimedPath !== resourcePath &&
-				(await VariableService.existsVariable({ workspace: $workspaceStore!, path: resourcePath }))
-			) {
-				variablePathError = 'a variable already exists at this path'
-				backToReview()
-				return
+			// pressed -- and the writes that follow replace a secret and a resource in place. Ask
+			// once more here, where refusing costs nothing. Skipped for a path this wizard already
+			// wrote: Try again has to be able to repair its own half-finished attempt.
+			if (mintsResource && claimedPath !== resourcePath) {
+				const conflict = await pathConflictMessage(resourcePath)
+				if (conflict) {
+					pathTakenError = conflict
+					backToReview()
+					return
+				}
 			}
 		} catch (err: any) {
 			// Everything inside the run reports through the checklist; this runs before there is
@@ -677,7 +694,7 @@
 				!!nameError ||
 				!wiz.review.resourceName.trim() ||
 				!!resourcePathError ||
-				!!variablePathError ||
+				!!pathTakenError ||
 				!!instanceNameError,
 			act: finish
 		}
@@ -1238,7 +1255,7 @@
 				kind="resource"
 				autofocus={false}
 			/>
-			<InputError error={variablePathError} />
+			<InputError error={pathTakenError} />
 			<p class="text-2xs text-secondary">
 				The connection is saved here as a Postgres resource, with its password in a secret variable
 				beside it. Every script in the workspace can use
@@ -1251,10 +1268,9 @@
 
 	{#if sharesDatabaseWith}
 		<Alert type="warning" size="xs" bgClass="border-0" title="">
-			<span class="font-semibold">{sharesDatabaseWith.name}</span> already uses this database. Both
-			data tables would write to the same schema and share one
-			<span class="font-mono">_wm_migrations</span> table, so each would see the other's migrations as
-			already applied.
+			<span class="font-semibold">{sharesDatabaseWith.name}</span> already uses this database. Both data
+			tables would write to the same schema, so each one's tables are visible to the other and two tables
+			of the same name collide. Migrations are tracked per data table, so those stay separate.
 		</Alert>
 	{/if}
 
