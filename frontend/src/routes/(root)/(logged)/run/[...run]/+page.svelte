@@ -106,9 +106,12 @@
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import {
 		canUserBypassRuleKind,
+		getActiveRulesetsForKind,
 		isRuleActive,
 		protectionRulesState
 	} from '$lib/workspaceProtectionRules.svelte'
+	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import { devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
@@ -562,6 +565,22 @@
 
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
 
+	// What blocks the edit, for the disabled entry's tooltip: the dev workspace edits are funneled
+	// through if there is one, else the rules holding this workspace shut. Same split as
+	// NoDirectDeployAlert's popover, which is where the user goes for the bypass toggle.
+	let editDisabledReason = $derived.by(() => {
+		const dev = findCanonicalDevWorkspace($workspaceStore, $userWorkspaces)
+		if (dev) {
+			return `Edits to this workspace are made in its ${devLabelNoun(dev.dev_workspace_label)} ${dev.name} (${dev.id}) and promoted here.`
+		}
+		const rulesets = getActiveRulesetsForKind('DisableDirectDeployment')
+		if (rulesets.length === 0) return 'Direct edits to this workspace are restricted.'
+		const names = rulesets.map((r) => r.name).join(', ')
+		return rulesets.length > 1
+			? `The rules ${names} restrict direct edits to this workspace.`
+			: `The rule ${names} restricts direct edits to this workspace.`
+	})
+
 	// Ways to edit what this run executed, offered from the "View" button's dropdown. Only a
 	// deployed script or flow has an editor to open — hub scripts and previews have no path in
 	// this workspace to edit.
@@ -579,7 +598,7 @@
 							disabled: !showEditButton,
 							// Only while disabled: an enabled item renders this as an ⓘ next to the label,
 							// which would be noise on an entry that needs no explanation.
-							tooltip: showEditButton ? undefined : 'Direct edits are disabled in this workspace',
+							tooltip: showEditButton ? undefined : editDisabledReason,
 							onClick: () => {
 								$initialArgsStore = job?.args
 							}
