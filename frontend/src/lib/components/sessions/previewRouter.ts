@@ -202,16 +202,31 @@ export function parsePipelineRoute(fullPath: string): string | null {
 	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
 }
 
-// The id (before the hash) is the artifact's stable routing identity; the name rides in
-// the hash so the tab strip labels it without a store lookup.
-export function parseArtifactRoute(url: string): { id: string; name: string } | null {
-	const m = url.match(/^artifact:([^#]+)(?:#(.*))?$/)
+// The id (before the query) is the artifact's stable routing identity; the name rides in the
+// hash so the tab strip labels it without a store lookup, and the version in the query so the
+// tab persists it.
+export function parseArtifactRoute(
+	url: string
+): { id: string; name: string; version?: number } | null {
+	const m = url.match(/^artifact:([^?#]+)(?:\?v=(\d+))?(?:#(.*))?$/)
 	if (!m) return null
-	return { id: decodeURIComponent(m[1]), name: m[2] ? decodeURIComponent(m[2]) : '' }
+	// Mirror artifactUrl: a version it would not stamp does not read back as a pin.
+	const version = Number(m[2])
+	return {
+		id: decodeURIComponent(m[1]),
+		name: m[3] ? decodeURIComponent(m[3]) : '',
+		version: version > 0 ? version : undefined
+	}
 }
 
-export function artifactUrl(id: string, name: string): string {
-	return `artifact:${encodeURIComponent(id)}#${encodeURIComponent(name)}`
+export function artifactUrl(id: string, name: string, version?: number): string {
+	// Only stamp a version parseArtifactRoute can read back: this url is persisted with the
+	// tab, so one that round-trips to null would come back as an unopenable tab every reload.
+	// Safe integers specifically — from 1e21 up a number interpolates as `1e+21`, which the
+	// digits-only parser rejects outright.
+	const pinned =
+		version !== undefined && Number.isSafeInteger(version) && version > 0 ? `?v=${version}` : ''
+	return `artifact:${encodeURIComponent(id)}${pinned}#${encodeURIComponent(name)}`
 }
 
 /** Drill-picker leaf key for an artifact, shared by the picker tree and the
@@ -228,12 +243,12 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
-	| { kind: 'artifact'; id: string }
+	| { kind: 'artifact'; id: string; version?: number }
 	| { kind: 'iframe' }
 
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
-	if (artifact) return { kind: 'artifact', id: artifact.id }
+	if (artifact) return { kind: 'artifact', id: artifact.id, version: artifact.version }
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }

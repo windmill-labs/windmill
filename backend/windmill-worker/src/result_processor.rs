@@ -378,10 +378,13 @@ pub fn start_background_processor(
                     time,
                 }) => {
                     let is_init_script = jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                    // A binary build shares the `dependencies` kind but deploys no new
+                    // version, so it must not bounce the dedicated workers below — its tag
+                    // can point at a pool that hosts them.
                     let is_dependency_job = matches!(
                         jc.job.kind,
                         JobKind::Dependencies | JobKind::FlowDependencies
-                    );
+                    ) && !jc.job.build_binary_only;
                     let jc_id = jc.job.id;
                     #[cfg(feature = "benchmark")]
                     let bench_job_id = jc.job.id;
