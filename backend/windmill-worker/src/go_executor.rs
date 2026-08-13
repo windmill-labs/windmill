@@ -228,6 +228,274 @@ fn go_runtime_int32(v: &str) -> Option<i32> {
         .flatten()
 }
 
+/// Cache key of a Go build. The run path and the deploy-time prebuild must derive it the
+/// same way or the prebuilt binary is never found and gets rebuilt on first run.
+fn go_cache_key(code: &str, maybe_lock: &MaybeLock) -> String {
+    calculate_hash(&format!("{}{:?}v2", code, maybe_lock))
+}
+
+/// Install the deps, generate the entrypoint wrapper, `go build`, and push the binary to
+/// the shared cache. `job_dir` must already be the `go` subdirectory the module lives in.
+async fn build_go_binary(
+    job: &MiniPulledJob,
+    inner_content: &str,
+    maybe_lock: MaybeLock,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    base_internal_url: &str,
+    occupation_metrics: &mut OccupancyMetrics,
+    hash: &str,
+    skip_go_mod: bool,
+    skip_tidy: bool,
+) -> Result<String, Error> {
+    let bin_path = format!("{}/{hash}", *GO_BIN_CACHE_DIR);
+    install_go_dependencies(
+        &job.id,
+        inner_content,
+        maybe_lock,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        conn,
+        true,
+        skip_go_mod,
+        skip_tidy,
+        worker_name,
+        &job.workspace_id,
+        occupation_metrics,
+    )
+    .await?;
+
+    {
+        let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
+
+        const WRAPPER_CONTENT: &str = r#"package main
+
+import (
+"encoding/json"
+"os"
+"fmt"
+"mymod/inner"
+)
+
+func main() {{
+
+dat, err := os.ReadFile("args.json")
+if err != nil {{
+    fmt.Println(err)
+    os.Exit(1)
+}}
+
+var req inner.Req
+
+if err := json.Unmarshal(dat, &req); err != nil {{
+    fmt.Println(err)
+    os.Exit(1)
+}}
+
+res, err := inner.Run(req)
+if err != nil {{
+    fmt.Println(err)
+    os.Exit(1)
+}}
+res_json, err := json.Marshal(res)
+if err != nil {{
+    fmt.Println(err)
+    os.Exit(1)
+}}
+f, err := os.OpenFile("result.json", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+if err != nil {{
+    fmt.Println(err)
+    os.Exit(1)
+}}
+_, err = f.WriteString(string(res_json))
+if err != nil {{
+    fmt.Println(err)
+    os.Exit(1)
+}}
+}}"#;
+
+        write_file(job_dir, "main.go", WRAPPER_CONTENT)?;
+
+        {
+            let spread = &sig
+                .args
+                .clone()
+                .into_iter()
+                .map(|x| format!("req.{}", capitalize(&x.name)))
+                .join(", ");
+            let req_body = &sig
+                .args
+                .into_iter()
+                .map(|x| {
+                    format!(
+                        "{} {} `json:\"{}\"`",
+                        capitalize(&x.name),
+                        windmill_parser_go::otyp_to_string(x.otyp),
+                        x.name
+                    )
+                })
+                .join("\n");
+            let runner_content: String = format!(
+                r#"package inner
+type Req struct {{
+{req_body}
+}}
+
+func Run(req Req) (interface{{}}, error){{
+return main({spread})
+}}
+
+"#,
+            );
+            write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content)?;
+        }
+    }
+
+    let toolchain_envs = go_toolchain_envs(GoToolchainStep::Build);
+    let build_args = [
+        vec!["build".to_string()],
+        go_build_parallelism_args(&toolchain_envs),
+        vec!["main.go".to_string()],
+    ]
+    .concat();
+
+    let mut build_go_cmd = Command::new(GO_PATH.as_str());
+    build_go_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(toolchain_envs)
+        .env("PATH", PATH_ENV.as_str())
+        .env("BASE_INTERNAL_URL", base_internal_url)
+        .env("GOPATH", {
+            #[cfg(unix)]
+            {
+                GO_CACHE_DIR.as_str()
+            }
+            #[cfg(windows)]
+            {
+                &windows_gopath()
+            }
+        })
+        .env("HOME", HOME_ENV.as_str())
+        .env("GOCACHE", GO_CACHE_DIR.as_str())
+        .envs(PROXY_ENVS.clone())
+        .args(build_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    set_windows_env_vars(&mut build_go_cmd);
+
+    let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str(), false).await?;
+    handle_child(
+        &job.id,
+        conn,
+        mem_peak,
+        canceled_by,
+        build_go_process,
+        false,
+        worker_name,
+        &job.workspace_id,
+        "go build",
+        None,
+        false,
+        &mut Some(occupation_metrics),
+        None,
+        None,
+    )
+    .await?;
+
+    #[cfg(unix)]
+    let executable_path = format!("{job_dir}/main");
+    #[cfg(windows)]
+    let executable_path = format!("{job_dir}/main.exe");
+
+    // Set executable permissions on Windows
+    #[cfg(windows)]
+    {
+        use std::fs;
+        if let Ok(metadata) = fs::metadata(&executable_path) {
+            let mut permissions = metadata.permissions();
+            permissions.set_readonly(false);
+            // On Windows, we need to ensure the file is not marked as read-only
+            // and has appropriate permissions for execution
+            let _ = fs::set_permissions(&executable_path, permissions);
+        }
+    }
+
+    Ok(
+        match save_cache(
+            &bin_path,
+            &format!("{GO_OBJECT_STORE_PREFIX}{hash}"),
+            &executable_path,
+            false,
+        )
+        .await
+        {
+            Err(e) => {
+                let em = format!("could not save {bin_path} to go cache: {e:?}");
+                tracing::error!(em);
+                em
+            }
+            Ok(logs) => logs,
+        },
+    )
+}
+
+/// Build a deployed Go script ahead of its first run and push the binary to the shared
+/// cache.
+pub async fn prebuild_go_binary(
+    job: &MiniPulledJob,
+    code: &str,
+    lock: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    base_internal_url: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> Result<Option<String>, Error> {
+    let maybe_lock = MaybeLock::Resolved { lock: lock.to_string() };
+    let hash = go_cache_key(code, &maybe_lock);
+    let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
+    if crate::global_cache::exists_in_object_store(&remote_path).await {
+        return Ok(None);
+    }
+
+    // go refuses to build a module at the job dir root, same as `handle_go_job`.
+    let job_dir = &format!("{job_dir}/go");
+    DirBuilder::new()
+        .recursive(true)
+        .create(&job_dir)
+        .map_err(|e| Error::internal_err(format!("could not create go job dir: {e:?}")))?;
+
+    let (skip_go_mod, skip_tidy) = gen_go_mod(code, job_dir, lock).await?;
+
+    let logs = build_go_binary(
+        job,
+        code,
+        maybe_lock,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        conn,
+        worker_name,
+        base_internal_url,
+        occupancy_metrics,
+        &hash,
+        skip_go_mod,
+        skip_tidy,
+    )
+    .await?;
+    crate::global_cache::ensure_pushed_to_object_store(&remote_path).await?;
+    Ok(Some(logs))
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     mem_peak: &mut i32,
@@ -252,7 +520,7 @@ pub async fn handle_go_job(
         .create(&job_dir)
         .expect("could not create go job dir");
 
-    let hash = calculate_hash(&format!("{}{:?}v2", inner_content, &maybe_lock));
+    let hash = go_cache_key(inner_content, &maybe_lock);
     let bin_path = format!("{}/{hash}", *GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
     let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
@@ -269,197 +537,25 @@ pub async fn handle_go_job(
         let logs1 = format!("{cache_logs}\n\n--- GO DEPENDENCIES SETUP ---\n");
         append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
-        install_go_dependencies(
-            &job.id,
+        let build_logs = build_go_binary(
+            job,
             inner_content,
             maybe_lock,
             mem_peak,
             canceled_by,
             job_dir,
             conn,
-            true,
+            worker_name,
+            base_internal_url,
+            occupation_metrics,
+            &hash,
             skip_go_mod,
             skip_tidy,
-            worker_name,
-            &job.workspace_id,
-            occupation_metrics,
         )
         .await?;
 
         create_args_and_out_file(client, job, job_dir, conn).await?;
-        {
-            let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
-
-            const WRAPPER_CONTENT: &str = r#"package main
-
-import (
-    "encoding/json"
-    "os"
-    "fmt"
-    "mymod/inner"
-)
-
-func main() {{
-
-    dat, err := os.ReadFile("args.json")
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-
-    var req inner.Req
-
-    if err := json.Unmarshal(dat, &req); err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-
-    res, err := inner.Run(req)
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-    res_json, err := json.Marshal(res)
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-    f, err := os.OpenFile("result.json", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-    _, err = f.WriteString(string(res_json))
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-}}"#;
-
-            write_file(job_dir, "main.go", WRAPPER_CONTENT)?;
-
-            {
-                let spread = &sig
-                    .args
-                    .clone()
-                    .into_iter()
-                    .map(|x| format!("req.{}", capitalize(&x.name)))
-                    .join(", ");
-                let req_body = &sig
-                    .args
-                    .into_iter()
-                    .map(|x| {
-                        format!(
-                            "{} {} `json:\"{}\"`",
-                            capitalize(&x.name),
-                            windmill_parser_go::otyp_to_string(x.otyp),
-                            x.name
-                        )
-                    })
-                    .join("\n");
-                let runner_content: String = format!(
-                    r#"package inner
-type Req struct {{
-    {req_body}
-}}
-
-func Run(req Req) (interface{{}}, error){{
-    return main({spread})
-}}
-
-"#,
-                );
-                write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content)?;
-            }
-        }
-
-        let toolchain_envs = go_toolchain_envs(GoToolchainStep::Build);
-        let build_args = [
-            vec!["build".to_string()],
-            go_build_parallelism_args(&toolchain_envs),
-            vec!["main.go".to_string()],
-        ]
-        .concat();
-
-        let mut build_go_cmd = Command::new(GO_PATH.as_str());
-        build_go_cmd
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(toolchain_envs)
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("GOPATH", {
-                #[cfg(unix)]
-                {
-                    GO_CACHE_DIR.as_str()
-                }
-                #[cfg(windows)]
-                {
-                    &windows_gopath()
-                }
-            })
-            .env("HOME", HOME_ENV.as_str())
-            .env("GOCACHE", GO_CACHE_DIR.as_str())
-            .envs(PROXY_ENVS.clone())
-            .args(build_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        #[cfg(windows)]
-        set_windows_env_vars(&mut build_go_cmd);
-
-        let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str(), false).await?;
-        handle_child(
-            &job.id,
-            conn,
-            mem_peak,
-            canceled_by,
-            build_go_process,
-            false,
-            worker_name,
-            &job.workspace_id,
-            "go build",
-            None,
-            false,
-            &mut Some(occupation_metrics),
-            None,
-            None,
-        )
-        .await?;
-
-        #[cfg(unix)]
-        let executable_path = format!("{job_dir}/main");
-        #[cfg(windows)]
-        let executable_path = format!("{job_dir}/main.exe");
-
-        // Set executable permissions on Windows
-        #[cfg(windows)]
-        {
-            use std::fs;
-            if let Ok(metadata) = fs::metadata(&executable_path) {
-                let mut permissions = metadata.permissions();
-                permissions.set_readonly(false);
-                // On Windows, we need to ensure the file is not marked as read-only
-                // and has appropriate permissions for execution
-                let _ = fs::set_permissions(&executable_path, permissions);
-            }
-        }
-
-        match save_cache(
-            &bin_path,
-            &format!("{GO_OBJECT_STORE_PREFIX}{hash}"),
-            &executable_path,
-            false,
-        )
-        .await
-        {
-            Err(e) => {
-                let em = format!("could not save {bin_path} to go cache: {e:?}");
-                tracing::error!(em);
-                em
-            }
-            Ok(logs) => logs,
-        }
+        build_logs
     } else {
         #[cfg(unix)]
         let target = format!("{job_dir}/main");

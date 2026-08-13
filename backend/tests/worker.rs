@@ -4429,7 +4429,9 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
                         "lock": null,
                         "path": null,
                         "type": "rawscript",
-                        "content": "import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main() {\n  return wmill\n}\n",
+                        // Any remote specifier exercises deno lock generation; jsr is the
+                        // registry Deno maintains, so prefer it over `deno.land/x`.
+                        "content": "import { encodeBase64 } from \"jsr:@std/encoding@1/base64\"\n\nexport async function main() {\n  return encodeBase64(\"test\")\n}\n",
                         "language": "deno",
                         "input_transforms": {}
                     },
@@ -4481,33 +4483,58 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
         &format!("http://localhost:{port}"),
         "SECRET_TOKEN".to_owned(),
     );
-    client
-        .create_flow(
-            "test-workspace",
-            &CreateFlowBody {
-                open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
-                    open_flow: flow,
-                    path: "g/all/flow_lock_all".to_owned(),
-                    tag: None,
-                    ws_error_handler_muted: None,
-                    priority: None,
-                    dedicated_worker: None,
-                    timeout: None,
-                    visible_to_runner_only: None,
-                    on_behalf_of_email: None,
+    // Every module resolves a dependency from an external registry, and a registry failure
+    // writes `lock: null` for that module and fails the job — which the assertion below can
+    // only report as a module dump. So retry once, and keep the job's own error: without it
+    // a registry outage is indistinguishable from a broken locker.
+    let mut locked_path = None;
+    let mut last_error = None;
+    for attempt in 0..2 {
+        let path = format!(
+            "g/all/flow_lock_all{}",
+            if attempt == 0 { "" } else { "_retry" }
+        );
+        client
+            .create_flow(
+                "test-workspace",
+                &CreateFlowBody {
+                    open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
+                        open_flow: flow.clone(),
+                        path: path.clone(),
+                        tag: None,
+                        ws_error_handler_muted: None,
+                        priority: None,
+                        dedicated_worker: None,
+                        timeout: None,
+                        visible_to_runner_only: None,
+                        on_behalf_of_email: None,
+                    },
+                    deployment_message: None,
+                    draft_only: None,
                 },
-                deployment_message: None,
-                draft_only: None,
-            },
-        )
-        .await
-        .unwrap();
-    let mut str = listen_for_completed_jobs(&db).await;
-    let listen_first_job = str.next();
-    in_test_worker(&db, listen_first_job, port).await;
+            )
+            .await
+            .unwrap();
+        let mut str = listen_for_completed_jobs(&db).await;
+        let listen_first_job = str.next();
+        let uuid = in_test_worker(&db, listen_first_job, port)
+            .await
+            .expect("the flow dependency job should complete");
+        let job = completed_job(uuid, &db).await;
+        if job.success {
+            locked_path = Some(path);
+            break;
+        }
+        last_error = Some(job.result);
+    }
+    let Some(locked_path) = locked_path else {
+        panic!(
+            "flow dependency job failed to lock every module, twice. Last error: {last_error:?}"
+        );
+    };
 
     let modules = client
-        .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
+        .get_flow_by_path("test-workspace", &locked_path, None)
         .await
         .unwrap()
         .open_flow
