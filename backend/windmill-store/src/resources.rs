@@ -3623,7 +3623,11 @@ pub async fn authorize_azure_devops_reference(
         return Ok(());
     };
 
-    require_admin(authed.is_admin, &authed.username)?;
+    if !authed.is_admin {
+        return Err(Error::PermissionDenied(format!(
+            "Only a workspace admin can point a git repository URL at AZURE_DEVOPS_TOKEN({resource_path}): background sync mints that credential under an identity that bypasses resource permissions"
+        )));
+    }
 
     let dba = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
     let readable =
