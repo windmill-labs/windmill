@@ -12,6 +12,7 @@
 	import { resolvePreviewTab, parsePreviewItemRoute, parsePreviewSelectedId } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
+	import { createFrameFocusGuard } from './frameFocusGuard'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
 
 	let {
@@ -104,6 +105,7 @@
 		try {
 			const win = frame?.contentWindow
 			if (!win) return
+			focusGuard.arm()
 			// Reload the page the user is actually viewing (observed `loc`, canonical
 			// with nomenubar/workspace stripped), re-injecting nomenubar + workspace.
 			// A plain location.reload() would reload the iframe's current URL, which
@@ -122,6 +124,22 @@
 			// Cross-navigation timing — skip; the next mutation reloads again.
 		}
 	}
+
+	const iframeSrc = $derived(withMenuHidden(tab.url, workspaceId || undefined))
+
+	// Loads this host drives steal focus from whatever the user is typing in — the
+	// frame boots the whole app, and its router focuses the frame's body. The guard
+	// hands it back; see frameFocusGuard.ts for why it can only be undone, not
+	// prevented.
+	const focusGuard = createFrameFocusGuard(() => frame)
+	// Arms on mount and on every src change (a tab opened or re-pointed by the
+	// assistant); reload() arms for the in-frame navigations it drives.
+	$effect(() => {
+		void iframeSrc
+		if (!frame) return
+		focusGuard.arm()
+	})
+	$effect(() => () => focusGuard.destroy())
 
 	const visibility = $derived(
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
@@ -259,7 +277,7 @@
 {:else if mounted}
 	<iframe
 		bind:this={frame}
-		src={withMenuHidden(tab.url, workspaceId || undefined)}
+		src={iframeSrc}
 		onload={(e) => {
 			const f = e.currentTarget as HTMLIFrameElement
 			// Re-apply after load so a toggle that happened while the frame was
