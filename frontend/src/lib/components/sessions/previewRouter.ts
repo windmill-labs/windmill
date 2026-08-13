@@ -24,7 +24,6 @@ export {
 	pageHref,
 	parsePreviewItemRoute,
 	stripBase,
-	triggerLabelForPath,
 	TRIGGER_PAGES,
 	type PreviewItemRoute,
 	type TriggerKind

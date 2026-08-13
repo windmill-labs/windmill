@@ -69,7 +69,7 @@ export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; item
 
 // Parse a preview URL/pathname into the workspace item it edits, or null for a
 // non-item page (home, runs, …). Shared by the breadcrumb (drill segments) and
-// the tab resolver below so both agree on what counts as an item route.
+// `previewRouter`'s tab resolver so both agree on what counts as an item route.
 export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null {
 	const p = stripBase(fullPath)
 	const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(?:edit|get)\/(.+)$/)

@@ -22,18 +22,6 @@ import {
 	GROUPS_PATH
 } from '$lib/components/sessions/previewPaths'
 
-export {
-	RUNS_PATH,
-	SCHEDULES_PATH,
-	VARIABLES_PATH,
-	RESOURCES_PATH,
-	ASSETS_PATH,
-	AUDIT_LOGS_PATH,
-	WORKSPACE_SETTINGS_PATH,
-	FOLDERS_PATH,
-	GROUPS_PATH
-}
-
 // Selectable tabs on the Workspace settings page (the `?tab=` query param). Mirrors the
 // union in routes/(root)/(logged)/workspace_settings/+page.svelte.
 export const WORKSPACE_SETTINGS_TABS = [
