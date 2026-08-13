@@ -70,10 +70,10 @@ function getTool(name: string) {
 	return tool
 }
 
-async function run(name: string, args: Record<string, unknown>) {
+async function run(name: string, args: Record<string, unknown>, workspace = 'test-ws') {
 	const raw = await getTool(name).fn({
 		args,
-		workspace: 'test-ws',
+		workspace,
 		helpers: {},
 		toolCallbacks: createToolCallbacks(),
 		toolId: 'tool-1'
@@ -125,6 +125,29 @@ describe('read/write split', () => {
 	it('asks for confirmation only on the write path', () => {
 		expect(getTool('call_mcp_read_tool').requiresConfirmation).toBeFalsy()
 		expect(getTool('call_mcp_write_tool').requiresConfirmation).toBe(true)
+	})
+
+	// The cached tool list carries the annotations this gate reads, and the same
+	// path names a different server in another workspace: a cache keyed on path
+	// alone would let one workspace's read-only hint wave a call through in the next.
+	it("does not reuse one workspace's tool list in another", async () => {
+		callMcpToolMock.mockResolvedValue({ content: [] })
+		await run('call_mcp_read_tool', {
+			server: 'u/hugo/github_mcp',
+			tool: 'get_issue',
+			arguments: {}
+		})
+		getMcpToolsMock.mockResolvedValue([{ ...TOOLS[0], annotations: { readOnlyHint: false } }])
+
+		const result = await run(
+			'call_mcp_read_tool',
+			{ server: 'u/hugo/github_mcp', tool: 'get_issue', arguments: {} },
+			'other-ws'
+		)
+
+		expect(getMcpToolsMock).toHaveBeenCalledTimes(2)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('call_mcp_write_tool')
 	})
 })
 
@@ -211,7 +234,6 @@ describe('search_mcp_tools', () => {
 // on the failure path too.
 describe('result size cap', () => {
 	it('truncates an oversized isError payload', async () => {
-		getMcpToolsMock.mockResolvedValue(TOOLS)
 		callMcpToolMock.mockResolvedValue({
 			isError: true,
 			content: [{ type: 'text', text: 'x'.repeat(80_000) }]

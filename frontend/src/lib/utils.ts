@@ -1693,6 +1693,8 @@ export type Item = {
 	action?: (e: MouseEvent) => void
 	icon?: any
 	iconColor?: string
+	/** Extra props for `icon`, for an icon that does not take lucide's `size`. */
+	iconProps?: Record<string, any>
 	href?: string
 	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean

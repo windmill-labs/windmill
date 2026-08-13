@@ -196,7 +196,13 @@
 
 	function onOAuthMessage(event: MessageEvent) {
 		if (!sameTopDomainOrigin(event.origin, window.location.origin)) return
+		// The callback page is shared by every connect on this origin, so without the
+		// client check a flow finishing in another tab would hand us its token to
+		// store as this server's credential. Only success carries `resource_type`;
+		// an error is taken at face value, since dropping it would leave this card
+		// waiting on a popup that is already gone.
 		if (event.data?.type === 'success') {
+			if (event.data.resource_type !== entry?.connectClient) return
 			cleanupOAuth()
 			void finishProviderOAuth(event.data.res)
 		} else if (event.data?.type === 'error') {
@@ -208,9 +214,10 @@
 
 	function onOAuthStorage(event: StorageEvent) {
 		if (event.key !== 'oauth-callback') return
-		cleanupOAuth()
 		try {
 			const data = JSON.parse(event.newValue || '{}')
+			if (data.type === 'success' && data.resource_type !== entry?.connectClient) return
+			cleanupOAuth()
 			localStorage.removeItem('oauth-callback')
 			if (data.type === 'success') {
 				void finishProviderOAuth(data.res)

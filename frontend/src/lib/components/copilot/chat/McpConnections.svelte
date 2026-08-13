@@ -54,13 +54,17 @@
 
 	// Rows describe one workspace. A switch while the drawer is open must not leave
 	// A's rows on screen while the actions below target B: same path, different
-	// server, and disconnect would delete the wrong one.
+	// server, and disconnect would delete the wrong one. Dropping them (and the
+	// confirmation standing over one of them) is all this does: this component
+	// mounts with the chat toolbar, so loading here would list resources for every
+	// user who never opens the menu. The two entry points load what they need.
 	let loadSeq = 0
 	$effect(() => {
-		const target = ws
+		ws
 		untrack(() => {
+			loadSeq++
 			servers = []
-			void loadServers(target)
+			pendingDisconnect = undefined
 		})
 	})
 
@@ -128,6 +132,11 @@
 					// Plug where the provider is unknown, so one nameless server does not
 					// pull its label out of line with the rest.
 					return row(path)?.icon ?? Plug
+				},
+				// Provider icons take css lengths and ignore lucide's `size`, so without
+				// this one of them renders at its 24px default among 14px menu icons.
+				get iconProps() {
+					return row(path)?.icon ? { width: '14px', height: '14px' } : undefined
 				},
 				get toggle() {
 					return row(path)?.enabled ?? false

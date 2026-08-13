@@ -66,7 +66,7 @@
 				item={meltItem}
 			>
 				{#if subItem.icon}
-					<subItem.icon size={14} color={subItem.iconColor} class="shrink-0" />
+					<subItem.icon size={14} color={subItem.iconColor} class="shrink-0" {...subItem.iconProps ?? {}} />
 				{/if}
 				<p title={subItem.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
 					{subItem.displayName}
