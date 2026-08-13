@@ -120,6 +120,18 @@ A crash like this takes down every job on that worker, not just yours, so check 
 backend log after the run rather than only the job's own status. If you cannot run one,
 say which path went unexercised instead of implying it was verified.
 
+### How many jobs a worker runs at once
+
+`NUM_WORKERS > 1` falls back to 1 outside native mode (`backend/src/main.rs`, unless
+`I_ACK_NUM_WORKERS_IS_UNSAFE`), so a worker serving script tags — `go`, `python3`,
+`dependency`, `flow`, … — runs one job at a time: a per-job resource budget (memory, CPU,
+temp space) shares the worker with the worker process alone.
+
+Native mode is the exception, and budgets for its tags must divide by its concurrency:
+it forces 8 workers, and `NATIVE_TAGS` includes executors that already claim a per-job
+share of the worker's memory (`postgresql` and `mysql` through `MAX_SQL_RESULT_SIZE`), so
+up to 8 of those run against the same limit at once.
+
 ## Banned Patterns
 
 ### `$bindable(default_value)` on optional props

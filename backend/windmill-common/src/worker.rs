@@ -1472,6 +1472,73 @@ pub fn get_vcpus() -> Option<i64> {
     (sys.cpus().len() * 100000).try_into().ok()
 }
 
+/// The window `get_vcpus`'s quota is spent over, in the same microseconds. Only
+/// their ratio is a number of CPUs, and the window is configurable — 100ms is
+/// merely its usual value.
+#[cfg(not(windows))]
+pub fn get_cpu_period() -> Option<i64> {
+    if Path::new("/sys/fs/cgroup/cpu/cpu.cfs_period_us").exists() {
+        // cgroup v1
+        parse_file("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    } else {
+        // cgroup v2: `cpu.max` is "<quota|max> <period>"
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_file::<String>(&format!("{cgroup_path}/cpu.max"))?
+            .split_whitespace()
+            .nth(1)?
+            .parse()
+            .ok()
+    }
+    .filter(|period| *period > 0)
+}
+
+#[cfg(windows)]
+pub fn get_cpu_period() -> Option<i64> {
+    Some(100000)
+}
+
+/// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
+/// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
+/// the quota in, so a fraction of a CPU makes it report a single-core machine.
+#[cfg(not(windows))]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // "Cpus_allowed_list:\t0-7,16-23"
+    let status = parse_file::<String>("/proc/self/status")?;
+    let list = status
+        .split("Cpus_allowed_list:")
+        .nth(1)?
+        .lines()
+        .next()?
+        .trim();
+
+    let cpus = list
+        .split(',')
+        .map(|range| {
+            let (first, last) = range.split_once('-').unwrap_or((range, range));
+            let (first, last) = (first.trim().parse::<usize>(), last.trim().parse::<usize>());
+            match (first, last) {
+                (Ok(first), Ok(last)) if last >= first => Some(last - first + 1),
+                _ => None,
+            }
+        })
+        .sum::<Option<usize>>()?;
+
+    (cpus > 0).then_some(cpus)
+}
+
+#[cfg(windows)]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // The 1CU cap is a policy rather than a bandwidth quota, so it is the whole
+    // answer here as it is for `get_vcpus` and `get_memory` — a consumer that reads
+    // this as the hardware count would raise the worker back above the cap.
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(1);
+    }
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    Some(sys.cpus().len()).filter(|cpus| *cpus > 0)
+}
+
 #[cfg(not(windows))]
 fn get_memory_from_meminfo() -> Option<i64> {
     let memory_info = parse_file::<String>("/proc/meminfo")?;

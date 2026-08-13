@@ -1275,6 +1275,28 @@ const SQL_RESULT_SIZE_FRACTION: f64 = 0.15;
 // only reject work that would have succeeded.
 const MIN_MAX_SQL_RESULT_SIZE: usize = 8 * 1024 * 1024;
 
+// Share of the worker's memory budget a Go compilation may hold. Set high enough
+// that an ordinary build never approaches it, so the only builds whose behavior
+// changes are those that were about to take the worker down.
+//
+// What the rest covers is not the worker process, which is tens of MB and would
+// argue for a constant: it is everything `GOMEMLIMIT` does not count and that grows
+// with the build — the toolchain's mmapped inputs and outputs, its non-Go
+// allocations, and the page cache its writes charge to the cgroup.
+const GO_BUILD_MEMLIMIT_FRACTION: f64 = 0.75;
+// Heap a Go compiler is comfortable in: cores are only put to work while the budget
+// still affords each of them this much.
+const GO_BUILD_TARGET_MEMLIMIT: usize = 384 * 1024 * 1024;
+// Driver plus the compilers below which a build stops overlapping and starts
+// waiting. Measured on a dependency-heavy build: at a budget too small to give this
+// many the target share, splitting it further still compiles faster than handing
+// fewer processes more — one compiler alone costs ~3x what five of them do on the
+// same budget — so the process count holds and the share absorbs the difference.
+const MIN_GO_BUILD_PROCESSES: usize = 6;
+// Floor under the share, past which dividing the budget again buys nothing: the
+// processes only trade compiling time for collecting time.
+const MIN_GO_BUILD_MEMLIMIT: usize = 128 * 1024 * 1024;
+
 /// `"512"`, `"512MB"`, `"2GiB"`, `"1.5GB"` -> bytes. Suffixes are case-insensitive
 /// and binary, so `MB` and `MiB` both mean 1024².
 ///
@@ -1351,6 +1373,193 @@ lazy_static::lazy_static! {
                 .unwrap_or(usize::MAX),
         }
     };
+
+    /// What a Go compilation is allowed to cost, derived from the worker's memory
+    /// budget. Nothing else bounds it: a compilation grows until the cgroup OOM
+    /// killer takes the worker process down, every job colocated on it with it.
+    /// `GOMEMLIMIT` is soft — the GC works harder as the heap nears it instead of
+    /// failing the allocation — so a pathological build turns into a slow one.
+    ///
+    /// `GO_BUILD_MEMLIMIT` overrides the budget (`512MB`, `2GiB`, …), and `0`/`off`
+    /// disables the whole thing, as does a worker with no cgroup memory reading to
+    /// scale from.
+    pub(crate) static ref GO_BUILD_LIMITS: Option<GoBuildLimits> = resolve_go_build_limits(
+        std::env::var("GO_BUILD_MEMLIMIT").ok().as_deref(),
+        windmill_common::worker::get_memory(),
+        worker_vcpus(),
+    );
+}
+
+/// How much memory the Go toolchain may hold while compiling a script, expressed
+/// the only way the toolchain understands it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct GoBuildLimits {
+    /// What the whole build may hold, and so what a step that is one process gets.
+    pub budget: usize,
+    /// `GOMEMLIMIT` for one process of a build that fans out.
+    pub memlimit: usize,
+    /// `GOMAXPROCS`, which is also `go build`'s default `-p`: how many compilers it
+    /// runs at once.
+    pub parallelism: usize,
+}
+
+fn worker_vcpus() -> usize {
+    effective_vcpus(
+        windmill_common::worker::get_vcpus(),
+        windmill_common::worker::get_cpu_period(),
+        windmill_common::worker::get_affinity_cpus()
+            .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
+            .unwrap_or(1),
+    )
+}
+
+/// CPUs worth of work the worker can actually run at once.
+///
+/// The cgroup states its allowance as a quota over a period, and only their ratio
+/// is a number of CPUs — `1500m` is `150000/100000`. A fraction still runs work, so
+/// it rounds up the way the Go runtime's own container-aware `GOMAXPROCS` does:
+/// flooring would call that worker single-core and serialize its builds.
+///
+/// `host_cpus` counts the CPUs the worker may run on, quota aside, and is both the
+/// answer when there is no quota and the floor under one: Go's own container-aware
+/// default never drops below two while the machine has two to give, since even a
+/// fraction of a CPU compiles two packages faster than it compiles them in series.
+fn effective_vcpus(quota_us: Option<i64>, period_us: Option<i64>, host_cpus: usize) -> usize {
+    quota_us
+        .zip(period_us)
+        .filter(|(quota, period)| *quota > 0 && *period > 0)
+        .map(|(quota, period)| ((quota + period - 1) / period) as usize)
+        .unwrap_or(host_cpus)
+        .max(host_cpus.min(2))
+        .max(1)
+}
+
+/// Split a build budget into the per-process cap and the parallelism it assumes.
+///
+/// `GOMEMLIMIT` bounds one process, and a build is a driver plus up to `-p`
+/// compilers that each inherit the same value, so the budget only holds if the
+/// number of processes sharing it is pinned alongside it.
+fn resolve_go_build_limits(
+    env_override: Option<&str>,
+    worker_memory: Option<i64>,
+    vcpus: usize,
+) -> Option<GoBuildLimits> {
+    let derived = || {
+        worker_memory
+            .filter(|bytes| *bytes > 0)
+            .map(|bytes| (bytes as f64 * GO_BUILD_MEMLIMIT_FRACTION) as usize)
+    };
+
+    let budget = match env_override.map(str::trim).filter(|v| !v.is_empty()) {
+        None => derived()?,
+        Some(v) if v.eq_ignore_ascii_case("off") => return None,
+        Some(v) => match parse_byte_size(v) {
+            // A zero budget would have the GC hold the heap at nothing, so it reads
+            // as "no limit" instead.
+            Some(0) => return None,
+            Some(bytes) => bytes,
+            None => {
+                // Falling back silently would leave the operator believing the limit
+                // they wrote is in force.
+                tracing::warn!(
+                    "Go build memory budget {v:?} is not a byte size (e.g. 512MB, \
+                     2GiB); falling back to the worker's memory-derived budget"
+                );
+                derived()?
+            }
+        },
+    };
+
+    // One compiler per core while the budget affords each the target share, never
+    // so few that the build stops overlapping, and never more than the cores can
+    // run. The floor is the last word: on a worker too small to honor both, the
+    // budget is the one that gives, since processes squeezed under it make no
+    // progress to bound.
+    let cap = vcpus.max(1) + 1;
+    let processes = (budget / GO_BUILD_TARGET_MEMLIMIT).clamp(MIN_GO_BUILD_PROCESSES.min(cap), cap);
+    Some(GoBuildLimits {
+        // Floored like the share it is an alternative to: a step that holds the
+        // whole budget must never end up with less than one of six compilers.
+        budget: budget.max(MIN_GO_BUILD_MEMLIMIT),
+        memlimit: (budget / processes).max(MIN_GO_BUILD_MEMLIMIT),
+        parallelism: processes - 1,
+    })
+}
+
+#[cfg(test)]
+mod go_build_limits_tests {
+    use super::{
+        effective_vcpus, resolve_go_build_limits, GoBuildLimits, GO_BUILD_TARGET_MEMLIMIT,
+        MIN_GO_BUILD_MEMLIMIT,
+    };
+
+    const GIB: i64 = 1024 * 1024 * 1024;
+
+    fn limits(budget: usize, memlimit: usize, parallelism: usize) -> Option<GoBuildLimits> {
+        Some(GoBuildLimits { budget, memlimit, parallelism })
+    }
+
+    #[test]
+    fn reads_the_cgroup_allowance_as_cpus() {
+        // 1500m: a fraction of a CPU still runs work, so it is two compilers' worth
+        // of concurrency rather than one.
+        assert_eq!(effective_vcpus(Some(150_000), Some(100_000), 24), 2);
+        assert_eq!(effective_vcpus(Some(400_000), Some(100_000), 24), 4);
+        // The period is configurable, so only the ratio means anything.
+        assert_eq!(effective_vcpus(Some(400_000), Some(50_000), 24), 8);
+        // The quota is the answer whenever there is one to read, since the count
+        // it would otherwise be clamped to has already floored it.
+        assert_eq!(effective_vcpus(Some(4_000_000), Some(100_000), 4), 40);
+        assert_eq!(effective_vcpus(None, None, 8), 8);
+        // Under a whole CPU the floor is two, as the Go runtime's own default is —
+        // but only where there are two to give.
+        assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 24), 2);
+        assert_eq!(effective_vcpus(Some(50_000), Some(100_000), 1), 1);
+        // A one-CPU allowance stays one when that is all the worker may use, which
+        // is how the Windows 1CU cap reports itself.
+        assert_eq!(effective_vcpus(Some(100_000), Some(100_000), 1), 1);
+    }
+
+    #[test]
+    fn splits_the_budget_across_the_build_tree() {
+        // Fewer cores than the budget could feed: every core gets a compiler, and
+        // they share 3GiB with the driver.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(4 * GIB), 4),
+            limits(3 * GIB as usize, 3 * GIB as usize / 5, 4)
+        );
+        // More cores than it can feed at the target share: the extra cores idle
+        // rather than shrink every compiler.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(4 * GIB), 64),
+            limits(3 * GIB as usize, GO_BUILD_TARGET_MEMLIMIT, 7)
+        );
+        // Too small to give even the minimum process count the target share: the
+        // build keeps overlapping and the share absorbs it.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(GIB), 64),
+            limits(3 * GIB as usize / 4, 3 * GIB as usize / 4 / 6, 5)
+        );
+        // Nothing to scale from leaves the toolchain unlimited, as it was before.
+        assert_eq!(resolve_go_build_limits(None, None, 4), None);
+        // Under the floor the budget gives instead of the share.
+        assert_eq!(
+            resolve_go_build_limits(None, Some(GIB / 8), 4),
+            limits(MIN_GO_BUILD_MEMLIMIT, MIN_GO_BUILD_MEMLIMIT, 4)
+        );
+        assert_eq!(
+            resolve_go_build_limits(Some("2GiB"), Some(4 * GIB), 4),
+            limits(2 * GIB as usize, 2 * GIB as usize / 5, 4)
+        );
+        assert_eq!(resolve_go_build_limits(Some("off"), Some(4 * GIB), 4), None);
+        assert_eq!(resolve_go_build_limits(Some("0MB"), Some(4 * GIB), 4), None);
+        // An unparseable override falls back to the derived budget rather than
+        // lifting the limit.
+        assert_eq!(
+            resolve_go_build_limits(Some("lots"), Some(4 * GIB), 4),
+            limits(3 * GIB as usize, 3 * GIB as usize / 5, 4)
+        );
+    }
 }
 
 /// The limit postgres collection is bounded by: the cloud product cap where one
