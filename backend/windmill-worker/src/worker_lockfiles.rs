@@ -286,6 +286,12 @@ pub async fn handle_dependency_job(
     // already deployed and healthy, and a transient read error is not a broken lock.
     let is_build_job =
         windmill_queue::binary_prebuild::is_build_binary_job(job.args.as_ref().map(|x| &x.0));
+    if is_build_job {
+        // Claimed before anything that can fail: the deploy that queued this job already
+        // tallied its version, so the caller's failure fallback must not tally it again on
+        // any path out of here, including the fetch below.
+        *deployment_tallied = true;
+    }
 
     // `JobKind::Dependencies` job store either:
     // - A saved script `hash` in the `script_hash` column.
@@ -325,9 +331,6 @@ pub async fn handle_dependency_job(
     };
 
     if is_build_job {
-        // Not a deploy: the version being built was committed and tallied by the deploy
-        // that queued this job, so a failure here must not tally it a second time.
-        *deployment_tallied = true;
         return handle_build_binary_job(
             job,
             script_data,
