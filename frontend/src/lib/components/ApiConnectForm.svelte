@@ -17,7 +17,6 @@
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import { base } from '$lib/base'
-	import SupabaseResourceConnect from './workspaceSettings/SupabaseResourceConnect.svelte'
 	import { isDataTableWizardEnabled } from './workspaceSettings/utils.svelte'
 	import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionString'
 
@@ -217,7 +216,13 @@
 		{/if}
 		{#if resourceType == 'postgresql' && supabaseWizard}
 			{#if wizardEnabled}
-				<SupabaseResourceConnect onPicked={applySupabasePick} />
+				<!-- Imported here rather than at the top so the wizard's Supabase graph stays out of
+				this form's chunk, which loads on the resources page and in every resource drawer. -->
+				{#await import('./workspaceSettings/SupabaseResourceConnect.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default onPicked={applySupabasePick} />
+				{/await}
 			{:else}
 				<!-- `noopener` is what the callback reads to tell this leg from the wizard's popup,
 				which hands its token back through `window.opener`. Browsers imply it for

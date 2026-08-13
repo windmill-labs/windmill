@@ -85,7 +85,7 @@
 	variant="default"
 	startIcon={{ icon: SupabaseIcon }}
 	loading={awaiting}
-	on:click={connect}
+	onClick={connect}
 >
 	Connect Supabase
 </Button>
