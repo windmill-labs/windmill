@@ -659,9 +659,10 @@ async fn delete_igroup(
     require_super_admin(&db, &authed.email).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    // Fetch group's instance_role and members before deletion
+    // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
+    // advisory locks (see reconcile_workspace_instance_groups).
     let group_role = sqlx::query_scalar!(
-        "SELECT instance_role FROM instance_group WHERE name = $1",
+        "SELECT instance_role FROM instance_group WHERE name = $1 FOR UPDATE",
         &name
     )
     .fetch_optional(&mut *tx)
@@ -973,13 +974,18 @@ async fn add_user_igroup(
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    let group_opt = sqlx::query_scalar!("SELECT name FROM instance_group WHERE name = $1", name)
-        .fetch_optional(&mut *tx)
-        .await?;
+    // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
+    // advisory locks (see reconcile_workspace_instance_groups).
+    let group_opt = sqlx::query_scalar!(
+        "SELECT name FROM instance_group WHERE name = $1 FOR UPDATE",
+        name
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
 
     not_found_if_none(group_opt, "IGroup", &name)?;
 
-    // First lock in the hierarchy — before the membership insert's row lock.
+    // Before the membership insert's row lock.
     #[cfg(feature = "private")]
     let affected_workspaces =
         lock_workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
@@ -1186,13 +1192,18 @@ async fn remove_user_igroup(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
-    let group_opt = sqlx::query_scalar!("SELECT name FROM instance_group WHERE name = $1", name,)
-        .fetch_optional(&mut *tx)
-        .await?;
+    // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
+    // advisory locks (see reconcile_workspace_instance_groups).
+    let group_opt = sqlx::query_scalar!(
+        "SELECT name FROM instance_group WHERE name = $1 FOR UPDATE",
+        name,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
 
     not_found_if_none(group_opt, "IGroup", &name)?;
 
-    // First lock in the hierarchy — before the membership delete's row lock.
+    // Before the membership delete's row lock.
     #[cfg(feature = "private")]
     let affected_workspaces =
         lock_workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
@@ -1357,6 +1368,13 @@ async fn overwrite_igroups(
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
+
+    // FOR UPDATE: every existing group row is the group-level mutex for its membership,
+    // taken in sorted order before the workspace advisory locks (see
+    // reconcile_workspace_instance_groups).
+    sqlx::query_scalar!("SELECT name FROM instance_group ORDER BY name FOR UPDATE")
+        .fetch_all(&mut *tx)
+        .await?;
 
     let imported_names: Vec<String> = igroups.iter().map(|g| g.name.clone()).collect();
     // NULL-safe and correct for an empty import: `name <> ALL('{}')` is true for every row.
