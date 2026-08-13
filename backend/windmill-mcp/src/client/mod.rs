@@ -43,7 +43,7 @@ impl McpClient {
         // The resource URL is author-controlled and we send a (potentially
         // secret) bearer token to it, so it must be validated against SSRF
         // before we connect (e.g. cloud metadata endpoints, internal services).
-        windmill_common::ssrf::validate_mcp_server_url(&resource.url)
+        let validated = windmill_common::ssrf::validate_mcp_server_url(&resource.url)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(
@@ -76,14 +76,21 @@ impl McpClient {
             }
         }
 
-        let reqwest_client = reqwest::Client::builder()
+        let mut client_builder = reqwest::Client::builder()
             .default_headers(headers)
             // Don't follow redirects: the SSRF check above only validates the
             // initial (author-controlled) URL, so following a redirect could
             // still reach a private/internal address with the bearer token
             // attached. The MCP streamable-HTTP endpoint is a direct endpoint
             // and does not legitimately rely on redirects.
-            .redirect(reqwest::redirect::Policy::none())
+            .redirect(reqwest::redirect::Policy::none());
+        // Pin DNS to the address validated above so the connect cannot rebind to
+        // an internal IP between the check and the request. Empty addrs (IP literal
+        // or ALLOW_PRIVATE_MCP_SERVER_URLS) leave resolution untouched.
+        if !validated.addrs.is_empty() {
+            client_builder = client_builder.resolve_to_addrs(&validated.host, &validated.addrs);
+        }
+        let reqwest_client = client_builder
             .build()
             .context("Failed to build HTTP client")?;
 
@@ -92,19 +99,11 @@ impl McpClient {
         let transport = StreamableHttpClientTransport::with_client(reqwest_client, config);
 
         // Set up client info
-        let client_info = ClientInfo {
-            protocol_version: Default::default(),
-            capabilities: ClientCapabilities::default(),
-            client_info: Implementation {
-                name: "windmill-ai-agent".to_string(),
-                title: Some("Windmill AI Agent".to_string()),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                description: None,
-                website_url: None,
-                icons: None,
-            },
-            meta: None,
-        };
+        let client_info = ClientInfo::new(
+            ClientCapabilities::default(),
+            Implementation::new("windmill-ai-agent", env!("CARGO_PKG_VERSION"))
+                .with_title("Windmill AI Agent"),
+        );
 
         // Initialize the connection
         let client = client_info
@@ -133,14 +132,14 @@ impl McpClient {
         let mcp_args =
             Self::openai_args_to_mcp_args(arguments).context("Failed to parse tool arguments")?;
 
+        let mut params = CallToolRequestParams::new(name.to_string());
+        if let Some(args) = mcp_args {
+            params = params.with_arguments(args);
+        }
+
         let result = self
             .client
-            .call_tool(CallToolRequestParams {
-                name: name.to_string().into(),
-                arguments: mcp_args,
-                task: None,
-                meta: None,
-            })
+            .call_tool(params)
             .await
             .context(format!("Failed to call MCP tool: {}", name))?;
 

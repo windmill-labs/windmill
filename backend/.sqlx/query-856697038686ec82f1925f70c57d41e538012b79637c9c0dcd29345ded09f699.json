@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH ref AS (\n            SELECT worker_instance, worker_group FROM worker_ping WHERE worker = $1 LIMIT 1\n        )\n        SELECT\n            wp.worker AS \"worker!\",\n            wp.ping_at AS \"ping_at!\",\n            wp.memory_usage,\n            wp.wm_memory_usage,\n            wp.memory AS memory_total,\n            wp.worker_group,\n            wp.worker_instance,\n            EXTRACT(EPOCH FROM (wp.ping_at - $2::timestamptz))::float8 AS ping_delta_secs\n        FROM worker_ping wp, ref\n        WHERE wp.worker <> $1\n            AND (\n                (ref.worker_instance IS NOT NULL AND wp.worker_instance = ref.worker_instance)\n                OR (ref.worker_group IS NOT NULL AND wp.worker_group = ref.worker_group)\n            )\n            AND wp.ping_at >= $2::timestamptz - interval '5 seconds'\n            AND wp.ping_at <= $2::timestamptz + interval '15 seconds'\n        ORDER BY ABS(EXTRACT(EPOCH FROM (wp.ping_at - $2::timestamptz))) ASC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "worker!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "ping_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "memory_usage",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "wm_memory_usage",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "memory_total",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "worker_group",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "worker_instance",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "ping_delta_secs",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "856697038686ec82f1925f70c57d41e538012b79637c9c0dcd29345ded09f699"
+}

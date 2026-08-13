@@ -102,6 +102,28 @@ where
     pub error_handling: TriggerErrorHandling,
 }
 
+/// Path accessor for the associated `Trigger` row type, so the shared list
+/// handler can apply scoped-token path filtering without knowing the concrete
+/// row shape. The `()` OSS stub returns "" (its endpoints 404 anyway).
+pub trait HasPath {
+    fn trigger_path(&self) -> &str;
+}
+
+impl<T> HasPath for Trigger<T>
+where
+    T: for<'r> FromRow<'r, sqlx::postgres::PgRow>,
+{
+    fn trigger_path(&self) -> &str {
+        &self.base.path
+    }
+}
+
+impl HasPath for () {
+    fn trigger_path(&self) -> &str {
+        ""
+    }
+}
+
 impl<T> FromRow<'_, sqlx::postgres::PgRow> for Trigger<T>
 where
     T: for<'r> FromRow<'r, sqlx::postgres::PgRow>,

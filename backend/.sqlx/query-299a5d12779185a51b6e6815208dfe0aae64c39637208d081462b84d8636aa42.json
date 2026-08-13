@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_invite o WHERE o.email = $1 AND EXISTS (SELECT 1 FROM workspace_invite n WHERE n.email = $2 AND n.workspace_id = o.workspace_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "299a5d12779185a51b6e6815208dfe0aae64c39637208d081462b84d8636aa42"
+}

@@ -5,6 +5,11 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import type { UserDraftItemKind } from '$lib/gen'
 
+// The tool modules that import this one (workspaceTools, flow/core, global/core, ...)
+// call createToolDef and read SPECIAL_MODULE_IDS at *module scope*, so if a chunk cycle
+// ever reaches this file they evaluate against uninitialized bindings and the app dies
+// on load. Keep the import list here shallow. See docs/frontend-import-cycles.md.
+
 /**
  * Special module IDs used throughout the flow system
  */
@@ -18,6 +23,8 @@ export const SPECIAL_MODULE_IDS = {
 } as const
 import { get } from 'svelte/store'
 import type { PasteAttachment } from './pasteTokens'
+import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
+import type { AttachedTextFile } from './textFileUtils'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -38,6 +45,7 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
@@ -468,6 +476,16 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// Collapsed big-paste blobs referenced by tokens in `content`. Lets the
 	// bubble render/expand chips; the LLM message stores the expanded text.
 	pastes?: PasteAttachment[]
+	// Images the user attached to this message (drag/drop/paste), rendered as
+	// thumbnails in the bubble. The LLM message carries them as image_url parts.
+	images?: AttachedImage[]
+	// Text files the user attached to this message, rendered as chips in the
+	// bubble. The prompt lists them by reference; the content here is the durable
+	// copy, re-registered into the session file store on load for tool reads.
+	files?: AttachedTextFile[]
+	// The client authored this turn itself (background-job auto-resume), not the
+	// user — ArrowUp recall must skip it.
+	synthetic?: boolean
 }
 
 export type CreatedResourceTriggerKind =
@@ -477,6 +495,7 @@ export type CreatedResourceTriggerKind =
 	| 'nats'
 	| 'postgres'
 	| 'mqtt'
+	| 'amqp'
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
@@ -504,7 +523,34 @@ export type NavigateAction = {
 	page: string
 }
 
-export type ToolDisplayAction = CreatedResourceAction | NavigateAction
+/** Kinds of previewable item a write tool can land — the subset of draft item
+ * kinds a session preview can host. */
+export type PreviewCardKind = 'script' | 'flow' | 'raw_app'
+
+// A discrete card shown on a tool call that created or updated a workspace item.
+// Clicking it opens the item's live preview in the session side panel — or focuses
+// the tab if it is already open. The handler is registered by the sessions page
+// (the only surface with a preview panel).
+export type OpenItemPreviewAction = {
+	id: string
+	type: 'open_item_preview'
+	label: string
+	previewKind: PreviewCardKind
+	path: string
+}
+
+export type ToolDisplayAction = CreatedResourceAction | NavigateAction | OpenItemPreviewAction
+
+/** Build the action a preview card dispatches from its (kind, path). */
+export function openItemPreviewAction(kind: PreviewCardKind, path: string): OpenItemPreviewAction {
+	return {
+		id: `open-item-preview:${kind}:${path}`,
+		type: 'open_item_preview',
+		label: `Open ${kind === 'raw_app' ? 'app' : kind} preview`,
+		previewKind: kind,
+		path
+	}
+}
 
 export type UserQuestionDisplay = {
 	question: string
@@ -522,6 +568,12 @@ export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
 	return q.selectedChoices ?? (q.selectedChoice ? [q.selectedChoice] : undefined)
 }
 
+/** One page hit from a provider-side web search (OpenAI sources carry no title). */
+export type WebSearchSource = {
+	url: string
+	title?: string
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -530,6 +582,8 @@ export type ToolDisplayMessage = {
 	result?: any
 	logs?: string
 	isLoading?: boolean
+	/** Arguments fully streamed but execution not started (see queuedToolStatus). */
+	isQueued?: boolean
 	error?: string
 	needsConfirmation?: boolean
 	showDetails?: boolean
@@ -539,12 +593,22 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	webSearchSources?: WebSearchSource[]
+	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
+	imageUrl?: string
+	/** Workspace item this tool created or updated. Rendered as a discrete,
+	 * always-visible card that opens (or focuses) the item's preview in the
+	 * session side panel. Set only for session chats — the side panel is their surface. */
+	previewCard?: { kind: PreviewCardKind; path: string }
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
 	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
 	reasoning?: string
+	/** Wall time the model spent reasoning, from the first thinking token to the
+	 * first answer token. Absent on messages finalized before it was recorded. */
+	reasoningDurationMs?: number
 	/**
 	 * True only on the synthetic live message appended while tokens stream
 	 * (see AIChat.svelte). Finalized messages never set it — without the flag,
@@ -556,13 +620,20 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 
 /**
  * Compaction boundary: replaces the summarized prefix in BOTH displayMessages
- * and the API messages (where it is a plain user message). It carries no index
- * because it is never a restart target — only the surviving tail's user
- * messages are rewound to.
+ * and the API messages (where it is a plain user message). It is never a restart
+ * target — only the surviving tail's user messages are rewound to.
  */
 export type SummaryDisplayMessage = {
 	role: 'summary'
 	content: string
+	// Index of the summary's API message, tracked ONLY so orphan detection can tell
+	// when a later drop-oldest compaction drops it (index goes negative) and its
+	// carried files must move to the roster. Not a restart target. Absent on
+	// summaries loaded from pre-existing history.
+	index?: number
+	// Files attached to messages the summary folded away — carried forward so
+	// they stay tool-readable (and reload-safe) after compaction.
+	files?: AttachedTextFile[]
 }
 
 export type DisplayMessage =
@@ -585,6 +656,26 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 			!answeredChoices(message.userQuestion)?.length &&
 			!message.userQuestion.canceled
 	)
+}
+
+// The loop is parked on the user: an unanswered askUserQuestion, or a tool call
+// staged for confirmation. The manager stays `loading` through both, so anything
+// rendering progress must ask here first or it reports "the AI is working".
+export type PendingUserAction = 'question' | 'confirmation'
+
+// Scans back to the turn boundary, not just the last message: a turn's cards are
+// created up front and run one at a time, and text between two tool calls pushes
+// an assistant card between them, so the blocked card is rarely last. Only cards
+// of a live turn can match — every resolution path clears `isLoading`.
+export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i]
+		if (message.role === 'user') break
+		if (message.role !== 'tool') continue
+		if (isActiveUserQuestion(message)) return 'question'
+		if (message.needsConfirmation && message.isLoading) return 'confirmation'
+	}
+	return undefined
 }
 
 // Fires after every tool call resolves, with the tool name. Lets a host (e.g.
@@ -629,6 +720,59 @@ async function callTool<T>({
 
 type MaybePromise<T> = T | Promise<T>
 
+/**
+ * Key paths present in `supplied` that a strip-mode parse discarded. Sub-fields of a
+ * schedule's `retry` are all optional, so a guessed shape validates clean, loses the
+ * misspelled keys and saves a policy that does nothing. Recursive because dropping one
+ * nested key leaves the parent non-empty.
+ */
+export function droppedOptionKeys(
+	supplied: unknown,
+	parsed: unknown,
+	prefix = ''
+): string[] {
+	if (supplied === null || typeof supplied !== 'object' || Array.isArray(supplied)) {
+		return parsed === undefined && prefix ? [prefix] : []
+	}
+	if (parsed === null || typeof parsed !== 'object') {
+		return Object.keys(supplied).length && prefix ? [prefix] : []
+	}
+	return Object.entries(supplied).flatMap(([key, value]) =>
+		droppedOptionKeys(value, (parsed as Record<string, unknown>)[key], prefix ? `${prefix}.${key}` : key)
+	)
+}
+
+const MAX_TOOL_ERROR_LENGTH = 2000
+
+/** ApiError from the generated client carries the server's message in `body`,
+ * not `message` — dig it out so tool failures show the real cause. Capped so a
+ * verbose error body (e.g. an HTML error page) can't flood the chat context. */
+export function formatToolError(error: any): string {
+	const bodyMessage =
+		error?.body?.error?.message ??
+		error?.body?.message ??
+		(typeof error?.body?.error === 'string' ? error.body.error : undefined)
+	const body =
+		bodyMessage ??
+		(typeof error?.body === 'string'
+			? error.body
+			: error?.body !== undefined
+				? stringifyErrorBody(error.body)
+				: undefined)
+	const message = String(body || error?.message || error)
+	return message.length > MAX_TOOL_ERROR_LENGTH
+		? message.slice(0, MAX_TOOL_ERROR_LENGTH) + '... (truncated)'
+		: message
+}
+
+function stringifyErrorBody(body: unknown): string {
+	try {
+		return JSON.stringify(body)
+	} catch {
+		return String(body)
+	}
+}
+
 export async function processToolCall<T>({
 	tools,
 	toolCall,
@@ -657,6 +801,7 @@ export async function processToolCall<T>({
 				content: validationError,
 				parameters: args,
 				isLoading: false,
+				isQueued: false,
 				isStreamingArguments: false,
 				error: validationError,
 				needsConfirmation: false,
@@ -681,12 +826,18 @@ export async function processToolCall<T>({
 				? tool.confirmationMessage(args)
 				: tool?.confirmationMessage
 
+		// preAction fires at promotion, not stream time, so its "-ing" label covers
+		// only the execution window — queued cards keep their imperative header.
+		// Before the promotion patch, so a confirmation label still wins the header.
+		tool?.preAction?.({ toolCallbacks, toolId: toolCall.id })
+
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(requiresConfirmation
 				? { content: confirmationContent ?? 'Waiting for confirmation...' }
 				: {}),
 			parameters: args,
 			isLoading: true,
+			isQueued: false,
 			needsConfirmation: needsConfirmation,
 			showDetails: tool?.showDetails,
 			autoCollapseDetails: tool?.autoCollapseDetails
@@ -719,6 +870,11 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
+		// Key by the resolved tool's declared name, not the model-provided string,
+		// so hallucinated tool names never enter telemetry.
+		if (tool) {
+			logFeatureUsage('ai_chat', 'tool', { key: tool.def.function.name, workspace: workspaceId })
+		}
 		try {
 			result = await callTool({
 				tools,
@@ -735,17 +891,12 @@ export async function processToolCall<T>({
 			})
 		} catch (err) {
 			console.error(err)
+			const errorMessage = formatToolError(err)
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
 				isStreamingArguments: false,
-				error: 'An error occurred while calling the tool'
+				error: errorMessage
 			})
-			const errorMessage =
-				typeof err === 'object' && 'message' in err
-					? err.message
-					: typeof err === 'string'
-						? err
-						: 'An error occurred while calling the tool'
 			result = `Error while calling tool: ${errorMessage}`
 		}
 		const toAdd = {
@@ -756,12 +907,45 @@ export async function processToolCall<T>({
 		return toAdd
 	} catch (err) {
 		console.error(err)
+		const errorMessage = formatToolError(err)
+		toolCallbacks.setToolStatus(toolCall.id, {
+			isLoading: false,
+			isQueued: false,
+			isStreamingArguments: false,
+			error: errorMessage
+		})
 		return {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
-			content: 'Error while calling tool'
+			content: `Error while calling tool: ${errorMessage}`
 		}
 	}
+}
+
+/**
+ * Flush images buffered by tools during a batch (via toolCallbacks.attachToolImage)
+ * as ONE follow-up user message, appended to both `messages` (sent on later
+ * iterations) and `addedMessages` (committed to history). Call this once per
+ * completion, right after the whole tool loop — never mid-batch, so every tool_call
+ * id is already answered by its tool result before this non-tool message. The image
+ * parts ride the same `image_url` carrier that the provider converters translate.
+ */
+export function appendPendingToolImages(
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	toolCallbacks: ToolCallbacks
+): void {
+	const images = toolCallbacks.takePendingToolImages?.() ?? []
+	if (images.length === 0) return
+	const message: ChatCompletionMessageParam = {
+		role: 'user',
+		content: [
+			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
+			...images.map((img) => dataUrlToImagePart(img.dataUrl))
+		]
+	}
+	messages.push(message)
+	addedMessages.push(message)
 }
 
 export interface Tool<T> {
@@ -788,6 +972,41 @@ export interface Tool<T> {
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
 	showFade?: boolean
+	/** Header shown while the model is still streaming this call's arguments,
+	 * before `fn` runs and sets a real status. Defaults to "Preparing <name>...". */
+	streamingLabel?: string
+	/** Header shown while the call waits its turn to execute (args fully streamed).
+	 * Pass a function to derive it from the parsed arguments (e.g. name the script
+	 * about to run). Defaults to the humanized tool name ("run_script" → "Run script"). */
+	queuedLabel?: string | ((args: any) => string)
+}
+
+/** Status patch demoting a tool call to the queued state once its arguments have
+ * fully streamed: it waits its turn (tool calls in one message run sequentially)
+ * and processToolCall flips it back to loading when execution starts. The header
+ * switches from the "-ing" streaming label to an imperative one so a waiting call
+ * doesn't read as active. */
+export function queuedToolStatus(
+	tools: Tool<any>[],
+	toolName: string,
+	argsString: string | undefined
+): Partial<ToolDisplayMessage> {
+	const tool = tools.find((t) => t.def.function.name === toolName)
+	const words = toolName
+		.replaceAll('_', ' ')
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.toLowerCase()
+	let content = words.charAt(0).toUpperCase() + words.slice(1)
+	if (typeof tool?.queuedLabel === 'string') {
+		content = tool.queuedLabel
+	} else if (typeof tool?.queuedLabel === 'function') {
+		try {
+			content = tool.queuedLabel(JSON.parse(argsString || '{}'))
+		} catch {
+			// Truncated/invalid args: keep the humanized name; the error path handles the rest.
+		}
+	}
+	return { isLoading: false, isQueued: true, isStreamingArguments: false, content }
 }
 
 /** Status of a job the chat started and tracks in the jobs tray. Mirrors the
@@ -825,6 +1044,9 @@ export type ChatJob = {
 	detached: boolean
 	/** Notify-only: whether its completion has been surfaced to the model yet. */
 	reported: boolean
+	/** Whether the user saw its terminal status in the jobs popover. Reviewed
+	 * outcomes stop driving the segment chip's status readout. Persisted. */
+	reviewed?: boolean
 	/** Trimmed snapshot of the last fetched Job (heavy fields stripped, see
 	 * `trimJob`), fed to `<JobStatusIcon>` so the tray badge matches the runs page
 	 * exactly. Always written together with `status` from the SAME job so the two
@@ -904,6 +1126,16 @@ export interface ToolCallbacks {
 	onItemDeployed?: (itemKind: UserDraftItemKind, storagePath: string, deployedPath: string) => void
 	/** A tool discarded a draft: the chat's touch on the item is undone. */
 	onItemDiscarded?: (itemKind: UserDraftItemKind, storagePath: string) => void
+	/**
+	 * Buffer an image a tool produced (e.g. take_screenshot). Tool results are
+	 * string-only and OpenAI forbids images in tool messages, so buffered images are
+	 * flushed as a follow-up user message once the whole tool batch is answered (see
+	 * appendPendingToolImages) — appending mid-batch would leave sibling tool_call ids
+	 * unanswered before a non-tool message.
+	 */
+	attachToolImage?: (toolId: string, image: AttachedImage) => void
+	/** Drain every image buffered this batch (insertion order), clearing the buffer. */
+	takePendingToolImages?: () => AttachedImage[]
 }
 
 export function createToolDef(
@@ -990,6 +1222,18 @@ const searchHubScriptsToolDef = createToolDef(
 	'Search for scripts in the hub'
 )
 
+/** The hub resolves a script by its version id alone; the app and summary
+ * segments are descriptive only. Mirrors the paths the hub pickers build. */
+function hubScriptPath(s: { version_id: number; app: string; summary: string }): string {
+	return `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
+}
+
+/** Hub scripts are hosted outside the workspace: their paths resolve through the
+ * hub endpoints only, never through workspace lookups or drafts. */
+export function isHubPath(path: string): boolean {
+	return path.startsWith('hub/')
+}
+
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -1001,22 +1245,29 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 			text: parsedArgs.query,
 			kind: 'script'
 		})
+		// Each result costs a content fetch, so cap the fan-out when content is wanted.
+		const matches = withContent ? scripts.slice(0, 3) : scripts
 		toolCallbacks.setToolStatus(toolId, {
-			content: 'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
+			content: `Found ${matches.length} script${matches.length === 1 ? '' : 's'} in the hub related to "${parsedArgs.query}"`
 		})
-		// if withContent, fetch scripts with their content, limit to 3 results
 		const results = await Promise.all(
-			scripts.slice(0, withContent ? 3 : undefined).map(async (s) => {
-				let content = ''
-				if (withContent) {
-					content = await ScriptService.getHubScriptContentByPath({
-						path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
-					})
+			matches.map(async (s) => {
+				const path = hubScriptPath(s)
+				if (!withContent) {
+					return { path, summary: s.summary }
 				}
-				return {
-					path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-					summary: s.summary,
-					...(withContent ? { content } : {})
+				try {
+					// get_full, not the raw content endpoint: callers are told to match the
+					// script's language, which raw content does not carry.
+					const hub = await ScriptService.getHubScriptByPath({ path })
+					return { path, summary: s.summary, language: hub.language, content: hub.content }
+				} catch (err) {
+					// One unreachable script must not sink the whole search.
+					return {
+						path,
+						summary: s.summary,
+						error: `Could not fetch content: ${err instanceof Error ? err.message : String(err)}`
+					}
 				}
 			})
 		)
@@ -1349,10 +1600,14 @@ export function backgroundJobCompletionNote(
 ): string {
 	const status = job.success ? 'succeeded' : 'FAILED'
 	const resultHead = formattedResult ?? formatResult(job.result).slice(0, 2000)
+	const flowHint =
+		!job.success && (job.job_kind === 'flow' || job.job_kind === 'flowpreview')
+			? ` For per-step statuses and results call get_flow_run_details with id="${jobId}".`
+			: ''
 	return (
 		`Background job ${jobId} for "${label}" ${status}.\n` +
 		`Result: ${resultHead}\n` +
-		`(For full logs call get_job_logs with id="${jobId}".)`
+		`(For full logs call get_job_logs with id="${jobId}".${flowHint})`
 	)
 }
 
@@ -1430,7 +1685,16 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
-		return formatResultSummary(job.result, job.logs, job.success)
+		const summary = formatResultSummary(job.result, job.logs, job.success)
+		// get_flow_run_details only exists in the global/sessions chat (the same
+		// hosts that wire the job hooks) — don't advertise it to in-editor chats.
+		if (detachEnabled && config.contextName === 'flow' && !job.success) {
+			return (
+				summary +
+				`\n\nFor per-step statuses and results (subflow steps included), call get_flow_run_details with id="${jobId}".`
+			)
+		}
+		return summary
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
 		config.toolCallbacks.setToolStatus(config.toolId, {

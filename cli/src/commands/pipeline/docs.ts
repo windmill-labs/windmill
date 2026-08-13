@@ -17,11 +17,12 @@ import { colors } from "@cliffy/ansi/colors";
 import { GlobalOptions } from "../../types.ts";
 import {
   type AssetGraph,
+  hideDbtRunnables,
   buildLocalPipelineGraph,
   workspaceRoot,
 } from "./localGraph.ts";
 
-const ASSET_KINDS = "s3object,ducklake,datatable,volume";
+const ASSET_KINDS = "s3object,ducklake,datatable,volume,dbt";
 
 function assetUri(kind: string, p: string): string {
   const prefix = kind === "s3object" ? "s3" : kind;
@@ -39,7 +40,7 @@ async function fetchDeployedGraph(
   if (!res.ok) {
     throw new Error(`GET assets/graph -> ${res.status}: ${await res.text()}`);
   }
-  return (await res.json()) as AssetGraph;
+  return hideDbtRunnables((await res.json()) as AssetGraph);
 }
 
 // Render the pipeline graph as a markdown document.

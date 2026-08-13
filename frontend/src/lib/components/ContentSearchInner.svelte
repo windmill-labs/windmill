@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AppService, FlowService, ResourceService, ScriptService } from '$lib/gen'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import {
 		ArrowDown,
 		Boxes,
@@ -14,7 +14,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './home/FlowIcon.svelte'
-	import { Alert, Button } from './common'
+	import { Button } from './common'
 	import YAML from 'yaml'
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInnerItem from './ContentSearchInnerItem.svelte'
@@ -68,15 +68,6 @@
 		return ` (${n})`
 	}
 
-	function escape(htmlStr) {
-		return htmlStr
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;')
-			.replace(/"/g, '&quot;')
-			.replace(/'/g, '&#39;')
-	}
-
 	let showNbScripts = $state(10)
 	let showNbApps = $state(10)
 	let showNbResources = $state(10)
@@ -127,7 +118,7 @@
 	filter={search}
 	items={scripts}
 	f={(s) => {
-		return escape(s.content)
+		return s.content
 	}}
 	bind:filteredItems={filteredScriptItems}
 />
@@ -136,7 +127,7 @@
 	filter={search}
 	items={resources}
 	f={(s) => {
-		return escape(YAML.stringify(s.value))
+		return YAML.stringify(s.value)
 	}}
 	bind:filteredItems={filteredResourceItems}
 />
@@ -145,7 +136,7 @@
 	filter={search}
 	items={flows}
 	f={(s) => {
-		return escape(YAML.stringify(s.value, null, 4))
+		return YAML.stringify(s.value, null, 4)
 	}}
 	bind:filteredItems={filteredFlowItems}
 />
@@ -154,7 +145,7 @@
 	filter={search}
 	items={apps}
 	f={(s) => {
-		return escape(YAML.stringify(s.value, null, 4))
+		return YAML.stringify(s.value, null, 4)
 	}}
 	bind:filteredItems={filteredAppItems}
 />
@@ -229,16 +220,6 @@
 	</div>
 
 	<div class={twMerge('p-2')}>
-		{#if !$enterpriseLicense}
-			<div class="py-1"></div>
-
-			<Alert title="Content Search is an EE feature" type="warning">
-				Without EE, content search will only search among 10 scripts, 3 flows, 3 apps and 3
-				resources.
-			</Alert>
-			<div class="py-1"></div>
-		{/if}
-
 		{#if search.trim().length > 0}
 			<div class="flex flex-col gap-4">
 				{#if (searchKind == 'all' || searchKind == 'scripts') && filteredScriptItems?.length > 0}

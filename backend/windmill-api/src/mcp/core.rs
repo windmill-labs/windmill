@@ -8,11 +8,11 @@ use serde_json::Value;
 use std::collections::HashMap;
 use windmill_common::{db::UserDB, utils::StripPath, DB};
 use windmill_mcp::common::schema::enrich_resource_schemas;
-use windmill_mcp::common::transform::apply_key_transformation;
+use windmill_mcp::common::transform::transform_property_keys;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
-use windmill_mcp::server::{BackendResult, EndpointTool, ErrorData, McpBackend};
+use windmill_mcp::server::{BackendResult, EndpointTool, ErrorData, McpBackend, PathFilter};
 
 use crate::auth::AuthCache;
 use crate::db::ApiAuthed;
@@ -78,7 +78,7 @@ impl McpBackend for WindmillBackend {
         auth: &ApiAuthed,
         workspace_id: &str,
         favorites_only: bool,
-        path_prefix: Option<&str>,
+        path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<ScriptInfo>> {
         let scope_type = if favorites_only { "favorites" } else { "all" };
         get_items::<ScriptInfo>(
@@ -87,7 +87,7 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             scope_type,
             "script",
-            path_prefix,
+            path_filter,
         )
         .await
         .map_err(|e| ErrorData::internal_error(e.message, None))
@@ -98,7 +98,7 @@ impl McpBackend for WindmillBackend {
         auth: &ApiAuthed,
         workspace_id: &str,
         favorites_only: bool,
-        path_prefix: Option<&str>,
+        path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<FlowInfo>> {
         let scope_type = if favorites_only { "favorites" } else { "all" };
         get_items::<FlowInfo>(
@@ -107,7 +107,7 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             scope_type,
             "flow",
-            path_prefix,
+            path_filter,
         )
         .await
         .map_err(|e| ErrorData::internal_error(e.message, None))
@@ -194,23 +194,7 @@ impl McpBackend for WindmillBackend {
         let mut schema_obj = schema.clone();
 
         // Replace invalid char in property key with underscore
-        let replacements: Vec<(String, String, Value)> = schema_obj
-            .properties
-            .iter()
-            .filter_map(|(key, value)| {
-                if key.chars().any(|c| !c.is_alphanumeric() && c != '_') {
-                    let new_key = apply_key_transformation(key);
-                    Some((key.clone(), new_key, value.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for (old_key, new_key, value) in replacements {
-            schema_obj.properties.remove(&old_key);
-            schema_obj.properties.insert(new_key, value);
-        }
+        transform_property_keys(&mut schema_obj);
 
         // Enrich every resource reference in the schema — including those
         // inside `items`, nested `properties`, etc. — with a description
@@ -295,7 +279,6 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             args_map,
             &endpoint_tool.path_params_schema,
-            &endpoint_tool.path_field_renames,
         )?;
         let query_string = build_query_string(
             args_map,
@@ -571,12 +554,24 @@ pub async fn setup_mcp_server(
     let backend = WindmillBackend::new(db, user_db, base_internal_url, auth_cache);
     let runner = Runner::new(backend);
 
-    let service_config = StreamableHttpServerConfig {
-        sse_keep_alive: Some(Duration::from_secs(15)),
-        stateful_mode: false,
-        cancellation_token: cancellation_token.clone(),
-        sse_retry: Some(Duration::from_secs(15)),
-    };
+    let service_config = StreamableHttpServerConfig::default()
+        .with_sse_keep_alive(Some(Duration::from_secs(15)))
+        .with_sse_retry(Some(Duration::from_secs(15)))
+        .with_cancellation_token(cancellation_token.clone())
+        // Sessionless: every request re-resolves auth from its own bearer token, so
+        // there is no session to bind. This also makes legacy `initialize` clients
+        // take the same stateless path as 2026-07-28 ones.
+        .with_legacy_session_mode(false)
+        // rmcp's Host allowlist defaults to localhost, which guards an unauthenticated
+        // locally-bound server against DNS rebinding. This endpoint instead sits behind
+        // Windmill's own authentication, and is reached under whatever hostname the
+        // instance is served on, so keeping that default would reject every remote MCP
+        // client while adding nothing.
+        .disable_allowed_hosts()
+        // MCP bodies are ordinary API payloads — `createApp`/`updateApp` carry whole app
+        // sources — so they follow the instance's request size limit rather than rmcp's
+        // much smaller default, which would 413 them with no way to raise it.
+        .with_max_request_body_bytes(*crate::REQUEST_SIZE_LIMIT.read().await);
 
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);

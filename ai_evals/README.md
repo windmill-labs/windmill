@@ -150,6 +150,21 @@ Global initial fixtures can also seed `liveEditorDrafts` with `type`,
 currently open script, flow, or raw app editor so cases can test prompts that
 refer to "this" or the "current" item.
 
+Global initial fixtures can seed `workspace.variables` with
+`{ path, value, is_secret, description?, labels?, ws_specific? }` entries so cases can
+read and edit variables that already exist in the workspace. The mock mirrors the real
+`get_variable`, **decrypt-by-default included**: a secret's `value` is withheld only
+when the caller explicitly passes `decryptSecret: false`, and omitting the flag returns
+the decrypted value, exactly as against a real backend. The chat's read path passes
+`decryptSecret: false`, so a case can verify it never invents a value it was not shown.
+Seed a recognizable secret (the existing fixture uses `sk_live_do_not_leak_me`) and
+assert it via `valueExcludes` to catch a leak.
+
+`toolExpect.toolCallArgs` entries additionally support `fieldMustBeAbsent: true`: no
+recorded call to that tool may pass the field at all (an explicit `null` counts as
+passing it). Use it for partial-update tools, where supplying a field the model could
+not have read is itself the failure — e.g. `write_variable.value` on a secret variable.
+
 Global (and flow) initial fixtures can seed `workspace.datatables` so the
 `list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql` tools
 return seeded data during evals. Each entry is

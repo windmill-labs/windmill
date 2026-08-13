@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { Resource, ResourceType } from '$lib/gen'
+	import { onDestroy } from 'svelte'
+	import { setEditorUnparseable } from './pendingEditorFlush'
 	import { emptyString, isOwner, urlize } from '$lib/utils'
 	import { Alert, Skeleton } from './common'
 	import Path from './Path.svelte'
@@ -75,6 +77,12 @@
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')
 
+	// This field is a bare SimpleEditor parsed here, so it never passes through JsonEditor —
+	// it has to register itself, or a caller persisting what is on screen would save the
+	// last value that parsed and leave without the text in front of the user.
+	const unparseableKey = {}
+	onDestroy(() => setEditorUnparseable(unparseableKey, false))
+
 	function parseJson() {
 		try {
 			args = JSON.parse(rawCode ?? '')
@@ -99,6 +107,14 @@
 
 	$effect(() => {
 		if (rawCode !== undefined) parseJson()
+	})
+
+	// Both halves, and from the current parse rather than from a transition: `rawCode`
+	// outlives the raw editor, so text that does not parse is the user's to fix exactly
+	// while that editor is the active input — which the schema loading and the resource
+	// type flip as well as the toggle, and only the toggle reseeds `rawCode`.
+	$effect(() => {
+		setEditorUnparseable(unparseableKey, usesRawEditor && jsonError !== '')
 	})
 
 	$effect(() => {
@@ -291,12 +307,12 @@
 		{:else if !can_write}
 			<input type="text" disabled value={rawCode} />
 		{:else}
-			{#if !viewJsonSchema}
+			{#if !viewJsonSchema && !resourceSchema}
 				<div class="flex flex-col gap-2 mb-4">
 					<p class="text-red-500 dark:text-red-400 text-xs">
 						Resource type '{resource_type}' not found in your workspace
 					</p>
-					<SyncResourceTypes onSynced={() => onLoadResourceType?.()} />
+					<SyncResourceTypes resourceType={resource_type} onSynced={() => onLoadResourceType?.()} />
 					<p class="italic text-secondary text-xs"> Define the value in JSON directly </p>
 				</div>
 			{/if}

@@ -34,9 +34,15 @@ vi.mock('./fileEngine', async (importOriginal) => {
 })
 
 import { AttachedFilesStore } from './attachedFiles.svelte'
+import { attachedTextFileId } from '../textFileUtils'
 
 function file(name: string, content: string, lastModified = 1): File {
 	return new File([content], name, { type: 'text/plain', lastModified })
+}
+
+/** A message attachment as the transcript carries it: name + content + stable id. */
+function mf(name: string, content: string): { name: string; content: string; id: string } {
+	return { name, content, id: attachedTextFileId(name, content) }
 }
 
 const dir = { kind: 'directory', name: 'proj' } as unknown as FileSystemDirectoryHandle
@@ -401,6 +407,31 @@ describe('AttachedFilesStore', () => {
 		}
 	})
 
+	it('keeps a session row indexable when a same-named message file registers mid-index', async () => {
+		buildMode = 'manual'
+		try {
+			const S = file('notes.md', 'session\n')
+			await store.addFiles([S]) // session row 'notes.md' (file S) → index pending
+
+			// A same-named message attachment rebuilds while S is still indexing —
+			// neither row is renamed, and neither index is stranded.
+			store.syncMessageScoped([mf('notes.md', 'message\n')])
+
+			for (const d of [...buildDeferreds]) d.resolve({ lineIndex: [0], lineCount: 1 })
+			await settle(store)
+
+			// Both rows ready: the message row via its id, the session row via name.
+			const messageRow = store.resolve(attachedTextFileId('notes.md', 'message\n'))
+			expect(messageRow?.messageScoped).toBe(true)
+			expect(messageRow?.status).toBe('ready')
+			const sessionRow = store.files.find((f) => f.name === 'notes.md' && !f.messageScoped)
+			expect(sessionRow?.status).toBe('ready')
+		} finally {
+			buildMode = 'real'
+			buildDeferreds.length = 0
+		}
+	})
+
 	it('removeFolder deletes the live folder record from storage (persisted session)', async () => {
 		const { deleteItem } = await import('./attachedFilesDB')
 		const s = new AttachedFilesStore()
@@ -472,5 +503,205 @@ describe('AttachedFilesStore', () => {
 		await s.refreshFolders()
 		await settle(s)
 		expect(s.folders[0].files.map((f) => f.relPath)).toEqual(['proj/app.ts'])
+	})
+
+	it('a session link and a message attachment share a name independently', async () => {
+		await store.addFiles([file('notes.md', 'session content\n')])
+		await settle(store)
+
+		store.registerMessageFiles([mf('notes.md', 'message content\n')])
+		await settle(store)
+
+		// Two rows, one display name, independently addressable: the message row by
+		// its id, the session row by name (its roster handle — a bare-name resolve
+		// must return it, never the same-named message attachment shadowing it).
+		const messageRow = store.resolve(attachedTextFileId('notes.md', 'message content\n'))
+		expect(messageRow?.messageScoped).toBe(true)
+		expect(await (messageRow!.file as Blob).text()).toBe('message content\n')
+		const sessionRow = store.resolve('notes.md')
+		expect(sessionRow?.messageScoped).toBeFalsy()
+		expect(await (sessionRow!.file as Blob).text()).toBe('session content\n')
+
+		// A footer removal of the session file must not take the message row along.
+		store.removeFile('notes.md')
+		expect(store.resolve(messageRow!.id!)?.messageScoped).toBe(true)
+		expect(store.standalone).toEqual([])
+	})
+
+	it('resolve falls back to a name lookup for legacy references', async () => {
+		// Chats persisted before ids existed reference message files by bare name.
+		store.registerMessageFiles([mf('notes.md', 'message content\n')])
+		await settle(store)
+		expect(store.resolve('notes.md')?.messageScoped).toBe(true)
+		expect(await (store.resolve('notes.md')!.file as Blob).text()).toBe('message content\n')
+	})
+
+	it('resolve accepts the printed composite label verbatim', async () => {
+		// Rosters and search hits print `name (file id: x)`; models echo references
+		// verbatim, so the printed form must resolve.
+		const f = mf('notes.md', 'message content\n')
+		store.registerMessageFiles([f])
+		await settle(store)
+		expect(store.resolve(`notes.md (file id: ${f.id})`)?.id).toBe(f.id)
+	})
+
+	it('stores control-char filenames sanitized so the advertised name resolves', async () => {
+		// The roster prints sanitized names; the stored name must BE that name or
+		// the reference shown to the model would not resolve.
+		await store.addFiles([file('a\nb.md', 'controlled\n')])
+		await settle(store)
+		expect(store.get('a b.md')?.status).toBe('ready')
+		expect(store.resolve('a b.md')).toBeDefined()
+		expect(store.list().some((f) => f.name.includes('\n'))).toBe(false)
+	})
+
+	it('re-linking a control-char filename dedupes against the sanitized stored name', async () => {
+		await store.addFiles([file('a\nb.md', 'controlled\n')])
+		await settle(store)
+		// The duplicate check must compare what is STORED (sanitized), not the raw
+		// re-link name — else every control-char file re-links as a "(2)" copy.
+		await store.addFiles([file('a\nb.md', 'controlled\n')])
+		await settle(store)
+		expect(store.standalone.map((f) => f.name)).toEqual(['a b.md'])
+	})
+
+	it('links two distinct files whose raw names sanitize identically — equal stats included', async () => {
+		// A display-name collision is NOT a duplicate: the re-link identity is the
+		// RAW name, so even identical size and mtime cannot collapse two distinct
+		// raw names into one row. The second claims a suffixed name.
+		await store.addFiles([file('a\nb.md', 'first\n', 1)])
+		await settle(store)
+		await store.addFiles([file('a\tb.md', 'other\n', 1)]) // same size, same mtime
+		await settle(store)
+		expect(store.standalone.map((f) => f.name).sort()).toEqual(['a b (2).md', 'a b.md'])
+
+		// Re-link of the suffixed file matches via its raw sourceName.
+		await store.addFiles([file('a\tb.md', 'other\n', 1)])
+		await settle(store)
+		expect(store.standalone).toHaveLength(2)
+	})
+
+	it('re-link dedupe survives a reload — raw provenance is persisted', async () => {
+		const { getItemsForSession } = await import('./attachedFilesDB')
+		const record = (id: string, name: string, sourceName: string, blob: File) => ({
+			id,
+			sessionId: 's1',
+			kind: 'snapshot' as const,
+			name,
+			sourceName,
+			blob,
+			size: blob.size,
+			lastModified: blob.lastModified,
+			addedAt: 1
+		})
+		;(getItemsForSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+			record('r1', 'a b.md', 'a\nb.md', file('a b.md', 'first\n', 1)),
+			record('r2', 'a b (2).md', 'a\tb.md', file('a b (2).md', 'other\n', 2))
+		])
+		const s = new AttachedFilesStore()
+		await s.restore('s1', false)
+		await settle(s)
+		expect(s.standalone.map((f) => f.name).sort()).toEqual(['a b (2).md', 'a b.md'])
+
+		// Re-linking the original file behind the suffixed row must dedupe, not
+		// create `a b (3).md` — the raw identity rode the persisted record.
+		await s.addFiles([file('a\tb.md', 'other\n', 2)])
+		await settle(s)
+		expect(s.standalone).toHaveLength(2)
+	})
+
+	it('restore claims names, keeping legacy rows that sanitize identically distinct', async () => {
+		const { getItemsForSession } = await import('./attachedFilesDB')
+		const record = (id: string, name: string) => ({
+			id,
+			sessionId: 's1',
+			kind: 'snapshot' as const,
+			name,
+			blob: new Blob([`content ${id}\n`]),
+			size: 10,
+			lastModified: 1,
+			addedAt: 1
+		})
+		;(getItemsForSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+			record('r1', 'a\nb.md'),
+			record('r2', 'a\tb.md')
+		])
+		const s = new AttachedFilesStore()
+		await s.restore('s1', false)
+		await settle(s)
+		// Both legacy rows sanitize to `a b.md`; the claim must uniquify so each
+		// stays independently visible and resolvable.
+		expect(s.standalone.map((f) => f.name).sort()).toEqual(['a b (2).md', 'a b.md'])
+		expect(s.resolve('a b.md')).toBeDefined()
+		expect(s.resolve('a b (2).md')).toBeDefined()
+	})
+
+	it('resolve prefers a literal filename over label interpretation', async () => {
+		// A file literally named like a printed label must stay addressable by its
+		// exact name — label parsing must not strip it down to the base name.
+		await store.addFiles([file('notes (file id: missing)', 'literal\n'), file('notes', 'base\n')])
+		await settle(store)
+		expect(await (store.resolve('notes (file id: missing)')!.file as Blob).text()).toBe('literal\n')
+	})
+
+	it('syncMessageScoped reconciles rows to the transcript references', async () => {
+		store.syncMessageScoped([mf('a.md', 'aaa\n'), mf('b.md', 'bbb\n')])
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name).sort()).toEqual(['a.md', 'b.md'])
+
+		// A message dropped from the transcript prunes its row; the survivor stays.
+		store.syncMessageScoped([mf('a.md', 'aaa\n')])
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['a.md'])
+
+		store.syncMessageScoped([])
+		expect(store.messageAttached).toEqual([])
+	})
+
+	it('back-to-back reconciliations commit only the latest set', async () => {
+		// Rapid chat switching fires syncs in quick succession; reconciliation is
+		// synchronous, so the last call's set simply wins.
+		store.syncMessageScoped([mf('old.md', 'OLD sentinel\n')])
+		store.syncMessageScoped([mf('new.md', 'NEW sentinel\n')])
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['new.md'])
+	})
+
+	it('syncMessageScoped replaces a stale row under the same name', async () => {
+		store.syncMessageScoped([mf('a.md', 'old\n')])
+		await settle(store)
+
+		// The transcript's copy changed (edited message): different content means a
+		// different id, so the stale row is pruned and the new one registered.
+		store.syncMessageScoped([mf('a.md', 'new\n')])
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['a.md'])
+		expect(await (store.get('a.md')!.file as Blob).text()).toBe('new\n')
+	})
+
+	it('keeps message-scoped files tool-readable but out of the footer roster', async () => {
+		store.registerMessageFiles([mf('notes.md', 'hello\n')])
+		await settle(store)
+
+		// Hidden from the session bar, listed for the tools, readable by id.
+		expect(store.standalone).toEqual([])
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
+		expect(store.resolve(attachedTextFileId('notes.md', 'hello\n'))?.status).toBe('ready')
+
+		// Identical re-registration (retry / sync rebuild) reuses the row — same id.
+		store.registerMessageFiles([mf('notes.md', 'hello\n')])
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
+
+		// A same-named file with DIFFERENT content is another message's attachment:
+		// distinct id, its own row, both independently readable under one label.
+		store.registerMessageFiles([mf('notes.md', 'other\n')])
+		await settle(store)
+		expect(store.messageAttached.map((f) => f.name)).toEqual(['notes.md', 'notes.md'])
+		expect(
+			await (store.resolve(attachedTextFileId('notes.md', 'other\n'))!.file as Blob).text()
+		).toBe('other\n')
+		expect(
+			await (store.resolve(attachedTextFileId('notes.md', 'hello\n'))!.file as Blob).text()
+		).toBe('hello\n')
 	})
 })

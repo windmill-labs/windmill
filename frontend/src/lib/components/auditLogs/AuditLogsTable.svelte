@@ -205,10 +205,19 @@
 									</div>
 									<div class={showWorkspace ? 'w-2/12 text-xs' : 'w-3/12 text-xs'}>
 										<div class="flex flex-row gap-2 items-center">
-											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
-												{logOrDate.log.username}
+											<!-- end_user can be an arbitrarily long token label; truncate it rather
+											than let it push the username out of the cell. -->
+											<div class="flex flex-row min-w-0 max-w-60 overflow-hidden">
+												<span class="whitespace-nowrap shrink-0" title={logOrDate.log.username}>
+													{logOrDate.log.username}
+												</span>
 												{#if logOrDate.log.parameters && 'end_user' in logOrDate.log.parameters}
-													<span> ({logOrDate.log.parameters.end_user})</span>
+													<span
+														class="truncate pl-1"
+														title={String(logOrDate.log.parameters.end_user)}
+													>
+														({logOrDate.log.parameters.end_user})
+													</span>
 												{/if}
 											</div>
 											<Button

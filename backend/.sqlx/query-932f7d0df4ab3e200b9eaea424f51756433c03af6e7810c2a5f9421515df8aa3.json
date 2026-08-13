@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_by, on_behalf_of_email FROM script\n          WHERE path = $1 AND workspace_id = $2 AND archived = false AND deleted = false\n          ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "on_behalf_of_email",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "932f7d0df4ab3e200b9eaea424f51756433c03af6e7810c2a5f9421515df8aa3"
+}

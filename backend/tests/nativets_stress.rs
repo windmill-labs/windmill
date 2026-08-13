@@ -171,6 +171,7 @@ async fn push_job(db: &Pool<Postgres>, content: &str, args: &serde_json::Value) 
         /* email */ "test@windmill.dev",
         /* permissioned_as */ "u/test-user".to_string(),
         /* token_prefix */ None,
+        /* audit_end_user */ None,
         /* scheduled_for */ None,
         /* schedule_path */ None,
         /* parent_job */ None,

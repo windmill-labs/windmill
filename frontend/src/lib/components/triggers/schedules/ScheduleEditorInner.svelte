@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -44,6 +49,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 
 	let {
 		useDrawer = true,
@@ -135,12 +141,17 @@
 				emptyString(errorHandlerExtraArgs['channel'])) ||
 			!can_write
 	)
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	// Carry the acting workspace onto "create from template" routes when a
+	// session override is set, so the script is created in the session workspace.
+	const wsParam = $derived(triggerWs?.() ? `&workspace=${encodeURIComponent(wsId!)}` : '')
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_schedule',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => scheduleCfg,
 		applyCfg: loadScheduleCfg,
@@ -159,6 +170,7 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(SCHEDULES_PATH, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
@@ -228,15 +240,15 @@
 			let defaultErrorHandlerMaybe = undefined
 			let defaultRecoveryHandlerMaybe = undefined
 			let defaultSuccessHandlerMaybe = undefined
-			if ($workspaceStore) {
+			if (wsId) {
 				defaultErrorHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_error_handler_' + $workspaceStore!
+					key: 'default_error_handler_' + wsId!
 				})) as any
 				defaultRecoveryHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_recovery_handler_' + $workspaceStore!
+					key: 'default_recovery_handler_' + wsId!
 				})) as any
 				defaultSuccessHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_success_handler_' + $workspaceStore!
+					key: 'default_success_handler_' + wsId!
 				})) as any
 			}
 
@@ -305,7 +317,7 @@
 			let s: Schedule | undefined
 			if (schedule_path) {
 				const resp = await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					path: schedule_path,
 					getDraft
 				})
@@ -385,9 +397,9 @@
 			runnable = undefined
 			try {
 				if (is_flow) {
-					runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
+					runnable = await FlowService.getFlowByPath({ workspace: wsId!, path: p })
 				} else {
-					runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
+					runnable = await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
 				}
 			} catch (err) {}
 		} else {
@@ -400,9 +412,9 @@
 			sendUserToast(`Setting default error handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore) {
+		if (wsId) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					handler_type: 'error',
 					override_existing: overrideExisting,
@@ -429,9 +441,9 @@
 			sendUserToast(`Setting default recovery handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore) {
+		if (wsId) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					handler_type: 'recovery',
 					override_existing: overrideExisting,
@@ -456,9 +468,9 @@
 			sendUserToast(`Setting default success handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore) {
+		if (wsId) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					handler_type: 'success',
 					override_existing: overrideExisting,
@@ -492,7 +504,7 @@
 		}
 		try {
 			const s = await ScheduleService.getSchedule({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath,
 				getDraft: true
 			})
@@ -591,7 +603,7 @@
 		const previousPath = initialPath
 		const scheduleCfg = getScheduleCfg()
 		deploymentLoading = true
-		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
+		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
 			draftSync.discard(previousPath, scheduleCfg)
 			onUpdate?.(scheduleCfg.path)
@@ -698,7 +710,7 @@
 				(force) =>
 					ScheduleService.setScheduleEnabled({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { enabled: nEnabled, force }
 					}),
 				'schedule'
@@ -723,6 +735,7 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
@@ -754,7 +767,7 @@
 							variant="default"
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
 							on:click={() => {
-								runScheduleNow(script_path, path, is_flow, $workspaceStore!)
+								runScheduleNow(script_path, path, is_flow, wsId!)
 							}}
 						>
 							Run now
@@ -813,6 +826,7 @@
 						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
 						{#if !edit && !trigger?.isPrimary}
 							<Path
+								workspaceOverride={wsId}
 								bind:dirty={dirtyPath}
 								bind:this={pathC}
 								checkInitialPathExistence={!edit}
@@ -930,6 +944,7 @@
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
 						</p>
 						<ScriptPicker
+							workspace={wsId}
 							disabled={(initialScriptPath != '' && !initNewPath) || !can_write}
 							initialPath={initialScriptPath}
 							kinds={['script']}
@@ -949,6 +964,7 @@
 						</Alert>
 						<div class="my-2"></div>
 						<ScriptPicker
+							workspace={wsId}
 							disabled
 							initialPath={script_path}
 							scriptPath={script_path}
@@ -1085,6 +1101,7 @@
 					</div>
 
 					<ErrorOrRecoveryHandler
+						workspace={wsId}
 						isEditable={can_write}
 						errorOrRecovery="error"
 						showScriptHelpText={true}
@@ -1179,6 +1196,7 @@
 						</div>
 					{/snippet}
 					<ErrorOrRecoveryHandler
+						workspace={wsId}
 						isEditable={!disabled}
 						errorOrRecovery="recovery"
 						bind:handlerSelected={recoveryHandlerSelected}
@@ -1268,6 +1286,7 @@
 						</div>
 					{/snippet}
 					<ErrorOrRecoveryHandler
+						workspace={wsId}
 						isEditable={!disabled}
 						errorOrRecovery="success"
 						bind:handlerSelected={successHandlerSelected}
@@ -1337,6 +1356,7 @@
 						<Label label="Dynamic skip script">
 							<div class="flex flex-row">
 								<ScriptPicker
+									workspace={wsId}
 									disabled={!can_write}
 									bind:scriptPath={dynamicSkipPath}
 									kinds={['script']}
@@ -1348,7 +1368,7 @@
 										btnClasses="ml-4 whitespace-nowrap"
 										variant="default"
 										size="xs"
-										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template"
+										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template{wsParam}"
 										disabled={!can_write}
 										target="_blank"
 									>
@@ -1368,7 +1388,12 @@
 					label="Custom script tag"
 					tooltip="When set, the script tag will be overridden by this tag"
 				>
-					<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write} />
+					<WorkerTagPicker
+						bind:tag
+						workspaceId={wsId}
+						popupPlacement="top-end"
+						disabled={!can_write}
+					/>
 				</Section>
 			{/if}
 		{:else}
@@ -1378,7 +1403,7 @@
 {/snippet}
 
 {#if useDrawer}
-	<Drawer size="900px" bind:this={drawer}>
+	<Drawer size="900px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(SCHEDULES_PATH)}>
 		<DrawerContent
 			bannerReserved={draftSync.hasBaseline}
 			title={edit

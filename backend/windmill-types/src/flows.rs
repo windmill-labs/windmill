@@ -39,8 +39,13 @@ pub struct Flow {
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "is_none_or_false")]
     pub visible_to_runner_only: Option<bool>,
+    /// Derived from `on_behalf_of` on the read paths, not selected. Kept in
+    /// the response so clients written against the old shape keep working.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time. Not stored on the flow row.
@@ -127,6 +132,10 @@ pub struct NewFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both move
+    /// together under the same `preserve_on_behalf_of` gate and must name the same user
+    /// or group; `None` has it derived from that email rather than left unset.
+    pub on_behalf_of: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
@@ -142,6 +151,59 @@ impl NewFlow {
     pub fn parse_flow_value(&self) -> anyhow::Result<FlowValue> {
         serde_json::from_str(self.value.get())
             .map_err(|e| anyhow::anyhow!("Failed to parse flow value: {}", e))
+    }
+}
+
+/// Body for updating an existing flow. Mirrors `NewFlow`, but `path` is optional: the
+/// flow to update is identified by the URL, so the body only needs `path` to rename it.
+/// This matches the `EditVariable` / `EditResource` / `EditApp` convention and lets a
+/// caller update in place without restating the path.
+#[derive(Debug, Deserialize)]
+pub struct EditFlow {
+    #[serde(default)]
+    pub path: Option<String>,
+    pub summary: String,
+    pub description: Option<String>,
+    #[serde(deserialize_with = "validate_flow_value")]
+    pub value: Box<RawValue>,
+    pub schema: Option<Schema>,
+    pub tag: Option<String>,
+    pub dedicated_worker: Option<bool>,
+    pub timeout: Option<i32>,
+    pub deployment_message: Option<String>,
+    pub visible_to_runner_only: Option<bool>,
+    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
+    pub preserve_on_behalf_of: Option<bool>,
+    pub ws_error_handler_muted: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub skip_draft_deletion: Option<bool>,
+}
+
+impl EditFlow {
+    /// Resolve into a `NewFlow`, defaulting the target path to `current_path` (the flow's
+    /// URL path) when the body omits it. A body `path` that differs renames the flow.
+    pub fn into_new_flow(self, current_path: &str) -> NewFlow {
+        NewFlow {
+            path: self.path.unwrap_or_else(|| current_path.to_string()),
+            summary: self.summary,
+            description: self.description,
+            value: self.value,
+            schema: self.schema,
+            tag: self.tag,
+            dedicated_worker: self.dedicated_worker,
+            timeout: self.timeout,
+            deployment_message: self.deployment_message,
+            visible_to_runner_only: self.visible_to_runner_only,
+            on_behalf_of_email: self.on_behalf_of_email,
+            on_behalf_of: self.on_behalf_of,
+            preserve_on_behalf_of: self.preserve_on_behalf_of,
+            ws_error_handler_muted: self.ws_error_handler_muted,
+            labels: self.labels,
+            skip_draft_deletion: self.skip_draft_deletion,
+        }
     }
 }
 
@@ -613,6 +675,19 @@ impl FlowModule {
             .is_ok_and(|x| x == "script" || x == "rawscript" || x == "flowscript")
     }
 
+    /// Whether a between-steps-zombie step carrying this definition can be safely reused as
+    /// `Success` on restart (see restart-resolution reuse). Excludes steps whose completion
+    /// transition or arming carries semantics that reuse would silently skip: stop predicates
+    /// (`stop_after_if` / `stop_after_all_iters_if`, which decide whether downstream steps run),
+    /// `skip_if` (skipped-state and suspend arming), a `suspend` approval boundary, and `sleep`.
+    pub fn allows_zombie_reuse(&self) -> bool {
+        self.stop_after_if.is_none()
+            && self.stop_after_all_iters_if.is_none()
+            && self.skip_if.is_none()
+            && self.suspend.is_none()
+            && self.sleep.is_none()
+    }
+
     pub fn get_type(&self) -> anyhow::Result<&str> {
         #[derive(Deserialize)]
         pub struct FlowModuleValueType<'a> {
@@ -804,20 +879,24 @@ pub struct AgentTool {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// Free-text description given to the AI to decide when and how to call this tool.
+    /// Overrides the description auto-derived from the underlying runnable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub value: ToolValue,
 }
 
-// Convert FlowModule -> AgentTool
-impl From<FlowModule> for AgentTool {
-    fn from(flow_module: FlowModule) -> Self {
+impl AgentTool {
+    /// Fold a `FlowModule` that went through dependency locking back into the tool it came from.
+    /// `description` has no `FlowModule` counterpart, so it must be carried over from the
+    /// existing tool: rebuilding an `AgentTool` from the module alone drops it on every deploy.
+    pub fn update_from_module(&mut self, flow_module: FlowModule) {
         let module_value = serde_json::from_str::<FlowModuleValue>(flow_module.value.get())
             .unwrap_or(FlowModuleValue::Identity);
 
-        AgentTool {
-            id: flow_module.id,
-            summary: flow_module.summary,
-            value: ToolValue::FlowModule(module_value),
-        }
+        self.id = flow_module.id;
+        self.summary = flow_module.summary;
+        self.value = ToolValue::FlowModule(module_value);
     }
 }
 
@@ -1000,6 +1079,16 @@ pub enum FlowModuleValue {
         tag: Option<String>,
         #[serde(default, skip_serializing_if = "is_false")]
         omit_output_from_conversation: bool,
+        /// When set, the agent brain config (provider/model/system prompt/etc.) and tools are
+        /// resolved at runtime from this `ai_agent` resource path (hybrid linking). The module's
+        /// `input_transforms` then only carry the flow-local inputs (user_message/user_attachments).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
+        /// Binds an agent's tools to *this* flow's context, keyed by tool id then input key, without
+        /// mutating the shared resource. Overlaid onto the tools' `input_transforms` at runtime,
+        /// `agent` set or not: a step forked for editing keeps these until saved back or unlinked.
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        tool_inputs: HashMap<String, HashMap<String, InputTransform>>,
     },
 }
 
@@ -1035,6 +1124,8 @@ struct UntaggedFlowModuleValue {
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<AgentTool>>,
     omit_output_from_conversation: Option<bool>,
+    agent: Option<String>,
+    tool_inputs: Option<HashMap<String, HashMap<String, InputTransform>>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
     #[serde(flatten)]
@@ -1133,13 +1224,15 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
             "identity" => Ok(FlowModuleValue::Identity),
             "aiagent" => Ok(FlowModuleValue::AIAgent {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
-                tools: untagged
-                    .tools
-                    .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
+                // Tools default to empty: a linked agent (see `agent`) resolves its tools from
+                // the referenced resource, so the module itself may carry none.
+                tools: untagged.tools.unwrap_or_default(),
                 tag: untagged.tag,
                 omit_output_from_conversation: untagged
                     .omit_output_from_conversation
                     .unwrap_or(false),
+                agent: untagged.agent,
+                tool_inputs: untagged.tool_inputs.unwrap_or_default(),
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
@@ -1228,6 +1321,20 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn edit_flow_defaults_path_from_url_and_renames_when_given() {
+        // An omitted body path resolves to the URL path; an explicit body path renames.
+        let ef: EditFlow =
+            serde_json::from_value(json!({ "summary": "s", "value": { "modules": [] } })).unwrap();
+        assert_eq!(ef.into_new_flow("f/team/my_flow").path, "f/team/my_flow");
+
+        let ef: EditFlow = serde_json::from_value(
+            json!({ "path": "f/team/renamed", "summary": "s", "value": { "modules": [] } }),
+        )
+        .unwrap();
+        assert_eq!(ef.into_new_flow("f/team/my_flow").path, "f/team/renamed");
+    }
+
+    #[test]
     fn flow_value_ignores_notes_and_groups() {
         // FlowValue should parse successfully even when notes/groups are present —
         // it just ignores them (they're not its fields).
@@ -1256,6 +1363,41 @@ mod tests {
         });
         let val: FlowValue = serde_json::from_value(input).unwrap();
         assert_eq!(val.modules.len(), 1);
+    }
+
+    #[test]
+    fn agent_tool_keeps_description_through_locking() {
+        // #10244: the dependency job rebuilds each tool from its locked FlowModule; the
+        // tool description lives only on AgentTool and must survive that round-trip.
+        let mut tool: AgentTool = serde_json::from_value(json!({
+            "id": "b",
+            "summary": "my_tool",
+            "description": "when to call me",
+            "value": {
+                "tool_type": "flowmodule",
+                "type": "rawscript",
+                "content": "def main(): return 1",
+                "language": "python3",
+                "input_transforms": {}
+            }
+        }))
+        .unwrap();
+
+        let mut locked: FlowModule = Option::<FlowModule>::from(&tool).unwrap();
+        locked.value = to_raw_value(&json!({
+            "type": "rawscript",
+            "content": "def main(): return 1",
+            "language": "python3",
+            "lock": "# py: 3.11",
+            "input_transforms": {}
+        }));
+        tool.update_from_module(locked);
+
+        assert_eq!(tool.description.as_deref(), Some("when to call me"));
+        assert_eq!(tool.summary.as_deref(), Some("my_tool"));
+        assert!(serde_json::to_string(&tool.value)
+            .unwrap()
+            .contains("# py: 3.11"));
     }
 
     #[test]

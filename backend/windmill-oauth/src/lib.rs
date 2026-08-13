@@ -32,7 +32,8 @@ pub type DB = sqlx::Pool<sqlx::Postgres>;
 
 // Re-export oauth2 types that consumers need (also used internally)
 pub use oauth2::{
-    helpers, AccessToken, AuthType, Client as OClient, RefreshToken, Scope, State, Url,
+    helpers, AccessToken, AuthType, Client as OClient, ErrorField, ExecuteError, RefreshToken,
+    Scope, State, Url,
 };
 
 // Re-export reqwest Client (version 0.12 compatible with async-oauth2)

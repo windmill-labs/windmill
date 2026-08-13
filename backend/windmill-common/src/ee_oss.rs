@@ -83,6 +83,11 @@ pub async fn enforce_offline_caps(_db: &DB) -> anyhow::Result<Option<OfflineCapS
     Ok(None)
 }
 
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub async fn alert_on_online_license_expired(_db: &DB) {
+    // Implementation is not open source
+}
+
 #[cfg(not(feature = "private"))]
 #[derive(PartialEq, Eq)]
 pub enum LicensePlan {

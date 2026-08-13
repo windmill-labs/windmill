@@ -134,7 +134,11 @@ describe('flowDeleteController', () => {
 		expect(flowStore.val.value.modules.map((module) => module.id)).toEqual(['dependent_step'])
 		expect(flowStore.val.value.groups ?? []).toEqual([])
 		expect(Object.keys(flowStateStore.val)).toEqual(['dependent_step'])
-		expect(selectionManager.selectId).toHaveBeenCalledWith('dependent_step')
+		// The surviving step is selected as a side effect of the delete, so it must be
+		// marked as such — otherwise the modal step panel pops open on its own.
+		expect(selectionManager.selectId).toHaveBeenCalledWith('dependent_step', {
+			openPanel: false
+		})
 		expect(onDelete).toHaveBeenCalledWith('agent_step')
 	})
 })

@@ -3,6 +3,7 @@ import { DraftService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import {
 	getWorkspaceItemKey,
 	type AppDraftValue,
@@ -21,9 +22,11 @@ const TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND = {
 	nats: 'trigger_nats',
 	postgres: 'trigger_postgres',
 	mqtt: 'trigger_mqtt',
+	amqp: 'trigger_amqp',
 	sqs: 'trigger_sqs',
 	gcp: 'trigger_gcp',
-	azure: 'trigger_azure'
+	azure: 'trigger_azure',
+	email: 'trigger_email'
 } as const satisfies Record<TriggerKind, UserDraftItemKind>
 
 const TRIGGER_KIND_BY_DRAFT_KIND = Object.fromEntries(
@@ -44,14 +47,14 @@ const GLOBAL_DRAFT_KINDS = [
 	'trigger_nats',
 	'trigger_postgres',
 	'trigger_mqtt',
+	'trigger_amqp',
 	'trigger_sqs',
 	'trigger_gcp',
 	'trigger_azure',
+	'trigger_email',
 	'resource',
 	'variable'
 ] as const satisfies UserDraftItemKind[]
-
-const secretVariableDraftValues = new Map<string, Map<string, string>>()
 
 function clone<T>(value: T): T {
 	return structuredClone(value) as T
@@ -67,43 +70,15 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		custom_path: value.custom_path,
 		// Carry the fork-base version through the whitelist — it is dropped on every
 		// save otherwise, which would defeat the stale-draft check.
-		parent_version: value.parent_version
+		parent_version: value.parent_version,
+		// Same for the friendly path of a draft-only app: dropping it here would
+		// rename the app back to its `draft_<uuid>` storage key on every chat edit.
+		draft_path: value.draft_path
 	}
 }
 
 function getItemSummary(value: unknown): string | undefined {
 	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
-}
-
-export function setEphemeralSecretVariableDraftValue(
-	workspace: string,
-	path: string,
-	value: string
-): void {
-	let workspaceValues = secretVariableDraftValues.get(workspace)
-	if (!workspaceValues) {
-		workspaceValues = new Map()
-		secretVariableDraftValues.set(workspace, workspaceValues)
-	}
-	workspaceValues.set(path, value)
-}
-
-export function getEphemeralSecretVariableDraftValue(
-	workspace: string,
-	path: string
-): string | undefined {
-	return secretVariableDraftValues.get(workspace)?.get(path)
-}
-
-export function clearEphemeralSecretVariableDraftValue(workspace: string, path: string): void {
-	const workspaceValues = secretVariableDraftValues.get(workspace)
-	if (!workspaceValues) return
-	workspaceValues.delete(path)
-	if (workspaceValues.size === 0) secretVariableDraftValues.delete(workspace)
-}
-
-function clearEphemeralSecretVariableDraftValues(workspace: string): void {
-	secretVariableDraftValues.delete(workspace)
 }
 
 export function itemKindFor(
@@ -129,10 +104,40 @@ export function triggerKindToUserDraftKind(kind: TriggerKind): UserDraftItemKind
 	return TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND[kind]
 }
 
+/** Inverse of `itemKindFor`: the chat-facing type (+ trigger kind) for a draft
+ * kind. Classic and raw app drafts both surface as the chat's `app` type —
+ * mirroring the read path, which pairs the two kinds. `undefined` for kinds
+ * the chat cannot address (webhook / poll / cli trigger drafts, data
+ * pipelines). */
+export function itemTypeForKind(
+	kind: UserDraftItemKind
+): { type: WorkspaceItemType; triggerKind?: TriggerKind } | undefined {
+	switch (kind) {
+		case 'script':
+		case 'flow':
+		case 'resource':
+		case 'variable':
+			return { type: kind }
+		case 'app':
+		case 'raw_app':
+			return { type: 'app' }
+		case 'trigger_schedule':
+			return { type: 'schedule' }
+		default: {
+			const triggerKind = TRIGGER_KIND_BY_DRAFT_KIND[kind]
+			return triggerKind ? { type: 'trigger', triggerKind } : undefined
+		}
+	}
+}
+
 function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceItem {
 	return {
 		type: 'script',
 		path,
+		// The session editor parks a rename in the draft's `draft_path` (see
+		// sessionDraftCodecs.ts); surface it so lists/pickers show the friendly
+		// name instead of the `draft_<uuid>` storage key.
+		draftPath: (draft as NewScript & { draft_path?: string }).draft_path,
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
@@ -145,6 +150,7 @@ function flowDraftToWorkspaceItem(path: string, draft: Flow): WorkspaceItem {
 	return {
 		type: 'flow',
 		path,
+		draftPath: (draft as Flow & { draft_path?: string }).draft_path,
 		summary: draft.summary,
 		// The persisted flow draft carries `version_id` (the deployed head it was
 		// forked from, pinned at fork by writeDraft/the editor) — the flow analog
@@ -165,6 +171,7 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 	return {
 		type: 'app',
 		path,
+		draftPath: value.draft_path,
 		summary: value.summary,
 		parentVersionId: value.parent_version,
 		value,
@@ -219,6 +226,7 @@ function variableDraftToWorkspaceItem(path: string, draft: VariableDraftState): 
 		type: 'variable',
 		path,
 		summary: draft.variable.description || undefined,
+		isSecret: draft.variable.is_secret,
 		value: {
 			path,
 			value: draft.variable.value,
@@ -266,7 +274,14 @@ function userDraftEntryToWorkspaceItem(
 				: undefined
 		}
 	}
-	return item && isLiveDraft ? { ...item, isLiveDraft: true } : item
+	if (!item) return undefined
+	// Drop a draftPath that just repeats `path` (no extra display information),
+	// keep it otherwise — including on live entries: a live editor that
+	// registers its storage key as the effective path (flow/raw-app renames
+	// live in the value's `draft_path`, not `path`) must not hide the staged
+	// rename from lists and pickers.
+	const draftPath = item.draftPath === item.path ? undefined : item.draftPath
+	return isLiveDraft ? { ...item, draftPath, isLiveDraft: true } : { ...item, draftPath }
 }
 
 function liveDisplayPath(
@@ -438,9 +453,17 @@ export async function persistGlobalDraft(
 	const conflict = opts.force
 		? undefined
 		: UserDraftDbSyncer.getConflict({ workspace, itemKind, path: storagePath }).conflict
-	return conflict
-		? { status: 'conflict', item, itemKind, storagePath, serverTimestamp: conflict.serverTimestamp }
-		: { status: 'saved', item, itemKind, storagePath }
+	if (conflict) {
+		return {
+			status: 'conflict',
+			item,
+			itemKind,
+			storagePath,
+			serverTimestamp: conflict.serverTimestamp
+		}
+	}
+	invalidateWorkspaceDrafts(workspace)
+	return { status: 'saved', item, itemKind, storagePath }
 }
 
 export async function getGlobalDraft(
@@ -473,6 +496,7 @@ function backendDraftRowToWorkspaceItem(
 		kind: string
 		path: string
 		summary?: string
+		draft_path?: string
 	}
 ): WorkspaceItem | undefined {
 	if (!(GLOBAL_DRAFT_KINDS as readonly string[]).includes(row.kind)) return undefined
@@ -506,6 +530,12 @@ function backendDraftRowToWorkspaceItem(
 	return {
 		type,
 		path: displayPath,
+		// The row's friendly path (from the draft JSON) names the item; only a
+		// draft_path that repeats the display path adds nothing. Kept even for
+		// live rows — a live registration whose effective path is the storage key
+		// (flow/raw-app renames live in the value's `draft_path`, not `path`)
+		// must not hide the staged rename.
+		draftPath: row.draft_path === displayPath ? undefined : row.draft_path,
 		summary: row.summary,
 		value: undefined,
 		isDraft: true,
@@ -583,12 +613,73 @@ export async function deleteGlobalDraft(
 			`Draft "${path}" changed externally since you last read it; it was not removed. Re-read and retry.`
 		)
 	}
-	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
+	invalidateWorkspaceDrafts(workspace)
+}
+
+/** Kind-addressed live-editor storage resolution (friendly → storage path),
+ * for callers that must probe several draft kinds per chat type. */
+export function resolveGlobalDraftStoragePathByKind(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): string {
+	return resolveDraftStoragePath(workspace, itemKind, path)
+}
+
+/** Local in-memory draft cell, kind-addressed: the chat `app` type spans two
+ * draft kinds (raw_app + classic app), so callers probing both address by
+ * kind. No backend fallback — this is the freshest state when a save is
+ * parked (auto-save off), failed, or conflicted; read-only callers use it
+ * instead of persisting. */
+export function readLocalDraftCellByKind(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): unknown | undefined {
+	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	return UserDraft.get(itemKind, storagePath, { workspace })
+}
+
+/** Flush every parked local draft autosave for the workspace so the server
+ * listing reflects the latest edits — a brand-new editor draft has no server
+ * row until its first flush. No-ops per key when nothing is pending.
+ * Honors the auto-save toggle: with auto-save off, parked editor edits stay
+ * parked — a read-only caller must not persist what the user chose not to.
+ * `unflushedPaths` lists items whose latest edits did NOT reach the server
+ * (toggle-parked or failed save), so callers can say the listing excludes them. */
+export async function flushGlobalDraftSaves(
+	workspace: string
+): Promise<{ unflushedPaths: string[] }> {
+	// Classic-app editor cells live under the `app` kind, which is deliberately
+	// NOT in GLOBAL_DRAFT_KINDS (clearGlobalDrafts must never clear a user's
+	// open classic editor) — but their unflushed edits must be flushed/reported
+	// like every other kind.
+	const drafts = UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS, 'app'] })
+	await Promise.all(
+		drafts.map((draft) =>
+			UserDraftDbSyncer.flush(
+				{ workspace, itemKind: draft.itemKind, path: draft.path },
+				{ honorAutosaveToggle: true }
+			)
+		)
+	)
+	const unflushedPaths = drafts
+		.filter((draft) => {
+			const query = { workspace, itemKind: draft.itemKind, path: draft.path }
+			// A conflicted save also leaves the server without the local edits:
+			// the payload stays parked but the state is neither pending nor failed.
+			return (
+				UserDraftDbSyncer.hasUnsavedDisabledChanges(query) ||
+				UserDraftDbSyncer.getState(query).state === 'failed' ||
+				UserDraftDbSyncer.getConflict(query).conflict !== undefined
+			)
+		})
+		.map((draft) => draft.path)
+	return { unflushedPaths }
 }
 
 export function clearGlobalDrafts(workspace: string): void {
 	for (const draft of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
 		UserDraft.clear(draft.itemKind, draft.path, { workspace })
 	}
-	clearEphemeralSecretVariableDraftValues(workspace)
 }

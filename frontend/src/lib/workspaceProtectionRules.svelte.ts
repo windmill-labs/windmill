@@ -6,6 +6,11 @@ import type { UserExt } from './stores'
 // UserExt store value.
 export type RuleBypassUser = Pick<UserExt, 'is_admin' | 'username' | 'groups'>
 
+// Mirrors DEV_WORKSPACE_LOCK_RULE_NAME in windmill-common. The pairing owns this rule by name:
+// attaching a dev workspace creates it, detaching deletes it. The API refuses to create or delete
+// it, so the UI must not offer those two actions on it; its restrictions stay editable.
+export const DEV_WORKSPACE_LOCK_RULE_NAME = 'dev_workspace_lock'
+
 /**
  * Internal reactive state using Svelte 5 $state rune
  */
@@ -180,6 +185,23 @@ export function isRuleActiveInRulesets(
 	ruleKind: ProtectionRuleKind
 ): boolean {
 	return rulesets.some((ruleset) => ruleset.rules.includes(ruleKind))
+}
+
+/**
+ * Whether a rule kind is enforced with no bypass users/groups in at least one ruleset, the only case
+ * that matches the empty-bypass reserved dev-workspace lock. A bypassable rule does not, since adding
+ * the unconditional lock would revoke those users' access; callers keep such a toggle editable.
+ */
+export function isRuleUnconditionallyActiveInRulesets(
+	rulesets: ProtectionRuleset[],
+	ruleKind: ProtectionRuleKind
+): boolean {
+	return rulesets.some(
+		(ruleset) =>
+			ruleset.rules.includes(ruleKind) &&
+			ruleset.bypass_users.length === 0 &&
+			ruleset.bypass_groups.length === 0
+	)
 }
 
 /**

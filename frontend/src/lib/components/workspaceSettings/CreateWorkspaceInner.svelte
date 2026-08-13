@@ -14,16 +14,34 @@
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
-	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		superadmin,
+		usersWorkspaceStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		workspaceIsFork,
 		findWorkspaceRoot,
-		findWorkspaceDescendants
+		findWorkspaceDescendants,
+		findDefaultForkBase,
+		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
+	import {
+		fetchProtectionRulesForWorkspace,
+		isRuleUnconditionallyActiveInRulesets
+	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
-	import { Badge, Button } from '$lib/components/common'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import { Button } from '$lib/components/common'
+	import {
+		DEV_WORKSPACE_LABELS,
+		devBadgeText,
+		devLabelKey,
+		type DevWorkspaceLabelKey
+	} from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceLabelPicker from '$lib/components/workspaceSettings/DevWorkspaceLabelPicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
@@ -72,11 +90,22 @@
 		copyMembers = createAsDevWorkspace
 	})
 
-	// A dev workspace can only be created off a root base (backend rejects a dev of a fork). Clear a
-	// stale toggle when the base no longer qualifies so we never submit is_dev_workspace against a fork.
+	// A dev workspace can only be created off a root or dev base (backend rejects a dev of a throwaway
+	// fork). Clear a stale toggle when the base no longer qualifies so we never submit
+	// is_dev_workspace against a fork.
 	$effect(() => {
 		if (!canDesignateDevWorkspace && createAsDevWorkspace) {
 			createAsDevWorkspace = false
+		}
+	})
+	// "Create a new dev workspace" links here with ?dev=true, so the button creates what it names.
+	// Applied once eligibility is confirmed rather than at init, since the effect above would clear a
+	// toggle set while the server check is still in flight.
+	let devRequestedFromUrl = $state(page.url.searchParams.get('dev') === 'true')
+	$effect(() => {
+		if (devRequestedFromUrl && canDesignateDevWorkspace) {
+			devRequestedFromUrl = false
+			createAsDevWorkspace = true
 		}
 	})
 
@@ -105,7 +134,9 @@
 			subtitle: w.is_dev_workspace ? 'dev workspace' : w.id === familyRoot?.id ? undefined : 'fork'
 		}))
 	)
-	let defaultBaseWorkspaceId = $derived(familyRoot?.id)
+	let defaultBaseWorkspaceId = $derived(
+		findDefaultForkBase($workspaceStore, forkableWorkspaces)?.id
+	)
 	// Seed the base once the family is known; keep an explicit user choice as long as it stays valid.
 	$effect(() => {
 		if (!isFork) return
@@ -113,35 +144,91 @@
 		baseWorkspaceId = defaultBaseWorkspaceId
 	})
 
-	// Cosmetic display label for the new dev workspace: 'dev' | 'staging'. Purely visual (badge text +
-	// wording); reset when the dev toggle is turned off.
-	let devWorkspaceLabel = $state<'dev' | 'staging'>('dev')
-	$effect(() => {
-		if (!createAsDevWorkspace) devWorkspaceLabel = 'dev'
-	})
-
-	// The dev-workspace option is only offered when forking a root workspace that doesn't already
-	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
+	// The dev-workspace option is only offered when forking a workspace that doesn't already have a
+	// dev: a workspace gets at most one. The base may be a root or, less conventionally, another dev
+	// workspace (a dev of a dev) — only a throwaway fork can't host one.
 	let baseWorkspaceEntry = $derived(forkableWorkspaces.find((w) => w.id === baseWorkspaceId))
-	// Require the base workspace to be loaded before treating it as a root: a missing entry must
-	// not read as root (it would offer invalid dev creation while the workspace list is still loading).
+	// Require the base workspace to be loaded before treating it as eligible: a missing entry must not
+	// read as a root (it would offer invalid dev creation while the workspace list is still loading).
 	// `workspaceIsFork` (prefix OR parent) also excludes an orphaned `wm-fork-` workspace, whose parent
 	// FK was set null — it has no parent but is still a fork, so it can't host a dev workspace.
-	let currentIsRoot = $derived(
-		!!baseWorkspaceEntry && !workspaceIsFork(baseWorkspaceId, forkableWorkspaces)
+	let baseCanHostDev = $derived(
+		!!baseWorkspaceEntry &&
+			(!workspaceIsFork(baseWorkspaceId, forkableWorkspaces) ||
+				!!baseWorkspaceEntry.is_dev_workspace)
 	)
 	// Ask the server whether a dev already exists: the caller may not be a member of this prod's dev,
 	// so the client workspace list can't see it and would offer an invalid "create dev" action.
 	const devWorkspaceResource = resource(
-		() => (currentIsRoot ? baseWorkspaceId : undefined),
+		() => (baseCanHostDev ? baseWorkspaceId : undefined),
 		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)
 	)
-	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
-	// conservative (no offer) while the check is loading (current is undefined).
-	let canDesignateDevWorkspace = $derived(currentIsRoot && devWorkspaceResource.current === null)
-	let currentWorkspaceName = $derived(
-		baseWorkspaceEntry?.name ?? baseWorkspaceId ?? 'the root workspace'
+	// The label names the deploy branch, and the dev workspaces the new one would share a chain with
+	// hold theirs: the picker steers away from those rather than offering a choice the backend rejects.
+	let chainTakenLabels = $derived(
+		new Set(
+			devWorkspacesInChainAbove(baseWorkspaceId, forkableWorkspaces).map((w) =>
+				devLabelKey(w.dev_workspace_label)
+			)
+		)
 	)
+	let availableDevLabels = $derived(DEV_WORKSPACE_LABELS.filter((l) => !chainTakenLabels.has(l)))
+	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
+	// conservative (no offer) while the check is loading (current is undefined). With every label
+	// taken the chain is full and there is nothing left to designate.
+	let canDesignateDevWorkspace = $derived(
+		baseCanHostDev && availableDevLabels.length > 0 && devWorkspaceResource.current === null
+	)
+
+	let devWorkspaceLabel = $state<DevWorkspaceLabelKey>('dev')
+	$effect(() => {
+		if (!createAsDevWorkspace) devWorkspaceLabel = 'dev'
+	})
+	let currentWorkspaceName = $derived(
+		baseWorkspaceEntry?.name ?? baseWorkspaceId ?? 'the base workspace'
+	)
+
+	// If the root already blocks direct deploy / forking through an existing protection rule, keep the
+	// matching lock toggle on but locked: this flow only manages its own reserved dev-workspace rule, so
+	// turning it "off" here couldn't lift a separately-defined block. On a failed fetch we fall back to the
+	// editable default-on toggle, which can't drop protection (any real rule still enforces server-side).
+	const rootProtectionRules = resource(
+		() => (canDesignateDevWorkspace && createAsDevWorkspace ? baseWorkspaceId : undefined),
+		async (ws, _prev, { signal }) => {
+			if (!ws) return undefined
+			const rules = await fetchProtectionRulesForWorkspace(ws)
+			// The generated client can't take an abort signal, so drop a superseded response here: a late
+			// result for a previous base must not overwrite the newly selected base's rules.
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { ws, rules }
+		}
+	)
+	// Only trust a result that belongs to the currently selected base (guards the in-flight window and
+	// any out-of-order response); undefined means "not known yet" and is treated as locked below.
+	let rootRules = $derived.by(() => {
+		const current = rootProtectionRules.current
+		return current && current.ws === baseWorkspaceId ? current.rules : undefined
+	})
+	// Only a rule with no bypass users/groups matches the empty-bypass reserved lock we would create; a
+	// bypassable rule stays editable, otherwise forcing the lock on would revoke the bypassed users'
+	// direct-deploy / forking access.
+	let rootAlreadyBlocksDeploy = $derived(
+		isRuleUnconditionallyActiveInRulesets(rootRules ?? [], 'DisableDirectDeployment')
+	)
+	let rootAlreadyBlocksForking = $derived(
+		isRuleUnconditionallyActiveInRulesets(rootRules ?? [], 'DisableWorkspaceForking')
+	)
+	// Until the fetch resolves for the selected base its rules are unknown. Treat each lock as engaged
+	// during that window so the toggle is locked on and the effective value stays true: otherwise a user
+	// could turn a lock off and submit before an existing rule is detected, sending false and omitting
+	// the reserved rule — leaving prod unprotected if that existing rule is later removed.
+	let rootRulesUnknown = $derived(rootProtectionRules.loading || rootRules === undefined)
+	let deployLocked = $derived(rootAlreadyBlocksDeploy || rootRulesUnknown)
+	let forkingLocked = $derived(rootAlreadyBlocksForking || rootRulesUnknown)
+	// Sent to the backend: a locked restriction (enforced or not-yet-known) stays on regardless of the
+	// toggle's raw state, keeping the request consistent with what the locked toggle shows.
+	let effectiveLockProdDeploy = $derived(deployLocked || lockProdDeploy)
+	let effectiveLockProdForking = $derived(forkingLocked || lockProdForking)
 
 	let id = $state('')
 	let name = $state('')
@@ -158,6 +245,7 @@
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
+	let errorHandlerFallbackToInstanceAlerts = $state(false)
 
 	function generateRandomColor() {
 		const randomColor =
@@ -306,8 +394,8 @@
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
 					// locked-dev request before any branch is created (avoids dangling branches).
-					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
-					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
 				}
 			})
@@ -374,8 +462,8 @@
 					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
-					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
-					lock_prod_forking: createAsDevWorkspace && lockProdForking,
+					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && effectiveLockProdForking,
 					copy_members: copyMembers
 				}
 			})
@@ -390,7 +478,7 @@
 		forkCreationLoading = false
 		sendUserToast(
 			createAsDevWorkspace
-				? `Created ${devWorkspaceLabel === 'staging' ? 'staging' : 'dev'} workspace ${effectiveForkId} for ${baseWorkspaceId}`
+				? `Created ${devWorkspaceLabel} workspace ${effectiveForkId} for ${baseWorkspaceId}`
 				: `Successfully forked workspace ${baseWorkspaceId} as: wm-fork-${id}`
 		)
 
@@ -406,7 +494,8 @@
 				id,
 				name,
 				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-				username: automateUsernameCreation ? undefined : username
+				username: automateUsernameCreation ? undefined : username,
+				error_handler_fallback_to_instance_alerts: errorHandlerFallbackToInstanceAlerts
 			}
 		})
 		if (auto_invite) {
@@ -519,9 +608,17 @@
 	onMount(() => {
 		loadWorkspaces()
 
-		WorkspaceService.isDomainAllowed().then((x) => {
-			isDomainAllowed = x
-		})
+		// Settle on a value rather than leaving the section stuck in its in-flight
+		// state, and settle on `false`: `createWorkspace` commits the workspace
+		// before `editAutoInvite`, so offering the toggle to a domain the backend
+		// then rejects leaves a created workspace behind a failed submit.
+		WorkspaceService.isDomainAllowed()
+			.then((x) => {
+				isDomainAllowed = x
+			})
+			.catch(() => {
+				isDomainAllowed = false
+			})
 	})
 
 	let isDomainAllowed: undefined | boolean = $state(undefined)
@@ -538,15 +635,15 @@
 			id = name.toLowerCase().replace(/\s/gi, '-')
 		}
 	})
-	// When creating a dev workspace, prefill the fork name with `<root>-dev` / `<root>-stg` (the effect
-	// above slugifies it into the id). Only fill an empty field or one still holding a prior suggestion,
-	// so a user-typed name is never overwritten; flipping Dev<->Staging updates the suffix, and turning
-	// the dev toggle back off clears the suggestion.
+	// When creating a dev workspace, prefill the fork name with `<root>-<badge>` (the effect above
+	// slugifies it into the id). Only fill an empty field or one still holding a prior suggestion, so a
+	// user-typed name is never overwritten; changing the label updates the suffix, and turning the dev
+	// toggle back off clears the suggestion.
 	let lastAutoDevName = $state<string | undefined>(undefined)
 	$effect(() => {
 		const target =
 			createAsDevWorkspace && $workspaceStore
-				? `${$workspaceStore}-${devWorkspaceLabel === 'staging' ? 'stg' : 'dev'}`
+				? `${$workspaceStore}-${devBadgeText(devWorkspaceLabel)}`
 				: ''
 		if (name === '' || name === lastAutoDevName) {
 			name = target
@@ -738,6 +835,23 @@
 					</div>
 				{/if}
 			</Label>
+			{#if !isFork && !isCloudHosted() && $enterpriseLicense}
+				<Label label="Error reporting">
+					{#snippet header()}
+						<span class="text-2xs text-secondary">(optional)</span>
+					{/snippet}
+					<span class="text-xs text-secondary">
+						Until this workspace has its own error handler, report failed jobs to the Slack, Teams
+						and email channels a superadmin configured in the instance critical alert settings.
+					</span>
+					<div class="pt-1">
+						<Toggle
+							bind:checked={errorHandlerFallbackToInstanceAlerts}
+							options={{ right: 'Use the instance critical alert channels' }}
+						/>
+					</div>
+				</Label>
+			{/if}
 			{#if isFork && canDesignateDevWorkspace}
 				<Label label="Persistent dev workspace">
 					<span class="text-xs text-secondary">
@@ -747,33 +861,51 @@
 					<div class="flex flex-col gap-2 pt-1">
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
-							<div class="text-2xs text-secondary">
-								Cosmetic label: <Badge color="indigo" small>{devBadgeText(devWorkspaceLabel)}</Badge
-								>
-								<button
-									type="button"
-									class="text-secondary hover:text-primary hover:underline"
-									onclick={() =>
-										(devWorkspaceLabel = devWorkspaceLabel === 'staging' ? 'dev' : 'staging')}
-								>
-									Change to {devWorkspaceLabel === 'staging' ? 'dev' : 'staging'}
-								</button>
-							</div>
+							<DevWorkspaceLabelPicker
+								bind:value={devWorkspaceLabel}
+								takenLabels={chainTakenLabels}
+							/>
 							<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
 								<div class="flex flex-col gap-0.5">
 									<span class="text-xs font-semibold text-emphasis"
 										>Protect {currentWorkspaceName}</span
 									>
 									<span class="text-2xs text-secondary">
-										Adds protection rules to this (root) workspace so changes are made in the new
-										dev workspace and promoted here.
+										Adds protection rules to the base workspace so changes are made in the new dev
+										workspace and promoted there.
 									</span>
 								</div>
-								<Toggle
-									bind:checked={lockProdDeploy}
-									options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
-								/>
-								<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
+								{#if deployLocked}
+									<div class="flex flex-col gap-0.5">
+										<Toggle
+											checked
+											disabled
+											options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
+										/>
+										{#if rootAlreadyBlocksDeploy}
+											<span class="text-2xs text-secondary ml-11"
+												>Already enforced by an existing protection rule</span
+											>
+										{/if}
+									</div>
+								{:else}
+									<Toggle
+										bind:checked={lockProdDeploy}
+										options={{ right: 'Block direct edits (deploy via the dev workspace)' }}
+									/>
+								{/if}
+								{#if forkingLocked}
+									<div class="flex flex-col gap-0.5">
+										<Toggle checked disabled options={{ right: 'Prevent forking' }} />
+										{#if rootAlreadyBlocksForking}
+											<span class="text-2xs text-secondary ml-11"
+												>Already enforced by an existing protection rule</span
+											>
+										{/if}
+									</div>
+								{:else}
+									<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking' }} />
+								{/if}
 							</div>
 						{/if}
 					</div>
@@ -798,10 +930,10 @@
 					</div>
 					<span class="text-xs text-secondary">
 						{#if createAsDevWorkspace}
-							A dev workspace is always based on the root workspace.
+							A dev workspace is paired with the workspace it is based on, which here is {currentWorkspaceName}.
 						{:else}
-							Workspace to fork from. Defaults to the root; pick an existing fork to create a fork
-							of a fork (the new branch is based on the selected workspace's branch).
+							Workspace to fork from: the new branch is based on the selected workspace's branch.
+							Pick an existing fork to create a fork of a fork.
 						{/if}
 					</span>
 					<Select
@@ -889,64 +1021,61 @@
 						</div>
 					{/if}
 				</div>
-				<div class="flex flex-col gap-1">
-					<label for="auto-invite" class="text-xs font-semibold text-emphasis"
-						>{isCloudHosted()
-							? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${domain}`
-							: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`}</label
-					>
-					<Toggle
-						id="auto-invite"
-						disabled={isCloudHosted() && !isDomainAllowed}
-						bind:checked={auto_invite}
-					/>
-					{#if isCloudHosted() && isDomainAllowed == false}
-						<div class="text-secondary text-2xs">{domain} domain not allowed for auto-invite</div>
-					{/if}
+				<!-- Strict `=== true`: undefined means the domain check is still in flight,
+				     and rendering then is a section that flashes in and back out. -->
+				{#if !isCloudHosted() || isDomainAllowed === true}
+					<div class="flex flex-col gap-1">
+						<label for="auto-invite" class="text-xs font-semibold text-emphasis"
+							>{isCloudHosted()
+								? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${domain}`
+								: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`}</label
+						>
+						<Toggle id="auto-invite" bind:checked={auto_invite} />
 
-					{#if auto_invite}
-						<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
-							<!-- svelte-ignore a11y_label_has_associated_control -->
-							{#if isCloudHosted()}
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-emphasis">Mode</span>
+						{#if auto_invite}
+							<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
+								<!-- svelte-ignore a11y_label_has_associated_control -->
+								{#if isCloudHosted()}
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-semibold text-emphasis">Mode</span>
+										<span class="text-xs text-secondary font-normal"
+											>Whether to invite or add users directly to the workspace.</span
+										>
+										<ToggleButtonGroup
+											selected={autoAdd ? 'add' : 'invite'}
+											on:selected={async (e) => {
+												autoAdd = e.detail === 'add'
+											}}
+										>
+											{#snippet children({ item })}
+												<ToggleButton value="invite" label="Auto-invite" {item} />
+												<ToggleButton value="add" label="Auto-add" {item} />
+											{/snippet}
+										</ToggleButtonGroup>
+									</label>
+								{/if}
+
+								<label class="font-semibold flex flex-col gap-1">
+									<span class="text-xs font-semibold text-emphasis">Role</span>
 									<span class="text-xs text-secondary font-normal"
-										>Whether to invite or add users directly to the workspace.</span
+										>Role of the auto-invited users</span
 									>
 									<ToggleButtonGroup
-										selected={autoAdd ? 'add' : 'invite'}
-										on:selected={async (e) => {
-											autoAdd = e.detail === 'add'
+										selected={operatorOnly ? 'operator' : 'developer'}
+										on:selected={(e) => {
+											operatorOnly = e.detail == 'operator'
 										}}
 									>
 										{#snippet children({ item })}
-											<ToggleButton value="invite" label="Auto-invite" {item} />
-											<ToggleButton value="add" label="Auto-add" {item} />
+											<ToggleButton value="operator" label="Operator" {item} />
+											<ToggleButton value="developer" label="Developer" {item} />
 										{/snippet}
 									</ToggleButtonGroup>
 								</label>
-							{/if}
-
-							<label class="font-semibold flex flex-col gap-1">
-								<span class="text-xs font-semibold text-emphasis">Role</span>
-								<span class="text-xs text-secondary font-normal"
-									>Role of the auto-invited users</span
-								>
-								<ToggleButtonGroup
-									selected={operatorOnly ? 'operator' : 'developer'}
-									on:selected={(e) => {
-										operatorOnly = e.detail == 'operator'
-									}}
-								>
-									{#snippet children({ item })}
-										<ToggleButton value="operator" label="Operator" {item} />
-										<ToggleButton value="developer" label="Developer" {item} />
-									{/snippet}
-								</ToggleButtonGroup>
-							</label>
-						</div>
-					{/if}
-				</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>

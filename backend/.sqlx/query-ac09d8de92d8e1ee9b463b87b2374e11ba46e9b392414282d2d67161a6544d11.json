@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT app.summary, app.policy, app_version.value, app_version.raw_app\n         FROM app\n         JOIN app_version\n         ON app_version.id = app.versions[array_upper(app.versions, 1)]\n         WHERE app.workspace_id = $1 AND app.path = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "policy",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "value",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 3,
+        "name": "raw_app",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ac09d8de92d8e1ee9b463b87b2374e11ba46e9b392414282d2d67161a6544d11"
+}

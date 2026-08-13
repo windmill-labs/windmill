@@ -187,10 +187,17 @@ services:
       # - DEBUG_ALLOWED_ORIGINS=https://your-windmill-host # Optional CSWSH hardening: comma-separated allowlist of browser Origins permitted to open debug WebSockets
     volumes:
       - lsp_cache:/pyls/.cache
+      # Behind a TLS-intercepting proxy, mount its CA here (as .crt) and it is registered in the
+      # system trust store before any service starts. That alone does not cover dependency
+      # installation — see debugger/README.md for the variables it also needs
+      # - ./corp-ca.crt:/usr/local/share/ca-certificates/corp-ca.crt:ro
     logging: *default-logging
 
   caddy:
-    image: ghcr.io/windmill-labs/caddy-l4:latest
+    # Pinned: this image and the ./Caddyfile next to it are version-coupled, so
+    # they have to move together. Bump docker/caddy-l4.version in the same
+    # commit as any Caddyfile change.
+    image: ghcr.io/windmill-labs/caddy-l4:2.11.4-1
     restart: unless-stopped
     # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
     volumes:

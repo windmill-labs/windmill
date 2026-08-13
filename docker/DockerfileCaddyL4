@@ -1,10 +1,23 @@
-FROM caddy:2.8.4-builder-alpine AS builder
+FROM caddy:2.11.4-builder-alpine AS builder
 
+# caddy-l4 natively registers the `layer4` global option used by the Caddyfile.
+# Do NOT also add RussellLuo/caddy-ext/layer4: it registers the same global
+# option, and building both panics with "global option 'layer4' already registered".
 RUN xcaddy build \
-  --with github.com/mholt/caddy-l4@145ec36251a44286f05a10d231d8bfb3a8192e09 \
-  --with github.com/RussellLuo/caddy-ext/layer4@ab1e18cfe426012af351a68463937ae2e934a2a1
+  --with github.com/mholt/caddy-l4@bd96009ea7373869bb07d61055554f966b1f5088
 
 
-FROM caddy:2.8.4-alpine
+FROM caddy:2.11.4-alpine
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+
+COPY caddy-compat-normalize.awk /usr/local/lib/caddy-compat/normalize.awk
+COPY entrypoint-caddy.sh /usr/local/bin/entrypoint-caddy.sh
+RUN chmod +x /usr/local/bin/entrypoint-caddy.sh
+
+# The base image has no ENTRYPOINT and puts `caddy` in CMD, so setting an
+# ENTRYPOINT here both resets CMD (restated below) and changes what a user's
+# existing `command:` override means. The entrypoint absorbs a leading `caddy`
+# token so both forms keep working.
+ENTRYPOINT ["/usr/local/bin/entrypoint-caddy.sh"]
+CMD ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

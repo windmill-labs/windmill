@@ -110,6 +110,7 @@ fn kind_str(k: AssetKind) -> &'static str {
         AssetKind::Ducklake => "ducklake",
         AssetKind::DataTable => "datatable",
         AssetKind::Volume => "volume",
+        AssetKind::Dbt => "dbt",
     }
 }
 
@@ -121,6 +122,7 @@ fn native_str(t: &TriggerSpec) -> Option<&'static str> {
         TriggerSpec::Email => "email",
         TriggerSpec::Kafka => "kafka",
         TriggerSpec::Mqtt => "mqtt",
+        TriggerSpec::Amqp => "amqp",
         TriggerSpec::Nats => "nats",
         TriggerSpec::Postgres => "postgres",
         TriggerSpec::Sqs => "sqs",

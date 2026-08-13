@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)\n            SELECT c.id, c.workspace_id, $4, COALESCE($5, $7), false\n                FROM v2_job_completed c\n                JOIN v2_job j ON j.id = c.id\n                WHERE c.id = ANY($1)\n                    AND c.workspace_id = $2\n                    AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))\n                    AND c.status = 'failure'\n                    -- Resolution is a top-level triage state: a step resolved on its own\n                    -- would render orange inside a flow whose status is still red.\n                    AND j.flow_step_id IS NULL\n                    -- A supersession claim has to be proven, not trusted: a later success of the\n                    -- same identified runnable, itself visible to the caller. An unproven claim\n                    -- resolves nothing, so the caller learns it was rejected instead of having\n                    -- the fiction recorded as provenance.\n                    AND ($6::UUID IS NULL OR EXISTS (\n                        SELECT 1 FROM v2_job_completed sc\n                            JOIN v2_job sj ON sj.id = sc.id\n                            WHERE sc.id = $6\n                                AND sc.workspace_id = $2\n                                -- Tag scope is a read restriction enforced outside RLS, so it has\n                                -- to bind the evidence as well: otherwise the result reveals\n                                -- whether an out-of-scope run succeeded.\n                                AND ($3::TEXT[] IS NULL OR sj.tag = ANY($3))\n                                AND sc.status = 'success'\n                                AND sc.completed_at >= c.completed_at\n                                AND (j.runnable_id IS NOT NULL OR j.runnable_path IS NOT NULL)\n                                AND sj.runnable_id IS NOT DISTINCT FROM j.runnable_id\n                                AND sj.runnable_path IS NOT DISTINCT FROM j.runnable_path\n                    ))\n            ON CONFLICT (job_id) DO UPDATE SET\n                resolved_at = now(),\n                -- Both COALESCEd: `resolution_attribution` returns NULLs outside EE and once the\n                -- licence lapses, and bulk selections routinely include already-resolved rows,\n                -- so overwriting would erase metadata recorded while it was valid. Clear either\n                -- by unresolving first.\n                resolved_by = COALESCE($4, job_resolution.resolved_by),\n                -- A person's explanation replaces what was there; machine provenance only fills\n                -- a blank, so re-running an already-explained failure never erases their words.\n                note = COALESCE($5, job_resolution.note, $7),\n                -- A human taking over an automatic resolution makes it no longer automatic.\n                automatic = false\n            RETURNING job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text",
+        "TextArray",
+        "Varchar",
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "13d8e65ffd3ef6bcfb963525fc3ec0859463b1c153950f894a830a4b5ec33fcc"
+}

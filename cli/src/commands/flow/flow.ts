@@ -13,7 +13,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from "../../utils/resource_folders.ts";
 
 import { requireLogin } from "../../core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import {
+  assertRemotePath,
+  resolveWorkspace,
+  toSyncRootRelativePath,
+  validatePath,
+} from "../../core/context.ts";
 import { resolve, track_job, pollForJobResult } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
@@ -232,11 +237,19 @@ export async function pushFlow(
 
   const hasOnBehalfOf = (localFlow as any).has_on_behalf_of ?? !!localFlow.on_behalf_of_email;
   delete (localFlow as any).has_on_behalf_of;
+  // The authorization half of the identity is never exported to the repo (the
+  // workspace tarball strips it); it only ever travels back from the remote row.
+  delete (localFlow as any).on_behalf_of;
 
-  const preserveFields: { on_behalf_of_email?: string; preserve_on_behalf_of?: boolean } = {};
+  const preserveFields: {
+    on_behalf_of_email?: string;
+    on_behalf_of?: string;
+    preserve_on_behalf_of?: boolean;
+  } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
     if (flow && flow.on_behalf_of_email) {
       preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
+      preserveFields.on_behalf_of = (flow as any).on_behalf_of;
       preserveFields.preserve_on_behalf_of = true;
       log.info(`Preserving ${flow.on_behalf_of_email} as on_behalf_of for flow ${remotePath}`);
     }
@@ -405,6 +418,7 @@ async function run(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
+    tag?: string;
   },
   path: string
 ) {
@@ -433,6 +447,7 @@ async function run(
   const id = await wmill.runFlowByPath({
     workspace: workspace.workspaceId,
     path,
+    tag: opts.tag,
     requestBody: input,
   });
 
@@ -587,6 +602,7 @@ async function preview(
     silent: boolean;
     remote?: boolean;
     step?: string;
+    tag?: string;
   } & SyncOptions,
   flowPath: string
 ) {
@@ -594,12 +610,17 @@ async function preview(
     log.setSilent(true);
   }
   const useLocalPathScripts = !opts.remote;
+  // Captured before the config read, which chdirs to the wmill.yaml root.
+  const cwdBeforeConfig = process.cwd();
   if (useLocalPathScripts) {
     opts = await mergeConfigWithConfigFile(opts);
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
+
+  const argPath = flowPath;
+  flowPath = toSyncRootRelativePath(flowPath, cwdBeforeConfig);
 
   // Normalize path - ensure it's a directory path to a .flow or __flow folder
   const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
@@ -621,6 +642,14 @@ async function preview(
   if (!flowPath.endsWith(SEP)) {
     flowPath += SEP;
   }
+
+  // The flow's windmill path (e.g. "f/cli_smoke/myrelflow"). It is what the
+  // preview job runs under, and the anchor for relative-import resolution:
+  // inline scripts in this flow are treated as living at
+  // "<flow_wm_path>/<step_id>", so "./util" resolves to
+  // "<flow_wm_path_parent>/util" — matching the keys in temp_script_refs.
+  const flowWmPath = stripFlowSuffix(flowPath).replaceAll(SEP, "/");
+  assertRemotePath(flowWmPath, argPath);
 
   // Read and parse the flow definition
   const localFlow = (await yamlParseFile(flowPath + "flow.yaml")) as FlowFile;
@@ -692,14 +721,8 @@ async function preview(
   // too — PathScript modules have already been rewritten to inline rawscript
   // when `useLocalPathScripts` is set, and tempScriptRefs covers relative
   // imports in inline scripts.
-  // Compute the flow's windmill path (e.g. "f/cli_smoke/myrelflow"). Used as
-  // the anchor for relative-import resolution: inline scripts in this flow are
-  // treated as living at "<flow_wm_path>/<step_id>", so "./util" resolves to
-  // "<flow_wm_path_parent>/util" — matching the keys in temp_script_refs.
-  const flowWmPath = stripFlowSuffix(flowPath).replaceAll(SEP, "/");
-
   if (opts.step) {
-    await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent);
+    await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent, opts.tag);
     return;
   }
 
@@ -714,6 +737,7 @@ async function preview(
       value: localFlow.value,
       path: flowWmPath,
       args: input,
+      tag: opts.tag,
       temp_script_refs: tempScriptRefs,
     },
   });
@@ -747,6 +771,7 @@ async function previewStep(
   baseArgs: Record<string, unknown>,
   tempScriptRefs: Record<string, string> | undefined,
   silent: boolean,
+  tag: string | undefined,
 ) {
   const module = findStepInFlowValue(localFlow.value, stepId);
   if (!module) {
@@ -778,6 +803,7 @@ async function previewStep(
         path: `${flowWmPath}/${stepId}`,
         flow_path: flowWmPath,
         args,
+        tag,
         temp_script_refs: tempScriptRefs,
       },
     });
@@ -804,6 +830,7 @@ async function previewStep(
         path: moduleValue.path,
         flow_path: flowWmPath,
         args,
+        tag,
         temp_script_refs: tempScriptRefs,
       },
     });
@@ -812,6 +839,7 @@ async function previewStep(
     jobId = await wmill.runFlowByPath({
       workspace: workspace.workspaceId,
       path: moduleValue.path,
+      tag,
       requestBody: args,
     });
   } else {
@@ -1122,6 +1150,10 @@ const command = new Command()
     "-s --silent",
     "Do not ouput anything other then the final output. Useful for scripting."
   )
+  .option(
+    "--tag <tag:string>",
+    "Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag)."
+  )
   .action(run as any)
   .command(
     "preview",
@@ -1143,6 +1175,10 @@ const command = new Command()
   .option(
     "--step <step_id:string>",
     "Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does."
+  )
+  .option(
+    "--tag <tag:string>",
+    "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the flow's default tag)."
   )
   .action(preview as any)
   .command(
@@ -1202,6 +1238,8 @@ const command = new Command()
         ...remote,
         path: flowPath,
         on_behalf_of_email: email,
+        // Derived server-side; see the script command for why.
+        on_behalf_of: undefined,
         preserve_on_behalf_of: true,
         // Preserve any user draft at this path (see backend skip_draft_deletion).
         skip_draft_deletion: true,

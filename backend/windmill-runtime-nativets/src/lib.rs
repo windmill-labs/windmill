@@ -572,6 +572,9 @@ pub(crate) fn create_nativets_runtime(
         deno_url::deno_url::init(),
         deno_console::deno_console::init(),
         deno_web::deno_web::init::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
+        // Registered after deno_web to keep the snapshot (build.rs) a prefix of
+        // the runtime extension list; deno_crypto declares deps = [deno_webidl, deno_web].
+        deno_crypto::deno_crypto::init(None),
         deno_fetch::deno_fetch::init::<PermissionsContainer>(fetch_options),
         deno_net::deno_net::init::<PermissionsContainer>(None, None),
         fetch::init(),
@@ -620,6 +623,13 @@ pub(crate) fn create_nativets_runtime(
         op_state.put(MainArgs { args: initial_args });
         op_state.put(LogString { s: log_sender });
     }
+
+    // Per-isolate JS init that can't run in the snapshot (runtime.js executes at
+    // snapshot-build time): currently seeds performance.timeOrigin via
+    // setTimeOrigin(), which must read this isolate's wall clock.
+    js_runtime
+        .execute_script("<wm_init>", "globalThis.__wmInitPerIsolate()")
+        .map_err(windmill_common::error::to_anyhow)?;
 
     Ok(CreatedRuntime { js_runtime, log_receiver, memory_limit_rx })
 }
@@ -1010,7 +1020,10 @@ function processStreamIterative(res) {{
 
 {otel_context_inject}
 
-let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
+// A slot is `null` only when the arg was not provided: pass `undefined` so the
+// parameter default applies (JS defaults ignore `null`), matching the bun runner.
+// A provided JSON `null` arrives as the string "null" and stays `null`.
+let args = Deno.core.ops.op_get_static_args().map((arg) => arg === null ? undefined : JSON.parse(arg))
 import("file:///eval.ts").then((module) => module.{main_fn}(...args))
     .then(res => {{
         if (isAsyncIterable(res)) {{

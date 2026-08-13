@@ -15,7 +15,7 @@
 		path,
 		workspaceId,
 		onNavigate,
-		initialTestPanelCollapsed = false,
+		fullscreen = false,
 		isActiveSession = true,
 		active = true
 	}: {
@@ -23,7 +23,9 @@
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
-		initialTestPanelCollapsed?: boolean
+		/** Preview panel is in full screen: collapse the test pane in the narrow
+		 * side-by-side layout, reopen it when there's room in full screen. */
+		fullscreen?: boolean
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
@@ -112,7 +114,7 @@
 				condensedHeader={true}
 				{diffDrawer}
 				{onNavigate}
-				{initialTestPanelCollapsed}
+				testPanelCollapsed={!fullscreen}
 				onDeploy={(e) => {
 					// Fires on every deploy (primary, "Deploy & Stay here", and lib — we
 					// ignore e.stay since the session always stays). Toast, then sync the

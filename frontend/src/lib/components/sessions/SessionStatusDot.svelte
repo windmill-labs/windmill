@@ -1,11 +1,5 @@
 <script lang="ts">
-	import {
-		AlertCircle,
-		AlertTriangle,
-		Building,
-		GitFork,
-		GitPullRequestClosed
-	} from 'lucide-svelte'
+	import { AlertTriangle, Building, CircleHelp, GitFork, GitPullRequestClosed } from 'lucide-svelte'
 	import type { SessionChatStatus } from './sessionRuntime.svelte'
 
 	// The fork icon is deliberately sync-state-agnostic (no ahead/behind/
@@ -21,16 +15,20 @@
 		idle: 'No chat activity',
 		streaming: 'Generating response…',
 		'awaiting-user': 'Waiting for your reply',
+		'awaiting-answer': 'Waiting for your answer',
 		'needs-confirmation': 'Needs your confirmation',
 		draft: 'Unsent draft',
 		error: 'Last message had an error'
 	}
 
 	// Live chat signals take precedence over the persistent kind/fork
-	// indicator: streaming, needs-confirmation, and error are time-critical
-	// and warrant briefly hijacking the icon slot.
+	// indicator: they are time-critical and warrant briefly hijacking the icon
+	// slot.
 	const liveOverride = $derived(
-		status === 'streaming' || status === 'needs-confirmation' || status === 'error'
+		status === 'streaming' ||
+			status === 'awaiting-answer' ||
+			status === 'needs-confirmation' ||
+			status === 'error'
 	)
 
 	const persistentTitle = $derived(
@@ -51,8 +49,10 @@
 			<span class="w-[3px] h-[3px] rounded-full bg-blue-500 typing-dot dot-2"></span>
 			<span class="w-[3px] h-[3px] rounded-full bg-blue-500 typing-dot dot-3"></span>
 		</span>
-	{:else if status === 'needs-confirmation'}
-		<AlertCircle class="w-3 h-3 text-amber-500" />
+	{:else if status === 'awaiting-answer' || status === 'needs-confirmation'}
+		<!-- Both mean "the run is blocked on you"; at 12px a second amber circle
+		     glyph would be indistinguishable, so the tooltip carries which one. -->
+		<CircleHelp class="w-3 h-3 text-amber-500" />
 	{:else if status === 'error'}
 		<AlertTriangle class="w-3 h-3 text-red-500" />
 	{:else if isFork}

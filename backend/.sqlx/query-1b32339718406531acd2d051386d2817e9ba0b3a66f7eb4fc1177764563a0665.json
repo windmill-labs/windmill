@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND NOT deleted AND is_dev_workspace AND COALESCE(dev_workspace_label, 'dev') = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1b32339718406531acd2d051386d2817e9ba0b3a66f7eb4fc1177764563a0665"
+}

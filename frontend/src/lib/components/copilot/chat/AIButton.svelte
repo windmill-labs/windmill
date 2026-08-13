@@ -6,14 +6,19 @@
 	import DarkPopover from '$lib/components/Popover.svelte'
 	import { ExternalLink, MessagesSquare } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import type { ComponentProps } from 'svelte'
 
 	let {
 		togglePanel,
 		btnClasses,
+		btnProps,
 		label = 'Open in AI session'
 	}: {
 		togglePanel: () => void
 		btnClasses?: string
+		/** Overrides for the host's button styling (an editor toolbar sizes and
+		 * flattens it to match its neighbours). `btnClasses` still wins. */
+		btnProps?: ComponentProps<typeof Button>
 		/** Tooltip + accessible text of the icon-only button. */
 		label?: string
 	} = $props()
@@ -58,6 +63,7 @@
 		onClick={onPress}
 		startIcon={{ icon: MessagesSquare }}
 		iconOnly
+		{...btnProps}
 		{btnClasses}
 	>
 		{label}

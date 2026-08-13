@@ -52,10 +52,10 @@ impl CustomTags {
                 let tag_name = cap.get(1).unwrap().as_str().to_string();
                 let workspace_str = cap.get(2).unwrap().as_str();
                 let tag_type = SpecificTagType::from_regex_string(workspace_str);
-                let workspaces: Vec<String> = workspace_str
+                let workspaces: Vec<WorkspaceMatcher> = workspace_str
                     .split(tag_type.corresponding_separator())
                     .filter(|s| !s.is_empty())
-                    .map(str::to_string)
+                    .map(WorkspaceMatcher::parse)
                     .collect();
                 if workspaces.is_empty() {
                     tracing::warn!("Ignoring tag `{}` with empty exclusion/inclusion list", e);
@@ -70,11 +70,13 @@ impl CustomTags {
         Self { global, specific }
     }
 
-    pub fn to_string_vec(&self, filter_with_workspace: Option<String>) -> Vec<String> {
-        let specific = if let Some(workspace) = filter_with_workspace {
+    /// `filter_with_workspace` is the workspace's id chain (see [`SpecificTagData::applies_to_workspace`]);
+    /// `None` re-emits the authored `tag(ws1+ws2)` strings for the settings editor.
+    pub fn to_string_vec(&self, filter_with_workspace: Option<&[String]>) -> Vec<String> {
+        let specific = if let Some(chain) = filter_with_workspace {
             self.specific
                 .iter()
-                .filter(|(_, tag_data)| tag_data.applies_to_workspace(&workspace))
+                .filter(|(_, tag_data)| tag_data.applies_to_workspace(chain))
                 .map(|(tag, _)| tag.clone())
                 .collect::<Vec<String>>()
         } else {
@@ -82,7 +84,12 @@ impl CustomTags {
                 .iter()
                 .map(|(tag, tag_data)| {
                     let separator = tag_data.tag_type.corresponding_separator();
-                    let mut workspaces = tag_data.workspaces.join(&*separator.to_string());
+                    let mut workspaces = tag_data
+                        .workspaces
+                        .iter()
+                        .map(|w| w.to_string())
+                        .collect::<Vec<_>>()
+                        .join(&*separator.to_string());
                     if tag_data.tag_type == SpecificTagType::AllExcluding {
                         // the AllExcluding tag syntax has a leading separator
                         workspaces.insert(0, separator);
@@ -95,18 +102,85 @@ impl CustomTags {
         all_tags.into_iter().chain(specific.into_iter()).collect()
     }
 }
+
+/// Marker suffixed to a workspace id inside a custom tag's scope (`mytag(prod*)`) to extend the
+/// entry to that workspace's forks. `*` cannot appear in a workspace id (the `proper_id` check
+/// constraint restricts them to `^\w+(-\w+)*$`), so it can never collide with a real id.
+pub const FORK_SCOPE_MARKER: char = '*';
+
+/// One workspace entry in a custom tag's scope. Bare (`prod`) matches that workspace only;
+/// with the [`FORK_SCOPE_MARKER`] (`prod*`) it also matches its forks, transitively.
+///
+/// The marker is opt-in in BOTH scope forms so that no existing tag string changes meaning:
+/// `sensitive(^prod)` keeps excluding only `prod` itself, and `sensitive(^prod*)` is how you
+/// exclude its forks too.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkspaceMatcher {
+    pub id: String,
+    pub include_forks: bool,
+}
+
+impl WorkspaceMatcher {
+    fn parse(entry: &str) -> Self {
+        match entry.strip_suffix(FORK_SCOPE_MARKER) {
+            Some(id) => Self { id: id.to_string(), include_forks: true },
+            None => Self { id: entry.to_string(), include_forks: false },
+        }
+    }
+
+    fn matches(&self, workspace_id: &str, fork_ancestors: &[String]) -> bool {
+        workspace_id == self.id
+            || (self.include_forks && fork_ancestors.iter().any(|a| *a == self.id))
+    }
+}
+
+impl std::fmt::Display for WorkspaceMatcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.id)?;
+        if self.include_forks {
+            f.write_str(FORK_SCOPE_MARKER.encode_utf8(&mut [0u8; 4]))?;
+        }
+        Ok(())
+    }
+}
+
+/// Renders the authored `prod` / `prod*` form rather than the struct fields: `CustomTags` is
+/// `{:?}`-dumped into the "tag is not in the allowed CUSTOM_TAGS" error operators see.
+impl std::fmt::Debug for WorkspaceMatcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.to_string(), f)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SpecificTagData {
     pub tag_type: SpecificTagType,
-    pub workspaces: Vec<String>,
+    pub workspaces: Vec<WorkspaceMatcher>,
 }
 
 impl SpecificTagData {
-    pub fn applies_to_workspace(&self, workspace_id: &str) -> bool {
+    /// `chain` is the workspace itself followed by its fork ancestors, nearest-first, as built by
+    /// `workspaces::workspace_with_fork_ancestors`. Pass a single-element slice when
+    /// [`Self::is_fork_scoped`] is false: the ancestors cannot affect the outcome then.
+    pub fn applies_to_workspace(&self, chain: &[String]) -> bool {
+        let Some((workspace_id, fork_ancestors)) = chain.split_first() else {
+            return false;
+        };
+        let matched = self
+            .workspaces
+            .iter()
+            .any(|w| w.matches(workspace_id, fork_ancestors));
         match self.tag_type {
-            SpecificTagType::AllExcluding => !self.workspaces.contains(&workspace_id.to_string()),
-            SpecificTagType::NoneExcept => self.workspaces.contains(&workspace_id.to_string()),
+            SpecificTagType::AllExcluding => !matched,
+            SpecificTagType::NoneExcept => matched,
         }
+    }
+
+    /// Whether any entry carries the fork marker, i.e. whether resolving the workspace's fork
+    /// lineage can change what [`Self::applies_to_workspace`] returns. Lets hot callers skip the
+    /// lineage lookup for the (overwhelmingly common) fork-agnostic tag.
+    pub fn is_fork_scoped(&self) -> bool {
+        self.workspaces.iter().any(|w| w.include_forks)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -136,6 +210,40 @@ impl SpecificTagType {
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
+/// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
+/// the setting is cleared or malformed.
+pub const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
+/// Default for [`WORKSPACE_MAX_QUEUED_JOBS`]; also the value the setting loader restores when
+/// the setting is cleared or malformed. A workspace spans many keys, so this sits well above
+/// the per-key cap.
+pub const WORKSPACE_MAX_QUEUED_JOBS_DEFAULT: u32 = 20_000;
+/// Default for [`JOB_OOM_SCORE_ADJ`]; also the value used when the env var is out of range or
+/// unparseable.
+pub const JOB_OOM_SCORE_ADJ_DEFAULT: i32 = 1000;
+
+/// procfs accepts -1000..=1000, but a job must never be *less* killable than the worker that
+/// supervises it, so negative adjustments are rejected rather than clamped.
+fn parse_job_oom_score_adj(raw: Option<&str>) -> i32 {
+    let Some(raw) = raw else {
+        return JOB_OOM_SCORE_ADJ_DEFAULT;
+    };
+    match raw.trim().parse::<i32>() {
+        Ok(v) if (0..=1000).contains(&v) => v,
+        Ok(v) => {
+            tracing::warn!(
+                "JOB_OOM_SCORE_ADJ={v} is outside the accepted 0..=1000 range, \
+                using {JOB_OOM_SCORE_ADJ_DEFAULT}"
+            );
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Could not parse JOB_OOM_SCORE_ADJ='{raw}': {e}, using {JOB_OOM_SCORE_ADJ_DEFAULT}"
+            );
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        }
+    }
+}
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -155,9 +263,43 @@ lazy_static::lazy_static! {
 
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 
+    /// Shut the worker process down once it has executed this many jobs, so a supervisor
+    /// (docker restart policy, kubernetes, systemd, ...) restarts it on a pristine
+    /// environment. Meant for deployments that cannot sandbox jobs with nsjail and rely on
+    /// the process/container lifetime to isolate one execution from the next. `0` (or unset)
+    /// disables it. Only the jobs the worker's own main loop ran count: ones handed off to a
+    /// dedicated worker or a flow runner are executed by another task and never counted.
+    /// Workers of one process share that environment, so with `NUM_WORKERS > 1` the first of
+    /// them to reach the limit takes the whole process down, cancelling whatever the others
+    /// still run in a container or a dedicated worker. Run one worker per process.
+    /// A value that does not parse is rejected at startup by [`validate_worker_lifecycle_env`]
+    /// rather than read as "disabled" here: a deployment that isolates executions this way
+    /// would otherwise keep running with no isolation at all.
+    pub static ref EXIT_AFTER_N_JOBS: Option<u64> = std::env::var("EXIT_AFTER_N_JOBS")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .filter(|x| *x > 0);
+
+    /// Replaces the random part of the worker name, which is what makes a restarted process
+    /// reclaim its `worker_ping` row rather than register as a new worker. Two worker
+    /// processes must never share it: it is only needed when several of them run on one host
+    /// under the same worker group, since the name is otherwise derived from the hostname.
+    pub static ref WORKER_SUFFIX: Option<String> = std::env::var("WORKER_SUFFIX")
+        .ok()
+        .filter(|x| !x.is_empty());
+
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
+
+    /// `oom_score_adj` applied to job subprocesses. The kernel adds it to the process's memory
+    /// use expressed in permille of host RAM, so the job only reliably outranks the worker once
+    /// the gap between their two adjustments exceeds the worker's own footprint in permille; the
+    /// default maximizes that margin. Userspace OOM daemons (earlyoom, systemd-oomd, nohang) rank
+    /// every process on the host by the same score, so at 1000 a tiny job outranks multi-GB
+    /// processes and gets killed first. Lowering this trades margin over the worker for a fairer
+    /// ranking against everything else on the host.
+    pub static ref JOB_OOM_SCORE_ADJ: i32 = parse_job_oom_score_adj(std::env::var("JOB_OOM_SCORE_ADJ").ok().as_deref());
 
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
     pub static ref CGROUP_V2_CPU_RE: Regex = Regex::new(r#"(?m)^(\d+) \S+$"#).unwrap();
@@ -188,6 +330,7 @@ lazy_static::lazy_static! {
         "ruby".to_string(),
         "rlang".to_string(),
         "duckdb".to_string(),
+        "dbt".to_string(),
         // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
         "flow".to_string(),
@@ -263,6 +406,19 @@ lazy_static::lazy_static! {
     /// `should_admit_capped` is moot and "admit all" is the correct no-op.
     pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
 
+    /// Cloud-only ceiling on the number of jobs queued behind a single concurrency key.
+    /// A concurrency-limited key drains at most `concurrent_limit` jobs per window, so a
+    /// producer pushing faster than that grows an unbounded backlog that no amount of
+    /// spare worker capacity can absorb. `0` disables the cap.
+    pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 =
+        AtomicU32::new(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
+
+    /// Cloud-only ceiling on the total number of jobs a workspace may have queued at once,
+    /// across every concurrency key and script. Guards against a workspace flooding the queue
+    /// generally (not just behind one key), including from parallel for-loops. `0` disables it.
+    pub static ref WORKSPACE_MAX_QUEUED_JOBS: AtomicU32 =
+        AtomicU32::new(WORKSPACE_MAX_QUEUED_JOBS_DEFAULT);
+
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
     pub static ref INDEXER_CONFIG: arc_swap::ArcSwap<TantivyIndexerSettings> = arc_swap::ArcSwap::from_pointee(TantivyIndexerSettings::default());
@@ -295,12 +451,14 @@ lazy_static::lazy_static! {
     //    ^([\w-]+)         # Group 1: tag name
     //    \(                # Literal '('
     //    (                 # Group 2: the full workspace list
-    //      (?:[\w-]+\+)*[\w-]+     # NoneExcept pattern: ws1+ws2
-    //      |                      # OR
-    //      (?:\^[\w-]+)+          # AllExcluding pattern: ^ws1^ws2
+    //      (?:[\w-]+\*?\+)*[\w-]+\*?   # NoneExcept pattern: ws1+ws2*
+    //      |                          # OR
+    //      (?:\^[\w-]+\*?)+           # AllExcluding pattern: ^ws1^ws2*
     //    )
     //    \)$               # Closing ')'
-    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\+)*[\w-]+|(?:\^[\w-]+)+)\)$").unwrap();
+    //
+    // The optional `*` after each workspace id is the fork marker, see [`WorkspaceMatcher`].
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -315,6 +473,18 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
     pub static ref ROOT_CACHE_NOMOUNT_DIR: String = format!("{}/cache_nomount/", *WINDMILL_DIR);
+}
+
+/// Refuses to start on an `EXIT_AFTER_N_JOBS` that does not parse. Silently ignoring it
+/// would leave a worker meant to recycle its environment running forever without doing so,
+/// which is exactly the guarantee the deployment set it for.
+pub fn validate_worker_lifecycle_env() -> anyhow::Result<()> {
+    match std::env::var("EXIT_AFTER_N_JOBS") {
+        Ok(v) if !v.is_empty() && v.parse::<u64>().is_err() => Err(anyhow::anyhow!(
+            "EXIT_AFTER_N_JOBS must be a positive integer (or 0 to disable), got '{v}'"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Whether native mode is forced by the environment (NATIVE_MODE=true env var or WORKER_GROUP=native).
@@ -1339,6 +1509,73 @@ pub fn get_vcpus() -> Option<i64> {
     (sys.cpus().len() * 100000).try_into().ok()
 }
 
+/// The window `get_vcpus`'s quota is spent over, in the same microseconds. Only
+/// their ratio is a number of CPUs, and the window is configurable — 100ms is
+/// merely its usual value.
+#[cfg(not(windows))]
+pub fn get_cpu_period() -> Option<i64> {
+    if Path::new("/sys/fs/cgroup/cpu/cpu.cfs_period_us").exists() {
+        // cgroup v1
+        parse_file("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    } else {
+        // cgroup v2: `cpu.max` is "<quota|max> <period>"
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_file::<String>(&format!("{cgroup_path}/cpu.max"))?
+            .split_whitespace()
+            .nth(1)?
+            .parse()
+            .ok()
+    }
+    .filter(|period| *period > 0)
+}
+
+#[cfg(windows)]
+pub fn get_cpu_period() -> Option<i64> {
+    Some(100000)
+}
+
+/// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
+/// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
+/// the quota in, so a fraction of a CPU makes it report a single-core machine.
+#[cfg(not(windows))]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // "Cpus_allowed_list:\t0-7,16-23"
+    let status = parse_file::<String>("/proc/self/status")?;
+    let list = status
+        .split("Cpus_allowed_list:")
+        .nth(1)?
+        .lines()
+        .next()?
+        .trim();
+
+    let cpus = list
+        .split(',')
+        .map(|range| {
+            let (first, last) = range.split_once('-').unwrap_or((range, range));
+            let (first, last) = (first.trim().parse::<usize>(), last.trim().parse::<usize>());
+            match (first, last) {
+                (Ok(first), Ok(last)) if last >= first => Some(last - first + 1),
+                _ => None,
+            }
+        })
+        .sum::<Option<usize>>()?;
+
+    (cpus > 0).then_some(cpus)
+}
+
+#[cfg(windows)]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // The 1CU cap is a policy rather than a bandwidth quota, so it is the whole
+    // answer here as it is for `get_vcpus` and `get_memory` — a consumer that reads
+    // this as the hardware count would raise the worker back above the cap.
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(1);
+    }
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    Some(sys.cpus().len()).filter(|cpus| *cpus > 0)
+}
+
 #[cfg(not(windows))]
 fn get_memory_from_meminfo() -> Option<i64> {
     let memory_info = parse_file::<String>("/proc/meminfo")?;
@@ -1658,6 +1895,16 @@ pub async fn fetch_raw_script_from_app_query(
     .map(|r| RawScript { content: r.code, lock: r.lock, meta: None, modules: None })
 }
 
+/// Returns the number of jobs the row already accounted for: non-zero when a worker of the
+/// same name pinged before, i.e. when this process is a restart of an earlier one (see
+/// [`crate::utils::resolve_worker_suffix`]) and its counter is meant to keep climbing.
+///
+/// Everything else describing the process is overwritten on such a restart — a row left
+/// reporting the version or the isolation mode of the process that died would, for
+/// `wm_version`, hold the instance-wide `MIN_VERSION` back forever, and one still naming the
+/// job that process was killed mid-way through skews the zombie/OOM diagnostics that read it.
+/// `started_at` and `jobs_executed` are the only two columns carried over, being the
+/// continuity itself.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
@@ -1672,10 +1919,11 @@ pub async fn insert_ping_query(
     job_isolation: Option<String>,
     native_mode: bool,
     db: &DB,
-) -> anyhow::Result<()> {
-    sqlx::query!(
+) -> anyhow::Result<i32> {
+    let previous_jobs_executed = sqlx::query_scalar!(
         "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers, native_mode = EXCLUDED.native_mode",
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        RETURNING jobs_executed",
         worker_instance,
         worker_name,
         ip,
@@ -1689,9 +1937,9 @@ pub async fn insert_ping_query(
         job_isolation.as_deref(),
         native_mode,
         )
-        .execute(db)
+        .fetch_one(db)
         .await?;
-    Ok(())
+    Ok(previous_jobs_executed)
 }
 
 pub async fn update_worker_ping_from_job_query(
@@ -2332,6 +2580,39 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    fn matcher(id: &str) -> WorkspaceMatcher {
+        WorkspaceMatcher { id: id.to_string(), include_forks: false }
+    }
+
+    fn fork_matcher(id: &str) -> WorkspaceMatcher {
+        WorkspaceMatcher { id: id.to_string(), include_forks: true }
+    }
+
+    /// A workspace id chain: the workspace itself, then its fork ancestors nearest-first.
+    fn chain(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_parse_job_oom_score_adj() {
+        assert_eq!(parse_job_oom_score_adj(Some("300")), 300);
+        assert_eq!(parse_job_oom_score_adj(Some(" 0\n")), 0);
+        assert_eq!(parse_job_oom_score_adj(None), JOB_OOM_SCORE_ADJ_DEFAULT);
+        // Out of range and unparseable both fall back rather than weaken the worker's protection.
+        assert_eq!(
+            parse_job_oom_score_adj(Some("-500")),
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        );
+        assert_eq!(
+            parse_job_oom_score_adj(Some("1001")),
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        );
+        assert_eq!(
+            parse_job_oom_score_adj(Some("high")),
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        );
+    }
+
     #[test]
     fn test_bash_sandbox_image_annotation() {
         // `# sandbox <image>` selects the container runtime and returns the image.
@@ -2430,14 +2711,14 @@ mod tests {
             "feat".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::NoneExcept,
-                workspaces: vec!["ws1".to_string(), "ws2".to_string()],
+                workspaces: vec![matcher("ws1"), matcher("ws2")],
             },
         );
         expected.insert(
             "hotfix".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::AllExcluding,
-                workspaces: vec!["ws3".to_string(), "ws4".to_string()],
+                workspaces: vec![matcher("ws3"), matcher("ws4")],
             },
         );
 
@@ -2480,7 +2761,7 @@ mod tests {
 
         let data = tags.specific.get("urgent").unwrap();
         assert_eq!(data.tag_type, SpecificTagType::NoneExcept);
-        assert_eq!(data.workspaces, vec!["ws1", "ws2"]);
+        assert_eq!(data.workspaces, vec![matcher("ws1"), matcher("ws2")]);
     }
 
     #[test]
@@ -2493,7 +2774,7 @@ mod tests {
 
         let data = tags.specific.get("legacy").unwrap();
         assert_eq!(data.tag_type, SpecificTagType::AllExcluding);
-        assert_eq!(data.workspaces, vec!["ws1", "ws2"]);
+        assert_eq!(data.workspaces, vec![matcher("ws1"), matcher("ws2")]);
     }
 
     #[test]
@@ -2510,10 +2791,10 @@ mod tests {
         let input = vec!["urgent(ws1+ws2)".to_string()];
         let tags = CustomTags::from(input);
 
-        let output = tags.to_string_vec(Some("ws1".to_string()));
+        let output = tags.to_string_vec(Some(&chain(&["ws1"])));
         assert_eq!(output, vec!["urgent"]);
 
-        let output_none = tags.to_string_vec(Some("ws3".to_string()));
+        let output_none = tags.to_string_vec(Some(&chain(&["ws3"])));
         assert!(output_none.is_empty());
     }
 
@@ -2522,10 +2803,10 @@ mod tests {
         let input = vec!["legacy(^ws1^ws2)".to_string()];
         let tags = CustomTags::from(input);
 
-        let output = tags.to_string_vec(Some("ws3".to_string()));
+        let output = tags.to_string_vec(Some(&chain(&["ws3"])));
         assert_eq!(output, vec!["legacy"]);
 
-        let output_excluded = tags.to_string_vec(Some("ws1".to_string()));
+        let output_excluded = tags.to_string_vec(Some(&chain(&["ws1"])));
         assert!(output_excluded.is_empty());
     }
 
@@ -2541,6 +2822,68 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_fork_marker_parses_and_round_trips() {
+        let tags = CustomTags::from(vec![
+            "urgent(prod*+ws2)".to_string(),
+            "legacy(^prod*)".to_string(),
+        ]);
+
+        let urgent = tags.specific.get("urgent").unwrap();
+        assert_eq!(
+            urgent.workspaces,
+            vec![fork_matcher("prod"), matcher("ws2")]
+        );
+        assert!(urgent.is_fork_scoped());
+
+        let legacy = tags.specific.get("legacy").unwrap();
+        assert_eq!(legacy.workspaces, vec![fork_matcher("prod")]);
+
+        // The settings editor re-emits what it parsed; dropping `*` here would silently widen
+        // an excluding tag / narrow an including one on every save.
+        let mut result = tags.to_string_vec(None);
+        result.sort();
+        assert_eq!(result, vec!["legacy(^prod*)", "urgent(prod*+ws2)"]);
+    }
+
+    #[test]
+    fn test_fork_marker_extends_none_except_to_forks_only_when_present() {
+        let fork = chain(&["wm-fork-x", "prod"]);
+        let nested = chain(&["wm-fork-y", "wm-fork-x", "prod"]);
+
+        let marked = CustomTags::from(vec!["urgent(prod*)".to_string()]);
+        let marked = marked.specific.get("urgent").unwrap();
+        assert!(marked.applies_to_workspace(&chain(&["prod"])));
+        assert!(marked.applies_to_workspace(&fork));
+        assert!(marked.applies_to_workspace(&nested));
+        assert!(!marked.applies_to_workspace(&chain(&["wm-fork-z", "other"])));
+
+        // Without the marker a fork must NOT inherit the parent's tag.
+        let unmarked = CustomTags::from(vec!["urgent(prod)".to_string()]);
+        let unmarked = unmarked.specific.get("urgent").unwrap();
+        assert!(unmarked.applies_to_workspace(&chain(&["prod"])));
+        assert!(!unmarked.applies_to_workspace(&fork));
+        // Gates the ancestor lookup, so a wrong answer here silently disables the marker.
+        assert!(!unmarked.is_fork_scoped());
+    }
+
+    #[test]
+    fn test_fork_marker_extends_all_excluding_to_forks_only_when_present() {
+        let fork = chain(&["wm-fork-x", "prod"]);
+
+        // Pre-existing exclusions keep their exact meaning: only `prod` itself is excluded.
+        let unmarked = CustomTags::from(vec!["legacy(^prod)".to_string()]);
+        let unmarked = unmarked.specific.get("legacy").unwrap();
+        assert!(!unmarked.applies_to_workspace(&chain(&["prod"])));
+        assert!(unmarked.applies_to_workspace(&fork));
+
+        let marked = CustomTags::from(vec!["legacy(^prod*)".to_string()]);
+        let marked = marked.specific.get("legacy").unwrap();
+        assert!(!marked.applies_to_workspace(&chain(&["prod"])));
+        assert!(!marked.applies_to_workspace(&fork));
+        assert!(marked.applies_to_workspace(&chain(&["other"])));
     }
 
     #[test]

@@ -17,6 +17,7 @@ import {
 	type SearchHit
 } from './fileEngine'
 import type { AttachedFile, AttachedFilesStore } from './attachedFiles.svelte'
+import { sanitizeAttachmentName } from '../textFileUtils'
 
 /** Slice of the GLOBAL tool helpers that exposes the attached-files store. */
 export interface AttachedFilesHelper {
@@ -34,7 +35,7 @@ function storeFrom(helpers: unknown): AttachedFilesStore | undefined {
  * same accurate status instead of search_files claiming a non-ready file isn't attached.
  */
 function notReadyMessage(store: AttachedFilesStore, file: string): string | undefined {
-	const entry = store.get(file)
+	const entry = store.resolve(file)
 	if (entry?.status === 'ready') return undefined
 	if (entry?.status === 'indexing')
 		return `File "${file}" is still being indexed. Try again shortly.`
@@ -44,11 +45,14 @@ function notReadyMessage(store: AttachedFilesStore, file: string): string | unde
 		return `File "${file}" is no longer available (moved, deleted, or its local copy was evicted). Ask the user to re-link it.`
 	if (entry?.status === 'error')
 		return `File "${file}" failed to load: ${entry.error ?? 'unknown error'}.`
+	// Re-sanitized: folder-root placeholder rows carry the raw folder key.
 	const names = store
 		.list()
-		.map((f) => f.name)
+		.map((f) =>
+			f.id ? `${sanitizeAttachmentName(f.name)} (file id: ${f.id})` : sanitizeAttachmentName(f.name)
+		)
 		.join(', ')
-	return `No attached file named "${file}". Attached files: ${names || '(none)'}.`
+	return `No attached file matching "${file}". Attached files: ${names || '(none)'}.`
 }
 
 /**
@@ -80,7 +84,7 @@ const searchFilesSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Optional exact filename (as listed under "Attached files") to restrict the search to. Omit to search across all attached files.'
+			'Optional file to restrict the search to: its file id when one is listed, otherwise its exact filename. Omit to search across all attached files.'
 		),
 	ignore_case: z.boolean().optional().describe('Case-insensitive matching. Defaults to false.')
 })
@@ -105,7 +109,11 @@ export const searchFilesTool: Tool<{}> = {
 			const notReady = notReadyMessage(store, parsed.file)
 			if (notReady) return notReady
 		}
-		const ready = store.readyFiles()
+		// Restrict to the resolved row itself, not a name filter: display names may
+		// collide (same-named attachments on different messages), and a name filter
+		// would silently search all of them under one label.
+		const target = parsed.file ? store.resolve(parsed.file) : undefined
+		const ready = target ? [target] : store.readyFiles()
 		if (ready.length === 0) {
 			return noReadyFilesMessage(store)
 		}
@@ -113,15 +121,18 @@ export const searchFilesTool: Tool<{}> = {
 			content: `Searching attached files for /${parsed.pattern}/...`
 		})
 
+		// Hit lines are the model's only handle on which row matched, and display
+		// names may collide — label id-bearing rows with the reference that
+		// resolves back to exactly that row.
+		const rows = ready.map((f) => (f.id ? { ...f, name: `${f.name} (file id: ${f.id})` } : f))
 		// Run in a Worker so a pathological model-supplied regex can't freeze the tab.
-		const result = await searchFilesInWorker(ready, parsed.pattern, {
-			flags: parsed.ignore_case ? 'i' : '',
-			pathFilter: parsed.file
+		const result = await searchFilesInWorker(rows, parsed.pattern, {
+			flags: parsed.ignore_case ? 'i' : ''
 		})
 		if (result.error) {
 			return `Error: ${result.error}`
 		}
-		const scope = parsed.file ? `"${parsed.file}"` : `${ready.length} file(s)`
+		const scope = target ? `"${target.name}"` : `${ready.length} file(s)`
 		if (result.hits.length === 0) {
 			return `No matches for /${parsed.pattern}/ in ${scope}.`
 		}
@@ -135,7 +146,9 @@ export const searchFilesTool: Tool<{}> = {
 }
 
 const readFileSchema = z.object({
-	file: z.string().describe('Exact filename to read, as listed under "Attached files".'),
+	file: z
+		.string()
+		.describe('File to read: its file id when one is listed, otherwise its exact filename.'),
 	start_line: z.number().int().optional().describe('1-based first line to read. Defaults to 1.'),
 	end_line: z
 		.number()
@@ -160,8 +173,8 @@ export const readFileTool: Tool<{}> = {
 		const parsed = readFileSchema.parse(args)
 		const notReady = notReadyMessage(store, parsed.file)
 		if (notReady) return notReady
-		const entry = store.get(parsed.file)!
-		toolCallbacks.setToolStatus(toolId, { content: `Reading "${parsed.file}"...` })
+		const entry = store.resolve(parsed.file)!
+		toolCallbacks.setToolStatus(toolId, { content: `Reading "${entry.name}"...` })
 
 		try {
 			const res = await readFile(entry, {
@@ -181,32 +194,59 @@ export const readFileTool: Tool<{}> = {
 export const fileTools: Tool<{}>[] = [searchFilesTool, readFileTool]
 
 function rosterLine(f: AttachedFile): string {
-	if (f.status === 'indexing') return `- ${f.name} (indexing…)`
-	if (f.status === 'locked') return `- ${f.name} (locked — needs the user to restore access)`
-	if (f.status === 'unavailable') return `- ${f.name} (unavailable)`
-	if (f.status === 'error') return `- ${f.name} (failed to load)`
-	return `- ${f.name} — ${f.lineCount} lines, ${humanSize(f.size)}`
+	// Message rows are addressed by their stable id (names may collide); session
+	// rows by name. Names are sanitized at render: this block is model-facing
+	// prompt text and stored names (legacy, folder children) may carry controls.
+	const ref = f.id
+		? `${sanitizeAttachmentName(f.name)} (file id: ${f.id})`
+		: sanitizeAttachmentName(f.name)
+	if (f.status === 'indexing') return `- ${ref} (indexing…)`
+	if (f.status === 'locked') return `- ${ref} (locked — needs the user to restore access)`
+	if (f.status === 'unavailable') return `- ${ref} (unavailable)`
+	if (f.status === 'error') return `- ${ref} (failed to load)`
+	return `- ${ref} — ${f.lineCount} lines, ${humanSize(f.size)}`
 }
 
 /** Build the `## Attached files` system-prompt section (metadata only, never content). */
-export function buildAttachedFilesRoster(store: AttachedFilesStore): string {
+export function buildAttachedFilesRoster(
+	store: AttachedFilesStore,
+	orphanedMessageFileIds?: Set<string>
+): string {
 	const lines: string[] = []
 	for (const folder of store.folders) {
+		// Folder names are RAW disk keys (never sanitized in the store — they must
+		// match the handle, children, and persistence record), so this model-facing
+		// render is where control characters get stripped.
+		const folderName = sanitizeAttachmentName(folder.name)
 		// A locked/unavailable folder has no readable children — one line for the whole folder.
 		if (folder.status === 'locked') {
-			lines.push(`- ${folder.name} (locked — needs the user to restore access)`)
+			lines.push(`- ${folderName} (locked — needs the user to restore access)`)
 		} else if (folder.status === 'unavailable') {
-			lines.push(`- ${folder.name} (unavailable)`)
+			lines.push(`- ${folderName} (unavailable)`)
 		} else {
 			lines.push(...folder.files.map(rosterLine))
 		}
 	}
+	// Message-attached files are deliberately NOT listed here: their reference
+	// lives inside the message that carried them (or the compaction summary),
+	// exactly like DOM picks — the roster only advertises session-wide links.
 	lines.push(...store.standalone.map(rosterLine))
+	// Exception: a message whose API counterpart was dropped by drop-oldest
+	// compaction takes its in-message reference with it, so those attachments must
+	// be advertised here or the model can no longer see they exist.
+	if (orphanedMessageFileIds?.size) {
+		lines.push(
+			...store.messageAttached
+				.filter((f) => f.id && orphanedMessageFileIds.has(f.id))
+				.map(rosterLine)
+		)
+	}
 	if (lines.length === 0) return ''
 	return [
 		'## Attached files',
 		'The user has attached the following files to this conversation. Their contents are NOT included here.',
 		'Use the `search_files` tool to find content with a regex, and `read_file` to read a bounded window of lines.',
+		'Reference a file by its file id when one is shown, otherwise by its filename.',
 		'',
 		lines.join('\n')
 	].join('\n')
@@ -218,9 +258,10 @@ export function buildAttachedFilesRoster(store: AttachedFilesStore): string {
  */
 export function appendAttachedFilesRoster(
 	base: ChatCompletionSystemMessageParam,
-	store: AttachedFilesStore
+	store: AttachedFilesStore,
+	orphanedMessageFileIds?: Set<string>
 ): ChatCompletionSystemMessageParam {
-	const roster = buildAttachedFilesRoster(store)
+	const roster = buildAttachedFilesRoster(store, orphanedMessageFileIds)
 	if (!roster || typeof base.content !== 'string') return base
 	return { ...base, content: `${base.content}\n\n${roster}` }
 }

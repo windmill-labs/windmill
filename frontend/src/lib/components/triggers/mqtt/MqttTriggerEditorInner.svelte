@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import { Alert, Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
@@ -76,6 +82,8 @@
 		onReset = undefined,
 		cloudDisabled = false
 	}: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let mqtt_resource_path: string = $state('')
 	let drawer: Drawer | undefined = $state(undefined)
@@ -120,7 +128,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_mqtt',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => mqttConfig,
 		applyCfg: loadTriggerConfig,
@@ -151,6 +159,7 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.mqtt.path, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
@@ -260,7 +269,7 @@
 				return { overlay: undefined, noDeployed: false }
 			}
 			const s = await MqttTriggerService.getMqttTrigger({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath,
 				getDraft: true
 			})
@@ -314,13 +323,7 @@
 		deploymentLoading = true
 		const previousPath = initialPath
 		const cfg = getSaveCfg()
-		const isSaved = await saveMqttTriggerFromCfg(
-			initialPath,
-			cfg,
-			edit,
-			$workspaceStore!,
-			usedTriggerKinds
-		)
+		const isSaved = await saveMqttTriggerFromCfg(initialPath, cfg, edit, wsId!, usedTriggerKinds)
 		if (isSaved) {
 			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(cfg.path)
@@ -342,7 +345,7 @@
 				(force) =>
 					MqttTriggerService.setMqttTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'MQTT trigger'
@@ -389,7 +392,11 @@
 {/if}
 
 {#if useDrawer}
-	<Drawer size="800px" bind:this={drawer}>
+	<Drawer
+		size="800px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.mqtt.path)}
+	>
 		<DrawerContent
 			bannerReserved={draftSync.hasBaseline}
 			title={edit
@@ -432,6 +439,7 @@
 {#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
@@ -485,6 +493,7 @@
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
+						workspaceOverride={wsId}
 						bind:dirty={dirtyPath}
 						bind:error={pathError}
 						bind:path
@@ -501,6 +510,7 @@
 			{#if !hideTarget}
 				<Section label="Runnable">
 					<TriggerRunnablePicker
+						workspace={wsId}
 						{fixedScriptPath}
 						bind:itemKind
 						bind:scriptPath={script_path}
@@ -671,6 +681,7 @@
 								</div>
 							{:else}
 								<TriggerRetriesAndErrorHandler
+									workspace={wsId}
 									{optionTabSelected}
 									{itemKind}
 									{can_write}

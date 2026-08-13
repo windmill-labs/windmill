@@ -18,6 +18,7 @@
 		isOperator: boolean
 		promptText?: string
 		promptClass?: string
+		workspace?: string
 		// Per-trigger "Create from template" button (hub URL, variant and any
 		// extra guard/tooltip differ per trigger kind, so the caller owns it).
 		createButton?: Snippet
@@ -32,6 +33,7 @@
 		isOperator,
 		promptText = 'Pick a script or flow to be triggered',
 		promptClass = 'text-xs mb-1 text-primary',
+		workspace = undefined,
 		createButton
 	}: Props = $props()
 </script>
@@ -52,6 +54,7 @@
 			bind:scriptPath
 			allowRefresh={canWrite}
 			allowEdit={!isOperator}
+			{workspace}
 			clearable
 		/>
 		{@render createButton?.()}

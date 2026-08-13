@@ -26,6 +26,7 @@ const DEPLOY_KIND_BY_DRAFT_KIND: Partial<Record<UserDraftItemKind, Kind>> = {
 	trigger_nats: 'nats_trigger',
 	trigger_postgres: 'postgres_trigger',
 	trigger_mqtt: 'mqtt_trigger',
+	trigger_amqp: 'amqp_trigger',
 	trigger_sqs: 'sqs_trigger',
 	trigger_gcp: 'gcp_trigger',
 	trigger_azure: 'azure_trigger',

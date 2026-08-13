@@ -75,14 +75,153 @@ jobs:
             "/repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
             -f content=eyes >/dev/null
 
-  claude:
+  # Decide, per agent, whether to launch a fresh run, re-run in place, or skip. A push
+  # already auto-triggers codex/pi (and claude on open) against the PR head. Relaunching
+  # via this issue_comment path both cancels those in-flight auto runs (shared concurrency
+  # group) AND lands the new run's status on main — issue_comment runs never attach a
+  # check to the PR head — leaving the PR showing only a cancelled review. So for every
+  # command, launch an agent only when nothing covers the head commit; if the head's run
+  # was cancelled/failed, re-run it in place (a re-run keeps the original pull_request
+  # event, so its checks re-attach to the PR head); skip when a running or successful run
+  # already covers it. `/review` applies this to all three agents; `/codex`, `/pi`,
+  # `/claude` apply the same decision to just their own agent.
+  plan:
     needs: [parse, check-access]
+    if: |
+      needs.parse.outputs.command != '' &&
+      (
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) ||
+        needs.check-access.outputs.authorized == 'true'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+      statuses: write
+    outputs:
+      head_sha: ${{ steps.plan.outputs.head_sha }}
+      launch_codex: ${{ steps.plan.outputs.launch_codex }}
+      launch_pi: ${{ steps.plan.outputs.launch_pi }}
+      launch_claude: ${{ steps.plan.outputs.launch_claude }}
+    steps:
+      - name: Decide per-agent launch vs re-run for the head commit
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMAND: ${{ needs.parse.outputs.command }}
+        run: |
+          set -euo pipefail
+
+          HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq '.headRefOid')
+          echo "PR #$PR_NUMBER head: $HEAD_SHA"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+          RUN_URL="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+
+          # A fresh launch runs from this issue_comment workflow (associated with main),
+          # so it never appears in the PR-head run query below and its own check lands on
+          # main, not the head. To keep fresh launches idempotent per head, mark the head
+          # SHA with a `review-launch/<agent>` commit status at launch; the `finalize` job
+          # resolves it to success/failure. A prior launch's status covering the head lets
+          # a second comment skip instead of relaunching (which would cancel the first via
+          # the reviewer's shared concurrency group). All status calls are best-effort — a
+          # GitHub API hiccup must degrade to a relaunch, never abort the decision.
+          mark_launch() {
+            agent="$1"
+            gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" \
+              -f state=pending -f "context=review-launch/$agent" -f "target_url=$RUN_URL" \
+              -f "description=Review launched via /$COMMAND" >/dev/null 2>&1 || true
+          }
+
+          # Returns "covered" if a prior fresh launch (this or an earlier comment run)
+          # already covers the head: a success status, or a pending status whose launching
+          # run is still alive. A pending whose run has completed is stale (that run
+          # crashed before finalize) and does not count.
+          launch_coverage() {
+            agent="$1"
+            st_json=$(gh api "repos/$REPO/commits/$HEAD_SHA/statuses" \
+              --jq "[.[] | select(.context == \"review-launch/$agent\")] | first // empty" 2>/dev/null || true)
+            [ -n "$st_json" ] || return 0
+            state=$(jq -r '.state // empty' <<<"$st_json" 2>/dev/null || true)
+            [ "$state" = success ] && { echo covered; return 0; }
+            [ "$state" = pending ] || return 0
+            target=$(jq -r '.target_url // empty' <<<"$st_json" 2>/dev/null || true)
+            run_id=$(printf '%s' "$target" | grep -oE '[0-9]+$' || true)
+            if [ -n "$run_id" ]; then
+              run_state=$(gh run view "$run_id" --repo "$REPO" --json status --jq '.status' 2>/dev/null || true)
+              [ "$run_state" = completed ] && return 0   # stale pending -> not covered
+            fi
+            echo covered
+          }
+
+          decide() {
+            wf="$1"; key="$2"; agent="$3"
+            if [ "$(launch_coverage "$agent")" = covered ]; then
+              echo "$key: a prior launch already covers $HEAD_SHA (review-launch/$agent) -> skip"
+              echo "$key=false" >> "$GITHUB_OUTPUT"
+              return
+            fi
+            # `--commit` matches runs whose head SHA is the PR head. Auto reviews run on
+            # `pull_request` against that SHA; `/review` (issue_comment) runs execute on
+            # main, so they never match and are not counted as covering the head commit.
+            runs=$(gh run list --repo "$REPO" --workflow "$wf" --commit "$HEAD_SHA" --limit 40 \
+              --json databaseId,status,conclusion)
+            # Healthy = still running, or completed successfully: a review already
+            # covers this commit, so skip.
+            healthy=$(jq -r '[.[] | select(.status != "completed" or .conclusion == "success")] | length' <<<"$runs")
+            if [ "$healthy" -gt 0 ]; then
+              echo "$key: a running or successful review already covers $HEAD_SHA -> skip"
+              echo "$key=false" >> "$GITHUB_OUTPUT"
+              return
+            fi
+            # Re-run only genuinely interrupted runs (cancelled/failed/timed out) in
+            # place, so their checks re-attach to the PR head instead of posting on
+            # main. A `skipped` run produced no review and would just skip again (it is
+            # the draft/fork gate), so it does not count — fall through to a fresh launch.
+            retry_id=$(jq -r '[.[] | select(.status == "completed" and (.conclusion == "cancelled" or .conclusion == "failure" or .conclusion == "timed_out"))] | sort_by(.databaseId) | last | .databaseId // empty' <<<"$runs")
+            if [ -n "$retry_id" ]; then
+              if gh run rerun "$retry_id" --repo "$REPO" >/dev/null 2>&1; then
+                echo "$key: re-ran interrupted run $retry_id (re-attaches to PR head)"
+                echo "$key=false" >> "$GITHUB_OUTPUT"
+                return
+              fi
+              echo "$key: re-run of $retry_id failed -> fresh launch"
+              mark_launch "$agent"
+              echo "$key=true" >> "$GITHUB_OUTPUT"
+              return
+            fi
+            echo "$key: no usable review for $HEAD_SHA -> launch"
+            mark_launch "$agent"
+            echo "$key=true" >> "$GITHUB_OUTPUT"
+          }
+
+          # `/review` targets all three agents; `/codex`, `/pi`, `/claude` target only
+          # their own. A non-targeted agent is left untouched (no launch, no re-run).
+          decide_if_targeted() {
+            wf="$1"; key="$2"; agent="$3"
+            if [ "$COMMAND" = review ] || [ "$COMMAND" = "$agent" ]; then
+              decide "$wf" "$key" "$agent"
+            else
+              echo "$key: /$COMMAND does not target $agent -> skip"
+              echo "$key=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          decide_if_targeted codex-pr-review.yml launch_codex codex
+          decide_if_targeted pi-pr-review.yml launch_pi pi
+          decide_if_targeted pr-ready-review.yml launch_claude claude
+
+  claude:
+    needs: [parse, check-access, plan]
     if: |
       (
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) ||
         needs.check-access.outputs.authorized == 'true'
       ) &&
-      (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'claude')
+      needs.plan.outputs.launch_claude == 'true'
     permissions:
       contents: read
       pull-requests: read
@@ -97,13 +236,13 @@ jobs:
       WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
   codex:
-    needs: [parse, check-access]
+    needs: [parse, check-access, plan]
     if: |
       (
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) ||
         needs.check-access.outputs.authorized == 'true'
       ) &&
-      (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'codex')
+      needs.plan.outputs.launch_codex == 'true'
     permissions:
       contents: read
       issues: write
@@ -119,13 +258,13 @@ jobs:
       WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
   pi:
-    needs: [parse, check-access]
+    needs: [parse, check-access, plan]
     if: |
       (
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) ||
         needs.check-access.outputs.authorized == 'true'
       ) &&
-      (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'pi')
+      needs.plan.outputs.launch_pi == 'true'
     permissions:
       contents: read
       issues: write
@@ -138,3 +277,34 @@ jobs:
     secrets:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+
+  # Resolve the `review-launch/<agent>` head statuses that `plan` set to pending, so a
+  # fresh launch's outcome is visible on the PR head (not just on main) and never lingers
+  # as a stale pending check. Targets the exact SHA `plan` launched against, so a push
+  # that moved the head mid-review does not stamp a status on the new head.
+  finalize:
+    needs: [plan, claude, codex, pi]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.head_sha != ''
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Finalize launch statuses on the PR head
+        run: |
+          set -uo pipefail
+          finalize() {
+            agent="$1"; launched="$2"; result="$3"
+            [ "$launched" = true ] || return 0
+            state=$([ "$result" = success ] && echo success || echo failure)
+            gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" \
+              -f "state=$state" -f "context=review-launch/$agent" -f "target_url=$RUN_URL" \
+              -f "description=Review $result" >/dev/null 2>&1 || true
+          }
+          finalize codex "${{ needs.plan.outputs.launch_codex }}" "${{ needs.codex.result }}"
+          finalize pi "${{ needs.plan.outputs.launch_pi }}" "${{ needs.pi.result }}"
+          finalize claude "${{ needs.plan.outputs.launch_claude }}" "${{ needs.claude.result }}"

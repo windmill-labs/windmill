@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -13,6 +18,7 @@
 		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -49,6 +55,8 @@
 		trigger = undefined,
 		customSaveBehavior = undefined
 	} = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	// Form data state
 	let initialPath = $state('')
@@ -93,7 +101,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_email',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => emailConfig,
 		applyCfg: (c) => loadTriggerConfig(c as Partial<EmailTrigger>),
@@ -125,6 +133,7 @@
 		}, 100) // if loading takes less than 100ms, we don't show the loader
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.email.path, ePath)
 			initialPath = ePath
 			path = ePath
 			itemKind = isFlow ? 'flow' : 'script'
@@ -229,7 +238,7 @@
 			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await EmailTriggerService.getEmailTrigger({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			path: initialPath,
 			getDraft: true
 		})
@@ -255,7 +264,7 @@
 				initialPath,
 				saveCfg,
 				edit,
-				$workspaceStore!,
+				wsId!,
 				!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 				usedTriggerKinds
 			)
@@ -299,7 +308,7 @@
 			// excludes workspaced_local_part=false) — no fork-conflict warning.
 			await EmailTriggerService.setEmailTriggerMode({
 				path: initialPath,
-				workspace: $workspaceStore ?? '',
+				workspace: wsId ?? '',
 				requestBody: { mode: newMode }
 			})
 			sendUserToast(`${capitalize(newMode)} email trigger ${initialPath}`)
@@ -372,6 +381,7 @@
 				<div class="flex flex-col gap-2">
 					<Label label="Path">
 						<Path
+							workspaceOverride={wsId}
 							bind:dirty={dirtyPath}
 							bind:error={pathError}
 							bind:path
@@ -389,6 +399,7 @@
 			{#if !hideTarget}
 				<Section label="Target">
 					<TriggerRunnablePicker
+						workspace={wsId}
 						{fixedScriptPath}
 						bind:itemKind
 						bind:scriptPath={script_path}
@@ -435,6 +446,7 @@
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler
+								workspace={wsId}
 								{optionTabSelected}
 								{itemKind}
 								{can_write}
@@ -455,6 +467,7 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
@@ -473,7 +486,11 @@
 {/snippet}
 
 {#if useDrawer}
-	<Drawer size="700px" bind:this={drawer}>
+	<Drawer
+		size="700px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.email.path)}
+	>
 		<DrawerContent
 			bannerReserved={draftSync.hasBaseline}
 			title={edit

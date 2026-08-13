@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { AIProvider } from "$lib/gen/types.gen";
 import {
-  globalTools,
+  globalToolsFor,
   prepareGlobalSystemMessage,
   prepareGlobalUserMessage,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/core";
@@ -14,6 +14,7 @@ import {
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
 import { UserDraft } from "../../../../../frontend/src/lib/userDraft.svelte";
+import { createEvalArtifactHelpers } from "./evalArtifactStore";
 import type { ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
@@ -80,6 +81,8 @@ export interface GlobalEvalOptions {
   workspaceFixtures?: BenchmarkWorkspaceRunnables;
   liveEditorDrafts?: GlobalLiveEditorDraftFixture[];
   user?: GlobalUserFixture;
+  // Emulate a session chat (preview tools + session prompt); default false = standalone baseline.
+  sessionChat?: boolean;
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
@@ -98,7 +101,10 @@ export async function runGlobalEval(
     (await mkdtemp(join(tmpdir(), "wmill-frontend-global-benchmark-")));
 
   clearGlobalDrafts(workspaceRoot);
-  registerBenchmarkWorkspaceRunnables(workspaceRoot, options.workspaceFixtures ?? {});
+  registerBenchmarkWorkspaceRunnables(
+    workspaceRoot,
+    options.workspaceFixtures ?? {},
+  );
   seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
 
   try {
@@ -107,18 +113,25 @@ export async function runGlobalEval(
       process.env[DISABLE_ACTIVE_EDITOR_CONTEXT_ENV] !== "1";
     // Pass the seeded identity straight to the prompt builder rather than mutating
     // the process-global `userStore`, so concurrent cases never race on it.
+    const evalArtifacts = createEvalArtifactHelpers();
     const rawResult = await runEval({
       userPrompt,
-      systemMessage: prepareGlobalSystemMessage(undefined, { user: options.user }),
+      systemMessage: prepareGlobalSystemMessage(undefined, {
+        user: options.user,
+        previewTools: options.sessionChat ?? false,
+      }),
       userMessage: prepareGlobalUserMessage(
         userPrompt,
         [],
         injectActiveEditorContext ? { workspace: workspaceRoot } : {},
       ),
-      tools: getGlobalEvalTools(),
-      helpers: {},
+      tools: getGlobalEvalTools(options.sessionChat ?? false),
+      helpers: evalArtifacts.helpers,
       apiKey,
-      getOutput: () => collectGlobalDraftState(workspaceRoot),
+      getOutput: async () => ({
+        ...(await collectGlobalDraftState(workspaceRoot)),
+        artifacts: evalArtifacts.snapshot(),
+      }),
       onAssistantMessageStart: options.runContext?.onAssistantMessageStart,
       onAssistantToken: options.runContext?.onAssistantChunk,
       onAssistantMessageEnd: options.runContext?.onAssistantMessageEnd,
@@ -213,10 +226,15 @@ function clearLiveEditorDrafts(
   }
 }
 
-function getGlobalEvalTools(): ProductionTool<{}>[] {
+// Gate session-preview tools on sessionChat, as production's globalToolsFor does.
+function getGlobalEvalTools(sessionChat: boolean): ProductionTool<{}>[] {
   const disableSearchApp = process.env[DISABLE_SEARCH_APP_ENV] === "1";
-  return (globalTools as ProductionTool<{}>[])
-    .filter((tool) => !(disableSearchApp && tool.def.function.name === "search_app"))
+  return (
+    globalToolsFor({ sessionPreview: sessionChat }) as ProductionTool<{}>[]
+  )
+    .filter(
+      (tool) => !(disableSearchApp && tool.def.function.name === "search_app"),
+    )
     .map((tool) => {
       if (!MUTATING_GLOBAL_TOOLS.has(tool.def.function.name)) {
         return tool;

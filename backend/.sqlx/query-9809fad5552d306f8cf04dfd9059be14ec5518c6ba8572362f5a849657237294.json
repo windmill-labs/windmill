@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,\n                                 resource_type, name, tags, test_kind, test_column, test_args,\n                                 attached_node)\n           VALUES ($1, $2, $3, $4, 'test.p.accepted_values_orders_status', 'test',\n                   'accepted_values_orders_status', '{}', 'accepted_values', 'status',\n                   '{\"values\": [\"gold\", \"silver\"]}'::jsonb, 'model.p.orders')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9809fad5552d306f8cf04dfd9059be14ec5518c6ba8572362f5a849657237294"
+}

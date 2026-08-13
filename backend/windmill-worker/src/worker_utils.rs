@@ -164,12 +164,14 @@ async fn update_worker_ping_full_inner(
     Ok(())
 }
 
+/// Registers the worker in `worker_ping` and returns the number of jobs already attributed
+/// to that worker name, which is 0 unless this process reclaims the row of an earlier one.
 pub async fn insert_ping(
     worker_instance: &str,
     worker_name: &str,
     ip: &str,
     db: &Connection,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<i32> {
     let (tags, dw, dws, native_mode) = {
         let wc = (**WORKER_CONFIG.load()).clone();
         (
@@ -200,7 +202,7 @@ pub async fn insert_ping(
 
     match db {
         Connection::Sql(db) => {
-            insert_ping_query(
+            return insert_ping_query(
                 worker_instance,
                 worker_name,
                 WORKER_GROUP.as_str(),
@@ -215,7 +217,7 @@ pub async fn insert_ping(
                 native_mode,
                 db,
             )
-            .await?;
+            .await;
         }
         Connection::Http(client) => {
             client
@@ -248,7 +250,9 @@ pub async fn insert_ping(
                 .await?;
         }
     }
-    Ok(())
+    // The agent ping endpoint answers with nothing, so an agent worker always starts its
+    // counter from zero.
+    Ok(0)
 }
 
 pub async fn update_worker_ping_from_job(
@@ -343,6 +347,34 @@ pub async fn ping_job_status(
                 )
                 .await
         }
+    }
+}
+
+/// Keeps the job's ping fresh during phases that run before the executor's own polling
+/// loop starts (volume setup, s3object materialization, ...). Without it, a slow wait or
+/// download with no ping in between can exceed ZOMBIE_JOB_TIMEOUT (default 60s) and get
+/// the job falsely restarted as a zombie.
+pub(crate) struct JobPingHeartbeat(tokio::task::JoinHandle<()>);
+
+impl JobPingHeartbeat {
+    pub(crate) fn start(conn: &Connection, job_id: Uuid, context: &'static str) -> Self {
+        let conn = conn.clone();
+        JobPingHeartbeat(tokio::spawn(async move {
+            // 10s stays well under the 60s zombie timeout
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                if let Err(e) = ping_job_status(&conn, &job_id, None, None).await {
+                    tracing::warn!("failed to ping job {job_id} during {context}: {e}");
+                }
+            }
+        }))
+    }
+}
+
+impl Drop for JobPingHeartbeat {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 

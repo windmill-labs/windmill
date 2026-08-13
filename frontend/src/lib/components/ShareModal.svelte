@@ -21,8 +21,13 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Trash } from 'lucide-svelte'
+	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
 	const dispatch = createEventDispatcher()
+
+	let restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
 
 	type Kind =
 		| 'script'
@@ -42,6 +47,7 @@
 		| 'postgres_trigger'
 		| 'gcp_trigger'
 		| 'azure_trigger'
+		| 'amqp_trigger'
 		| 'email_trigger'
 		| 'volume'
 	let kind: Kind
@@ -268,7 +274,9 @@
 					>
 				{/if}
 				<div>
-					{#if own}
+					{#if own && restricted}
+						<Alert type="info" title="Sharing disabled">{DEMO_RESTRICTION_HINT}</Alert>
+					{:else if own}
 						<div class="flex flex-row flex-wrap gap-2 items-center">
 							<div>
 								<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (owner = '')}>
@@ -310,7 +318,7 @@
 										<tr>
 											<td>{owner}</td>
 											<td
-												>{#if own}
+												>{#if own && !restricted}
 													<div>
 														<ToggleButtonGroup
 															selected={write ? 'writer' : 'viewer'}
@@ -330,7 +338,7 @@
 															{/snippet}
 														</ToggleButtonGroup>
 													</div>
-												{:else}{write}{/if}</td
+												{:else}{write ? 'Writer' : 'Viewer'}{/if}</td
 											>
 											<td>
 												{#if own}

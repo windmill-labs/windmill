@@ -127,7 +127,15 @@
 	if (appDraftHandle) UserDraft.stopSync('app', appDraftPath)
 	// Prefer a prior-session autosave over the prop (the route seeds an empty
 	// template on `new_draft=true`; it calls `UserDraft.remove` to force a reset).
-	const stateApp = $state(untrack(() => appDraftHandle?.draft ?? app))
+	// A draft is a stored value that can predate any schema migration, so whichever
+	// value is adopted needs the same normalization as the prop above.
+	const stateApp = $state(
+		untrack(() => {
+			const adopted = appDraftHandle?.draft ?? app
+			migrateApp(adopted)
+			return adopted
+		})
+	)
 	const appStore = writable<App>(stateApp)
 	// Mirror `stateApp` mutations into the autosave cell. The first mirror is the
 	// seed — `acquireEntry`'s `skipNextWrite` swallows it; later writes POST.

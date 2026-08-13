@@ -67,6 +67,9 @@
 		initial?: boolean
 		onResetInitial?: () => void
 		customEmptyJobMessage?: string
+		/** Offer a result/logs toggle. Only for viewers that show the result alone —
+		 *  where a log pane sits alongside it, the toggle just hides what is already there. */
+		logsToggle?: boolean
 	}
 
 	let {
@@ -96,7 +99,8 @@
 		onEditInput,
 		selectionId,
 		initial,
-		customEmptyJobMessage
+		customEmptyJobMessage,
+		logsToggle = false
 	}: Props = $props()
 
 	let jsonView = $state(false)
@@ -523,7 +527,7 @@
 				{/if}
 
 				<!-- Logs button -->
-				{#if selectedJob?.type === 'CompletedJob' && selectedJob?.['logs']}
+				{#if logsToggle && selectedJob?.type === 'CompletedJob' && selectedJob?.['logs']}
 					<Tooltip>
 						<Button
 							size="xs2"
@@ -624,7 +628,7 @@
 				hoveringResult = false
 			}}
 		>
-			{#if showLogs && selectedJob?.type === 'CompletedJob' && selectedJob?.['logs']}
+			{#if logsToggle && showLogs && selectedJob?.type === 'CompletedJob' && selectedJob?.['logs']}
 				<LogViewer
 					small
 					jobId={selectedJob.id}

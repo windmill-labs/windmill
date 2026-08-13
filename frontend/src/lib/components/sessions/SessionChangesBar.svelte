@@ -1,14 +1,15 @@
 <script lang="ts">
 	import {
 		Archive,
+		Diff,
 		ExternalLink,
 		GitPullRequestClosed,
 		MoveRight,
-		Pencil,
 		Trash2
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import SessionStatusPopover from './SessionStatusPopover.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
 	import { isPremiumStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { canCreateFork } from '$lib/utils/editInFork'
@@ -16,10 +17,16 @@
 	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
+	import { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { badgeCounts, buildDeployItems } from './sessionDeployModel'
+	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
+	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
+	import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
+	import type { PreviewTarget } from './previewRouter'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
+	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import ArtifactsSegment from '$lib/components/copilot/chat/artifacts/ArtifactsSegment.svelte'
 
 	// Unified session bar: surfaces what the CURRENT chat changed — pending
 	// drafts and deployed items — as one count badge per status that opens the
@@ -123,9 +130,9 @@
 	// Opening the drawer re-fetches its own data, so it can show fresher state
 	// than the badge just clicked (e.g. "1 draft" that was deployed elsewhere in
 	// the meantime). Re-sync the dock alongside so the two never disagree.
-	function openDrawer() {
+	function openDrawer(focusKey?: string) {
 		refreshDock()
-		diffDrawer?.open()
+		diffDrawer?.open(focusKey)
 	}
 
 	// The dock counts are computed from the same pure model over this chat's
@@ -175,25 +182,63 @@
 	// Background jobs the chat started (rendered as the Jobs segment). The session
 	// bar shows if there are edits OR jobs; each segment hides when its side is empty.
 	const hasJobs = $derived((runtime?.manager.backgroundJobs.length ?? 0) > 0)
-</script>
+	const hasArtifacts = $derived((runtime?.manager.artifacts.artifacts.length ?? 0) > 0)
 
-{#snippet dock()}
-	<!-- One count badge per row status, same vocabulary/colors as the drawer's
-	     badges (draft/deployed) so the bar reads at a glance. Display-only: the
-	     enclosing Edits segment button opens the drawer. -->
-	<div class="flex items-center gap-1 shrink-0">
-		{#if dockCounts.draft > 0}
-			<Badge small color="indigo">
-				{dockCounts.draft} draft{dockCounts.draft === 1 ? '' : 's'}
-			</Badge>
-		{/if}
-		{#if dockCounts.deployed > 0}
-			<Badge small color="green">
-				{dockCounts.deployed} deployed
-			</Badge>
-		{/if}
-	</div>
-{/snippet}
+	// Drafts are what still needs action, so the token counts only them while any
+	// are pending; once none are left it turns green and counts the deployed.
+	const editsLabel = $derived(
+		dockCounts.draft > 0
+			? `${dockCounts.draft} draft${dockCounts.draft === 1 ? '' : 's'}`
+			: `${dockCounts.deployed} deployed`
+	)
+	let editsOpen = $state(false)
+
+	// Routed on the storage `path` — the edit route's key, which for a draft-only
+	// item is its `draft_<uuid>` path, not the friendly `displayPath`.
+	function previewTargetFor(item: DeployItem): PreviewTarget | undefined {
+		return previewTargetForDeployKind(item.deployKind, item.path)
+	}
+
+	// The row's primary action is the preview; kinds the panel can't host
+	// (triggers, schedules, resources, variables) fall back to their diff.
+	function openRow(item: DeployItem) {
+		if (previewTargetFor(item)) openInPreview(item)
+		else openDrawer(item.key)
+	}
+
+	// Trailing action; unlike a row pick it isn't routed through the popover's
+	// own close, so it dismisses the popover itself.
+	function openDiff(item: DeployItem) {
+		editsOpen = false
+		openDrawer(item.key)
+	}
+
+	function openInPreview(item: DeployItem) {
+		const owner = runtime?.previewTabs
+		const target = previewTargetFor(item)
+		if (!owner || !target) return
+		owner.open(target)
+	}
+
+	// A pipeline's bundle path (`f/<folder>/data_pipeline`) is an implementation
+	// detail — name the folder, which is what its editor opens. Same call the
+	// compare page makes.
+	function rowLabel(item: DeployItem): string {
+		if (item.deployKind === 'data_pipeline') {
+			const folder = pipelineFolderFromBundlePath(item.path)
+			if (folder) return `f/${folder}`
+		}
+		return item.displayPath
+	}
+
+	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's
+	// deploy model, not here.
+	const editsColorClass = $derived(
+		dockCounts.draft > 0
+			? '!bg-indigo-100 !text-indigo-800 hover:!bg-indigo-200 dark:!bg-indigo-700/40 dark:!text-indigo-100 dark:hover:!bg-indigo-600/40'
+			: '!bg-green-100 !text-green-700 hover:!bg-green-200 dark:!bg-green-700/40 dark:!text-green-100 dark:hover:!bg-green-600/40'
+	)
+</script>
 
 {#if committedId && isUnavailable}
 	<!-- Committed workspace is no longer in the user's list (deleted, archived,
@@ -240,57 +285,82 @@
 			</Button>
 		</div>
 	</div>
-{:else if committedId && (showBar || hasJobs)}
-	<!-- Segmented session bar: an Edits segment (what the AI changed this session)
-	     and a Jobs segment (background jobs it started), sharing one border box.
-	     The Edits segment (or, in its absence, a flex-1 spacer) fills the left so the
-	     Jobs segment stays pinned to the right whether or not there are edits. Fork
-	     identity / sync status lives inside the modal. -->
-	<div
-		class="flex h-[38px] items-stretch overflow-hidden rounded-md border bg-surface-tertiary text-xs"
-	>
+{:else if committedId && (showBar || hasArtifacts || hasJobs)}
+	<div class="flex items-center gap-3 rounded-md border bg-surface-tertiary px-2 py-2 text-xs">
 		{#if showBar}
 			{#if deletionOnly && compareHref}
-				<!-- Deleted items have no drawer row; the pending fork→parent removal is
-				     reviewed on the compare page, so the segment links there instead. -->
+				<!-- Deleted items have no drawer row, so this token links to the compare
+				     page (where the fork→parent removal is reviewed) rather than opening
+				     a popover. -->
 				<a
 					href={compareHref}
 					target="_blank"
 					rel="noopener noreferrer"
 					title="This chat's edits were deletions — review and promote them on the compare page"
-					class="flex min-w-0 flex-1 items-center gap-1.5 px-3 hover:bg-surface-hover"
+					class={TOKEN_TRIGGER_CLASS}
 				>
-					<Pencil class="h-3.5 w-3.5 shrink-0 text-secondary" />
-					<span class="shrink-0 font-normal text-primary">Edits</span>
-					<span
-						class="ml-auto inline-flex items-center gap-1 truncate text-2xs font-medium text-accent"
-					>
-						Review deletions <ExternalLink class="h-3 w-3 shrink-0" />
-					</span>
+					<span class="truncate font-normal text-secondary">Edits</span>
+					<ExternalLink class="h-3 w-3 shrink-0 text-tertiary" />
 				</a>
 			{:else}
-				<!-- Raw <button> (like the other clickable session rows/segments, e.g.
-				     SessionPicker/WorkspaceFamilyPicker): a full-width bar segment, not a
-				     discrete design-system action control. aria-haspopup marks the drawer. -->
-				<button
-					type="button"
-					class="flex min-w-0 flex-1 items-center gap-1.5 px-3 hover:bg-surface-hover"
-					title="Edited by the chat during this session"
-					aria-haspopup="dialog"
-					onclick={openDrawer}
+				<SessionStatusPopover
+					bind:open={editsOpen}
+					label={editsLabel}
+					title="Edited this session"
+					items={dockItems}
+					itemKey={(item) => item.key}
+					rowTitle={(item) =>
+						previewTargetFor(item) ? `Open ${rowLabel(item)} in preview` : rowLabel(item)}
+					onPick={openRow}
+					triggerClass={`${TOKEN_TRIGGER_CLASS} ${editsColorClass}`}
+					widthClass="w-96"
+					maxHeightClass="max-h-[min(9rem,50vh)]"
 				>
-					<Pencil class="h-3.5 w-3.5 shrink-0 text-secondary" />
-					<span class="shrink-0 font-normal text-primary">Edits</span>
-					<span class="ml-auto">{@render dock()}</span>
-				</button>
+					{#snippet row(item)}
+						<RowIcon kind={item.deployKind} path={item.path} size={14} />
+						<span class="min-w-0 flex-1 truncate font-mono font-normal text-primary">
+							{rowLabel(item)}
+						</span>
+						{#if badgeOf(item) === 'draft'}
+							<Badge small color="indigo">
+								{item.draftOnly ? 'Draft only' : 'Draft'}
+							</Badge>
+						{:else}
+							<Badge small color="green">Deployed</Badge>
+						{/if}
+					{/snippet}
+					{#snippet actions(item)}
+						<Button
+							unifiedSize="xs"
+							variant="subtle"
+							title="Review & deploy"
+							startIcon={{ icon: Diff }}
+							onClick={() => openDiff(item)}
+						>
+							Diff
+						</Button>
+					{/snippet}
+					{#snippet footer()}
+						<button
+							type="button"
+							data-status-row
+							class="flex w-full items-center gap-2 py-1 pl-3 pr-3 text-left font-normal hover:bg-surface-hover focus:bg-surface-hover focus:outline-none"
+							onclick={() => {
+								editsOpen = false
+								openDrawer()
+							}}
+						>
+							<Diff size={14} class="shrink-0 text-tertiary" />
+							<span class="min-w-0 flex-1 truncate text-secondary">Review & deploy all</span>
+						</button>
+					{/snippet}
+				</SessionStatusPopover>
 			{/if}
-		{:else}
-			<!-- No edits: a spacer fills the left so the Jobs segment stays right-aligned. -->
-			<div class="flex-1"></div>
+		{/if}
+		{#if hasArtifacts}
+			<ArtifactsSegment />
 		{/if}
 		{#if hasJobs}
-			<!-- standalone={false}: renders just the chip trigger as a full-height
-			     segment; the border box above provides the chrome. -->
 			<JobsSegment />
 		{/if}
 	</div>

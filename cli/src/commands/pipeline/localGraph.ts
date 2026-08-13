@@ -63,6 +63,10 @@ export type GraphRunnable = {
   // `buildMacroEdges` (the wasm asset parser emits neither the marker nor the
   // registry). Non-empty ⇒ definition-only node.
   macros?: { name: string; params?: string; is_table?: boolean }[];
+  // Set by the deployed graph on a dbt script: it owns a whole project, so the
+  // node counts models rather than reading as a single-output script. Never set
+  // locally — a dbt descriptor has no asset parser here.
+  dbt?: { model_count: number };
 };
 export type GraphEdge = {
   runnable_kind: string;
@@ -229,6 +233,7 @@ function commentPrefix(language: string): string {
     language === "ansible" ||
     language === "ruby" ||
     language === "rlang" ||
+    language === "dbt" ||
     language === "nu" ||
     language === "powershell"
   )
@@ -259,6 +264,7 @@ const NATIVE_KINDS = new Set([
   "email",
   "kafka",
   "mqtt",
+  "amqp",
   "nats",
   "postgres",
   "sqs",
@@ -299,13 +305,10 @@ function fallbackParse(content: string, language: string): ParseAssetsRaw {
     if (uri) {
       const prefix = uri[1].toLowerCase();
       const kind = prefix === "s3" ? "s3object" : prefix;
-      // Mirror Rust `parse_asset_syntax`: strip all leading slashes from S3 keys
-      // so `s3:///key` (default storage) and `s3://key` / DuckDB canonicalize
-      // to the same node id (and a canonical key never starts with `/`) —
-      // otherwise a go/bash fallback consumer's `// on s3:///x` would not
-      // connect to a wasm-inferred `x` producer.
-      const path = kind === "s3object" ? uri[2].replace(/^\/+/, "") : uri[2];
-      out.triggers!.push({ kind: "asset", asset_kind: kind, path });
+      // The suffix is kept verbatim (mirrors Rust `parse_asset_syntax`): an S3
+      // path encodes the storage, with a leading `/` for the workspace default
+      // (`s3:///key` → `/key`) vs `s3://secondary/key` → `secondary/key`.
+      out.triggers!.push({ kind: "asset", asset_kind: kind, path: uri[2] });
     } else if (NATIVE_KINDS.has(firstTok) && rest === firstTok) {
       // A native marker (`// on data_upload`) must stand alone: the canonical
       // parser rejects a marker line with trailing content (`// on data_upload
@@ -344,7 +347,11 @@ function normalizeRetry(retry: ParseAssetsRaw["retry"]): ParseAssetsRaw["retry"]
 // Read-asset kinds whose read auto-derives a cascade trigger edge inside a
 // `// pipeline`. Mirror of backend `is_auto_trigger_kind` (windmill-common
 // assets.rs) / frontend `AUTO_TRIGGER_KINDS` (resolveGraph.ts) — ducklake
-// tables and s3 objects only; resource/datatable/volume stay explicit-`// on`.
+// tables and s3 objects; resource/datatable/volume/table stay explicit-`// on`.
+// A local graph out of step with that set shows an edge the deploy will not
+// cascade along, and the generated pipeline docs then describe the wrong DAG.
+// `table` is excluded everywhere: a dbt run does not dispatch, and nothing else
+// writes a warehouse relation.
 const AUTO_TRIGGER_KINDS = new Set(["ducklake", "s3object"]);
 
 // Asset-URI prefixes accepted by `// mute <asset>`, in lockstep with the
@@ -392,14 +399,10 @@ export function parseMuteAnnotations(content: string): {
     }
     for (const [prefix, kind] of MUTE_ASSET_PREFIXES) {
       if (arg.startsWith(prefix)) {
-        // S3 canonicalization as in `parse_asset_syntax`: strip every leading
-        // slash so `s3:///key` (default storage) mutes the same node as the
-        // inferred bare `key`.
-        const p =
-          kind === "s3object"
-            ? arg.slice(prefix.length).replace(/^\/+/, "")
-            : arg.slice(prefix.length);
-        muted.add(`${kind}:${p}`);
+        // The suffix is kept verbatim, as in `parse_asset_syntax` — a muted
+        // `s3:///key` (default storage, path `/key`) only matches an inferred
+        // default-storage read of the same object.
+        muted.add(`${kind}:${arg.slice(prefix.length)}`);
         break;
       }
     }
@@ -556,6 +559,75 @@ export async function collectScripts(
   return out;
 }
 
+// The structural minimum the dbt filter needs. Declared instead of taking
+// `AssetGraph` so the bounded-cascade view of the same payload (`BCGraph`, a
+// narrower shape over identical JSON) passes through without a cast.
+type DbtFilterableGraph = {
+  runnables: { path: string; usage_kind: string; dbt?: unknown }[];
+  edges: { runnable_kind: string; runnable_path: string }[];
+  triggers: { runnable_kind: string; runnable_path: string }[];
+  macro_edges?: { lib_path: string; consumer_path: string }[];
+  test_edges?: {
+    producer_kind: string;
+    producer_path: string;
+    runnable_kind: string;
+    runnable_path: string;
+  }[];
+};
+
+/**
+ * The pipeline's view of a deployed graph whose folder also holds a dbt project.
+ *
+ * `/assets/graph` is asset-usage driven, not membership driven: it lists every
+ * script that reads or writes a relation, so a dbt script appears there like any
+ * producer. That is right for the endpoint — the node is what attributes a
+ * relation to what builds it — but a dbt project is not a pipeline, so it must
+ * not be rendered as one of its scripts. Mirrors the frontend's
+ * `hideDbtRunnables`; the local builder drops these nodes at the source.
+ *
+ * Its relations stay: they are what a downstream pipeline script reads.
+ */
+export function hideDbtRunnables<G extends DbtFilterableGraph>(graph: G): G {
+  // Keyed by `(usage_kind, path)`, the graph's identity for a runnable — a
+  // script and a flow may share a path, and keying on path alone would take the
+  // flow's node, edges and triggers down with the dbt script's.
+  const key = (usage_kind: string, path: string) => `${usage_kind}:${path}`;
+  const dbtKeys = new Set(
+    (graph.runnables ?? [])
+      .filter((r) => r.dbt)
+      .map((r) => key(r.usage_kind, r.path)),
+  );
+  if (dbtKeys.size === 0) return graph;
+  const kept = (usage_kind: string, path: string) =>
+    !dbtKeys.has(key(usage_kind, path));
+  return {
+    ...graph,
+    runnables: graph.runnables.filter((r) => kept(r.usage_kind, r.path)),
+    edges: graph.edges.filter((e) => kept(e.runnable_kind, e.runnable_path)),
+    triggers: graph.triggers.filter((t) =>
+      kept(t.runnable_kind, t.runnable_path),
+    ),
+    // A macro library is a script; a dbt script defines no macros, so neither
+    // end can be a flow.
+    ...(graph.macro_edges
+      ? {
+          macro_edges: graph.macro_edges.filter(
+            (m) => kept("script", m.lib_path) && kept("script", m.consumer_path),
+          ),
+        }
+      : {}),
+    ...(graph.test_edges
+      ? {
+          test_edges: graph.test_edges.filter(
+            (t) =>
+              kept(t.producer_kind, t.producer_path) &&
+              kept(t.runnable_kind, t.runnable_path),
+          ),
+        }
+      : {}),
+  };
+}
+
 // Build the full pipeline asset-graph from local files in `f/<folder>/`.
 // Only `// pipeline` scripts become graph nodes (pipeline membership), mirroring
 // the deployed graph endpoint. Returns the graph plus the in-pipeline scripts'
@@ -623,6 +695,11 @@ export async function buildLocalPipelineGraph(args: {
       });
       continue;
     }
+    // A dbt project is not a data pipeline: the deploy never marks a dbt script
+    // `auto_kind='pipeline'` and the pipeline canvas drops its node, so the
+    // local graph must not invent one. Its models don't belong here either —
+    // they come from the manifest the deploy derives, not from the descriptor.
+    if (s.language === "dbt") continue;
     if (!out.in_pipeline) continue; // not a pipeline member
     if (out.data_tests && out.data_tests.length > 0) {
       dataTestsByPath.set(s.path, out.data_tests);

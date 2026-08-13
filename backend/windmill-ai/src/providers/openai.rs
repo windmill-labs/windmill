@@ -6,7 +6,7 @@ use crate::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{OpenAIResponsesSSEParser, SSEParser},
     types::*,
-    utils::extract_text_content,
+    utils::{collect_system_prompt, extract_text_content},
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -206,7 +206,7 @@ pub struct ResponsesApiRequest<'a> {
     pub model: &'a str,
     pub input: Vec<ResponsesApiInputItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<&'a str>,
+    pub instructions: Option<String>,
     pub tools: Vec<ResponsesApiTool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
@@ -218,6 +218,12 @@ pub struct ResponsesApiRequest<'a> {
     pub max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<ResponsesApiTextFormat>,
+    /// From `gpt-5.6` on, the prefix hash alone no longer reliably matches a cached
+    /// prefix: the key is combined with it to route the request. Omitting it costs the
+    /// read discount and, since these models bill cache writes, pays to re-write the
+    /// prefix on every miss.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<&'a str>,
 }
 
 #[derive(Serialize, Debug)]
@@ -229,7 +235,6 @@ pub enum ToolChoice {
 }
 
 pub struct OpenAIQueryBuilder {
-    #[allow(dead_code)]
     provider_kind: AIProvider,
 }
 
@@ -371,9 +376,19 @@ impl OpenAIQueryBuilder {
         let prepared_messages =
             prepare_messages_for_api(args.messages, client, workspace_id).await?;
 
+        // Only the system prompt leading the conversation moves to `instructions`; echoing it in
+        // `input` as well would send it twice. This API accepts system messages anywhere in
+        // `input`, so any later one stays where the caller put it, position and content intact.
+        let leading_system = prepared_messages
+            .iter()
+            .take_while(|message| message.role == "system")
+            .count();
+        let instructions =
+            collect_system_prompt(&prepared_messages[..leading_system], args.system_prompt);
+
         // Convert full message history to Responses API input format
         // (following frontend pattern from openai-responses.ts)
-        let input_items = convert_messages_to_responses_input(&prepared_messages);
+        let input_items = convert_messages_to_responses_input(&prepared_messages[leading_system..]);
 
         // Build tools array using typed structs
         let mut tools: Vec<ResponsesApiTool> = Vec::new();
@@ -416,7 +431,7 @@ impl OpenAIQueryBuilder {
         let request = ResponsesApiRequest {
             model: args.model,
             input: input_items,
-            instructions: args.system_prompt, // System prompt goes to instructions field
+            instructions,
             tools,
             stream: Some(true),
             temperature: args.temperature,
@@ -425,6 +440,7 @@ impl OpenAIQueryBuilder {
                 .map(|effort| ResponsesApiReasoning { effort: effort.to_string() }),
             max_output_tokens: args.max_tokens,
             text,
+            prompt_cache_key: args.prompt_cache_key,
         };
 
         serde_json::to_string(&request)
@@ -474,13 +490,15 @@ impl OpenAIQueryBuilder {
         let request = ResponsesApiRequest {
             model: args.model,
             input: vec![ResponsesApiInputItem::InputMessage { role: "user".to_string(), content }],
-            instructions: args.system_prompt,
+            instructions: args.system_prompt.map(str::to_string),
             tools,
             stream: None, // Image generation doesn't use streaming
             temperature: args.temperature,
             reasoning: None, // Image generation models don't take a reasoning effort
             max_output_tokens: args.max_tokens,
             text: None, // No structured output for image generation
+            // A one-shot image prompt has no reusable prefix to route to a cache
+            prompt_cache_key: None,
         };
 
         serde_json::to_string(&request)
@@ -499,6 +517,10 @@ impl QueryBuilder for OpenAIQueryBuilder {
         build_openai_compatible_proxy_request(args)
     }
 
+    fn supports_chat_completions_fallback(&self, base_url: &str) -> bool {
+        self.provider_kind.is_azure(base_url)
+    }
+
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
@@ -508,9 +530,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
         parser.parse_events(response).await?;
 
         // Convert OpenAI Responses usage to TokenUsage
-        let usage = parser
-            .usage
-            .map(|u| TokenUsage::new(u.input_tokens, u.output_tokens, u.total_tokens));
+        let usage = parser.usage.map(|u| u.to_token_usage());
 
         Ok(ParsedResponse::Text {
             content: if parser.accumulated_content.is_empty() {
@@ -570,15 +590,149 @@ impl QueryBuilder for OpenAIQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
-        format!("{}/responses", base_url)
+        let base_url = base_url.trim_end_matches('/');
+        if self.provider_kind.is_azure(base_url) {
+            AIProvider::build_azure_openai_url(base_url, "responses")
+        } else {
+            format!("{}/responses", base_url)
+        }
     }
 
     fn get_auth_headers(
         &self,
         api_key: &str,
-        _base_url: &str,
+        base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        vec![("Authorization", format!("Bearer {}", api_key))]
+        if self.provider_kind.is_azure(base_url) {
+            vec![("api-key", api_key.to_string())]
+        } else {
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::query_builder::QueryBuilder;
+
+    const SYSTEM_PROMPT: &str = "You are a helpful assistant";
+    const PROMPT_CACHE_KEY: &str = "test-workspace:f/agent:step_1";
+
+    fn client() -> AuthedClient {
+        AuthedClient::new(
+            "http://localhost:8000".to_string(),
+            "test-workspace".to_string(),
+            "token".to_string(),
+            None,
+        )
+    }
+
+    fn message(role: &str, text: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(text.to_string())),
+            ..Default::default()
+        }
+    }
+
+    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+        let args = BuildRequestArgs {
+            messages,
+            tools: None,
+            model: "gpt-5",
+            temperature: None,
+            reasoning_effort: None,
+            max_tokens: None,
+            output_schema: None,
+            output_type: &OutputType::Text,
+            system_prompt,
+            user_message: "hello",
+            attachments: None,
+            has_websearch: false,
+            prompt_cache_key: Some(PROMPT_CACHE_KEY),
+        };
+
+        OpenAIQueryBuilder::new(AIProvider::OpenAI)
+            .build_request(&args, &client(), "test-workspace")
+            .await
+            .unwrap()
+    }
+
+    /// The worker prepends the system prompt as a system message *and* passes it as
+    /// `system_prompt`; the request must still carry it exactly once.
+    #[tokio::test]
+    async fn sends_system_prompt_only_in_instructions() {
+        let messages = vec![message("system", SYSTEM_PROMPT), message("user", "hi")];
+
+        let body = build_text_body(&messages, Some(SYSTEM_PROMPT)).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["instructions"], SYSTEM_PROMPT);
+        assert_eq!(body.matches(SYSTEM_PROMPT).count(), 1);
+
+        let input = request["input"].as_array().unwrap();
+        assert!(input.iter().all(|item| item["role"] != "system"));
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["role"], "user");
+    }
+
+    /// This API takes system messages anywhere in `input`, so a late steering message keeps
+    /// its position instead of being hoisted into `instructions`.
+    #[tokio::test]
+    async fn keeps_a_mid_conversation_system_message_in_place() {
+        let messages = vec![
+            message("system", SYSTEM_PROMPT),
+            message("user", "hi"),
+            message("system", "answer in one word"),
+            message("user", "and now?"),
+        ];
+
+        let body = build_text_body(&messages, Some(SYSTEM_PROMPT)).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["instructions"], SYSTEM_PROMPT);
+        assert_eq!(body.matches(SYSTEM_PROMPT).count(), 1);
+
+        let input = request["input"].as_array().unwrap();
+        assert_eq!(input.len(), 3);
+        assert_eq!(input[1]["role"], "system");
+        assert_eq!(input[1]["content"][0]["text"], "answer in one word");
+    }
+
+    /// Manual-memory conversations supply their own system messages without a
+    /// `system_prompt` arg: those must still reach the model.
+    #[tokio::test]
+    async fn lifts_manual_system_messages_into_instructions() {
+        let messages = vec![message("system", "be terse"), message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["instructions"], "be terse");
+        assert_eq!(request["input"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn omits_instructions_without_a_system_prompt() {
+        let messages = vec![message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert!(request.get("instructions").is_none());
+    }
+
+    /// `gpt-5.6` and later only match a cached prefix reliably when the request carries
+    /// the routing key, so dropping it from the body silently forfeits the cache.
+    #[tokio::test]
+    async fn sends_the_prompt_cache_key() {
+        let messages = vec![message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["prompt_cache_key"], PROMPT_CACHE_KEY);
     }
 }

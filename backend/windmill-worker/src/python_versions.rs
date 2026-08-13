@@ -23,9 +23,9 @@ use crate::python_executor::UV_PATH;
 use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
-    python_executor::{INDEX_CERT, NATIVE_CERT, PYTHON_PATH},
-    HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR,
-    UV_PYTHON_INSTALL_MIRROR, WIN_ENVS,
+    python_executor::PYTHON_PATH,
+    HOME_ENV, INDEX_CERT, INSTANCE_PYTHON_VERSION, NATIVE_CERT, PATH_ENV, PROXY_ENVS,
+    PY_INSTALL_DIR, UV_CACHE_DIR, UV_PYTHON_INSTALL_MIRROR, WIN_ENVS,
 };
 
 impl From<PyV> for PyVAlias {

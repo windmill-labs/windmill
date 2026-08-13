@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import { convertOpenAIToAnthropicMessages } from './anthropic'
+import { convertOpenAIToAnthropicMessages, partialWebSearchQuery } from './anthropic'
 
 // anthropic.ts pulls in the chat client/registry layer at import time; the
 // converter under test is pure, so stub those side-effecting modules away.
@@ -14,7 +14,8 @@ vi.mock('../reasoningRegistry', () => ({
 }))
 
 vi.mock('./shared', () => ({
-	processToolCall: vi.fn()
+	processToolCall: vi.fn(),
+	appendPendingToolImages: vi.fn()
 }))
 
 describe('convertOpenAIToAnthropicMessages', () => {
@@ -139,6 +140,42 @@ describe('convertOpenAIToAnthropicMessages', () => {
 		expect(content[1]).toMatchObject({ type: 'tool_use', id: 'tool_old', name: 'list_resources' })
 	})
 
+	it('converts a user message with an image_url part to an Anthropic base64 image block', () => {
+		const messages: ChatCompletionMessageParam[] = [
+			{
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'what is this?' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAABBBB' } }
+				]
+			} as any
+		]
+
+		const { messages: out } = convertOpenAIToAnthropicMessages(messages)
+
+		expect(out).toHaveLength(1)
+		expect(out[0].role).toBe('user')
+		const content = out[0].content as any[]
+		expect(content[0]).toMatchObject({ type: 'text', text: 'what is this?' })
+		expect(content[1]).toMatchObject({
+			type: 'image',
+			source: { type: 'base64', media_type: 'image/png', data: 'AAAABBBB' }
+		})
+		// The trailing block is the image — the ephemeral cache breakpoint may land on it
+		// (cache_control is valid on image blocks).
+		expect(content[1].cache_control).toEqual({ type: 'ephemeral' })
+	})
+
+	it('keeps a plain string user message unchanged (no array wrapping)', () => {
+		// Non-trailing so the last-block cache_control wrapping doesn't obscure it.
+		const messages: ChatCompletionMessageParam[] = [
+			{ role: 'user', content: 'just text' },
+			{ role: 'assistant', content: 'ok' }
+		]
+		const { messages: out } = convertOpenAIToAnthropicMessages(messages)
+		expect(out[0].content).toBe('just text')
+	})
+
 	it('caches a trailing tool result even when the prior turn used no captured content', () => {
 		const messages: ChatCompletionMessageParam[] = [
 			{ role: 'user', content: 'q' },
@@ -160,5 +197,23 @@ describe('convertOpenAIToAnthropicMessages', () => {
 			tool_use_id: 't1',
 			cache_control: { type: 'ephemeral' }
 		})
+	})
+})
+
+describe('partialWebSearchQuery', () => {
+	it('extracts the query prefix from JSON cut mid-string', () => {
+		expect(partialWebSearchQuery('{"query": "latest stable Post')).toBe('latest stable Post')
+	})
+
+	it('decodes escapes and never includes a trailing half-escape', () => {
+		expect(partialWebSearchQuery('{"query": "say \\"hi\\" to')).toBe('say "hi" to')
+		// Cut right after the backslash: the escape pair is incomplete, so the
+		// extracted prefix must stop before it rather than corrupt the label.
+		expect(partialWebSearchQuery('{"query": "say \\')).toBe('say ')
+	})
+
+	it('returns undefined when no query string has started', () => {
+		expect(partialWebSearchQuery('{"que')).toBeUndefined()
+		expect(partialWebSearchQuery('{"query": ')).toBeUndefined()
 	})
 })

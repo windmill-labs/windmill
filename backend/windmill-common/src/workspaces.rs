@@ -9,7 +9,7 @@ use crate::{
     error::{self, to_anyhow, Error, Result},
     get_database_url,
     secret_backend::{get_secret_value, is_external_stored_value},
-    utils::get_custom_pg_instance_password,
+    utils::{get_custom_pg_instance_password, get_custom_pg_instance_replication_password},
     variables::{build_crypt, decrypt},
     PgDatabase, DB,
 };
@@ -70,6 +70,7 @@ bitflags::bitflags! {
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
+        const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
     }
 }
 
@@ -81,6 +82,7 @@ pub enum ProtectionRuleKind {
     DisableWorkspaceForking,
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
+    RestrictPublicRunSharing,
 }
 
 impl ProtectionRuleKind {
@@ -98,6 +100,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 ProtectionRules::RESTRICT_ANONYMOUS_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
+            }
         }
     }
 
@@ -112,6 +117,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 "Making an app publicly accessible without login (anonymous execution mode) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                "Sharing a run publicly (readable without login) is restricted in this workspace"
             }
         }
     }
@@ -167,7 +175,15 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28719/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28904/sync-script-to-git-repo-windmill";
+
+/// Hub script that applies a repository's state back into a workspace
+/// (the repo → Windmill / "pull" direction). Same script the UI runs from
+/// `PullWorkspaceModal` with `pull: true`. The hub resolves by numeric id and
+/// ignores the slug, so the slug is kept free of characters that would be
+/// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
+/// reverse proxies reject as double-encoding when the client re-encodes it).
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28903/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -188,6 +204,39 @@ pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
 /// because it is interpolated into a `wm-fork/<original_branch>/<id>` branch name like any fork.
 pub fn validate_dev_workspace_id(id: &str) -> error::Result<()> {
     validate_workspace_branch_id(id, false)
+}
+
+/// Split a fork git branch `wm-fork/<base_branch>/<suffix>` into `(base_branch, suffix)`.
+///
+/// Inverse of the CLI/hub-script `forkBranchName`. The suffix is a workspace id
+/// fragment and can't contain `/` (enforced by [`validate_fork_workspace_id`] /
+/// [`validate_dev_workspace_id`] at every fork/dev creation and attach path), while
+/// the base branch may (`release/v2`), so the split is on the last separator.
+/// Returns `None` for anything else.
+pub fn parse_fork_branch(branch: &str) -> Option<(&str, &str)> {
+    let rest = branch.strip_prefix("wm-fork/")?;
+    let idx = rest.rfind('/')?;
+    let (base, suffix) = (&rest[..idx], &rest[idx + 1..]);
+    if base.is_empty() || suffix.is_empty() {
+        return None;
+    }
+    Some((base, suffix))
+}
+
+/// Workspace ids that could own a fork branch with this suffix: a generated fork
+/// (`wm-fork-<suffix>`, whose branch strips the id prefix) or a dev workspace
+/// (prefix-less id used verbatim). Ordered generated-fork first so an ambiguous
+/// suffix resolves deterministically.
+pub fn fork_branch_workspace_id_candidates(suffix: &str) -> [String; 2] {
+    [format!("{WM_FORK_PREFIX}{suffix}"), suffix.to_string()]
+}
+
+/// Git branch a dev workspace syncs with: its environment label verbatim, as a
+/// first-class top-level branch (`dev`, `staging` — the classic env-branch
+/// layout), defaulting to `dev` when the label is unset. Throwaway forks use
+/// the namespaced `wm-fork/<base>/<suffix>` form instead.
+pub fn dev_workspace_branch(label: Option<&str>) -> String {
+    label.filter(|l| !l.is_empty()).unwrap_or("dev").to_string()
 }
 
 /// The `workspace.name` column is `character varying(50)`, so a name longer than 50 characters
@@ -244,12 +293,13 @@ fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::R
     if id.contains("@{") {
         return reject("cannot contain '@{'");
     }
-    if id.contains("//") {
-        return reject("cannot contain '//'");
-    }
     for ch in id.chars() {
         match ch {
-            ':' | '~' | '^' | '?' | '*' | '[' | '\\' | ' ' => {
+            // '/' is git-legal in a branch but banned here: the id becomes the last
+            // component of `wm-fork/<base_branch>/<id>` and `parse_fork_branch` splits
+            // that branch on the last '/' (the base branch itself may contain '/'),
+            // so a slash in the id would make the fork unroutable for auto-sync.
+            ':' | '~' | '^' | '?' | '*' | '[' | '\\' | ' ' | '/' => {
                 return reject(&format!("contains forbidden character '{}'", ch));
             }
             c if c.is_ascii_control() || c == '\u{7f}' => {
@@ -258,19 +308,17 @@ fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::R
             _ => {}
         }
     }
-    // Each slash-separated component cannot start with '.' or end with '.lock'.
-    for component in id.split('/') {
-        if component.starts_with('.') {
-            return reject("a path component cannot start with '.'");
-        }
-        if component.ends_with(".lock") {
-            return reject("a path component cannot end with '.lock'");
-        }
+    if id.starts_with('.') {
+        return reject("cannot start with '.'");
     }
     Ok(())
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitRepositorySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_types_override: Option<Vec<ObjectType>>,
@@ -283,6 +331,27 @@ pub struct GitRepositorySettings {
     pub group_by_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
+    /// Configuration for automatically pulling changes from the git repository
+    /// back into the workspace (repo → Windmill direction). Absent means the
+    /// reverse direction is not automated (the historical behaviour).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_pull: Option<AutoPullSettings>,
+    /// Open a PR when a deploy pushes a `wm_deploy/**` branch of this promotion
+    /// repo (app-backed only; runs from the deploy callback so it works without
+    /// inbound webhooks). Off by default so upgrades don't change behavior.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub promotion_open_prs: bool,
+    /// Parent-level: open a PR when a fork of this workspace deploys to its
+    /// `wm-fork/**` branch (app-backed only; the fork's deploy callback reads
+    /// this from the parent). Off by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fork_open_prs: bool,
+    /// Server-owned: the last failure opening a PR for a deploy branch of this
+    /// repo (e.g. the GitHub App installation hasn't approved the pull-request
+    /// permission). Written by the deploy completion hook, cleared on the next
+    /// successful PR; never accepted from clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_pr_error: Option<String>,
 }
 
 impl GitRepositorySettings {
@@ -314,7 +383,140 @@ impl GitRepositorySettings {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+/// How auto-pull triggers are delivered for a repository.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoPullMode {
+    /// Try to create a repo webhook; fall back to polling if the instance is not
+    /// reachable from GitHub or the app lacks the webhook permission.
+    #[default]
+    Auto,
+    /// Webhook delivery only (no polling fallback).
+    Webhook,
+    /// Polling only (`git ls-remote` on an interval).
+    Polling,
+}
+
+/// Outcome of the most recent auto-pull attempt, surfaced in the UI.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AutoPullStatus {
+    /// Commit sha the workspace was last synced to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synced_sha: Option<String>,
+    /// Unix timestamp (seconds) of the attempt.
+    pub at: i64,
+    /// Job id of the pull run, if one was enqueued.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<uuid::Uuid>,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Per-repository configuration for automatic repo → Windmill pull sync.
+///
+/// Stored inside `GitRepositorySettings` (workspace_settings.git_sync JSONB).
+/// Webhook fields are populated in phase 2; phase 1 exercises the polling path
+/// only, but the full shape is defined up front to avoid a second schema change.
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct AutoPullSettings {
+    /// Default so a server-written status-only blob (fork workspaces, which never
+    /// enable auto-pull themselves) parses even without the field.
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub mode: AutoPullMode,
+    /// Polling interval in seconds. Defaults to `DEFAULT_AUTO_PULL_POLL_INTERVAL_S`
+    /// when polling without an active webhook, relaxed once a webhook is live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll_interval_s: Option<u32>,
+    /// Parent-level: also pull each live fork of this workspace from its own
+    /// `wm-fork/<branch>/<id>` branch when that branch moves (webhook or poll),
+    /// the managed equivalent of the `push-on-merge-to-forks` GitHub Action.
+    /// Configured once on the parent; forks never enable auto-pull themselves.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sync_forks: bool,
+    /// GitHub repository webhook id (managed-app, phase 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_id: Option<i64>,
+    /// HMAC secret for the repo webhook, encrypted at rest (managed-app, phase 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_secret: Option<String>,
+    /// Receiver URL the live webhook was registered with. Compared against the
+    /// currently configured one to re-register the hook when the instance's
+    /// webhook base URL changes.
+    ///
+    /// `None` on hooks predating this field: the reconcile then asks GitHub where
+    /// that hook actually points and backfills this when it matches, replaces it
+    /// when it doesn't, and registers a fresh hook when GitHub reports it gone. Only
+    /// a failed lookup leaves the hook untouched, to be retried later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
+    /// Why the repo has no active webhook while one was requested (auto/webhook
+    /// mode): instance base URL unset, app missing the webhook permission, etc.
+    /// Surfaced in the UI as a "falling back to polling" warning; `None` when the
+    /// webhook is live or the repo is polling-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_error: Option<String>,
+    /// Last synced commit sha per tracked git ref (e.g. `refs/heads/main`).
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub last_synced_sha: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_pull_status: Option<AutoPullStatus>,
+}
+
+// Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
+impl std::fmt::Debug for AutoPullSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AutoPullSettings")
+            .field("enabled", &self.enabled)
+            .field("mode", &self.mode)
+            .field("poll_interval_s", &self.poll_interval_s)
+            .field("sync_forks", &self.sync_forks)
+            .field("webhook_id", &self.webhook_id)
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .field("webhook_url", &self.webhook_url)
+            .field("webhook_error", &self.webhook_error)
+            .field("last_synced_sha", &self.last_synced_sha)
+            .field("last_pull_status", &self.last_pull_status)
+            .finish()
+    }
+}
+
+/// Default polling interval when a webhook is not active.
+pub const DEFAULT_AUTO_PULL_POLL_INTERVAL_S: u32 = 60;
+
+/// Relaxed polling interval used as a safety net while a webhook is active.
+pub const WEBHOOK_AUTO_PULL_POLL_INTERVAL_S: u32 = 600;
+
+impl AutoPullSettings {
+    /// Effective polling interval in seconds, honouring the explicit override and
+    /// relaxing to `WEBHOOK_AUTO_PULL_POLL_INTERVAL_S` when a webhook is live.
+    pub fn effective_poll_interval_s(&self) -> u32 {
+        self.poll_interval_s.unwrap_or_else(|| {
+            if self.webhook_id.is_some() {
+                WEBHOOK_AUTO_PULL_POLL_INTERVAL_S
+            } else {
+                DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+            }
+        })
+    }
+
+    /// Whether a freshly observed `(git_ref, head_sha)` warrants enqueuing a pull.
+    ///
+    /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
+    /// enabled and the observed head differs from the last sha we synced for
+    /// that ref. Re-observing the same head (e.g. a redundant poll, or the
+    /// commit our own deploy callback just pushed back) is a no-op.
+    pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
+        self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitSyncSettings {
     pub include_path: Vec<String>,
     pub include_type: Vec<ObjectType>,
@@ -470,6 +672,35 @@ pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
     .await
     .map_err(|e| Error::internal_err(format!("computing fork subtree height for {w_id}: {e:#}")))?;
     Ok(height)
+}
+
+/// Parent id of `w_id` when `email` is the creator of that fork, `None` otherwise (including for a
+/// root workspace, which has no creator in this sense).
+///
+/// The creator is recorded as `workspace.owner`, but the `usr` row they get in the fork is copied
+/// from the parent — so a forker who is not an admin of the parent is not an admin of the fork they
+/// just created either, and cannot bring anyone in to work on it. Being the creator therefore grants
+/// a narrow membership right over the fork; the callers own the exact bounds of that grant (see
+/// `add_user` in `windmill-api-workspaces`).
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code). Takes any executor so that a
+/// caller can run it inside the transaction whose writes the grant authorizes.
+pub async fn fork_owned_by<'e, E: sqlx::Executor<'e, Database = sqlx::Postgres>>(
+    db: E,
+    w_id: &str,
+    email: &str,
+) -> Result<Option<String>> {
+    let parent = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace
+         WHERE id = $1 AND owner = $2 AND parent_workspace_id IS NOT NULL AND NOT deleted",
+        w_id,
+        email
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking fork ownership of {w_id}: {e:#}")))?;
+    Ok(parent.flatten())
 }
 
 /// Ids of every fork/dev workspace anywhere under `w_id` (excludes `w_id` itself), including live
@@ -833,6 +1064,32 @@ pub async fn get_datatable_resource_from_db_unchecked(
     w_id: &str,
     name: &str,
 ) -> Result<serde_json::Value> {
+    get_datatable_resource_inner(db, w_id, name, false).await
+}
+
+/// Same as [`get_datatable_resource_from_db_unchecked`] but for postgres trigger
+/// connections: custom-instance datatables resolve to
+/// `custom_instance_replication_user` rather than `custom_instance_user`. BYO-postgres
+/// datatables resolve to the user's own resource unchanged; configuring it for
+/// replication there is the user's responsibility.
+///
+/// Authorization: like its `_unchecked` sibling, returns resolved connection
+/// credentials and performs no authorization — callers MUST have already authorized
+/// access to the datatable (e.g. the trigger's own create-time check).
+pub async fn get_datatable_replication_resource_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<serde_json::Value> {
+    get_datatable_resource_inner(db, w_id, name, true).await
+}
+
+async fn get_datatable_resource_inner(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    replication: bool,
+) -> Result<serde_json::Value> {
     let datatables = sqlx::query_scalar!(
         r#"
             SELECT ws.datatable->'datatables' AS datatables
@@ -856,8 +1113,13 @@ pub async fn get_datatable_resource_from_db_unchecked(
     {
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = datatable.database.resource_path.clone();
-        pg_creds.user = Some("custom_instance_user".to_string());
-        pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+        if replication {
+            pg_creds.user = Some("custom_instance_replication_user".to_string());
+            pg_creds.password = Some(get_custom_pg_instance_replication_password(&db).await?);
+        } else {
+            pg_creds.user = Some("custom_instance_user".to_string());
+            pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+        }
         serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
     } else {
@@ -1211,6 +1473,110 @@ pub async fn fork_ancestor_chain(db: &crate::DB, w_id: &str) -> Result<Vec<Strin
     Ok(chain)
 }
 
+/// `w_id` followed by its fork ancestors, nearest-first: the id sequence to match a
+/// workspace-scoped rule against when the rule can extend to a fork subtree.
+///
+/// Reads lineage for any `w_id` with no authorization check, like [`fork_ancestor_chain`], so the
+/// caller must already be authorized for `w_id`: routes that take it from the path get that from
+/// `ApiAuthed`, but a caller-supplied id must be membership-checked first. Otherwise even using
+/// the chain only for a scoping decision discloses whether an arbitrary workspace descends from
+/// one the rule names.
+pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let mut chain = Vec::with_capacity(4);
+    chain.push(w_id.to_string());
+    chain.extend(fork_ancestor_chain(db, w_id).await?);
+    Ok(chain)
+}
+
+/// Resolve which live descendant workspace (and its inherited repo entry) a git
+/// branch pushed to `parent_repo_path` — a git-sync repo on `parent_w_id`
+/// tracking `expected_base` — deploys to via parent-managed fork sync, or `None`
+/// if it routes to no fork. Shared by the auto-pull reconciler and deploy-mode
+/// detection so both agree on fork/dev routing.
+///
+/// Reads lineage/settings for arbitrary ids with no authz check (like
+/// [`fork_ancestor_chain`]); the caller must already be authorized for the
+/// workspace whose deploy path it is resolving.
+pub async fn resolve_fork_branch_target(
+    db: &DB,
+    parent_w_id: &str,
+    parent_repo_path: &str,
+    branch: &str,
+    expected_base: &str,
+) -> Result<Option<(String, GitRepositorySettings)>> {
+    // Only a live descendant of parent_w_id may receive the pull — a crafted
+    // branch name must not route into an unrelated workspace. Descendants (not
+    // just direct children) because a fork of a dev workspace also syncs through
+    // the root's webhook/poller: only the root can hold auto-pull config.
+    let fork_id: Option<String> = if let Some((base, suffix)) = parse_fork_branch(branch) {
+        // Throwaway-fork form derives from the tracked branch
+        // (`wm-fork/<tracked>/<id>`); a different base is not this repo's.
+        if base != expected_base {
+            return Ok(None);
+        }
+        let [generated_id, dev_id] = fork_branch_workspace_id_candidates(suffix);
+        sqlx::query_scalar!(
+            r#"WITH RECURSIVE descendants AS (
+                   SELECT id, 0 AS depth FROM workspace
+                   WHERE parent_workspace_id = $1 AND NOT deleted
+                   UNION ALL
+                   SELECT w.id, d.depth + 1 FROM workspace w
+                   JOIN descendants d ON w.parent_workspace_id = d.id
+                   WHERE NOT w.deleted AND d.depth < 10
+               )
+               SELECT id as "id!" FROM descendants WHERE (id = $2 OR id = $3)
+               ORDER BY (id = $2) DESC LIMIT 1"#,
+            parent_w_id,
+            generated_id,
+            dev_id,
+        )
+        .fetch_optional(db)
+        .await?
+    } else if branch != expected_base {
+        // Environment-label branch (`dev`, `staging`, ...) of a dev-workspace child.
+        // Direct children only: a dev nested under another dev is parent-managed
+        // by that dev, which holds no auto-pull config of its own, so no branch
+        // pushed to this repo routes to it. The tracked-branch guard keeps a
+        // label that collides with the tracked branch from double-routing (the
+        // parent's own pull already covers it).
+        sqlx::query_scalar!(
+            "SELECT id FROM workspace \
+             WHERE parent_workspace_id = $1 AND NOT deleted AND is_dev_workspace \
+               AND COALESCE(dev_workspace_label, 'dev') = $2",
+            parent_w_id,
+            branch,
+        )
+        .fetch_optional(db)
+        .await?
+    } else {
+        return Ok(None);
+    };
+    let Some(fork_id) = fork_id else {
+        return Ok(None);
+    };
+
+    // The fork inherited the repo entry at fork time; use its own copy.
+    let fork_repo = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &fork_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok())
+    .and_then(|s| {
+        s.repositories
+            .into_iter()
+            .find(|r| r.git_repo_resource_path == parent_repo_path)
+    });
+    if fork_repo.is_none() {
+        tracing::warn!(
+            "git fork sync: fork {fork_id} has no git-sync repo {parent_repo_path}, not routing {branch}"
+        );
+    }
+    Ok(fork_repo.map(|r| (fork_id, r)))
+}
+
 pub async fn get_ducklake_from_db_unchecked(
     name: &str,
     w_id: &str,
@@ -1521,7 +1887,7 @@ async fn inspect_fork_catalog(
     );
     let table_rows = client.query(&qt, &[]).await;
     drop(client);
-    let _ = join_handle.await;
+    let _ = crate::shutdown_pg_connection(join_handle).await;
 
     existing_schemas.extend(
         same_catalog_res
@@ -1575,7 +1941,7 @@ async fn inspect_fork_catalog(
             let join_handle = tokio::spawn(async move { connection.await });
             let res = query_schemas(&client, schemas).await;
             drop(client);
-            let _ = join_handle.await;
+            let _ = crate::shutdown_pg_connection(join_handle).await;
             res.map_err(|e| Error::internal_err(format!("{e}")))
         }
         .await;
@@ -1784,6 +2150,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_fork_branch() {
+        // Generated fork (`wm-fork-abc`) and dev workspace (`staging`) forms.
+        assert_eq!(parse_fork_branch("wm-fork/main/abc"), Some(("main", "abc")));
+        assert_eq!(
+            parse_fork_branch("wm-fork/main/staging"),
+            Some(("main", "staging"))
+        );
+        // Base branch may itself contain slashes; the suffix never does.
+        assert_eq!(
+            parse_fork_branch("wm-fork/release/v2/abc"),
+            Some(("release/v2", "abc"))
+        );
+        assert_eq!(parse_fork_branch("main"), None);
+        assert_eq!(parse_fork_branch("wm-fork/main"), None);
+        assert_eq!(parse_fork_branch("wm-fork/main/"), None);
+        assert_eq!(parse_fork_branch("wm-fork//abc"), None);
+        assert_eq!(parse_fork_branch("wm_deploy/main/abc"), None);
+    }
+
+    #[test]
+    fn test_fork_branch_workspace_id_candidates_prefers_generated_fork() {
+        let [first, second] = fork_branch_workspace_id_candidates("abc");
+        assert_eq!(first, "wm-fork-abc");
+        assert_eq!(second, "abc");
+    }
+
+    #[test]
     fn test_validate_fork_workspace_id_accepts_valid() {
         validate_fork_workspace_id("wm-fork-test-allow").unwrap();
         validate_fork_workspace_id("wm-fork-my_workspace.42").unwrap();
@@ -1808,6 +2201,9 @@ mod tests {
             "wm-fork-test[allow",
             "wm-fork-test\\allow",
             "wm-fork-test\nallow",
+            // '/' is git-legal but banned: it would break the parse_fork_branch
+            // last-'/' split that routes auto-pull into the fork workspace.
+            "wm-fork-test/allow",
         ] {
             assert!(
                 validate_fork_workspace_id(bad).is_err(),
@@ -1856,6 +2252,60 @@ mod tests {
     fn test_validate_fork_workspace_id_rejects_too_long() {
         let long_id = format!("wm-fork-{}", "a".repeat(43));
         assert!(validate_fork_workspace_id(&long_id).is_err());
+    }
+
+    fn auto_pull(enabled: bool, synced: &[(&str, &str)]) -> AutoPullSettings {
+        AutoPullSettings {
+            enabled,
+            mode: AutoPullMode::Auto,
+            poll_interval_s: None,
+            sync_forks: false,
+            webhook_id: None,
+            webhook_secret: None,
+            webhook_url: None,
+            webhook_error: None,
+            last_synced_sha: synced
+                .iter()
+                .map(|(r, s)| (r.to_string(), s.to_string()))
+                .collect(),
+            last_pull_status: None,
+        }
+    }
+
+    #[test]
+    fn test_should_pull_on_new_or_changed_sha() {
+        let s = auto_pull(true, &[("refs/heads/main", "aaa")]);
+        // unchanged head → no pull
+        assert!(!s.should_pull("refs/heads/main", "aaa"));
+        // moved head → pull
+        assert!(s.should_pull("refs/heads/main", "bbb"));
+        // never-seen ref → pull
+        assert!(s.should_pull("refs/heads/dev", "ccc"));
+    }
+
+    #[test]
+    fn test_should_pull_respects_enabled_flag() {
+        let s = auto_pull(false, &[]);
+        assert!(!s.should_pull("refs/heads/main", "bbb"));
+    }
+
+    #[test]
+    fn test_effective_poll_interval() {
+        let mut s = auto_pull(true, &[]);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+        );
+        // explicit override wins
+        s.poll_interval_s = Some(15);
+        assert_eq!(s.effective_poll_interval_s(), 15);
+        // with a live webhook and no override, relax to the webhook interval
+        s.poll_interval_s = None;
+        s.webhook_id = Some(42);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            WEBHOOK_AUTO_PULL_POLL_INTERVAL_S
+        );
     }
 
     #[test]
@@ -1931,10 +2381,12 @@ mod tests {
 
     #[test]
     fn test_fork_data_path_prefix_isolation() {
-        // Fork/dev ids are git-branch-safe and may contain `/`: `wm-fork-a/b` is a valid id.
-        // Its data prefix must NOT nest inside `wm-fork-a`'s, or deleting `wm-fork-a` would
-        // sweep the sibling's files via the object-store prefix listing.
-        assert!(validate_fork_workspace_id("wm-fork-a/b").is_ok());
+        // New fork/dev ids can't contain `/` (it would break the parse_fork_branch
+        // last-'/' split), but ids created before that ban may still exist, so the
+        // data-path mangling must keep handling them: `wm-fork-a/b`'s prefix must
+        // NOT nest inside `wm-fork-a`'s, or deleting `wm-fork-a` would sweep the
+        // sibling's files via the object-store prefix listing.
+        assert!(validate_fork_workspace_id("wm-fork-a/b").is_err());
         let a = fork_data_path("lake", "wm-fork-a");
         let ab = fork_data_path("lake", "wm-fork-a/b");
         assert!(
@@ -2035,4 +2487,144 @@ mod tests {
         assert!(msg.contains("staging"), "{msg}");
         assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
     }
+
+    #[test]
+    fn test_dbt_warehouse_name_length_bound() {
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN)).is_ok());
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN + 1)).is_err());
+    }
+}
+
+/// Whether a workspace configures this warehouse, without resolving it.
+///
+/// For the one caller that needs the NAME and nothing else: a project bringing
+/// its own `profiles.yml` names a warehouse to say where its assets belong, and
+/// decrypting a connection it will never open to answer that would be waste.
+///
+/// NO AUTHORIZATION, like the resolver it delegates to: it reads workspace
+/// settings for whatever `w_id` it is given, so callers MUST already be scoped
+/// to that workspace.
+pub async fn dbt_warehouse_exists(db: &DB, w_id: &str, warehouse: &str) -> Result<()> {
+    dbt_warehouse_resource(db, w_id, warehouse)
+        .await
+        .map(|_| ())
+}
+
+/// The longest warehouse name a workspace may configure.
+///
+/// It is the first segment of every `dbt://<warehouse>/<schema>/<name>` key, and
+/// those land in `asset.path`, a VARCHAR(255). A name near that width would push
+/// ordinary relations past the column, and the ingest's own bound would then
+/// skip them — a graph quietly missing models. 64 leaves room for two 63-char
+/// identifiers, which is Postgres's own limit; warehouses that allow longer ones
+/// still rely on that ingest bound as the backstop.
+pub const MAX_DBT_WAREHOUSE_NAME_LEN: usize = 64;
+
+/// A warehouse name is a URL path segment for a worker with no database, so a
+/// name that could re-cut the path (or the query) is refused — at every place a
+/// name enters, not only where one is written, since a descriptor names one too.
+pub fn validate_dbt_warehouse_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is not a usable dbt warehouse name: use letters, digits, `_` and `-`"
+        )));
+    }
+    if name.chars().count() > MAX_DBT_WAREHOUSE_NAME_LEN {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is too long for a dbt warehouse name (max {MAX_DBT_WAREHOUSE_NAME_LEN}): it \
+             prefixes every asset path this warehouse's models are keyed on"
+        )));
+    }
+    Ok(())
+}
+
+/// A dbt warehouse's resolved connection: the value a `profiles.yml` is rendered
+/// from, and the target the workspace names for it.
+///
+/// Carries CREDENTIALS. dbt is unpermissioned by design (docs/dbt-runtime.md,
+/// Decision 24), so this is served to a running job rather than gated on the
+/// runner's access to the resource — but it must never reach a route a user can
+/// browse.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DbtWarehouseConnection {
+    pub value: serde_json::Value,
+    /// Omitted rather than null when absent, so the wire shape matches the
+    /// schema generated clients validate against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// What the value IS, which its shape cannot say: a `dbt_profile`'s value is a
+    /// `profiles.yml` output block and every other type's is a connection to translate,
+    /// and both are objects carrying a `type`. Defaulted so a worker still resolves
+    /// against a server predating the field — which serves no `dbt_profile` anyway.
+    #[serde(default)]
+    pub resource_type: String,
+}
+
+/// The resource type whose value is a `profiles.yml` output block, taken as it
+/// is rather than translated.
+pub const DBT_PROFILE_RESOURCE_TYPE: &str = "dbt_profile";
+
+/// The warehouse a dbt project runs against, by name — `main` when the
+/// descriptor names none.
+///
+/// NO AUTHORIZATION: reads workspace settings for whatever `w_id` it is given.
+/// Callers MUST already be scoped to that workspace — a running job, or a route
+/// that checked its token. What it returns is a POINTER; resolving it is a
+/// separate step, and dbt warehouses are unpermissioned there (Decision 24), so
+/// the pointer is not the last line of defence. A descriptor cannot name a
+/// resource at all, which is what makes the workspace the only place a
+/// warehouse is configured — and
+/// what lets asset identity key on the NAME (`dbt://main/analytics/orders`),
+/// one spelling every project on that warehouse shares.
+pub async fn dbt_warehouse_resource(
+    db: &DB,
+    w_id: &str,
+    warehouse: &str,
+) -> Result<(String, Option<String>)> {
+    let cfg = sqlx::query_scalar!(
+        "SELECT dbt_warehouses FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(serde_json::Value::Null);
+    let entry = cfg.get(warehouse).cloned().ok_or_else(|| {
+        let configured = cfg
+            .as_object()
+            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        Error::NotFound(if configured.is_empty() {
+            format!(
+                "no dbt warehouse is configured for this workspace — an admin adds one under \
+                 Settings → dbt, and a project reaches it by name (`{warehouse}` here)"
+            )
+        } else {
+            format!(
+                "dbt warehouse `{warehouse}` is not configured for this workspace (configured: \
+                 {})",
+                configured.join(", ")
+            )
+        })
+    })?;
+    let path = entry
+        .get("resource_path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "dbt warehouse `{warehouse}` names no resource_path"
+            ))
+        })?;
+    // Stored with or without the prefix, like the storage configs; the caller
+    // resolves a bare path.
+    let path = path.strip_prefix("$res:").unwrap_or(path).to_string();
+    let target = entry
+        .get("target")
+        .and_then(|t| t.as_str())
+        .map(|t| t.to_string());
+    Ok((path, target))
 }

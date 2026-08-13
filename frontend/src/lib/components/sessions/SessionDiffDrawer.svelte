@@ -74,8 +74,8 @@
 			(chatId ? `&from_session=${encodeURIComponent(chatId)}` : '')
 	)
 
-	export function open() {
-		inner?.open()
+	export function open(focusKey?: string) {
+		inner?.open(focusKey)
 	}
 </script>
 

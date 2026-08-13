@@ -134,7 +134,8 @@
                 "java",
                 "duckdb",
                 "ruby",
-                "rlang"
+                "rlang",
+                "dbt"
               ]
             }
           }
@@ -192,7 +193,8 @@
                 "github",
                 "azure",
                 "asset",
-                "freshness"
+                "freshness",
+                "amqp"
               ]
             }
           }

@@ -74,16 +74,17 @@ value:
 - `flow_input.property` - Access flow input parameters
 - `results.step_id` - Access output from a previous step only when that step result is in scope
 - `results.step_id.property` - Access specific property from a previous step output only when that step result is in scope
-- `flow_input.iter.value` - Current iteration value when inside a loop (`forloopflow` or `whileloopflow`)
+- `flow_input.iter.value` - Current iteration value inside a `forloopflow`; in a `whileloopflow` it is just the iteration index (a plain number, same as `flow_input.iter.index`)
 - `flow_input.iter.index` - Current loop index when inside a loop (`forloopflow` or `whileloopflow`)
 
 ## Loop Structure Rules
 
-- For `whileloopflow`, use module-level `stop_after_if` on the loop module itself when the loop should stop after an iteration result
-- Do NOT put `stop_after_if` inside `value` of a `whileloopflow`
+- For `whileloopflow`, break the loop with a module-level `stop_after_if`: on the loop module itself, or on an inner step (required when that step carries state via its own `results` — see below)
+- `stop_after_if` is always a sibling of `id` and `value` on a flow module — never a direct key of the loop's `value` object
 - `stop_after_all_iters_if` is for checks after the whole loop finishes, not the normal per-iteration break condition
-- When a `whileloopflow` carries state forward between iterations, use `flow_input.iter.value` as the current loop value and provide an explicit first-iteration fallback when needed
-- Use `flow_input.iter.index` only when the loop logic is truly based on the iteration index, not as a replacement for the current loop value
+- `flow_input.iter.value` in a `whileloopflow` is just the iteration index (same number as `flow_input.iter.index`) — it never carries state, so `flow_input.iter.value.<field>` is always undefined and a loop whose stop condition depends on it never terminates
+- To carry state across iterations, a step reads its own previous-iteration result via `results.<its_own_id>` with a first-iteration fallback (e.g. `results.b ?? flow_input.start`) — but then the loop's `stop_after_if` MUST sit on that inner step, not on the loop module: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where `results.<step_id>` is null on every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own `stop_after_if`, retry or similar, resolve `results` across iterations regardless of stop placement)
+- For state that is just a counter, derive it from the index instead (e.g. `flow_input.iter.index + 1`) — that works in every configuration, including with `stop_after_if` on the loop module
 - If the user asks for a final scalar/object after a loop, add a normal step after the loop that extracts the final value from the loop result instead of returning the whole loop result array
 
 Correct `whileloopflow` shape:
@@ -101,9 +102,9 @@ Correct `whileloopflow` shape:
         value:
           type: rawscript
           input_transforms:
-            state:
+            count:
               type: javascript
-              expr: flow_input.iter && flow_input.iter.value !== undefined ? flow_input.iter.value : flow_input.initial_state
+              expr: flow_input.iter.index + 1
 - id: return_final_state
   value:
     type: rawscript
@@ -111,6 +112,26 @@ Correct `whileloopflow` shape:
       final_state:
         type: javascript
         expr: results.loop_until_done[results.loop_until_done.length - 1]
+```
+
+Correct `whileloopflow` shape carrying state via `results` (stop condition on the inner step):
+
+```yaml
+- id: loop_until_done
+  value:
+    type: whileloopflow
+    skip_failures: false
+    modules:
+      - id: advance_state
+        stop_after_if:
+          expr: result.done === true
+          skip_if_stopped: false
+        value:
+          type: rawscript
+          input_transforms:
+            state:
+              type: javascript
+              expr: results.advance_state ?? flow_input.initial_state
 ```
 
 Incorrect `whileloopflow` patterns:
@@ -127,7 +148,8 @@ Incorrect `whileloopflow` patterns:
 input_transforms:
   state:
     type: javascript
-    expr: flow_input.iter.index
+    # iter.value is a number (the iteration index); there is no previous-iteration state
+    expr: flow_input.iter.value.count
 ```
 
 ```yaml

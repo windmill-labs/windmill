@@ -57,6 +57,12 @@ pub(crate) async fn change_workspace_id(
 
     let mut tx = db.begin().await?;
 
+    // A rename rewrites the workspace's dev flag and reparents its children, so it decides on the
+    // same state the pairing handlers do: without this lock a concurrent create/attach could commit
+    // an active dev workspace under the shell this rename is about to archive. Both ids, since the
+    // rename moves the chain from one to the other.
+    crate::workspaces::lock_dev_pairing(&mut tx, &[&old_id, &rw.new_id]).await?;
+
     check_w_id_conflict(&mut tx, &rw.new_id).await?;
 
     info!(
@@ -108,12 +114,61 @@ pub(crate) async fn change_workspace_id(
     // Duplicate workspace settings (keep copy in old workspace for reference)
     info!("Duplicating workspace_settings table");
     sqlx::query!(
-        "INSERT INTO workspace_settings SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, deploy_to, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, ducklake, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler FROM workspace_settings WHERE workspace_id = $2",
+        "INSERT INTO workspace_settings (workspace_id, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts) SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts FROM workspace_settings WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
     .execute(&mut *tx)
     .await?;
+
+    // The managed git-sync webhooks deliver to /api/w/{old_id}/... — a URL the
+    // renamed workspace no longer answers on (the old id is archived and the
+    // receiver skips it). Strip the webhook fields from the new row so polling
+    // resumes at the normal interval and the next settings save re-registers a
+    // hook with the new URL; the stale hooks are deleted after commit.
+    #[allow(unused_mut)]
+    let mut stale_webhooks: Vec<(String, i64)> = Vec::new();
+    if let Some(git_sync) = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &rw.new_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    {
+        if let Ok(mut settings) = serde_json::from_value::<
+            windmill_common::workspaces::WorkspaceGitSyncSettings,
+        >(git_sync)
+        {
+            let mut changed = false;
+            for r in settings.repositories.iter_mut() {
+                if let Some(ap) = r.auto_pull.as_mut() {
+                    if let Some(hook) = ap.webhook_id {
+                        stale_webhooks.push((r.git_repo_resource_path.clone(), hook));
+                    }
+                    changed |= ap.webhook_id.is_some()
+                        || ap.webhook_secret.is_some()
+                        || ap.webhook_url.is_some()
+                        || ap.webhook_error.is_some();
+                    ap.webhook_id = None;
+                    ap.webhook_secret = None;
+                    ap.webhook_url = None;
+                    ap.webhook_error = None;
+                }
+            }
+            if changed {
+                let serialized = serde_json::to_value(&settings)
+                    .map_err(|e| Error::internal_err(e.to_string()))?;
+                sqlx::query!(
+                    "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+                    serialized,
+                    &rw.new_id
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
 
     info!("Duplicating workspace_key table");
     sqlx::query!(
@@ -232,6 +287,15 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating amqp_trigger table");
+    sqlx::query!(
+        "UPDATE amqp_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating gcp_trigger table");
     sqlx::query!(
         "UPDATE gcp_trigger SET workspace_id = $1 WHERE workspace_id = $2",
@@ -326,8 +390,8 @@ pub(crate) async fn change_workspace_id(
     info!("Duplicating flow table rows");
     sqlx::query!(
         "INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs)
-        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs)
+        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs
             FROM flow WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -378,6 +442,22 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating workspace_diff_full_scan table");
+    sqlx::query!(
+        "UPDATE workspace_diff_full_scan SET source_workspace_id = $1 WHERE source_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE workspace_diff_full_scan SET fork_workspace_id = $1 WHERE fork_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating workspace_fork_deployment_request table");
     sqlx::query!(
         "UPDATE workspace_fork_deployment_request SET source_workspace_id = $1 WHERE source_workspace_id = $2",
@@ -404,16 +484,6 @@ pub(crate) async fn change_workspace_id(
         &old_id
     )
     .fetch_all(&mut *tx)
-    .await?;
-
-    // A dev/fork's `deploy_to` points at the prod root, so it must follow the rename too — otherwise
-    // the child re-parents to the new id but still deploys to the soft-deleted old shell.
-    sqlx::query!(
-        "UPDATE workspace_settings SET deploy_to = $1 WHERE deploy_to = $2",
-        &rw.new_id,
-        &old_id
-    )
-    .execute(&mut *tx)
     .await?;
 
     info!("Updating workspace_protection_rule table");
@@ -679,6 +749,30 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    // The dbt graph tables key on (workspace_id, script_hash) and follow the
+    // script update by cascade. These two key on the JOB, so they follow the
+    // jobs that moved — only queued ones do — the way `job_perms` just did.
+    // Moving them wholesale would strand a completed run's retry state in a
+    // workspace its job is not in, which reads as "no resumable run".
+    info!("Updating dbt run state tables for migrated jobs");
+    sqlx::query!(
+        "UPDATE dbt_run_state SET workspace_id = $1
+         WHERE workspace_id = $2 AND job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1)",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE dbt_run_progress SET workspace_id = $1
+         WHERE workspace_id = $2 AND job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1)",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating token table");
     sqlx::query!(
         "UPDATE token SET workspace_id = $1 WHERE workspace_id = $2",
@@ -744,21 +838,45 @@ pub(crate) async fn change_workspace_id(
 
     tx.commit().await?;
 
+    // Best-effort: the hooks stripped above still exist on GitHub pointing at
+    // the old workspace URL; remove them (resources already live under the new id).
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    for (path, hook_id) in stale_webhooks {
+        if let Ok(url) =
+            windmill_common::git_sync_ee::resolve_repo_url_interpolated(&db, &rw.new_id, &path)
+                .await
+        {
+            let _ =
+                windmill_common::git_sync_ee::delete_repo_webhook(&db, &rw.new_id, &url, hook_id)
+                    .await;
+        }
+    }
+
+    // A rename changes which workspace each id denotes. Workspace ids are reclaimable, so the new
+    // id may still carry a previous occupant's cached resolution, and the old id now names an
+    // archived row. Drop both rather than reason about which cached answers are still true.
+    windmill_queue::tags::invalidate_fork_parent_cache(&rw.new_id);
+    windmill_queue::tags::invalidate_fork_parent_cache(&old_id);
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(&db).await {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
+    }
+
     // The children's parent_workspace_id changed (old root -> new root); invalidate their fork-parent
     // routing cache and their billing-workspace mapping so jobs route + meter under the renamed root
-    // rather than the old (archived) one, instead of waiting for the caches' TTLs. Deeper descendants
-    // (fork-of-fork) self-heal via the 60s billing-cache TTL.
+    // rather than the old (archived) one, instead of waiting for the caches' TTLs.
     for child in &reparented_children {
         windmill_queue::tags::invalidate_fork_parent_cache(child);
         windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(child);
         // Grandchildren's cached chains contain the old (renamed-away) ancestor id; a stale
-        // chain drops all defer ancestors in the ducklake resolver, so sweep the subtree
-        // rather than letting it wait out the TTL.
+        // chain drops all defer ancestors in the ducklake resolver, and tag resolution walks to
+        // the nearest servable ancestor, so a nested fork would be tagged for the old root and
+        // nothing would serve it. Sweep the subtree rather than letting it wait out the TTL.
         for id in windmill_common::workspaces::list_fork_descendants(&db, child)
             .await
             .unwrap_or_default()
         {
             windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+            windmill_queue::tags::invalidate_fork_parent_cache(&id);
         }
         #[cfg(feature = "cloud")]
         windmill_common::workspaces::invalidate_billing_workspace_cache(child);
@@ -890,6 +1008,7 @@ pub(crate) async fn delete_workspace(
     sqlx::query!(
         "WITH ids AS (SELECT id FROM v2_job WHERE workspace_id = $1),
               _de AS (DELETE FROM dispatch_event WHERE workspace_id = $1),
+              _jr AS (DELETE FROM job_resolution WHERE workspace_id = $1),
               _fc AS (DELETE FROM flow_conversation_message WHERE job_id IN (SELECT id FROM ids))
          DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM ids)",
         &w_id
@@ -1019,13 +1138,20 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
-    // workspace_diff and skip_workspace_diff_tally are keyed by workspace id with no
-    // FK cascade. A fork id is reused when a fork is deleted and recreated under the
-    // same name, so leaving these rows behind leaks the previous fork's cached diff
-    // verdicts onto the new fork — causing a spurious "changes not visible" warning
-    // that hides the deploy button.
+    // workspace_diff, workspace_diff_full_scan and skip_workspace_diff_tally are keyed
+    // by workspace id with no FK cascade. A fork id is reused when a fork is deleted
+    // and recreated under the same name, so leaving these rows behind leaks the
+    // previous fork's cached diff verdicts onto the new fork — causing a spurious
+    // "changes not visible" warning that hides the deploy button.
     sqlx::query!(
         "DELETE FROM workspace_diff WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM workspace_diff_full_scan WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
         &w_id
     )
     .execute(&mut *tx)
@@ -1122,18 +1248,32 @@ pub(crate) async fn delete_workspace(
             windmill_common::workspaces::invalidate_team_plan_cache(id);
         }
     }
-    // Deeper descendants' cached ancestor CHAINS still contain the deleted workspace; unlike
-    // the sibling caches (which self-heal harmlessly via TTL), a stale chain makes the
-    // ducklake resolver drop all defer ancestors (all-or-nothing on broken links) — a visible
-    // defer/chips outage for up to the TTL. Anchor at the orphaned children: the deleted row
-    // is gone, but their subtrees are intact.
+    // Deeper descendants' cached ancestor CHAINS still contain the deleted workspace: a stale
+    // chain makes the ducklake resolver drop all defer ancestors (all-or-nothing on broken
+    // links), and tag resolution walks to the nearest servable ancestor, so a nested fork would
+    // keep a tag naming the deleted workspace that nothing serves. Anchor at the orphaned
+    // children: the deleted row is gone, but their subtrees are intact.
     for child in orphaned_children.iter() {
+        windmill_queue::tags::invalidate_fork_parent_cache(child);
         for id in windmill_common::workspaces::list_fork_descendants(&db, child)
             .await
             .unwrap_or_default()
         {
             windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+            windmill_queue::tags::invalidate_fork_parent_cache(&id);
         }
+    }
+    // The id is reclaimable, so its cached mapping must not outlive it anywhere: it can be claimed
+    // again under a different parent well inside the TTL. That is a one-entry drop, cheap enough for
+    // the ephemeral fork churn this endpoint sees. Orphaning descendants reshapes the tree instead,
+    // which no single id identifies.
+    let broadcast = if orphaned_children.is_empty() {
+        windmill_queue::tags::notify_fork_lineage_change(&db, &w_id).await
+    } else {
+        windmill_queue::tags::notify_fork_lineage_reset(&db).await
+    };
+    if let Err(e) = broadcast {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
 
     Ok(format!("Deleted workspace {}", &w_id))
@@ -1281,7 +1421,7 @@ pub async fn drop_forked_datatable_databases(
                         ));
                     }
                     drop(client);
-                    let _ = join_handle.await;
+                    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
                 }
                 Err(e) => {
                     errors.push(format!(
@@ -1610,7 +1750,7 @@ async fn drop_fork_ducklake_metadata_schema(
         )
         .await;
     drop(client);
-    let _ = join_handle.await;
+    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
     res.map_err(|e| Error::internal_err(format!("{e:#}")))?;
     Ok(())
 }

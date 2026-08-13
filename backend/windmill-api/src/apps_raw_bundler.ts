@@ -1,0 +1,121 @@
+/**
+ * Bundles a raw app's sources into the js/css a deployed raw app serves. Runs as
+ * a bun job so the compile happens on a worker, not in the API process — see
+ * `apps_raw_bundle.rs`, which is the only thing that runs it.
+ *
+ * The build itself is `wmill app bundle`, the same one `wmill app push` runs, so
+ * an app deployed through the API is compiled exactly as the CLI and the editor
+ * compile it — entry point, virtual `wmill` module, `/ui/` shared-UI resolution
+ * and the Svelte/Vue plugins included. Reimplementing any of that here would be
+ * a third bundler to keep in step with the other two.
+ */
+export async function main(
+	files: Record<string, string>,
+	shared_ui: Record<string, string> | undefined,
+	cli_command: string[],
+	// Set unless the server was told to build with a specific command.
+	prefer_installed_cli: boolean | undefined
+): Promise<{ js_gz: string; css_gz: string }> {
+	const fs = await import('node:fs/promises')
+	const path = await import('node:path')
+
+	const dir = path.join(process.cwd(), 'wm_raw_app')
+	await fs.rm(dir, { recursive: true, force: true })
+
+	// Where a key lands, `path.join` normalising `./` and `..` away. Everything
+	// that reasons about a file goes through this, so nothing disagrees with what
+	// was actually written.
+	const target = (rel: string) => {
+		const abs = path.join(dir, rel.replace(/^\/+/, ''))
+		if (!abs.startsWith(dir + path.sep)) {
+			throw new Error(`file path escapes the build directory: ${rel}`)
+		}
+		return abs
+	}
+	const write = async (rel: string, content: string) => {
+		const abs = target(rel)
+		await fs.mkdir(path.dirname(abs), { recursive: true })
+		await fs.writeFile(abs, content)
+	}
+	for (const [p, content] of Object.entries(files ?? {})) {
+		await write(p, content)
+	}
+	// `ui/` next to the app is where `wmill app bundle` looks for the shared UI.
+	for (const [p, content] of Object.entries(shared_ui ?? {})) {
+		await write('ui/' + p.replace(/^\/+/, ''), content)
+	}
+
+	const manifest = path.join(dir, 'package.json')
+	const hasPackageJson = Object.keys(files ?? {}).some((p) => target(p) === manifest)
+	// Piped rather than inherited so the output can go in the error too, then
+	// echoed either way — the job's log is where someone looks to see what the
+	// build did.
+	const spawn = (argv: string[]) => {
+		const proc = Bun.spawnSync(argv, { cwd: dir, stdout: 'pipe', stderr: 'pipe' })
+		const output = proc.stdout.toString() + proc.stderr.toString()
+		console.log(output)
+		return { ok: proc.exitCode === 0, output }
+	}
+	const run = (argv: string[], what: string) => {
+		const { ok, output } = spawn(argv)
+		if (!ok) {
+			throw new Error(`${what} failed:\n${output}`)
+		}
+		return output
+	}
+
+	if (hasPackageJson) {
+		// Installed here rather than left to the CLI so it can be --ignore-scripts:
+		// the app's dependencies are compiled, never run, so a package's lifecycle
+		// script has no business executing on the worker. The CLI skips its own
+		// install once node_modules exists.
+		run(['bun', 'install', '--ignore-scripts'], 'bun install')
+	} else {
+		// The CLI installs when node_modules is missing, and it shells out to npm,
+		// which the slim images don't ship. An app with no manifest has nothing to
+		// install, so hand it the empty directory it would have produced.
+		await fs.mkdir(path.join(dir, 'node_modules'), { recursive: true })
+	}
+
+	const outDir = path.join(dir, 'dist')
+	// Prefer the CLI the image installed: no npm reachability needed at deploy
+	// time. It can predate `app bundle` (the images install it unpinned), and a
+	// CLI without the command exits with cliffy's usage text before building
+	// anything — so that specific failure, and only it, falls back to fetching
+	// the one for this server's release. `wmill --version` isn't used to decide:
+	// it reports npm's latest release as well as its own, and it reaches out to
+	// npm to do so, which is the cost this branch exists to avoid.
+	const installed = prefer_installed_cli ? Bun.which('wmill') : null
+	let buildOutput: string | undefined
+	if (installed) {
+		const attempt = spawn([installed, 'app', 'bundle', dir, '--out', outDir])
+		// Colours sit between the words cliffy prints, so match on the stripped text.
+		const plain = attempt.output.replace(/\x1b\[[0-9;]*m/g, '')
+		if (attempt.ok) {
+			buildOutput = attempt.output
+		} else if (!/Unknown command|Usage:\s+wmill app\b/.test(plain)) {
+			throw new Error(`bundle failed:\n${attempt.output}`)
+		}
+	}
+	if (buildOutput === undefined) {
+		buildOutput = run([...cli_command, dir, '--out', outDir], 'bundle')
+	}
+
+	const read = async (name: string) => {
+		try {
+			return await fs.readFile(path.join(outDir, name), 'utf8')
+		} catch {
+			return ''
+		}
+	}
+	const js = await read('bundle.js')
+	const css = await read('bundle.css')
+	if (js === '') {
+		throw new Error('bundle produced no javascript:\n' + buildOutput)
+	}
+
+	// Gzipped so a large app's bundle stays well inside MAX_RESULT_SIZE_MB, which
+	// a deployment can set far below the 500MB default.
+	const gz = (s: string) => Buffer.from(Bun.gzipSync(Buffer.from(s, 'utf8'))).toString('base64')
+	return { js_gz: gz(js), css_gz: gz(css) }
+}

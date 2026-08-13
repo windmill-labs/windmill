@@ -605,9 +605,16 @@ async fn list_favorites(
 // frontend aggregates into nodes and edges.
 
 #[derive(Deserialize)]
-struct GraphQuery {
+pub struct GraphQuery {
     pub asset_kinds: Option<String>,
     pub folder: Option<String>,
+    /// Render a dbt project as a given deployed version rather than as it is
+    /// now. A run page passes the version its job ran, so an old run shows the
+    /// models, SQL and `ref()` lineage of that deploy instead of today's.
+    /// Absent — the usual case — means the newest live version per path.
+    /// Hex, like every other script-hash parameter — `ScriptHash` deserializes
+    /// it, so the run page can pass `job.script_hash` verbatim.
+    pub dbt_script_hash: Option<windmill_common::scripts::ScriptHash>,
 }
 
 #[derive(Serialize, Debug)]
@@ -629,6 +636,70 @@ struct GraphAssetNode {
     // `AssetGraphAssetNode.derived_from`.
     #[serde(skip_serializing_if = "Option::is_none")]
     derived_from: Option<String>,
+    // Set on a `dbt://` asset produced (or, for a source, consumed) by a dbt
+    // script: which dbt node it is and what dbt says about it. A dbt project is
+    // one runnable node with many model assets, so per-model metadata belongs
+    // here rather than on the script (docs/dbt-runtime.md, decision 15).
+    // Lockstep with TS `AssetGraphAssetNode.dbt`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dbt: Option<DbtAssetProvenance>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+struct DbtAssetProvenance {
+    unique_id: String,
+    // `model` | `snapshot` | `seed` | `source` — a source is read, not written,
+    // and the canvas distinguishes them.
+    resource_type: String,
+    // dbt's own word (`table`, `view`, `incremental`, `snapshot`), kept because
+    // `view` and `ephemeral` have no Windmill write-strategy analogue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    materialized: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    materialize_strategy: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    data_tests: Vec<DbtDataTest>,
+    /// Declared column metadata (name -> description). NOT column lineage —
+    /// `manifest.json` carries none (docs/dbt-runtime.md, decision 14).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    columns: Option<serde_json::Value>,
+    /// A source's declared freshness policy, for the staleness chip.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    freshness: Option<serde_json::Value>,
+    /// The model's SQL as written. Read-only in Windmill — the file lives in
+    /// the producing script's bundle, and this is the copy captured when the
+    /// graph being read was parsed: at deploy, or by a refresh from the
+    /// editor's buffer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_code: Option<String>,
+    /// Its path inside the repo, e.g. `models/staging/stg_orders.sql`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    original_file_path: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
+struct DbtDataTest {
+    // `unique` | `not_null` | `accepted_values` | `relationships` — the four
+    // generic tests, one-for-one with the `// data_test` kinds — or a package
+    // test's namespaced name (`dbt_utils.accepted_range`).
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    args: Option<serde_json::Value>,
+    // Lowercased. dbt's own severity decides whether a failure fails the run,
+    // so the canvas shows it rather than assuming every test is blocking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    severity: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+struct DbtRunnableProvenance {
+    model_count: usize,
 }
 
 #[derive(Serialize, Debug)]
@@ -691,6 +762,11 @@ struct GraphRunnableNode {
     // signature list. Lockstep with TS `AssetGraphRunnableNode.macros`.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     macros: Vec<MacroInfo>,
+    // Set on a `ScriptLang::Dbt` script: it owns a whole dbt project, so the
+    // node says how many models it materializes rather than pretending to be a
+    // single-output script. Lockstep with TS `AssetGraphRunnableNode.dbt`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    dbt: Option<DbtRunnableProvenance>,
 }
 
 // One macro of a `// macros` library, as surfaced on its graph node.
@@ -784,6 +860,11 @@ enum TriggerEdge {
         runnable_kind: AssetUsageKind,
         runnable_path: String,
     },
+    Amqp {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
     Nats {
         path: String,
         runnable_kind: AssetUsageKind,
@@ -826,7 +907,7 @@ struct TestEdge {
 }
 
 #[derive(Serialize, Debug)]
-struct AssetGraphResponse {
+pub struct AssetGraphResponse {
     assets: Vec<GraphAssetNode>,
     runnables: Vec<GraphRunnableNode>,
     edges: Vec<GraphEdge>,
@@ -835,6 +916,34 @@ struct AssetGraphResponse {
     macro_edges: Vec<MacroEdge>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     test_edges: Vec<TestEdge>,
+    /// `ref()` lineage BETWEEN two dbt models. Without it every model hangs off
+    /// the one dbt runnable, which reads as a flat source-to-model fan-out
+    /// instead of the project's actual shape.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    dbt_edges: Vec<DbtLineageEdge>,
+    /// The job whose snapshot the dbt half was resolved from, when one was
+    /// asked for and found. A run page polls the graph while its job runs
+    /// because a dynamic descriptor's snapshot is written mid-run, and this is
+    /// what tells it to stop: without it the page cannot distinguish "the
+    /// snapshot has not been written yet" from "this run has none", and either
+    /// polls forever or gives up before the ingest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dbt_snapshot_job: Option<uuid::Uuid>,
+    /// When the dbt half was parsed, for a graph pinned to a job. What the
+    /// editor labels its provenance with: a buffer refresh and the deployed
+    /// version's graph are drawn identically, so without saying which one is on
+    /// screen the ambiguity the explicit refresh removes just moves into the
+    /// editor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dbt_graph_ingested_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// One `ref()`/`source()` edge, in the terms the canvas draws: the two
+/// relations, not dbt's node ids.
+#[derive(Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct DbtLineageEdge {
+    from_asset_path: String,
+    to_asset_path: String,
 }
 
 async fn asset_graph(
@@ -844,15 +953,81 @@ async fn asset_graph(
     Extension(db): Extension<windmill_common::DB>,
     Query(q): Query<GraphQuery>,
 ) -> JsonResult<AssetGraphResponse> {
-    let mut tx = user_db.begin(&authed).await?;
+    // `None`: pinning the graph to one run is job-scoped and this endpoint is
+    // authorized as `assets:read`. See `asset_graph_for`.
+    asset_graph_for(&authed, &w_id, user_db, db, q, None).await
+}
 
-    let kind_filter: Option<Vec<AssetKind>> = q.asset_kinds.as_ref().map(|s| {
-        s.split(',')
-            .filter_map(|k| {
-                serde_json::from_value::<AssetKind>(Value::String(k.trim().into())).ok()
-            })
-            .collect()
-    });
+/// A run the caller is already authorized to read, and the deployed version it
+/// ran. Path and hash come from the job row rather than the query, so a graph
+/// cannot be pointed at one project's version while claiming another's run.
+pub struct PinnedRun {
+    pub job_id: uuid::Uuid,
+    pub script_path: String,
+    /// `None` for a job that names no deployed version: a `parse` of the
+    /// EDITOR's buffer, whose graph belongs to that job alone. Such a job pins
+    /// only because it stored one — every other preview answers with the
+    /// workspace graph, as before.
+    pub script_hash: Option<i64>,
+}
+
+/// The asset graph, optionally as one run saw it.
+///
+/// AUTHORIZES NOTHING BY ITSELF. Every caller owes it two checks, because the
+/// answer is workspace asset data reached through a route whose own URL segment
+/// decides the scope domain: `assets:read` always, and `require_job_read_access`
+/// for the job when passing `Some(pinned)` — which is then taken as already
+/// done, since the pinned path and hash come from that job's row.
+pub async fn asset_graph_for(
+    authed: &ApiAuthed,
+    w_id: &str,
+    user_db: UserDB,
+    db: windmill_common::DB,
+    q: GraphQuery,
+    pinned: Option<PinnedRun>,
+) -> JsonResult<AssetGraphResponse> {
+    let dbt_job_id = pinned.as_ref().map(|p| p.job_id);
+    // The version is the job's own, not the caller's `dbt_script_hash` — and
+    // that holds when the job names NONE, so the parameter cannot supply a
+    // version for a graph that has no business claiming one.
+    let dbt_script_hash = match pinned.as_ref() {
+        Some(p) => p.script_hash,
+        None => q.dbt_script_hash.map(|h| h.0),
+    };
+    // Set only for a pinned run, where it lets `live` resolve without reading
+    // `script`: a share-link viewer is entitled to the run but usually has no
+    // grant on the script, and RLS there would empty the graph. `raw_code` has
+    // its own `script` check, so the body stays hidden either way.
+    let pinned_path = pinned.as_ref().map(|p| p.script_path.as_str());
+    let w_id = w_id.to_string();
+    let mut tx = user_db.begin(authed).await?;
+    // Built once: a scoped token's `scripts:read` paths decide whether a dbt
+    // node's SQL body may be returned, independently of the `assets:read` scope
+    // that authorizes this endpoint.
+    let dbt_source_scope = build_scope_path_predicate(authed, "scripts", "read");
+
+    // REFUSED, not dropped: a caller that asks for a kind this server does not
+    // know has asked for something, and answering with the other kinds returns a
+    // graph missing exactly what they came for — silently. That is how a rename
+    // of one kind emptied three callers' graphs with nothing logged.
+    let kind_filter: Option<Vec<AssetKind>> = q
+        .asset_kinds
+        .as_ref()
+        .map(|s| {
+            s.split(',')
+                .map(|k| {
+                    serde_json::from_value::<AssetKind>(Value::String(k.trim().into())).map_err(
+                        |_| {
+                            windmill_common::error::Error::BadRequest(format!(
+                                "`{}` is not an asset kind",
+                                k.trim()
+                            ))
+                        },
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
     let kind_filter_ref = kind_filter.as_deref();
 
     let folder_filter = q.folder.as_deref().map(|f| format!("f/{}/%", f));
@@ -926,6 +1101,9 @@ async fn asset_graph(
                 WHERE workspace_id = $1
             UNION ALL
             SELECT 'mqtt', path, script_path, is_flow FROM mqtt_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'amqp', path, script_path, is_flow FROM amqp_trigger
                 WHERE workspace_id = $1
             UNION ALL
             SELECT 'nats', path, script_path, is_flow FROM nats_trigger
@@ -1058,6 +1236,267 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
+    // dbt provenance. A dbt script is one runnable node whose models are many
+    // `dbt://` asset nodes (decision 15), so the per-model metadata has to
+    // hang off the assets, not off the script. It describes the RELATION, not a
+    // producer: several dbt scripts (different selections of one project) can
+    // materialize the same model, and the producer edges already name them.
+    //
+    // Scoped to the relations this graph actually renders, so a workspace with
+    // many dbt projects does not pay for all of them on every request. Not
+    // scoped by the script's folder: an out-of-folder dbt script still has to
+    // explain a model an in-scope consumer reads, same as macro definitions.
+    // Tests come along via `attached_node` — they carry no `asset_path` of
+    // their own.
+    let dbt_rows = sqlx::query!(
+        r#"WITH live AS (
+             -- The graph is stored per deployed VERSION, so this endpoint — which
+             -- describes the project as it is now — takes the newest live one per
+             -- path. Resolved once here rather than per row: a correlated lookup
+             -- on every node is what makes these queries fall over.
+             SELECT * FROM (
+               SELECT DISTINCT ON (s.path) s.path, s.hash
+                 FROM script s
+                WHERE $5::text IS NULL AND s.workspace_id = $1 AND s.language = 'dbt'
+                  AND ($3::bigint IS NULL OR s.hash = $3)
+                  -- A pinned version may be archived by now; that is precisely
+                  -- the case a historical run needs, so the liveness filter
+                  -- applies only when picking the current one.
+                  AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
+                ORDER BY s.path, s.created_at DESC
+             ) cur
+             UNION ALL
+             -- A pinned run names its own version, so `script` is not consulted:
+             -- under RLS it would answer for the CALLER's grants on the project,
+             -- emptying the graph for a share-link viewer who is entitled to the
+             -- run but not the script. A NULL hash here is a job that names no
+             -- version at all — an editor buffer parse — and matches only the
+             -- version-less rows that parse stored.
+             SELECT $5::text, $3::bigint WHERE $5::text IS NOT NULL
+           ),
+           -- The run's own snapshot when it left one, the version's graph
+           -- otherwise. A static descriptor never snapshots, so all of its runs
+           -- fall through to the same rows. Existence comes from the marker, not
+           -- from a node row: a dynamic run that disabled every model has a
+           -- snapshot whose graph is legitimately empty.
+           chosen AS (
+             -- No visibility check on the job here: reaching this with a job at
+             -- all means the caller passed `require_job_read_access` for it, and
+             -- re-deciding it under plain RLS can only DISAGREE with that answer
+             -- — silently, by falling back to the deployed graph rather than
+             -- erroring. A share-link viewer is entitled to the run and would be
+             -- shown a different run's model set. See `asset_graph_for`.
+             SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
+                      SELECT 1 FROM dbt_graph_snapshot g
+                       WHERE g.workspace_id = $1 AND g.job_id = $4)
+                    THEN $4::uuid
+                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
+           ),
+           scoped AS (
+             SELECT n.script_path, n.unique_id FROM dbt_node n
+              -- `=` still, with the NULL-to-NULL case spelled out and gated on
+              -- the pin: a version-less row's hash is NULL on both sides, which
+              -- `=` never matches, but `IS NOT DISTINCT FROM` would cost the
+              -- equality its index bound on the UNPINNED workspace graph — the
+              -- hot path. Unpinned, `$5` is NULL and the second arm folds away.
+              JOIN live l ON l.path = n.script_path
+                         AND (n.script_hash = l.hash
+                              OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                  AND n.script_hash IS NULL))
+              JOIN chosen ch ON ch.job_id = n.job_id
+              WHERE n.workspace_id = $1 AND n.asset_path IS NOT NULL
+                -- Unpinned, the scope is the relations in view: `asset` says
+                -- which of them this folder touches. Pinned, that table is the
+                -- WRONG scope — it holds one row set per path, describing the
+                -- current deploy, so a model this version had and the current one
+                -- dropped would be filtered out of its own run's graph. The
+                -- pinned graph's nodes are the scope. Keyed on the pin rather
+                -- than on the hash: an editor parse pins without naming one, and
+                -- its models are precisely the ones `asset` does not know yet.
+                AND ($3::bigint IS NOT NULL OR $5::text IS NOT NULL
+                     OR n.asset_path IN (
+                  SELECT path FROM asset
+                   WHERE workspace_id = $1 AND kind = 'dbt'
+                     AND ($2::text IS NULL OR usage_path LIKE $2)))
+           )
+           SELECT n.script_path AS "script_path!", n.unique_id AS "unique_id!",
+                  n.resource_type AS "resource_type!", n.name AS "name!", n.asset_path,
+                  n.materialized, n.materialize_strategy, n.tags AS "tags!", n.description,
+                  n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,
+                  n.columns, n.freshness,
+                  n.raw_code, n.original_file_path,
+                  -- Whether the caller may read the project this row describes.
+                  -- The query deliberately reaches outside the requested folder
+                  -- so an in-scope consumer can explain the relation it reads,
+                  -- and `dbt_node` carries no RLS of its own; the relation's
+                  -- SHAPE is fine to answer that way, everything the project's
+                  -- author WROTE is not. Applied in Rust, over one predicate, so
+                  -- the fields it covers are named in one place. This runs in the
+                  -- authed transaction, so `script`'s RLS answers it. Matched on
+                  -- the HASH as well: `extra_perms` is per row, so a path
+                  -- recreated with narrower ones leaves the archived version
+                  -- readable, and a path-only probe would answer for THAT grant
+                  -- while returning this version's source.
+                  --
+                  -- A version-less row has no `script` row to ask, and needs
+                  -- none: it exists only because this caller's own parse job
+                  -- created it from a buffer they wrote, and the unpinned `live`
+                  -- branch — fed from `script` — can never join to one.
+                  (n.script_hash IS NULL OR EXISTS (
+                      SELECT 1 FROM script sc
+                       WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path
+                         AND sc.hash = n.script_hash
+                  )) AS "script_visible!"
+             FROM dbt_node n
+             JOIN live l ON l.path = n.script_path
+                        AND (n.script_hash = l.hash
+                             OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                 AND n.script_hash IS NULL))
+             -- Every join onto `dbt_node` needs this, not just the scoping CTE:
+             -- `job_id` is part of the key, so without it each model comes back
+             -- once per retained snapshot plus once for the version's graph.
+             JOIN chosen ch ON ch.job_id = n.job_id
+            WHERE n.workspace_id = $1
+              -- Joined on BOTH columns: a dbt `unique_id` is project-local, so
+              -- two projects with the same model name would otherwise pull each
+              -- other's rows.
+              AND (EXISTS (SELECT 1 FROM scoped s
+                            WHERE s.script_path = n.script_path
+                              AND s.unique_id = n.unique_id)
+                   OR EXISTS (SELECT 1 FROM scoped s
+                               WHERE s.script_path = n.script_path
+                                 AND s.unique_id = n.attached_node))
+            ORDER BY n.script_path, n.unique_id"#,
+        &w_id,
+        folder_filter.as_deref(),
+        dbt_script_hash,
+        dbt_job_id,
+        pinned_path,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // `ref()` lineage between two models, resolved to the relations they
+    // produce. Joined to `dbt_node` on both key columns because a dbt
+    // `unique_id` is only unique within its project.
+    let dbt_edge_rows = sqlx::query!(
+        r#"WITH live AS (
+             SELECT * FROM (
+               SELECT DISTINCT ON (s.path) s.path, s.hash
+                 FROM script s
+                WHERE $5::text IS NULL AND s.workspace_id = $1 AND s.language = 'dbt'
+                  AND ($3::bigint IS NULL OR s.hash = $3)
+                  AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
+                ORDER BY s.path, s.created_at DESC
+             ) cur
+             UNION ALL
+             SELECT $5::text, $3::bigint WHERE $5::text IS NOT NULL
+           ),
+           -- The run's own snapshot when it left one, the version's graph
+           -- otherwise. A static descriptor never snapshots, so all of its runs
+           -- fall through to the same rows. Existence comes from the marker, not
+           -- from a node row: a dynamic run that disabled every model has a
+           -- snapshot whose graph is legitimately empty.
+           chosen AS (
+             -- No visibility check on the job here: reaching this with a job at
+             -- all means the caller passed `require_job_read_access` for it, and
+             -- re-deciding it under plain RLS can only DISAGREE with that answer
+             -- — silently, by falling back to the deployed graph rather than
+             -- erroring. A share-link viewer is entitled to the run and would be
+             -- shown a different run's model set. See `asset_graph_for`.
+             SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
+                      SELECT 1 FROM dbt_graph_snapshot g
+                       WHERE g.workspace_id = $1 AND g.job_id = $4)
+                    THEN $4::uuid
+                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
+           )
+           SELECT p.asset_path AS "from_path!", c.asset_path AS "to_path!"
+             FROM dbt_edge e
+             JOIN live l ON l.path = e.script_path
+                        AND (e.script_hash = l.hash
+                             OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                 AND e.script_hash IS NULL))
+             JOIN chosen ch ON ch.job_id = e.job_id
+             -- Gated the same way as the `live` joins above, and for the same
+             -- reason twice over: unpinned this folds to a plain equality the
+             -- versioned key can bound, and pinned it is the only way an editor
+             -- graph's NULL-to-NULL hashes meet at all.
+             JOIN dbt_node p ON p.workspace_id = e.workspace_id
+                            AND p.script_path = e.script_path
+                            AND (p.script_hash = e.script_hash
+                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL
+                                     AND p.script_hash IS NULL))
+                            AND p.job_id = ch.job_id
+                            AND p.unique_id = e.parent_unique_id
+             JOIN dbt_node c ON c.workspace_id = e.workspace_id
+                            AND c.script_path = e.script_path
+                            AND (c.script_hash = e.script_hash
+                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL
+                                     AND c.script_hash IS NULL))
+                            AND c.job_id = ch.job_id
+                            AND c.unique_id = e.child_unique_id
+            WHERE e.workspace_id = $1
+              AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL
+              -- Tests attach to their model as a badge, not as a lineage edge.
+              AND c.resource_type <> 'test'
+              -- Scoped by the RELATIONS, like the node provenance above, not by
+              -- the producing script's folder: two tables consumed in this
+              -- folder but produced by a dbt project outside it would otherwise
+              -- both render with their `ref()` edge missing.
+              -- Same as the node scope: pinned, `asset` describes the CURRENT
+              -- deploy, so gating on it drops the edges of models this version
+              -- had and a later one removed. The pinned graph's own edges are
+              -- the answer.
+              AND ($3::bigint IS NOT NULL OR $5::text IS NOT NULL OR EXISTS (
+                SELECT 1 FROM asset a
+                 WHERE a.workspace_id = $1 AND a.kind = 'dbt'
+                   AND a.path = c.asset_path
+                   AND ($2::text IS NULL OR a.usage_path LIKE $2)))"#,
+        &w_id,
+        folder_filter.as_deref(),
+        dbt_script_hash,
+        dbt_job_id,
+        pinned_path,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // The marker `chosen` resolved to, answered once for the caller: its
+    // EXISTENCE is what lets a run page stop polling, and its timestamp is what
+    // an editor labels the graph's provenance with — "parsed from the editor at
+    // 14:32" against "as of last deploy". No `v2_job` recheck, for the reason
+    // `chosen` gives — disagreeing with the route's decision here would leave a
+    // share-link viewer with the right graph and a null marker, polling it 40
+    // times over.
+    let dbt_marker = match (dbt_job_id, pinned_path) {
+        (Some(job), Some(path)) => {
+            sqlx::query!(
+                "SELECT g.job_id, g.ingested_at FROM dbt_graph_snapshot g
+                  WHERE g.workspace_id = $1 AND g.script_path = $2
+                    AND g.script_hash IS NOT DISTINCT FROM $3
+                    AND g.job_id = CASE WHEN EXISTS (
+                          SELECT 1 FROM dbt_graph_snapshot s
+                           WHERE s.workspace_id = $1 AND s.job_id = $4)
+                        THEN $4::uuid
+                        ELSE '00000000-0000-0000-0000-000000000000'::uuid END
+                  LIMIT 1",
+                &w_id,
+                path,
+                dbt_script_hash,
+                job,
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+        }
+        _ => None,
+    };
+    // Only a graph of the RUN's own, never the version's fallback: the run page
+    // compares this against its job id to decide whether to keep polling.
+    let dbt_snapshot_job = dbt_marker
+        .as_ref()
+        .map(|m| m.job_id)
+        .filter(|j| !j.is_nil());
+    let dbt_graph_ingested_at = dbt_marker.as_ref().map(|m| m.ingested_at);
     tx.commit().await?;
 
     // Parse each pipeline member's body once into its badge annotations, keyed
@@ -1102,6 +1541,138 @@ async fn asset_graph(
             (r.path.clone(), lineage)
         })
         .collect();
+    // Model → its provenance, and script → how many models it owns. Tests are
+    // folded onto the model they are attached to, which is what makes dbt's
+    // four generic tests render through the existing data-test node.
+    let mut dbt_by_asset_path: std::collections::HashMap<String, DbtAssetProvenance> =
+        Default::default();
+    let mut dbt_model_count: std::collections::HashMap<String, usize> = Default::default();
+    // Which relations each dbt script actually BUILDS. The sidecar also holds a
+    // row for a parent kept only to anchor a cross-selection edge, which the
+    // script reads rather than materializes — counting those would make a script
+    // selecting one mart claim the staging models upstream of it, and the badge
+    // says "materializes N models".
+    let dbt_writes: std::collections::HashSet<(&str, &str)> = rows
+        .iter()
+        .filter(|r| {
+            r.asset_kind == AssetKind::Dbt
+                && matches!(r.access_type.as_deref(), Some("w") | Some("rw"))
+        })
+        .map(|r| (r.usage_path.as_str(), r.asset_path.as_str()))
+        .collect();
+    // Keyed by (script_path, unique_id) — the sidecar's own primary key — since
+    // a dbt `unique_id` is only unique within its project.
+    let dbt_asset_path_by_unique_id: std::collections::HashMap<(&str, &str), &str> = dbt_rows
+        .iter()
+        .filter_map(|r| {
+            Some((
+                (r.script_path.as_str(), r.unique_id.as_str()),
+                r.asset_path.as_deref()?,
+            ))
+        })
+        .collect();
+    for r in &dbt_rows {
+        let Some(asset_path) = r.asset_path.as_deref() else {
+            continue;
+        };
+        if r.resource_type != "source" && dbt_writes.contains(&(r.script_path.as_str(), asset_path))
+        {
+            *dbt_model_count.entry(r.script_path.clone()).or_default() += 1;
+        }
+        // What the project's author WROTE — the model's SQL, its path in the
+        // repo, the prose and labels around it — as opposed to the shape of the
+        // relation it produces. RLS says whether the caller may see the script,
+        // but not whether a scoped token may: this endpoint is authorized as
+        // `assets:read`, so a token deliberately narrowed to it would otherwise
+        // read a project outside its `scripts:read` paths. Both answers gate the
+        // same set of fields, because a share-link viewer entitled to the RUN is
+        // not thereby entitled to the documentation of a project they cannot
+        // open.
+        let source_allowed = r.script_visible && dbt_source_scope(&r.script_path);
+        let candidate = DbtAssetProvenance {
+            raw_code: r.raw_code.clone().filter(|_| source_allowed),
+            original_file_path: r.original_file_path.clone().filter(|_| source_allowed),
+            unique_id: r.unique_id.clone(),
+            resource_type: r.resource_type.clone(),
+            materialized: r.materialized.clone(),
+            materialize_strategy: r.materialize_strategy.clone(),
+            tags: if source_allowed {
+                r.tags.clone()
+            } else {
+                vec![]
+            },
+            description: r.description.clone().filter(|_| source_allowed),
+            data_tests: vec![],
+            columns: r.columns.clone().filter(|_| source_allowed),
+            freshness: r.freshness.clone().filter(|_| source_allowed),
+        };
+        // One relation can carry rows from several projects — typically a model
+        // in one and a source declaring it in another. The producer describes
+        // the relation and the source only names it, so which one wins must not
+        // depend on script-path ordering. The source's freshness policy is
+        // still worth keeping, so it fills in rather than overwrites.
+        let existing = dbt_by_asset_path
+            .entry(asset_path.to_string())
+            .or_insert_with(|| candidate.clone());
+        if existing.unique_id == candidate.unique_id {
+            continue;
+        }
+        let wins = match (
+            existing.resource_type.as_str(),
+            candidate.resource_type.as_str(),
+        ) {
+            ("source", t) if t != "source" => true,
+            (t, "source") if t != "source" => false,
+            // Two rows of the same nature: pick by id so the graph does not
+            // change shape between requests.
+            _ => candidate.unique_id < existing.unique_id,
+        };
+        let freshness = existing
+            .freshness
+            .clone()
+            .or_else(|| candidate.freshness.clone());
+        if wins {
+            *existing = candidate;
+        }
+        existing.freshness = freshness;
+    }
+    // Tests fold onto the model they assert, which is what makes dbt's four
+    // generic tests render through the existing data-test node. A separate pass
+    // because rows arrive in `unique_id` order, so a test can precede its model.
+    for r in &dbt_rows {
+        if r.resource_type != "test" {
+            continue;
+        }
+        let Some(target) = r
+            .attached_node
+            .as_deref()
+            .and_then(|n| dbt_asset_path_by_unique_id.get(&(r.script_path.as_str(), n)))
+        else {
+            continue;
+        };
+        let Some(entry) = dbt_by_asset_path.get_mut(*target) else {
+            continue;
+        };
+        let test = DbtDataTest {
+            kind: r.test_kind.clone().unwrap_or_else(|| r.name.clone()),
+            column: r.test_column.clone(),
+            // The test's kind and column are the badge's shape, already spelled
+            // out by its `unique_id`. Its arguments are authored data — an
+            // `accepted_values` list is a column's domain — so they follow the
+            // same gate as the model's own source.
+            args: r
+                .test_args
+                .clone()
+                .filter(|_| r.script_visible && dbt_source_scope(&r.script_path)),
+            // dbt-core 1.x echoes the author's casing, 2.x uppercases; fold so
+            // the badge reads the same whichever engine deployed the script.
+            severity: r.severity.as_deref().map(|s| s.to_ascii_lowercase()),
+        };
+        if !entry.data_tests.contains(&test) {
+            entry.data_tests.push(test);
+        }
+    }
+
     let last_success_by_path: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
         last_success_rows
             .into_iter()
@@ -1124,6 +1695,18 @@ async fn asset_graph(
 
     let mut edges = Vec::with_capacity(rows.len());
     let mut asset_set: std::collections::HashSet<(AssetKind, String)> = Default::default();
+    // Pinned, the relations come from that graph's own nodes. The `asset` rows
+    // above are path-keyed — one set per script, always the current deploy — so
+    // a model this version had and a later one dropped would be missing from its
+    // own run's graph, and an editor buffer's new models would be missing
+    // outright, `asset` having never heard of them.
+    if dbt_script_hash.is_some() || pinned_path.is_some() {
+        for r in &dbt_rows {
+            if let Some(p) = r.asset_path.as_deref() {
+                asset_set.insert((AssetKind::Dbt, p.to_string()));
+            }
+        }
+    }
     let mut runnable_set: std::collections::HashSet<(AssetUsageKind, String)> = Default::default();
 
     // Every pipeline member in scope goes into the graph, even when the parser
@@ -1210,6 +1793,7 @@ async fn asset_graph(
             "email" => TriggerEdge::Email { path, runnable_kind, runnable_path: script_path },
             "kafka" => TriggerEdge::Kafka { path, runnable_kind, runnable_path: script_path },
             "mqtt" => TriggerEdge::Mqtt { path, runnable_kind, runnable_path: script_path },
+            "amqp" => TriggerEdge::Amqp { path, runnable_kind, runnable_path: script_path },
             "nats" => TriggerEdge::Nats { path, runnable_kind, runnable_path: script_path },
             "postgres" => TriggerEdge::Postgres { path, runnable_kind, runnable_path: script_path },
             "sqs" => TriggerEdge::Sqs { path, runnable_kind, runnable_path: script_path },
@@ -1482,6 +2066,9 @@ async fn asset_graph(
                 })
                 .flatten(),
             derived_from: scd2_current_base.get(&(kind, path.clone())).cloned(),
+            dbt: (kind == AssetKind::Dbt)
+                .then(|| dbt_by_asset_path.get(&path).cloned())
+                .flatten(),
             kind,
             path,
         })
@@ -1553,12 +2140,32 @@ async fn asset_graph(
                     .flatten()
                     .cloned()
                     .unwrap_or_default(),
+                dbt: (usage_kind == AssetUsageKind::Script)
+                    .then(|| dbt_model_count.get(&path))
+                    .flatten()
+                    .map(|n| DbtRunnableProvenance { model_count: *n }),
                 path,
                 usage_kind,
             }
         })
         .collect();
     runnables.sort_by(|a, b| a.path.cmp(&b.path));
+
+    // Only between relations this graph actually renders — an edge to a node
+    // that is not here has nothing to draw.
+    let rendered: std::collections::HashSet<&str> =
+        assets.iter().map(|a| a.path.as_str()).collect();
+    let mut dbt_edges: Vec<DbtLineageEdge> = dbt_edge_rows
+        .into_iter()
+        .filter(|r| {
+            r.from_path != r.to_path
+                && rendered.contains(r.from_path.as_str())
+                && rendered.contains(r.to_path.as_str())
+        })
+        .map(|r| DbtLineageEdge { from_asset_path: r.from_path, to_asset_path: r.to_path })
+        .collect();
+    dbt_edges.sort();
+    dbt_edges.dedup();
 
     Ok(Json(AssetGraphResponse {
         assets,
@@ -1567,6 +2174,9 @@ async fn asset_graph(
         triggers,
         macro_edges,
         test_edges,
+        dbt_edges,
+        dbt_snapshot_job,
+        dbt_graph_ingested_at,
     }))
 }
 

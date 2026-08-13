@@ -2,6 +2,7 @@ import type { Job, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
+import type WorkspaceScriptSettingsDrawer from './content/WorkspaceScriptSettingsDrawer.svelte'
 import type FlowEditorDrawer from './content/FlowEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
@@ -16,6 +17,7 @@ import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/diffEditorTypes'
 
 import type { SelectionManager } from '../graph/selectionUtils.svelte'
+import type { FlowPanelPreference } from './panelPlacement'
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
 
 export type FlowInput = Record<
@@ -38,6 +40,7 @@ export type ExtendedOpenFlow = OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
+	on_behalf_of?: string
 }
 
 export type FlowInputEditorState = {
@@ -76,6 +79,7 @@ export type FlowEditorContext = {
 	currentEditor: Writable<CurrentEditor>
 	previewArgs: StateStore<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
+	workspaceScriptSettingsDrawer: Writable<WorkspaceScriptSettingsDrawer | undefined>
 	flowEditorDrawer: Writable<FlowEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
@@ -94,6 +98,7 @@ export type FlowEditorContext = {
 	outputPickerOpenFns: Record<string, () => void>
 	preserveOnBehalfOf: Writable<boolean>
 	savedOnBehalfOfEmail: Writable<string | undefined>
+	savedOnBehalfOfPermissionedAs: Writable<string | undefined>
 	// Only set by the local dev page (Dev.svelte): path -> temp-storage hash of
 	// locally-edited workspace scripts, passed as temp_script_refs on preview
 	// runs so relative imports resolve from local (not-yet-deployed) content
@@ -131,3 +136,21 @@ export type OutputViewerJob =
 			  }
 	  ) & { result_stream?: string; result?: unknown })
 	| undefined
+
+/** Set by FlowEditor so a panel's card header can host the panel's own chrome inline.
+ *  A mounted host calls `claim` (keeping the returned unregister for teardown), which
+ *  hides FlowEditor's fallback strip. */
+export type FlowPanelDetachContext = {
+	claim: () => () => void
+	/** True while the detached modal is open. Its chrome lives in the panel's card header,
+	 *  so the modal draws no header of its own. */
+	modalOpen: () => boolean
+	close: () => void
+	/** False for whitelabel embeds that keep the classic always-docked pane — they get no
+	 *  panel-position control at all, in the graph or anywhere else. */
+	enabled: () => boolean
+	/** The Auto/Attached/Detached choice, picked from the graph's control bar. Distinct
+	 *  from where the panel currently is: `auto` resolves against the editor's width. */
+	preference: () => FlowPanelPreference
+	setPreference: (preference: FlowPanelPreference) => void
+}

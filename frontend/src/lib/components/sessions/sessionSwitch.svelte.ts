@@ -9,7 +9,7 @@ import {
 	setSessionPendingWorkspace,
 	type SessionTarget
 } from './sessionState.svelte'
-import { sessionTargetHref } from './sessionMode.svelte'
+import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -70,18 +70,29 @@ export async function exitSessionMode(): Promise<void> {
 // so the caller MUST persist any unsaved edits first (e.g. save a draft) for the
 // preview to reflect the live state. `workspaceId` scopes the session to the
 // editor's workspace (instead of createSession's root default) so it opens the
-// same flow/script the user was editing.
+// same flow/script the user was editing. `previewParams` ride on the tab URL to
+// tell the previewed editor where to open (a flow's `selected` step).
 export async function openEditorInSession(
 	target: SessionTarget,
-	workspaceId?: string
+	workspaceId?: string,
+	previewParams?: Record<string, string>
 ): Promise<void> {
-	// createSession() reuses an existing transient draft, whose preview tabs
-	// (persisted with the draft and/or held by a live runtime) may still show a
-	// different item — so seed the preview with a single tab on `target`, resetting
-	// whatever it was showing.
+	await openInSession(withPreviewParams(sessionTargetHref(target), previewParams), workspaceId)
+}
+
+// Open a fresh AI session showing a workspace page (Runs, a trigger list) in its
+// preview. A page is not an editable item, so callers hand over the in-app href
+// they want the tab to load rather than a SessionTarget.
+export async function openPageInSession(href: string, workspaceId?: string): Promise<void> {
+	await openInSession(href, workspaceId)
+}
+
+async function openInSession(url: string | undefined, workspaceId?: string): Promise<void> {
+	// Seed the fresh session's preview with a single tab on `url` so it opens
+	// straight onto what the caller wants (resetSessionPreviewTabs also writes
+	// through a live runtime if one already exists for this id).
 	const session = createSession()
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
-	const url = sessionTargetHref(target)
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
 		// (chat manager → monaco) into this thin navigation seam, breaking its

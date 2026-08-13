@@ -200,7 +200,7 @@ pub async fn read_object_streamable(
 pub async fn delete_s3_file_internal(
     _authed: OptJobAuthed,
     _db: &DB,
-    _token: &str,
+    _user_db: Option<windmill_common::db::UserDB>,
     _w_id: &str,
     _query: DeleteS3FileQuery,
 ) -> error::Result<()> {
@@ -215,6 +215,7 @@ pub async fn delete_s3_file_internal(
 pub struct DeleteS3FileQuery {
     pub file_key: String,
     pub storage: Option<String>,
+    pub s3_resource_path: Option<String>,
 }
 
 // Stubs for the app-scoped S3 display ops (mirrors the EE `*_internal` helpers +
@@ -231,6 +232,7 @@ mod app_s3_display_stubs {
     pub struct LoadFileMetadataQuery {
         pub file_key: String,
         pub storage: Option<String>,
+        pub s3_resource_path: Option<String>,
     }
 
     #[derive(Serialize)]
@@ -242,6 +244,7 @@ mod app_s3_display_stubs {
     #[allow(dead_code)]
     pub struct LoadFilePreviewQuery {
         pub storage: Option<String>,
+        pub s3_resource_path: Option<String>,
         pub file_key: String,
         pub file_size_in_bytes: Option<u64>,
         pub file_mime_type: Option<String>,
@@ -281,6 +284,7 @@ mod app_s3_display_stubs {
     pub async fn load_file_metadata_internal(
         _authed: OptJobAuthed,
         _db: &DB,
+        _user_db: Option<UserDB>,
         _w_id: &str,
         _query: LoadFileMetadataQuery,
     ) -> error::Result<LoadFileMetadataResponse> {
@@ -292,6 +296,7 @@ mod app_s3_display_stubs {
     pub async fn load_file_preview_internal(
         _authed: OptJobAuthed,
         _db: &DB,
+        _user_db: Option<UserDB>,
         _w_id: &str,
         _query: LoadFilePreviewQuery,
     ) -> error::Result<LoadFilePreviewResponse> {

@@ -130,7 +130,11 @@
 		const schema = rt.schema as Schema
 		return {
 			...schema,
-			order: schema.order ?? Object.keys(schema.properties).sort()
+			// A resource type may declare no properties at all — `dbt_profile` is a
+			// `profiles.yml` block whose keys are its adapter's, not Windmill's — and
+			// the form renders those as one JSON editor. `Object.keys(undefined)`
+			// threw here, which left the editor on its loading skeleton forever.
+			order: schema.order ?? Object.keys(schema.properties ?? {}).sort()
 		}
 	})
 	let loadingSchema = $derived(resourceTypeResource.loading)

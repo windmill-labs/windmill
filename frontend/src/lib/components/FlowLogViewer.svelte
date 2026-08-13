@@ -25,7 +25,7 @@
 	import FlowLogRow from './FlowLogRow.svelte'
 	import { Tooltip } from './meltComponents'
 	import FlowTimelineBar from './FlowTimelineBar.svelte'
-	import { getActiveReplay } from './recording/flowRecording.svelte'
+	import { getActiveReplay } from './recording/replay.svelte'
 
 	type RootJobData = Partial<Job>
 

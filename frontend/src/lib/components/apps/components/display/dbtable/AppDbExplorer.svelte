@@ -399,7 +399,13 @@
 			resolvedConfig.type.configuration[selected].table
 		)
 
-		if (!tableMetadata) return
+		if (!tableMetadata) {
+			//@ts-ignore
+			gridItem.data.configuration.columnDefs.loading = false
+			gridItem.data = gridItem.data
+			$app = $app
+			return
+		}
 
 		let old: TableMetadata = (columnDefs?.value as TableMetadata) ?? []
 		if (!Array.isArray(old)) {

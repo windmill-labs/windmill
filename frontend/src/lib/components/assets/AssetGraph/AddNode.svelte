@@ -95,6 +95,12 @@
 			icon: Radio
 		},
 		{
+			id: 'amqp',
+			label: 'On AMQP',
+			description: 'Triggered by an AMQP (RabbitMQ) message',
+			icon: Radio
+		},
+		{
 			id: 'nats',
 			label: 'On NATS',
 			description: 'Triggered by a NATS message',

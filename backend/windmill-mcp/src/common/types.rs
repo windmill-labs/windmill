@@ -53,12 +53,24 @@ pub struct HubScriptInfo {
 }
 
 /// Schema type structure for JSON schemas
+///
+/// The `#[serde(default)]` attributes are load-bearing: flow input schemas
+/// legitimately omit `required` (they carry an `order` key instead) and can omit
+/// `type`. Without the defaults, `serde_json::from_str::<SchemaType>` errors on
+/// those schemas and callers fall back to an empty schema, dropping every input.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "server", derive(FromRow))]
 pub struct SchemaType {
+    #[serde(default = "default_schema_type")]
     pub r#type: String,
+    #[serde(default)]
     pub properties: HashMap<String, Value>,
+    #[serde(default)]
     pub required: Vec<String>,
+}
+
+fn default_schema_type() -> String {
+    "object".to_string()
 }
 
 impl Default for SchemaType {

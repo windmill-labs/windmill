@@ -277,12 +277,55 @@ class WindmillDebugger(bdb.Bdb):
         return {}
 
 
+PREPARE_DEPS_TIMEOUT_SECONDS = 120
+PREPARE_DEPS_PROGRESS_INTERVAL_SECONDS = 5
+
+
+@dataclass
+class PrepareResult:
+    """
+    Outcome of dependency preparation.
+
+    `error` holds anything worth telling the user, including a problem reported by an
+    otherwise successful preparation. Only `fatal` means the packages are known to be
+    missing: failing to reach the CLI at all says nothing about the script's imports and
+    must not block a session that would otherwise run.
+    """
+
+    venv_path: str | None = None
+    error: str | None = None
+    fatal: bool = False
+
+
+def _prepare_error_detail(response: dict) -> str:
+    """
+    Build the failure reason from a prepare-deps response.
+
+    `error` is the installer's own output prefixed with the step that failed, and
+    `install_stderr` is that same output unprefixed, so take one rather than both: joining
+    them prints the installer's output twice, and the prefix is what tells a reader whether
+    the venv or the install was what went wrong.
+    """
+    for key in ("error", "install_stderr"):
+        detail = str(response.get(key) or "").strip()
+        if detail:
+            return detail
+    return "unknown error"
+
+
+def _first_line(detail: str, limit: int = 300) -> str:
+    """Condense a multi-line failure into the single line a DAP response message allows."""
+    line = next((s.strip() for s in detail.splitlines() if s.strip()), detail.strip())
+    return line[:limit]
+
+
 class DebugSession:
     """Manages a single debug session."""
 
-    def __init__(self, websocket, windmill_path: str | None = None):
+    def __init__(self, websocket, windmill_path: str | None = None, prepared_venv_path: str | None = None):
         self.websocket = websocket
         self.windmill_path = windmill_path
+        self._prepared_venv_path = prepared_venv_path
         self.seq = 1
         self.initialized = False
         self.configured = False
@@ -304,14 +347,22 @@ class DebugSession:
         self.seq += 1
         return seq
 
-    def prepare_dependencies(self, code: str) -> str | None:
+    def prepare_dependencies(self, code: str) -> PrepareResult:
         """
         Prepare Python dependencies by calling the windmill CLI.
-        Returns the path to the venv's site-packages directory, or None if no dependencies needed.
+
+        Blocks for as long as the install takes, so it must run off the event loop; use
+        `_prepare_dependencies_with_progress` instead of calling this directly.
         """
+        if self._prepared_venv_path:
+            # The debug service installs dependencies itself so that the registry credentials
+            # the CLI needs never enter this interpreter, which executes the debugged script.
+            logger.info(f"Using dependencies prepared by the debug service: {self._prepared_venv_path}")
+            return PrepareResult(venv_path=self._prepared_venv_path)
+
         if not self.windmill_path:
             logger.info("No windmill binary path configured, skipping dependency preparation")
-            return None
+            return PrepareResult()
 
         logger.info(f"Preparing dependencies using {self.windmill_path}")
 
@@ -328,7 +379,7 @@ class DebugSession:
                 input=input_data,
                 capture_output=True,
                 text=True,
-                timeout=120,  # 2 minute timeout for dependency installation
+                timeout=PREPARE_DEPS_TIMEOUT_SECONDS,
             )
 
             elapsed = time.time() - start_time
@@ -337,7 +388,11 @@ class DebugSession:
             if result.returncode != 0:
                 logger.error(f"prepare-deps failed (stderr): {result.stderr}")
                 logger.error(f"prepare-deps failed (stdout): {result.stdout}")
-                return None
+                detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+                return PrepareResult(
+                    error=detail or f"windmill prepare-deps exited with code {result.returncode}",
+                    fatal=True,
+                )
 
             # Log raw output for debugging
             logger.debug(f"prepare-deps stdout: {result.stdout[:500] if result.stdout else '(empty)'}")
@@ -350,15 +405,18 @@ class DebugSession:
             json_start = output.find('{')
             if json_start == -1:
                 logger.error(f"No JSON in prepare-deps output: {output}")
-                return None
+                return PrepareResult(
+                    error=f"No JSON in prepare-deps output: {output[:500] or '(empty)'}"
+                )
 
             json_str = output[json_start:]
             response = json.loads(json_str)
             logger.debug(f"prepare-deps response: {response}")
 
             if not response.get("success"):
-                logger.error(f"prepare-deps error: {response.get('error')}")
-                return None
+                detail = _prepare_error_detail(response)
+                logger.error(f"prepare-deps error: {detail}")
+                return PrepareResult(error=detail, fatal=True)
 
             venv_path = response.get("venv_path")
             cached = response.get("cached", False)
@@ -371,18 +429,50 @@ class DebugSession:
             else:
                 logger.info("No external dependencies detected in code")
 
-            return venv_path
+            return PrepareResult(venv_path=venv_path)
 
         except subprocess.TimeoutExpired:
-            logger.error("prepare-deps timed out after 120s")
-            return None
+            message = f"prepare-deps timed out after {PREPARE_DEPS_TIMEOUT_SECONDS}s"
+            logger.error(message)
+            return PrepareResult(error=message, fatal=True)
         except json.JSONDecodeError as e:
+            raw = output[:500] if 'output' in dir() else '(not available)'
             logger.error(f"Failed to parse prepare-deps JSON output: {e}")
-            logger.error(f"Raw output was: {output[:500] if 'output' in dir() else '(not available)'}")
-            return None
+            logger.error(f"Raw output was: {raw}")
+            return PrepareResult(error=f"Failed to parse prepare-deps output: {e}\n{raw}")
         except Exception as e:
             logger.exception(f"Error preparing dependencies: {e}")
-            return None
+            return PrepareResult(error=f"Error preparing dependencies: {e}")
+
+    async def _prepare_dependencies_with_progress(self, code: str) -> PrepareResult:
+        """
+        Run dependency preparation on a worker thread, reporting progress while it runs.
+
+        The install can take minutes on a cold cache; on the event loop it would stall
+        websocket keepalive until it returns and block the progress events below.
+        """
+        await self.send_event(
+            "output", {"category": "stdout", "output": "Preparing dependencies...\n"}
+        )
+
+        task = asyncio.create_task(asyncio.to_thread(self.prepare_dependencies, code))
+        waited = 0
+        while True:
+            done, _ = await asyncio.wait(
+                {task}, timeout=PREPARE_DEPS_PROGRESS_INTERVAL_SECONDS
+            )
+            if done:
+                break
+            waited += PREPARE_DEPS_PROGRESS_INTERVAL_SECONDS
+            await self.send_event(
+                "output",
+                {
+                    "category": "stdout",
+                    "output": f"Still preparing dependencies... ({waited}s)\n",
+                },
+            )
+
+        return task.result()
 
     def _next_var_ref(self) -> int:
         ref = self._variables_ref_counter
@@ -521,7 +611,25 @@ class DebugSession:
 
         # Prepare dependencies before modifying the code
         if code:
-            self._venv_path = self.prepare_dependencies(code)
+            prepared = await self._prepare_dependencies_with_progress(code)
+            if prepared.error:
+                prefix = (
+                    "Failed to prepare dependencies"
+                    if prepared.fatal
+                    else "Warning: dependency preparation reported a problem, running anyway"
+                )
+                await self.send_event(
+                    "output",
+                    {"category": "stderr", "output": f"{prefix}:\n{prepared.error}\n"},
+                )
+                if prepared.fatal:
+                    await self.send_response(
+                        request,
+                        success=False,
+                        message=f"Failed to prepare dependencies: {_first_line(prepared.error)}",
+                    )
+                    return
+            self._venv_path = prepared.venv_path
 
         # If callMain is True, append a call to main() with the provided args
         if self._call_main and code:
@@ -894,13 +1002,17 @@ class DebugSession:
             )
 
 
-# Module-level variable to store windmill binary path
+# Module-level variables to store the windmill binary path and, when the debug service
+# already installed the script's dependencies, the venv to use instead of installing here.
 _windmill_path: str | None = None
+_prepared_venv_path: str | None = None
 
 
 async def handle_connection(websocket) -> None:
     """Handle a WebSocket connection."""
-    session = DebugSession(websocket, windmill_path=_windmill_path)
+    session = DebugSession(
+        websocket, windmill_path=_windmill_path, prepared_venv_path=_prepared_venv_path
+    )
     logger.info(f"New connection from {websocket.remote_address}")
 
     try:
@@ -924,13 +1036,21 @@ async def handle_connection(websocket) -> None:
         session._cleanup_temp_file()
 
 
-async def main(host: str = "localhost", port: int = 5679, windmill_path: str | None = None) -> None:
+async def main(
+    host: str = "localhost",
+    port: int = 5679,
+    windmill_path: str | None = None,
+    prepared_venv_path: str | None = None,
+) -> None:
     """Start the DAP WebSocket server."""
-    global _windmill_path
+    global _windmill_path, _prepared_venv_path
     _windmill_path = windmill_path
+    _prepared_venv_path = prepared_venv_path
 
     if windmill_path:
         logger.info(f"Windmill binary path: {windmill_path}")
+    if prepared_venv_path:
+        logger.info(f"Dependencies prepared by the debug service: {prepared_venv_path}")
     logger.info(f"Starting DAP WebSocket server on ws://{host}:{port}")
 
     async with serve(handle_connection, host, port):
@@ -944,6 +1064,7 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="localhost", help="Host to bind to")
     parser.add_argument("--port", type=int, default=5679, help="Port to listen on")
     parser.add_argument("--windmill", help="Path to windmill binary for dependency preparation (or set WINDMILL_PATH env var)")
+    parser.add_argument("--venv-path", help="Site-packages directory of a venv the caller already prepared; skips dependency installation")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -957,6 +1078,6 @@ if __name__ == "__main__":
     windmill_path = args.windmill or os.environ.get("WINDMILL_PATH")
 
     try:
-        asyncio.run(main(args.host, args.port, windmill_path))
+        asyncio.run(main(args.host, args.port, windmill_path, args.venv_path))
     except KeyboardInterrupt:
         logger.info("Server stopped")

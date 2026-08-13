@@ -6,10 +6,19 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from '../lib'
-import { resolveRequestReasoning, type ReasoningProviderModel } from '../reasoningRegistry'
+import {
+	resolveEffectiveReasoning,
+	resolveRequestReasoning,
+	type ReasoningProviderModel
+} from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
-import { usesAnthropicMessagesApi } from '../modelConfig'
-import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
+import { modelSupportsVision, usesAnthropicMessagesApi } from '../modelConfig'
+import { boundImagePartBytes, stripImagePartsFromMessages } from './imageUtils'
+import {
+	buildPromptCacheKey,
+	getOpenAIResponsesCompletion,
+	parseOpenAIResponsesCompletion
+} from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
@@ -48,6 +57,12 @@ export interface ChatLoopConfig {
 	skipResponsesApi?: boolean
 	onSkipResponsesApi?: () => void
 	onWebSearchUnavailable?: () => void
+	/**
+	 * Called when the provider refuses to generate reasoning summaries (OpenAI
+	 * gates them behind organization verification). The request is retried
+	 * without summaries, so reasoning happens but stays hidden.
+	 */
+	onReasoningSummaryUnavailable?: () => void
 	/** Return a pending user message to inject between iterations, or undefined. */
 	getPendingUserMessage?: () => ChatCompletionUserMessageParam | undefined
 	/**
@@ -55,8 +70,13 @@ export interface ChatLoopConfig {
 	 * lets the caller recover partial output if the loop throws or is aborted.
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
-	/** Called before each iteration (e.g. to refresh tool schemas). */
-	onBeforeIteration?: (tools: Tool<any>[], helpers: any) => Promise<void>
+	/** Called before each iteration (e.g. to refresh tool schemas, or to record
+	 * which model the iteration is about to use). */
+	onBeforeIteration?: (
+		tools: Tool<any>[],
+		helpers: any,
+		modelProvider: ReasoningProviderModel
+	) => Promise<void>
 }
 
 export interface ChatLoopResult {
@@ -107,8 +127,36 @@ export function truncateToToolPairedPrefix(
 const unsupportedWebSearchCache = new Set<string>()
 const WEB_SEARCH_UNAVAILABLE_STATUS_CODES = new Set([400, 403, 404])
 
+// Reasoning-summary availability is an org-level property of the provider
+// credentials (OpenAI organization verification), not of the model — key by
+// workspace + provider. In-memory on purpose: a page reload re-probes, so a
+// freshly verified organization starts getting summaries again.
+const unsupportedReasoningSummaryCache = new Set<string>()
+const REASONING_SUMMARY_UNAVAILABLE_STATUS_CODES = new Set([400, 403])
+
+// A gateway that validates the request body strictly rejects `prompt_cache_key`
+// outright, so it is a property of the endpoint the credentials point at, not of the
+// model. Same in-memory reasoning as above: a reload re-probes.
+const unsupportedPromptCacheKeyCache = new Set<string>()
+
 function getWebSearchCacheKey(workspace: string, modelProvider: ReasoningProviderModel): string {
 	return [workspace, modelProvider.provider, modelProvider.model].join(':')
+}
+
+function getReasoningSummaryCacheKey(
+	workspace: string,
+	modelProvider: ReasoningProviderModel
+): string {
+	return [workspace, modelProvider.provider].join(':')
+}
+
+// Keyed without the model, like the reasoning-summary probe: a body-validation refusal
+// belongs to the endpoint, so switching models must not re-pay the failed round trip.
+function getPromptCacheKeySupportKey(
+	workspace: string,
+	modelProvider: ReasoningProviderModel
+): string {
+	return [workspace, modelProvider.provider].join(':')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -193,6 +241,63 @@ function shouldRetryWithoutWebSearch(err: unknown): boolean {
 	return status === undefined || WEB_SEARCH_UNAVAILABLE_STATUS_CODES.has(status)
 }
 
+function getErrorParam(err: unknown): string | undefined {
+	if (!isRecord(err)) {
+		return undefined
+	}
+	const candidates = [err.param]
+	if (isRecord(err.error)) {
+		candidates.push(err.error.param)
+	}
+	return candidates.find((param): param is string => typeof param === 'string')
+}
+
+// Unverified OpenAI organizations get a 400 on the reasoning.summary param
+// ("Your organization must be verified to generate reasoning summaries").
+function shouldRetryWithoutReasoningSummary(err: unknown): boolean {
+	const status = getErrorStatus(err)
+	if (status !== undefined && !REASONING_SUMMARY_UNAVAILABLE_STATUS_CODES.has(status)) {
+		return false
+	}
+	if (getErrorParam(err) === 'reasoning.summary') {
+		return true
+	}
+	const message = getErrorText(err).toLowerCase()
+	return (
+		message.includes('reasoning.summary') ||
+		/verified to (?:generate|stream) reasoning summar/.test(message)
+	)
+}
+
+// An OpenAI-compatible gateway that validates the body strictly names the offending
+// field, whether it calls it an unrecognized argument or an unexpected additional
+// property.
+function shouldRetryWithoutPromptCacheKey(err: unknown): boolean {
+	const status = getErrorStatus(err)
+	if (status !== undefined && status !== 400) {
+		return false
+	}
+	if (getErrorParam(err) === 'prompt_cache_key') {
+		return true
+	}
+	return getErrorText(err).includes('prompt_cache_key')
+}
+
+function markPromptCacheKeyUnsupported(cacheKey: string, err: unknown) {
+	unsupportedPromptCacheKeyCache.add(cacheKey)
+	console.warn('prompt_cache_key rejected; retrying without prompt caching hints:', err)
+}
+
+function markReasoningSummaryUnsupported(
+	cacheKey: string,
+	err: unknown,
+	onReasoningSummaryUnavailable?: () => void
+) {
+	unsupportedReasoningSummaryCache.add(cacheKey)
+	console.warn('Reasoning summaries unavailable; retrying without them:', err)
+	onReasoningSummaryUnavailable?.()
+}
+
 function markWebSearchUnsupported(
 	cacheKey: string,
 	err: unknown,
@@ -212,6 +317,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		workspace,
 		maxIterations,
 		onSkipResponsesApi,
+		onReasoningSummaryUnavailable,
 		getPendingUserMessage,
 		onBeforeIteration
 	} = config
@@ -252,7 +358,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			!unsupportedWebSearchCache.has(webSearchCacheKey)
 
 		if (onBeforeIteration) {
-			await onBeforeIteration(tools, helpers)
+			await onBeforeIteration(tools, helpers, modelProvider)
 		}
 
 		const pendingUserMessage = getPendingUserMessage?.()
@@ -266,15 +372,38 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		// so background paths (metadata/autocomplete) never inherit it.
 		const reasoningEffort = resolveRequestReasoning(modelProvider)
 
+		// Checked per iteration, like the model itself: the selector stays enabled
+		// while the loop runs, and a switch to a known text-only model mid-turn
+		// would otherwise send it the history's image parts and fail the turn.
+		// The byte bound is also per iteration because screenshots taken by tools
+		// grow the history mid-loop (see MAX_TOTAL_IMAGE_BYTES).
+		const visibleMessages = modelSupportsVision(modelProvider.provider, modelProvider.model)
+			? boundImagePartBytes(messages)
+			: stripImagePartsFromMessages(messages)
 		const messageParams = [
 			systemMessage,
-			...sanitizeToolCallArguments(messages),
+			...sanitizeToolCallArguments(visibleMessages),
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
 		const parseOptions = { workspace, provider: modelProvider.provider }
 
 		if (isOpenAI) {
+			const reasoningSummaryCacheKey = getReasoningSummaryCacheKey(workspace, modelProvider)
+			// Gate on the effective (not request) reasoning: an explicit off resolves
+			// to a truthy disable token like 'none' on the request side, and asking
+			// for a summary on a non-reasoning request would 400 on unverified orgs.
+			let reasoningSummary =
+				resolveEffectiveReasoning(modelProvider) !== undefined &&
+				!unsupportedReasoningSummaryCache.has(reasoningSummaryCacheKey)
+
+			// One key for the whole chat surface: every iteration opens with the same
+			// system prompt and tool definitions, and each one extends the previous
+			// iteration's prefix, so they all belong on the same cache.
+			const promptCacheKey = buildPromptCacheKey('chat', modelProvider, workspace)
+			const promptCacheSupportKey = getPromptCacheKeySupportKey(workspace, modelProvider)
+			let usePromptCacheKey = !unsupportedPromptCacheKeyCache.has(promptCacheSupportKey)
+
 			const runOpenAIResponses = async (useWebSearch: boolean): Promise<boolean> => {
 				const completion = await getOpenAIResponsesCompletion(
 					messageParams,
@@ -284,7 +413,9 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						forceModelProvider: modelProvider,
 						openaiClient: clients.openai,
 						webSearch: useWebSearch,
-						reasoningEffort
+						reasoningEffort,
+						reasoningSummary,
+						promptCacheKey: usePromptCacheKey ? promptCacheKey : undefined
 					}
 				)
 				const continueCompletion = await parseOpenAIResponsesCompletion(
@@ -302,35 +433,51 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 			let useCompletionsApi = skipResponsesApi
 			if (!skipResponsesApi) {
-				try {
-					if (!(await runOpenAIResponses(webSearch))) {
-						break
-					}
-				} catch (err) {
-					let fallbackError = err
-					if (webSearch && shouldRetryWithoutWebSearch(err)) {
-						markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
-						try {
-							if (!(await runOpenAIResponses(false))) {
-								break
-							}
-							continue
-						} catch (retryErr) {
-							fallbackError = retryErr
+				// Retry the Responses call disabling whichever optional feature the
+				// provider rejected (reasoning summary, web search, prompt cache key) in
+				// the order the errors arrive — a turn can hit several, any one first.
+				// Each retry permanently disables one feature, so this loops at most
+				// once per feature.
+				let useWebSearch = webSearch
+				let outcome: 'break' | 'continue' | undefined
+				let fallbackError: unknown
+				while (outcome === undefined) {
+					try {
+						outcome = (await runOpenAIResponses(useWebSearch)) ? 'continue' : 'break'
+					} catch (err) {
+						if (reasoningSummary && shouldRetryWithoutReasoningSummary(err)) {
+							markReasoningSummaryUnsupported(
+								reasoningSummaryCacheKey,
+								err,
+								onReasoningSummaryUnavailable
+							)
+							reasoningSummary = false
+						} else if (useWebSearch && shouldRetryWithoutWebSearch(err)) {
+							markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
+							useWebSearch = false
+						} else if (usePromptCacheKey && shouldRetryWithoutPromptCacheKey(err)) {
+							markPromptCacheKeyUnsupported(promptCacheSupportKey, err)
+							usePromptCacheKey = false
+						} else {
+							fallbackError = err
+							break
 						}
 					}
-
-					console.warn(
-						'OpenAI Responses API failed, falling back to Completions API:',
-						fallbackError
-					)
-					const errorMessage = getErrorText(fallbackError)
-					if (errorMessage.includes('Responses API is not enabled')) {
-						skipResponsesApi = true
-						onSkipResponsesApi?.()
-					}
-					useCompletionsApi = true
 				}
+				if (outcome === 'break') {
+					break
+				}
+				if (outcome === 'continue') {
+					continue
+				}
+
+				console.warn('OpenAI Responses API failed, falling back to Completions API:', fallbackError)
+				const errorMessage = getErrorText(fallbackError)
+				if (errorMessage.includes('Responses API is not enabled')) {
+					skipResponsesApi = true
+					onSkipResponsesApi?.()
+				}
+				useCompletionsApi = true
 			}
 
 			if (useCompletionsApi) {
@@ -403,7 +550,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			const completion = await getCompletion(messageParams, abortController, toolDefs, {
 				forceModelProvider: modelProvider,
 				openaiClient: clients.openai,
-				reasoningEffort
+				reasoningEffort,
+				promptCaching: true
 			})
 			if (completion) {
 				const continueCompletion = await parseOpenAICompletion(

@@ -7,6 +7,7 @@ import {
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ResourceService,
@@ -35,6 +36,7 @@ export type WindmillItemKind =
 	| 'nats_trigger'
 	| 'postgres_trigger'
 	| 'mqtt_trigger'
+	| 'amqp_trigger'
 	| 'sqs_trigger'
 	| 'gcp_trigger'
 	| 'azure_trigger'
@@ -123,6 +125,7 @@ const workspaceItemLoaders: Array<{
 		list: (workspace) => PostgresTriggerService.listPostgresTriggers({ workspace })
 	},
 	{ kind: 'mqtt_trigger', list: (workspace) => MqttTriggerService.listMqttTriggers({ workspace }) },
+	{ kind: 'amqp_trigger', list: (workspace) => AmqpTriggerService.listAmqpTriggers({ workspace }) },
 	{ kind: 'sqs_trigger', list: (workspace) => SqsTriggerService.listSqsTriggers({ workspace }) },
 	{ kind: 'gcp_trigger', list: (workspace) => GcpTriggerService.listGcpTriggers({ workspace }) },
 	{

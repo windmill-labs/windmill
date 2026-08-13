@@ -70,6 +70,10 @@
 			label: 'MQTT trigger',
 			load: () => import('$lib/components/triggers/mqtt/MqttTriggerEditorInner.svelte')
 		},
+		amqp: {
+			label: 'AMQP trigger',
+			load: () => import('$lib/components/triggers/amqp/AmqpTriggerEditorInner.svelte')
+		},
 		sqs: {
 			label: 'SQS trigger',
 			load: () => import('$lib/components/triggers/sqs/SqsTriggerEditorInner.svelte')

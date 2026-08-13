@@ -96,18 +96,20 @@ function findAgentToolOwnerInNode(
 		return undefined
 	}
 
-	const toolIndex = node.value.tools.findIndex((tool) => tool.id === toolId)
+	// Absent for a linked agent, whose tools live in the resource rather than on the module.
+	const tools = node.value.tools ?? []
+	const toolIndex = tools.findIndex((tool) => tool.id === toolId)
 	if (toolIndex !== -1) {
 		return {
 			agentId: node.id,
-			tools: node.value.tools,
+			tools,
 			toolIndex,
-			tool: node.value.tools[toolIndex],
+			tool: tools[toolIndex],
 			depth: depth + 1
 		}
 	}
 
-	for (const tool of node.value.tools) {
+	for (const tool of tools) {
 		if (!isFlowModuleTool(tool)) {
 			continue
 		}
@@ -153,10 +155,38 @@ function collectFlowNodeIdsFromNode(node: FlowNodeLike): string[] {
 	}
 
 	if (node.value.type === 'aiagent') {
-		for (const tool of node.value.tools) {
+		for (const tool of node.value.tools ?? []) {
 			ids.push(...collectAgentToolIds(tool))
 		}
 	}
 
+	return ids
+}
+
+/** Ids of AI agent modules that neither link to a saved agent nor set a provider — they pass schema
+ * validation (a linked step legitimately has no provider of its own) but fail on every run. */
+export function collectProviderlessAgentIds(modules: unknown): string[] {
+	const ids: string[] = []
+	const visit = (mods: unknown) => {
+		if (!Array.isArray(mods)) return
+		for (const mod of mods) {
+			const v = (mod as FlowModule | undefined)?.value as Record<string, any> | undefined
+			if (!v) continue
+			if (v.type === 'aiagent') {
+				if (!v.agent && !v.input_transforms?.provider) {
+					ids.push((mod as FlowModule).id)
+				}
+				visit(v.tools)
+			} else if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
+				visit(v.modules)
+			} else if (v.type === 'branchone') {
+				visit(v.default)
+				for (const b of v.branches ?? []) visit(b.modules)
+			} else if (v.type === 'branchall') {
+				for (const b of v.branches ?? []) visit(b.modules)
+			}
+		}
+	}
+	visit(modules)
 	return ids
 }

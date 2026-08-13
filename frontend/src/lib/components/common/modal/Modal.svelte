@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
+	import { getOverlayHost, overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
 	const bubble = createBubbler()
 	import { createEventDispatcher, untrack } from 'svelte'
@@ -8,6 +9,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../CloseButton.svelte'
 	import Disposable from '../drawer/Disposable.svelte'
+	import ConditionalPortal from '../drawer/ConditionalPortal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 
@@ -18,6 +20,11 @@
 		style?: string
 		cancelText?: string | undefined
 		kind?: 'button' | 'X'
+		/** Make the dialog fill the height it is anchored to and lay its body out as a flex
+		 * column, so content can size itself with `h-full` / `flex-1 min-h-0`. Off by default:
+		 * the dialog otherwise hugs its content, and percentage heights inside it do not
+		 * resolve (the centering wrapper is `min-h-full`, i.e. height:auto). */
+		fillHeight?: boolean
 		/** Force a minimum z-index base. Defaults to elevating above the AI chat
 		 * side panel when it is open. Pass an explicit value to stack above other
 		 * surfaces (e.g. a modal opened over the /sessions preview-pane editor). */
@@ -34,11 +41,21 @@
 		style = '',
 		cancelText = undefined,
 		kind = 'button',
+		fillHeight = false,
 		minZIndex: minZIndexProp = undefined,
 		settings,
 		children: children_render,
 		actions
 	}: Props = $props()
+
+	// Anchored to the enclosing pane when there is one (see overlayHost): portalled into it
+	// and positioned against it, so the dialog covers that pane rather than the whole app.
+	// Both halves are required — `absolute` resolves against the nearest positioned DOM
+	// ancestor, which without the portal is whatever box the caller happens to sit in.
+	const overlayHost = getOverlayHost()
+	const hostEl = $derived(overlayHost?.el())
+	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
+	const hostActive = overlayHostActive()
 
 	const dispatch = createEventDispatcher()
 
@@ -60,6 +77,8 @@
 	})
 
 	function onKeyDown(event: KeyboardEvent) {
+		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
+		if (!hostActive()) return
 		if (open) {
 			switch (event.key) {
 				case 'Enter':
@@ -85,74 +104,84 @@
 
 <Disposable bind:open bind:this={disposable} preventEscape {minZIndex}>
 	{#snippet children({ zIndex })}
-		{#if open}
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-			<div
-				onclick={() => (open = false)}
-				transition:fadeFast|local
-				class="fixed top-0 bottom-0 left-0 right-0"
-				style="z-index: {zIndex}"
-				role="dialog"
-				tabindex="-1"
-			>
+		<ConditionalPortal condition={!!hostEl} target={hostEl} class="contents">
+			{#if open}
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 				<div
-					class={twMerge(
-						'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
-						open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
-					)}
-				></div>
+					onclick={() => (open = false)}
+					transition:fadeFast|local
+					class="{posClass} top-0 bottom-0 left-0 right-0"
+					style="z-index: {zIndex}"
+					role="dialog"
+					tabindex="-1"
+				>
+					<div
+						class={twMerge(
+							posClass,
+							'inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
+							open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
+						)}
+					></div>
 
-				<div class="fixed inset-0 z-10 overflow-y-auto">
-					<div class="flex min-h-full items-center justify-center p-4">
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="{posClass} inset-0 z-10 overflow-y-auto">
 						<div
-							onclick={stopPropagation(bubble('click'))}
-							class={twMerge(
-								'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
-								c,
-								open
-									? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
-									: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
-							)}
-							{style}
+							class="flex {fillHeight ? 'h-full' : 'min-h-full'} items-center justify-center p-4"
 						>
-							{#if kind == 'X'}
-								<div class="absolute top-4 right-4"
-									><CloseButton on:close={() => (open = false)} /></div
-								>
-							{/if}
-							<div class="flex">
-								<div class="text-left flex-1">
-									<div class="flex flex-row items-center justify-between">
-										<h3 class="text-emphasis text-lg font-semibold">{title}</h3>
-										{@render settings?.()}
-									</div>
-
-									<div class="mt-4 text-sm text-primary">
-										{@render children_render?.()}
-									</div>
-								</div>
-							</div>
-							{#if kind == 'button'}
-								<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-									{@render actions?.()}
-									<Button
-										on:click={() => {
-											dispatch('canceled')
-											open = false
-										}}
-										color="light"
-										size="sm"
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								onclick={stopPropagation(bubble('click'))}
+								class={twMerge(
+									'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:w-full sm:max-w-lg sm:p-6',
+									// The margins are what keeps a content-sized dialog off the viewport edges; a
+									// filling one takes its inset from the wrapper's padding instead.
+									fillHeight ? 'h-full flex flex-col' : 'sm:my-8',
+									c,
+									open
+										? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
+										: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
+								)}
+								{style}
+							>
+								{#if kind == 'X'}
+									<div class="absolute top-4 right-4"
+										><CloseButton on:close={() => (open = false)} /></div
 									>
-										{cancelText ?? 'Cancel'}
-									</Button>
+								{/if}
+								<div class="flex {fillHeight ? 'flex-1 min-h-0' : ''}">
+									<!-- min-w-0: without it this flex item takes its content's min-content width and
+									     stretches the modal past its max-width instead of letting content shrink. -->
+									<div class="text-left flex-1 min-w-0 {fillHeight ? 'flex flex-col min-h-0' : ''}">
+										<div class="flex flex-row items-center justify-between">
+											<h3 class="text-emphasis text-lg font-semibold">{title}</h3>
+											{@render settings?.()}
+										</div>
+
+										<div class="mt-4 text-sm text-primary {fillHeight ? 'flex-1 min-h-0' : ''}">
+											{@render children_render?.()}
+										</div>
+									</div>
 								</div>
-							{/if}
+								{#if kind == 'button'}
+									<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
+										{@render actions?.()}
+										<Button
+											on:click={() => {
+												dispatch('canceled')
+												open = false
+											}}
+											color="light"
+											size="sm"
+										>
+											{cancelText ?? 'Cancel'}
+										</Button>
+									</div>
+								{/if}
+							</div>
 						</div>
 					</div>
 				</div>
-			</div>
-		{/if}
+			{/if}
+		</ConditionalPortal>
 	{/snippet}
 </Disposable>

@@ -74,6 +74,18 @@ pub async fn handle_bash_job(
     occupancy_metrics: &mut OccupancyMetrics,
     _killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
+    // Normalize carriage returns to LF: bash reads a trailing `\r` as part of the
+    // command and fails with `$'\r': command not found`. Content can arrive with
+    // CRLF (Windows editor, browser paste, git sync) or a bare CR, so strip every
+    // `\r` rather than trusting the source. Only allocate when one is present.
+    let content_owned;
+    let content = if content.contains('\r') {
+        content_owned = content.replace("\r\n", "\n").replace('\r', "\n");
+        content_owned.as_str()
+    } else {
+        content
+    };
+
     let annotation = windmill_common::worker::BashAnnotations::parse(&content);
 
     // `# sandbox <image>` selects the daemonless, nsjail-sandboxed container runtime

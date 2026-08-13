@@ -15,7 +15,7 @@ use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
-use windmill_mcp::server::{BackendResult, ErrorData};
+use windmill_mcp::server::{BackendResult, ErrorData, PathFilter};
 use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, ResourceType};
 
 use crate::db::ApiAuthed;
@@ -23,6 +23,43 @@ use crate::HTTP_CLIENT;
 
 // items max limit
 const ITEMS_FETCH_MAX_LIMIT: usize = 100;
+
+/// Escape LIKE wildcards so a literal path is matched as a prefix, not a pattern.
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+/// Build the SQL condition matching any MCP scope pattern, mirroring
+/// `is_resource_allowed`. Returns `None` when no filter should be applied (a `*`
+/// pattern grants everything); `Some("false")` when the list is empty (grants
+/// nothing); otherwise an OR of per-pattern `o.path` conditions.
+fn scope_patterns_condition(patterns: &[String]) -> Option<String> {
+    if patterns.iter().any(|p| p == "*") {
+        return None;
+    }
+    if patterns.is_empty() {
+        return Some("false".to_string());
+    }
+    let conds: Vec<String> = patterns
+        .iter()
+        .map(|p| {
+            if let Some(prefix) = p.strip_suffix("/*") {
+                // A subtree pattern matches the folder itself or anything under it.
+                let subtree = format!("{}/%", escape_like(prefix));
+                format!(
+                    "({} OR {})",
+                    "o.path = ?".bind(&prefix),
+                    "o.path LIKE ? ESCAPE '\\'".bind(&subtree),
+                )
+            } else {
+                "o.path = ?".bind(p)
+            }
+        })
+        .collect();
+    Some(format!("({})", conds.join(" OR ")))
+}
 
 // ============================================================================
 // Database utilities
@@ -135,7 +172,7 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
     workspace_id: &str,
     scope_type: &str,
     item_type: &str,
-    path_prefix: Option<&str>,
+    path_filter: Option<PathFilter<'_>>,
 ) -> Result<Vec<T>, ErrorData> {
     let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
     let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
@@ -149,15 +186,23 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         .and_where("o.archived = false");
 
     if item_type == "script" {
-        sqlb.and_where("o.auto_kind IS NULL");
+        // only exclude library scripts (no main function); pipeline, test, WAC,
+        // and any future `auto_kind` values remain callable. Mirrors the scripts
+        // list API deny-list.
+        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
     }
 
-    if let Some(prefix) = path_prefix {
-        let escaped = prefix
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        sqlb.and_where("o.path LIKE ? ESCAPE '\\'".bind(&format!("{}%", escaped)));
+    match path_filter {
+        None => {}
+        Some(PathFilter::Prefix(prefix)) => {
+            let escaped = format!("{}%", escape_like(prefix));
+            sqlb.and_where("o.path LIKE ? ESCAPE '\\'".bind(&escaped));
+        }
+        Some(PathFilter::Patterns(patterns)) => {
+            if let Some(cond) = scope_patterns_condition(patterns) {
+                sqlb.and_where(cond);
+            }
+        }
     }
 
     sqlb.order_by(
@@ -250,7 +295,7 @@ pub async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>
 // ============================================================================
 
 /// Look up the original field name from a field_renames map.
-/// field_renames maps renamed_key -> original_key (e.g. {"path__path": "path"}).
+/// field_renames maps renamed_key -> original_key (e.g. {"path__body": "path"}).
 fn get_original_name(renamed_key: &str, field_renames: &Option<Value>) -> String {
     field_renames
         .as_ref()
@@ -328,20 +373,17 @@ pub fn substitute_path_params(
     workspace_id: &str,
     args_map: &serde_json::Map<String, Value>,
     path_schema: &Option<Value>,
-    path_field_renames: &Option<Value>,
 ) -> BackendResult<String> {
     let mut path_template = path.replace("{workspace}", workspace_id);
 
     if let Some(schema) = path_schema {
         if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
             for (param_name, _) in props {
-                // param_name may be renamed (e.g. "path__path"), get original for URL placeholder
-                let original_name = get_original_name(param_name, path_field_renames);
-                let placeholder = format!("{{{}}}", original_name);
+                let placeholder = format!("{{{}}}", param_name);
                 match args_map.get(param_name) {
                     Some(param_value) => {
                         if let Some(str_val) = param_value.as_str() {
-                            validate_path_param_value(&original_name, str_val)?;
+                            validate_path_param_value(param_name, str_val)?;
                             path_template = path_template.replace(&placeholder, str_val);
                         }
                     }
@@ -476,6 +518,92 @@ pub fn build_request_body(
     }
 }
 
+/// Scopes to embed in the JWT minted for a proxied MCP endpoint request. The MCP
+/// runner already authorized *which* endpoint may be called; this bounds *what
+/// the resulting internal request can do*.
+///
+/// - Unscoped caller (cookie / full-privilege token): unscoped JWT.
+/// - Scope-restricted caller whose own scopes already authorize the route: keep
+///   those scopes verbatim, so the target handler's per-path `check_scopes` still
+///   enforces the caller's path caps (e.g. a `variables:read:u/admin/safe/*`
+///   token can't read `u/admin/secret` via the getVariable proxy).
+/// - Otherwise the caller has no route scope for this domain (the common
+///   `mcp:`-only token): mint a least-privilege scope for exactly this route,
+///   failing closed if the route can't be resolved.
+fn jwt_scopes_for_proxied_route(
+    caller_scopes: Option<&[String]>,
+    method: &str,
+    route_path: &str,
+) -> BackendResult<Option<Vec<String>>> {
+    let caller_restricted =
+        caller_scopes.is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    if !caller_restricted {
+        return Ok(None);
+    }
+    if windmill_api_auth::scopes::check_scopes_for_route(caller_scopes, route_path, method).is_ok()
+    {
+        return Ok(caller_scopes.map(|s| s.to_vec()));
+    }
+    let scope =
+        windmill_api_auth::scopes::scope_for_route(method, route_path).ok_or_else(|| {
+            ErrorData::internal_error(
+                "Could not derive route scope for proxied MCP endpoint".to_string(),
+                None,
+            )
+        })?;
+    let mut scopes = vec![scope];
+    if let Some((tool, extras)) = extra_scopes_for_route(route_path) {
+        // Only when the token names this tool. `mcp:all` and `mcp:favorites` reach
+        // every endpoint without naming any, and they are the create-token and
+        // OAuth defaults — a token whose consent screen talks about scripts and
+        // flows must not come with this.
+        if caller_scopes.is_some_and(|s| selects_endpoint_tool(s, tool)) {
+            scopes.extend(extras.iter().map(|s| (*s).to_string()));
+        }
+    }
+    Ok(Some(scopes))
+}
+
+/// The tool a route belongs to and the scopes its handler requires beyond the
+/// one the route's own domain implies, added to the JWT minted for that single
+/// proxied request.
+///
+/// Minting is what keeps the grant *confined*: the JWT is built here and handed
+/// to the internal request, never to the client, so the MCP token itself stays
+/// `mcp:`-only and can't reach `/jobs/run/preview`. Putting the scope on the
+/// token instead would widen every request it makes, which is a far larger grant
+/// than the tool needs.
+fn extra_scopes_for_route(route_path: &str) -> Option<(&'static str, &'static [&'static str])> {
+    // Matched on segments: a runnable path is caller-chosen and can contain
+    // anything, so a script called `f/apps/update_raw_source/x` must not decide
+    // what its own request is minted.
+    let mut segments = route_path.split('/').skip_while(|s| *s != "w");
+    let (_, _ws) = (segments.next()?, segments.next()?);
+    if segments.next() != Some("apps") {
+        return None;
+    }
+    // Both deploy an app by compiling its sources, which runs the app's own
+    // dependencies on a worker — a token reaches that only by naming the tool.
+    // The names are the ones agents see (`x-mcp-tool-name`), not the operation ids.
+    //
+    // They are deliberately the names the retired low-code tools used, so a token
+    // issued before that switch reaches these instead — an accepted upgrade, not
+    // an oversight: MCP has one pair of app-write tools and they are these.
+    match segments.next() {
+        Some("create_raw_source") => Some(("createApp", &["jobs:run"])),
+        Some("update_raw_source") => Some(("updateApp", &["jobs:run"])),
+        _ => None,
+    }
+}
+
+/// Whether the token names `tool` rather than reaching it through a blanket
+/// grant. Parsed by `windmill-mcp`, which owns the scope grammar; `mcp:all` and
+/// `mcp:favorites` yield `*` or nothing, neither of which names a tool.
+fn selects_endpoint_tool(caller_scopes: &[String], tool: &str) -> bool {
+    windmill_mcp::common::scope::parse_mcp_scopes(caller_scopes)
+        .is_ok_and(|config| config.endpoints.iter().any(|e| e == tool))
+}
+
 /// Create HTTP request with authentication
 pub async fn create_http_request(
     method: &str,
@@ -499,31 +627,12 @@ pub async fn create_http_request(
         }
     };
 
-    // Bound the minted JWT to exactly this proxied route so a scope-restricted
-    // MCP token can't be widened into a full-privilege blank check. The
-    // endpoint-name gate (in the MCP runner) already authorized *which* endpoint
-    // may be called; this constrains what the resulting request can do. Unscoped
-    // callers (cookie / full-privilege tokens) keep an unscoped JWT to preserve
-    // existing behavior. A scope-restricted caller whose route can't be resolved
-    // fails closed.
-    let caller_restricted = api_authed
-        .scopes
-        .as_deref()
-        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
-    let scopes = if caller_restricted {
-        let parsed = reqwest::Url::parse(url)
-            .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
-        let scope =
-            windmill_api_auth::scopes::scope_for_route(method, parsed.path()).ok_or_else(|| {
-                ErrorData::internal_error(
-                    "Could not derive route scope for proxied MCP endpoint".to_string(),
-                    None,
-                )
-            })?;
-        Some(vec![scope])
-    } else {
-        None
-    };
+    // Scope the minted JWT to the proxied route so a scope-restricted MCP token
+    // can't be widened into a full-privilege blank check. See
+    // `jwt_scopes_for_proxied_route`.
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
+    let scopes = jwt_scopes_for_proxied_route(api_authed.scopes.as_deref(), method, parsed.path())?;
 
     // Add authorization header
     let authed = Authed::from(api_authed.clone());
@@ -578,6 +687,113 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn scopes(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn proxy_jwt_unscoped_caller_keeps_none() {
+        // No scopes, or filter-tags-only, is treated as unscoped -> unscoped JWT.
+        assert_eq!(
+            jwt_scopes_for_proxied_route(None, "GET", "/api/w/ws/variables/get/u/a/b").unwrap(),
+            None
+        );
+        let ft = scopes(&["if_jobs:filter_tags:foo"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&ft), "GET", "/api/w/ws/variables/get/u/a/b")
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_bare_mcp_token_falls_back_to_route_scope() {
+        // A token whose only authority is its mcp: scope has no variables route
+        // scope, so the JWT gets a least-privilege route scope for this request.
+        let s = scopes(&["mcp:endpoints:getVariable"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&s), "GET", "/api/w/ws/variables/get/u/admin/secret")
+                .unwrap(),
+            Some(scopes(&["variables:read"]))
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_raw_app_create_needs_the_tool_named() {
+        // Same as the update route: creating an app compiles its sources too.
+        let route = "/api/w/ws/apps/create_raw_source";
+        let named = scopes(&["mcp:endpoints:createApp"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&named), "POST", route).unwrap(),
+            Some(scopes(&["apps:write", "jobs:run"]))
+        );
+        let implicit = scopes(&["mcp:all"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&implicit), "POST", route).unwrap(),
+            Some(scopes(&["apps:write"]))
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_raw_app_source_deploy_needs_the_tool_named() {
+        // The handler requires jobs:run as well: compiling an app's sources runs
+        // its dependencies on a worker. It goes in the per-request JWT, not on the
+        // token — the token stays mcp:-only and so can't reach /jobs/run/preview —
+        // and only for a token that named this tool. The defaults (mcp:favorites
+        // on create, mcp:all through OAuth) reach every endpoint without naming
+        // one, and must not carry a capability their consent screen never showed.
+        let route = "/api/w/ws/apps/update_raw_source/u/admin/app";
+        let named = scopes(&["mcp:endpoints:listScripts,updateApp"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&named), "POST", route).unwrap(),
+            Some(scopes(&["apps:write", "jobs:run"]))
+        );
+        for implicit in [
+            scopes(&["mcp:all"]),
+            scopes(&["mcp:favorites"]),
+            scopes(&["mcp:endpoints:*"]),
+        ] {
+            assert_eq!(
+                jwt_scopes_for_proxied_route(Some(&implicit), "POST", route).unwrap(),
+                Some(scopes(&["apps:write"])),
+                "a token that never named the tool must not get jobs:run"
+            );
+        }
+        // A runnable path is caller-chosen, so it must not select the extras of a
+        // route it merely spells out.
+        assert_eq!(
+            jwt_scopes_for_proxied_route(
+                Some(&named),
+                "POST",
+                "/api/w/ws/jobs/run/p/f/apps/update_raw_source/x"
+            )
+            .unwrap(),
+            Some(scopes(&["jobs:run:scripts"]))
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_mixed_token_passes_through_caller_route_scope() {
+        // The caller's route scope is preserved so the target handler's per-path
+        // check_scopes enforces the cap; the coarse route match here is path-blind.
+        let s = scopes(&["mcp:endpoints:getVariable", "variables:read:u/admin/safe/*"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&s), "GET", "/api/w/ws/variables/get/u/admin/secret")
+                .unwrap(),
+            Some(s.clone())
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_run_script_bare_mcp_falls_back_to_jobs_run_scripts() {
+        let s = scopes(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&s), "POST", "/api/w/ws/jobs/run/p/f/team/deploy")
+                .unwrap(),
+            Some(scopes(&["jobs:run:scripts"]))
+        );
+    }
+
     #[test]
     fn build_request_body_passthrough_forwards_script_args_minus_path() {
         // runScriptByPath-shaped body: additionalProperties, no declared props.
@@ -627,6 +843,60 @@ mod tests {
         assert!(
             !obj.contains_key("sneaky"),
             "undeclared args must be dropped"
+        );
+    }
+
+    // updateFlow-shaped: `path` is both a path parameter and a body field. The path
+    // parameter keeps the plain name; only the body side is mangled.
+    fn update_flow_schemas() -> (Option<Value>, Option<Value>, Option<Value>) {
+        (
+            Some(json!({
+                "type": "object",
+                "properties": { "path": { "type": "string" } },
+                "required": ["path"]
+            })),
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string" },
+                    "value": { "type": "object" },
+                    "path__body": { "type": "string" }
+                },
+                "required": ["summary", "value"]
+            })),
+            Some(json!({ "path__body": "path" })),
+        )
+    }
+
+    #[test]
+    fn build_request_body_maps_body_path_alias_for_rename() {
+        // The mangled body field carries the *new* path when renaming; it must reach the
+        // API under its original name `path`. (An omitted `path__body` is intentionally
+        // absent from the body; the server defaults it from the URL path parameter.)
+        let (path_schema, body_schema, body_renames) = update_flow_schemas();
+        let args: serde_json::Map<String, Value> = json!({
+            "path": "f/team/my_flow",
+            "path__body": "f/team/renamed_flow",
+            "summary": "s",
+            "value": {}
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let body = build_request_body(
+            "POST",
+            &args,
+            &body_schema,
+            &body_renames,
+            &path_schema,
+            &None,
+        )
+        .expect("body should be built");
+        assert_eq!(
+            body.as_object().unwrap().get("path"),
+            Some(&json!("f/team/renamed_flow")),
+            "path__body must be sent as `path` so a rename takes effect"
         );
     }
 
@@ -700,7 +970,6 @@ mod tests {
             "dev",
             &args,
             &path_schema,
-            &None,
         );
         assert!(
             result.is_err(),
@@ -722,7 +991,6 @@ mod tests {
             "dev",
             &args,
             &path_schema,
-            &None,
         )
         .expect("legitimate path should substitute");
         assert_eq!(result, "/w/dev/scripts/get/p/u/alice/my_script");
@@ -776,6 +1044,62 @@ mod tests {
         assert_eq!(
             build_query_string(&args, &single_query_schema("path"), &None),
             "?path=u%2Falice%2Fmy%20script"
+        );
+    }
+
+    fn strings(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn scope_patterns_condition_wildcard_disables_filter() {
+        // A `*` pattern grants everything, so no SQL condition should be added.
+        assert_eq!(scope_patterns_condition(&strings(&["*"])), None);
+        assert_eq!(scope_patterns_condition(&strings(&["f/team/*", "*"])), None);
+    }
+
+    #[test]
+    fn scope_patterns_condition_empty_matches_nothing() {
+        // An empty pattern list grants no items of this type.
+        assert_eq!(scope_patterns_condition(&[]), Some("false".to_string()));
+    }
+
+    #[test]
+    fn scope_patterns_condition_exact_path() {
+        assert_eq!(
+            scope_patterns_condition(&strings(&["u/admin/my_script"])),
+            Some("(o.path = 'u/admin/my_script')".to_string())
+        );
+    }
+
+    #[test]
+    fn scope_patterns_condition_subtree() {
+        // `f/team/*` matches the folder itself or anything beneath it, mirroring
+        // resource_matches_pattern. Underscores in the prefix are LIKE-escaped.
+        assert_eq!(
+            scope_patterns_condition(&strings(&["f/team/*"])),
+            Some("((o.path = 'f/team' OR o.path LIKE 'f/team/%' ESCAPE '\\'))".to_string())
+        );
+    }
+
+    #[test]
+    fn scope_patterns_condition_mixed_ored() {
+        assert_eq!(
+            scope_patterns_condition(&strings(&["u/admin/one", "f/team/*"])),
+            Some(
+                "(o.path = 'u/admin/one' OR (o.path = 'f/team' OR o.path LIKE 'f/team/%' ESCAPE '\\'))"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn scope_patterns_condition_escapes_like_wildcards() {
+        // A subtree prefix containing `%`/`_` must be escaped so it isn't treated
+        // as a LIKE pattern; the exact-match arm is quoted verbatim by bind.
+        assert_eq!(
+            scope_patterns_condition(&strings(&["f/a_b/*"])),
+            Some("((o.path = 'f/a_b' OR o.path LIKE 'f/a\\_b/%' ESCAPE '\\'))".to_string())
         );
     }
 }

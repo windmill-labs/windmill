@@ -77,9 +77,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Node 22.19+ is required by the frontend's undici 8.x, which the
+          # Node 24 ships npm 11, which frontend/package-lock.json is authored
+          # with; npm 10 rejects it ("Missing: picomatch@4.0.5 from lock file").
+          # Node must also stay >= 22.19 for the frontend's undici 8.x, which the
           # Vitest bridge loads; Node 20 fails with markAsUncloneable.
-          node-version: "22"
+          node-version: "24"
 
       # CE build used only as the AI proxy (login, workspace, provider resource,
       # /ai/proxy). No worker execution or MCP needed — global tools/drafts run
@@ -115,6 +117,12 @@ jobs:
         run: |
           npm ci
           npm run generate-backend-client
+
+      - name: Run harness unit tests
+        working-directory: ./ai_evals
+        run: |
+          bun install
+          bun test adapters/
 
       - name: Run global AI evals
         timeout-minutes: 20

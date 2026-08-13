@@ -137,6 +137,11 @@ export type RawAppRunSummary = {
 }
 export type RawAppRunsProvider = () => RawAppRunSummary[] | undefined
 
+/** Capture the live raw-app preview as a PNG data URL. Rejects when the preview
+ * isn't ready. Registered by the editor, dispatched by the session runtime for the
+ * global `take_screenshot` tool. */
+export type RawAppScreenshotRequester = () => Promise<string>
+
 export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
 	return JSON.stringify(runs, null, 2)
 }
@@ -167,7 +172,7 @@ export function unsandboxedRawAppHtml(
 	<title>App</title>
 	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
 	<script>
-		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
+		window.ctx = ${ctx ? JSON.stringify(ctx).replace(/</g, '\\u003c') : 'undefined'};
 		(function () {
 			// Keep the parent URL hash in sync for shareable URLs.
 			function notifyParent() {

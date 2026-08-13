@@ -3,11 +3,11 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import SessionStatusPopover from '$lib/components/sessions/SessionStatusPopover.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
-	import { ChevronUp, ExternalLink, Hourglass, ThumbsUp, TimerOff } from 'lucide-svelte'
+	import { ChevronUp, Hourglass, ThumbsUp, TimerOff } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import { slide } from 'svelte/transition'
 	import { JobService, type Job } from '$lib/gen'
@@ -15,6 +15,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { deriveChatJobStatus, type ChatJob, type ChatJobStatus } from './shared'
+	import { TOKEN_TRIGGER_CLASS } from '$lib/components/sessions/SessionStatusToken.svelte'
 
 	// The "Jobs" segment of the session bar: a compact status chip that summarizes
 	// the background jobs the chat started, opening a popover with the full list
@@ -31,8 +32,21 @@
 	const queuedCount = $derived(
 		jobs.filter((j) => j.status === 'queued' || j.status === 'scheduled').length
 	)
-	const failureCount = $derived(jobs.filter((j) => j.status === 'failure').length)
-	const successCount = $derived(jobs.filter((j) => j.status === 'success').length)
+	// A finished job counts as reviewed once its terminal status has been shown in
+	// the open popover; a job that finishes while the popover is closed starts
+	// unreviewed. The flag lives on the job (persisted with it), so review state
+	// survives a reload.
+	$effect(() => {
+		if (!open) return
+		aiChatManager.markJobsReviewed(jobs.filter((j) => isTerminal(j.status)).map((j) => j.jobId))
+	})
+	// Only unreviewed jobs feed the terminal readout: an outcome the user already
+	// saw must not resurface on the chip when a later job finishes.
+	const unreviewed = $derived(jobs.filter((j) => !j.reviewed))
+	const allReviewed = $derived(jobs.length > 0 && unreviewed.length === 0)
+
+	const failureCount = $derived(unreviewed.filter((j) => j.status === 'failure').length)
+	const successCount = $derived(unreviewed.filter((j) => j.status === 'success').length)
 	const liveCount = $derived(jobs.filter((j) => !isTerminal(j.status)).length)
 	const hasLive = $derived(liveCount > 0)
 
@@ -69,9 +83,18 @@
 
 	// Aggregate chip readout, priority-ordered so the most action-worthy state
 	// wins the dot: approval > running > queued > failed > succeeded. A live run
-	// takes the dot even if an earlier job failed (failure resurfaces once idle).
+	// takes the dot even if an earlier job failed (an unreviewed failure
+	// resurfaces once idle). Once every finished job has been reviewed in the
+	// popover, the chip relaxes to a neutral executed-count.
 	const segment = $derived.by(
 		(): { dot: string; pulse: boolean; text: string; danger: boolean } => {
+			if (allReviewed)
+				return {
+					dot: 'bg-gray-400',
+					pulse: false,
+					text: `${jobs.length} job${jobs.length === 1 ? '' : 's'} executed`,
+					danger: false
+				}
 			if (approvalCount > 0)
 				return {
 					dot: dotClass('suspended'),
@@ -104,12 +127,27 @@
 					danger: false
 				}
 			if (failureCount > 0)
-				return { dot: dotClass('failure'), pulse: false, text: `${jobs.length}`, danger: true }
-			// All terminal, none failed: green if anything actually succeeded, else gray
-			// (only canceled jobs left — a cancel isn't a success, so don't show green).
+				return {
+					dot: dotClass('failure'),
+					pulse: false,
+					text: `${failureCount} failed`,
+					danger: true
+				}
+			// All terminal, nothing unreviewed failed: green if anything unreviewed
+			// succeeded, else gray (only canceled left — a cancel isn't a success).
 			if (successCount > 0)
-				return { dot: dotClass('success'), pulse: false, text: `${jobs.length}`, danger: false }
-			return { dot: dotClass('canceled'), pulse: false, text: `${jobs.length}`, danger: false }
+				return {
+					dot: dotClass('success'),
+					pulse: false,
+					text: `${successCount} succeeded`,
+					danger: false
+				}
+			return {
+				dot: dotClass('canceled'),
+				pulse: false,
+				text: `${unreviewed.length} canceled`,
+				danger: false
+			}
 		}
 	)
 
@@ -191,7 +229,6 @@
 	}
 
 	// --- Popover open state + auto-open on approval ---
-	let popover: Popover | undefined = $state()
 	let open = $state(false)
 
 	// A job entering the approval state needs attention, so open the popover to
@@ -200,7 +237,7 @@
 	let prevApprovalCount = 0
 	$effect(() => {
 		const count = approvalCount
-		if (count > prevApprovalCount) popover?.open()
+		if (count > prevApprovalCount) open = true
 		prevApprovalCount = count
 	})
 
@@ -256,26 +293,33 @@
 	     even when the chip's visual change alone wouldn't be. role="status" already
 	     implies aria-live="polite". -->
 	<div class="sr-only" role="status">{announcement}</div>
-	<Popover
-		bind:this={popover}
-		bind:isOpen={open}
-		placement="top-end"
-		enableFlyTransition
+	<SessionStatusPopover
+		bind:open
+		label="Jobs"
+		{ariaLabel}
+		title="Jobs this session"
+		items={sortedJobs}
+		itemKey={(job) => job.jobId}
+		rowTitle={(job) => job.label}
+		onPick={openRun}
+		placement={standalone ? 'top-end' : 'top-start'}
 		usePointerDownOutside
-		class={standalone
+		closeOnOtherPopoverOpen={!standalone}
+		triggerClass={standalone
 			? 'flex h-[34px] w-full items-center rounded-md border bg-surface-tertiary px-3 hover:bg-surface-hover'
-			: 'flex h-full items-center px-3.5 hover:bg-surface-hover'}
-		triggerAttrs={{ 'aria-label': ariaLabel, 'aria-haspopup': 'dialog' }}
-		contentClasses="!bg-surface"
+			: TOKEN_TRIGGER_CLASS}
+		maxHeightClass={standalone ? 'max-h-[50vh]' : 'max-h-[min(12rem,50vh)]'}
 	>
-		{#snippet trigger()}
+		{#snippet customTrigger()}
 			<span class="flex min-w-0 items-center gap-2 text-xs">
-				<span class="shrink-0 font-normal text-primary">Jobs</span>
+				{#if standalone}
+					<span class="shrink-0 font-normal text-primary">Jobs</span>
+				{/if}
 				<span
 					class={`size-[7px] shrink-0 rounded-full ${segment.dot} ${segment.pulse ? 'motion-safe:animate-pulse' : ''}`}
 				></span>
 				<span
-					class={`min-w-0 truncate font-normal ${runningJob ? 'text-2xs' : 'text-xs'} ${segment.danger ? 'text-red-500' : 'text-primary'}`}
+					class={`min-w-0 truncate font-normal ${runningJob ? 'text-2xs' : 'text-xs'} ${segment.danger ? 'text-red-500' : standalone ? 'text-primary' : 'text-secondary'}`}
 					title={runningJob?.label ?? undefined}
 					dir={runningJob ? 'rtl' : undefined}
 				>
@@ -294,62 +338,42 @@
 				{/if}
 				<ChevronUp
 					size={14}
-					class={`shrink-0 text-secondary transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+					class={`shrink-0 ${standalone ? 'text-secondary' : 'text-tertiary'} transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
 				/>
 			</span>
 		{/snippet}
 
-		{#snippet content()}
-			<div class="flex max-h-[50vh] w-80 flex-col text-xs">
-				<div class="border-b px-3 py-2 text-tertiary">Jobs this session</div>
-				<div class="min-h-0 flex-1 overflow-y-auto py-1">
-					{#each sortedJobs as job (job.jobId)}
-						<div class="flex items-center gap-2.5 px-3 py-1.5">
-							{#if job.status === 'queued' || !job.job}
-								<!-- Queued: match the job detail page's orange badge (JobStatusIcon's
-								     default queued badge is gray). Also covers the pre-first-fetch state. -->
-								<Badge color="orange" baseClass="!px-1.5" title="Queued"
-									><Hourglass size={13} /></Badge
-								>
-							{:else}
-								<JobStatusIcon job={job.job} />
-							{/if}
-							<span class="min-w-0 grow truncate text-secondary" title={job.label}>{job.label}</span
-							>
-							<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
-							<div class="flex shrink-0 items-center gap-1.5">
-								{#if job.status === 'suspended'}
-									<Button
-										unifiedSize="xs"
-										variant="accent"
-										startIcon={{ icon: ThumbsUp }}
-										on:click={() => openApproval(job)}>Approve</Button
-									>
-								{/if}
-								{#if !isTerminal(job.status)}
-									<Button
-										unifiedSize="xs"
-										variant="accent"
-										destructive
-										startIcon={{ icon: TimerOff }}
-										on:click={() => aiChatManager.cancelJob(job.jobId)}>Cancel</Button
-									>
-								{/if}
-								<Button
-									iconOnly
-									unifiedSize="xs"
-									variant="subtle"
-									startIcon={{ icon: ExternalLink }}
-									title="Open the run"
-									on:click={() => openRun(job)}
-								/>
-							</div>
-						</div>
-					{/each}
-				</div>
-			</div>
+		{#snippet row(job)}
+			{#if job.status === 'queued' || !job.job}
+				<!-- Queued: match the job detail page's orange badge (JobStatusIcon's
+				     default queued badge is gray). Also covers the pre-first-fetch state. -->
+				<Badge color="orange" baseClass="!px-1.5" title="Queued"><Hourglass size={13} /></Badge>
+			{:else}
+				<JobStatusIcon job={job.job} />
+			{/if}
+			<span class="min-w-0 grow truncate text-primary">{job.label}</span>
+			<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
 		{/snippet}
-	</Popover>
+		{#snippet actions(job)}
+			{#if job.status === 'suspended'}
+				<Button
+					unifiedSize="xs"
+					variant="accent"
+					startIcon={{ icon: ThumbsUp }}
+					on:click={() => openApproval(job)}>Approve</Button
+				>
+			{/if}
+			{#if !isTerminal(job.status)}
+				<Button
+					unifiedSize="xs"
+					variant="accent"
+					destructive
+					startIcon={{ icon: TimerOff }}
+					on:click={() => aiChatManager.cancelJob(job.jobId)}>Cancel</Button
+				>
+			{/if}
+		{/snippet}
+	</SessionStatusPopover>
 
 	<!-- Portal to <body> + a z-index above the editor: opened from deep in the
 	     sessions chat column, the modal would otherwise be trapped below the
