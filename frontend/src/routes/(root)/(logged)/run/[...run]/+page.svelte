@@ -91,6 +91,7 @@
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { getJobStatusKind, resetFavicon, setStatusFavicon } from '$lib/favicon'
 
@@ -941,6 +942,18 @@
 							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
+						{#if showEditButton}
+							<!-- Opens the deployed runnable at this job's path, like Edit — unlike
+							     "View script", which pins the hash this run executed. Same gate as
+							     Edit: where direct deployment is off, the way in is "Edit in fork". -->
+							<OpenInSessionButton
+								source={{
+									target: { kind: isScript ? 'script' : 'flow', path: job?.script_path ?? '' },
+									workspaceId: $workspaceStore ?? undefined
+								}}
+								btnProps={{ unifiedSize: 'md' }}
+							/>
+						{/if}
 					{/if}
 					{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
 						<Button

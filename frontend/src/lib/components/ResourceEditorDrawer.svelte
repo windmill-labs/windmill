@@ -8,6 +8,13 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
+	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
+	import {
+		clearPageDrawerAnchor,
+		pageDrawerSessionSource,
+		setPageDrawerAnchor
+	} from './sessions/pageDrawerSession'
+	import { RESOURCES_PATH } from './sessions/previewPaths'
 	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
 
 	let {
@@ -53,6 +60,7 @@
 		path = p
 		selected = effectiveWorkspace
 		drawer?.openDrawer?.()
+		setPageDrawerAnchor(RESOURCES_PATH, p)
 	}
 
 	export async function initNew(
@@ -67,9 +75,20 @@
 	}
 
 	let mode: 'edit' | 'new' = $derived(!path ? 'new' : 'edit')
+
+	// `selected`, not `effectiveWorkspace`: WsSpecificVersions re-points this drawer
+	// at another workspace's version, and the session must act on the one shown.
+	const sessionSource = $derived(
+		pageDrawerSessionSource(RESOURCES_PATH, path, selected ?? effectiveWorkspace)
+	)
 </script>
 
-<Drawer bind:this={drawer} size="50rem" {disableChatOffset}>
+<Drawer
+	bind:this={drawer}
+	size="50rem"
+	{disableChatOffset}
+	on:close={() => clearPageDrawerAnchor(RESOURCES_PATH)}
+>
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
 		bannerReserved={mode == 'edit'}
@@ -102,6 +121,7 @@
 			/>
 		{/snippet}
 		{#snippet actions()}
+			<OpenInSessionButton source={sessionSource} />
 			{#if mode == 'edit' && path && effectiveWorkspace}
 				<Button
 					variant="default"

@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.789.0](https://github.com/windmill-labs/windmill/compare/v1.788.0...v1.789.0) (2026-08-13)
+
+
+### Features
+
+* add EXIT_AFTER_N_JOBS worker mode for environment cleanup ([#10671](https://github.com/windmill-labs/windmill/issues/10671)) ([2fcce45](https://github.com/windmill-labs/windmill/commit/2fcce4526a239437221e37cfd4adfd4da616cf19))
+* add memory limits to the go build subprocess ([#10666](https://github.com/windmill-labs/windmill/issues/10666)) ([4cb51cf](https://github.com/windmill-labs/windmill/commit/4cb51cf7bc6aa869efd055cb459ac3a58a6e0e7b))
+* auto-build binaries to object storage on deployment ([#10673](https://github.com/windmill-labs/windmill/issues/10673)) ([71b9989](https://github.com/windmill-labs/windmill/commit/71b9989daa9c450faa00ec2605c77e0457d820d6))
+* open an AI session from runs, jobs and trigger pages ([#10608](https://github.com/windmill-labs/windmill/issues/10608)) ([adc7947](https://github.com/windmill-labs/windmill/commit/adc7947579090d9695c17144e07d3b8d130818c1))
+
+
+### Bug Fixes
+
+* expand AZURE_DEVOPS_TOKEN placeholder in backend git probes ([#10677](https://github.com/windmill-labs/windmill/issues/10677)) ([2714210](https://github.com/windmill-labs/windmill/commit/2714210d7c74aa9375ecbb8742e16d007d991ea4))
+* **flow:** pass the flow's worker tag when testing a loop iteration ([#10680](https://github.com/windmill-labs/windmill/issues/10680)) ([6fbc3fc](https://github.com/windmill-labs/windmill/commit/6fbc3fccb607a8d80885f0face284c01871a3162))
+* git sync missed metadata-only deploys, deploy check missed job link ([#10662](https://github.com/windmill-labs/windmill/issues/10662)) ([93b811f](https://github.com/windmill-labs/windmill/commit/93b811fd8d007e2aa715b458194cfdc35a0bb1d6))
+* **github-app:** complete the self-managed setup instructions, render the page header ([#10683](https://github.com/windmill-labs/windmill/issues/10683)) ([ef99a73](https://github.com/windmill-labs/windmill/commit/ef99a739dda73fba60df011e34981c2cb5e23a3c))
+* stream ansible playbook logs in real time ([#10669](https://github.com/windmill-labs/windmill/issues/10669)) ([dad4c10](https://github.com/windmill-labs/windmill/commit/dad4c10c8b06ce72d8d808ceea95c7d8efa4918d))
+
 ## [1.788.0](https://github.com/windmill-labs/windmill/compare/v1.787.0...v1.788.0) (2026-08-12)
 
 
