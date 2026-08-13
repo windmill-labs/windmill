@@ -4,7 +4,7 @@ import {
 	describeLocation,
 	draftFriendlyLeaf,
 	drawerAnchorFor,
-	sameView,
+	showsView,
 	itemDisplayName,
 	matchReusablePage,
 	parseArtifactRoute,
@@ -35,28 +35,28 @@ describe('drawerAnchorFor', () => {
 describe('describeLocation', () => {
 	it('reads a query param as the view only when a request could have set it', () => {
 		// Runs: the filters are what the tab shows.
-		expect(sameView('/runs?path=u/me/a', '/runs')).toBe(false)
+		expect(showsView('/runs?path=u/me/a', '/runs')).toBe(false)
 		// A list page writes its own defaults back; that is not a different view.
 		expect(describeLocation('/routes?filter_path_of=trigger').view).toBe('')
-		expect(sameView('/routes', '/routes?filter_path_of=trigger')).toBe(true)
-		expect(sameView('/runs?path=a', '/runs?path=b')).toBe(false)
+		expect(showsView('/routes', '/routes?filter_path_of=trigger')).toBe(true)
+		expect(showsView('/runs?path=a', '/runs?path=b')).toBe(false)
 	})
 
 	it('separates the two authors on a page that has both', () => {
 		// Audit logs page itself its paging, while a request sets the filters. Reading
 		// its paging as the view makes re-opening the page look like a navigation away
 		// and reload it, throwing away wherever the user had paged to.
-		expect(sameView('/audit_logs', '/audit_logs?page=1&perPage=100')).toBe(true)
-		expect(sameView('/audit_logs?username=a', '/audit_logs?username=b')).toBe(false)
+		expect(showsView('/audit_logs', '/audit_logs?page=1&perPage=100')).toBe(true)
+		expect(showsView('/audit_logs?username=a', '/audit_logs?username=b')).toBe(false)
 	})
 
 	it('counts every filter its page offers, not just the ones the chat can set', () => {
 		// The names come from each page's own filter schema. A filter the user sets in the
 		// frame but the chat cannot request is still the view they chose, so leaving it out
 		// would let a filtered tab answer a request for the unfiltered page.
-		expect(sameView('/variables', '/variables?description=api')).toBe(false)
-		expect(sameView('/resources', '/resources?label=prod')).toBe(false)
-		expect(sameView('/assets', '/assets?asset_kinds=s3')).toBe(false)
+		expect(showsView('/variables', '/variables?description=api')).toBe(false)
+		expect(showsView('/resources', '/resources?label=prod')).toBe(false)
+		expect(showsView('/assets', '/assets?asset_kinds=s3')).toBe(false)
 	})
 
 	it('counts a filter only some viewers can reach', () => {
@@ -64,15 +64,30 @@ describe('describeLocation', () => {
 		// Runs entry point carries the live query into the preview wholesale. Left out of
 		// the vocabulary it reads as the page's own, and an all-workspaces tab would
 		// answer a request for the workspace-scoped view.
-		expect(sameView('/runs?all_workspaces=true', '/runs')).toBe(false)
-		expect(sameView('/schedules?user_folders_only=true', '/schedules')).toBe(false)
+		expect(showsView('/runs?all_workspaces=true', '/runs')).toBe(false)
+		expect(showsView('/schedules?user_folders_only=true', '/schedules')).toBe(false)
+	})
+
+	it('lets a page restore a filter the request never mentioned', () => {
+		// Runs seeds `job_trigger_kind` / `show_future_jobs` from the user's stored
+		// preference whenever the URL it loads with is silent about them. Reading that as
+		// another view reloads the tab onto a page that seeds it right back.
+		expect(showsView('/runs?job_trigger_kind=!schedule', '/runs')).toBe(true)
+		expect(showsView('/runs?show_future_jobs=false', '/runs')).toBe(true)
+		// One direction only: a request that names one still has to reach a frame showing
+		// something else, and the concession is per page — nothing seeds these elsewhere.
+		expect(showsView('/runs', '/runs?job_trigger_kind=schedule')).toBe(false)
+		expect(showsView('/runs?job_trigger_kind=!schedule', '/runs?job_trigger_kind=schedule')).toBe(
+			false
+		)
+		expect(showsView('/runs?job_trigger_kind=!schedule&path=a', '/runs')).toBe(false)
 	})
 
 	it('keeps a requested filter a different view on a page that writes none', () => {
 		// Schedules never rewrites its own query, so a requested filter is the whole
 		// difference — treating it as page state drops the filter and reports success.
-		expect(sameView('/schedules', '/schedules?path=u/me/daily')).toBe(false)
-		expect(sameView('/variables', '/variables?owner=u/me')).toBe(false)
+		expect(showsView('/schedules', '/schedules?path=u/me/daily')).toBe(false)
+		expect(showsView('/variables', '/variables?owner=u/me')).toBe(false)
 	})
 
 	it('reads the hash as a row only where the page deep-links rows', () => {
@@ -80,27 +95,27 @@ describe('describeLocation', () => {
 		expect(describeLocation('/resources#/resource/u/me/db').anchor).toBe('u/me/db')
 		// A legacy app hands its hash to the app as `context.hash`.
 		expect(describeLocation('/apps/edit/u/me/dash#tab=2').anchor).toBe('')
-		expect(sameView('/apps/edit/u/me/dash', '/apps/edit/u/me/dash#tab=2')).toBe(true)
+		expect(showsView('/apps/edit/u/me/dash', '/apps/edit/u/me/dash#tab=2')).toBe(true)
 	})
 
 	it('keeps an artifact addressed by id, not by URL grammar', () => {
 		// `new URL` parses `artifact:` as a scheme and would drop it.
 		expect(describeLocation('artifact:abc-123#My Doc').identity).toBe('artifact:abc-123')
-		expect(sameView('artifact:abc-123#Old name', 'artifact:abc-123#New name')).toBe(true)
-		expect(sameView('artifact:abc-123', 'artifact:def-456')).toBe(false)
+		expect(showsView('artifact:abc-123#Old name', 'artifact:abc-123#New name')).toBe(true)
+		expect(showsView('artifact:abc-123', 'artifact:def-456')).toBe(false)
 	})
 
 	it('keeps a value holding a delimiter apart from two filters', () => {
 		// Decoded, one `arg` whose value is `x&result=y` reads exactly like `arg` plus
 		// `result` — collapsing them focuses the open tab and drops the filter asked for.
-		expect(sameView('/runs?arg=x%26result%3Dy', '/runs?arg=x&result=y')).toBe(false)
+		expect(showsView('/runs?arg=x%26result%3Dy', '/runs?arg=x&result=y')).toBe(false)
 		// The re-encoding a page does to what it was handed is still not a change of view.
-		expect(sameView('/runs?path=f/crm/x', '/runs?path=f%2Fcrm%2Fx')).toBe(true)
+		expect(showsView('/runs?path=f/crm/x', '/runs?path=f%2Fcrm%2Fx')).toBe(true)
 	})
 
 	it('ignores the params the preview host injects, and param order', () => {
-		expect(sameView('/runs?path=a', '/runs?path=a&nomenubar=true&workspace=ws')).toBe(true)
-		expect(sameView('/runs?path=a&status=running', '/runs?status=running&path=a')).toBe(true)
+		expect(showsView('/runs?path=a', '/runs?path=a&nomenubar=true&workspace=ws')).toBe(true)
+		expect(showsView('/runs?path=a&status=running', '/runs?status=running&path=a')).toBe(true)
 	})
 })
 

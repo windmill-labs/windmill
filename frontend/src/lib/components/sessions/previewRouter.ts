@@ -1,4 +1,34 @@
-import { base } from '$lib/base'
+import {
+	ASSETS_PATH,
+	AUDIT_LOGS_PATH,
+	FOLDERS_PATH,
+	GROUPS_PATH,
+	pageKey,
+	pageHref,
+	parsePreviewItemRoute,
+	RESOURCES_PATH,
+	RUNS_PATH,
+	SCHEDULES_PATH,
+	stripBase,
+	VARIABLES_PATH,
+	WORKSPACE_SETTINGS_PATH,
+	triggerLabelForPath,
+	TRIGGER_PAGES,
+	type PreviewItemRoute,
+	type TriggerKind
+} from './previewPaths'
+// Re-exported so the preview code that already reads locations through this module keeps
+// one import, while a caller needing only a path can reach for the leaf instead.
+export {
+	pageKey,
+	pageHref,
+	parsePreviewItemRoute,
+	stripBase,
+	triggerLabelForPath,
+	TRIGGER_PAGES,
+	type PreviewItemRoute,
+	type TriggerKind
+}
 import {
 	Home,
 	Play,
@@ -20,7 +50,7 @@ import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesF
 import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
 import { COMPARE_ITEMS_PARAM } from './modifiedItemsMask'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
-import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
+import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
 /** What the preview breadcrumb picker can route to: a static workspace page
@@ -38,53 +68,16 @@ export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 // EE/feature gating in SidebarContent and aren't worth duplicating here).
 export const PREVIEW_PAGES: PreviewPage[] = [
 	{ label: 'Home', path: '/', icon: Home },
-	{ label: 'Runs', path: '/runs', icon: Play },
-	{ label: 'Variables', path: '/variables', icon: DollarSign },
-	{ label: 'Resources', path: '/resources', icon: Boxes },
-	{ label: 'Schedules', path: '/schedules', icon: Calendar },
-	{ label: 'Assets', path: '/assets', icon: Database },
-	{ label: 'Folders', path: '/folders', icon: FolderOpen },
-	{ label: 'Groups', path: '/groups', icon: Users },
-	{ label: 'Workspace settings', path: '/workspace_settings', icon: Settings },
-	{ label: 'Audit logs', path: '/audit_logs', icon: ScrollText }
+	{ label: 'Runs', path: RUNS_PATH, icon: Play },
+	{ label: 'Variables', path: VARIABLES_PATH, icon: DollarSign },
+	{ label: 'Resources', path: RESOURCES_PATH, icon: Boxes },
+	{ label: 'Schedules', path: SCHEDULES_PATH, icon: Calendar },
+	{ label: 'Assets', path: ASSETS_PATH, icon: Database },
+	{ label: 'Folders', path: FOLDERS_PATH, icon: FolderOpen },
+	{ label: 'Groups', path: GROUPS_PATH, icon: Users },
+	{ label: 'Workspace settings', path: WORKSPACE_SETTINGS_PATH, icon: Settings },
+	{ label: 'Audit logs', path: AUDIT_LOGS_PATH, icon: ScrollText }
 ]
-
-// Trigger list pages, by kind. Deliberately kept out of PREVIEW_PAGES (the curated
-// breadcrumb picker) but shared here so open_page can route to them and the preview tab
-// can label them. `ee` kinds require an enterprise license. Each supports `#<path>` to
-// open a specific trigger, like Schedules.
-export type TriggerKind =
-	| 'http'
-	| 'websocket'
-	| 'postgres'
-	| 'kafka'
-	| 'nats'
-	| 'sqs'
-	| 'gcp'
-	| 'azure'
-	| 'mqtt'
-	| 'amqp'
-	| 'email'
-
-export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; ee?: boolean }> = {
-	http: { path: '/routes', label: 'HTTP routes' },
-	websocket: { path: '/websocket_triggers', label: 'WebSocket triggers' },
-	postgres: { path: '/postgres_triggers', label: 'Postgres triggers' },
-	kafka: { path: '/kafka_triggers', label: 'Kafka triggers', ee: true },
-	nats: { path: '/nats_triggers', label: 'NATS triggers', ee: true },
-	sqs: { path: '/sqs_triggers', label: 'SQS triggers', ee: true },
-	gcp: { path: '/gcp_triggers', label: 'GCP Pub/Sub triggers', ee: true },
-	azure: { path: '/azure_triggers', label: 'Azure Event Grid triggers', ee: true },
-	mqtt: { path: '/mqtt_triggers', label: 'MQTT triggers' },
-	amqp: { path: '/amqp_triggers', label: 'AMQP triggers' },
-	email: { path: '/email_triggers', label: 'Email triggers' }
-}
-
-/** Label a trigger list page from its (base-stripped) pathname, or undefined. */
-export function triggerLabelForPath(path: string): string | undefined {
-	const clean = stripBase(path)
-	return Object.values(TRIGGER_PAGES).find((t) => t.path === clean)?.label
-}
 
 // The Compare & Deploy review page. Kept out of PREVIEW_PAGES (it's not a picker
 // destination — it's reached through the chat's open_page tool or a session's
@@ -96,22 +89,11 @@ export const COMPARE_PAGE: PreviewPage = {
 	icon: GitCompareArrows
 }
 
-export const pageKey = (path: string) => `page:${path}`
-export const pageHref = (path: string) => `${base}${path}`
-
-/** Strip the deployment base prefix (and any query/hash) from a preview path
- * so it can be matched against `PREVIEW_PAGES` / parsed as an item route. */
-export function stripBase(path: string): string {
-	let p = path.split('?')[0].split('#')[0]
-	if (base && p.startsWith(base)) p = p.slice(base.length)
-	return p || '/'
-}
-
 // Workspace list pages that deep-link one row through the hash. Resources route
 // theirs through an extra `/resource/` segment. Nothing else may be read that way:
 // a legacy drag-and-drop app hands its hash to the app itself as `context.hash`,
 // so treating that as a row would describe app state as a workspace item.
-const DRAWER_ANCHOR_PAGES = ['/schedules', '/variables', '/resources'] as const
+const DRAWER_ANCHOR_PAGES = [SCHEDULES_PATH, VARIABLES_PATH, RESOURCES_PATH] as const
 
 /** The workspace item whose drawer a preview location has open, or undefined when
  * the page doesn't deep-link rows (or none is anchored). Takes the location with
@@ -154,7 +136,7 @@ let requestParams: Record<string, readonly string[]> | undefined
 
 function pageRequestParamTable(): Record<string, readonly string[]> {
 	return (requestParams ??= {
-		'/runs': Object.keys(
+		[RUNS_PATH]: Object.keys(
 			buildRunsFilterSearchbarSchema({
 				paths: [],
 				usernames: [],
@@ -164,13 +146,13 @@ function pageRequestParamTable(): Record<string, readonly string[]> {
 				isAdminsWorkspace: true
 			})
 		),
-		'/schedules': Object.keys(
+		[SCHEDULES_PATH]: Object.keys(
 			buildSchedulesFilterSchema({ paths: [], scriptPaths: [], showUserFoldersFilter: true })
 		),
-		'/variables': Object.keys(
+		[VARIABLES_PATH]: Object.keys(
 			buildVariablesFilterSchema({ paths: [], owners: [], showUserFoldersFilter: true })
 		),
-		'/resources': Object.keys(
+		[RESOURCES_PATH]: Object.keys(
 			buildResourcesFilterSchema({
 				paths: [],
 				resourceTypes: [],
@@ -178,9 +160,9 @@ function pageRequestParamTable(): Record<string, readonly string[]> {
 				showUserFoldersFilter: true
 			})
 		),
-		'/assets': Object.keys(buildAssetsFilterSchema({ paths: [], assetKinds: [] })),
-		'/audit_logs': ['username', 'operation', 'resource'],
-		'/workspace_settings': ['tab'],
+		[ASSETS_PATH]: Object.keys(buildAssetsFilterSchema({ paths: [], assetKinds: [] })),
+		[AUDIT_LOGS_PATH]: ['username', 'operation', 'resource'],
+		[WORKSPACE_SETTINGS_PATH]: ['tab'],
 		[COMPARE_PAGE.path]: ['workspace_id', 'mode', COMPARE_ITEMS_PARAM]
 	})
 }
@@ -231,11 +213,29 @@ function requestedParams(query: string, allowed: readonly string[] | undefined):
 	return parts.sort().join('&')
 }
 
-/** Whether two preview locations show the same thing: same page, view and row. */
-export function sameView(a: string, b: string): boolean {
-	const x = describeLocation(a)
-	const y = describeLocation(b)
-	return x.identity === y.identity && x.view === y.view && x.anchor === y.anchor
+// Params a page restores from the user's stored preference whenever the URL it loads with
+// says nothing about them. Requestable like any other filter, so they stay in the view —
+// but a frame carrying one the request never mentioned is the page's own doing, and
+// loading over it lands on a page that seeds it straight back, scroll position gone.
+const PAGE_SEEDED_PARAMS: Record<string, readonly string[]> = {
+	[RUNS_PATH]: ['job_trigger_kind', 'show_future_jobs']
+}
+
+/** Whether the frame at `observed` is already showing what `commanded` asks for: same
+ * page, same row, and every filter the request names carrying the value it named. */
+export function showsView(observed: string, commanded: string): boolean {
+	const x = describeLocation(observed)
+	const y = describeLocation(commanded)
+	if (x.identity !== y.identity || x.anchor !== y.anchor) return false
+	if (x.view === y.view) return true
+	const seeded = PAGE_SEEDED_PARAMS[x.identity]
+	if (!seeded?.length) return false
+	// One direction only: the page may add what the request left out, never drop what it
+	// asked for. Dropping it in both would let a tab answer a request it does not satisfy.
+	const shown = new URLSearchParams(x.view)
+	const asked = new URLSearchParams(y.view)
+	for (const key of seeded) if (!asked.has(key)) shown.delete(key)
+	return [...shown].sort().join('&') === [...asked].sort().join('&')
 }
 
 // Filters whose value addresses a workspace object — a path, owner, kind, state, time —
@@ -391,22 +391,6 @@ export function itemDisplayName(
 	summary: string | undefined
 ): string | undefined {
 	return summary?.trim() || draftFriendlyLeaf(storagePath, friendlyPath)
-}
-
-export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
-
-// Parse a preview URL/pathname into the workspace item it edits, or null for a
-// non-item page (home, runs, …). Shared by the breadcrumb (drill segments) and
-// the tab resolver below so both agree on what counts as an item route.
-export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null {
-	const p = stripBase(fullPath)
-	const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(?:edit|get)\/(.+)$/)
-	if (!m) return null
-	const itemPath = decodeURIComponent(m[2])
-	if (m[1] === 'scripts') return { kind: 'script', raw_app: false, itemPath }
-	if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath }
-	if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath }
-	return { kind: 'app', raw_app: false, itemPath }
 }
 
 // The place inside a previewed flow editor its tab URL asks for (`?selected=`,

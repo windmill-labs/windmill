@@ -11,7 +11,12 @@
 	} from './sessionState.svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { resolvePreviewTab, parsePreviewItemRoute, parsePreviewSelectedId } from './previewRouter'
+	import {
+		resolvePreviewTab,
+		parsePreviewItemRoute,
+		parsePreviewSelectedId,
+		showsView
+	} from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
@@ -180,22 +185,46 @@
 	// drop that follows the user closing a drawer, where the frame already shows the
 	// target and a fragment removal is a full load, not a same-document move.
 	let lastCommanded = untrack(() => withMenuHidden(tab.url, workspaceId || undefined))
+	// The workspace the frame was last sent to. A session re-scopes — switching workspace
+	// before its first send, or a staged fork becoming the committed one — and the scope
+	// lives in the URL alone, while `showsView` reads it as the noise it is for a location's
+	// meaning. Tracked apart so a re-scope always reaches the frame.
+	let lastScope = untrack(() => workspaceId)
 	$effect(() => {
 		const target = withMenuHidden(tab.url, workspaceId || undefined)
+		const scope = workspaceId
 		const live = mounted
 		untrack(() => {
 			const win = live ? frame?.contentWindow : undefined
 			if (!win) {
 				bootSrc = withMenuHidden(whereIs(tab), workspaceId || undefined)
 				lastCommanded = target
+				lastScope = scope
 				return
 			}
 			if (target === lastCommanded) return
-			lastCommanded = target
+			const rescoped = scope !== lastScope
+			// A frame the user browsed to another origin refuses the read but not the
+			// navigation, and navigating it is the only way back to a Windmill page. So the
+			// command counts as applied once acted on, never before.
+			let here: string | undefined
 			try {
 				const { pathname, search, hash } = win.location
-				if (pathname + search + hash === target) return
+				here = pathname + search + hash
+			} catch {
+				here = undefined
+			}
+			// By view, not by string: a page hands its params back in an order and encoding
+			// of its own, and re-loading the frame over that costs the user their scroll
+			// position and everything else it holds outside the URL.
+			if (!rescoped && here !== undefined && (here === target || showsView(here, target))) {
+				lastCommanded = target
+				return
+			}
+			try {
 				win.location.replace(target)
+				lastCommanded = target
+				lastScope = scope
 			} catch {
 				// Cross-navigation timing — the next command navigates again.
 			}

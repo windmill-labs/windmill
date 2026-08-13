@@ -1089,8 +1089,7 @@ setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
 	const owner = getOrCreateRuntime(session).previewTabs
 	if (owner.tabs.length === 0) return 'The preview panel has no open tabs.'
 
-	const labelFor = (t: (typeof owner.tabs)[number]) =>
-		promptSafe(previewLocationLabel(whereIs(t)))
+	const labelFor = (t: (typeof owner.tabs)[number]) => promptSafe(previewLocationLabel(whereIs(t)))
 	// Resolve the doomed tabs to ids up front — close() re-indexes on each call.
 	const doomed = selectPreviewTabsToClose(owner.tabs, { all, match })
 	if (doomed.length === 0) {

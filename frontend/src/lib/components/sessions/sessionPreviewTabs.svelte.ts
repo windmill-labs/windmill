@@ -7,7 +7,7 @@ import {
 	canonicalizeObservedLoc,
 	describeLocation,
 	matchPreviewPage,
-	sameView,
+	showsView,
 	parseArtifactRoute,
 	parsePipelineRoute,
 	previewLocationContext,
@@ -279,12 +279,16 @@ export class SessionPreviewTabs {
 		const commandUnchanged = tab.url === url
 		// Drift is a change of what the frame *shows*, not of its URL string: a page
 		// writing its own filter defaults back is not the user navigating away.
-		const drifted = !sameView(tab.loc, url)
+		const drifted = !showsView(tab.loc, url)
 		// Both cases the browser will not act on, decided here because this is where the
 		// old and new commands are both in hand: re-commanding the URL a drifted frame
-		// already carries moves nothing, and a fragment-only change resolves within the
+		// already carries moves nothing, and moving to another fragment resolves within the
 		// same document — so a list page never re-runs the `#<path>` read that opens a row.
-		const fragmentOnly = !commandUnchanged && tab.url.split('#')[0] === url.split('#')[0]
+		// Dropping the fragment is not one of them: the same-document path applies only to a
+		// target that has one, so the browser loads the page — closing the drawer by itself —
+		// and forcing a second load races that one back onto the row.
+		const fragmentOnly =
+			!commandUnchanged && url.includes('#') && tab.url.split('#')[0] === url.split('#')[0]
 		retargetTab(tab, url)
 		if ((commandUnchanged && drifted) || fragmentOnly) this.pulseReload(tab.id)
 	}
@@ -423,10 +427,10 @@ export class SessionPreviewTabs {
 		// would overwrite the other and leave both on the same row.
 		const shown = opts?.forceNewTab
 			? undefined
-			: (this.#tabs.find((t) => sameView(t.loc, url)) ??
+			: (this.#tabs.find((t) => showsView(t.loc, url)) ??
 				this.#tabs.find((t) => describeLocation(t.loc).identity === describeLocation(url).identity))
 		if (shown) {
-			const same = sameView(shown.loc, url)
+			const same = showsView(shown.loc, url)
 			if (same) {
 				// The frame is already here, but record what was asked for: `url` is what the
 				// tab persists and remounts from, so leaving it on where the frame started

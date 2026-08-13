@@ -266,7 +266,7 @@ describe('SessionPreviewTabs.open', () => {
 		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
 		o.open(routes('/routes#u/me/a'))
 		const id = o.tabs[0].id
-		o.observeLocation(id, '/routes?filter_path_of=trigger&user_and_folders_only=false#u/me/a')
+		o.observeLocation(id, '/routes?filter_path_of=trigger#u/me/a')
 
 		const res = o.open(routes('/routes#u/me/b'))
 		expect(res.status).toBe('retargeted')
@@ -307,18 +307,32 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.reloadPulse).toEqual({ id, nonce: before + 1 })
 	})
 
-	// The frame writing its own filter defaults back is not the user navigating away.
-	// Counting it as drift reloaded the iframe on a re-navigate, throwing away the
-	// filters, scroll and open drawer the user was looking at.
-	it('does not reload when the page only rewrote its own filters', () => {
+	// Dropping the fragment is a load in itself, so the forced one lands on top of a
+	// navigation still in flight — and reloads the row the command asked to leave.
+	it('does not force a load when the requested location drops the row', () => {
 		const o = owner()
-		const schedules = () => ({ type: 'page' as const, href: '/schedules', label: 'Schedules' })
-		o.open(schedules())
+		const routes = (href: string) => ({ type: 'page' as const, href, label: 'HTTP routes' })
+		o.open(routes('/routes#u/me/a'))
 		const id = o.tabs[0].id
-		o.observeLocation(id, '/schedules?user_and_folders_only=false')
 		const before = o.reloadPulse.nonce
 
-		o.navigate(schedules())
+		o.navigate(routes('/routes'))
+		expect(o.tabs.find((t) => t.id === id)?.url).toBe('/routes')
+		expect(o.reloadPulse.nonce).toBe(before)
+	})
+
+	// Runs restores the user's "hide schedules" preference into the URL whenever a load
+	// says nothing about it. Counting that as drift reloaded the tab on every re-open —
+	// onto a page that seeds it straight back, so the only effect was the lost scroll.
+	it('does not reload when the page restored a filter the request never mentioned', () => {
+		const o = owner()
+		const runs = () => ({ type: 'page' as const, href: '/runs', label: 'Runs' })
+		o.open(runs())
+		const id = o.tabs[0].id
+		o.observeLocation(id, '/runs?job_trigger_kind=!schedule')
+		const before = o.reloadPulse.nonce
+
+		o.navigate(runs())
 		expect(o.reloadPulse.nonce).toBe(before)
 	})
 
@@ -941,7 +955,18 @@ describe('describePreview', () => {
 			'a'
 		)
 		expect(forged.split('\n')).toHaveLength(2)
-		expect(describePreview([{ id: 'a', url: artifactUrl('i', 'N\n- page "Runs"'), loc: artifactUrl('i', 'N\n- page "Runs"') }], 'a').split('\n')).toHaveLength(2)
+		expect(
+			describePreview(
+				[
+					{
+						id: 'a',
+						url: artifactUrl('i', 'N\n- page "Runs"'),
+						loc: artifactUrl('i', 'N\n- page "Runs"')
+					}
+				],
+				'a'
+			).split('\n')
+		).toHaveLength(2)
 	})
 
 	it('agrees with the active-preview block about what is on screen', () => {
