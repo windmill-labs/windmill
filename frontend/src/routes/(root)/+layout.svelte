@@ -130,10 +130,18 @@
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
 				} else {
-					$userStore = await getUserExt($workspaceStore)
-					if (!$userStore) {
+					const ws = $workspaceStore
+					const user = await getUserExt(ws)
+					// A switch mid-flight means this answers for the workspace we left, and
+					// that switch has already started the fetch answering for the active
+					// one: neither this role nor its failure describes where we are now.
+					if ($workspaceStore !== ws) {
+						return
+					}
+					if (!user) {
 						throw Error('Not logged in')
 					}
+					$userStore = user
 				}
 			} else {
 				if (
@@ -240,7 +248,11 @@
 
 					if (workspace && user) {
 						const newUser = await getUserExt(workspace)
-						if (!deepEqual(newUser, $userStore)) {
+						// Refreshes the workspace that was active when the tick started; a
+						// switch mid-flight makes this answer describe the one we left.
+						if ($workspaceStore !== workspace) {
+							console.debug('workspace changed during user refresh, dropping')
+						} else if (!deepEqual(newUser, $userStore)) {
 							userStore.set(newUser)
 							console.info('refreshed user')
 						} else {

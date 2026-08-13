@@ -260,16 +260,21 @@ async fn create_schedule(
         ));
     }
 
-    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
+    // Check schedule for error (validate before opening the tx).
+    ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref(), true)?;
 
+    // These reads deliberately use the non-RLS `db` pool (fork-ness and
+    // permissioned_as resolution must be complete regardless of the caller's
+    // folder perms). Run them BEFORE opening the RLS transaction below: acquiring
+    // a second pooled connection while the tx is held self-deadlocks on a
+    // single-connection pool, and they don't depend on the tx.
+    //
     // A git-sync/merge/create write into a fork never sets operational state:
     // force `enabled = false` so a cloned / synced / merged / UI-created schedule
     // can't fire alongside the parent's. The fork owner re-enables locally via
     // `setenabled`. Schedule analog of the trigger rule in
     // `windmill-trigger::handler::workspace_is_fork`; the read half (parent-value
-    // substitution on fork export) lives in `workspaces_export.rs`. Read fork-ness
-    // on the non-RLS `db` pool (like the other two sites) so the determination is
-    // complete regardless of the caller's folder perms.
+    // substitution on fork export) lives in `workspaces_export.rs`.
     let target_is_fork: bool = sqlx::query_scalar!(
         "SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1",
         w_id
@@ -278,17 +283,6 @@ async fn create_schedule(
     .await?
     .flatten()
     .unwrap_or(false);
-
-    // Check schedule for error
-    ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref(), true)?;
-
-    check_path_conflict(&mut tx, &w_id, &ns.path).await?;
-    check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
-
-    // Validate dynamic_skip if provided
-    if let Some(handler_path) = &ns.dynamic_skip {
-        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
-    }
 
     let resolved_edited_by = resolve_edited_by(&authed);
     let resolved_permissioned_as = resolve_permissioned_as_for_create(
@@ -307,6 +301,16 @@ async fn create_schedule(
         &db,
     )
     .await?;
+
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
+
+    check_path_conflict(&mut tx, &w_id, &ns.path).await?;
+    check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
+
+    // Validate dynamic_skip if provided
+    if let Some(handler_path) = &ns.dynamic_skip {
+        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
+    }
 
     let schedule = sqlx::query_as!(
         Schedule,

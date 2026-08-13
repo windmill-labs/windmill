@@ -413,6 +413,7 @@ async fn list_users(
         SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account
           FROM usr
          WHERE workspace_id = $1
+         ORDER BY email
          ",
         w_id
     )

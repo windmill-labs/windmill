@@ -904,7 +904,9 @@ def _resolve_schema_refs(schema: dict, backend_schemas: dict, openflow_schemas: 
         ref = schema['$ref']
         ref_name = ref.split('/')[-1]
         if ref_name in seen:
-            return {'type': 'object'}
+            # Zod cannot express the recursion inline; stay permissive so the nested
+            # payload survives parsing instead of being stripped as unknown keys.
+            return {'type': 'object', 'additionalProperties': True}
 
         source = openflow_schemas if 'openflow.openapi.yaml' in ref or ref_name not in backend_schemas else backend_schemas
         ref_schema = source.get(ref_name)
@@ -944,15 +946,13 @@ def _apply_zod_metadata(expr: str, schema: dict) -> str:
 def _json_schema_to_zod(schema: dict, indent: int = 0) -> str:
     schema = schema or {}
 
-    if 'oneOf' in schema:
-        raise ValueError('Unsupported oneOf in workspace tool Zod schema generation')
-
     if 'allOf' in schema:
         raise ValueError('Unsupported allOf in workspace tool Zod schema generation')
 
-    if 'anyOf' in schema:
+    variants = schema.get('anyOf') or schema.get('oneOf')
+    if variants:
         expr = "z.union([{}])".format(
-            ', '.join(_json_schema_to_zod(item, indent) for item in schema['anyOf'])
+            ', '.join(_json_schema_to_zod(item, indent) for item in variants)
         )
         return _apply_zod_metadata(expr, schema)
 

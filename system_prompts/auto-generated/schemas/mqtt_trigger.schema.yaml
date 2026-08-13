@@ -37,6 +37,18 @@ properties:
     type: array
     items:
       type: object
+      properties:
+        qos:
+          type: string
+          enum:
+          - qos0
+          - qos1
+          - qos2
+        topic:
+          type: string
+      required:
+      - qos
+      - topic
     description: Array of MQTT topics to subscribe to, each with topic name and QoS
       level
   v3_config:

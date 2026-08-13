@@ -12,6 +12,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
 	import { useFlowPanelMode } from './flowPanelMode.svelte'
+	import { useFlowPanelPlacementTelemetry } from './flowEditorTelemetry'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
@@ -129,6 +130,13 @@
 	const panelMode = $derived(panelController.mode)
 	let panelModalOpen = $state(false)
 
+	// Owned by FlowBuilder: this component is inside a `{#key}` that rebuilds it on a reload,
+	// and the crossing count belongs to the editing session rather than to one mount.
+	const placementTelemetry = useFlowPanelPlacementTelemetry()
+	$effect(() => {
+		placementTelemetry.observe(panelController.preference, panelMode, panelController.measured)
+	})
+
 	// Auto can move the panel back into the pane under a modal that is open — leaving it
 	// open would keep an overlay registered for a modal nothing renders, swallowing Escape.
 	$effect(() => {
@@ -241,10 +249,14 @@
 		enabled: () => modalPanel,
 		preference: () => panelController.preference,
 		setPreference: (preference) => {
+			// Picking the row that is already active is not a move, and counting it would
+			// report a placement being forced that the panel was already in.
+			if (preference === panelController.preference) return
 			// Moving the panel must not lose what it was showing: docked, it is always on
 			// screen, so the modal it becomes has to open on arrival. The reverse is handled
 			// by the effect above, which closes a modal that is no longer rendered.
 			const wasVisible = panelMode === 'docked' || panelModalOpen
+			placementTelemetry.forced(preference, panelMode)
 			panelController.preference = preference
 			panelModalOpen = panelController.mode === 'modal' && wasVisible
 		}

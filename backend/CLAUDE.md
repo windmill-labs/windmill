@@ -15,6 +15,8 @@
   worktrees (keyed by the crate's `Cargo.lock`), so a fresh worktree reuses it and
   the build is near-instant — you don't pay the full compile per worktree. Editing
   the FFI crate's own source falls back to an isolated per-worktree `./target`.
+  The engine is a **patched fork** of duckdb-rs, not the crates.io crate — read
+  `docs/duckdb-isolation.md` before bumping it or touching the isolation transform.
 - **Running data pipelines (DuckLake) from source**: see the section below — a plain build
   advertises the `duckdb` tag but cannot execute DuckDB scripts and has no working S3 proxy.
 

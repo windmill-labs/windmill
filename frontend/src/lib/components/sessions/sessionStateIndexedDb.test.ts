@@ -36,7 +36,7 @@ vi.mock('$lib/gen', async (orig) => {
 	}
 })
 
-import { userStore, usersWorkspaceStore, type UserExt } from '$lib/stores'
+import { superadmin, userStore, usersWorkspaceStore, type UserExt } from '$lib/stores'
 import { WorkspaceService } from '$lib/gen'
 import {
 	sessionState,
@@ -51,6 +51,7 @@ import {
 	setSessionDraftPrompt,
 	setSessionTabs,
 	reconcileSessionsLifecycle,
+	__resetDeletedSessionIdsForTesting,
 	setSessionArchived,
 	setSessionPreviewSize,
 	type Session
@@ -86,6 +87,12 @@ beforeEach(async () => {
 	localStorage.clear()
 	userStore.set(undefined)
 	usersWorkspaceStore.set(undefined)
+	// Resolved as a plain user: `putSession`'s resurrection guard only trusts the
+	// membership list for a confirmed non-superadmin, so leaving this at its initial
+	// `undefined` would silently disable the guard the tests below exercise.
+	superadmin.set(false)
+	// Tombstones are module state and would otherwise leak across tests reusing an id.
+	__resetDeletedSessionIdsForTesting()
 	await flush()
 	sessionState.sessions = []
 	sessionState.currentSessionId = undefined
@@ -450,6 +457,70 @@ describe('sessionState IndexedDB persistence', () => {
 		const rec = (await db.get('sessions' as never, 'arch')) as Session
 		db.close()
 		expect(rec.archived).toBe(true)
+	})
+
+	it('persists a session bound to a workspace the membership list cannot vouch for', async () => {
+		const user = freshUser()
+		// A loaded list that omits the bound workspace — the shape that trips the
+		// resurrection guard. Neither session below is actually orphaned.
+		usersWorkspaceStore.set({
+			email: user.email,
+			workspaces: [{ id: 'live-ws', name: 'live', disabled: false }] as never
+		})
+		userStore.set(user)
+
+		// The role hasn't resolved yet (layout's globalWhoami is still in flight), so
+		// `userWorkspaces` has not yet grown its synthetic `admins` entry. A touch landing
+		// in this window must not be discarded as orphaned.
+		superadmin.set(undefined)
+		await flush()
+		await putSession(session({ id: 'racing', createdAt: 1, workspace_id: 'admins' }))
+
+		// Resolved superadmin, bound to a workspace they are not a member of: reachable
+		// (the authed extractor lets a superadmin into any workspace), but it enters
+		// `userWorkspaces` only once the async non-member lookup lands.
+		superadmin.set(user.email)
+		await flush()
+		await putSession(session({ id: 'nonmember', createdAt: 2, workspace_id: 'foreign-ws' }))
+
+		const db = await openDB(`windmill-sessions::${user.email}`, 1)
+		const ids = (await db.getAll('sessions' as never)) as Session[]
+		db.close()
+		expect(ids.map((s) => s.id).sort()).toEqual(['nonmember', 'racing'])
+	})
+
+	it('does not let a late write resurrect a session reconciliation deleted', async () => {
+		const user = freshUser()
+		// A superadmin, so the membership check below is inert — the tombstone is the only
+		// thing standing between a late writer and a resurrected record.
+		superadmin.set(user.email)
+		usersWorkspaceStore.set({
+			email: user.email,
+			workspaces: [{ id: 'doomed-ws', name: 'doomed', disabled: false }] as never
+		})
+		userStore.set(user)
+		await flush()
+
+		const doomed = session({ id: 'doomed', createdAt: 1, workspace_id: 'doomed-ws' })
+		await putSession(doomed)
+		await rehydrate(user)
+
+		// The workspace was hard-deleted elsewhere; reconciliation drops the record and
+		// GCs its files and artifacts.
+		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
+			'doomed-ws': 'deleted'
+		} as never)
+		await reconcileSessionsLifecycle()
+
+		// A caller that captured the session before the delete writes it back — what the
+		// chat-id seeder does when it resumes after awaiting mid-loop.
+		doomed.chatId = 'chat-from-a-stale-reference'
+		await putSession(doomed)
+
+		const db = await openDB(`windmill-sessions::${user.email}`, 1)
+		const rec = await db.get('sessions' as never, 'doomed')
+		db.close()
+		expect(rec).toBeUndefined()
 	})
 
 	it('re-roots a sub-fork session on reconcile when an ancestor was deleted', async () => {

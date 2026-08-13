@@ -5,7 +5,12 @@
 	import { Download, Trash2 } from 'lucide-svelte'
 	import { download, displayDate } from '$lib/utils'
 	import { getAiChatManager } from '../aiChatManagerContext'
-	import { artifactFilename, artifactMimeType, type PersistedArtifact } from './artifactsDB'
+	import {
+		artifactFilename,
+		artifactMimeType,
+		currentVersion,
+		type PersistedArtifact
+	} from './artifactsDB'
 
 	const aiChatManager = getAiChatManager()
 	const artifacts = $derived(aiChatManager.artifacts.artifacts)
@@ -36,7 +41,8 @@
 			class="min-w-[4.5rem] shrink-0 text-right text-2xs font-normal text-hint"
 			title={displayDate(new Date(a.updatedAt))}
 		>
-			<TimeAgo date={new Date(a.updatedAt).toISOString()} noSeconds />
+			{#if currentVersion(a) > 1}<span class="tabular-nums">v{currentVersion(a)}</span> ·{/if}
+			<TimeAgo date={new Date(a.updatedAt).toISOString()} compact />
 		</span>
 	{/snippet}
 	{#snippet actions(a)}

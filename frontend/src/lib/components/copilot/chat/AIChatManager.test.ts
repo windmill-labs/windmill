@@ -73,8 +73,10 @@ vi.mock('$lib/stores', () => {
 		},
 		userStore: readable({ username: 'admin', email: 'admin@test', is_admin: true }),
 		// Read eagerly at module load by the open_page tool's allowedOpenPages /
-		// allowedTriggerKinds (global/core.ts) as the manager's tools are built.
+		// allowedTriggerKinds / allowsAllWorkspacesRuns (global/core.ts) as the manager's
+		// tools are built.
 		superadmin: readable(false),
+		devopsRole: readable(false),
 		userWorkspaces: readable([] as unknown[]),
 		enterpriseLicense: readable(undefined)
 	}
@@ -1928,7 +1930,10 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.contextTokens).toBe(1_290)
 	})
 
-	it('does not compact when the model context window is unknown', async () => {
+	// An unrecognized model gets the conservative assumed 128K window instead of
+	// no limit — otherwise the context grows unbounded until the provider (or a
+	// proxy in front of it) times out the request.
+	it('compacts against the assumed window when the model context window is unknown', async () => {
 		mocks.getCurrentModel.mockReturnValue({ provider: 'custom', model: 'mystery-model-9000' })
 		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'custom', model: 'mystery-model-9000' })
 		const manager = new AIChatManager()
@@ -1941,7 +1946,11 @@ describe('AIChatManager context compaction', () => {
 
 		await manager.sendRequest()
 
-		expect(mocks.runChatLoop.mock.calls[0][0].messages.length).toBe(3)
+		// ~10M projected against the 128K assumption: everything droppable goes,
+		// leaving only the just-pushed user message
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent.length).toBe(1)
+		expect(sent[0].role).toBe('user')
 	})
 
 	it('never drops the most recent message', () => {

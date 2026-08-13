@@ -3,6 +3,7 @@
 
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import '$lib/assets/app.css'
+	import { installDevPollingDormancy } from '$lib/utils/devPollingDormancy'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -22,6 +23,8 @@
 	}
 
 	document.getElementById('svelte-global-loader')?.remove()
+
+	installDevPollingDormancy()
 
 	// Prevent scrolling over number inputs from changing their value
 	function handleWheel(e: WheelEvent) {

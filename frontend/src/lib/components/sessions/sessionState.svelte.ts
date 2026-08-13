@@ -4,6 +4,7 @@ import { createLongHash } from '$lib/editorLangUtils'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
 	enterpriseLicense,
+	superadmin,
 	userStore,
 	userWorkspaces,
 	usersWorkspaceStore,
@@ -356,6 +357,33 @@ function persistTouched(s: Session): void {
 	void putSession(s)
 }
 
+// Sessions whose record has been removed from IndexedDB. Ids come from createLongHash
+// and are never reused, so an entry can only ever match the record it was recorded for.
+// In-memory by design: a reload re-runs reconciliation, which re-derives the set.
+const deletedSessionIds = new Set<string>()
+
+// Test-only: module state outlives a suite's per-test reset of the stores.
+export function __resetDeletedSessionIdsForTesting(): void {
+	deletedSessionIds.clear()
+}
+
+// The one way to remove a session's record. Tombstones BEFORE awaiting the delete so a
+// putSession racing this transaction cannot commit its write behind it — a direct
+// db.delete elsewhere would silently reopen that window.
+async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Promise<void> {
+	deletedSessionIds.add(id)
+	await db.delete('sessions', id)
+}
+
+// The one way to write a session's record, and the other half of the invariant above:
+// every caller reaches its write across an await — putSession on the DB handle, the
+// reconcile and hydrate passes on a getAll() snapshot that an interleaved delete
+// invalidates — so the tombstone has to be consulted here, not only at the entry points.
+async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
+	if (deletedSessionIds.has(s.id)) return
+	await db.put('sessions', s)
+}
+
 // Write-behind a single session record. Transient sessions are in-memory only
 // (not yet touched) and are not written to IndexedDB; materializeTransient() /
 // persistTouched() clear the flag first. Awaits DB-open so a write racing
@@ -364,12 +392,17 @@ function persistTouched(s: Session): void {
 export async function putSession(s: Session): Promise<void> {
 	if (!BROWSER) return
 	if (s.transient) return
-	// Never resurrect a session whose workspace is gone — committed (workspace_id)
-	// or pre-send (pending_workspace_id). A live runtime can still write through
-	// here after reconciliation deletes its record (chatId seed, unread watermark),
-	// so guard once the workspace list is loaded.
+	// A record removed because its workspace is gone had its files and artifacts GC'd with
+	// it, so writing it back resurrects an empty husk. Callers reach here holding a
+	// reference captured before the delete — the chat-id seeder awaits mid-loop,
+	// find-then-write callers race the re-hydrate.
+	if (deletedSessionIds.has(s.id)) return
+	// Separately, keep a UI action (e.g. unarchive) from persisting into a workspace that
+	// has gone unavailable but not yet reconciled. `userWorkspaces` answers that only for
+	// a confirmed non-superadmin — hence `=== false`, the store being `undefined` until
+	// the role resolves — since a superadmin reaches workspaces they have no `usr` row in.
 	const boundWs = s.workspace_id ?? s.pending_workspace_id
-	if (boundWs) {
+	if (boundWs && get(superadmin) === false) {
 		const all = get(userWorkspaces)
 		if (all.length > 0 && !all.some((w) => w.id === boundWs)) return
 	}
@@ -377,7 +410,7 @@ export async function putSession(s: Session): Promise<void> {
 	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
-		await db.put('sessions', $state.snapshot(s))
+		await putSessionRow(db, $state.snapshot(s))
 	} catch (e) {
 		console.error('Failed to persist session', e)
 	}
@@ -388,7 +421,7 @@ export async function deleteSessionRecord(id: string): Promise<void> {
 	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
-		await db.delete('sessions', id)
+		await deleteSessionRow(db, id)
 	} catch (e) {
 		console.error('Failed to delete session record', e)
 	}
@@ -413,7 +446,7 @@ async function hydrateSessions({ dropTransients = false } = {}): Promise<void> {
 	try {
 		const all = await db.getAll('sessions')
 		const changed = all.filter((s) => ensureSessionRootId(s))
-		for (const s of changed) await db.put('sessions', s)
+		for (const s of changed) await putSessionRow(db, s)
 		all.sort((a, b) => b.createdAt - a.createdAt)
 		// In-memory (untouched) drafts are prepended, newest-first as createSession
 		// maintains; persisted sessions follow, sorted by createdAt.
@@ -502,7 +535,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 			if (!ws) continue
 			const { action, patch } = decideSessionLifecycle(s, status[ws])
 			if (action === 'delete') {
-				await db.delete('sessions', s.id)
+				await deleteSessionRow(db, s.id)
 				// GC linked files too, matching deleteSession — a record-only delete
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
@@ -515,7 +548,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 			// Re-root surviving sessions whose family topmost member shifted (an
 			// ancestor was deleted); fall back to backfilling a missing root.
 			if (refreshSessionRootId(s) || ensureSessionRootId(s)) changed = true
-			if (changed) await db.put('sessions', s)
+			if (changed) await putSessionRow(db, s)
 		}
 	} catch (e) {
 		// The connection can go stale mid-loop (user switch reopens the per-user
@@ -576,7 +609,7 @@ export async function archiveSessionsForWorkspace(workspaceId: string): Promise<
 		s.archived = true
 		s.archivedByWorkspace = true
 		ensureSessionRootId(s)
-		await db.put('sessions', s)
+		await putSessionRow(db, s)
 	}
 	for (const s of sessionState.sessions) {
 		if (s.transient || s.workspace_id !== workspaceId || s.archived) continue
@@ -594,7 +627,7 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 		all.filter((s) => s.workspace_id === workspaceId && !s.transient).map((s) => s.id)
 	)
 	for (const id of ids) {
-		await db.delete('sessions', id)
+		await deleteSessionRow(db, id)
 		// GC linked files too (matches deleteSession) so a workspace teardown
 		// doesn't leave the sessions' attached-file blobs/handles orphaned.
 		void deleteItemsForSession(id)

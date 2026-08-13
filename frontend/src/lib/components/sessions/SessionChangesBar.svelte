@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { Archive, ExternalLink, GitPullRequestClosed, MoveRight, Trash2 } from 'lucide-svelte'
+	import {
+		Archive,
+		Diff,
+		ExternalLink,
+		GitPullRequestClosed,
+		MoveRight,
+		Trash2
+	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import SessionStatusPopover from './SessionStatusPopover.svelte'
@@ -12,8 +19,11 @@
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { badgeCounts, badgeOf, buildDeployItems } from './sessionDeployModel'
+	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
+	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
+	import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
+	import type { PreviewTarget } from './previewRouter'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import ArtifactsSegment from '$lib/components/copilot/chat/artifacts/ArtifactsSegment.svelte'
@@ -183,6 +193,44 @@
 	)
 	let editsOpen = $state(false)
 
+	// Routed on the storage `path` — the edit route's key, which for a draft-only
+	// item is its `draft_<uuid>` path, not the friendly `displayPath`.
+	function previewTargetFor(item: DeployItem): PreviewTarget | undefined {
+		return previewTargetForDeployKind(item.deployKind, item.path)
+	}
+
+	// The row's primary action is the preview; kinds the panel can't host
+	// (triggers, schedules, resources, variables) fall back to their diff.
+	function openRow(item: DeployItem) {
+		if (previewTargetFor(item)) openInPreview(item)
+		else openDrawer(item.key)
+	}
+
+	// Trailing action; unlike a row pick it isn't routed through the popover's
+	// own close, so it dismisses the popover itself.
+	function openDiff(item: DeployItem) {
+		editsOpen = false
+		openDrawer(item.key)
+	}
+
+	function openInPreview(item: DeployItem) {
+		const owner = runtime?.previewTabs
+		const target = previewTargetFor(item)
+		if (!owner || !target) return
+		owner.open(target)
+	}
+
+	// A pipeline's bundle path (`f/<folder>/data_pipeline`) is an implementation
+	// detail — name the folder, which is what its editor opens. Same call the
+	// compare page makes.
+	function rowLabel(item: DeployItem): string {
+		if (item.deployKind === 'data_pipeline') {
+			const folder = pipelineFolderFromBundlePath(item.path)
+			if (folder) return `f/${folder}`
+		}
+		return item.displayPath
+	}
+
 	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's
 	// deploy model, not here.
 	const editsColorClass = $derived(
@@ -261,8 +309,9 @@
 					title="Edited this session"
 					items={dockItems}
 					itemKey={(item) => item.key}
-					rowTitle={(item) => item.displayPath}
-					onPick={(item) => openDrawer(item.key)}
+					rowTitle={(item) =>
+						previewTargetFor(item) ? `Open ${rowLabel(item)} in preview` : rowLabel(item)}
+					onPick={openRow}
 					triggerClass={`${TOKEN_TRIGGER_CLASS} ${editsColorClass}`}
 					widthClass="w-96"
 					maxHeightClass="max-h-[min(9rem,50vh)]"
@@ -270,7 +319,7 @@
 					{#snippet row(item)}
 						<RowIcon kind={item.deployKind} path={item.path} size={14} />
 						<span class="min-w-0 flex-1 truncate font-mono font-normal text-primary">
-							{item.displayPath}
+							{rowLabel(item)}
 						</span>
 						{#if badgeOf(item) === 'draft'}
 							<Badge small color="indigo">
@@ -279,6 +328,31 @@
 						{:else}
 							<Badge small color="green">Deployed</Badge>
 						{/if}
+					{/snippet}
+					{#snippet actions(item)}
+						<Button
+							unifiedSize="xs"
+							variant="subtle"
+							title="Review & deploy"
+							startIcon={{ icon: Diff }}
+							onClick={() => openDiff(item)}
+						>
+							Diff
+						</Button>
+					{/snippet}
+					{#snippet footer()}
+						<button
+							type="button"
+							data-status-row
+							class="flex w-full items-center gap-2 py-1 pl-3 pr-3 text-left font-normal hover:bg-surface-hover focus:bg-surface-hover focus:outline-none"
+							onclick={() => {
+								editsOpen = false
+								openDrawer()
+							}}
+						>
+							<Diff size={14} class="shrink-0 text-tertiary" />
+							<span class="min-w-0 flex-1 truncate text-secondary">Review & deploy all</span>
+						</button>
 					{/snippet}
 				</SessionStatusPopover>
 			{/if}

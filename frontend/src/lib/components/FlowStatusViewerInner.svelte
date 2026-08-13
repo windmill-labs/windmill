@@ -61,7 +61,7 @@
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { useThrottle } from 'runed'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
-	import { getActiveReplay } from './recording/flowRecording.svelte'
+	import { getActiveReplay } from './recording/replay.svelte'
 	import { publishLinkedAgentTools } from './flows/flowState'
 	import {
 		getLinkedAgentTools,

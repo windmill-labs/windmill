@@ -3088,6 +3088,14 @@ pub struct MiniCompletedJob {
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
     pub runnable_settings_handle: Option<i64>,
+    /// A `dependencies` job that only rebuilt a binary. It deployed nothing, so consumers
+    /// that react to a dependency job as "a new version is live" must skip it.
+    ///
+    /// Defaulted because this struct is deserialized from the `JobCompleted` payload an
+    /// agent worker POSTs: an agent older than this field omits it, and without a default
+    /// the server would reject every completion it sends, not just build jobs.
+    #[serde(default)]
+    pub build_binary_only: bool,
 }
 
 impl From<QueuedJobV2> for MiniCompletedJob {
@@ -3115,6 +3123,9 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            // `QueuedJobV2` carries no args, and nothing reaches the restart gate
+            // through this conversion — the worker completes jobs from the pulled job.
+            build_binary_only: false,
         }
     }
 }
@@ -3145,6 +3156,9 @@ impl From<MiniPulledJob> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            build_binary_only: crate::binary_prebuild::is_build_binary_job(
+                job.args.as_ref().map(|x| &x.0),
+            ),
         }
     }
 }
@@ -3174,6 +3188,9 @@ impl From<Arc<MiniPulledJob>> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            build_binary_only: crate::binary_prebuild::is_build_binary_job(
+                job.args.as_ref().map(|x| &x.0),
+            ),
         }
     }
 }
@@ -5061,7 +5078,8 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
             MiniCompletedJob,
             "SELECT
             j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as,
-            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle,
+            COALESCE(j.args->'build_binary_only' = 'true'::jsonb, false) AS \"build_binary_only!\"
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,
@@ -5586,6 +5604,9 @@ async fn push_inner<'c, 'd>(
         debouncing_settings: DebouncingSettings,
         retry_settings: RetrySettings,
         labels: Option<Vec<String>>,
+        /// A `dependencies` job that only compiles an already-deployed script's binary.
+        /// It shares the job kind, but not the queue policy lock generation needs.
+        build_binary_only: bool,
     }
     let mut preprocessed = None;
     #[allow(unused)]
@@ -5605,6 +5626,7 @@ async fn push_inner<'c, 'd>(
         debouncing_settings,
         retry_settings,
         labels,
+        build_binary_only,
     } = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -5782,6 +5804,15 @@ async fn push_inner<'c, 'd>(
             language: Some(language),
             dedicated_worker,
             debouncing_settings,
+            ..Default::default()
+        },
+
+        JobPayload::BuildBinary { path, hash, language } => JobPayloadUntagged {
+            runnable_id: Some(hash.0),
+            runnable_path: Some(path),
+            job_kind: JobKind::Dependencies,
+            language: Some(language),
+            build_binary_only: true,
             ..Default::default()
         },
 
@@ -6363,7 +6394,14 @@ async fn push_inner<'c, 'd>(
             && !*WMDEBUG_NO_DEBOUNCING
             && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await,
     ) {
-        concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        // A binary build takes minutes and writes no lock, so it gets its own key: sharing
+        // the lock-generation slot would park the next deploy of that path behind a compile.
+        // Still limit 1, to collapse redundant builds of the same script.
+        concurrency_settings.concurrency_key = Some(if build_binary_only {
+            format!("build_binary:{workspace_id}/{path}")
+        } else {
+            format!("dependency:{workspace_id}/{path}")
+        });
         concurrency_settings.concurrent_limit = Some(1);
     }
 
@@ -6388,7 +6426,9 @@ async fn push_inner<'c, 'd>(
     // prioritize flow steps to drain the queue faster
     let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
         Some(0)
-    } else if job_kind == JobKind::Dependencies {
+    } else if job_kind == JobKind::Dependencies && !build_binary_only {
+        // A binary build is a background optimization, not a deploy the user waits on, so
+        // it does not get the dependency-job jump ahead of ordinary jobs on its tag.
         Some(0)
     } else {
         final_priority

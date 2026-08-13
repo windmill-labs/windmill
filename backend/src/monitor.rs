@@ -117,6 +117,7 @@ use windmill_queue::{
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
     SameWorkerPayload,
 };
+use windmill_store::resources::MAX_RESOURCE_VERSIONS;
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, StepFailureKind, WorkspaceRegistryMap,
@@ -1255,6 +1256,39 @@ async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
     }
     if let Some(email) = &token.email {
         send_email_if_possible(email_subject, &email_body, email);
+    }
+}
+
+/// Trim resource version history down to the per-path cap.
+///
+/// Deliberately not part of `delete_expired_items` (which runs every monitor tick): this is a
+/// full pass over `resource_version`, and the cap only has to hold eventually, so the call site
+/// gates it to the same rare cadence as the other heavy sweeps.
+pub async fn trim_resource_versions(db: &DB) -> () {
+    let trimmed = sqlx::query_scalar!(
+        "DELETE FROM resource_version rv
+         USING (
+             SELECT id FROM (
+                 SELECT id, row_number() OVER (
+                     PARTITION BY workspace_id, path ORDER BY id DESC
+                 ) AS rn
+                 FROM resource_version
+             ) ranked WHERE rn > $1
+         ) over_cap
+         WHERE rv.id = over_cap.id
+         RETURNING rv.id",
+        MAX_RESOURCE_VERSIONS,
+    )
+    .fetch_all(db)
+    .await;
+
+    match trimmed {
+        Ok(ids) => {
+            if ids.len() > 0 {
+                tracing::info!("trimmed {} resource versions past the cap", ids.len())
+            }
+        }
+        Err(e) => tracing::error!("Error trimming resource versions: {}", e.to_string()),
     }
 }
 
@@ -3177,6 +3211,15 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 120 iterations (~20min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC)
+    let trim_resource_versions_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                trim_resource_versions(&db).await;
+            }
+        }
+    };
+
     // run every hour
     let vacuum_queue_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(60) {
@@ -3450,6 +3493,7 @@ pub async fn monitor_db(
         expired_items_f,
         zombie_jobs_f,
         stale_jobs_f,
+        trim_resource_versions_f,
         vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,

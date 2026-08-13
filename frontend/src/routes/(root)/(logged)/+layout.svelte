@@ -307,6 +307,13 @@
 				}
 			}
 			const user = await getUserExt(workspace)
+			// Every workspace change starts a fetch without cancelling the one before it,
+			// so a slow response can land after a faster one for the workspace the user
+			// has since moved to. The store must describe the active workspace: letting a
+			// superseded response write would leave every role gate reading the one we left.
+			if ($workspaceStore !== workspace) {
+				return
+			}
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
 			}
@@ -628,8 +635,15 @@
 			timeout = undefined
 		} else if (!u) {
 			timeout = setTimeout(async () => {
-				if (!$userStore && $workspaceStore) {
-					$userStore = await getUserExt($workspaceStore)
+				const ws = $workspaceStore
+				if (!$userStore && ws) {
+					const user = await getUserExt(ws)
+					// Recovers the workspace that was left without a role. A switch
+					// mid-flight has already started the fetch for the new one, so this
+					// answer describes the workspace we left.
+					if ($workspaceStore === ws) {
+						$userStore = user
+					}
 				}
 			}, 5000)
 		}

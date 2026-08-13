@@ -16,6 +16,7 @@
 		rowTitle,
 		row,
 		actions,
+		footer,
 		customTrigger,
 		ariaLabel,
 		triggerClass = TOKEN_TRIGGER_CLASS,
@@ -39,6 +40,9 @@
 		row: Snippet<[T]>
 		/** Trailing per-row action buttons (outside the primary button). */
 		actions?: Snippet<[T]>
+		/** Pinned below the scrolling list; give it `data-status-row` to join the
+		 * arrow-key order as the last stop. */
+		footer?: Snippet
 		/** Replaces the default SessionStatusToken trigger. */
 		customTrigger?: Snippet
 		ariaLabel?: string
@@ -111,34 +115,36 @@
 	{#snippet content()}
 		<div class="flex {widthClass} flex-col text-xs">
 			<div class="px-3 pt-2 pb-0.5 text-2xs text-hint">{title}</div>
-			<!-- svelte-ignore a11y_no_noninteractive_element_interactions (keydown only routes arrows to the row buttons) -->
-			<div
-				role="list"
-				class="{maxHeightClass} overflow-y-auto py-1"
-				bind:this={listRoot}
-				onkeydown={handleListKeydown}
-			>
-				{#each items as item (itemKey(item))}
-					<div
-						class="flex items-center gap-2 py-1 pl-3 pr-2 hover:bg-surface-hover focus-within:bg-surface-hover"
-						role="listitem"
-					>
-						<button
-							type="button"
-							data-status-row
-							class="flex min-w-0 flex-1 items-center gap-2 text-left font-normal focus:outline-none"
-							title={rowTitle?.(item)}
-							onclick={() => pick(item)}
+			<!-- svelte-ignore a11y_no_static_element_interactions (keydown only routes arrows to the row buttons) -->
+			<div class="flex min-h-0 flex-col" bind:this={listRoot} onkeydown={handleListKeydown}>
+				<div role="list" class="{maxHeightClass} overflow-y-auto py-1">
+					{#each items as item (itemKey(item))}
+						<div
+							class="flex items-center gap-2 py-1 pl-3 pr-2 hover:bg-surface-hover focus-within:bg-surface-hover"
+							role="listitem"
 						>
-							{@render row(item)}
-						</button>
-						{#if actions}
-							<div class="flex shrink-0 items-center gap-1.5">
-								{@render actions(item)}
-							</div>
-						{/if}
+							<button
+								type="button"
+								data-status-row
+								class="flex min-w-0 flex-1 items-center gap-2 text-left font-normal focus:outline-none"
+								title={rowTitle?.(item)}
+								onclick={() => pick(item)}
+							>
+								{@render row(item)}
+							</button>
+							{#if actions}
+								<div class="flex shrink-0 items-center gap-1.5">
+									{@render actions(item)}
+								</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
+				{#if footer}
+					<div class="shrink-0 border-t py-1">
+						{@render footer()}
 					</div>
-				{/each}
+				{/if}
 			</div>
 		</div>
 	{/snippet}

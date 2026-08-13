@@ -739,8 +739,7 @@ pub(crate) async fn tarball_workspace(
 
     // From v1 the CLI never writes the address, so resolving it would be pure waste on the
     // default sync path; emit the marker it actually keeps instead.
-    let obo_marker_only =
-        parse_sync_behavior_version(sync_behavior_version.as_deref()) >= 1;
+    let obo_marker_only = parse_sync_behavior_version(sync_behavior_version.as_deref()) >= 1;
     let mut obo_cache: HashMap<String, String> = HashMap::new();
     {
         let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
@@ -841,17 +840,10 @@ pub(crate) async fn tarball_workspace(
                 on_behalf_of_email: if obo_marker_only {
                     None
                 } else {
-                    derive_email(
-                        &mut obo_cache,
-                        &db,
-                        &w_id,
-                        script.on_behalf_of.as_deref(),
-                    )
-                    .await?
+                    derive_email(&mut obo_cache, &db, &w_id, script.on_behalf_of.as_deref()).await?
                 },
-                has_on_behalf_of: (obo_marker_only
-                    && script.on_behalf_of.is_some())
-                .then_some(true),
+                has_on_behalf_of: (obo_marker_only && script.on_behalf_of.is_some())
+                    .then_some(true),
                 modules: script.modules,
                 labels: script.labels,
                 // Same opt-in contract as flow/app: the tarball only surfaces
@@ -874,8 +866,9 @@ pub(crate) async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
              Resource,
-             "SELECT workspace_id, path, value, description, resource_type, extra_perms, created_by, edited_at, labels FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
-             &w_id
+             "SELECT workspace_id, path, value, description, resource_type, extra_perms, created_by, edited_at, labels FROM resource WHERE workspace_id = $1 AND resource_type <> ALL($2)",
+             &w_id,
+             &windmill_store::resources::INTERNAL_RESOURCE_TYPES.map(|t| t.to_string())[..]
          )
          .fetch_all(&mut *tx)
          .await?;
@@ -927,13 +920,7 @@ pub(crate) async fn tarball_workspace(
             flow.on_behalf_of_email = if obo_marker_only {
                 None
             } else {
-                derive_email(
-                    &mut obo_cache,
-                    &db,
-                    &w_id,
-                    flow.on_behalf_of.as_deref(),
-                )
-                .await?
+                derive_email(&mut obo_cache, &db, &w_id, flow.on_behalf_of.as_deref()).await?
             };
             let mut overrides = serde_json::Map::new();
             if flow_marker {

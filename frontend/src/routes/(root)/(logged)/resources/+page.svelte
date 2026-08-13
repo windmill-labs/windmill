@@ -1364,7 +1364,11 @@
 {/if}
 
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
+<ResourceEditorDrawer
+	bind:this={resourceEditor}
+	on:refresh={loadResources}
+	onRestored={loadResources}
+/>
 
 <ShareModal
 	bind:this={shareModal}

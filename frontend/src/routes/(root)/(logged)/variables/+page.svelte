@@ -412,7 +412,7 @@
 									</Cell>
 									<Cell>
 										<span class="inline-flex flex-row items-center gap-2">
-											<div class="text-sm break-words">
+											<div class="text-xs break-words">
 												{#if value}
 													{truncate(value, 20)}
 												{:else}

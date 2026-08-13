@@ -20,6 +20,11 @@
 		style?: string
 		cancelText?: string | undefined
 		kind?: 'button' | 'X'
+		/** Make the dialog fill the height it is anchored to and lay its body out as a flex
+		 * column, so content can size itself with `h-full` / `flex-1 min-h-0`. Off by default:
+		 * the dialog otherwise hugs its content, and percentage heights inside it do not
+		 * resolve (the centering wrapper is `min-h-full`, i.e. height:auto). */
+		fillHeight?: boolean
 		/** Force a minimum z-index base. Defaults to elevating above the AI chat
 		 * side panel when it is open. Pass an explicit value to stack above other
 		 * surfaces (e.g. a modal opened over the /sessions preview-pane editor). */
@@ -36,6 +41,7 @@
 		style = '',
 		cancelText = undefined,
 		kind = 'button',
+		fillHeight = false,
 		minZIndex: minZIndexProp = undefined,
 		settings,
 		children: children_render,
@@ -119,12 +125,17 @@
 					></div>
 
 					<div class="{posClass} inset-0 z-10 overflow-y-auto">
-						<div class="flex min-h-full items-center justify-center p-4">
+						<div
+							class="flex {fillHeight ? 'h-full' : 'min-h-full'} items-center justify-center p-4"
+						>
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
 								onclick={stopPropagation(bubble('click'))}
 								class={twMerge(
-									'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
+									'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:w-full sm:max-w-lg sm:p-6',
+									// The margins are what keeps a content-sized dialog off the viewport edges; a
+									// filling one takes its inset from the wrapper's padding instead.
+									fillHeight ? 'h-full flex flex-col' : 'sm:my-8',
 									c,
 									open
 										? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
@@ -137,16 +148,16 @@
 										><CloseButton on:close={() => (open = false)} /></div
 									>
 								{/if}
-								<div class="flex">
+								<div class="flex {fillHeight ? 'flex-1 min-h-0' : ''}">
 									<!-- min-w-0: without it this flex item takes its content's min-content width and
 									     stretches the modal past its max-width instead of letting content shrink. -->
-									<div class="text-left flex-1 min-w-0">
+									<div class="text-left flex-1 min-w-0 {fillHeight ? 'flex flex-col min-h-0' : ''}">
 										<div class="flex flex-row items-center justify-between">
 											<h3 class="text-emphasis text-lg font-semibold">{title}</h3>
 											{@render settings?.()}
 										</div>
 
-										<div class="mt-4 text-sm text-primary">
+										<div class="mt-4 text-sm text-primary {fillHeight ? 'flex-1 min-h-0' : ''}">
 											{@render children_render?.()}
 										</div>
 									</div>

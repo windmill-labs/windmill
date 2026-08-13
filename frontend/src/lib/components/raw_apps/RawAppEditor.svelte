@@ -1855,9 +1855,14 @@
 	// mount: a reactive src would reload the iframe on every theme toggle. Live
 	// theme changes travel through postMessage instead (see the $effect below).
 	function uiBuilderIframeSrc(): string {
-		const dark = document.documentElement.classList.contains('dark')
-		const variant = getAppliedDarkModeVariant()
-		return `/ui_builder/index.html?dark=${dark}&variant=${variant}`
+		const params = new URLSearchParams({
+			dark: String(document.documentElement.classList.contains('dark')),
+			variant: getAppliedDarkModeVariant()
+		})
+		// `workspace` lets the in-browser npm installer reach /api/w/<ws>/npm_proxy so
+		// package installs honour the instance's .npmrc instead of the public registry.
+		if (opWorkspace) params.set('workspace', opWorkspace)
+		return `/ui_builder/index.html?${params}`
 	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.

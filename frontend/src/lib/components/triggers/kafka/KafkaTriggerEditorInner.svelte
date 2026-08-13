@@ -29,6 +29,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import TriggerFilters from '../TriggerFilters.svelte'
+	import type { FilterNode } from '../filters'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
@@ -102,7 +103,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-	let filters: { key: string; value: any }[] = $state([])
+	let filters: FilterNode[] = $state([])
 	let filterLogic = $state<'and' | 'or'>('and')
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
@@ -303,13 +304,7 @@
 		deploymentLoading = true
 		const previousPath = initialPath
 		const cfg = getSaveCfg()
-		const isSaved = await saveKafkaTriggerFromCfg(
-			initialPath,
-			cfg,
-			edit,
-			wsId!,
-			usedTriggerKinds
-		)
+		const isSaved = await saveKafkaTriggerFromCfg(initialPath, cfg, edit, wsId!, usedTriggerKinds)
 		if (isSaved) {
 			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(cfg.path)
