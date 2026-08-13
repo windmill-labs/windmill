@@ -65,7 +65,8 @@
 	// resource to everyone who can read it.
 	let sharedPath = $derived(!!manualPath && !manualPath.startsWith(`u/${$userStore?.username}/`))
 	let oauthConnect: McpServerOAuthConnect | undefined = $state()
-	let pending: { workspace: string; path: string; client: string } | undefined = undefined
+	let pending: (Target & { client: string }) | undefined = undefined
+	let popup: Window | null = null
 
 	/** Slug for the resource value's `name` and for the path suggestion. Hosts are
 	 * reduced to the label that names the service, so mcp.notion.com reads notion. */
@@ -170,28 +171,45 @@
 		discoveryFoundOAuth = undefined
 	}
 
-	async function createMcpResource(workspace: string, path: string, tokenRef: string) {
+	type Target = { workspace: string; path: string; url: string; name: string; label: string }
+
+	/** The server this operation is for, read once: the url field and the
+	 * suggestions stay editable while a request or a popup is pending, and the
+	 * credential must end up against the server the user aimed at. */
+	function target(): Target {
+		return {
+			workspace: ws,
+			path: manualPath,
+			url,
+			name: serverName,
+			label: entry?.name ?? serverName
+		}
+	}
+
+	async function createMcpResource(t: Target, tokenRef: string) {
 		await ResourceService.createResource({
-			workspace,
+			workspace: t.workspace,
 			requestBody: {
 				resource_type: 'mcp',
-				path,
-				value: { name: serverName, url, token: tokenRef },
-				description: `${entry?.name ?? serverName} MCP server`
+				path: t.path,
+				value: { name: t.name, url: t.url, token: tokenRef },
+				description: `${t.label} MCP server`
 			}
 		})
-		onConnected(workspace, path)
+		onConnected(t.workspace, t.path)
 	}
 
 	function startProviderOAuth() {
 		const client = entry?.connectClient
 		if (!client || !manualPath || scopesStatus !== 'loaded') return
 		// The popup outlives any change on this page: what it comes back to must be
-		// the workspace, path and provider it was opened for.
-		pending = { workspace: ws, path: manualPath, client }
+		// the server, path and provider it was opened for.
+		pending = { ...target(), client }
 		const connectUrl = new URL(`/api/oauth/connect/${client}`, window.location.origin)
 		connectUrl.searchParams.set('scopes', scopes.join('+'))
-		if (!window.open(connectUrl.toString(), '_blank', 'popup=true')) {
+		popup = window.open(connectUrl.toString(), '_blank', 'popup=true')
+		if (!popup) {
+			pending = undefined
 			sendUserToast('Popup blocked. Allow popups for this site.', true)
 			return
 		}
@@ -208,7 +226,9 @@
 		// an error is taken at face value, since dropping it would leave this card
 		// waiting on a popup that is already gone.
 		if (event.data?.type === 'success') {
-			if (!pending || event.data.resource_type !== pending.client) return
+			// Identifies the window, not just the provider: a second card connecting
+			// the same provider would otherwise take this completion as its own.
+			if (!pending || event.source !== popup || event.data.resource_type !== pending.client) return
 			cleanupOAuth()
 			void finishProviderOAuth(event.data.res)
 		} else if (event.data?.type === 'error') {
@@ -247,9 +267,9 @@
 	/** Store the token like the resource connect does: a secret variable, plus an
 	 * account when the provider issues expiring tokens so refresh can run. */
 	async function finishProviderOAuth(res: any) {
-		const target = pending
-		if (!target) return
-		const { workspace, path } = target
+		const t = pending
+		if (!t) return
+		const { workspace, path } = t
 		try {
 			let account: number | undefined = undefined
 			if (res?.expires_in != undefined) {
@@ -259,7 +279,7 @@
 						requestBody: {
 							refresh_token: res.refresh_token ?? '',
 							expires_in: res.expires_in,
-							client: entry!.connectClient!,
+							client: t.client,
 							scopes
 						}
 					})
@@ -273,31 +293,31 @@
 				isOauth: true,
 				account
 			})
-			await createMcpResource(workspace, path, `$var:${path}`)
-			sendUserToast(`Connected ${entry!.name}`)
+			await createMcpResource(t, `$var:${path}`)
+			sendUserToast(`Connected ${t.label}`)
 		} catch (e) {
-			sendUserToast(`Failed to connect ${entry?.name}: ${e.body ?? e.message}`, true)
+			sendUserToast(`Failed to connect ${t.label}: ${e.body ?? e.message}`, true)
 		} finally {
 			pending = undefined
+			popup = null
 			signingIn = false
 		}
 	}
 
 	async function saveManual() {
 		const token = manualToken
-		const workspace = ws
-		const path = manualPath
-		if (!url || !token || !path) return
+		const t = target()
+		if (!t.url || !token || !t.path) return
 		saving = true
 		try {
 			await upsertSecretVariable({
-				workspace,
-				path: `${path}_token`,
+				workspace: t.workspace,
+				path: `${t.path}_token`,
 				value: token,
-				resourcePath: path
+				resourcePath: t.path
 			})
-			await createMcpResource(workspace, path, `$var:${path}_token`)
-			sendUserToast(`Connected ${entry?.name ?? url}`)
+			await createMcpResource(t, `$var:${t.path}_token`)
+			sendUserToast(`Connected ${t.label}`)
 		} catch (e) {
 			sendUserToast(`Failed to connect: ${e.body ?? e.message}`, true)
 		} finally {

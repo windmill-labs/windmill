@@ -250,10 +250,45 @@ describe('result size cap', () => {
 		expect(getMcpToolsMock).toHaveBeenCalledTimes(2)
 	})
 
+	it('refuses to answer a call from a listing that was invalidated mid-flight', async () => {
+		// Invalidated while in flight, every time: the tool list may describe the
+		// server that was replaced, and its `readOnlyHint` is what decides whether
+		// the call needs confirmation.
+		getMcpToolsMock.mockImplementation(async () => {
+			clearMcpToolsCache()
+			return TOOLS
+		})
+
+		const result = await run('call_mcp_read_tool', {
+			server: 'u/hugo/github_mcp',
+			tool: 'get_issue',
+			arguments: {}
+		})
+
+		expect(result.success).toBe(false)
+		expect(callMcpToolMock).not.toHaveBeenCalled()
+	})
+
 	it('truncates an oversized tools/list failure in search', async () => {
 		getMcpToolsMock.mockRejectedValue(new Error('x'.repeat(80_000)))
 		const result = await run('search_mcp_tools', { query: 'issue' })
 		expect(result.unavailable[0].length).toBeLessThan(1_000)
+	})
+
+	// Escaping is the server's to control: a run of backslashes doubles under
+	// JSON.stringify, so a cap measured before serializing is not a cap.
+	it('holds the cap on escape-heavy output', async () => {
+		callMcpToolMock.mockResolvedValue({
+			content: [{ type: 'text', text: '\\'.repeat(60_000) }]
+		})
+		const raw = await getTool('call_mcp_read_tool').fn({
+			args: { server: 'u/hugo/github_mcp', tool: 'get_issue', arguments: {} },
+			workspace: 'test-ws',
+			helpers: {},
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-1'
+		})
+		expect(raw.length).toBeLessThanOrEqual(20_000)
 	})
 
 	it('truncates an oversized isError payload', async () => {

@@ -37,6 +37,7 @@
 	let error = $state<string | null>(null)
 	let noOAuth = $state(false)
 	let pending: { workspace: string; path: string; serverUrl: string } | undefined = undefined
+	let popup: Window | null = null
 
 	async function discoverOAuth() {
 		status = 'discovering'
@@ -65,8 +66,9 @@
 		url.searchParams.set('mcp_server_url', serverUrl)
 		url.searchParams.set('scopes', selectedScopes.join(','))
 
-		const popup = window.open(url.toString(), '_blank', 'popup=true')
+		popup = window.open(url.toString(), '_blank', 'popup=true')
 		if (!popup) {
+			pending = undefined
 			error = 'Popup blocked. Please allow popups for this site.'
 			return
 		}
@@ -83,7 +85,7 @@
 		// for the server it opened. Two connectors aimed at the same server cannot
 		// be told apart — the callback carries nothing else to match on.
 		if (event.data.type === 'MCP_CONNECTED') {
-			if (event.data.mcp_server_url !== pending?.serverUrl) return
+			if (event.source !== popup || event.data.mcp_server_url !== pending?.serverUrl) return
 			cleanup()
 			createMcpResource(event.data)
 		} else if (event.data.type === 'MCP_ERROR') {
@@ -95,11 +97,11 @@
 
 	function handleStorageEvent(event: StorageEvent) {
 		if (event.key === 'mcp-oauth-callback') {
-			cleanup()
 			try {
 				const data = JSON.parse(event.newValue || '{}')
 				if (data.type === 'MCP_CONNECTED') {
 					if (data.mcp_server_url !== pending?.serverUrl) return
+					cleanup()
 					localStorage.removeItem('mcp-oauth-callback')
 					createMcpResource(data)
 				}

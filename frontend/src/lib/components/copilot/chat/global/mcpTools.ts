@@ -42,12 +42,18 @@ async function loadServerTools(workspace: string, path: string): Promise<McpTool
 	if (cached && Date.now() - cached.at < TOOLS_CACHE_TTL_MS) {
 		return cached.tools
 	}
-	const generation = cacheGeneration
-	const tools = await ResourceService.getMcpTools({ workspace, path })
-	if (generation === cacheGeneration) {
-		toolsCache[key] = { tools, at: Date.now() }
+	// A clear while this is in flight means the path may now name a different
+	// server, and `readOnlyHint` decides whether a call needs confirmation — so the
+	// answer is thrown away and asked again rather than cached or returned.
+	for (let attempt = 0; attempt < 2; attempt++) {
+		const generation = cacheGeneration
+		const tools = await ResourceService.getMcpTools({ workspace, path })
+		if (generation === cacheGeneration) {
+			toolsCache[key] = { tools, at: Date.now() }
+			return tools
+		}
 	}
-	return tools
+	throw new Error(`The tool list for ${path} changed while it was loading. Try again.`)
 }
 
 export function clearMcpToolsCache() {
@@ -225,12 +231,21 @@ function bounded(payload: {
 	if (full.length <= MAX_RESULT_CHARS) return full
 	const body = payload.success ? payload.data : payload.error
 	const text = typeof body === 'string' ? body : JSON.stringify(body)
-	return JSON.stringify({
-		success: payload.success,
-		truncated: true,
-		[payload.success ? 'data' : 'error']: text.slice(0, MAX_RESULT_CHARS),
-		note: `Truncated to ${MAX_RESULT_CHARS} characters. Use filter or pagination parameters to narrow it.`
-	})
+	// Measured on the serialized result, not on the text going into it: escaping is
+	// the server's to control (a run of backslashes doubles, a control character
+	// sextuples), and the ceiling exists to protect the context window.
+	let take = MAX_RESULT_CHARS
+	let out = ''
+	do {
+		out = JSON.stringify({
+			success: payload.success,
+			truncated: true,
+			[payload.success ? 'data' : 'error']: text.slice(0, take),
+			note: `Truncated to fit ${MAX_RESULT_CHARS} characters. Use filter or pagination parameters to narrow it.`
+		})
+		take = Math.floor(take / 2)
+	} while (out.length > MAX_RESULT_CHARS && take > 0)
+	return out
 }
 
 /**
