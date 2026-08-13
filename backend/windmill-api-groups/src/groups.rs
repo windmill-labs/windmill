@@ -979,6 +979,11 @@ async fn add_user_igroup(
 
     not_found_if_none(group_opt, "IGroup", &name)?;
 
+    // First lock in the hierarchy — before the membership insert's row lock.
+    #[cfg(feature = "private")]
+    let affected_workspaces =
+        lock_workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
+
     sqlx::query!(
         "INSERT INTO email_to_igroup (email, igroup) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         email,
@@ -997,11 +1002,6 @@ async fn add_user_igroup(
         Some([("email", email.as_str())].into()),
     )
     .await?;
-
-    // First lock in the hierarchy — before the instance-role updates below.
-    #[cfg(feature = "private")]
-    let affected_workspaces =
-        lock_workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
 
     // Apply instance-level role from group membership
     let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
@@ -1192,6 +1192,11 @@ async fn remove_user_igroup(
 
     not_found_if_none(group_opt, "IGroup", &name)?;
 
+    // First lock in the hierarchy — before the membership delete's row lock.
+    #[cfg(feature = "private")]
+    let affected_workspaces =
+        lock_workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
+
     sqlx::query!(
         "DELETE FROM email_to_igroup WHERE email = $1 AND igroup = $2",
         email,
@@ -1210,11 +1215,6 @@ async fn remove_user_igroup(
         Some([("email", email.as_str())].into()),
     )
     .await?;
-
-    // First lock in the hierarchy — before the instance-role updates below.
-    #[cfg(feature = "private")]
-    let affected_workspaces =
-        lock_workspaces_referencing_instance_groups(std::slice::from_ref(&name), &mut tx).await?;
 
     // Recompute instance-level role after group removal
     let effective_role = compute_effective_instance_role(&email, &mut tx).await?;
