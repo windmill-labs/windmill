@@ -3250,6 +3250,23 @@ fn git_probe_command() -> Command {
     git_cmd
 }
 
+/// Decode a failed probe's stderr. A remote that answers with a redirect (a plain
+/// `http://` URL upgraded to https, say) only surfaces as a bare curl status here,
+/// since `git_probe_command` refuses to follow it — name the remedy, which is to
+/// point the resource at the address the remote redirects to.
+fn git_probe_stderr(stderr: Vec<u8>) -> String {
+    let stderr =
+        String::from_utf8(stderr).unwrap_or_else(|_| "Failed to decode stderr".to_string());
+    if stderr.contains("returned error: 30") {
+        format!(
+            "{} (the remote redirects, and redirects are not followed; set the repository URL to the address it redirects to)",
+            stderr.trim_end()
+        )
+    } else {
+        stderr
+    }
+}
+
 async fn run_git_probe(mut git_cmd: Command, what: &str) -> Result<std::process::Output> {
     git_cmd.kill_on_drop(true);
     match tokio::time::timeout(GIT_PROBE_TIMEOUT, git_cmd.output()).await {
@@ -3292,8 +3309,7 @@ async fn get_repo_latest_commit_hash(
     let output = run_git_probe(git_cmd, "ls-remote").await?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8(output.stderr)
-            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        let stderr = git_probe_stderr(output.stderr);
         return Err(Error::BadRequest(format!(
             "Error getting git repo commit hash: {}",
             stderr
@@ -3418,8 +3434,7 @@ pub async fn get_git_repo_head_for_autopull(
     git_cmd.stderr(Stdio::piped());
     let output = run_git_probe(git_cmd, "ls-remote --symref HEAD").await?;
     if !output.status.success() {
-        let stderr = String::from_utf8(output.stderr)
-            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        let stderr = git_probe_stderr(output.stderr);
         return Err(Error::BadRequest(format!(
             "Error resolving git repo HEAD: {}",
             stderr
@@ -3530,8 +3545,7 @@ pub async fn get_git_repo_fork_heads_for_autopull(
     git_cmd.stderr(Stdio::piped());
     let output = run_git_probe(git_cmd, "ls-remote (fork branches)").await?;
     if !output.status.success() {
-        let stderr = String::from_utf8(output.stderr)
-            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        let stderr = git_probe_stderr(output.stderr);
         return Err(Error::BadRequest(format!(
             "Error listing fork branches: {}",
             stderr
@@ -3981,6 +3995,9 @@ mod tests {
             "HEAD",
         ]);
         git_cmd.env("GIT_TERMINAL_PROMPT", "0");
+        // curl routes even loopback through an ambient `http_proxy`, which would
+        // leave the stub unreached and the redirect assertion vacuously true.
+        git_cmd.env("no_proxy", "*").env("NO_PROXY", "*");
         git_cmd.stderr(Stdio::piped());
 
         let output = run_git_probe(git_cmd, "ls-remote (test)").await.unwrap();
