@@ -420,7 +420,7 @@
 					onClick={saveManual}
 					disabled={saving || !url || !manualToken || !manualPath || manualPathError !== ''}
 				>
-					Save
+					Connect
 				</Button>
 			{:else if oauthAppReady && entry}
 				<Button
@@ -430,7 +430,7 @@
 					onClick={startProviderOAuth}
 					disabled={signingIn || scopesStatus !== 'loaded' || !manualPath || manualPathError !== ''}
 				>
-					{signingIn ? 'Finish in the popup...' : `Sign in with ${entry.name}`}
+					{signingIn ? 'Finish in the popup...' : `Connect with ${entry.name}`}
 				</Button>
 			{:else if canDiscover && $enterpriseLicense}
 				<Button
@@ -442,7 +442,7 @@
 				>
 					{oauthConnect?.isConnecting()
 						? 'Finish in the popup...'
-						: `Sign in with ${entry?.name ?? serverName}`}
+						: `Connect with ${entry?.name ?? serverName}`}
 				</Button>
 			{/if}
 
@@ -454,7 +454,7 @@
 					onClick={() => (showToken = !showToken)}
 				>
 					{showToken
-						? `Sign in with ${entry?.name ?? serverName} instead`
+						? `Connect with ${entry?.name ?? serverName} instead`
 						: 'Connect with a token instead'}
 				</Button>
 			{/if}
