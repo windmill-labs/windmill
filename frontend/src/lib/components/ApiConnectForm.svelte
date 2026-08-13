@@ -16,15 +16,9 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
-	import Modal2 from './common/modal/Modal2.svelte'
-	import SupabaseProjectStep from './workspaceSettings/SupabaseProjectStep.svelte'
-	import { newWizardState } from './workspaceSettings/addDataTableModel'
-	import {
-		resolveSupabaseConnection,
-		supabaseResourceValue
-	} from './workspaceSettings/supabaseProvisioning'
-	import { useSupabaseOauth } from './workspaceSettings/supabaseOauth.svelte'
-	import { sendUserToast } from '$lib/toast'
+	import { base } from '$lib/base'
+	import SupabaseResourceConnect from './workspaceSettings/SupabaseResourceConnect.svelte'
+	import { isDataTableWizardEnabled } from './workspaceSettings/utils.svelte'
 	import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionString'
 
 	interface Props {
@@ -133,74 +127,14 @@
 	let rawCodeEditor: { setCode: (code: string) => void } | undefined = $state(undefined)
 	let textFileContent: string | undefined = $state(undefined)
 
-	let supabaseOpen = $state(false)
-	let supaBusy = $state(false)
-	// Only the intent this form can act on. Creating a project is a billed action and belongs
-	// in the data table wizard, which can show what it is provisioning and record the result;
-	// a resource form has nowhere to put either.
-	let supaIntent = $state(newWizardState({ name: '', projectName: '', folder: '' }).supabase)
+	// The wizard's Supabase entry point is opt-in for now; without it the form keeps the link
+	// that hands the whole leg over to the resources page.
+	const wizardEnabled = isDataTableWizardEnabled()
 
-	// Authorizing is not something to present a dialog about first: the button goes straight
-	// to the popup, and the dialog opens on the way back, already holding the projects.
-	// No `redirectIfBlocked`: navigating this tab away would take the half-filled resource form
-	// with it, and there is nothing here to park and resume.
-	const supaOauth = useSupabaseOauth({
-		onFallbackBlocked: () => {
-			awaitingSupabaseAuth = false
-			sendUserToast('Allow pop-ups for this site to connect your Supabase account.', true)
-		},
-		onAbandoned: () => (awaitingSupabaseAuth = false)
-	})
-	let awaitingSupabaseAuth = $state(false)
-
-	function connectSupabase() {
-		if (supaOauth.authed) {
-			supabaseOpen = true
-			return
-		}
-		awaitingSupabaseAuth = true
-		supaOauth.connect()
-	}
-
-	$effect(() => {
-		if (awaitingSupabaseAuth && supaOauth.authed) {
-			awaitingSupabaseAuth = false
-			supabaseOpen = true
-		}
-	})
-
-	// The resource is being edited here rather than created for us, so the project's password
-	// goes straight into the form as a value. The user can link it to a secret variable with
-	// the same affordance every other password field has.
-	async function applySupabasePick() {
-		const project = supaIntent.project
-		if (!project || !supaIntent.password) return
-		supaBusy = true
-		try {
-			const connection = await resolveSupabaseConnection(
-				supaOauth.token!,
-				project,
-				supaIntent.connectionMode
-			)
-			args = {
-				...(args ?? {}),
-				...supabaseResourceValue(project, '', connection),
-				password: supaIntent.password
-			}
-			rawCode = JSON.stringify(args, null, 2)
-			rawCodeEditor?.setCode(rawCode)
-			supabaseOpen = false
-			sendUserToast(
-				connection.unavailable
-					? `Filled in a direct connection for ${project.name}: ${connection.unavailable}`
-					: `Filled in the connection for ${project.name}`,
-				!!connection.unavailable
-			)
-		} catch (err) {
-			sendUserToast(String(err), true)
-		} finally {
-			supaBusy = false
-		}
+	function applySupabasePick(value: Record<string, any>) {
+		args = { ...(args ?? {}), ...value }
+		rawCode = JSON.stringify(args, null, 2)
+		rawCodeEditor?.setCode(rawCode)
 	}
 
 	function parseTextFileContent() {
@@ -282,15 +216,18 @@
 			</Popover>
 		{/if}
 		{#if resourceType == 'postgresql' && supabaseWizard}
-			<Button
-				unifiedSize="md"
-				variant="default"
-				startIcon={{ icon: SupabaseIcon }}
-				loading={awaitingSupabaseAuth}
-				on:click={connectSupabase}
-			>
-				Connect Supabase
-			</Button>
+			{#if wizardEnabled}
+				<SupabaseResourceConnect onPicked={applySupabasePick} />
+			{:else}
+				<a
+					target="_blank"
+					href="{base}/api/oauth/connect/supabase_wizard"
+					class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
+				>
+					<SupabaseIcon height="16px" width="16px" />
+					<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
+				</a>
+			{/if}
 		{/if}
 		<GitHubAppIntegration
 			{resourceType}
@@ -363,31 +300,3 @@
 		bind:args
 	/>
 {/if}
-
-<Modal2
-	bind:isOpen={supabaseOpen}
-	target="#content"
-	title="Connect Supabase"
-	contentClasses="flex flex-col"
-	fixedWidth="md"
-	fixedHeight="lg"
->
-	<div class="flex h-full flex-col gap-3">
-		<div class="flex-1 flex flex-col gap-3 min-h-0">
-			{#if supaOauth.token}
-				<SupabaseProjectStep bind:intent={supaIntent} token={supaOauth.token} existingOnly />
-			{/if}
-		</div>
-		<div class="flex justify-end pt-3">
-			<Button
-				size="sm"
-				variant="accent"
-				disabled={!supaIntent.project || !supaIntent.password}
-				loading={supaBusy}
-				onClick={applySupabasePick}
-			>
-				Use this project
-			</Button>
-		</div>
-	</div>
-</Modal2>

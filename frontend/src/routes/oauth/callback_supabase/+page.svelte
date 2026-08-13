@@ -48,14 +48,12 @@
 				}
 				$oauthStore = res
 				// The data table wizard parks its state before redirecting, so it can be resumed
-				// where it left off. Anything else that started this leg was unmounted by the
-				// redirect and has nothing to return to -- say so, since the token is now held
-				// and reopening the form is all that is left to do.
+				// where it left off. Everything else lands on the resources page, which opens the
+				// Supabase drawer for this callback.
 				if (hasParkedWizard()) {
 					goto(`/workspace_settings?tab=windmill_data_tables&callback=${client_name}`)
 				} else {
-					sendUserToast('Connected to Supabase. Reopen the resource to finish setting it up.')
-					goto('/resources')
+					goto(`/resources?callback=${client_name}`)
 				}
 			} catch (e) {
 				if (closeIfPopup()) return
