@@ -11,6 +11,7 @@ import {
 	previewLocationLabel,
 	resolvePreviewTab,
 	stripBase,
+	type ArtifactVersionTarget,
 	type PreviewTarget
 } from './previewRouter'
 import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
@@ -51,13 +52,19 @@ function isEditorTabFor(url: string, target: SessionTarget): boolean {
 	return slot.kind === 'editor' && slot.editorKind === target.kind && slot.path === target.path
 }
 
-// The version a tab keeps when it is re-pointed: whatever pin is already on it. Re-pointing
-// must never double as "show the newest" — every artifact tool re-opens the document it just
-// wrote, so that would yank the reader out of the version they chose on each edit. The pin
-// belongs to a (tab, artifact) pair: a different document, or a brand-new tab, starts unpinned.
-function keptVersion(artifactId: string, onto: SessionPreviewTab | undefined): number | undefined {
+// The version a tab shows when it is re-pointed: the opener's, if it named one, else whatever
+// pin is already on the tab. Re-pointing must never *silently* double as "show the newest" —
+// every artifact tool re-opens the document it just wrote, so that would yank the reader out of
+// the version they chose on each edit; an opener that does want the newest text says 'latest'.
+// The pin belongs to a (tab, artifact) pair: a different document, or a brand-new tab, starts
+// unpinned.
+function keptVersion(
+	target: { id: string; version?: ArtifactVersionTarget },
+	onto: SessionPreviewTab | undefined
+): number | undefined {
+	if (target.version !== undefined) return target.version === 'latest' ? undefined : target.version
 	const current = onto && parseArtifactRoute(onto.url)
-	return current?.id === artifactId ? current.version : undefined
+	return current?.id === target.id ? current.version : undefined
 }
 
 // URL a tab should load for a destination: a page's href, an item's edit route, or an artifact's
@@ -66,7 +73,7 @@ function keptVersion(artifactId: string, onto: SessionPreviewTab | undefined): n
 function targetUrl(target: PreviewTarget, onto?: SessionPreviewTab): string {
 	if (target.type === 'page') return target.href
 	if (target.type === 'artifact') {
-		return artifactUrl(target.id, target.name, keptVersion(target.id, onto))
+		return artifactUrl(target.id, target.name, keptVersion(target, onto))
 	}
 	return `${base}${editPathFor(target.item)}`
 }

@@ -17,13 +17,21 @@ import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
+/**
+ * Which version of an artifact an opener wants on screen: a number pins that one, `'latest'`
+ * drops any pin, and omitting it leaves the reader where they are. `undefined` cannot double
+ * as `'latest'` — every artifact tool re-opens the document it just wrote, so treating that
+ * as a request to move would yank a reader out of the version they chose on each edit.
+ */
+export type ArtifactVersionTarget = number | 'latest'
+
 /** What the preview breadcrumb picker can route to: a static workspace page
  * or a workspace item (script/flow/app). The sessions page turns either into
  * an iframe URL. */
 export type PreviewTarget =
 	| { type: 'page'; href: string; label: string }
 	| { type: 'item'; item: WorkspaceItem }
-	| { type: 'artifact'; id: string; name: string }
+	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
 
 export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 
