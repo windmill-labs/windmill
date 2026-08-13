@@ -33,6 +33,10 @@ export type McpRegistryEntry = {
 	icon: Component<any>
 	/** For `oauth_app`: the Windmill OAuth connect (and resource type) to use. */
 	connectClient?: string
+	/** What this server takes as a static token. Servers that document OAuth only
+	 * are called out rather than left silent: pasting a token there fails at first
+	 * use, not at save time. */
+	tokenHint?: string
 	docsUrl?: string
 }
 
@@ -44,6 +48,8 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		url: 'https://api.githubcopilot.com/mcp/',
 		auth: 'oauth_app',
 		connectClient: 'github',
+		tokenHint:
+			'Create a personal access token in GitHub settings. repo and read:org cover most tools.',
 		docsUrl: 'https://github.com/github/github-mcp-server'
 	},
 	{
@@ -52,6 +58,8 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: NotionIcon,
 		url: 'https://mcp.notion.com/mcp',
 		auth: 'dcr',
+		tokenHint:
+			'Notion documents OAuth only for its hosted server, so a static token may be rejected.',
 		docsUrl: 'https://developers.notion.com/docs/mcp'
 	},
 	{
@@ -60,6 +68,8 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: LinearIcon,
 		url: 'https://mcp.linear.app/mcp',
 		auth: 'dcr',
+		tokenHint:
+			'Use a Linear API key. The Read permission is enough for the read tools.',
 		docsUrl: 'https://linear.app/docs/mcp'
 	},
 	{
@@ -68,6 +78,8 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: SentryIcon,
 		url: 'https://mcp.sentry.dev/mcp',
 		auth: 'dcr',
+		tokenHint:
+			'Sentry documents OAuth only for its hosted server, so a static token may be rejected.',
 		docsUrl: 'https://docs.sentry.io/product/sentry-mcp/'
 	},
 	{
@@ -76,10 +88,32 @@ export const MCP_REGISTRY: McpRegistryEntry[] = [
 		icon: StripeIcon,
 		url: 'https://mcp.stripe.com',
 		auth: 'dcr',
+		tokenHint:
+			'Use a restricted key (rk_...) granting only the permissions you want to give the chat.',
 		docsUrl: 'https://docs.stripe.com/mcp'
 	}
 ]
 
 export function findMcpEntry(id: string): McpRegistryEntry | undefined {
 	return MCP_REGISTRY.find((e) => e.id === id)
+}
+
+function hostnameOf(url: string): string | undefined {
+	try {
+		return new URL(url).hostname
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * The entry a url belongs to, matched on host so a pasted url reaches the same
+ * flow as its suggestion. GitHub is the case that matters: its server does not
+ * support dynamic registration, so without this a typed url would be offered a
+ * discovery that can only fail.
+ */
+export function findMcpEntryByUrl(url: unknown): McpRegistryEntry | undefined {
+	if (typeof url !== 'string') return undefined
+	const host = hostnameOf(url)
+	return host ? MCP_REGISTRY.find((e) => hostnameOf(e.url) === host) : undefined
 }

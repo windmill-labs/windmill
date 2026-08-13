@@ -11,7 +11,7 @@
 	import { base } from '$lib/base'
 	import { onDestroy, untrack } from 'svelte'
 	import { ExternalLink, Pen } from 'lucide-svelte'
-	import { MCP_REGISTRY, findMcpEntry } from './registry'
+	import { MCP_REGISTRY, findMcpEntry, findMcpEntryByUrl } from './registry'
 	import { OauthService, ResourceService } from '$lib/gen'
 	import { upsertSecretVariable } from './secretVariable'
 	import { enterpriseLicense, userStore } from '$lib/stores'
@@ -33,7 +33,6 @@
 	// Any URL is connectable; a suggestion is a shortcut that also pins how the
 	// server hands out credentials, which a typed URL cannot tell us.
 	let suggested = $state<string | undefined>(undefined)
-	let entry = $derived(suggested ? findMcpEntry(suggested) : undefined)
 
 	let instanceConnects = $state<string[] | undefined>(undefined)
 	let signingIn = $state(false)
@@ -51,6 +50,9 @@
 	// Discovery is a network call, so it follows the committed url (a picked
 	// suggestion, or a typed one on blur) rather than every keystroke.
 	let committedUrl = $state('')
+	// A pasted url resolves to the same entry as its chip, so github reaches its
+	// own connect rather than a discovery its server cannot answer.
+	let entry = $derived(suggested ? findMcpEntry(suggested) : findMcpEntryByUrl(committedUrl))
 	let manualToken = $state<string | undefined>(undefined)
 	let manualPath = $state('')
 	let manualPathError = $state('')
@@ -120,6 +122,14 @@
 	let canSignIn = $derived(
 		oauthAppReady || (canDiscover && !!$enterpriseLicense && discoveryFoundOAuth !== false)
 	)
+	// Why the token field is the only way in, said where the token is asked for.
+	let tokenNote = $derived(
+		needsOauthApp && entry
+			? `For an OAuth connection, a superadmin can configure a ${entry.name} OAuth app in the instance settings.`
+			: canDiscover && !$enterpriseLicense
+				? 'Signing in to an MCP server is an enterprise feature.'
+				: undefined
+	)
 
 	$effect(() => {
 		const client = entry?.connectClient
@@ -139,8 +149,8 @@
 
 	function pick(id: string) {
 		if (suggested === id) {
-			// Deselecting leaves the url in place to edit; an edited url is no longer
-			// that suggestion, so its auth kind must stop applying with it.
+			// Deselecting unlocks the url for editing. The entry keeps applying while
+			// the url still points at that server, and drops when it no longer does.
 			suggested = undefined
 			return
 		}
@@ -298,7 +308,7 @@
 				inputProps={{
 					type: 'url',
 					placeholder: 'https://mcp.example.com',
-					disabled: entry !== undefined,
+					disabled: suggested !== undefined,
 					onchange: () => ((committedUrl = url), (discoveryFoundOAuth = undefined))
 				}}
 				bind:value={url}
@@ -310,7 +320,7 @@
 				<Button
 					unifiedSize="2xs"
 					variant="subtle"
-					selected={suggested === e.id}
+					selected={entry?.id === e.id}
 					startIcon={{ icon: e.icon, props: { width: '12px', height: '12px' } }}
 					onClick={() => pick(e.id)}
 				>
@@ -323,6 +333,12 @@
 	{#if hasTarget && !awaitingConnects}
 		{#if showToken || !canSignIn}
 			<Label label="Token">
+				{#if entry?.tokenHint || tokenNote}
+					<span class="text-xs text-secondary">
+						{entry?.tokenHint ?? ''}
+						{tokenNote ?? ''}
+					</span>
+				{/if}
 				<Password bind:password={manualToken} />
 			</Label>
 		{:else if oauthAppReady && entry}
@@ -364,17 +380,6 @@
 					onConnected={(path) => onConnected(path)}
 				/>
 			{/key}
-		{/if}
-
-		{#if needsOauthApp && entry}
-			<div class="text-2xs text-secondary">
-				No {entry.name} OAuth app is configured on this instance. An admin can add one in instance settings
-				to enable signing in.
-			</div>
-		{:else if canDiscover && !$enterpriseLicense}
-			<div class="text-2xs text-secondary"
-				>Signing in to an MCP server is an enterprise feature.</div
-			>
 		{/if}
 
 		<Label label="Save MCP connection to">

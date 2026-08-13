@@ -1,5 +1,5 @@
 import type { Component } from 'svelte'
-import { MCP_REGISTRY } from './registry'
+import { findMcpEntryByUrl } from './registry'
 
 /**
  * The provider icon for a server url, loaded on demand.
@@ -39,7 +39,7 @@ export async function loadProviderIcon(url: unknown): Promise<Component<any> | u
 
 	// A registry server carries its own icon, and its host does not always name
 	// it: github's mcp server answers on api.githubcopilot.com.
-	const known = MCP_REGISTRY.find((e) => hostnameOf(e.url) === hostname)
+	const known = findMcpEntryByUrl(url)
 	if (known) return known.icon
 
 	const name = providerLabel(hostname)
