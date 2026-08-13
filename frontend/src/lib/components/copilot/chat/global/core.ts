@@ -254,9 +254,26 @@ export type GlobalActiveEditorContext = {
 	isLiveDraft: true
 }
 
+/** The page the session's side panel is showing, when it isn't one of the live
+ * editors ACTIVE EDITOR already covers. A page tab is an iframe in its own realm,
+ * so the chat can only learn about it from the tab model the session owns. */
+export type GlobalActivePreviewContext = {
+	/** Page name as the tab strip shows it, e.g. "Schedules". */
+	label: string
+	/** Base-stripped page path plus the request params the page declares — values kept
+	 * only for the ones addressing a workspace object, and percent-encoded. Never a raw
+	 * location: a tab can host a legacy app whose hash is app state, and a filter value
+	 * can be free text the user typed. Build it with `previewLocationContext`. */
+	location: string
+	/** The row whose drawer is open on that page. The list pages drop the anchor when
+	 * their drawer closes, so its absence means no row is open. */
+	open?: string
+}
+
 export type GlobalUserMessageOptions = {
 	workspace?: string
 	activeEditor?: GlobalActiveEditorContext
+	activePreview?: GlobalActivePreviewContext
 	/** Images attached to this message; delivered as image_url content parts. */
 	images?: AttachedImage[]
 	/** Text files attached to this message; listed by reference below — the model
@@ -1197,6 +1214,12 @@ const buildGlobalSystemPrompt = (
 	const pipelineAlphaNote = previewTools
 		? ' Data pipeline support in this chat is in ALPHA: the first time the user asks for a data pipeline in this session, briefly tell them it is an alpha feature before you start building.'
 		: ''
+	// Gated on `previewTools` (constant per chat), never on whether a preview is open
+	// right now: the system prompt is the cached prefix, so a line appearing and
+	// disappearing between turns costs more cache than the tool call it saves.
+	const activePreviewRule = previewTools
+		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the row the page is anchored at, whose drawer the user opened) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
+		: ''
 	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
 	return `You are Windmill's global workspace assistant.
 
@@ -1214,7 +1237,7 @@ Path conventions:
 Rules:
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
-- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
+- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
@@ -7339,6 +7362,16 @@ export function prepareGlobalUserMessage(
 		content += `type: ${activeEditor.type}\n`
 		content += `path: ${activeEditor.path}\n`
 		content += `isLiveDraft: true\n\n`
+	}
+
+	if (options.activePreview) {
+		content += '## ACTIVE PREVIEW\n'
+		content += `page: ${options.activePreview.label}\n`
+		content += `location: ${options.activePreview.location}\n`
+		if (options.activePreview.open) {
+			content += `open: ${options.activePreview.open}\n`
+		}
+		content += '\n'
 	}
 
 	if (selectedWorkspaceItems.length > 0) {

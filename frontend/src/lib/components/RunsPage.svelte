@@ -43,6 +43,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { pageHref, RUNS_PATH } from '$lib/components/sessions/previewPaths'
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
@@ -844,6 +846,17 @@
 				bind:value={filters.val}
 				placeholder="Filter runs..."
 				autofocus
+			/>
+			<!-- The filters are shallow-routed, so the search has to come off
+			     `window.location` at click time — `page.url` never sees them. Always the
+			     canonical `/runs`: only that is a recognized preview page, and the
+			     `/runs/<path>` route mirrors its path into `?path=` anyway. -->
+			<OpenInSessionButton
+				source={{
+					page: () => pageHref(RUNS_PATH) + window.location.search,
+					workspaceId: $workspaceStore ?? undefined
+				}}
+				btnProps={{ unifiedSize: 'md' }}
 			/>
 		</div>
 
