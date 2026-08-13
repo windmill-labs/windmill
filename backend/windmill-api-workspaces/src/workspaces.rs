@@ -11489,18 +11489,6 @@ struct LogFeatureUsagePayload {
     events: Vec<FeatureUsageEvent>,
 }
 
-// The registry of recordable actions and the key shape check live in
-// `windmill_common::feature_usage`, shared with the backend writer so both
-// admit exactly the same events.
-fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
-    use windmill_common::feature_usage::{
-        is_identifier_shaped, FEATURE_USAGE_KINDS, MAX_ENTITY_ID_LEN, MAX_KEY_LEN,
-    };
-    FEATURE_USAGE_KINDS.contains(&(e.feature.as_str(), e.kind.as_str()))
-        && (e.key.is_empty() || is_identifier_shaped(&e.key, MAX_KEY_LEN))
-        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, MAX_ENTITY_ID_LEN))
-}
-
 async fn log_feature_usage(
     Extension(db): Extension<DB>,
     Json(payload): Json<LogFeatureUsagePayload>,
@@ -11509,7 +11497,15 @@ async fn log_feature_usage(
     // single INSERT error out ("cannot affect row a second time").
     let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
     for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
-        if !valid_feature_usage_event(&e) {
+        // Which actions may be recorded lives in
+        // `windmill_common::feature_usage`, shared with the in-process writer so
+        // both admit exactly the same events.
+        if !windmill_common::feature_usage::is_recordable_event(
+            &e.feature,
+            &e.kind,
+            &e.key,
+            &e.entity_id,
+        ) {
             continue;
         }
         let value = e.value.unwrap_or(1).clamp(1, 1_000_000);

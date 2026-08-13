@@ -56,7 +56,13 @@ pub mod email_ee;
 pub mod email_oss;
 pub mod error;
 pub mod external_ip;
-pub mod feature_usage;
+#[cfg(feature = "private")]
+pub mod feature_usage_ee;
+pub mod feature_usage_oss;
+#[cfg(feature = "private")]
+pub use feature_usage_ee as feature_usage;
+#[cfg(not(feature = "private"))]
+pub use feature_usage_oss as feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
