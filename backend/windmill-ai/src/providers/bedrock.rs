@@ -6,6 +6,7 @@
 //! - Stream event parsing
 //! - Helper utilities
 
+use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_bedrock::{
         bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
@@ -25,7 +26,6 @@ use crate::{
     query_builder::{ParsedResponse, StreamEventSink},
     types::{OpenAIMessage, StreamingEvent, TokenUsage, ToolDef},
 };
-use super::REASONING_OFF_SENTINEL;
 use bytes::Bytes;
 use futures::{stream::BoxStream, StreamExt};
 use http::{HeaderMap, Method, StatusCode};
@@ -358,10 +358,11 @@ async fn handle_bedrock_sdk_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = (!effort_enables_thinking(openai_req.reasoning_effort.as_deref()))
-        .then_some(openai_req.temperature)
-        .flatten();
+    let temperature = bedrock_temperature(
+        model,
+        openai_req.reasoning_effort.as_deref(),
+        openai_req.temperature,
+    );
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
@@ -410,9 +411,19 @@ async fn handle_bedrock_sdk_streaming(
 }
 
 /// Whether an effort token turns adaptive thinking on. `"none"` is the disable
-/// sentinel rather than a level, and sampling params stay usable alongside it.
+/// sentinel rather than a level.
 fn effort_enables_thinking(effort: Option<&str>) -> bool {
     matches!(effort, Some(effort) if effort != REASONING_OFF_SENTINEL)
+}
+
+/// Temperature survives only when thinking is not adaptive — which rejects
+/// sampling params — and the model still accepts them at all. Non-Anthropic
+/// Bedrock models (Nova, Llama) are unaffected by the second check.
+fn bedrock_temperature(model: &str, effort: Option<&str>, temperature: Option<f32>) -> Option<f32> {
+    if effort_enables_thinking(effort) || anthropic_model_rejects_sampling_params(model) {
+        return None;
+    }
+    temperature
 }
 
 /// Build the Converse `additionalModelRequestFields` carrying Claude's thinking
@@ -676,10 +687,11 @@ async fn handle_bedrock_sdk_non_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = (!effort_enables_thinking(openai_req.reasoning_effort.as_deref()))
-        .then_some(openai_req.temperature)
-        .flatten();
+    let temperature = bedrock_temperature(
+        model,
+        openai_req.reasoning_effort.as_deref(),
+        openai_req.temperature,
+    );
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
@@ -945,9 +957,7 @@ impl BedrockQueryBuilder {
         let (bedrock_messages, system_prompts) =
             openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 
-        // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-        let temperature =
-            (!effort_enables_thinking(reasoning_effort)).then_some(temperature).flatten();
+        let temperature = bedrock_temperature(model, reasoning_effort, temperature);
 
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
@@ -1303,10 +1313,29 @@ mod tests {
         assert_eq!(fields["thinking"]["type"], "disabled");
         // An effort alongside the disable is a 400 on Opus 5.
         assert!(fields.get("output_config").is_none());
-        // Sampling params survive a disable, unlike adaptive thinking.
         assert!(effort_enables_thinking(Some("xhigh")));
         assert!(!effort_enables_thinking(Some("none")));
         assert!(!effort_enables_thinking(None));
+    }
+
+    #[test]
+    fn bedrock_temperature_drops_sampling_params_per_thinking_mode_and_model() {
+        // Adaptive thinking rejects sampling params on every model...
+        let adaptive = bedrock_temperature("anthropic.claude-sonnet-4-6", Some("xhigh"), Some(0.5));
+        assert!(adaptive.is_none());
+        // ...while a model that still accepts them keeps them when off.
+        let off = bedrock_temperature("anthropic.claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(off, Some(0.5));
+        // The models that removed them drop them on every mode.
+        for (model, effort) in [
+            ("global.anthropic.claude-opus-5", Some("none")),
+            ("anthropic.claude-opus-4-8", None),
+        ] {
+            assert!(bedrock_temperature(model, effort, Some(0.5)).is_none());
+        }
+        // A non-Anthropic Bedrock model keeps its sampling params.
+        let nova = bedrock_temperature("amazon.nova-pro-v1:0", None, Some(0.5));
+        assert_eq!(nova, Some(0.5));
     }
 
     #[test]

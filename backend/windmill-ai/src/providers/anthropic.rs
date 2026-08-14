@@ -1,3 +1,4 @@
+use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider},
@@ -12,7 +13,6 @@ use crate::{
 };
 use async_trait::async_trait;
 use http::Method;
-use super::REASONING_OFF_SENTINEL;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use windmill_common::{client::AuthedClient, error::Error};
@@ -165,10 +165,10 @@ pub struct AnthropicOutputConfig {
 }
 
 /// Resolve the thinking config, effort and sampling params for a reasoning
-/// selection. Adaptive thinking rejects sampling params, so temperature only
-/// survives when thinking is off or explicitly disabled (Anthropic returns a
-/// hard 400 otherwise).
+/// selection. Temperature is dropped both under adaptive thinking, which
+/// rejects it, and on the models that removed the sampling params outright.
 fn anthropic_thinking_config(
+    model: &str,
     reasoning_effort: Option<&str>,
     temperature: Option<f32>,
 ) -> (
@@ -176,6 +176,9 @@ fn anthropic_thinking_config(
     Option<AnthropicOutputConfig>,
     Option<f32>,
 ) {
+    let temperature = (!anthropic_model_rejects_sampling_params(model))
+        .then_some(temperature)
+        .flatten();
     match reasoning_effort {
         // The disable sentinel is not an effort token — Anthropic's vocabulary
         // is low..max and rejects it. The disable carries no effort either:
@@ -688,7 +691,7 @@ impl AnthropicQueryBuilder {
         }
 
         let (thinking, output_config, temperature) =
-            anthropic_thinking_config(args.reasoning_effort, args.temperature);
+            anthropic_thinking_config(args.model, args.reasoning_effort, args.temperature);
 
         // Build request based on platform
         if self.is_vertex() {
@@ -1128,36 +1131,64 @@ mod tests {
     /// forwarded as an effort token Anthropic would reject.
     #[test]
     fn anthropic_thinking_config_translates_the_off_sentinel() {
-        let (thinking, output_config, temperature) =
-            anthropic_thinking_config(Some("none"), Some(0.5));
+        let (thinking, output_config, _) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("none"), Some(0.5));
         assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("disabled"));
         assert!(output_config.is_none());
-        // Sampling params are only rejected alongside adaptive thinking.
-        assert_eq!(temperature, Some(0.5));
 
         let (thinking, output_config, temperature) =
-            anthropic_thinking_config(Some("xhigh"), Some(0.5));
+            anthropic_thinking_config("claude-sonnet-4-6", Some("xhigh"), Some(0.5));
         assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("adaptive"));
         assert_eq!(output_config.map(|c| c.effort), Some("xhigh".to_string()));
+        // Adaptive thinking rejects sampling params on every model.
         assert!(temperature.is_none());
 
-        let (thinking, output_config, temperature) = anthropic_thinking_config(None, Some(0.5));
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", None, Some(0.5));
         assert!(thinking.is_none());
         assert!(output_config.is_none());
         assert_eq!(temperature, Some(0.5));
     }
 
+    /// Live-verified: Opus 4.8 and the 5 family 400 with `temperature is
+    /// deprecated for this model` whatever the thinking mode, so the disable and
+    /// no-reasoning paths have to drop it too.
+    #[test]
+    fn anthropic_thinking_config_drops_sampling_params_on_models_that_reject_them() {
+        for model in [
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-opus-4-8",
+            "anthropic/claude-opus-4.7",
+            "claude-fable-5",
+        ] {
+            for effort in [Some("none"), None] {
+                let (_, _, temperature) = anthropic_thinking_config(model, effort, Some(0.5));
+                assert!(
+                    temperature.is_none(),
+                    "{model} must not carry temperature (effort {effort:?})"
+                );
+            }
+        }
+        // Sonnet 4.6 still accepts them, so an off selection keeps temperature.
+        let (_, _, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(temperature, Some(0.5));
+    }
+
     #[test]
     fn anthropic_request_serializes_the_off_sentinel_as_a_thinking_disable() {
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-opus-5", Some("none"), Some(0.5));
         let request = AnthropicRequest {
             model: "claude-opus-5",
             system: None,
             messages: vec![],
             tools: None,
             tool_choice: None,
-            temperature: Some(0.5),
-            thinking: Some(AnthropicThinking::disabled()),
-            output_config: None,
+            temperature,
+            thinking,
+            output_config,
             max_tokens: Some(64000),
             stream: true,
         };
@@ -1169,8 +1200,7 @@ mod tests {
         // only applies to a thinking mode that actually runs.
         assert!(body["thinking"].get("display").is_none());
         assert!(body.get("output_config").is_none());
-        // Sampling params are only rejected alongside adaptive thinking.
-        assert_eq!(body["temperature"], 0.5);
+        assert!(body.get("temperature").is_none());
     }
 
     #[test]
