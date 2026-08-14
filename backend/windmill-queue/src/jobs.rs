@@ -2528,6 +2528,10 @@ pub fn schedule_auto_disable_event<'a>(
 /// poison the transaction that completes the job, which is what taking a second
 /// pooled connection instead would have risked under a burst.
 ///
+/// `tx.begin()` is a savepoint, not a second transaction: sqlx picks `BEGIN` only
+/// at depth 0 and `SAVEPOINT _sqlx_savepoint_<n>` below it, on the connection the
+/// transaction already holds. Nothing is checked out of the pool.
+///
 /// Zero rows means a user disabled the schedule first: no transition of ours to
 /// record.
 async fn disable_schedule_with_history(
