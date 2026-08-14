@@ -75,7 +75,9 @@ strip_heredoc_bodies() {
     # A body is only data when nothing executes it. Fed to a shell — `bash <<EOF`,
     # `cat <<EOF | bash`, `ssh host <<EOF` — every line in it is a command, so it has to be
     # scanned like one.
-    for word in $line; do
+    # Separators are split off first: none of `cat <<'EOF'|bash`, `$(bash <<'EOF'` or
+    # `(bash <<'EOF')` puts whitespace around the shell that runs the body.
+    for word in $(printf '%s' "$line" | tr ';&|()`' ' '); do
       word="${word//[\"\'\\]/}"
       word="${word%%<<*}"                           # a redirect needs no space: `bash<<EOF`
       case "${word##*/}" in
