@@ -15,17 +15,34 @@ use crate::utils::configure_client;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+/// Reported once the lookup has definitively failed, so that a worker reclaiming another's
+/// `worker_ping` row stops advertising an address nothing has confirmed. Matches the column
+/// default, and the frontend filters it out of the addresses it offers for whitelisting.
+pub const UNKNOWN_IP: &str = "NO IP";
+
+/// `worker_ping.ip` is `VARCHAR(50)`, and the initial ping is a hard failure for the worker, so
+/// an overlong value must be rejected as config rather than reaching the insert.
+const MAX_IP_LEN: usize = 50;
+
 lazy_static::lazy_static! {
     /// Skips the hub lookup entirely, for deployments that already know their egress address or
     /// whose egress is blocked.
     static ref WORKER_EXTERNAL_IP: Option<String> = std::env::var("WORKER_EXTERNAL_IP")
         .ok()
-        .filter(|ip| !ip.is_empty());
+        .filter(|ip| !ip.is_empty())
+        .filter(|ip| {
+            let ok = ip.len() <= MAX_IP_LEN;
+            if !ok {
+                tracing::error!("WORKER_EXTERNAL_IP is longer than {MAX_IP_LEN} chars, ignoring it");
+            }
+            ok
+        });
 }
 
 static EXTERNAL_IP: OnceLock<String> = OnceLock::new();
 
-/// The external IP of this process, or `None` while the lookup is in flight or after it failed.
+/// The external IP of this process, [`UNKNOWN_IP`] once the lookup has failed, or `None` while it
+/// is still in flight.
 pub fn cached_ip() -> Option<&'static str> {
     EXTERNAL_IP.get().map(String::as_str)
 }
@@ -39,15 +56,24 @@ pub fn resolve_ip_in_background() {
         return;
     }
     tokio::spawn(async {
-        match get_ip().await {
-            Ok(ip) => {
-                let _ = EXTERNAL_IP.set(ip);
-            }
-            Err(e) => tracing::warn!(
-                error = e.to_string(),
-                "failed to get external IP, workers of this process will report no IP"
-            ),
-        }
+        let ip = get_ip()
+            .await
+            .map(|ip| {
+                if ip.len() > MAX_IP_LEN {
+                    tracing::error!("external IP lookup returned an overlong value, ignoring it");
+                    UNKNOWN_IP.to_string()
+                } else {
+                    ip
+                }
+            })
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    error = e.to_string(),
+                    "failed to get external IP, workers of this process will report no IP"
+                );
+                UNKNOWN_IP.to_string()
+            });
+        let _ = EXTERNAL_IP.set(ip);
     });
 }
 
