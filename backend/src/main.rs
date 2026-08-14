@@ -2183,12 +2183,7 @@ pub async fn run_workers(
     // #[cfg(tokio_unstable)]
     // let monitor = tokio_metrics::TaskMonitor::new();
 
-    let ip = windmill_common::external_ip::get_ip()
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = e.to_string(), "failed to get external IP");
-            "unretrievable IP".to_string()
-        });
+    windmill_common::external_ip::resolve_ip_in_background();
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
@@ -2232,7 +2227,6 @@ pub async fn run_workers(
         let conn1 = wk_conf.conn.clone();
         let worker_name = wk_conf.worker_name.clone();
         WORKERS_NAMES.write().await.push(worker_name.clone());
-        let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
@@ -2249,7 +2243,6 @@ pub async fn run_workers(
                 worker_name,
                 i as u64,
                 num_workers as u32,
-                &ip,
                 rx,
                 tx,
                 &base_internal_url,

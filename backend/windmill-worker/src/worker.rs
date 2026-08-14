@@ -41,6 +41,7 @@ use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
+    external_ip::cached_ip,
     schema::{should_validate_schema, SchemaValidator},
     utils::{create_directory_async, WarnAfterExt},
     worker::{
@@ -2487,7 +2488,6 @@ pub async fn run_worker(
     worker_name: String,
     i_worker: u64,
     num_workers: u32,
-    ip: &str,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     killpill_tx: KillpillSender,
     base_internal_url: &str,
@@ -2583,7 +2583,8 @@ pub async fn run_worker(
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
-    let previous_jobs_executed = insert_ping(hostname, &worker_name, ip, conn)
+    let mut reported_ip = cached_ip();
+    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, conn)
         .await
         .expect("initial ping could be sent");
 
@@ -3066,7 +3067,26 @@ pub async fn run_worker(
 
         otel_set_worker_uptime(&worker_name, start_time.elapsed().as_secs_f64());
 
-        if last_ping.elapsed().as_secs() > NUM_SECS_PING {
+        // The external IP resolves in the background, after the initial ping. Pinging on the very
+        // next iteration rather than the next periodic one is what gets it into the row of a worker
+        // whose process is short-lived (EXIT_AFTER_N_JOBS).
+        let ip = cached_ip();
+        let ip_just_resolved = reported_ip.is_none() && ip.is_some();
+        if ip_just_resolved || last_ping.elapsed().as_secs() > NUM_SECS_PING {
+            // Servers older than the background lookup take an IP from the initial ping only, so an
+            // agent has to register a second time to deliver whatever the lookup settled on, an
+            // address or the unretrievable marker. Registering also clears the row's job columns,
+            // which costs at most the last job's id here: no job of this worker is in flight at this
+            // point in the loop, and the next one refills them.
+            if ip_just_resolved && conn.as_sql().is_none() {
+                if let Err(e) = insert_ping(hostname, &worker_name, ip, &conn).await {
+                    tracing::warn!(
+                        worker = %worker_name, hostname = %hostname,
+                        "failed to re-register with the resolved external IP: {e}"
+                    );
+                }
+            }
+
             let read_cgroups =
                 *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS;
             update_worker_ping_full(
@@ -3077,6 +3097,7 @@ pub async fn run_worker(
                 &hostname,
                 &mut occupancy_metrics,
                 &killpill_tx,
+                ip,
             )
             .await;
 
@@ -3084,6 +3105,7 @@ pub async fn run_worker(
                 last_reading = Instant::now();
             }
             last_ping = Instant::now();
+            reported_ip = ip;
         }
 
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {

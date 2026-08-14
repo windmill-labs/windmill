@@ -241,7 +241,6 @@ fn spawn_workers(
                 worker_name,
                 i as u64,
                 n as u32,
-                "127.0.0.1",
                 rx,
                 tx2,
                 &base_internal_url,
