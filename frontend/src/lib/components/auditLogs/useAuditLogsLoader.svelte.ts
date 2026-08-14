@@ -78,13 +78,18 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		currentBatchSize = null
 	}
 
-	// A load that ends without rows would otherwise leave the rows of the query it replaced on
-	// screen, presented as the result of the new one.
-	function dropRowsOfReplacedQuery() {
+	/**
+	 * A load that stops or fails never completed its page: it says nothing about whether a next
+	 * page exists, and with no rows of its own the rows of the query it replaced would stand in
+	 * for its result.
+	 */
+	function abandonLoad() {
 		if (!pendingLoadHasRows) {
 			logs = []
-			hasMore = false
 		}
+		hasMore = false
+		clearBatchState()
+		loading = false
 	}
 
 	function load(batchSize?: number): CancelablePromise<void> {
@@ -179,9 +184,7 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		promise = CancelablePromiseUtils.pipe(promise, clearBatchState)
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
-			loading = false
-			dropRowsOfReplacedQuery()
-			clearBatchState()
+			abandonLoad()
 			sendUserToast(
 				'There was an issue loading audit logs, see browser console for more details',
 				true
@@ -189,8 +192,14 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 			console.error(e)
 			return CancelablePromiseUtils.pure<void>(undefined)
 		})
-		pendingLoad = promise
-		return promise
+		const thisLoad = promise
+		// The "Stop loading" toast outlives the load it was raised for, so a settled load has to
+		// stop being the pending one.
+		CancelablePromiseUtils.pipe(thisLoad, () => {
+			if (pendingLoad === thisLoad) pendingLoad = undefined
+		})
+		pendingLoad = thisLoad
+		return thisLoad
 	}
 
 	function restreamWithBatchSize(batchSize: number) {
@@ -198,13 +207,10 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 	}
 
 	function stopBatchLoading() {
-		pendingLoad?.cancel()
+		if (!pendingLoad) return
+		pendingLoad.cancel()
 		pendingLoad = undefined
-		dropRowsOfReplacedQuery()
-		// A page stopped halfway says nothing about whether a next one exists.
-		hasMore = false
-		clearBatchState()
-		loading = false
+		abandonLoad()
 	}
 
 	$effect(() => {
