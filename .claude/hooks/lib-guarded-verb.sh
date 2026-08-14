@@ -21,13 +21,33 @@ set -f
 # words rather than separators, since splitting on them cuts `xargs -I {} … rm` in half and
 # strands the `rm` in a segment that no longer knows a wrapper preceded it.
 
+# 0 iff <text> ($1) starts with a command that only reads its input. An allowlist, because the
+# opposite — naming the shells to avoid — would have to be complete: an unlisted one (`ash`,
+# `rbash`, `busybox sh`) executes the body while the guard calls it data. Unrecognized here only
+# costs a prompt. Text with no command word in it is not evidence of a reader either.
+reads_only() {
+  local w
+  for w in $1; do
+    w="${w//[\"\'\\]/}"
+    w="${w%%<<*}"                                   # a redirect needs no space: `cat<<EOF`
+    case "$w" in "" | -* | *=* | [0-9]* | '>'* | '<'*) continue ;; esac
+    case "${w##*/}" in
+      cat | tee | head | tail | grep | sed | awk | sort | uniq | wc | cut | diff | tr \
+        | jq | yq | gh | git | base64 | column | envsubst | python | python3 | node \
+        | psql | mysql | sqlite3 | wmill) return 0 ;;
+    esac
+    return 1
+  done
+  return 1
+}
+
 # A heredoc body is data rather than commands only when its delimiter is quoted and nothing
 # executes it; a rule doesn't match a verb inside such a body, and a PR body would otherwise
 # prompt for every `rm` in its text. Dropping one needs all of that, a delimiter that could
 # really open a heredoc, and a terminator line — failing any part, nothing is dropped.
 strip_heredoc_bodies() {
   local -a lines=()
-  local line delim rest after trimmed word quoted i j n
+  local line delim rest after trimmed piped quoted i j n
   while IFS= read -r line; do lines+=("$line"); done <<< "$1"
   n=${#lines[@]}
   i=0
@@ -72,17 +92,18 @@ strip_heredoc_bodies() {
     # Only a quoted delimiter makes the body inert. Unquoted, the shell expands it before the
     # consumer ever sees it, so a `$(rm -rf ~)` written in the body runs whatever reads it.
     [ "$quoted" = 1 ] || continue
-    # A body is only data when nothing executes it. Fed to a shell — `bash <<EOF`,
-    # `cat <<EOF | bash`, `ssh host <<EOF` — every line in it is a command, so it has to be
-    # scanned like one.
-    # Separators are split off first: none of `cat <<'EOF'|bash`, `$(bash <<'EOF'` or
-    # `(bash <<'EOF')` puts whitespace around the shell that runs the body.
-    for word in $(printf '%s' "$line" | tr ';&|()`' ' '); do
-      word="${word//[\"\'\\]/}"
-      word="${word%%<<*}"                           # a redirect needs no space: `bash<<EOF`
-      case "${word##*/}" in
-        bash | sh | zsh | dash | ksh | fish | csh | tcsh | ssh | eval | source) continue 2 ;;
-      esac
+    # Two commands can see this body: the one the `<<` belongs to, and anything it is then piped
+    # into. The first is whatever was started last before the `<<`, so splitting the text there
+    # on separators and substitution openers and taking the final piece finds `cat` in
+    # `--title "fix(agents): …" --body "$(cat <<`, without the title's parenthesis standing in
+    # for it. A line continuation (`bash \` then `<<'EOF'`) leaves that piece empty, which is
+    # not evidence of a reader and so keeps the body.
+    reads_only "$(printf '%s' "${line%%<<*}" | tr ';&|()`' '\n' | grep -v '^[[:space:]]*$' | tail -1)" || continue
+    piped="$after"
+    while :; do
+      case "$piped" in *'|'*) ;; *) break ;; esac
+      piped="${piped#*|}"
+      reads_only "${piped%%|*}" || continue 2
     done
     j="$i"
     while [ "$j" -lt "$n" ]; do

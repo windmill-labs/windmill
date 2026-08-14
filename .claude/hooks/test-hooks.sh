@@ -87,6 +87,11 @@ run $G ask   "$(printf 'bash<<%sEOF%s\nrm -rf /etc\nEOF' "'" "'")"
 run $G ask   "$(printf '/bin/sh <<EOF\nrm -rf /etc\nEOF')"
 run $G ask   "$(printf 'cat <<%sEOF%s|bash\nrm -rf /etc\nEOF' "'" "'")"
 run $G ask   "$(printf 'out=$(bash <<%sEOF%s\nrm -rf /etc\nEOF\n)' "'" "'")"
+run $G ask   "$(printf 'bash \\\n  <<%sEOF%s\nrm -rf /etc\nEOF' "'" "'")"
+run $G ask   "$(printf 'ash <<%sEOF%s\nrm -rf /etc\nEOF' "'" "'")"
+run $G ask   "$(printf 'busybox sh <<%sEOF%s\nrm -rf /etc\nEOF' "'" "'")"
+run $G ask   "$(printf 'sudo -s <<%sEOF%s\nrm -rf /etc\nEOF' "'" "'")"
+run $G ask   "$(printf '(bash <<%sEOF%s)\nrm -rf /etc\nEOF' "'" "'")"
 
 # A redirect or pipe after the delimiter is still a real heredoc.
 run $G none  "$(printf 'cat <<%sEOF%s > /tmp/a\nrm -rf /etc\nEOF' "'" "'")"
