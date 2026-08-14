@@ -102,6 +102,11 @@ async fn record_schedule_history(
     before: Option<serde_json::Value>,
 ) -> Result<()> {
     let after = trigger_history::snapshot_row(&mut *tx, "schedule", w_id, path).await?;
+    // Nothing to describe when the row is not there after the write: the same
+    // guard the trigger side needs, kept here so the two read alike.
+    if after.is_none() {
+        return Ok(());
+    }
     trigger_history::record(
         &mut *tx,
         TriggerHistoryEvent {
@@ -1523,12 +1528,31 @@ async fn set_default_error_handler(
                 }
             }
         }
-        // One row per schedule the workspace-wide override rewrote, so a
-        // handler that appeared on a schedule nobody edited is traceable.
-        let handler_field = match payload.handler_type {
-            HandlerType::Error => "on_failure",
-            HandlerType::Recovery => "on_recovery",
-            HandlerType::Success => "on_success",
+        // One row per schedule the workspace-wide override rewrote, so a handler
+        // that appeared on a schedule nobody edited is traceable. Every column
+        // the UPDATE above wrote, not just the handler path: the mute flag and
+        // the occurrence thresholds are what someone auditing a surprise
+        // notification change most needs. No `old` side and no
+        // already-had-this-value filter — the UPDATE rewrites the whole
+        // workspace unconditionally, so these rows record the write rather than
+        // a delta.
+        let handler_fields = match payload.handler_type {
+            HandlerType::Error => serde_json::json!({
+                "on_failure": { "new": payload.path },
+                "on_failure_extra_args": { "new": payload.extra_args },
+                "on_failure_times": { "new": payload.number_of_occurence },
+                "on_failure_exact": { "new": payload.number_of_occurence_exact },
+                "ws_error_handler_muted": { "new": payload.workspace_handler_muted },
+            }),
+            HandlerType::Recovery => serde_json::json!({
+                "on_recovery": { "new": payload.path },
+                "on_recovery_extra_args": { "new": payload.extra_args },
+                "on_recovery_times": { "new": payload.number_of_occurence },
+            }),
+            HandlerType::Success => serde_json::json!({
+                "on_success": { "new": payload.path },
+                "on_success_extra_args": { "new": payload.extra_args },
+            }),
         };
         let mut conn = db.acquire().await?;
         trigger_history::record_bulk(
@@ -1539,7 +1563,7 @@ async fn set_default_error_handler(
             TriggerOperation::Update,
             TriggerSource::of_request(authed.is_session_token),
             Some(&authed.username),
-            Some(serde_json::json!({ handler_field: { "new": payload.path.clone() } })),
+            Some(handler_fields),
         )
         .await?;
 

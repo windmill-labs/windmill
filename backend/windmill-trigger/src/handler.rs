@@ -465,6 +465,12 @@ pub trait TriggerCrud: Send + Sync + 'static {
 /// Call it on the transaction that made the change, after the change: the
 /// snapshot it takes is the "after" side of the diff, and the two commit or roll
 /// back together.
+///
+/// Records nothing when the snapshots say no row was written. `TriggerCrud::update_trigger`
+/// returns `Result<()>` and several impls do not check `rows_affected`, so an
+/// update aimed at a path that does not exist — or that RLS hides from the
+/// caller — reaches here having changed nothing; without this the caller could
+/// forge history rows at any path, since the insert policy is `WITH CHECK (true)`.
 async fn record_trigger_history<T: TriggerCrud>(
     tx: &mut PgConnection,
     authed: &ApiAuthed,
@@ -474,6 +480,9 @@ async fn record_trigger_history<T: TriggerCrud>(
     before: Option<serde_json::Value>,
 ) -> Result<()> {
     let after = trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, workspace_id, path).await?;
+    if after.is_none() || (operation == TriggerOperation::Update && before.is_none()) {
+        return Ok(());
+    }
     trigger_history::record(
         &mut *tx,
         TriggerHistoryEvent {

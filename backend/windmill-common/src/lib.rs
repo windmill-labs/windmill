@@ -29,9 +29,10 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 pub mod apps;
 pub mod assets;
+pub mod azure_workload_identity;
+pub mod dbt_manifest;
 pub mod audit;
 pub mod auth;
-pub mod azure_workload_identity;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;
@@ -43,7 +44,6 @@ mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
 pub mod db_params;
-pub mod dbt_manifest;
 pub mod deploy_origin;
 #[cfg(feature = "private")]
 pub mod deployment_requests_ee;
@@ -1752,10 +1752,7 @@ pub async fn on_behalf_of_from_permissioned_as(
     // processes, so a cached read would keep minting jobs under an address the account no longer
     // holds for up to a minute after it moves.
     let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
-    Ok(Some(jobs::OnBehalfOf {
-        email,
-        permissioned_as: permissioned_as.to_string(),
-    }))
+    Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
 }
 
 impl ScriptHashInfo<ScriptRunnableSettingsHandle> {

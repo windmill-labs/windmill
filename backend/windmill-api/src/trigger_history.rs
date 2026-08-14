@@ -12,7 +12,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
@@ -44,15 +44,22 @@ pub struct ListTriggerHistoryQuery {
     pub path: Option<String>,
 }
 
-/// Visibility is the RLS policies on `trigger_history`: the path half of what
-/// gates the live trigger, so a row that quotes a schedule's `args` never
-/// reaches someone who could not read the schedule itself.
+/// Two gates, because they answer different questions: the RLS policies on
+/// `trigger_history` bound the rows to what the *user* may read, and
+/// `triggers_history:read:<path>` bounds them further to what this *token* may
+/// read. Without the second, a token scoped to one path could read the diffs of
+/// every trigger its user can see, and a `create` row quotes the whole trigger
+/// row, a schedule's `args` included.
 async fn list_trigger_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(query): Query<ListTriggerHistoryQuery>,
 ) -> JsonResult<Vec<TriggerHistoryEntry>> {
+    if let Some(path) = query.path.as_deref() {
+        check_scopes(&authed, || format!("triggers_history:read:{}", path))?;
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
@@ -77,5 +84,8 @@ async fn list_trigger_history(
 
     tx.commit().await?;
 
-    Ok(axum::Json(history))
+    let allowed = build_scope_path_predicate(&authed, "triggers_history", "read");
+    Ok(axum::Json(
+        history.into_iter().filter(|e| allowed(&e.path)).collect(),
+    ))
 }

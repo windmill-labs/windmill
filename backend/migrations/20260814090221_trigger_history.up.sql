@@ -14,8 +14,10 @@ CREATE TABLE IF NOT EXISTS trigger_history (
     -- NULL when the server acted on its own (worker auto-disable).
     username VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    -- {field: {old, new}} for the fields that actually changed; NULL when the
-    -- operation carries no field-level diff (delete).
+    -- {field: {old, new}} for the fields that actually changed. `old` is
+    -- absent where it is not known: a create, and the workspace-wide handler
+    -- override that rewrites every schedule without reading them first. NULL
+    -- when the operation carries no field-level diff at all (delete).
     changes JSONB
 );
 

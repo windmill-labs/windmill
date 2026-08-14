@@ -2942,11 +2942,15 @@ pub async fn handle_flow(
                         )
                         .await;
                     } else {
-                        windmill_queue::jobs::record_schedule_auto_disable(
+                        // No transaction is held here (the retried closure
+                        // committed its own), so a second connection is safe.
+                        windmill_common::trigger_history::record_best_effort(
                             db,
-                            &flow_job.workspace_id,
-                            &schedule.path,
-                            &err,
+                            windmill_queue::jobs::schedule_auto_disable_event(
+                                &flow_job.workspace_id,
+                                &schedule.path,
+                                &err.to_string(),
+                            ),
                         )
                         .await;
                     }

@@ -2503,33 +2503,61 @@ pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Syn
     Ok(())
 }
 
-/// Record a schedule the server disabled on its own.
+/// The event for a schedule the server disabled on its own.
+pub fn schedule_auto_disable_event<'a>(
+    workspace_id: &'a str,
+    path: &'a str,
+    error: &str,
+) -> windmill_common::trigger_history::TriggerHistoryEvent<'a> {
+    windmill_common::trigger_history::TriggerHistoryEvent::server_disable(
+        workspace_id,
+        windmill_common::trigger_history::SCHEDULE_TRIGGER_KIND,
+        path,
+        serde_json::json!({ "enabled": { "old": true, "new": false } }),
+        error,
+    )
+}
+
+/// Record an auto-disable through a savepoint on the caller's transaction.
 ///
-/// Deliberately on its own connection rather than the job-completion
-/// transaction: a failed statement there would poison it and take the job down
-/// with it. The cost is that the history row can outlive a rolled-back disable.
-pub async fn record_schedule_auto_disable(
-    db: &Pool<Postgres>,
-    workspace_id: &str,
-    path: &str,
+/// Not a second pooled connection: `tx` is the one completing the job and is
+/// still held, so acquiring another is how a pool-exhaustion deadlock starts
+/// when many completions reach this branch at once. The savepoint keeps a
+/// failed insert from poisoning `tx` all the same.
+async fn record_schedule_auto_disable(
+    tx: &mut Transaction<'_, Postgres>,
+    schedule: &Schedule,
     err: &Error,
 ) {
-    windmill_common::trigger_history::record_best_effort(
-        db,
-        windmill_common::trigger_history::TriggerHistoryEvent {
-            workspace_id,
-            trigger_kind: windmill_common::trigger_history::SCHEDULE_TRIGGER_KIND,
-            path,
-            operation: windmill_common::trigger_history::TriggerOperation::Disable,
-            source: windmill_common::trigger_history::TriggerSource::Worker,
-            username: None,
-            changes: Some(serde_json::json!({
-                "enabled": { "old": true, "new": false },
-                "error": { "new": err.to_string() },
-            })),
-        },
-    )
-    .await;
+    let event =
+        schedule_auto_disable_event(&schedule.workspace_id, &schedule.path, &err.to_string());
+    let mut savepoint = match tx.begin().await {
+        Ok(savepoint) => savepoint,
+        Err(e) => {
+            tracing::error!(
+                "Could not create savepoint to record trigger history for disabled schedule {}: {e:#}",
+                schedule.path
+            );
+            return;
+        }
+    };
+    match windmill_common::trigger_history::record(&mut savepoint, event).await {
+        Ok(()) => {
+            if let Err(e) = savepoint.commit().await {
+                tracing::error!(
+                    "Could not commit trigger history for disabled schedule {}: {e:#}",
+                    schedule.path
+                );
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                "Could not record trigger history for disabled schedule {}: {e:#}",
+                schedule.path
+            );
+            savepoint.rollback().await.ok();
+        }
+    }
 }
 
 pub async fn try_schedule_next_job<'c>(
@@ -2704,6 +2732,7 @@ pub async fn try_schedule_next_job<'c>(
             } else {
                 disable_result
             };
+            let disabled_rows = disable_result.as_ref().map(|r| r.rows_affected()).unwrap_or(0);
             if let Err(disable_err) = disable_result {
                 report_error_to_workspace_handler_or_critical_side_channel(
                     job,
@@ -2715,7 +2744,13 @@ pub async fn try_schedule_next_job<'c>(
                 )
                 .await;
             } else {
-                record_schedule_auto_disable(db, &schedule.workspace_id, &schedule.path, err).await;
+                // Gated on `rows_affected`: the schedule may have been deleted
+                // between the read and this write, and a history row for a
+                // disable that touched nothing is a lie about a path someone
+                // else may now own.
+                if disabled_rows > 0 {
+                    record_schedule_auto_disable(&mut tx, schedule, &err).await;
+                }
                 push_err = None;
             }
         }

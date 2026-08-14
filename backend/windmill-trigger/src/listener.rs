@@ -409,25 +409,26 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             .await;
 
             match report_status {
-                Ok(_) => {
-                    windmill_common::trigger_history::record_best_effort(
-                        db,
-                        windmill_common::trigger_history::TriggerHistoryEvent {
-                            workspace_id: &listening_trigger.workspace_id,
-                            // `to_key`, not `Display`: it is what lines up with
-                            // the `TRIGGER_TYPE` the API routes record under.
-                            trigger_kind: &Self::TRIGGER_KIND.to_key(),
-                            path: &listening_trigger.path,
-                            operation: windmill_common::trigger_history::TriggerOperation::Disable,
-                            source: windmill_common::trigger_history::TriggerSource::Worker,
-                            username: None,
-                            changes: Some(serde_json::json!({
-                                "mode": { "new": "disabled" },
-                                "error": { "new": error },
-                            })),
-                        },
-                    )
-                    .await;
+                Ok(result) => {
+                    // Gated on `rows_affected`, not just `Ok`: the trigger may
+                    // have been deleted between the listener reading it and
+                    // this write, and a history row for a disable that touched
+                    // nothing is a lie about a path someone else may now own.
+                    if result.rows_affected() > 0 {
+                        windmill_common::trigger_history::record_best_effort(
+                            db,
+                            windmill_common::trigger_history::TriggerHistoryEvent::server_disable(
+                                &listening_trigger.workspace_id,
+                                // `to_key`, not `Display`: it is what lines up
+                                // with the `TRIGGER_TYPE` the API records under.
+                                &Self::TRIGGER_KIND.to_key(),
+                                &listening_trigger.path,
+                                serde_json::json!({ "mode": { "new": "disabled" } }),
+                                &error,
+                            ),
+                        )
+                        .await;
+                    }
                     report_critical_error(
                         format!(
                             "Disabling {} trigger {} because of error: {}",
