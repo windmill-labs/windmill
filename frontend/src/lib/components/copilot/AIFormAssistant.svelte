@@ -40,12 +40,11 @@
 
 <div class="my-3 p-3 bg-surface-secondary rounded-md relative flex flex-col gap-3">
 	<div class="flex flex-row gap-2 justify-between items-center">
-		<!-- Neutral between the two branches: the hand-off runs the item, the legacy
-		     path fills the form. The button label names the specific action. -->
+		<!-- Heading stays neutral because the two branches do different things: the
+		     hand-off runs the item, the legacy path fills the form. Each button
+		     names its own action. A plain Button rather than AskAiButton, whose own
+		     session branch would fire here too and open an empty session. -->
 		<h3 class="text-sm font-medium">AI can help with these inputs</h3>
-		<!-- Labelled per branch: the hand-off runs the item, only the legacy path
-		     actually fills the form. A plain Button rather than AskAiButton, whose
-		     own session branch would fire here too and open an empty session. -->
 		<OpenInSessionButton
 			source={sessionSource}
 			label="Run with AI"
