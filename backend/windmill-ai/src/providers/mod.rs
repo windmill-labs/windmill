@@ -14,6 +14,22 @@ use std::time::{Duration, Instant};
 /// its `thinking` param, Gemini to a zero budget or the model's floor).
 pub(crate) const REASONING_OFF_SENTINEL: &str = "none";
 
+/// Whether a Claude model removed the sampling params (`temperature`, `top_p`,
+/// `top_k`). On these, any value is a hard 400 — `temperature is deprecated for
+/// this model` — whatever the thinking mode, so the param has to be dropped on
+/// the reasoning-off and no-reasoning paths too, not only under adaptive
+/// thinking. Live-verified against the Messages API: Opus 4.8 and the 5 family
+/// reject them, Sonnet 4.6 still accepts them.
+pub(crate) fn anthropic_model_rejects_sampling_params(model: &str) -> bool {
+    let model = model.to_lowercase().replace('.', "-");
+    model.contains("claude-opus-4-7")
+        || model.contains("claude-opus-4-8")
+        || model.contains("claude-opus-5")
+        || model.contains("claude-sonnet-5")
+        || model.contains("claude-fable")
+        || model.contains("claude-mythos")
+}
+
 use windmill_common::cache::Cache;
 
 use crate::{
