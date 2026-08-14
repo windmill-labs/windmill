@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM resource r\n                 WHERE r.workspace_id = $1 AND r.path = $2\n                       AND EXISTS(SELECT 1 FROM draft d\n                                  WHERE d.workspace_id = $1 AND d.path = r.path\n                                        AND d.typ = 'resource'))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ec545234c5fd037aa167bb4d1ef86646a35e2e8ff2d9544c895e87fb67e26af1"
+}

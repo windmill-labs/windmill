@@ -1388,7 +1388,7 @@
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<AgentEvalDrawer bind:agentPath={evalsAgentPath} bind:open={evalsOpen} />
+<AgentEvalDrawer agentPath={evalsAgentPath} bind:open={evalsOpen} />
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}

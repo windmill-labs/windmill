@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_score\n                (experiment_id, ordinal, scorer_id, score, reason, checks, error, definition,\n                 job_id, created_at)\n             SELECT $1, ordinal, scorer_id, score, reason, checks, error, definition, job_id,\n                    created_at\n             FROM eval_score WHERE experiment_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d2359bab8c73a7813e1d1166c42aafc31f0fa60822fbad1e3fee3987fabad8d2"
+}

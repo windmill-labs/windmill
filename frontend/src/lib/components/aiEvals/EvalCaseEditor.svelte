@@ -5,24 +5,23 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Play, Save, X } from 'lucide-svelte'
+	import { Play } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
+	import { onDestroy, untrack } from 'svelte'
 	import type { CaseDraft } from './evalCaseUtils'
 
 	let {
 		draft = $bindable(),
 		running = false,
 		canSave = true,
-		saveLabel = 'Save to dataset',
 		onRun,
 		onSave
 	}: {
 		draft: CaseDraft
 		running?: boolean
 		canSave?: boolean
-		saveLabel?: string
 		onRun: () => void
-		onSave: () => void
+		onSave: () => void | Promise<void>
 	} = $props()
 
 	// The fields are edited as local state seeded from the draft, not bound through it: the parent
@@ -45,17 +44,6 @@
 				? draft.expected
 				: JSON.stringify(draft.expected, null, 2)
 	)
-	let tagInput = $state('')
-
-	function addTag() {
-		const tag = tagInput.trim()
-		if (!tag) return
-		if (!(draft.tags ?? []).includes(tag)) {
-			draft.tags = [...(draft.tags ?? []), tag]
-		}
-		tagInput = ''
-	}
-
 	let attachments = $derived((draft.input?.user_attachments ?? []) as { s3?: string }[])
 
 	let parsed = $derived.by(() => {
@@ -94,6 +82,38 @@
 			draft.input = next
 		}
 	})
+
+	// A case is a row, and editing a row saves it. Debounced rather than saved per keystroke, and
+	// never while the conversation does not parse: half a JSON array is not a case.
+	let saving = $state(false)
+	let saveTimer: ReturnType<typeof setTimeout> | undefined = undefined
+	let lastSaved = $state<string | undefined>(undefined)
+	$effect(() => {
+		const snapshot = JSON.stringify($state.snapshot(draft))
+		const blocked = !canSave || !!parsed.error
+		untrack(() => {
+			if (lastSaved === undefined) {
+				// The state the editor opened on is what is stored: saving it back would write the
+				// case over itself on every case you merely look at.
+				lastSaved = snapshot
+				return
+			}
+			if (blocked || snapshot === lastSaved) return
+			saving = true
+			clearTimeout(saveTimer)
+			saveTimer = setTimeout(async () => {
+				lastSaved = snapshot
+				try {
+					await onSave()
+				} finally {
+					saving = false
+				}
+			}, SAVE_DEBOUNCE_MS)
+		})
+	})
+	onDestroy(() => clearTimeout(saveTimer))
+
+	const SAVE_DEBOUNCE_MS = 600
 </script>
 
 <div class="flex flex-col gap-4">
@@ -170,62 +190,22 @@
 		{/if}
 	</div>
 
-	<Label
-		label="Host flow"
-		tooltip="A linked agent's tools bind to the flow they run in. Leave this empty to use the agent's own authored defaults, or name a flow to reproduce that flow's tool inputs instead."
-	>
-		<TextInput
-			bind:value={draft.host_flow_path}
-			size="sm"
-			inputProps={{ placeholder: 'f/folder/flow (optional)' }}
-		/>
-	</Label>
-
-	<Label label="Tags" tooltip="Free-form labels, kept with the case so a dataset can be grouped.">
-		<div class="flex flex-col gap-1">
-			{#if draft.tags?.length}
-				<div class="flex flex-wrap gap-1">
-					{#each draft.tags as tag, index (tag + index)}
-						<Badge color="gray">
-							{tag}
-							<button
-								class="rounded-full p-0.5 text-tertiary hover:bg-surface-hover hover:text-primary"
-								title="Remove tag"
-								aria-label="Remove tag"
-								onclick={() => (draft.tags = draft.tags?.filter((_, i) => i !== index))}
-							>
-								<X size={11} />
-							</button>
-						</Badge>
-					{/each}
-				</div>
+	<div class="flex gap-2 justify-end items-center">
+		<span class="text-2xs text-tertiary">
+			{#if parsed.error}
+				Not saved while the conversation is invalid
+			{:else if saving}
+				Saving…
+			{:else}
+				Saved
 			{/if}
-			<TextInput
-				bind:value={tagInput}
-				size="sm"
-				inputProps={{
-					placeholder: 'Add a tag',
-					onkeydown: (e: KeyboardEvent) => e.key === 'Enter' && addTag()
-				}}
-			/>
-		</div>
-	</Label>
-
-	<div class="flex gap-2 justify-end">
+		</span>
 		<Button
 			variant="default"
 			size="xs"
-			startIcon={{ icon: Save }}
-			disabled={!canSave || !!parsed.error}
-			onclick={onSave}
-		>
-			{saveLabel}
-		</Button>
-		<Button
-			variant="accent"
-			size="xs"
 			startIcon={{ icon: Play }}
-			disabled={running || !!parsed.error}
+			disabled={running || !!parsed.error || !draft.id}
+			title={draft.id ? 'Run this case now' : 'Save the case first'}
 			onclick={onRun}
 		>
 			{running ? 'Running' : 'Run'}

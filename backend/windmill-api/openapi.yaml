@@ -11610,6 +11610,10 @@ paths:
                   type: string
                 default_subject:
                   $ref: "#/components/schemas/EvalSubject"
+                scorers:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Scorer"
       responses:
         "200":
           description: eval dataset created
@@ -11652,12 +11656,24 @@ paths:
             schema:
               type: object
               properties:
+                path:
+                  type: string
+                  description: >
+                    Renames the dataset. Its cases and experiments follow through the foreign
+                    keys, so a rename keeps the history it already has.
                 summary:
                   type: string
                 description:
                   type: string
                 default_subject:
                   $ref: "#/components/schemas/EvalSubject"
+                scorers:
+                  type: array
+                  description: >
+                    Left out to keep the dataset's columns as they are; sent to replace them
+                    wholesale.
+                  items:
+                    $ref: "#/components/schemas/Scorer"
       responses:
         "200":
           description: eval dataset updated
@@ -11829,10 +11845,6 @@ paths:
                   $ref: "#/components/schemas/EvalSubject"
                 case:
                   $ref: "#/components/schemas/NewEvalCase"
-                scorers:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/ScorerRef"
                 dataset:
                   type: string
                   description: dataset holding the case to run, instead of an inline case
@@ -11840,12 +11852,351 @@ paths:
                   type: string
                   format: uuid
       responses:
-        "201":
-          description: uuid of the started job
+        "200":
+          description: >
+            The job, and the experiment it was recorded in. A run against a dataset case lands in
+            Nothing is recorded: one case is run to see what it does, and whether that becomes part
+            of the dataset's history is decided afterwards, by saving it as a run.
           content:
-            text/plain:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+
+  /w/{workspace}/ai_evals/subjects/move:
+    post:
+      summary: move a step's eval history onto the agent it was saved as
+      description: >
+        A step with no agent of its own runs as the subject `<flow>/<step>`; saving it as an
+        ai_agent gives that work a name, and the runs made before it belong to it. They are
+        recorded as `agent_draft` at the new path — runs of a configuration of this agent that was
+        not deployed at the time. Each run keeps its own hash, so one that ran exactly what was
+        saved reads as that version.
+      operationId: moveEvalSubject
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_path, to_path]
+              properties:
+                from_path:
+                  type: string
+                to_path:
+                  type: string
+      responses:
+        "200":
+          description: how many runs were moved
+          content:
+            application/json:
+              schema:
+                type: integer
+
+  /w/{workspace}/ai_evals/subject_state:
+    get:
+      summary: what the agent under test is right now
+      description: >
+        The version it is deployed at, and what its draft hashes to. Small on purpose: the results
+        endpoint reports the same thing but harvests scores and reads every job to do it, so it is
+        not something to poll — and without polling, an agent edited while the table is open goes
+        on looking current.
+      operationId: evalSubjectState
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [agent, draft, agent_draft]
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the subject as it is now
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [has_undeployed_changes]
+                properties:
+                  version:
+                    type: integer
+                    format: int64
+                  draft_hash:
+                    type: string
+                  has_undeployed_changes:
+                    type: boolean
+
+  /w/{workspace}/ai_evals/runs/score_case:
+    post:
+      summary: score a case run that is not part of a run yet
+      description: >
+        Rerunning one case is worth looking at only with its numbers beside it, and waiting for a
+        save to see them would mean deciding blind. The scoring job is carried into the run when
+        it is saved rather than recomputed.
+      operationId: scoreCaseRun
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset, case_id, job_id]
+              properties:
+                dataset:
+                  type: string
+                case_id:
+                  type: string
+                  format: uuid
+                job_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: the scoring job
+          content:
+            application/json:
               schema:
                 type: string
+                format: uuid
+
+  /w/{workspace}/ai_evals/runs/score_result:
+    get:
+      summary: the verdicts of a scoring job that belongs to no run
+      description: Computed on read and stored nowhere — what has not been saved has no row to hold it.
+      operationId: scoreCaseResult
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: dataset
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: job_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: one verdict per scorer of the dataset
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [scorer_id, pending]
+                  properties:
+                    scorer_id:
+                      type: string
+                    score:
+                      type: number
+                    reason:
+                      type: string
+                    checks: {}
+                    error:
+                      type: string
+                    pending:
+                      type: boolean
+
+  /w/{workspace}/ai_evals/runs/save:
+    post:
+      summary: save case runs as a run of the dataset
+      description: >
+        Running one case records nothing. This is where the results of those runs become a run:
+        seeded from the one being looked at, so the cases that were not rerun are still in it,
+        with these cells replacing theirs. Nothing about the cells is taken from the client —
+        each job carries what it ran in its own `_eval` argument, written when it was queued.
+      operationId: saveRun
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset, runs]
+              properties:
+                dataset:
+                  type: string
+                seeded_from:
+                  type: string
+                  format: uuid
+                  description: >
+                    The run the new one starts from. The subject's latest when absent.
+                runs:
+                  type: array
+                  items:
+                    type: object
+                    required: [job_id]
+                    properties:
+                      job_id:
+                        type: string
+                        format: uuid
+                      score_job_id:
+                        type: string
+                        format: uuid
+                        description: >
+                          The scoring job whose verdicts go with it. Carried rather than
+                          recomputed: the number that is saved must be the number that was
+                          looked at.
+      responses:
+        "200":
+          description: the run that was saved
+          content:
+            application/json:
+              schema:
+                type: string
+                format: uuid
+
+  /w/{workspace}/ai_evals/score:
+    post:
+      summary: score an experiment from the answers it already stored
+      operationId: scoreExperiment
+      description: >
+        Scoring is separate from running: it reads the answers the runs stored and never calls the
+        agent. One run, one column, a whole experiment or a column across history are the same
+        operation at different grains, which is what lets a scorer added today score an experiment
+        that ran last week.
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: what to score
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset, experiment_id]
+              properties:
+                dataset:
+                  type: string
+                experiment_id:
+                  type: string
+                  format: uuid
+                scorer_ids:
+                  type: array
+                  description: The columns to score. All of the dataset's scorers when absent.
+                  items:
+                    type: string
+                case_ids:
+                  type: array
+                  description: The cases to score. The whole experiment when absent.
+                  items:
+                    type: string
+                    format: uuid
+                force:
+                  type: boolean
+                  description: >
+                    Score cells that already carry a score from the same definition. Off by
+                    default, so scoring an experiment twice costs nothing the second time.
+      responses:
+        "200":
+          description: what the request settled and what it queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scored, jobs, skipped, unscorable]
+                properties:
+                  scored:
+                    type: integer
+                    description: Cells settled in the API, with no job.
+                  jobs:
+                    type: integer
+                    description: Scoring jobs queued.
+                  skipped:
+                    type: integer
+                    description: Cells already carrying a score from the current definition.
+                  unscorable:
+                    type: integer
+                    description: Cells whose run has not finished, or produced no answer to score.
+
+  /w/{workspace}/ai_evals/scorer_defaults:
+    get:
+      summary: what a new judge agent and a new script scorer are created from
+      operationId: scorerDefaults
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: scorer defaults
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [judge_prompt, script_template]
+                properties:
+                  judge_prompt:
+                    type: string
+                    description: The system prompt a judge agent is created with.
+                  script_template:
+                    type: string
+
+  /w/{workspace}/ai_evals/scorers/recent:
+    get:
+      summary: list the scorers already in use in this workspace, most recent first
+      description: >
+        Filtered twice, both times by what the caller can read: the datasets they come from, and
+        the runnables themselves. A scorer they could not run does not appear.
+      operationId: recentScorers
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          description: only scorers of this kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [script, agent]
+      responses:
+        "200":
+          description: recently used scorers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/Scorer"
+                    - type: object
+                      required: [dataset]
+                      properties:
+                        dataset:
+                          type: string
+                          description: The dataset it is a column of.
 
   /w/{workspace}/ai_evals/case_draft/from_job/{job_id}:
     get:
@@ -11895,7 +12246,7 @@ paths:
 
   /w/{workspace}/ai_evals/experiments/run:
     post:
-      summary: run a dataset against a subject as one experiment
+      summary: run every case of a dataset, closing the writable experiment and opening the next
       operationId: runExperiment
       tags:
         - ai_evals
@@ -11914,10 +12265,6 @@ paths:
                   type: string
                 subject:
                   $ref: "#/components/schemas/EvalSubject"
-                scorers:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/ScorerRef"
                 host_flow_path:
                   type: string
                   description: >
@@ -11940,11 +12287,40 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: subject_path
+          description: >
+            Restrict to one subject's experiments. A dataset can be run against several agents,
+            and another agent's numbers are not this one's history.
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: subject_kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [agent, draft, agent_draft]
+        - name: also_subject_path
+          description: >
+            A second subject to include. How a step's history survives its agent being saved: the
+            runs made while it was a draft belong to `<flow>/<step>`, the ones since to the agent,
+            and both are the history of the same work.
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: also_subject_kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [agent, draft, agent_draft]
       responses:
         "200":
           description: >
-            The 100 newest experiments. The list is for picking a run; read an experiment's
-            results to get the cases it executed.
+            The 100 newest experiments of that subject. The list is for picking a run; read an
+            experiment's results to get the cases it executed.
           content:
             application/json:
               schema:
@@ -11968,6 +12344,16 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: baseline
+          description: >
+            The experiment every column is compared against. A delta is only computed between two
+            scores of the same scorer id, and a column the baseline was never scored with reports
+            it rather than showing a difference.
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: experiment results
@@ -11975,18 +12361,53 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [experiment, rows, scorer_labels]
+                required:
+                  [experiment, scorers, rows, means, regressed, subject_has_undeployed_changes]
                 properties:
                   experiment:
                     $ref: "#/components/schemas/EvalExperiment"
+                  baseline:
+                    $ref: "#/components/schemas/EvalExperiment"
+                  scorers:
+                    type: array
+                    description: The columns, which belong to the dataset rather than the experiment.
+                    items:
+                      $ref: "#/components/schemas/Scorer"
                   rows:
                     type: array
                     items:
                       $ref: "#/components/schemas/ExperimentRow"
-                  scorer_labels:
+                  means:
                     type: array
                     items:
-                      type: string
+                      $ref: "#/components/schemas/ScorerMean"
+                  regressed:
+                    type: integer
+                    description: Cells scoring lower than the baseline, across every column.
+                  subject_current_version:
+                    type: integer
+                    format: int64
+                    description: >
+                      The version the subject is on now. A row that ran against an earlier one
+                      describes an agent that no longer exists. Absent for a draft, which has no
+                      versions to be behind.
+                  subject_deployed_hash:
+                    type: string
+                    description: >
+                      What the agent hashes to as deployed. A draft run carrying this hash ran
+                      exactly what is deployed now — the edits were saved — so it is a run of that
+                      version rather than of a draft.
+                  subject_current_draft_hash:
+                    type: string
+                    description: >
+                      What the draft hashes to now, for a draft subject. A row carrying a different
+                      one ran a configuration that has since been edited.
+                  subject_has_undeployed_changes:
+                    type: boolean
+                    description: >
+                      The agent has edits that were never deployed. A run resolves the resource
+                      live and executes the deployed value, so those edits are not what any of
+                      these numbers describe.
 
   /w/{workspace}/path_autocomplete/list_paths:
     get:
@@ -26173,10 +26594,17 @@ components:
       properties:
         kind:
           type: string
-          enum: [agent]
+          description: >
+            `agent` runs a saved ai_agent resource by reference. `draft` runs a step that has not
+            been saved yet, from the configuration carried in `draft`. `agent_draft` runs a saved
+            agent's undeployed draft: the value is read server-side and inlined, because a
+            reference resolves live and so would run what the draft replaces.
+          enum: [agent, draft, agent_draft]
         path:
           type: string
-          description: Path of the ai_agent resource
+          description: >
+            Path of the ai_agent resource. For a draft it names the step being edited, so the run
+            can be found again; nothing resolves it.
         version:
           type: integer
           format: int64
@@ -26185,6 +26613,38 @@ components:
             resource_version id the agent was at when the run was enqueued. Recorded so a run
             stays attributable to a prompt state; it does not pin execution, which stays live, so
             a run that waits in the queue across an edit runs a later version than this.
+        draft:
+          $ref: "#/components/schemas/AgentDraft"
+        draft_hash:
+          type: string
+          description: >
+            Hash of the configuration a draft run executed, stamped server-side. A draft has no
+            version to move, so this is what dates a run of one.
+        origin_path:
+          type: string
+          description: >
+            The saved agent a draft is an edit of, when there is one. Editing a linked agent in
+            the flow editor forks it into the step, so what runs is the step — but it is an edit
+            of a version, not an anonymous draft.
+
+    AgentDraft:
+      type: object
+      description: >
+        The brain and tools of an unsaved agent step, as the flow editor holds them. Present
+        exactly when the subject kind is `draft`, and it is the whole definition of what ran: the
+        run goes through the same unlinked branch of the agent executor the editor's own test uses.
+      properties:
+        input_transforms:
+          type: object
+          additionalProperties: true
+          description: >
+            The step's input transforms: provider, system prompt, output type and the rest. The
+            message, attachments and memory come from the case and override anything named here.
+        tools:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
 
     EvalDataset:
       type: object
@@ -26198,6 +26658,11 @@ components:
           type: string
         default_subject:
           $ref: "#/components/schemas/EvalSubject"
+        scorers:
+          type: array
+          description: The columns of the results table, in display order.
+          items:
+            $ref: "#/components/schemas/Scorer"
         created_at:
           type: string
           format: date-time
@@ -26303,28 +26768,36 @@ components:
           type: string
           description: The agent the capture ran against, to preselect the subject.
 
-    ScorerRef:
+    Scorer:
       type: object
       description: >
-        A scorer is any runnable taking (input, output, expected). Built-ins are hub scripts and
-        LLM-as-judge is a reusable agent, so scoring needs no engine of its own.
+        A scorer is a column of the results table, and it is always a runnable: an ai_agent
+        resource sent the run to grade, or a script handed the run as an argument. `id` is assigned
+        when the scorer is added to a dataset and never reused: it is what makes a column the same
+        column across experiments when the scorer is renamed, and a delta is only ever computed
+        between two scores carrying the same id. A scorer sent without an id is given one.
       required: [kind, path]
       properties:
-        kind:
-          type: string
-          enum: [script, flow, agent]
-        path:
+        id:
           type: string
         name:
           type: string
-          description: Column header; defaults to the last segment of the path.
+          description: Column header. Defaults to the last segment of the path.
+        kind:
+          type: string
+          enum: [script, agent]
+        path:
+          type: string
+          description: The script, or the ai_agent resource used as a judge.
 
     EvalExperiment:
       type: object
       description: >-
-        One run of a dataset. The case set it executed is returned by the results endpoint, not
-        here: a listing would otherwise send the whole dataset back once per run.
-      required: [id, dataset, subject, case_count, created_at, created_by]
+        The set of runs over a dataset. The newest is writable: running one case lands in it, and
+        running the whole dataset closes it and opens the next. The case set it executed is
+        returned by the results endpoint, not here: a listing would otherwise send the whole
+        dataset back once per experiment.
+      required: [id, dataset, subject, run_number, case_count, created_at, created_by]
       properties:
         id:
           type: string
@@ -26333,10 +26806,22 @@ components:
           type: string
         subject:
           $ref: "#/components/schemas/EvalSubject"
-        scorers:
-          type: array
-          items:
-            $ref: "#/components/schemas/ScorerRef"
+        run_number:
+          type: integer
+          description: >
+            This subject's nth run of this dataset, allocated once and never reused. What an
+            experiment is called.
+        label:
+          type: string
+          description: >
+            A name for the run, beside the number it already carries. Nothing sets one yet: naming
+            runs is not part of the surface, and the field is what a future one would fill.
+        seeded_from:
+          type: string
+          format: uuid
+          description: >
+            The run this one started from, when it was opened to rerun part of it. Its cells were
+            copied, so this run is complete rather than a table with one number in it.
         case_count:
           type: integer
         created_at:
@@ -26345,9 +26830,35 @@ components:
         created_by:
           type: string
 
+    CellScore:
+      type: object
+      description: One scorer's verdict on one run, and how it compares with the baseline.
+      required: [scorer_id, pending, definition_changed]
+      properties:
+        scorer_id:
+          type: string
+        score:
+          type: number
+        reason:
+          type: string
+        checks: {}
+        error:
+          type: string
+        pending:
+          type: boolean
+          description: A scoring job is still running for this cell.
+        baseline:
+          type: number
+          description: The same scorer's number on the baseline experiment.
+        definition_changed:
+          type: boolean
+          description: >
+            The baseline's score came from a different definition of this scorer, so the delta is
+            a change of scorer as much as a change of agent.
+
     ExperimentRow:
       type: object
-      required: [case_id, input, job_id, status, scores]
+      required: [case_id, input, job_id, status, scores, carried]
       properties:
         case_id:
           type: string
@@ -26367,12 +26878,48 @@ components:
         output:
           type: string
           description: The agent's answer. The full trajectory stays reachable through job_id.
+        subject_version:
+          type: integer
+          format: int64
+          description: >
+            The agent version this cell ran against. Cells of one experiment can differ, which the
+            table says rather than averaging two versions silently.
+        subject_draft_hash:
+          type: string
+          description: >
+            For a draft run, the hash of the configuration this cell ran. A draft moves without a
+            version changing, so this is what says the row ran an agent that has been edited.
         scores:
           type: array
-          description: One entry per scorer in the experiment's order; null where there is no number yet.
+          description: One entry per scorer of the dataset, in column order.
           items:
-            type: number
-            nullable: true
+            $ref: "#/components/schemas/CellScore"
+        carried:
+          type: boolean
+          description: >
+            The result was carried over from the run this one was seeded by, rather than produced
+            here. The cells that are new are the ones that are not carried.
+
+    ScorerMean:
+      type: object
+      description: >
+        A column's summary. There is no single number for a dataset: averaging a judge with an
+        exact match would invent one.
+      required: [scorer_id, scored, missing_in_baseline, definition_changed]
+      properties:
+        scorer_id:
+          type: string
+        mean:
+          type: number
+        baseline_mean:
+          type: number
+        scored:
+          type: integer
+        missing_in_baseline:
+          type: integer
+          description: Cells the baseline has no score for, which is what scoring it would fill.
+        definition_changed:
+          type: boolean
 
     FlowConversation:
       type: object

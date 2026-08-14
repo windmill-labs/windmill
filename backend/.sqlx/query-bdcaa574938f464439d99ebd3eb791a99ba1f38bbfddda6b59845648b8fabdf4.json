@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_experiment_case\n                (experiment_id, ordinal, case_id, name, input, expected, job_id, subject_version,\n                 subject_draft_hash, started_at, carried_from)\n             SELECT $1, ordinal, case_id, name, input, expected, job_id, subject_version,\n                    subject_draft_hash, started_at, $2\n             FROM eval_experiment_case WHERE experiment_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bdcaa574938f464439d99ebd3eb791a99ba1f38bbfddda6b59845648b8fabdf4"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_score (experiment_id, ordinal, scorer_id, definition, job_id)\n                     VALUES ($1, $2, $3, $4, $5)\n                     ON CONFLICT (experiment_id, ordinal, scorer_id) DO UPDATE\n                        SET definition = EXCLUDED.definition, job_id = EXCLUDED.job_id,\n                            score = NULL, reason = NULL, checks = NULL, error = NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Varchar",
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "65f59b10cb035b36549061c8722493721897303b598773a730b2ae60fc042947"
+}

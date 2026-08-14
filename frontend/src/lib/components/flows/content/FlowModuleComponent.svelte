@@ -9,6 +9,8 @@
 		EDITOR_BAR_HELPERS_INLINE_THRESHOLD
 	} from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
+	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
+	import type { CaseDraft } from '$lib/components/aiEvals/evalCaseUtils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
 
@@ -18,6 +20,7 @@
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
+	import { getAgentEditingPath } from '../agentEditStore.svelte'
 	import type { FlowEditorContext, FlowGraphAssetContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
@@ -68,7 +71,7 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Terminal } from 'lucide-svelte'
+	import { Bug, FlaskConical, Terminal } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/utils'
 
 	const {
@@ -177,12 +180,73 @@
 			Boolean(flowStore.val.value?.chat_input_enabled) &&
 			flowModule.value.type === 'aiagent'
 	)
-	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
+	let visibleSelected = $derived(
+		selected === 'chat' && !canShowChatTab
+			? 'inputs'
+			: selected === 'evals' && flowModule.value.type !== 'aiagent'
+				? 'inputs'
+				: selected
+	)
+	// A case captured from the last test run, handed to the evals pane to review before saving.
+	let evalCapture = $state<CaseDraft | undefined>(undefined)
+	// The pane is mounted on the first visit and kept, so its state survives a trip to another
+	// tab; before that it costs nothing.
+	let evalsOpened = $state(false)
+	$effect(() => {
+		if (visibleSelected === 'evals') {
+			untrack(() => (evalsOpened = true))
+		}
+	})
+	// The step as authored, for an agent that is not linked to a saved resource. It is the whole
+	// definition of what an eval run executes, which is what makes an unsaved step testable.
+	let agentDraft = $derived(
+		flowModule.value.type === 'aiagent' && !flowModule.value.agent
+			? {
+					input_transforms: flowModule.value.input_transforms ?? {},
+					tools: (flowModule.value.tools ?? []) as Record<string, any>[]
+				}
+			: undefined
+	)
+	// A step forked from a saved agent for editing: what it runs is the step, but the edits are on
+	// top of that agent's current version, and a run that cannot say so reads as anonymous.
+	let editedAgentPath = $derived(
+		flowModule.value.type === 'aiagent' && !flowModule.value.agent
+			? getAgentEditingPath(flowModule.value.tools)
+			: undefined
+	)
 	let runSettings: FlowRunSettings | undefined = $state()
 	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
 	let validCode = $state(true)
 	let width = $state(1200)
 	let testJob: Job | undefined = $state(undefined)
+
+	// Read inside the closure: `testJob` is only ever assigned through `bind:`, which the type
+	// checker does not see, so an inline expression narrows it to its initial `undefined`.
+	let capturableTestJob = $derived.by((): Job | undefined => {
+		const job = testJob
+		return job?.type === 'CompletedJob' && flowModule.value.type === 'aiagent' ? job : undefined
+	})
+
+	/**
+	 * The inputs of a test run are a case; its answer fills `expected`, which is a claim that the
+	 * answer was right. Nothing is written here: the case opens in the Evals tab for review, so a
+	 * run someone saved *because* it was wrong is corrected before it becomes what future runs are
+	 * scored against.
+	 */
+	function saveTestAsCase() {
+		const job = capturableTestJob
+		if (!job) return
+		const args = (job.args ?? {}) as Record<string, any>
+		const result = (job as any).result
+		evalCapture = {
+			input: {
+				user_message: args.user_message ?? '',
+				user_attachments: args.user_attachments
+			},
+			expected: result?.output ?? undefined
+		}
+		selected = 'evals'
+	}
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
 
@@ -1099,6 +1163,9 @@
 												label="Chat"
 											/>
 										{/if}
+										{#if flowModule.value.type === 'aiagent'}
+											<Tab value="evals" label="Evals" />
+										{/if}
 										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="advanced" label="Run settings">
 												{#snippet extra()}
@@ -1233,6 +1300,18 @@
 											</PropPickerWrapper>
 										</div>
 									{:else if visibleSelected === 'test'}
+										{#if capturableTestJob}
+											<div class="flex justify-end px-4 pt-2">
+												<Button
+													size="xs2"
+													variant="subtle"
+													startIcon={{ icon: FlaskConical }}
+													onclick={saveTestAsCase}
+												>
+													Add as eval case
+												</Button>
+											</div>
+										{/if}
 										{#if debugMode && isDebuggableScript}
 											<div transition:slide={{ duration: 200 }}>
 												<DebugToolbar
@@ -1303,6 +1382,22 @@
 											{workspaceScriptNoEditReason}
 											onEditWorkspaceScript={openWorkspaceScriptSettings}
 										/>
+									{/if}
+									<!-- Outside the tab chain and hidden rather than unmounted: the pane holds
+									     which dataset, run and case you are looking at, and stepping over to the
+									     step's inputs and back should not throw that away. -->
+									{#if evalsOpened && flowModule.value.type === 'aiagent'}
+										<div class="flex-1 min-h-0" class:hidden={visibleSelected !== 'evals'}>
+											<EvalsPane
+												agentPath={flowModule.value.agent}
+												draft={agentDraft}
+												subjectLabel={`${$pathStore || 'draft'}/${flowModule.id}`}
+												flowPath={$pathStore}
+												originAgentPath={editedAgentPath}
+												opWorkspace={opWs}
+												capture={evalCapture}
+											/>
+										</div>
 									{/if}
 								</div>
 							</Pane>

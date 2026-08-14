@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(max(run_number), 0) + 1 FROM eval_experiment\n         WHERE workspace_id = $1 AND dataset_path = $2\n               AND subject ->> 'kind' = $3 AND subject ->> 'path' = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1a8d589efccc499862cb0926614b61e55e9aec86f22d6ad29e30d987d2670cfa"
+}

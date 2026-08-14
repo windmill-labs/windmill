@@ -5,11 +5,10 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ResourceService, type InputTransform } from '$lib/gen'
+	import { AiEvalsService, ResourceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, Save, Unlink, Pencil, FlaskConical } from 'lucide-svelte'
-	import AgentEvalDrawer from '$lib/components/aiEvals/AgentEvalDrawer.svelte'
+	import { Bot, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
@@ -295,12 +294,30 @@
 			const linked = await persist(newPath, description)
 			saveDrawer?.closeDrawer()
 			if (linked) {
-				sendUserToast(updating ? `Updated agent ${newPath}` : `Saved reusable agent ${newPath}`)
+				const moved = updating ? 0 : await moveEvalHistory(newPath)
+				sendUserToast(
+					(updating ? `Updated agent ${newPath}` : `Saved reusable agent ${newPath}`) +
+						(moved > 0 ? `, with ${moved} eval run${moved === 1 ? '' : 's'}` : '')
+				)
 			}
 		} catch (e) {
 			sendUserToast(`Failed to save agent: ${e}`, true)
 		} finally {
 			saving = false
+		}
+	}
+
+	/** The runs made while this was a step of the flow are runs of this agent: they move with it. */
+	async function moveEvalHistory(path: string): Promise<number> {
+		if (!ws || !flowPath) return 0
+		try {
+			return await AiEvalsService.moveEvalSubject({
+				workspace: ws,
+				requestBody: { from_path: `${flowPath}/${moduleId}`, to_path: path }
+			})
+		} catch {
+			// The agent is saved either way; its history following it is not worth failing that.
+			return 0
 		}
 	}
 
@@ -410,10 +427,7 @@
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
 	}
-	let evalsOpen = $state(false)
 </script>
-
-<AgentEvalDrawer agentPath={agent} bind:open={evalsOpen} opWorkspace={ws} />
 
 <div class="px-2 xl:px-4 pt-2">
 	{#if agent}
@@ -426,14 +440,6 @@
 					title={agent}>{agent}</a
 				>
 				<div class="flex items-center gap-1 shrink-0">
-					<Button
-						size="xs2"
-						variant="default"
-						startIcon={{ icon: FlaskConical }}
-						iconOnly
-						title="Evals (run this agent on its own against a dataset of cases)"
-						onclick={() => (evalsOpen = true)}
-					/>
 					<Button
 						size="xs2"
 						variant="default"
@@ -526,7 +532,7 @@
 			btnClasses="w-full"
 			onclick={openSave}
 		>
-			Save as agent
+			Save as reusable agent
 		</Button>
 	{/if}
 </div>
@@ -536,7 +542,8 @@
 		<div class="flex flex-col gap-4">
 			<p class="text-xs text-secondary">
 				Save this AI agent's configuration and tools as a reusable resource. Other flows can then
-				link to it, and updates propagate automatically.
+				link to it, and updates propagate automatically. The eval runs made while it was part of
+				this flow move with it, so its history starts where the work did.
 			</p>
 			<Path
 				bind:path={newPath}

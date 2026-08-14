@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM eval_experiment\n         WHERE workspace_id = $1 AND dataset_path = $2\n               AND subject ->> 'kind' = $3 AND subject ->> 'path' = $4\n         ORDER BY run_number DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dc2663731b7f55a6c2f568c0c66dabbb320426af327fa277d3976d026ab2502b"
+}

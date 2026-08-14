@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.subject, e.run_number, e.label, e.seeded_from,\n                e.created_at, e.created_by,\n                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)\n                    AS \"case_count!\"\n         FROM eval_experiment e\n         WHERE e.workspace_id = $1 AND e.dataset_path = $2 AND e.id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "subject",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "run_number",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "seeded_from",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "case_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "7079387ffe63833749fd30aac9ee380e9dab782ea1bddb22f43ecda27de32f0f"
+}
