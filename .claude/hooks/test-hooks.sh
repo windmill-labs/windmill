@@ -63,6 +63,13 @@ run $G ask   ">/dev/null rm -rf $OUT"
 # Data that merely mentions a verb is not a command. Both of these prompted in the field.
 run $G none  "$(printf 'gh pr create --body "$(cat <<%sEOF%s\ndrop `rm` and `mv` from the ask list\nrm is now guarded here\nEOF\n)"' "'" "'")"
 run $G none  "$(printf 'claude -p "run these in order:\n1: rm -rf /tmp/a\n2: mv /tmp/b /tmp/c"')"
+# A wrapper's own flags and assignments are unbounded, so they may not be charged against the
+# scan that looks past it — these run rm and must prompt.
+run $G ask   "env -i HOME=/tmp PATH=/usr/bin LANG=C USER=root SHELL=/bin/sh rm -rf /etc"
+run $G ask   "sudo -E -H -u root FOO=1 BAR=2 rm -rf $OUT"
+run $G ask   "xargs -a f -d d -E e -I {} -L 1 -n 1 rm /etc"
+# A `<<` inside a quoted string opens no heredoc, so the command under it is real.
+run $G ask   "$(printf 'echo "cat <<EOF"\nrm -rf /etc\nEOF')"
 # ... but a real command after a heredoc still is one.
 run $G ask   "$(printf 'cat <<EOF > /tmp/s.sh\nhello\nEOF\nrm -rf %s' "$OUT")"
 run $G ask   "$(printf 'echo "a << b"\nrm -rf %s' "$OUT")"
@@ -87,6 +94,8 @@ run $A ask   "timeout --signal KILL 5 mv /tmp/a /etc"
 run $A ask   "time -f FORMAT chmod 777 $OUT"
 run $A ask   "'mv' /tmp/a /etc"
 run $A ask   'ch\mod 777 /etc'
+run $A none  "$(printf 'claude -p "run these in order:\n1: rm -rf /tmp/a\n2: mv /tmp/b /tmp/c"')"
+run $A ask   "env -i A=1 B=2 C=3 D=4 E=5 F=6 mv /tmp/a /etc"
 run $A none  "cp $CWD/AGENTS.md /tmp/a"
 run $A none  "tar -xzf /tmp/a.tar.gz -C $OUT"
 run $A none  "cargo build"

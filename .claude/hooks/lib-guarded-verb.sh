@@ -15,17 +15,20 @@ set -f
 # the command splits on `; & |` and newlines, and a leading env assignment or process wrapper
 # (`timeout 5 rm`, `xargs rm`) is skipped before the command word is read.
 #
-# The split set also carries the characters that open a nested command — `$(`, backticks, `( )`
-# and `{ }` — because a rule matches the verb inside one (`echo $(rm -rf ~)` prompts), and a
-# separator that only ends statements would read that as an `echo`.
+# The split set also carries the characters that open a nested command — `$(`, backticks and
+# `( )` — because a rule matches the verb inside one (`echo $(rm -rf ~)` prompts), and a
+# separator that only ends statements would read that as an `echo`. Braces are handled as
+# words rather than separators, since splitting on them cuts `xargs -I {} … rm` in half and
+# strands the `rm` in a segment that no longer knows a wrapper preceded it.
 #
 # Past a wrapper the scan is bounded, because the tokens it walks are no longer known to be
 # commands: without a bound, one `timeout` in front of a long quoted argument turns every `rm`
 # written in that prose into a prompt.
 # Heredoc bodies are data, not commands, and a rule doesn't match a verb written inside one —
-# a PR body or a generated script would otherwise prompt for every `rm` in its text. A body is
-# dropped only when its terminator is actually there, so a `<<` appearing in prose or in an
-# arithmetic shift can't swallow the commands that follow it.
+# a PR body or a generated script would otherwise prompt for every `rm` in its text. Dropping a
+# body needs both a delimiter that could really open one and a line that terminates it; failing
+# either, nothing is dropped, so a `<<` in prose or in an arithmetic shift leaves the commands
+# around it intact.
 strip_heredoc_bodies() {
   local -a lines=()
   local line delim trimmed i j n
@@ -41,8 +44,19 @@ strip_heredoc_bodies() {
     delim="${delim#-}"                              # <<- strips leading tabs from the body
     delim="${delim#"${delim%%[![:space:]]*}"}"
     delim="${delim%%[[:space:]]*}"                  # the word after <<, ignoring any redirect
-    delim="${delim//[\"\'\\]/}"
-    [ -n "$delim" ] || continue
+    # A real delimiter is a bare word, or one wholly quoted (`<<'EOF'`, `<<\EOF`). Anything
+    # else is a `<<` inside prose (`echo "cat <<EOF"` leaves a trailing quote), where treating
+    # the rest as a body would drop the real commands written between here and a line that
+    # happens to match.
+    case "$delim" in
+      \'*\' | \"*\") delim="${delim:1:${#delim}-2}" ;;
+      \\?*) delim="${delim#\\}" ;;
+    esac
+    case "$delim" in
+      [A-Za-z_]*) ;;
+      *) continue ;;
+    esac
+    case "$delim" in *[!A-Za-z0-9_]*) continue ;; esac
     j="$i"
     while [ "$j" -lt "$n" ]; do
       trimmed="${lines[$j]#"${lines[$j]%%[![:space:]]*}"}"
@@ -58,10 +72,6 @@ runs_verb() {
   while IFS= read -r seg; do
     wrapped=0 budget=0
     for w in $seg; do
-      if [ "$wrapped" = 1 ]; then
-        [ "$budget" -gt 0 ] || break
-        budget=$((budget - 1))
-      fi
       # The shell strips quotes and backslashes before it looks up the command, so `'rm'` and
       # `r\m` run rm and have to compare equal to it.
       w="${w//[\"\'\\]/}"
@@ -70,18 +80,24 @@ runs_verb() {
         *=*) ;;                                        # leading env assignment
         -* | *'>'* | *'<'*) ;;                         # a flag, or a leading redirect
         [0-9]*) [ "$wrapped" = 1 ] || break ;;         # a wrapper's duration, not `1:` in prose
-        '!' | if | then | elif | else | while | until | do) ;;   # keywords, never the command
+        '!' | '{' | '}' | if | then | elif | else | while | until | do) ;;   # never the command
         timeout | time | nice | nohup | stdbuf | command | builtin | noglob | xargs | sudo | env)
           wrapped=1 budget=6 ;;
         # A wrapper's option value is indistinguishable from a command name (`stdbuf -o L rm`),
         # so past a wrapper the next few words are scanned instead of stopping at the first
         # ordinary one. Before one, that word is the command and the verb cannot follow it.
-        *) [ "$wrapped" = 1 ] || break ;;
+        # Only these ordinary words are charged: the arms above have already proved themselves
+        # not to be commands, and charging them ends the scan before `env A=1 … F=6 rm`.
+        *)
+          [ "$wrapped" = 1 ] || break
+          [ "$budget" -gt 0 ] || break
+          budget=$((budget - 1))
+          ;;
       esac
     done
     # `tr` and not `${2//[...]}`: a `}` inside the bracket expression closes the expansion
     # itself, which silently leaves the command unsplit and every separator unseen.
-  done <<< "$(strip_heredoc_bodies "$2" | tr ';&|(){}`' '\n')"
+  done <<< "$(strip_heredoc_bodies "$2" | tr ';&|()`' '\n')"
   return 1
 }
 
