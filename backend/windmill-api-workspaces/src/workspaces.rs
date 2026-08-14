@@ -2153,6 +2153,17 @@ async fn test_datatable_resource_connection(
 ) -> JsonResult<DataTableConnectionCheck> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.test_datatable_resource_connection",
+        ActionKind::Execute,
+        &w_id,
+        Some(&authed.email),
+        Some([("resource_path", query.resource_path.as_str())].into()),
+    )
+    .await?;
+
     let db_resource = windmill_common::workspaces::transform_json_value_unchecked(
         &serde_json::Value::String(format!("$res:{}", query.resource_path)),
         &w_id,
@@ -2280,6 +2291,24 @@ async fn test_datatable_connection_value(
 ) -> JsonResult<DataTableConnectionCheck> {
     require_admin(authed.is_admin, &authed.username)?;
     reject_indirection(&value)?;
+
+    // The host is the whole point of the record: this is the API server dialling out to
+    // somewhere the request named, and nothing else writes that down.
+    let host = value.get("host").and_then(|h| h.as_str()).unwrap_or("");
+    let port = value
+        .get("port")
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "".to_string());
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.test_datatable_connection_value",
+        ActionKind::Execute,
+        &w_id,
+        Some(&authed.email),
+        Some([("host", host), ("port", port.as_str())].into()),
+    )
+    .await?;
 
     let db_resource =
         windmill_common::workspaces::transform_json_value_unchecked(&value, &w_id, &db).await?;
