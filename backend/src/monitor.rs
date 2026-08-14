@@ -3235,6 +3235,10 @@ impl<'a> SettingsPass<'a> {
                 PassStep::Setting { name, apply, .. } => {
                     if let Some(value) = values.remove(name) {
                         apply(value).await
+                    } else {
+                        tracing::warn!(
+                            "Setting {name} could not be read, leaving its in-memory value unchanged"
+                        );
                     }
                 }
                 PassStep::Settings { names, apply, .. } => {
@@ -3244,6 +3248,17 @@ impl<'a> SettingsPass<'a> {
                         .collect();
                     if asked.len() == names.len() {
                         apply(asked).await
+                    } else {
+                        let missing = names
+                            .iter()
+                            .filter(|n| !asked.contains_key(*n))
+                            .copied()
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        tracing::warn!(
+                            "Settings {missing} could not be read, leaving the in-memory values of {} unchanged",
+                            names.join(", ")
+                        );
                     }
                 }
                 PassStep::Action(fut) => fut.await,
