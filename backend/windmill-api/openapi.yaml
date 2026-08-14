@@ -268,6 +268,15 @@ paths:
             type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
+        - name: before_id
+          in: query
+          description: >
+            only return logs with an id strictly lower than this one. Logs are ordered by
+            descending id, so this is a keyset cursor to stream a page in several batches
+            without paying a growing offset.
+          schema:
+            type: integer
+            format: int64
         - name: all_workspaces
           in: query
           description: get audit logs for all workspaces
