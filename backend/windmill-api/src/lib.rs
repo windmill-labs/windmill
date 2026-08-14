@@ -1319,9 +1319,9 @@ const SERVER_HEARTBEAT_TASK: &str = "server_heartbeat";
 /// Write a server-started heartbeat to `background_task_state` so that other
 /// traffic-serving instances waiting to restart can detect this one is healthy.
 ///
-/// Only `server_mode` processes announce, since only they are peers worth waiting
-/// for: `spawn_graceful_killpill` holds a shutdown open to keep requests answered,
-/// which a worker neither does nor needs.
+/// Only `server_mode` processes announce, since only they are peers worth waiting for:
+/// `spawn_graceful_killpill` holds a shutdown open to keep requests answered, and a
+/// worker, indexer or MCP process coming up is no evidence that anything is answering.
 ///
 /// The row is keyed per host and `owner` per process, and both halves carry weight.
 /// `INSTANCE_NAME` is random per start, so a row keyed on it never conflicts and

@@ -2309,11 +2309,12 @@ pub async fn run_workers(
 ///
 /// Falls back to drain-only delay if DB coordination fails.
 ///
-/// Only `server_mode` processes coordinate. A worker answers no request, and its group
-/// sitting empty for a moment costs queue latency rather than work: the queue rows are
-/// durable and the killpill is read between jobs, so the one in flight still finishes.
-/// Letting workers take part would also let one claim the `is_first` slot and leave every
-/// server holding its shutdown open for a peer that serves no traffic.
+/// Only `server_mode` processes coordinate; worker, indexer and MCP ones drain and go. None
+/// of them answers traffic that outlives the process, and an empty worker group costs queue
+/// latency rather than work: the queue rows are durable and the killpill is read between
+/// jobs, so the one in flight still finishes. Were they to take part, one could claim the
+/// `is_first` slot and leave every server holding its shutdown open for a peer that answers
+/// nothing.
 async fn spawn_graceful_killpill(
     tx: &KillpillSender,
     db: &Pool<Postgres>,
