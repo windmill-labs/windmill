@@ -111,7 +111,15 @@ export class PlanModeController {
 		def: createToolDef(exitPlanModeArgs, EXIT_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL_DESCRIPTION),
 		planModeSafe: true,
 		requiresConfirmation: true,
-		validateBeforeConfirmation: ({ args }) => exitPlanModeRejection(args),
+		// A batch's tool list is snapshotted before its calls are run, so a second hand-over in
+		// one response still finds this tool after the first restored the posture. Refused here
+		// rather than in `fn`, because `onConfirmationRequested` writes the document too — and
+		// under YOLO nothing asks: the tool would confer the user's approval on a plan no card
+		// ever showed them.
+		validateBeforeConfirmation: ({ args }) =>
+			this.#host.active
+				? exitPlanModeRejection(args)
+				: { label: PLAN_MODE_MESSAGES.endedLabel, result: PLAN_MODE_MESSAGES.ended },
 		confirmationMessage: (args) => planSummaryOf(args) ?? PLAN_MODE_MESSAGES.exitPrompt,
 		cancellationMessage: PLAN_MODE_MESSAGES.exitDeclined,
 		showDetails: true,

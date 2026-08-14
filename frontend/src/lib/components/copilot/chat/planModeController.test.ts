@@ -212,6 +212,43 @@ describe('PlanModeController', () => {
 		expect(active).toBe(true)
 	})
 
+	it('refuses a second hand-over from the batch that already ended plan mode', async () => {
+		// One response can carry two exit_plan_mode calls, and the tool list they run against is
+		// snapshotted before the first one restores the posture. Under YOLO nothing asks, so the
+		// stale call would write its own summary and stamp the user's approval on a plan no card
+		// ever showed them.
+		const frozenTools = [controller.exitTool]
+		const handOver = (summary: string, id: string) =>
+			processToolCall({
+				tools: frozenTools,
+				toolCall: {
+					id,
+					type: 'function',
+					function: { name: 'exit_plan_mode', arguments: JSON.stringify({ summary }) }
+				} as any,
+				helpers: {},
+				workspace: 'w',
+				toolCallbacks: {
+					setToolStatus: vi.fn(),
+					removeToolStatus: vi.fn(),
+					requestConfirmation: () => Promise.resolve(true),
+					isPlanModeActive: () => active,
+					// YOLO: every confirmation is answered for the user.
+					shouldAutoAcceptToolConfirmations: () => true
+				} as any
+			})
+
+		expect(await handOver('# Agreed\n\nGo.', 'exit-1')).toMatchObject({
+			content: PLAN_MODE_MESSAGES.approvedWithDoc
+		})
+		expect(active).toBe(false)
+
+		expect(await handOver('# Something else\n\nGo.', 'exit-2')).toMatchObject({
+			content: PLAN_MODE_MESSAGES.ended
+		})
+		expect(docs[0]).toMatchObject({ content: '# Agreed\n\nGo.', version: 1, approvedVersion: 1 })
+	})
+
 	it('files a plan under the session that proposed it, not one swapped in mid-save', async () => {
 		let released: (() => void) | undefined
 		artifacts.savePlan.mockImplementationOnce(async (sessionId: string, revision: any) => {

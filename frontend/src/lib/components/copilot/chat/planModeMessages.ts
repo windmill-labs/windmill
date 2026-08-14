@@ -26,6 +26,9 @@ export const PLAN_MODE_MESSAGES = {
 	missingSummaryLabel: 'No plan to approve',
 	missingSummary:
 		'exit_plan_mode needs a non-empty `summary` holding the full plan — there is nothing to approve without it. Call it again with the plan as `summary`.',
+	endedLabel: 'Plan already handed over',
+	ended:
+		"Plan mode has already ended — this hand-over was made and the posture is back to the user's own. There is nothing left to approve, so this call was refused rather than stamping the user's approval on a plan they never saw. To change the plan document now, rewrite it with update_artifact.",
 	oversizedPlanLabel: 'Plan too large to save',
 	// How far over decides whether the model trims or rewrites, and it cannot count bytes.
 	oversizedPlan: (bytes: number) =>
