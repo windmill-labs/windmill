@@ -15,6 +15,30 @@
 //! **what** (a field-level diff computed from the row before and after the
 //! write), and **from what kind of client** ([`TriggerSource`]).
 //!
+//! # What is recorded
+//!
+//! Authoring a single trigger through its own surface — create, update, delete,
+//! enable/disable/suspend, restore from the trashbin, and the workspace-wide
+//! default-handler override — plus the server disabling one after a failure.
+//! **Adding a route that authors a trigger means adding a `record` call to it**;
+//! nothing enforces that, because the alternative (a database trigger) cannot
+//! see who or which client asked, and would fire on every listener ping.
+//!
+//! Deliberately outside that line, and not a gap to be closed one call site at a
+//! time:
+//!
+//! - **Cascades of renaming or deleting something else** — a script/flow rename
+//!   rewriting `script_path` (`triggers::update_triggers_script_path`), a user
+//!   being removed rewriting ownership. The event belongs to the runnable or the
+//!   user, not to the trigger.
+//! - **Workspace-level bulk operations** — archive, fork clone, cross-workspace
+//!   deploy. They move whole workspaces; a per-trigger row per path would say
+//!   nothing the workspace event does not.
+//! - **Runtime housekeeping** — clearing `paused_until` / `error` after a run,
+//!   consumer-offset state (`reset_offset`, `server_id`), the managed
+//!   ducklake-maintenance schedule. The same category as the `server_id` and
+//!   `last_server_ping` columns the diff already drops.
+//!
 //! # Authorization contract
 //!
 //! None of the helpers here authorize anything: they take a connection and
