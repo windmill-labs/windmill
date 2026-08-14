@@ -6,6 +6,7 @@ import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { chatState } from './sharedChatState.svelte'
 import { runChatLoop } from './chatLoop'
 
 // This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
@@ -128,6 +129,9 @@ vi.mock('esm-env', async (importOriginal) => ({
 }))
 
 beforeEach(() => {
+	// These managers stand in for a mounted docked chat; without a layout to set
+	// it, sendRequest's "nowhere to render this turn" guard would refuse every send.
+	chatState.dockedChatAvailable = true
 	vi.clearAllMocks()
 	mocks.getCurrentModel.mockReturnValue(undefined)
 	mocks.tryGetCurrentModel.mockReturnValue(undefined)

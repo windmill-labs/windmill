@@ -11,6 +11,10 @@
 		/** Where inside the item the preview should open (a flow's `selected`
 		 * step). Steers the editor only — tab identity is (kind, path). */
 		previewParams?: Record<string, string>
+		/** Pre-fills the new session's composer instead of sending. Entry points
+		 * that carry an intent (fix this error, fill these inputs) hand it over
+		 * as text the user reads and edits before the first send. */
+		seedPrompt?: string
 	}
 </script>
 
@@ -19,8 +23,9 @@
 	import { BROWSER } from 'esm-env'
 	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { openEditorInSession } from './sessionSwitch.svelte'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { userStore } from '$lib/stores'
+	import { openSourceInSession } from './sessionSwitch.svelte'
 
 	let {
 		source,
@@ -34,9 +39,9 @@
 		/** Button styling overrides for hosts with their own conventions (an
 		 * editor toolbar). */
 		btnProps?: ComponentProps<typeof AIButton>['btnProps']
-		/** Rendered instead when the user opted out of the sessions beta
-		 * (typically the editor's inline-chat toggle). Never rendered inside
-		 * the session panel. */
+		/** Rendered instead when the caller keeps a docked chat to drive — an
+		 * opted-out user or an operator (typically the editor's inline-chat
+		 * toggle). Never rendered inside the session panel. */
 		fallback?: Snippet
 	} = $props()
 
@@ -46,7 +51,7 @@
 	// SessionEditorTarget / the session wrapper); iframe preview tabs are not
 	// the top window.
 	const inSessionPanel = !!getContext('aiChatManager') || (BROWSER && window.self !== window.top)
-	const show = $derived(!inSessionPanel && !!source && isGlobalAiEnabled())
+	const show = $derived(!inSessionPanel && !!source && prefersSessionHandoff($userStore?.operator))
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.
 	let opening = false
@@ -54,8 +59,7 @@
 		if (opening || !source) return
 		opening = true
 		try {
-			await source.beforeOpen?.()
-			await openEditorInSession(source.target, source.workspaceId, source.previewParams)
+			await openSourceInSession(source)
 		} finally {
 			opening = false
 		}

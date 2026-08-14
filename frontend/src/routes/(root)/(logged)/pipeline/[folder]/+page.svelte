@@ -84,6 +84,8 @@
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		AlertTriangle,
 		ArrowLeft,
@@ -464,6 +466,15 @@
 			lines.push('No output asset is expected.')
 		}
 		const instructions = lines.join('\n')
+		// A session opens the pipeline itself rather than this page's script
+		// editor, so the prompt has to name the node it should write — the docked
+		// path gets that for free from the registered script editor.
+		if (prefersSessionHandoff($userStore?.operator)) {
+			await openEditorInSession({ kind: 'pipeline', path: folder }, $workspaceStore, undefined, {
+				seedPrompt: `Write the script \`${args.scriptPath}\` in this pipeline.\n\n${instructions}`
+			})
+			return
+		}
 		aiChatManager.openChat()
 		aiChatManager.sendRequest({ instructions })
 	}

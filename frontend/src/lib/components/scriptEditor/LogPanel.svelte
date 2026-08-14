@@ -214,8 +214,12 @@
 													fixTableSizingToParent
 												>
 													{#snippet copilot_fix()}
-														{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}
-															<ScriptFix {lang} />
+														{@const previewError =
+															previewJob && !previewJob.success
+																? getStringError(previewJob.result)
+																: undefined}
+														{#if lang && editor && diffEditor && args && previewError}
+															<ScriptFix {lang} error={previewError} />
 														{/if}
 													{/snippet}
 												</DisplayResult>

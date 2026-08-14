@@ -6,10 +6,15 @@ import {
 	selectSession,
 	sessionInCurrentFamily,
 	sessionState,
+	setSessionDraftPrompt,
 	setSessionPendingWorkspace,
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
+import { previewTargetForSessionTarget } from './sessionPreviewTabs.svelte'
+// Type-only: erased at compile time, so the component graph stays out of this
+// navigation seam (see the dynamic import in openEditorInSession).
+import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -72,17 +77,29 @@ export async function exitSessionMode(): Promise<void> {
 // editor's workspace (instead of createSession's root default) so it opens the
 // same flow/script the user was editing. `previewParams` ride on the tab URL to
 // tell the previewed editor where to open (a flow's `selected` step).
+// The page a preview tab should open for `target`. A pipeline is a folder
+// rather than a workspace item, so it has no `…/edit` route: its preview is the
+// `/pipeline/<folder>` page, built (normalized + encoded) by the same helper the
+// preview tabs use.
+function previewHrefFor(target: SessionTarget): string | undefined {
+	if (target.kind !== 'pipeline') return sessionTargetHref(target)
+	const page = previewTargetForSessionTarget(target.kind, target.path)
+	return page?.type === 'page' ? page.href : undefined
+}
+
 export async function openEditorInSession(
 	target: SessionTarget,
 	workspaceId?: string,
-	previewParams?: Record<string, string>
+	previewParams?: Record<string, string>,
+	opts?: { seedPrompt?: string }
 ): Promise<void> {
 	// Seed the fresh session's preview with a single tab on `target` so it opens
 	// straight onto the editor the caller wants (resetSessionPreviewTabs also
 	// writes through a live runtime if one already exists for this id).
 	const session = createSession()
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
-	const url = withPreviewParams(sessionTargetHref(target), previewParams)
+	if (opts?.seedPrompt) setSessionDraftPrompt(session.id, opts.seedPrompt)
+	const url = withPreviewParams(previewHrefFor(target), previewParams)
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
 		// (chat manager → monaco) into this thin navigation seam, breaking its
@@ -90,6 +107,37 @@ export async function openEditorInSession(
 		const { resetSessionPreviewTabs } = await import('./sessionRuntime.svelte')
 		resetSessionPreviewTabs(session.id, url)
 	}
+	selectSession(session.id)
+	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
+}
+
+// Open an editor's own hand-off, running its `beforeOpen` (which persists the
+// draft the preview loads) first. Callers that drive the hand-off imperatively
+// go through this rather than `openEditorInSession` so they cannot skip that
+// step; `OpenInSessionButton` is the declarative equivalent.
+export async function openSourceInSession(
+	source: OpenInSessionSource,
+	overrides?: { previewParams?: Record<string, string>; seedPrompt?: string }
+): Promise<void> {
+	await source.beforeOpen?.()
+	await openEditorInSession(
+		source.target,
+		source.workspaceId,
+		overrides?.previewParams ?? source.previewParams,
+		{ seedPrompt: overrides?.seedPrompt ?? source.seedPrompt }
+	)
+}
+
+// Open a fresh session on no particular item, with `prompt` pre-filled in the
+// composer. For entry points that carry a question rather than a target (the
+// global search's "Ask AI"). Always a new session rather than the most recent
+// one (`enterSessionMode`), so the seed cannot overwrite a prompt the user has
+// already typed into a session they are mid-way through.
+export async function startSessionWithPrompt(prompt: string): Promise<void> {
+	const session = createSession()
+	const workspace = get(workspaceStore)
+	if (workspace) setSessionPendingWorkspace(session.id, workspace)
+	setSessionDraftPrompt(session.id, prompt)
 	selectSession(session.id)
 	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 }

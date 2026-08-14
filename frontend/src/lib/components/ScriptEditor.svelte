@@ -95,6 +95,7 @@
 	import OpenInSessionButton, {
 		type OpenInSessionSource
 	} from './sessions/OpenInSessionButton.svelte'
+	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -277,6 +278,10 @@
 	}: Props = $props()
 
 	let opWs = $derived(workspaceOverride ?? $workspaceStore)
+
+	// Publish this editor's hand-off for AI entry points below it in the tree
+	// (the preview panel's "AI Fix"), mirroring FlowBuilder and RawAppEditor.
+	setOpenInSessionHandoff({ source: () => sessionOpen })
 
 	$effect(() => {
 		onTestStateChange?.(testIsLoading)

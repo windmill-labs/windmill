@@ -25,6 +25,22 @@ export function isGlobalAiEnabled(): boolean {
 	}
 }
 
+/**
+ * Whether an AI entry point should hand off to a session rather than drive the
+ * docked chat. This is exactly the condition under which the root layout stops
+ * mounting the docked pane (`AiChatLayout`'s `disableAi`), so a caller that
+ * falls back on `false` always has a pane to fall back to.
+ *
+ * Operators are the exception: `/sessions` refuses them, so they keep the
+ * legacy pane their layout still mounts. Drop the operator clause when the
+ * operator chat ships.
+ *
+ * Takes the flag rather than reading `$userStore` so this stays a plain module.
+ */
+export function prefersSessionHandoff(isOperator: boolean | undefined): boolean {
+	return isGlobalAiEnabled() && !isOperator
+}
+
 /** Persist the opt-out choice, then hard-reload so every gated site re-reads it. */
 export function setSessionsBetaOptOut(optOut: boolean, target: string) {
 	// Navigate even when persistence throws (quota, private browsing) — the

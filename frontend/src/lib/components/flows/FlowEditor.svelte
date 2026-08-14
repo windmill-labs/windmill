@@ -35,6 +35,9 @@
 	import { Button } from '../common'
 	import { MousePointerClick, X } from 'lucide-svelte'
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
+	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
+	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
+	import { userStore } from '$lib/stores'
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
@@ -368,6 +371,16 @@
 						{showJobStatus}
 						on:reload
 						on:generateStep={({ detail }) => {
+							// The step is already inserted; the prompt describes what it should
+							// contain. Hand it to a session opened on that step rather than the
+							// docked chat, which sessions leave unmounted.
+							if (sessionOpen && prefersSessionHandoff($userStore?.operator)) {
+								void openSourceInSession(sessionOpen, {
+									previewParams: { selected: detail.moduleId },
+									seedPrompt: detail.instructions
+								})
+								return
+							}
 							if (!aiChatManager.open) {
 								aiChatManager.openChat()
 							}
