@@ -363,7 +363,7 @@ pub async fn initial_load(
         });
         match conn {
             Connection::Sql(db) => {
-                reload_worker_config(&db, tx, false).await;
+                pass.action(reload_worker_config(&db, tx, false));
             }
             Connection::Http(_) => {
                 // TODO: reload worker config from http
@@ -427,26 +427,32 @@ pub async fn initial_load(
         );
     }
 
+    // A step rather than a plain await: an AWS OIDC store mints its first token against an
+    // issuer built from `BASE_URL` (`oidc_ee.rs`), and with `OTEL_ENVIRONMENT` set nothing
+    // loads that before this pass does, so running ahead of the applier would sign with the
+    // unset default and fall back to the 10s retry.
     #[cfg(feature = "parquet")]
     if !disable_s3_store {
         if let Some(db) = conn.as_sql() {
             let db2 = db.clone();
-            match reload_object_store_setting(db).await {
-                ObjectStoreReload::Later => {
-                    tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_secs(10)).await;
-                        match reload_object_store_setting(&db2).await {
-                            ObjectStoreReload::Later => {
-                                tracing::error!("Giving up on loading object store setting");
+            pass.action(async move {
+                match reload_object_store_setting(db).await {
+                    ObjectStoreReload::Later => {
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_secs(10)).await;
+                            match reload_object_store_setting(&db2).await {
+                                ObjectStoreReload::Later => {
+                                    tracing::error!("Giving up on loading object store setting");
+                                }
+                                ObjectStoreReload::Never => {
+                                    tracing::info!("Object store setting successfully loaded");
+                                }
                             }
-                            ObjectStoreReload::Never => {
-                                tracing::info!("Object store setting successfully loaded");
-                            }
-                        }
-                    });
+                        });
+                    }
+                    ObjectStoreReload::Never => (),
                 }
-                ObjectStoreReload::Never => (),
-            }
+            });
         }
     }
 
@@ -3164,10 +3170,11 @@ impl<'a> SettingsPass<'a> {
             .collect();
 
         let mut values = fetch_settings_batch(conn, &names).await;
-        if values.is_empty() && !names.is_empty() {
-            // The batch failed outright. At startup there is no known-good in-memory state to
-            // preserve, so read each setting on its own rather than leaving the process on
-            // compile-time defaults until the next full reload.
+        // One failed query took every setting with it. At startup there is no known-good
+        // in-memory state to preserve, so read them individually rather than leave the process
+        // on compile-time defaults until the next full reload. Only the single-query transport
+        // can fail this way; over HTTP the batch already is the per-setting read.
+        if matches!(conn, Connection::Sql(_)) && values.is_empty() && !names.is_empty() {
             tracing::warn!("Falling back to per-setting reads for {} settings", names.len());
             values = fetch_settings_individually(conn, &names).await;
         }
@@ -3203,11 +3210,6 @@ impl<'a> SettingsPass<'a> {
     }
 }
 
-/// Read many settings at once: one query over a database connection, and for an agent worker
-/// one concurrent round of the per-setting endpoint rather than a sequential walk of it.
-///
-/// A read that fails is reported and left absent, which is the same value the caller would
-/// have parsed from a failed single read.
 /// Parse whitespace-separated URLs, dropping and reporting the ones that do not parse.
 fn parse_url_list(raw: &str, source: &str) -> Vec<url::Url> {
     raw.trim()
@@ -3247,6 +3249,11 @@ async fn fetch_settings_individually(
     .collect()
 }
 
+/// Read many settings at once: one query over a database connection, and for an agent worker
+/// one concurrent round of the per-setting endpoint rather than a sequential walk of it.
+///
+/// A name whose read failed is left out entirely, which the caller distinguishes from a name
+/// that is present with no value, i.e. genuinely unset.
 async fn fetch_settings_batch(
     conn: &Connection,
     names: &[&str],
