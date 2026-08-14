@@ -313,7 +313,8 @@
 	function setPath(npath: string): void {
 		if (!current) return
 		const prev = current.path
-		for (const [k, v] of Object.entries(current.args)) {
+		// `args` is whatever the raw JSON editor parsed — `null` included.
+		for (const [k, v] of Object.entries(current.args ?? {})) {
 			if (v === `$var:${prev}`) current.args[k] = `$var:${npath}`
 		}
 		current.path = npath
