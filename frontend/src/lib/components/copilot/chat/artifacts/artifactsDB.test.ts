@@ -58,6 +58,10 @@ function version(v: number, artifactId = 'a1'): ArtifactVersion {
 	}
 }
 
+// mutateArtifact takes a mutator, not a row: these tests only need "write exactly this".
+const put = (m: any, a: any, snapshots: any[]) =>
+	m.mutateArtifact(a.id, () => ({ artifact: a, snapshots }))
+
 describe('artifactsDB', () => {
 	it('derives filename and mime type from the artifact kind', () => {
 		expect(db.artifactFilename({ name: 'Plan', kind: 'md' })).toBe('Plan.md')
@@ -132,14 +136,13 @@ describe('artifactsDB', () => {
 		expect((await upgraded.getArtifact('old'))?.content).toBe('written at v1')
 		expect((await upgraded.listArtifactsForSession('s1')).map((a) => a.id)).toEqual(['old'])
 		// The store the upgrade added works on the upgraded database, not just a fresh one.
-		await upgraded.putArtifactWithVersions(artifact({ id: 'old' }), [version(1, 'old')])
+		await put(upgraded, artifact({ id: 'old' }), [version(1, 'old')])
 		expect((await upgraded.listArtifactVersions('old')).map((v) => v.version)).toEqual([1])
 	})
 
 	it('keeps only the most recent versions of an artifact', async () => {
 		const total = db.MAX_VERSIONS_PER_ARTIFACT + 5
-		for (let v = 1; v <= total; v++)
-			await db.putArtifactWithVersions(artifact({ id: 'a1' }), [version(v)])
+		for (let v = 1; v <= total; v++) await put(db, artifact({ id: 'a1' }), [version(v)])
 
 		const kept = await db.listArtifactVersions('a1')
 		expect(kept).toHaveLength(db.MAX_VERSIONS_PER_ARTIFACT)
@@ -149,12 +152,28 @@ describe('artifactsDB', () => {
 		expect(kept.at(-1)?.version).toBe(total - db.MAX_VERSIONS_PER_ARTIFACT + 1)
 	})
 
+	it('never prunes away the version that stands as the approved plan', async () => {
+		// Approve at v1, then plan against it for another twenty rounds: without this the
+		// text the user agreed to is the first thing the ring buffer drops.
+		const total = db.MAX_VERSIONS_PER_ARTIFACT + 5
+		for (let v = 1; v <= total; v++) {
+			await put(db, artifact({ id: 'a1', role: 'plan', approvedVersion: 1 }), [version(v)])
+		}
+
+		const kept = await db.listArtifactVersions('a1')
+		// Protected, not extra: the budget is unchanged, so the survivors are v1 plus the
+		// newest MAX-1 rather than a contiguous run.
+		expect(kept).toHaveLength(db.MAX_VERSIONS_PER_ARTIFACT)
+		expect(kept.at(-1)?.version).toBe(1)
+		expect(kept.at(-2)?.version).toBe(total - db.MAX_VERSIONS_PER_ARTIFACT + 2)
+	})
+
 	it('keeps fewer versions of a large artifact, but never fewer than the minimum', async () => {
 		// Big enough that the char budget, not the count, decides — a plain count cap would
 		// let one document's history run to several MB.
 		const big = 'x'.repeat(db.MAX_VERSION_CHARS_PER_ARTIFACT / 4)
 		for (let v = 1; v <= 8; v++)
-			await db.putArtifactWithVersions(artifact({ id: 'a1' }), [{ ...version(v), content: big }])
+			await put(db, artifact({ id: 'a1' }), [{ ...version(v), content: big }])
 
 		const kept = await db.listArtifactVersions('a1')
 		expect(kept).toHaveLength(4)
@@ -162,15 +181,15 @@ describe('artifactsDB', () => {
 
 		// A single snapshot larger than the whole budget still leaves a usable history.
 		const huge = 'x'.repeat(db.MAX_VERSION_CHARS_PER_ARTIFACT * 2)
-		await db.putArtifactWithVersions(artifact({ id: 'a1' }), [{ ...version(9), content: huge }])
+		await put(db, artifact({ id: 'a1' }), [{ ...version(9), content: huge }])
 		expect(await db.listArtifactVersions('a1')).toHaveLength(db.MIN_VERSIONS_PER_ARTIFACT)
 	})
 
 	it('deleting an artifact, or a whole session, drops the versions with it', async () => {
 		await db.putArtifact(artifact({ id: 'a1', sessionId: 's1' }))
 		await db.putArtifact(artifact({ id: 'a2', sessionId: 's1' }))
-		await db.putArtifactWithVersions(artifact({ id: 'a1', sessionId: 's1' }), [version(1)])
-		await db.putArtifactWithVersions(artifact({ id: 'a2', sessionId: 's1' }), [version(1, 'a2')])
+		await put(db, artifact({ id: 'a1', sessionId: 's1' }), [version(1)])
+		await put(db, artifact({ id: 'a2', sessionId: 's1' }), [version(1, 'a2')])
 
 		await db.deleteArtifact('a1')
 		expect(await db.listArtifactVersions('a1')).toEqual([])

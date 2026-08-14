@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT username, email, is_admin, operator,\n                  added_via->>'group' as granting_group\n           FROM usr\n           WHERE workspace_id = $1 AND added_via->>'source' = 'instance_group'\n           ORDER BY email",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "granting_group",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "6fda4517a72b25b0eab47bc69127ee45467d4d45239fb556534429b03442b27b"
+}

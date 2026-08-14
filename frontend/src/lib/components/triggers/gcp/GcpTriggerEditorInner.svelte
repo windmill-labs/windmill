@@ -415,6 +415,7 @@
 {#snippet actionsButtons()}
 	{#if !drawerLoading && can_write}
 		<TriggerEditorToolbar
+			triggerKind="gcp"
 			triggerPath={initialPath}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}

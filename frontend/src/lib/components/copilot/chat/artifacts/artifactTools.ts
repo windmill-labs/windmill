@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { createToolDef, type Tool } from '../shared'
-import { currentVersion, type ArtifactVersion } from './artifactsDB'
-import type { SessionArtifactsStore } from './artifactsState.svelte'
+import { artifactOverflowBytes, MAX_ARTIFACT_BYTES, normalizeChangeNote } from './artifactLimits'
+import { currentVersion, type ArtifactVersion, type PersistedArtifact } from './artifactsDB'
+import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
+import { PlanSlotTakenError, type SessionArtifactsStore } from './artifactsState.svelte'
 
 // The subset of GlobalToolHelpers these tools read. Kept local (not imported from
 // global/core) so the tools don't pull the whole global tool module — which would be a
@@ -10,19 +12,18 @@ type ArtifactToolHelpers = {
 	artifacts?: SessionArtifactsStore
 	sessionId?: string
 	getChatId?: () => string | undefined
-	openArtifact?: (artifactId: string, name: string) => void
+	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 }
-
-const MAX_ARTIFACT_BYTES = 256 * 1024
-
-// Bounds what a snapshot stores and replays to the model. Enforced by truncation rather
-// than by the schema: rejecting the call would throw away a real content update over a
-// cosmetic label, and the model would have to resend the whole document to recover.
-const MAX_NOTE_CHARS = 120
 
 const createArtifactSchema = z.object({
 	name: z.string().describe('Short display title for the artifact.'),
-	content: z.string().describe('Full markdown content of the artifact.')
+	content: z.string().describe('Full markdown content of the artifact.'),
+	role: z
+		.enum(['plan'])
+		.optional()
+		.describe(
+			"Set to `plan` to make this the session's plan document — what the user reads as the agreed plan, and what a later planning round revises. One per session: if list_artifacts already shows an entry whose `role` is `plan`, rewrite that one with update_artifact instead. Omit for an ordinary document."
+		)
 })
 
 const updateArtifactSchema = z.object({
@@ -51,8 +52,8 @@ const listArtifactVersionsSchema = z.object({
 })
 
 function tooLarge(content: string): string | undefined {
-	const bytes = new TextEncoder().encode(content).length
-	if (bytes <= MAX_ARTIFACT_BYTES) return undefined
+	const bytes = artifactOverflowBytes(content)
+	if (bytes === undefined) return undefined
 	return `Content is too large (${bytes} bytes, limit ${MAX_ARTIFACT_BYTES}). Shorten or split it.`
 }
 
@@ -79,13 +80,26 @@ export const artifactTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: sizeError, error: sizeError })
 				return JSON.stringify({ success: false, error: sizeError })
 			}
-			const artifact = await h.artifacts.create(sessionId, {
-				name: parsed.name,
-				content: parsed.content,
-				kind: 'md',
-				chatId: h.getChatId?.()
-			})
-			h.openArtifact?.(artifact.id, artifact.name)
+			let artifact: PersistedArtifact
+			try {
+				artifact = await h.artifacts.create(sessionId, {
+					name: parsed.name,
+					content: parsed.content,
+					kind: 'md',
+					chatId: h.getChatId?.(),
+					role: parsed.role
+					// No approvedVersion: this tool asks for no confirmation, so a plan written here
+					// stands as a draft until a card decides it. exit_plan_mode alone confers it.
+				})
+			} catch (e) {
+				// The store checks the slot inside the write transaction, so another tab cannot
+				// take it in between.
+				if (!(e instanceof PlanSlotTakenError)) throw e
+				const error = `This session's plan is already "${e.plan.name}" (id ${e.plan.id}). Rewrite that document with update_artifact — a session holds one plan.`
+				toolCallbacks.setToolStatus(toolId, { content: error, error })
+				return JSON.stringify({ success: false, error })
+			}
+			h.openArtifact?.(artifact.id, artifact.name, 'latest')
 			toolCallbacks.setToolStatus(toolId, { content: `Created artifact "${artifact.name}"` })
 			return JSON.stringify({ success: true, id: artifact.id, name: artifact.name })
 		}
@@ -115,9 +129,10 @@ export const artifactTools: Tool<{}>[] = [
 				{
 					content: parsed.content,
 					name: parsed.name,
-					// Blank collapses to undefined, not "": an empty string is not nullish, so it
-					// would slip past the picker's fallback and render a row with no label.
-					note: parsed.change_note.trim().slice(0, MAX_NOTE_CHARS) || undefined
+					note: normalizeChangeNote(parsed.change_note),
+					// An agreed plan revised here is still agreed: this tool is blocked in plan mode,
+					// so every call is one the posture already trusts. A draft stays a draft.
+					keepApproved: true
 				},
 				{ sessionId }
 			)
@@ -135,8 +150,9 @@ export const artifactTools: Tool<{}>[] = [
 		def: createToolDef(
 			listArtifactsSchema,
 			'list_artifacts',
-			"List the current session's artifacts (id, name, kind)."
+			"List the current session's artifacts (id, name, kind, version, role, approvedVersion). `version` is the latest one saved, which is not necessarily the one the user is reading — get_preview_status reports the version they have pinned. `role` is `plan` on the session's one plan document and on nothing else. On that one, `approvedVersion` is the version the user signed off: below `version` means the current text is a proposal they have not agreed to, and absent means nothing here was ever approved."
 		),
+		planModeSafe: true,
 		fn: async ({ toolId, toolCallbacks, helpers }) => {
 			const h = helpers as ArtifactToolHelpers
 			const sessionId = h.sessionId
@@ -151,7 +167,16 @@ export const artifactTools: Tool<{}>[] = [
 			return JSON.stringify(
 				items
 					.sort((a, b) => b.updatedAt - a.updatedAt)
-					.map((a) => ({ id: a.id, name: a.name, kind: a.kind }))
+					.map((a) => ({
+						id: a.id,
+						name: a.name,
+						kind: a.kind,
+						version: currentVersion(a),
+						role: a.role,
+						// A plan exists from the moment it is proposed, so without this the model reads
+						// a refused proposal as the one they signed off.
+						approvedVersion: a.role === 'plan' ? a.approvedVersion : undefined
+					}))
 			)
 		}
 	},
@@ -161,6 +186,7 @@ export const artifactTools: Tool<{}>[] = [
 			'read_artifact',
 			"Read an artifact's full markdown content by id, at its current or an earlier version."
 		),
+		planModeSafe: true,
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = readArtifactSchema.parse(args)
 			const h = helpers as ArtifactToolHelpers
@@ -221,6 +247,9 @@ export const artifactTools: Tool<{}>[] = [
 			'list_artifact_versions',
 			"List an artifact's saved versions, newest first. Read one with read_artifact's version argument."
 		),
+		// How the model recovers the approved plan once a refused draft stands in front of it;
+		// the fail-closed gate would otherwise block that in the posture that needs it.
+		planModeSafe: true,
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = listArtifactVersionsSchema.parse(args)
 			const h = helpers as ArtifactToolHelpers

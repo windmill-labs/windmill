@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
-import { SessionArtifactsStore } from './artifactsState.svelte'
+import { planFirst, SessionArtifactsStore } from './artifactsState.svelte'
 import * as db from './artifactsDB'
 
 // The user-scoping subscription is BROWSER-gated; the node test env reports false.
@@ -314,6 +314,143 @@ describe('SessionArtifactsStore', () => {
 		expect((await store.listVersions('legacy')).map((v) => v.version)).toEqual([2, 1])
 	})
 
+	it('a plan another tab created joins the loaded list when this one revises it', async () => {
+		await store.setSession('s1')
+		// Written straight to the DB under the id the session derives: this store loaded s1
+		// before the plan existed, which is the cross-tab case.
+		await dbMod.putArtifact({
+			id: dbMod.planArtifactId('s1'),
+			sessionId: 's1',
+			kind: 'md',
+			role: 'plan',
+			name: 'Theirs',
+			content: 'v1',
+			createdAt: 1,
+			updatedAt: 1,
+			version: 1
+		})
+
+		await store.savePlan('s1', { name: 'Theirs', content: 'v2', note: 'revised' }, undefined)
+
+		// Persisted but absent from here would leave it out of the preview, the transcript's
+		// plan card and list_artifacts until a reload.
+		expect(store.artifacts.map((a) => a.id)).toEqual([dbMod.planArtifactId('s1')])
+		expect(store.artifacts[0].content).toBe('v2')
+	})
+
+	it('refuses a plan, and an approval, the store would not keep', async () => {
+		await store.setSession('s1')
+		const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const refuseOnce = () =>
+			vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementationOnce(() => {
+				throw new DOMException('quota', 'QuotaExceededError')
+			})
+
+		// An ordinary artifact degrades unpersisted; a plan cannot, because approving one that
+		// is gone on reload leaves the user agreeing to a document nothing can show them.
+		let put = refuseOnce()
+		await expect(
+			store.savePlan('s1', { name: 'Plan', content: '# p', note: 'first' }, undefined)
+		).rejects.toThrow(/could not be saved/)
+		put.mockRestore()
+
+		const plan = await store.savePlan(
+			's1',
+			{ name: 'Plan', content: '# p', note: 'first' },
+			undefined
+		)
+		put = refuseOnce()
+		expect(await store.approve(plan.id, 1)).toBe(false)
+		put.mockRestore()
+		// And the refusal is not merely reported: an approval reflected in memory anyway would
+		// show the `plan` pill, and tell the model the user signed off, until the next reload.
+		expect(store.artifacts.find((a) => a.id === plan.id)?.approvedVersion).toBeUndefined()
+		expect((await store.get(plan.id))?.approvedVersion).toBeUndefined()
+
+		expect(await store.approve(plan.id, 1)).toBe(true)
+		expect(store.artifacts.find((a) => a.id === plan.id)?.approvedVersion).toBe(1)
+		quiet.mockRestore()
+	})
+
+	it('holds one plan per session, and frees the slot when it is deleted', async () => {
+		await store.setSession('s1')
+		const plan = await store.create('s1', { name: 'Plan', content: 'x', role: 'plan' })
+		await expect(store.create('s1', { name: 'Other', content: 'y', role: 'plan' })).rejects.toThrow(
+			/already has a plan/
+		)
+		// Another session's slot is its own.
+		await expect(
+			store.create('s2', { name: 'Elsewhere', content: 'z', role: 'plan' })
+		).resolves.toBeDefined()
+
+		await store.remove(plan.id)
+		await expect(store.create('s1', { name: 'Next', content: 'w', role: 'plan' })).resolves.toEqual(
+			expect.objectContaining({ role: 'plan' })
+		)
+	})
+
+	it('gives two tabs proposing at once distinct versions, keeping both snapshots', async () => {
+		// The hazard the transaction exists for: read outside it and both tabs stamp the same
+		// next version, so one proposal and its snapshot vanish under the other.
+		const other = new (await import('./artifactsState.svelte')).SessionArtifactsStore()
+		await store.setSession('s1')
+		await store.savePlan('s1', { name: 'Plan', content: 'v1', note: 'first' }, undefined)
+
+		await Promise.all([
+			store.savePlan('s1', { name: 'Plan', content: 'from A', note: 'A' }, undefined),
+			other.savePlan('s1', { name: 'Plan', content: 'from B', note: 'B' }, undefined)
+		])
+
+		const versions = (await store.listVersions(dbMod.planArtifactId('s1'))).map((v) => v.version)
+		expect(versions).toEqual([3, 2, 1])
+		expect((await dbMod.getArtifact(dbMod.planArtifactId('s1')))?.version).toBe(3)
+	})
+
+	it('an approval racing a newer proposal moves the pointer without reverting content', async () => {
+		// approve() must patch, never rewrite: an approval computed while another tab was
+		// revising would otherwise carry this tab's older text back over the newer one.
+		const other = new (await import('./artifactsState.svelte')).SessionArtifactsStore()
+		await store.setSession('s1')
+		const plan = await store.savePlan(
+			's1',
+			{ name: 'Plan', content: 'v1', note: 'first' },
+			undefined
+		)
+
+		await other.savePlan(
+			's1',
+			{ name: 'Plan', content: 'v2 from the other tab', note: 'B' },
+			undefined
+		)
+		await store.approve(plan.id, 1)
+
+		const row = await dbMod.getArtifact(plan.id)
+		expect(row).toMatchObject({ content: 'v2 from the other tab', version: 2, approvedVersion: 1 })
+	})
+
+	it('does not move the approval when a write produces no new version', async () => {
+		// A plan approved at v1 and revised into a proposal the user turned down. Renaming it,
+		// or rewriting it with the text already there, adds no version — so there is nothing
+		// for the approval to move onto, and the refused text must stay refused.
+		await store.setSession('s1')
+		const plan = await store.create('s1', { name: 'Plan', content: 'v1', role: 'plan' })
+		await store.update(plan.id, { approvedVersion: 1 })
+		const refused = await store.update(plan.id, { content: 'v2 the user rejected' })
+		expect(refused).toMatchObject({ version: 2, approvedVersion: 1 })
+
+		const renamed = await store.update(plan.id, {
+			name: 'Plan, renamed',
+			content: 'v2 the user rejected',
+			keepApproved: true
+		})
+		expect(renamed).toMatchObject({ version: 2, approvedVersion: 1 })
+
+		// A write that does add a version still carries it: an edit outside plan mode is one
+		// the user's posture already trusts.
+		const revised = await store.update(plan.id, { content: 'v3', keepApproved: true })
+		expect(revised).toMatchObject({ version: 3, approvedVersion: 3 })
+	})
+
 	it('remove deletes from the DB and the loaded list', async () => {
 		await store.setSession('s1')
 		const created = await store.create('s1', { name: 'Plan', content: 'x' })
@@ -337,3 +474,20 @@ function mk(over: Partial<db.PersistedArtifact> = {}): db.PersistedArtifact {
 		...over
 	}
 }
+
+describe('planFirst', () => {
+	it('pins plans above artifacts updated more recently', () => {
+		// Store order is newest-first; a run that writes a CSV after the plan is
+		// approved would otherwise bury the plan the user keeps coming back to.
+		const csv = mk({ id: 'csv', name: 'runs.csv', updatedAt: 20 })
+		const plan = mk({ id: 'plan', name: 'Add retries', role: 'plan', updatedAt: 10 })
+		expect(planFirst([csv, plan]).map((a) => a.id)).toEqual(['plan', 'csv'])
+	})
+
+	it('keeps each group newest-first, and several plans together', () => {
+		const newPlan = mk({ id: 'p2', role: 'plan', updatedAt: 30 })
+		const doc = mk({ id: 'doc', updatedAt: 20 })
+		const oldPlan = mk({ id: 'p1', role: 'plan', updatedAt: 10 })
+		expect(planFirst([newPlan, doc, oldPlan]).map((a) => a.id)).toEqual(['p2', 'p1', 'doc'])
+	})
+})

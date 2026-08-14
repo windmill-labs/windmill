@@ -27,6 +27,9 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
+    trigger_history::{
+        self, TriggerHistoryEvent, TriggerOperation, TriggerSource, SCHEDULE_TRIGGER_KIND,
+    },
     user_drafts::{
         delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
         UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
@@ -83,6 +86,40 @@ async fn resolve_permissioned_as_for_create(
 
 fn resolve_edited_by(authed: &ApiAuthed) -> String {
     authed.username.clone()
+}
+
+/// Append this mutation to `trigger_history`, diffing the row against `before`.
+///
+/// Call it on the transaction that made the change, after the change: the
+/// snapshot it takes is the "after" side of the diff, and the two commit or roll
+/// back together.
+async fn record_schedule_history(
+    tx: &mut sqlx::PgConnection,
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+    operation: TriggerOperation,
+    before: Option<serde_json::Value>,
+) -> Result<()> {
+    let after = trigger_history::snapshot_row(&mut *tx, "schedule", w_id, path).await?;
+    // Nothing to describe when the row is not there after the write: the same
+    // guard the trigger side needs, kept here so the two read alike.
+    if after.is_none() {
+        return Ok(());
+    }
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id: w_id,
+            trigger_kind: SCHEDULE_TRIGGER_KIND,
+            path,
+            operation,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: trigger_history::summarize_changes(before.as_ref(), after.as_ref()),
+        },
+    )
+    .await
 }
 
 pub fn workspaced_service() -> Router {
@@ -417,6 +454,16 @@ async fn create_schedule(
     .await
     .map_err(|e| Error::internal_err(format!("inserting schedule in {w_id}: {e:#}")))?;
 
+    record_schedule_history(
+        &mut *tx,
+        &authed,
+        &w_id,
+        &ns.path,
+        TriggerOperation::Create,
+        None,
+    )
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -523,6 +570,8 @@ async fn edit_schedule(
     } else {
         authed.email.clone()
     };
+
+    let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -631,6 +680,16 @@ async fn edit_schedule(
     // (schedule row first, then v2_job_queue) and avoid deadlocks with concurrent operations
     // like set_enabled, flow updates, and worker job completions.
     clear_schedule(&mut tx, path, &w_id).await?;
+
+    record_schedule_history(
+        &mut *tx,
+        &authed,
+        &w_id,
+        path,
+        TriggerOperation::Update,
+        before,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -1084,6 +1143,8 @@ pub async fn set_enabled(
             }
         }
     }
+    let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
+
     // email is still written for backwards compat with old workers that don't know about permissioned_as
     let schedule_o = sqlx::query_as!(
         Schedule,
@@ -1138,6 +1199,20 @@ pub async fn set_enabled(
     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
+
+    record_schedule_history(
+        &mut *tx,
+        &authed,
+        &w_id,
+        path,
+        if payload.enabled {
+            TriggerOperation::Enable
+        } else {
+            TriggerOperation::Disable
+        },
+        before,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -1285,6 +1360,22 @@ async fn delete_schedule(
         .await?;
     }
 
+    // No diff: the row is gone, and the trashbin above already keeps its full
+    // contents for a restore.
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id: &w_id,
+            trigger_kind: SCHEDULE_TRIGGER_KIND,
+            path,
+            operation: TriggerOperation::Delete,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: None,
+        },
+    )
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1373,6 +1464,11 @@ async fn set_default_error_handler(
     }
 
     if payload.override_existing {
+        // The rewrite and its history rows go in one transaction: on separate
+        // connections a concurrent edit could interleave, leaving the
+        // id-ordered drawer showing the wrong latest change, and a failed
+        // insert would leave the schedules rewritten with nothing recording it.
+        let mut tx = db.begin().await?;
         let updated_schedules: Vec<String>;
         match payload.handler_type {
             HandlerType::Error => {
@@ -1386,14 +1482,14 @@ async fn set_default_error_handler(
                         payload.number_of_occurence_exact,
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET ws_error_handler_muted = false, on_failure = NULL, on_failure_extra_args = NULL, on_failure_times = NULL, on_failure_exact = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 }
             }
@@ -1406,14 +1502,14 @@ async fn set_default_error_handler(
                         payload.number_of_occurence,
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET on_recovery = NULL, on_recovery_extra_args = NULL, on_recovery_times = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 }
             }
@@ -1425,18 +1521,70 @@ async fn set_default_error_handler(
                         payload.extra_args,
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET on_success = NULL, on_success_extra_args = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 }
             }
         }
+        // One row per schedule the workspace-wide override rewrote, so a handler
+        // that appeared on a schedule nobody edited is traceable. Every column
+        // the UPDATE above wrote, not just the handler path: the mute flag and
+        // the occurrence thresholds are what someone auditing a surprise
+        // notification change most needs. No `old` side and no
+        // already-had-this-value filter — the UPDATE rewrites the whole
+        // workspace unconditionally, so these rows record the write rather than
+        // a delta.
+        // Built from the same values the branch that ran actually bound: a reset
+        // (`payload.path` absent) hardcodes NULL / false in SQL while the request
+        // still carries the form's other fields, so reading them here would name
+        // values the write never produced.
+        let cleared = payload.path.is_none();
+        let handler_path = payload.path.clone();
+        let extra_args = (!cleared).then(|| payload.extra_args.clone()).flatten();
+        let times = (!cleared).then_some(payload.number_of_occurence).flatten();
+        let handler_fields = match payload.handler_type {
+            HandlerType::Error => serde_json::json!({
+                "on_failure": { "new": handler_path },
+                "on_failure_extra_args": { "new": extra_args },
+                "on_failure_times": { "new": times },
+                "on_failure_exact": {
+                    "new": (!cleared).then_some(payload.number_of_occurence_exact).flatten()
+                },
+                "ws_error_handler_muted": {
+                    "new": !cleared && payload.workspace_handler_muted.unwrap_or(false)
+                },
+            }),
+            HandlerType::Recovery => serde_json::json!({
+                "on_recovery": { "new": handler_path },
+                "on_recovery_extra_args": { "new": extra_args },
+                "on_recovery_times": { "new": times },
+            }),
+            HandlerType::Success => serde_json::json!({
+                "on_success": { "new": handler_path },
+                "on_success_extra_args": { "new": extra_args },
+            }),
+        };
+        trigger_history::record_bulk(
+            &mut tx,
+            &w_id,
+            SCHEDULE_TRIGGER_KIND,
+            &updated_schedules,
+            TriggerOperation::Update,
+            TriggerSource::of_request(authed.is_session_token),
+            Some(&authed.username),
+            Some(handler_fields),
+        )
+        .await?;
+
+        tx.commit().await?;
+
         for updated_schedule_path in updated_schedules {
             // managed ducklake-maintenance rows get the handler update (their
             // failures should reach workspace handlers) but must not be

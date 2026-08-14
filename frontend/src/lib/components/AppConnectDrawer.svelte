@@ -14,7 +14,11 @@
 		disableChatOffset?: boolean
 	}
 
-	let { expressOAuthSetup = false, workspace = undefined, disableChatOffset = false }: Props = $props()
+	let {
+		expressOAuthSetup = false,
+		workspace = undefined,
+		disableChatOffset = false
+	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let resourceType = $state('')

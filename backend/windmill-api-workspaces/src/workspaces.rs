@@ -11615,41 +11615,6 @@ struct LogFeatureUsagePayload {
     events: Vec<FeatureUsageEvent>,
 }
 
-// Only registered (feature, kind) actions are accepted, so telemetry stays
-// limited to predefined feature actions. Keys are shape-checked (identifier-like,
-// no spaces) rather than pinned to value sets: they come from our own frontend
-// (modes, tab/draft kinds, tool names, provider:model) and pinning every value
-// server-side was not worth the maintenance.
-const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
-    ("ai_session", "created"),
-    ("ai_session", "message"),
-    ("ai_session", "autonomy"),
-    ("ai_session", "tab"),
-    ("ai_session", "tokens"),
-    ("ai_session", "deployed"),
-    ("ai_session", "archived"),
-    ("ai_session", "deleted"),
-    ("ai_session", "beta_optout"),
-    ("ai_session", "beta_optin"),
-    ("ai_chat", "message"),
-    ("ai_chat", "model"),
-    ("ai_chat", "tool"),
-    ("flow_editor", "panel_placement"),
-];
-
-fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
-    !s.is_empty()
-        && s.len() <= max_len
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
-}
-
-fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
-    FEATURE_USAGE_KINDS.contains(&(e.feature.as_str(), e.kind.as_str()))
-        && (e.key.is_empty() || is_identifier_shaped(&e.key, 100))
-        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50))
-}
-
 async fn log_feature_usage(
     Extension(db): Extension<DB>,
     Json(payload): Json<LogFeatureUsagePayload>,
@@ -11658,7 +11623,15 @@ async fn log_feature_usage(
     // single INSERT error out ("cannot affect row a second time").
     let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
     for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
-        if !valid_feature_usage_event(&e) {
+        // Which actions may be recorded lives in
+        // `windmill_common::feature_usage`, shared with the in-process writer so
+        // both admit exactly the same events.
+        if !windmill_common::feature_usage::is_recordable_event(
+            &e.feature,
+            &e.kind,
+            &e.key,
+            &e.entity_id,
+        ) {
             continue;
         }
         let value = e.value.unwrap_or(1).clamp(1, 1_000_000);
@@ -11668,12 +11641,18 @@ async fn log_feature_usage(
     if agg.is_empty() {
         return Ok(StatusCode::NO_CONTENT);
     }
-    let mut features = Vec::with_capacity(agg.len());
-    let mut kinds = Vec::with_capacity(agg.len());
-    let mut keys = Vec::with_capacity(agg.len());
-    let mut entity_ids = Vec::with_capacity(agg.len());
-    let mut values = Vec::with_capacity(agg.len());
-    for ((feature, kind, key, entity_id), value) in agg {
+    // Sorted for the same reason as `flush_feature_usage`: this endpoint and the
+    // backend flusher upsert the same rows, and two batches touching them in
+    // opposite orders deadlock.
+    let mut rows: Vec<((String, String, String, String), i64)> = agg.into_iter().collect();
+    rows.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+    let mut features = Vec::with_capacity(rows.len());
+    let mut kinds = Vec::with_capacity(rows.len());
+    let mut keys = Vec::with_capacity(rows.len());
+    let mut entity_ids = Vec::with_capacity(rows.len());
+    let mut values = Vec::with_capacity(rows.len());
+    for ((feature, kind, key, entity_id), value) in rows {
         features.push(feature);
         kinds.push(kind);
         keys.push(key);
