@@ -137,17 +137,23 @@ pub struct AnthropicMessage {
     pub content: Vec<AnthropicRequestContent>,
 }
 
-/// Adaptive thinking config for Anthropic native API. `summarized` display
-/// matches the chat proxy path (renders a summarized thinking stream).
+/// Thinking config for the Anthropic native API. `summarized` display matches
+/// the chat proxy path (renders a summarized thinking stream); the disable
+/// carries no display.
 #[derive(Serialize, Debug)]
 pub struct AnthropicThinking {
     pub r#type: &'static str,
-    pub display: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display: Option<&'static str>,
 }
 
 impl AnthropicThinking {
     fn adaptive() -> Self {
-        Self { r#type: "adaptive", display: "summarized" }
+        Self { r#type: "adaptive", display: Some("summarized") }
+    }
+
+    fn disabled() -> Self {
+        Self { r#type: "disabled", display: None }
     }
 }
 
@@ -655,6 +661,12 @@ impl AnthropicQueryBuilder {
         // Adaptive thinking rejects sampling params, so drop temperature when
         // reasoning is on (Anthropic returns a hard 400 otherwise).
         let (thinking, output_config, temperature) = match args.reasoning_effort {
+            // "none" is the disable sentinel, not an effort token — Anthropic's
+            // vocabulary is low..max and rejects it. It carries no effort
+            // either: a disable paired with xhigh or max is itself a 400 on
+            // Opus 5, and omitting it leaves the model at the effort where the
+            // disable is accepted.
+            Some("none") => (Some(AnthropicThinking::disabled()), None, args.temperature),
             Some(effort) => (
                 Some(AnthropicThinking::adaptive()),
                 Some(AnthropicOutputConfig { effort: effort.to_string() }),
@@ -1094,6 +1106,35 @@ mod tests {
         assert_eq!(body["output_config"]["effort"], "high");
         // Sampling params are rejected alongside adaptive thinking.
         assert!(body.get("temperature").is_none());
+    }
+
+    /// An agent step stores the chat's off sentinel verbatim as its
+    /// `reasoning_effort`, so the disable has to be translated here rather than
+    /// forwarded as an effort token Anthropic would reject.
+    #[test]
+    fn anthropic_request_serializes_the_off_sentinel_as_a_thinking_disable() {
+        let request = AnthropicRequest {
+            model: "claude-opus-5",
+            system: None,
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            temperature: Some(0.5),
+            thinking: Some(AnthropicThinking::disabled()),
+            output_config: None,
+            max_tokens: Some(64000),
+            stream: true,
+        };
+
+        let body: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
+        assert_eq!(body["thinking"]["type"], "disabled");
+        // A disable paired with an effort is a 400 on Opus 5, and `display`
+        // only applies to a thinking mode that actually runs.
+        assert!(body["thinking"].get("display").is_none());
+        assert!(body.get("output_config").is_none());
+        // Sampling params are only rejected alongside adaptive thinking.
+        assert_eq!(body["temperature"], 0.5);
     }
 
     #[test]
