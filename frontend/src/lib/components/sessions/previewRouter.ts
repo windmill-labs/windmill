@@ -1,4 +1,33 @@
-import { base } from '$lib/base'
+import {
+	ASSETS_PATH,
+	AUDIT_LOGS_PATH,
+	FOLDERS_PATH,
+	GROUPS_PATH,
+	pageKey,
+	pageHref,
+	parsePreviewItemRoute,
+	RESOURCES_PATH,
+	RUNS_PATH,
+	SCHEDULES_PATH,
+	stripBase,
+	VARIABLES_PATH,
+	WORKSPACE_SETTINGS_PATH,
+	triggerLabelForPath,
+	TRIGGER_PAGES,
+	type PreviewItemRoute,
+	type TriggerKind
+} from './previewPaths'
+// Re-exported so the preview code that already reads locations through this module keeps
+// one import, while a caller needing only a path can reach for the leaf instead.
+export {
+	pageKey,
+	pageHref,
+	parsePreviewItemRoute,
+	stripBase,
+	TRIGGER_PAGES,
+	type PreviewItemRoute,
+	type TriggerKind
+}
 import {
 	Home,
 	Play,
@@ -13,8 +42,14 @@ import {
 	ScrollText
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
+import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
+import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
+import { buildVariablesFilterSchema } from '$lib/components/variables/variablesFilter'
+import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
+import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
+import { COMPARE_ITEMS_PARAM } from './modifiedItemsMask'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
-import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
+import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
 /** What the preview breadcrumb picker can route to: a static workspace page
@@ -32,53 +67,16 @@ export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 // EE/feature gating in SidebarContent and aren't worth duplicating here).
 export const PREVIEW_PAGES: PreviewPage[] = [
 	{ label: 'Home', path: '/', icon: Home },
-	{ label: 'Runs', path: '/runs', icon: Play },
-	{ label: 'Variables', path: '/variables', icon: DollarSign },
-	{ label: 'Resources', path: '/resources', icon: Boxes },
-	{ label: 'Schedules', path: '/schedules', icon: Calendar },
-	{ label: 'Assets', path: '/assets', icon: Database },
-	{ label: 'Folders', path: '/folders', icon: FolderOpen },
-	{ label: 'Groups', path: '/groups', icon: Users },
-	{ label: 'Workspace settings', path: '/workspace_settings', icon: Settings },
-	{ label: 'Audit logs', path: '/audit_logs', icon: ScrollText }
+	{ label: 'Runs', path: RUNS_PATH, icon: Play },
+	{ label: 'Variables', path: VARIABLES_PATH, icon: DollarSign },
+	{ label: 'Resources', path: RESOURCES_PATH, icon: Boxes },
+	{ label: 'Schedules', path: SCHEDULES_PATH, icon: Calendar },
+	{ label: 'Assets', path: ASSETS_PATH, icon: Database },
+	{ label: 'Folders', path: FOLDERS_PATH, icon: FolderOpen },
+	{ label: 'Groups', path: GROUPS_PATH, icon: Users },
+	{ label: 'Workspace settings', path: WORKSPACE_SETTINGS_PATH, icon: Settings },
+	{ label: 'Audit logs', path: AUDIT_LOGS_PATH, icon: ScrollText }
 ]
-
-// Trigger list pages, by kind. Deliberately kept out of PREVIEW_PAGES (the curated
-// breadcrumb picker) but shared here so open_page can route to them and the preview tab
-// can label them. `ee` kinds require an enterprise license. Each supports `#<path>` to
-// open a specific trigger, like Schedules.
-export type TriggerKind =
-	| 'http'
-	| 'websocket'
-	| 'postgres'
-	| 'kafka'
-	| 'nats'
-	| 'sqs'
-	| 'gcp'
-	| 'azure'
-	| 'mqtt'
-	| 'amqp'
-	| 'email'
-
-export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; ee?: boolean }> = {
-	http: { path: '/routes', label: 'HTTP routes' },
-	websocket: { path: '/websocket_triggers', label: 'WebSocket triggers' },
-	postgres: { path: '/postgres_triggers', label: 'Postgres triggers' },
-	kafka: { path: '/kafka_triggers', label: 'Kafka triggers', ee: true },
-	nats: { path: '/nats_triggers', label: 'NATS triggers', ee: true },
-	sqs: { path: '/sqs_triggers', label: 'SQS triggers', ee: true },
-	gcp: { path: '/gcp_triggers', label: 'GCP Pub/Sub triggers', ee: true },
-	azure: { path: '/azure_triggers', label: 'Azure Event Grid triggers', ee: true },
-	mqtt: { path: '/mqtt_triggers', label: 'MQTT triggers' },
-	amqp: { path: '/amqp_triggers', label: 'AMQP triggers' },
-	email: { path: '/email_triggers', label: 'Email triggers' }
-}
-
-/** Label a trigger list page from its (base-stripped) pathname, or undefined. */
-export function triggerLabelForPath(path: string): string | undefined {
-	const clean = stripBase(path)
-	return Object.values(TRIGGER_PAGES).find((t) => t.path === clean)?.label
-}
 
 // The Compare & Deploy review page. Kept out of PREVIEW_PAGES (it's not a picker
 // destination — it's reached through the chat's open_page tool or a session's
@@ -90,15 +88,248 @@ export const COMPARE_PAGE: PreviewPage = {
 	icon: GitCompareArrows
 }
 
-export const pageKey = (path: string) => `page:${path}`
-export const pageHref = (path: string) => `${base}${path}`
+// Workspace list pages that deep-link one row through the hash. Resources route
+// theirs through an extra `/resource/` segment. Nothing else may be read that way:
+// a legacy drag-and-drop app hands its hash to the app itself as `context.hash`,
+// so treating that as a row would describe app state as a workspace item.
+const DRAWER_ANCHOR_PAGES = [SCHEDULES_PATH, VARIABLES_PATH, RESOURCES_PATH] as const
 
-/** Strip the deployment base prefix (and any query/hash) from a preview path
- * so it can be matched against `PREVIEW_PAGES` / parsed as an item route. */
-export function stripBase(path: string): string {
-	let p = path.split('?')[0].split('#')[0]
-	if (base && p.startsWith(base)) p = p.slice(base.length)
-	return p || '/'
+/** The workspace item whose drawer a preview location has open, or undefined when
+ * the page doesn't deep-link rows (or none is anchored). Takes the location with
+ * its suffix — a raw href, or an observed location. */
+export function drawerAnchorFor(location: string): string | undefined {
+	const hashAt = location.indexOf('#')
+	if (hashAt < 0) return undefined
+	const route = stripBase(location)
+	const known =
+		(DRAWER_ANCHOR_PAGES as readonly string[]).includes(route) ||
+		Object.values(TRIGGER_PAGES).some((p) => p.path === route)
+	if (!known) return undefined
+	return location.slice(hashAt + 1).replace(/^\/resource\//, '') || undefined
+}
+
+// Query params the preview host injects into an iframe URL (`nomenubar` hides the nav,
+// `workspace` scopes the page). Never part of what a location means.
+const INJECTED_PARAMS = ['nomenubar', 'workspace'] as const
+
+/** Drop the params the preview host injects, so a location observed in the frame can be
+ * compared with the one that was commanded (which never carries them). */
+export function canonicalizeObservedLoc(loc: string): string {
+	// An artifact is a scheme, not a path — `new URL` would happily parse it and hand
+	// back a pathname with the scheme gone.
+	if (parseArtifactRoute(loc)) return loc
+	try {
+		const u = new URL(loc, 'http://_')
+		for (const p of INJECTED_PARAMS) u.searchParams.delete(p)
+		return u.pathname + u.search + u.hash
+	} catch {
+		return loc
+	}
+}
+
+// The query params belonging to the request; every other one the page wrote into its own
+// URL (`filter_path_of`, `page`/`perPage`) and must not read as a view. A page's own
+// filter schema is the list, with every option on so the set is its whole vocabulary and
+// not one viewer's subset. Built on first use — every trigger drawer imports this module.
+let requestParams: Record<string, readonly string[]> | undefined
+
+function pageRequestParamTable(): Record<string, readonly string[]> {
+	return (requestParams ??= {
+		[RUNS_PATH]: Object.keys(
+			buildRunsFilterSearchbarSchema({
+				paths: [],
+				usernames: [],
+				folders: [],
+				jobTriggerKinds: [],
+				isSuperAdminOrDevops: true,
+				isAdminsWorkspace: true
+			})
+		),
+		[SCHEDULES_PATH]: Object.keys(
+			buildSchedulesFilterSchema({ paths: [], scriptPaths: [], showUserFoldersFilter: true })
+		),
+		[VARIABLES_PATH]: Object.keys(
+			buildVariablesFilterSchema({ paths: [], owners: [], showUserFoldersFilter: true })
+		),
+		[RESOURCES_PATH]: Object.keys(
+			buildResourcesFilterSchema({
+				paths: [],
+				resourceTypes: [],
+				owners: [],
+				showUserFoldersFilter: true
+			})
+		),
+		[ASSETS_PATH]: Object.keys(buildAssetsFilterSchema({ paths: [], assetKinds: [] })),
+		[AUDIT_LOGS_PATH]: ['username', 'operation', 'resource'],
+		[WORKSPACE_SETTINGS_PATH]: ['tab'],
+		[COMPARE_PAGE.path]: ['workspace_id', 'mode', COMPARE_ITEMS_PARAM]
+	})
+}
+
+/** The query params a request can set on `path` — empty for a page that takes none. */
+export function pageRequestParams(path: string): readonly string[] {
+	return pageRequestParamTable()[stripBase(path)] ?? []
+}
+
+/** What a preview location means, read against the page it points at. */
+export type PreviewLocation = {
+	/** What two locations must share to be the same tab. */
+	identity: string
+	/** The view within that page: only the params a request could have set. */
+	view: string
+	/** The row the page deep-links, `''` where the hash is the page's own state. */
+	anchor: string
+}
+
+/** Decompose a preview location into what it means. Everything comparing two locations
+ * goes through this: a query or a hash means something different per class of page, and
+ * answering that at the call site is how a tab ends up duplicated, reloaded, or reported
+ * as showing a row it is not. The page classes live here and only here. */
+export function describeLocation(loc: string): PreviewLocation {
+	const artifact = parseArtifactRoute(loc)
+	if (artifact) return { identity: `artifact:${artifact.id}`, view: '', anchor: '' }
+	const canonical = canonicalizeObservedLoc(loc)
+	const path = stripBase(canonical)
+	const bare = canonical.split('#')[0]
+	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
+	return {
+		identity: path,
+		view: requestedParams(query, pageRequestParamTable()[path]),
+		anchor: drawerAnchorFor(canonical) ?? ''
+	}
+}
+
+// By content, never by the raw string: a page hands its params back in its own order and
+// re-encodes what it was given (`path=f/a` arrives as `path=f%2Fa`), and neither is a
+// change of view. Re-encoded on the way out so a value holding a delimiter stays one
+// pair — decoded, `?arg=x%26result%3Dy` and `?arg=x&result=y` read alike.
+function requestedParams(query: string, allowed: readonly string[] | undefined): string {
+	if (!allowed?.length) return ''
+	const parts: string[] = []
+	new URLSearchParams(query).forEach((v, k) => {
+		if (allowed.includes(k)) parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+	})
+	return parts.sort().join('&')
+}
+
+// Params a page restores from the user's stored preference whenever the URL it loads with
+// says nothing about them. Requestable like any other filter, so they stay in the view —
+// but a frame carrying one the request never mentioned is the page's own doing, and
+// loading over it lands on a page that seeds it straight back, scroll position gone.
+const PAGE_SEEDED_PARAMS: Record<string, readonly string[]> = {
+	[RUNS_PATH]: ['job_trigger_kind', 'show_future_jobs']
+}
+
+/** Whether the frame at `observed` is already showing what `commanded` asks for: same
+ * page, same row, and every filter the request names carrying the value it named. */
+export function showsView(observed: string, commanded: string): boolean {
+	const x = describeLocation(observed)
+	const y = describeLocation(commanded)
+	if (x.identity !== y.identity || x.anchor !== y.anchor) return false
+	if (x.view === y.view) return true
+	const seeded = PAGE_SEEDED_PARAMS[x.identity]
+	if (!seeded?.length) return false
+	// Both views come out of `requestedParams` already sorted and encoded, so they compare
+	// as strings once the seeded params are dropped. One direction only: the page may add
+	// what the request left out, never drop what it asked for — dropping in both would let
+	// a tab answer a request it does not satisfy.
+	const pairs = (view: string) => (view ? view.split('&') : [])
+	const keyOf = (pair: string) => decodeURIComponent(pair.split('=')[0])
+	const asked = new Set(pairs(y.view).map(keyOf))
+	return (
+		pairs(x.view)
+			.filter((pair) => !seeded.includes(keyOf(pair)) || asked.has(keyOf(pair)))
+			.join('&') === y.view
+	)
+}
+
+// Filters whose value addresses a workspace object — a path, owner, kind, state, time —
+// and so may be repeated to the model. Any other keeps its name and loses its value: the
+// rest search *over* content (the free-text box, a job's result, a resource's value), and
+// withholding by default means a filter added later leaks nothing until it is listed.
+const ADDRESSING_PARAMS = new Set([
+	'path',
+	'path_start',
+	'schedule_path',
+	'script_path',
+	'asset_path',
+	'usage_path',
+	'owner',
+	'user',
+	'username',
+	'folder',
+	'worker',
+	'tag',
+	'label',
+	'resource_type',
+	'asset_kinds',
+	'job_kinds',
+	'job_trigger_kind',
+	'operation',
+	'resource',
+	'concurrency_key',
+	'status',
+	'min_ts',
+	'max_ts',
+	'timeframe',
+	'all_workspaces',
+	'show_skipped',
+	'show_future_jobs',
+	'resolved',
+	'user_folders_only',
+	'columns',
+	'tab',
+	'workspace_id',
+	'mode',
+	COMPARE_ITEMS_PARAM
+])
+
+const CONTEXT_FIELD_MAX = 300
+
+/** Collapse a value to one field of prompt text or a tool result. Both are line-oriented
+ * formats with no escaping, so a value carrying a newline writes a line of its own — and
+ * these values are decoded out of URLs, which are attacker-shaped input the moment a link
+ * can be shared. Length is capped too: a path this long tells the model nothing. */
+export function promptSafe(text: string): string {
+	// C0 and DEL, plus the Unicode terminators a renderer also breaks a line on — these
+	// values are percent-decoded, so `%E2%80%A8` arrives as a real U+2028.
+	// eslint-disable-next-line no-control-regex
+	return text
+		.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, ' ')
+		.trim()
+		.slice(0, CONTEXT_FIELD_MAX)
+}
+
+/** How a preview location may be described to the model: reassembled from the parts this
+ * module recognizes, never passed through whole. A tab can host a legacy app whose hash is
+ * app state, and a filter can search contents rather than address them — so only the
+ * addressing ones keep their value, the chat having no redaction boundary of its own. */
+export function previewLocationContext(loc: string): {
+	label: string
+	location: string
+	open?: string
+} {
+	const { identity, anchor } = describeLocation(loc)
+	const bare = canonicalizeObservedLoc(loc).split('#')[0]
+	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
+	const declared = pageRequestParams(identity)
+	const filters: string[] = []
+	new URLSearchParams(query).forEach((v, k) => {
+		// Re-encoded for the same reason the view is: decoded, a value holding `&` or `=`
+		// reads as another filter entirely.
+		if (declared.includes(k)) {
+			const key = encodeURIComponent(k)
+			filters.push(ADDRESSING_PARAMS.has(k) ? `${key}=${encodeURIComponent(v)}` : key)
+		}
+	})
+	return {
+		// Labels come from route shape (page name, trigger kind, run id, item leaf), so
+		// they carry no query or hash of their own — but a run id and an item leaf are
+		// decoded out of the path, so they still reach here as free text.
+		label: promptSafe(previewLocationLabel(loc)),
+		location: promptSafe(identity + (filters.length ? `?${filters.sort().join('&')}` : '')),
+		open: anchor ? promptSafe(anchor) : undefined
+	}
 }
 
 // Match a base-stripped preview pathname to a known page, for breadcrumb
@@ -111,7 +342,8 @@ export function matchPreviewPage(path: string): PreviewPage | undefined {
 /** Match a preview href to a page whose tab should be re-pointed in place when
  * only its query params change (the open_page filter-change behavior): the
  * curated pages plus the compare page. Trigger pages are deliberately not
- * matched — their tabs dedupe on the exact URL instead. */
+ * matched — they take the generic path in `SessionPreviewTabs.open`, which
+ * dedupes on the location ignoring the hash and re-points the tab it finds. */
 export function matchReusablePage(href: string): PreviewPage | undefined {
 	if (stripBase(href) === COMPARE_PAGE.path) return COMPARE_PAGE
 	return matchPreviewPage(href)
@@ -164,22 +396,6 @@ export function itemDisplayName(
 	summary: string | undefined
 ): string | undefined {
 	return summary?.trim() || draftFriendlyLeaf(storagePath, friendlyPath)
-}
-
-export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
-
-// Parse a preview URL/pathname into the workspace item it edits, or null for a
-// non-item page (home, runs, …). Shared by the breadcrumb (drill segments) and
-// the tab resolver below so both agree on what counts as an item route.
-export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null {
-	const p = stripBase(fullPath)
-	const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(?:edit|get)\/(.+)$/)
-	if (!m) return null
-	const itemPath = decodeURIComponent(m[2])
-	if (m[1] === 'scripts') return { kind: 'script', raw_app: false, itemPath }
-	if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath }
-	if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath }
-	return { kind: 'app', raw_app: false, itemPath }
 }
 
 // The place inside a previewed flow editor its tab URL asks for (`?selected=`,
