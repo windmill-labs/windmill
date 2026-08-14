@@ -30,6 +30,7 @@ use crate::{
     agent_workers::PingJobStatusResponse,
     cache::{unwrap_or_error, RawNode, RawScript},
     error::{self, to_anyhow},
+    external_ip::UNKNOWN_IP,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
@@ -1763,7 +1764,9 @@ pub async fn update_ping_http(
                 &insert_ping.worker_instance.unwrap(),
                 &worker_name,
                 worker_group,
-                insert_ping.ip.as_deref(),
+                // An agent worker sends the sentinel rather than nothing, to stay acceptable to
+                // servers that still require an IP here; both mean "not resolved yet".
+                insert_ping.ip.as_deref().filter(|ip| *ip != UNKNOWN_IP),
                 insert_ping.tags.unwrap_or_default().as_slice(),
                 insert_ping.dw,
                 insert_ping.dws.as_deref(),
@@ -1900,7 +1903,8 @@ pub async fn fetch_raw_script_from_app_query(
 /// `wm_version`, hold the instance-wide `MIN_VERSION` back forever, and one still naming the
 /// job that process was killed mid-way through skews the zombie/OOM diagnostics that read it.
 /// `started_at` and `jobs_executed` are the only two columns carried over, being the
-/// continuity itself.
+/// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
+/// lookup has not resolved yet and the predecessor's address is still the best guess.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
