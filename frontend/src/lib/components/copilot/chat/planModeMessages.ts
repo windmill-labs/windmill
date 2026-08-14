@@ -9,7 +9,9 @@ export const PLAN_MODE_MESSAGES = {
 	blockedLabel: 'Blocked in plan mode',
 	blockedResult:
 		'Blocked: plan mode is active. Put this change in your plan; call exit_plan_mode when ready for approval.',
-	composerHint: ' — read-only, it will propose a plan first',
+	/** Sits beside the autonomy picker while plan mode holds. The picker's tooltip carries
+	 * the rest, so this states only the constraint. */
+	modeNote: 'Read-only',
 	entered: 'Plan mode active.',
 	approvedWithDoc: 'Plan approved and saved as a document. You may now execute it.',
 	persistenceFailed:

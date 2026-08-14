@@ -27,6 +27,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pendingUserAction, type DisplayMessage } from './shared'
 	import { PLAN_MODE_TEXT_COLOR, PLAN_MODE_TRIGGER_CLASS } from './planMode'
+	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
@@ -947,6 +948,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									</Button>
 								{/snippet}
 							</DropdownV2>
+						{/if}
+						{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
+							<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>
 						{/if}
 						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
 							<Tooltip small placement="top">

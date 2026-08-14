@@ -132,8 +132,8 @@
 	<!-- Not an error card: the call did what plan mode says it should. One flat row
 	     naming the refused tool, so "why can't it edit" is answered where it is asked. -->
 	<div class="font-mono text-xs flex items-center gap-2 py-0.5 my-0.5 min-w-0">
-		<Lock class={twMerge('w-3.5 h-3.5 shrink-0', PLAN_MODE_TEXT_COLOR)} />
-		<span class={twMerge('font-medium text-2xs shrink-0', PLAN_MODE_TEXT_COLOR)}>
+		<Lock class="w-3.5 h-3.5 text-tertiary shrink-0" />
+		<span class="font-medium text-2xs text-tertiary shrink-0">
 			{message.content}
 		</span>
 		{#if message.toolName}
