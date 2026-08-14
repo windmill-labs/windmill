@@ -175,6 +175,24 @@ function createFlowHelpers({
 	} as unknown as FlowAIChatHelpers
 }
 
+describe('AIChatManager unmounted-chat guard', () => {
+	// AI Sessions leave the docked pane unmounted, so an entry point that still
+	// drives this manager would otherwise stream and apply tool calls off-screen.
+	it('drops the turn when no chat UI is mounted, unless it is a session chat', async () => {
+		chatState.dockedChatAvailable = false
+		const docked = new AIChatManager()
+		docked.instructions = 'do a thing'
+		await docked.sendRequest()
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+
+		const session = new AIChatManager()
+		session.isSessionChat = true
+		session.instructions = 'do a thing'
+		await session.sendRequest()
+		expect(mocks.runChatLoop).toHaveBeenCalled()
+	})
+})
+
 describe('AIChatManager request errors', () => {
 	const openaiModel = { provider: 'openai', model: 'gpt-4o' }
 

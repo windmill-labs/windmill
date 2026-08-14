@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
-import { enterSessionMode, startSessionWithPrompt } from './sessionSwitch.svelte'
+import {
+	enterSessionMode,
+	openSourceInSession,
+	startSessionWithPrompt
+} from './sessionSwitch.svelte'
 import { sessionState, type Session } from './sessionState.svelte'
 import { usersWorkspaceStore, workspaceStore, type UserWorkspace } from '$lib/stores'
 
 vi.mock('$lib/navigation', () => ({ goto: vi.fn().mockResolvedValue(undefined) }))
 import { goto } from '$lib/navigation'
+
+// Seeding a preview tab dynamically imports the runtime, whose graph reaches
+// monaco (hence that import being dynamic in the first place) and cannot load
+// under node.
+vi.mock('./sessionRuntime.svelte', () => ({ resetSessionPreviewTabs: vi.fn() }))
 
 function session(over: Partial<Session> = {}): Session {
 	return { id: 's1', name: 'sess', createdAt: 0, ...over }
@@ -95,6 +104,41 @@ describe('enterSessionMode — restore is scoped to the active family', () => {
 			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
+		}
+	})
+})
+
+describe('openSourceInSession', () => {
+	// The wrapper exists so an imperative caller cannot route before the source has
+	// persisted the draft the preview loads.
+	it('runs beforeOpen before routing, and lets overrides win over the source', async () => {
+		vi.mocked(goto).mockClear()
+		const order: string[] = []
+		vi.mocked(goto).mockImplementation((async () => {
+			order.push('goto')
+		}) as never)
+		const prevCurrent = sessionState.currentSessionId
+		let createdId: string | undefined
+		try {
+			await openSourceInSession(
+				{
+					target: { kind: 'script', path: 'u/me/s' },
+					beforeOpen: () => {
+						order.push('beforeOpen')
+					},
+					seedPrompt: 'from source'
+				},
+				{ seedPrompt: 'from override' }
+			)
+			createdId = sessionState.currentSessionId
+			expect(order).toEqual(['beforeOpen', 'goto'])
+			const created = sessionState.sessions.find((s) => s.id === createdId)
+			expect(created?.draftPrompt).toBe('from override')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
+			sessionState.currentSessionId = prevCurrent
+			vi.mocked(goto).mockReset()
+			vi.mocked(goto).mockResolvedValue(undefined as never)
 		}
 	})
 })

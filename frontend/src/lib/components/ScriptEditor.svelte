@@ -281,7 +281,10 @@
 
 	// Publish this editor's hand-off for AI entry points below it in the tree
 	// (the preview panel's "AI Fix"), mirroring FlowBuilder and RawAppEditor.
-	setOpenInSessionHandoff({ source: () => sessionOpen })
+	// Withheld under `disableAi` (same gate as the toolbar's own button): an embed
+	// that turned AI off must not get an entry point that navigates the host out
+	// to /sessions.
+	setOpenInSessionHandoff({ source: () => (disableAi ? undefined : sessionOpen) })
 
 	$effect(() => {
 		onTestStateChange?.(testIsLoading)

@@ -11,7 +11,6 @@ import {
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
-import { previewTargetForSessionTarget } from './sessionPreviewTabs.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
@@ -70,15 +69,6 @@ export async function exitSessionMode(): Promise<void> {
 	await goto(target)
 }
 
-// A pipeline is a folder rather than a workspace item, so it has no `…/edit`
-// route: its preview is the `/pipeline/<folder>` page, built (normalized +
-// encoded) by the same helper the preview tabs use.
-function previewHrefFor(target: SessionTarget): string | undefined {
-	if (target.kind !== 'pipeline') return sessionTargetHref(target)
-	const page = previewTargetForSessionTarget(target.kind, target.path)
-	return page?.type === 'page' ? page.href : undefined
-}
-
 // Open a fresh AI session showing an editor (flow/script/raw_app) in its preview,
 // then route into session mode. The preview loads the item from its live draft,
 // so the caller MUST persist any unsaved edits first (e.g. save a draft) for the
@@ -98,7 +88,7 @@ export async function openEditorInSession(
 	const session = createSession()
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
 	if (opts?.seedPrompt) setSessionDraftPrompt(session.id, opts.seedPrompt)
-	const url = withPreviewParams(previewHrefFor(target), previewParams)
+	const url = withPreviewParams(sessionTargetHref(target), previewParams)
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
 		// (chat manager → monaco) into this thin navigation seam, breaking its

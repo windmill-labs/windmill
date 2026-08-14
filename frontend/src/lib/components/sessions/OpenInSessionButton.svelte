@@ -31,6 +31,7 @@
 		source,
 		btnClasses,
 		btnProps,
+		label,
 		fallback
 	}: {
 		/** Undefined (e.g. an item without a path yet) renders the fallback. */
@@ -39,6 +40,9 @@
 		/** Button styling overrides for hosts with their own conventions (an
 		 * editor toolbar). */
 		btnProps?: ComponentProps<typeof AIButton>['btnProps']
+		/** Names the action this replaced, for hosts whose button carried its own
+		 * label ("AI Fix"). Defaults to AIButton's generic "Open in AI session". */
+		label?: string
 		/** Rendered instead when the caller keeps a docked chat to drive — an
 		 * opted-out user or an operator (typically the editor's inline-chat
 		 * toggle). Never rendered inside the session panel. */
@@ -67,7 +71,12 @@
 </script>
 
 {#if show}
-	<AIButton togglePanel={open} btnClasses={btnClasses ?? AIBtnClasses('default')} {btnProps} />
+	<AIButton
+		togglePanel={open}
+		btnClasses={btnClasses ?? AIBtnClasses('default')}
+		{btnProps}
+		label={label ?? 'Open in AI session'}
+	/>
 {:else if !inSessionPanel}
 	{@render fallback?.()}
 {/if}

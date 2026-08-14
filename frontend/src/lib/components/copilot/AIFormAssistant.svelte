@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { Pencil } from 'lucide-svelte'
+	import { Pencil, WandSparkles } from 'lucide-svelte'
 	import { aiChatManager } from './chat/AIChatManager.svelte'
 	import AskAiButton from './AskAiButton.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
@@ -41,7 +41,11 @@
 <div class="my-3 p-3 bg-surface-secondary rounded-md relative flex flex-col gap-3">
 	<div class="flex flex-row gap-2 justify-between items-center">
 		<h3 class="text-sm font-medium">Fill the inputs with AI</h3>
-		<OpenInSessionButton source={sessionSource}>
+		<OpenInSessionButton
+			source={sessionSource}
+			label="Fill with AI"
+			btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
+		>
 			{#snippet fallback()}
 				<AskAiButton label="Fill with AI" onClick={fillFormWithAI} />
 			{/snippet}

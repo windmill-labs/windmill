@@ -44,7 +44,12 @@
 </script>
 
 {#if SUPPORTED_LANGUAGES.has(lang)}
-	<OpenInSessionButton source={sessionSource} btnClasses={AIBtnClasses('default')}>
+	<OpenInSessionButton
+		source={sessionSource}
+		btnClasses={AIBtnClasses('default')}
+		label="AI Fix"
+		btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
+	>
 		{#snippet fallback()}
 			<Popover
 				floatingConfig={{

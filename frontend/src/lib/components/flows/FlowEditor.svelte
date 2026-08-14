@@ -373,8 +373,14 @@
 						on:generateStep={({ detail }) => {
 							// The step is already inserted; the prompt describes what it should
 							// contain. Hand it to a session opened on that step rather than the
-							// docked chat, which sessions leave unmounted.
-							if (sessionOpen && prefersSessionHandoff($userStore?.operator)) {
+							// docked chat, which sessions leave unmounted. Never inside a session
+							// pane: the chat is already on screen, and handing off there would
+							// abandon this session for a second one.
+							if (
+								!sessionScopedManager &&
+								sessionOpen &&
+								prefersSessionHandoff($userStore?.operator)
+							) {
 								void openSourceInSession(sessionOpen, {
 									previewParams: { selected: detail.moduleId },
 									seedPrompt: detail.instructions

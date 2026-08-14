@@ -2471,7 +2471,7 @@ export class AIChatManager {
 		// exempt: the ⌘K widget renders its own composer inside Monaco.
 		if (!this.isSessionChat && !chatState.dockedChatAvailable) {
 			console.error('sendRequest called with no chat UI mounted; dropping the turn')
-			sendUserToast('Open the AI chat to use this action', true)
+			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
 		}
 		this.#sendsInFlight++
