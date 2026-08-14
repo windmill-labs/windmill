@@ -2203,12 +2203,14 @@ pub async fn handle_all_job_kind_error(
 
 /// How long the interactive shell loop waits before polling its tag again, when it found no
 /// job. Fast while a shell session may be live, `WORKER_SHELL_NAP_TIME_DURATION` once nobody
-/// has used it for `TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION` — counted from the last
-/// shell job, or from process start when there has not been one.
+/// has used it for `TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION`, counted from the last
+/// shell job or from process start when there has not been one.
 ///
-/// A worker recycled after N jobs never lives that long, so it would poll its shell tag twice
-/// a second for its whole life: it starts napping instead. It still pulls once per process
-/// start, and serving one shell job puts it on the fast cadence for the rest of the session.
+/// A worker whose process is recycled after N jobs cannot count on living that long, and at
+/// N=1 never does, so without this it would poll its shell tag twice a second for its whole
+/// life. It starts napping for any N, since N says nothing about how long a process lasts. It
+/// still pulls once per process start, and serving one shell job puts it on the fast cadence
+/// for the rest of the session.
 fn interactive_shell_nap(
     now: Instant,
     started_at: Instant,
@@ -2237,13 +2239,14 @@ mod interactive_shell_nap_tests {
         let start = Instant::now();
         let quiet =
             start + Duration::from_secs(TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION + 1);
+        let fast = Duration::from_millis(sleep_queue() * 10);
         // A plain worker polls fast until nobody has used its shell for two minutes.
-        assert_ne!(interactive_shell_nap(start, start, None, false), LONG);
+        assert_eq!(interactive_shell_nap(start, start, None, false), fast);
         assert_eq!(interactive_shell_nap(quiet, start, None, false), LONG);
-        // A worker recycled after N jobs never lives that long, so it starts napping.
+        // A worker recycled after N jobs may never live that long, so it starts napping.
         assert_eq!(interactive_shell_nap(start, start, None, true), LONG);
         // Either way, a served shell job puts the loop back on the fast cadence.
-        assert_ne!(interactive_shell_nap(quiet, start, Some(quiet), true), LONG);
+        assert_eq!(interactive_shell_nap(quiet, start, Some(quiet), true), fast);
         assert_eq!(
             interactive_shell_nap(
                 quiet + Duration::from_secs(TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION + 1),
@@ -2879,9 +2882,10 @@ pub async fn run_worker(
                 init job of its own first, and waits for it."
             );
         }
-        if config.periodic_script_bash.is_some()
-            && config.periodic_script_interval_seconds.is_some()
-        {
+        // No interval check: loading a worker config whose periodic script has no interval, or
+        // one below MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, fails and kills the worker, so a
+        // script that reaches here is one the periodic task runs.
+        if config.periodic_script_bash.is_some() {
             tracing::warn!(
                 worker = %worker_name, hostname = %hostname,
                 "EXIT_AFTER_N_JOBS is set and this worker group has a periodic script: it runs \
