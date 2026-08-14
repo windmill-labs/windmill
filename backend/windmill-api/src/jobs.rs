@@ -78,7 +78,7 @@ use crate::{
     users::{
         get_scope_tags, require_owner_of_path, require_path_read_access_for_preview, OptAuthed,
     },
-    utils::{check_scopes, content_plain, require_super_admin},
+    utils::{build_scope_path_predicate, check_scopes, content_plain, require_super_admin},
 };
 use anyhow::Context;
 use axum::{
@@ -1458,6 +1458,11 @@ pub(crate) async fn require_job_read_access(
         }
     }
 
+    // A path-scoped `jobs:run` token is likewise hard-restricted to the runnables it
+    // may start, ahead of every grant below — the token is handed out to run one thing,
+    // so it must not read jobs of anything else merely because its owner could.
+    require_job_within_run_scope(db, authed, w_id, job_id).await?;
+
     // Fast path: you can always read a job you launched. This is also load-bearing
     // for apps — a component job runs as the app policy's `permissioned_as`, but its
     // `created_by` is the launching viewer, so the RLS probe below would hide it.
@@ -1578,6 +1583,94 @@ pub(crate) async fn require_job_read_access(
             "You do not have access to run {job_id}. Ask a user who can see it to open the run and \
              share a read-only link with you (the \"Share\" button on the run page)."
         )))
+    } else {
+        Err(Error::NotFound(format!("Job {job_id} not found")))
+    }
+}
+
+/// Confines a path-scoped `jobs:run:<kind>:<path>` token to jobs of the runnables it may
+/// start. Such a token is minted per script/flow for a webhook or CI caller, which needs
+/// to start that runnable and poll the resulting job — nothing more. Without this, the
+/// by-id read routes it reaches for polling (`RUN_WHITELISTED_GET_PATHS`) would serve
+/// it the args/result/logs of any job its owner's identity can see, defeating the path
+/// confinement the scope exists to provide.
+///
+/// The scope may be satisfied by the job itself or by any of its `parent_job` ancestors:
+/// a flow step's `runnable_path` is the inner runnable's, so a `jobs:run:flows:<flow>`
+/// token inspecting its own run must still reach the steps beneath it.
+///
+/// An `apps:run|write:<app>` scope is a start grant too, so a job an app launched
+/// (`trigger_kind = 'app'`, an app-provenance stamp `/jobs/run` cannot forge) satisfies
+/// the confinement for a token scoped to that app. Without this, a token holding both
+/// could start an app's inline-script component but not read the run back — those jobs
+/// are `AppScript`/`Preview` kinds that no `jobs:run` scope can name.
+///
+/// No-op — and no query — for every caller whose job reads are not run-confined (see
+/// `job_read_run_confinement`), which is all sessions, unscoped tokens and `jobs:read`
+/// tokens.
+async fn require_job_within_run_scope(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: &Uuid,
+) -> error::Result<()> {
+    let Some(confinement) =
+        windmill_api_auth::scopes::job_read_run_confinement(authed.scopes.as_deref())
+    else {
+        return Ok(());
+    };
+    // `scope_kind` is the runnable kind a `jobs:run:<kind>:<path>` scope can name, or
+    // NULL for a job no such scope reaches directly (previews, dependency jobs,
+    // flow-inlined scripts) — those are still readable as a step of a matching flow,
+    // through their ancestors. A `singlestepflow` wraps either a script or a flow, so it
+    // projects onto the wrapped runnable the same way the batch-rerun query does.
+    let chain = sqlx::query!(
+        r#"WITH RECURSIVE chain(id, parent_job) AS (
+                SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2
+                UNION ALL
+                SELECT j.id, j.parent_job FROM v2_job j
+                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2
+            )
+            SELECT j.runnable_path,
+                CASE
+                    WHEN j.kind IN ('script', 'script_hub', 'unassigned_script') THEN 'scripts'
+                    WHEN j.kind IN ('flow', 'unassigned_flow') THEN 'flows'
+                    WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN
+                        CASE WHEN COALESCE(
+                                (SELECT m->'value'->>'type'
+                                    FROM jsonb_array_elements(j.raw_flow->'modules') m
+                                    WHERE m->>'id' IN ('a', 'main')
+                                    LIMIT 1),
+                                'script'
+                            ) = 'flow' THEN 'flows' ELSE 'scripts' END
+                END AS scope_kind,
+                CASE WHEN j.trigger_kind = 'app' THEN j.trigger END AS launched_by_app
+            FROM v2_job j JOIN chain c ON c.id = j.id
+            WHERE j.workspace_id = $2"#,
+        job_id,
+        w_id,
+    )
+    .fetch_all(db)
+    .await?;
+
+    let runs_app = build_scope_path_predicate(authed, "apps", "run");
+    let in_scope = chain.iter().any(|job| {
+        match (job.runnable_path.as_deref(), job.scope_kind.as_deref()) {
+            (Some(runnable_path), Some(kind))
+                if windmill_api_auth::scopes::run_confinement_admits(
+                    &confinement,
+                    kind,
+                    runnable_path,
+                ) =>
+            {
+                true
+            }
+            _ => job.launched_by_app.as_deref().is_some_and(&runs_app),
+        }
+    });
+
+    if in_scope {
+        Ok(())
     } else {
         Err(Error::NotFound(format!("Job {job_id} not found")))
     }
@@ -1902,7 +1995,15 @@ async fn get_job(
     // same visibility as `jobs/list` (see `require_job_read_access`), or hold a public
     // share link when logged out — which `public_view_grant` already established above,
     // so skip re-deriving it here: this handler is what the public run page polls.
-    if !has_valid_approval_token && !public_view_grant {
+    if has_valid_approval_token || public_view_grant {
+        // Both grants skip the gate below, and with it the run-scope confinement that
+        // gate carries. That confinement is a hard restriction, so re-apply it: holding
+        // an approval link for a job must not let a scoped token read one outside the
+        // runnables it may start.
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_within_run_scope(&db, authed, &w_id, &id).await?;
+        }
+    } else {
         require_opt_authed_job_read_access(
             &db,
             &user_db,
@@ -5276,6 +5377,15 @@ pub async fn get_suspended_job_flow(
     .flatten()
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
 
+    // The resume secret is this route's gate, so it never reaches
+    // `require_job_read_access` and the run-scope confinement that gate carries. Re-apply
+    // it against the flow whose args and status are about to be returned: holding a
+    // resume secret must not let a scoped token read a flow it may not run. Anonymous
+    // approvers are unaffected.
+    if let Some(authed) = authed.as_ref() {
+        require_job_within_run_scope(&db, authed, &w_id, &flow_id).await?;
+    }
+
     let flow = GetQuery::new()
         .without_logs()
         .without_code()
@@ -5455,9 +5565,14 @@ pub async fn create_job_signature(
 
 pub async fn get_flow_user_state(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id, key)): Path<(String, Uuid, String)>,
 ) -> error::JsonResult<Option<serde_json::Value>> {
+    // Reachable by a `jobs:run` token (it is one of the by-id routes a run needs), so
+    // apply the same run-scope confinement as the other single-job reads. RLS below
+    // still governs which jobs the owner's identity can see at all.
+    require_job_within_run_scope(&db, &authed, &w_id, &job_id).await?;
     let mut tx = user_db.begin(&authed).await?;
     let r = sqlx::query_scalar!(
         r#"
@@ -10597,7 +10712,14 @@ async fn get_completed_job_result(
         _ => false,
     };
 
-    if !approval_secret_ok {
+    if approval_secret_ok {
+        // The approval secret skips the gate below, and with it the run-scope
+        // confinement that gate carries — re-apply it, as `get_job` does for the
+        // approval token. Anonymous approval access is untouched.
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_within_run_scope(&db, authed, &w_id, &id).await?;
+        }
+    } else {
         require_opt_authed_job_read_access(
             &db,
             &user_db,

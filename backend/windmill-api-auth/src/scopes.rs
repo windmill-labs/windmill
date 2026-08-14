@@ -692,27 +692,49 @@ fn extract_domain_from_route(
     )))
 }
 
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
+/// The reads a `jobs:run` scope implies: following, by id, a run the token started.
+/// Every entry is keyed by a job id and confines an authenticated caller to its own
+/// runnable — through `require_job_read_access`, through its own `jobs:run:flows:<path>`
+/// check, or, where an approval token or resume secret bypasses that gate, through a
+/// direct `require_job_within_run_scope`. The one exception is
+/// `jobs_u/get_root_job_id/`, which has no check at all but discloses only flow lineage,
+/// to anyone, authenticated or not. Workspace-wide enumeration (`jobs/list`, counts,
+/// exports) and credential minting (`job_view_token`) are deliberately absent — those are
+/// `jobs:read`. Keep by-id read routes here in sync as they are added, or a run token
+/// loses the ability to follow its own run through them.
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
     "jobs_u/get_logs/",
+    "jobs_u/get_completed_logs_tail/",
     "jobs_u/get_flow_all_logs/",
+    "jobs_u/get_flow_all_logs_structured/",
+    "jobs_u/get_flow_all_results/",
     "jobs_u/get_args/",
     "jobs_u/get_flow_debug_info/",
     "jobs_u/completed/get/",
     "jobs_u/completed/get_result/",
     "jobs_u/completed/get_result_maybe/",
+    "jobs_u/completed/get_timing/",
+    "jobs_u/dispatch_events/",
     "jobs_u/getupdate/",
     "jobs_u/getupdate_sse/",
     "jobs_u/get_log_file/",
+    "jobs/run_progress/",
+    "jobs/dbt_graph/",
+    "jobs/dbt_resumable/",
+    "jobs/dbt_resumable_script/p/",
     "jobs/result_by_id/",
     "jobs/resume_urls/",
     "jobs/flow/user_states/",
     "jobs/job_signature/",
+    "jobs/wac_approval_urls/",
     "jobs/completed/get/",
     "jobs/completed/get_result/",
     "jobs/completed/get_result_maybe/",
+    "jobs/completed/get_timing/",
+    "jobs/get_otel_traces/",
 ];
 
 /// Sentinel scope in app embed tokens. Grants nothing itself; `check_route_access`
@@ -829,6 +851,60 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
         || suffix.starts_with("resources/type/")
 }
 
+/// The `jobs:run` scopes a token's job reads are confined to, or `None` when they are
+/// not confined to particular runnables.
+///
+/// A run scope is what the trigger UI mints per script or flow and hands to a webhook
+/// caller / CI job: it may start the runnables it names and follow those runs, so its
+/// by-id job reads must stay within what it can start (enforced by
+/// `require_job_read_access`). Both the path (`jobs:run:flows:f/team/etl`) and the
+/// kind-only (`jobs:run:scripts`, which legacy `jobs:runscript` tokens carry) forms
+/// confine, since `ScopeDefinition::includes` already matches a candidate
+/// `jobs:run:<kind>:<path>` against either.
+///
+/// Returns `None` — unconfined — when the token is effectively unscoped, or carries a
+/// jobs scope that grants job reads in its own right: `jobs:read`/`jobs:write`, or a
+/// bare `jobs:run` (it can start anything, so confining its reads to "what it may run"
+/// would restrict nothing).
+pub fn job_read_run_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDefinition>> {
+    let mut confinement = Vec::new();
+    for scope in scopes?
+        .iter()
+        .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+    {
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            continue;
+        };
+        if ScopeDomain::from_str(&scope.domain) != Some(ScopeDomain::Jobs) {
+            continue;
+        }
+        match ScopeAction::from_str(&scope.action) {
+            Some(ScopeAction::Run) if scope.kind.is_some() || scope.resource.is_some() => {
+                confinement.push(scope)
+            }
+            Some(_) => return None,
+            None => continue,
+        }
+    }
+    (!confinement.is_empty()).then_some(confinement)
+}
+
+/// Whether a job that ran `runnable_path` as `kind` (`scripts` or `flows`) is inside a
+/// [`job_read_run_confinement`] set.
+pub fn run_confinement_admits(
+    confinement: &[ScopeDefinition],
+    kind: &str,
+    runnable_path: &str,
+) -> bool {
+    let required = ScopeDefinition::new(
+        ScopeDomain::Jobs.as_str(),
+        ScopeAction::Run.as_str(),
+        Some(kind),
+        Some(vec![runnable_path.to_string()]),
+    );
+    confinement.iter().any(|scope| scope.includes(&required))
+}
+
 fn scope_grants_access(
     scope: &ScopeDefinition,
     required_domain: ScopeDomain,
@@ -865,15 +941,26 @@ fn scope_grants_access(
         return Ok(true);
     }
 
-    if !scope_action.includes(&required_action)
-        && !(scope_domain == ScopeDomain::Jobs
-            && required_action == ScopeAction::Read
-            && route_path.is_some_and(|p| {
-                RUN_WHITELISTED_GET_PATHS
-                    .iter()
-                    .any(|path| p.starts_with(path))
-            }))
+    // `jobs:run` is a grant to *start* a runnable. The only reads it implies are the
+    // by-id routes a caller needs to follow the run it started
+    // (`RUN_WHITELISTED_GET_PATHS`) — never workspace-wide enumeration (`jobs/list`,
+    // counts, exports), which is what `jobs:read` is for. Those by-id reads are in turn
+    // confined to the runnable a path-scoped token names, by `require_job_read_access`.
+    // `ScopeAction::Run.includes(&Read)` (which exists so `apps:run` can fetch the app
+    // it runs) must not reach this domain, so decide it here rather than falling
+    // through to the hierarchy below.
+    if scope_domain == ScopeDomain::Jobs
+        && scope_action == ScopeAction::Run
+        && required_action == ScopeAction::Read
     {
+        return Ok(route_path.is_some_and(|p| {
+            RUN_WHITELISTED_GET_PATHS
+                .iter()
+                .any(|path| p.starts_with(path))
+        }));
+    }
+
+    if !scope_action.includes(&required_action) {
         return Ok(false);
     }
 
@@ -1100,6 +1187,65 @@ mod tests {
             "POST"
         )
         .is_err());
+    }
+
+    #[test]
+    fn jobs_run_reads_are_limited_to_the_by_id_poll_routes() {
+        let job = "/api/w/test/jobs_u/completed/get_result/019ff012-6b1e-0d6b-fc0d-0c85d34d9cec";
+        let list = "/api/w/test/jobs/list";
+        for scope in ["jobs:run", "jobs:run:scripts:u/admin/script"] {
+            // Following the run it started stays available...
+            assert!(
+                check_route_access(&[scope.to_string()], job, "GET").is_ok(),
+                "{scope} must reach the by-id job poll routes"
+            );
+            // ...but a run grant is not a licence to enumerate the workspace's jobs.
+            assert!(
+                check_route_access(&[scope.to_string()], list, "GET").is_err(),
+                "{scope} must not reach jobs/list"
+            );
+        }
+        assert!(check_route_access(&["jobs:read".to_string()], list, "GET").is_ok());
+    }
+
+    #[test]
+    fn run_scopes_confine_job_reads_by_kind_and_path() {
+        let confinement =
+            job_read_run_confinement(Some(&["jobs:run:flows:f/team/*".to_string()])).unwrap();
+        assert!(run_confinement_admits(&confinement, "flows", "f/team/etl"));
+        // Right path, wrong kind — a script named like the flow is not the flow.
+        assert!(!run_confinement_admits(
+            &confinement,
+            "scripts",
+            "f/team/etl"
+        ));
+        assert!(!run_confinement_admits(
+            &confinement,
+            "flows",
+            "f/other/etl"
+        ));
+
+        // A kind-only scope confines to that kind, at any path.
+        let kind_only = job_read_run_confinement(Some(&["jobs:run:scripts".to_string()])).unwrap();
+        assert!(run_confinement_admits(&kind_only, "scripts", "u/admin/anything"));
+        assert!(!run_confinement_admits(&kind_only, "flows", "f/team/etl"));
+
+        // Scopes that grant job reads in their own right leave reads unconfined.
+        for scopes in [
+            vec!["jobs:read".to_string()],
+            vec!["jobs:run".to_string()],
+            vec![
+                "jobs:run:scripts:u/admin/script".to_string(),
+                "jobs:read".to_string(),
+            ],
+            vec!["if_jobs:filter_tags:deno".to_string()],
+        ] {
+            assert!(
+                job_read_run_confinement(Some(&scopes)).is_none(),
+                "{scopes:?} must not confine job reads"
+            );
+        }
+        assert!(job_read_run_confinement(None).is_none());
     }
 
     #[test]
