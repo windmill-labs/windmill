@@ -9,6 +9,7 @@
 	import Badge from '../common/badge/Badge.svelte'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import TriggerHistoryChanges from './TriggerHistoryChanges.svelte'
+	import { getTriggerWorkspace } from './triggerWorkspace'
 	import type { TriggerType } from './utils'
 
 	interface Props {
@@ -19,6 +20,11 @@
 
 	let { triggerKind, path }: Props = $props()
 
+	// An AI session can edit a trigger in a workspace that is not the nav one;
+	// the whole trigger subtree reads its workspace through this seam.
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+
 	let drawer: Drawer | undefined = $state()
 	let entries: TriggerHistoryEntry[] | undefined = $state(undefined)
 	let loading = $state(false)
@@ -27,12 +33,12 @@
 	const PER_PAGE = 50
 
 	async function load() {
-		if (!$workspaceStore) return
+		if (!wsId) return
 		loading = true
 		error = undefined
 		try {
 			entries = await TriggerService.listTriggerHistory({
-				workspace: $workspaceStore,
+				workspace: wsId,
 				triggerKind,
 				path,
 				perPage: PER_PAGE
