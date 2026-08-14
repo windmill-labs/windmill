@@ -5,7 +5,7 @@ import { createLongHash } from '$lib/editorLangUtils'
 import { userScopedDb, type UserScopedDbMigrateDeps } from '$lib/userScopedDb'
 import { scopedKey } from '$lib/userScopedStorage'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import type { ModelTokenUsageTotals, PersistedContextUsage } from './tokenUsage'
+import type { PersistedContextUsage } from './tokenUsage'
 import { IMAGE_OMITTED_PLACEHOLDER, type AttachedImage } from './imageUtils'
 import { randomUUID } from '$lib/utils/uuid'
 
@@ -44,10 +44,6 @@ interface ChatSchema extends IDBSchema {
 			// in-flight job's tray row and completion survive a reload. Absent on
 			// chats predating this feature. Persisted out-of-band like modifiedItems.
 			backgroundJobs?: ChatJob[]
-			// Tokens this chat spent, per `provider:model`, so its cost survives a
-			// reload. Absent on chats predating this feature and on chats that never
-			// ran a turn — both simply show no cost.
-			usageByModel?: ModelTokenUsageTotals
 		}
 	}
 	// Image bytes, out-of-band from the chat record on purpose: the record is
@@ -182,7 +178,6 @@ export default class HistoryManager {
 			contextUsage?: PersistedContextUsage
 			modifiedItems?: string[]
 			backgroundJobs?: ChatJob[]
-			usageByModel?: ModelTokenUsageTotals
 		}
 	> = $state({})
 
@@ -480,7 +475,6 @@ export default class HistoryManager {
 		messages: ChatCompletionMessageParam[],
 		contextUsage?: number,
 		modifiedItems?: string[],
-		usageByModel?: ModelTokenUsageTotals,
 		backgroundJobs?: ChatJob[]
 	) {
 		if (displayMessages.length > 0) {
@@ -545,13 +539,6 @@ export default class HistoryManager {
 						? {
 								backgroundJobs: $state.snapshot(this.savedChats[this.currentChatId].backgroundJobs)
 							}
-						: {}),
-				// Same "don't erase on omit" guard again: a background-jobs save mid-turn
-				// must not drop the spend recorded by the turns before it.
-				...(usageByModel !== undefined
-					? { usageByModel }
-					: this.savedChats[this.currentChatId]?.usageByModel !== undefined
-						? { usageByModel: $state.snapshot(this.savedChats[this.currentChatId].usageByModel) }
 						: {})
 			}
 			// The mirror mirrors what the DB holds (refs — the snapshot is
@@ -594,17 +581,9 @@ export default class HistoryManager {
 		messages: ChatCompletionMessageParam[],
 		contextUsage?: number,
 		modifiedItems?: string[],
-		usageByModel?: ModelTokenUsageTotals,
 		backgroundJobs?: ChatJob[]
 	) {
-		await this.saveChat(
-			displayMessages,
-			messages,
-			contextUsage,
-			modifiedItems,
-			usageByModel,
-			backgroundJobs
-		)
+		await this.saveChat(displayMessages, messages, contextUsage, modifiedItems, backgroundJobs)
 		this.currentChatId = createLongHash()
 		this.pruneImageIds(this.currentChatId)
 	}

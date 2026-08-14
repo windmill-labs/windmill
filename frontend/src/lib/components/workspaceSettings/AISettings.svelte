@@ -626,8 +626,8 @@
 {#if promptScope === 'workspace'}
 	<!-- Recorded usage must be priced with the rates the chats actually ran under.
 	     A workspace on instance defaults has no rates of its own, so the effective
-	     ones come from copilotInfo — the same source the chat's cost chip reads —
-	     rather than from this form's (empty) workspace config. -->
+	     ones come from copilotInfo rather than from this form's (empty) workspace
+	     config. -->
 	<AiUsagePanel
 		workspace={effectiveWorkspace}
 		modelPricing={usesInstanceAiConfig ? ($copilotInfo.modelPricing ?? {}) : modelPricing}

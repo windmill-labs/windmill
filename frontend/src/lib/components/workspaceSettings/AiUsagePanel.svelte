@@ -14,8 +14,13 @@
 	// inheriting workspace does not hold itself.
 	let {
 		workspace,
-		modelPricing
-	}: { workspace: string; modelPricing: Record<string, ModelPriceOverride> } = $props()
+		modelPricing,
+		scope = 'workspace'
+	}: {
+		workspace: string
+		modelPricing: Record<string, ModelPriceOverride>
+		scope?: 'workspace' | 'self'
+	} = $props()
 
 	type GroupBy = 'day' | 'user' | 'model' | 'session'
 
@@ -29,9 +34,9 @@
 	]
 
 	let usage = resource(
-		() => ({ workspace, days, groupBy }),
-		async ({ workspace, days, groupBy }) =>
-			workspace ? await AiService.listAiUsage({ workspace, days, groupBy }) : undefined
+		() => ({ workspace, days, groupBy, scope }),
+		async ({ workspace, days, groupBy, scope }) =>
+			workspace ? await AiService.listAiUsage({ workspace, days, groupBy, scope }) : undefined
 	)
 
 	// The API groups by (dimension, provider, model) so every bucket resolves to a
@@ -60,15 +65,25 @@
 
 	let priced = $derived(priceSpend((usage.current?.buckets ?? []).map(toSpend), modelPricing))
 
+	type Row = {
+		key: string
+		cost: number | undefined
+		/** Every priced model behind this line was billed back by its provider, so
+		 * the figure is an invoice rather than an estimate. A line mixing the two
+		 * is reported as an estimate — the weaker of the two claims. */
+		reported: boolean
+		tokensIn: number
+		tokensOut: number
+		requests: number
+	}
+
 	let rows = $derived.by(() => {
-		const byKey = new Map<
-			string,
-			{ key: string; cost: number | undefined; tokensIn: number; tokensOut: number; requests: number }
-		>()
+		const byKey = new Map<string, Row>()
 		for (const row of priced.rows) {
 			const existing = byKey.get(row.key) ?? {
 				key: row.key,
 				cost: undefined,
+				reported: true,
 				tokensIn: 0,
 				tokensOut: 0,
 				requests: 0
@@ -78,6 +93,7 @@
 			existing.requests += row.requests
 			if (row.cost !== undefined) {
 				existing.cost = (existing.cost ?? 0) + row.cost
+				existing.reported &&= row.source === 'reported'
 			}
 			byKey.set(row.key, existing)
 		}
@@ -86,8 +102,10 @@
 </script>
 
 <SettingCard
-	label="AI usage"
-	description="Token spend across this workspace's AI chats, grouped by day, user, model or session. Costs are estimated from the workspace's effective model rates unless the provider reported one."
+	label={scope === 'self' ? 'Your AI usage' : 'AI usage'}
+	description={scope === 'self'
+		? "Token spend from your own AI chats in this workspace. Costs are estimated from the workspace's model rates unless the provider reported one."
+		: "Token spend across this workspace's AI chats, grouped by day, user, model or session. Costs are estimated from the workspace's effective model rates unless the provider reported one."}
 >
 	<div class="flex flex-col gap-3">
 		<div class="flex flex-row items-center gap-2 flex-wrap">
@@ -97,7 +115,9 @@
 			<ToggleButtonGroup bind:selected={groupBy}>
 				{#snippet children({ item })}
 					<ToggleButton value="day" label="By day" {item} />
-					<ToggleButton value="user" label="By user" {item} />
+					{#if scope !== 'self'}
+						<ToggleButton value="user" label="By user" {item} />
+					{/if}
 					<ToggleButton value="model" label="By model" {item} />
 					<ToggleButton value="session" label="By session" {item} />
 				{/snippet}
@@ -108,7 +128,9 @@
 			<p class="text-xs text-tertiary">Loading…</p>
 		{:else if usage.error}
 			<p class="text-xs text-tertiary">
-				Could not load usage. Only workspace admins can read it.
+				{scope === 'self'
+					? 'Could not load your usage.'
+					: 'Could not load usage. Only workspace admins can read it.'}
 			</p>
 		{:else if rows.length === 0}
 			<p class="text-xs text-tertiary">No AI usage recorded in this period.</p>
@@ -121,6 +143,11 @@
 						: ''}
 				</span>
 			</div>
+			{#if priced.hasReported}
+				<p class="text-xs text-tertiary">
+					"billed" is what the provider charged; the rest are estimates.
+				</p>
+			{/if}
 			{#if usage.current?.truncated}
 				<p class="text-xs text-tertiary">
 					More rows matched than are shown; the highest-volume ones are listed. Narrow the range
@@ -146,7 +173,9 @@
 								<td class="px-3 py-2 text-right tabular-nums">{formatTokenCount(row.tokensOut)}</td>
 								<td class="px-3 py-2 text-right tabular-nums">{row.requests}</td>
 								<td class="px-3 py-2 text-right tabular-nums">
-									{row.cost === undefined ? 'no rate' : formatUsd(row.cost)}
+									{row.cost === undefined
+										? 'no rate'
+										: `${formatUsd(row.cost)}${row.reported ? ' billed' : ''}`}
 								</td>
 							</tr>
 						{/each}

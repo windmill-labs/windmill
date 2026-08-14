@@ -100,11 +100,9 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import {
-	addModelTokenUsage,
 	billedTokens,
 	normalizeContextUsage,
-	type ChatTokenUsage,
-	type ModelTokenUsageTotals
+	type ChatTokenUsage
 } from './tokenUsage'
 import { logAiUsage } from '$lib/utils/aiUsageReporter'
 import type { ReviewChangesOpts } from './monaco-adapter'
@@ -521,11 +519,6 @@ export class AIChatManager {
 	 * (provider never reported, turn failed, history rewound). Never holds a
 	 * guess: readers go through `contextTokens`, which estimates lazily. */
 	contextUsage = $state<number | undefined>(undefined)
-	/** What this conversation has spent, in tokens, per `provider:model`. Unlike
-	 * `contextUsage` this describes money already spent rather than the current
-	 * history, so compaction and rewinds leave it alone — it is cleared only when
-	 * the conversation is (New chat) and restored when one is loaded. */
-	usageByModel = $state<ModelTokenUsageTotals>({})
 	// Circuit breaker for summary-based compaction: after repeated failures the
 	// summary round-trip is skipped in favor of drop-oldest. Reset on any
 	// successful summarization. Not persisted — a fresh load gets a fresh chance.
@@ -657,28 +650,20 @@ export class AIChatManager {
 		await this.#persistModifiedItems()
 	}
 
-	/** Plain snapshot for persistence; undefined while nothing has been spent, so
-	 * a chat that never ran a turn stores no usage field at all. */
-	private usageSnapshot(): ModelTokenUsageTotals | undefined {
-		const snapshot = $state.snapshot(this.usageByModel) as ModelTokenUsageTotals
-		return Object.keys(snapshot).length > 0 ? snapshot : undefined
-	}
-
-	/** Fold one completed provider response into the conversation's running spend
-	 * and report it for the workspace usage view. Called per response rather than
-	 * per turn: a tool loop makes several, each separately billed, and a turn that
-	 * fails partway through has still spent everything up to that point.
+	/** Report one completed provider response's tokens to the workspace usage view.
+	 * Called per response rather than per turn: a tool loop makes several, each
+	 * separately billed, and a turn that fails partway through has still spent
+	 * everything up to that point.
 	 *
 	 * Only token counts leave the browser — rates are applied when the usage is
 	 * read, so a corrected price also corrects everything already recorded. */
 	private recordUsage(usage: ChatTokenUsage, provider: AIProvider, model: string) {
 		// A provider that reports no usage still yields an all-zero report. Recording
-		// it would add a model row of zeros to the chip and a $0 line to the workspace
-		// view, both claiming a request cost nothing rather than that it went uncounted.
+		// it would add a $0 row to the usage view, claiming the request cost nothing
+		// rather than that it went uncounted.
 		if (usage.total === 0 && usage.prompt === 0 && usage.completion === 0) {
 			return
 		}
-		this.usageByModel = addModelTokenUsage(this.usageByModel, provider, model, usage)
 		const tokens = billedTokens(usage)
 		logAiUsage({
 			provider,
@@ -705,8 +690,7 @@ export class AIChatManager {
 					this.displayMessages,
 					this.messages,
 					this.contextUsage,
-					this.modifiedItems ? [...this.modifiedItems] : undefined,
-					this.usageSnapshot()
+					this.modifiedItems ? [...this.modifiedItems] : undefined
 				)
 				// Swallow (and log) a failed write so it can't wedge the queue as a
 				// rejected link — the next persist snapshots the full current set, so
@@ -1010,7 +994,6 @@ export class AIChatManager {
 					this.messages,
 					this.contextUsage,
 					undefined,
-					this.usageSnapshot(),
 					$state.snapshot(this.backgroundJobs)
 				)
 				.catch((e) => console.error('Failed to persist background jobs', e))
@@ -1447,8 +1430,7 @@ export class AIChatManager {
 						this.displayMessages,
 						this.messages,
 						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined,
-						this.usageSnapshot()
+						this.modifiedItems ? [...this.modifiedItems] : undefined
 					)
 					sendUserToast('Conversation compacted.')
 					break
@@ -3020,8 +3002,7 @@ export class AIChatManager {
 				this.displayMessages,
 				this.messages,
 				this.contextUsage,
-				this.modifiedItems ? [...this.modifiedItems] : undefined,
-				this.usageSnapshot()
+				this.modifiedItems ? [...this.modifiedItems] : undefined
 			)
 
 			this.replyReveal.reset()
@@ -3070,8 +3051,7 @@ export class AIChatManager {
 						this.displayMessages,
 						this.messages,
 						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined,
-						this.usageSnapshot()
+						this.modifiedItems ? [...this.modifiedItems] : undefined
 					)
 				}
 			}
@@ -3223,8 +3203,7 @@ export class AIChatManager {
 					this.displayMessages,
 					this.messages,
 					this.contextUsage,
-					this.modifiedItems ? [...this.modifiedItems] : undefined,
-					this.usageSnapshot()
+					this.modifiedItems ? [...this.modifiedItems] : undefined
 				)
 				// Still counts as the saved first turn — skipping the hook here would
 				// permanently miss it (the next turn isn't "first" anymore).
@@ -3273,8 +3252,7 @@ export class AIChatManager {
 						this.displayMessages,
 						this.messages,
 						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined,
-						this.usageSnapshot()
+						this.modifiedItems ? [...this.modifiedItems] : undefined
 					)
 				}
 				if (!wasAborted) {
@@ -3298,8 +3276,7 @@ export class AIChatManager {
 					this.displayMessages,
 					this.messages,
 					this.contextUsage,
-					this.modifiedItems ? [...this.modifiedItems] : undefined,
-					this.usageSnapshot()
+					this.modifiedItems ? [...this.modifiedItems] : undefined
 				)
 				// Only this branch is a clean send: the queued-message flush below
 				// auto-sends the next message after it (set after saveChat so a
@@ -3360,8 +3337,7 @@ export class AIChatManager {
 						this.displayMessages,
 						this.messages,
 						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined,
-						this.usageSnapshot()
+						this.modifiedItems ? [...this.modifiedItems] : undefined
 					)
 				} catch (saveErr) {
 					console.error('Failed to persist partial chat after error', saveErr)
@@ -3575,13 +3551,11 @@ export class AIChatManager {
 			this.displayMessages,
 			this.messages,
 			this.contextUsage,
-			this.modifiedItems ? [...this.modifiedItems] : undefined,
-			this.usageSnapshot()
+			this.modifiedItems ? [...this.modifiedItems] : undefined
 		)
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
-		this.usageByModel = {}
 		// The mask belongs to the conversation just saved — the fresh chat starts
 		// its own (empty) tracking; carrying entries over would claim the previous
 		// conversation's edits for the new one. Untracked chats stay untracked.
@@ -3612,7 +3586,6 @@ export class AIChatManager {
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
 			this.contextUsage = normalizeContextUsage(chat.contextUsage)
-			this.usageByModel = chat.usageByModel ? { ...chat.usageByModel } : {}
 			// Seed the modified-items mask from the stored chat. A session's Edits
 			// surface is scoped strictly to what this session edited, so it must never
 			// fall back to showing every draft in the (possibly forked) workspace: a

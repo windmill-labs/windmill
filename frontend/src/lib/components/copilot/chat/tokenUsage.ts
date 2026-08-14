@@ -1,5 +1,3 @@
-import type { AIProvider } from '$lib/gen'
-import { modelKey } from '../modelConfig'
 import type { PricedTokens } from '../modelPricing'
 
 export interface ChatTokenUsage {
@@ -70,7 +68,7 @@ export function addChatTokenUsage(
 	}
 }
 
-/** Compact token count for chips and tooltips (`1.2M`, `34k`, `567`). */
+/** Compact token count for readouts and tables (`1.2M`, `34k`, `567`). */
 export function formatTokenCount(tokens: number): string {
 	if (tokens >= 1_000_000) {
 		return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
@@ -79,41 +77,6 @@ export function formatTokenCount(tokens: number): string {
 		return `${Math.round(tokens / 1000)}k`
 	}
 	return `${tokens}`
-}
-
-/**
- * A chat's spend on one model. Usage is bucketed per model rather than summed
- * because each model bills at its own rate, and a chat can switch model between
- * turns (or mid-turn, via the model selector).
- */
-export type ModelTokenUsage = {
-	provider: AIProvider
-	model: string
-	usage: ChatTokenUsage
-}
-
-export type ModelTokenUsageTotals = Record<string, ModelTokenUsage>
-
-/** Fold one report into the per-model totals, keyed `provider:model`. */
-export function addModelTokenUsage(
-	totals: ModelTokenUsageTotals,
-	provider: AIProvider,
-	model: string,
-	usage: ChatTokenUsage | null | undefined
-): ModelTokenUsageTotals {
-	if (!usage) {
-		return totals
-	}
-	const key = modelKey(provider, model)
-	const existing = totals[key]
-	return {
-		...totals,
-		[key]: {
-			provider,
-			model,
-			usage: addChatTokenUsage(existing?.usage ?? emptyChatTokenUsage(), usage)
-		}
-	}
 }
 
 /**

@@ -9,6 +9,9 @@
 	import { createEventDispatcher } from 'svelte'
 	import UserInfoSettings from './settings/UserInfoSettings.svelte'
 	import AIUserSettings from './settings/AIUserSettings.svelte'
+	import AiUsagePanel from './workspaceSettings/AiUsagePanel.svelte'
+	import { copilotInfo } from '$lib/aiStore'
+	import { workspaceStore } from '$lib/stores'
 	import {
 		getDarkModeVariant,
 		setDarkModeVariant,
@@ -105,6 +108,13 @@
 						<AIUserSettings />
 					</div>
 				</div>
+				{#if $workspaceStore}
+					<AiUsagePanel
+						workspace={$workspaceStore}
+						modelPricing={$copilotInfo.modelPricing ?? {}}
+						scope="self"
+					/>
+				{/if}
 			{/if}
 
 			<div class="grow min-h-0">

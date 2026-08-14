@@ -227,8 +227,7 @@ export type PricedSpend<T extends ModelSpend> = {
 /**
  * Cost a set of per-model token counts. A provider-reported figure always wins:
  * it is what was actually charged, where everything else is list price times
- * tokens. Shared by the chat's cost chip and the workspace usage view so both
- * apply the same rates and the same estimated/reported labelling.
+ * tokens. `source` says which, so a view never presents an estimate as a bill.
  */
 export function priceSpend<T extends ModelSpend>(
 	spend: T[],

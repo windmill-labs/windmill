@@ -3,7 +3,7 @@ import { OpenAPI } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 
 // Per-workspace AI token spend, batched into the backend `ai_token_usage`
-// accumulator that powers the admin usage view.
+// accumulator that powers the workspace and per-user usage views.
 //
 // Deliberately separate from `featureUsage.ts`: that buffer carries anonymous
 // product telemetry that leaves the instance, and its events must not identify a

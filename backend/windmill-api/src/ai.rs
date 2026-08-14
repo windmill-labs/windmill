@@ -657,6 +657,7 @@ struct AIUsageTotals {
 struct ListAIUsageQuery {
     days: Option<i32>,
     group_by: Option<String>,
+    scope: Option<String>,
 }
 
 /// A bucket always carries its provider and model: the caller prices it from a
@@ -693,7 +694,17 @@ async fn list_ai_usage(
     Path(w_id): Path<String>,
     Query(query): Query<ListAIUsageQuery>,
 ) -> Result<Json<AITokenUsageListing>> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Reading the whole workspace's spend is an admin view; reading your own is
+    // not, so a member can see what they are costing without being shown their
+    // colleagues'. The filter is the session's email, never a parameter.
+    let own_email = match query.scope.as_deref().unwrap_or("workspace") {
+        "workspace" => {
+            require_admin(authed.is_admin, &authed.username)?;
+            None
+        }
+        "self" => Some(authed.email.clone()),
+        scope => return Err(Error::BadRequest(format!("Unsupported scope: {}", scope))),
+    };
 
     let days = query.days.unwrap_or(30).clamp(1, 365);
     let group_by = query.group_by.as_deref().unwrap_or("day");
@@ -727,13 +738,15 @@ async fn list_ai_usage(
             SUM(requests)::bigint AS "requests!"
          FROM ai_token_usage
          WHERE workspace_id = $1 AND day > CURRENT_DATE - $2::int
+            AND ($5::text IS NULL OR email = $5)
          GROUP BY 1, provider, model
          ORDER BY SUM(input_tokens + cache_read_tokens + cache_write_tokens + output_tokens) DESC
          LIMIT $4"#,
         &w_id,
         days,
         group_by,
-        AI_USAGE_MAX_BUCKETS + 1
+        AI_USAGE_MAX_BUCKETS + 1,
+        own_email.as_deref()
     )
     .fetch_all(&db)
     .await?;

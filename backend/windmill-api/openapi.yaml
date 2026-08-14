@@ -11863,7 +11863,7 @@ paths:
         "204":
           description: usage recorded
     get:
-      summary: list aggregated AI token usage for the workspace (admin only)
+      summary: list aggregated AI token usage
       operationId: listAiUsage
       tags:
         - ai
@@ -11880,6 +11880,12 @@ paths:
           schema:
             type: string
             enum: [day, user, model, session]
+        - name: scope
+          in: query
+          description: workspace-wide usage (admin only) or the calling user's own
+          schema:
+            type: string
+            enum: [workspace, self]
       responses:
         "200":
           description: usage buckets
