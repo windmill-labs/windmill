@@ -54,9 +54,11 @@
 //! So each writer commits the disable on its own and records after it. On the
 //! success path both land together (the queue path shares one commit, via a
 //! savepoint that also keeps a failed insert from poisoning the transaction that
-//! completes the job). On failure the trigger is still disabled and the lost row
-//! is reported to the workspace error handler and the critical alert channel —
-//! loud, never silent.
+//! completes the job). Where the disable has already committed the insert is
+//! retried before giving up, since by then a retry cannot invent a row for a
+//! mutation that did not happen. Only if it still fails is the trigger left
+//! disabled without its row, and that is reported to the workspace error handler
+//! and the critical alert channel — loud, never silent.
 //!
 //! # Authorization contract
 //!
@@ -345,6 +347,7 @@ fn cap_changes(changes: Option<serde_json::Value>) -> Option<serde_json::Value> 
 }
 
 /// One trigger mutation, as it is about to be recorded.
+#[derive(Clone)]
 pub struct TriggerHistoryEvent<'a> {
     pub workspace_id: &'a str,
     /// `"schedule"`, or the trigger's `TRIGGER_TYPE` (`"http"`, `"kafka"`, …).
@@ -388,6 +391,108 @@ impl<'a> TriggerHistoryEvent<'a> {
             changes: Some(forced_state),
         }
     }
+}
+
+/// Owned form of [`TriggerHistoryEvent`], for a recorder that outlives the code
+/// that built it.
+#[derive(Clone)]
+pub struct OwnedTriggerHistoryEvent {
+    pub workspace_id: String,
+    pub trigger_kind: String,
+    pub path: String,
+    pub operation: TriggerOperation,
+    pub source: TriggerSource,
+    pub username: Option<String>,
+    pub changes: Option<serde_json::Value>,
+}
+
+impl TriggerHistoryEvent<'_> {
+    pub fn to_owned_event(&self) -> OwnedTriggerHistoryEvent {
+        OwnedTriggerHistoryEvent {
+            workspace_id: self.workspace_id.to_string(),
+            trigger_kind: self.trigger_kind.to_string(),
+            path: self.path.to_string(),
+            operation: self.operation,
+            source: self.source,
+            username: self.username.map(str::to_string),
+            changes: self.changes.clone(),
+        }
+    }
+}
+
+impl OwnedTriggerHistoryEvent {
+    fn as_event(&self) -> TriggerHistoryEvent<'_> {
+        TriggerHistoryEvent {
+            workspace_id: &self.workspace_id,
+            trigger_kind: &self.trigger_kind,
+            path: &self.path,
+            operation: self.operation,
+            source: self.source,
+            username: self.username.as_deref(),
+            changes: self.changes.clone(),
+        }
+    }
+}
+
+/// Record a disable that has **already committed**, on a task of its own.
+///
+/// Detached because the trigger listener's `disable_with_error` runs inside a
+/// `tokio::select!` whose ping branch exits the moment the disable clears
+/// `server_id`: every await after the disable is a cancellation point there, so
+/// an inline retry — and the alert that should follow it — silently vanishes.
+/// Nothing here can invent a row for a mutation that did not happen, because the
+/// mutation is durable before this is spawned.
+pub fn spawn_record_after_disable(db: crate::DB, event: OwnedTriggerHistoryEvent) {
+    tokio::spawn(async move {
+        if let Err(e) = record_with_retry(&db, event.as_event()).await {
+            crate::utils::report_critical_error(
+                format!(
+                    "Disabled {} trigger {} but could not record it in the trigger history: {e:#}",
+                    event.trigger_kind, event.path
+                ),
+                db.clone(),
+                Some(&event.workspace_id),
+                None,
+            )
+            .await;
+        }
+    });
+}
+
+/// Append `event` to the history, retrying a few times on its own connection.
+///
+/// For the writers whose disable has already committed: the row is the point of
+/// recording the disable at all, so a pool blip or a momentary DB hiccup should
+/// not be what costs it. Retrying cannot invent a row for a mutation that did
+/// not happen, precisely because the mutation is already durable by the time
+/// this runs.
+///
+/// Gives up after `ATTEMPTS`; the caller alerts on the returned error.
+pub async fn record_with_retry(db: &crate::DB, event: TriggerHistoryEvent<'_>) -> Result<()> {
+    const ATTEMPTS: usize = 3;
+    let mut last_err = None;
+    for attempt in 1..=ATTEMPTS {
+        let outcome = match db.acquire().await {
+            Ok(mut conn) => record(&mut conn, event.clone()).await,
+            Err(e) => Err(e.into()),
+        };
+        match outcome {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                tracing::warn!(
+                    "could not record trigger history for {} (attempt {attempt}/{ATTEMPTS}): {e:#}",
+                    event.path
+                );
+                last_err = Some(e);
+            }
+        }
+        if attempt < ATTEMPTS {
+            tokio::time::sleep(std::time::Duration::from_millis(200 * attempt as u64)).await;
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        crate::error::Error::internal_err("could not record trigger history".to_string())
+    }))
 }
 
 /// Append `event` to the history.

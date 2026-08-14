@@ -429,26 +429,14 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                                 serde_json::json!({ "mode": { "new": "disabled" } }),
                                 &error,
                             );
-                        let recorded = match db.acquire().await {
-                            Ok(mut conn) => {
-                                windmill_common::trigger_history::record(&mut conn, event)
-                                    .await
-                                    .map_err(|e| e.to_string())
-                            }
-                            Err(e) => Err(e.to_string()),
-                        };
-                        if let Err(history_err) = recorded {
-                            report_critical_error(
-                                format!(
-                                    "Disabled {} trigger {} but could not record it in the trigger history: {}",
-                                    Self::TRIGGER_KIND, listening_trigger.path, history_err
-                                ),
-                                db.clone(),
-                                Some(&listening_trigger.workspace_id),
-                                None,
-                            )
-                            .await;
-                        }
+                        // Spawned, not awaited: the disable just cleared
+                        // `server_id`, so the ping branch of the enclosing
+                        // `select!` is about to exit and cancel everything left
+                        // in this future.
+                        windmill_common::trigger_history::spawn_record_after_disable(
+                            db.clone(),
+                            event.to_owned_event(),
+                        );
                     }
                     report_critical_error(
                         format!(

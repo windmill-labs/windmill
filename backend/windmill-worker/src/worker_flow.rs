@@ -2951,22 +2951,15 @@ pub async fn handle_flow(
                             .await;
                         }
                         Ok(result) if result.rows_affected() > 0 => {
-                            let mut conn = db.acquire().await;
-                            let recorded = match conn.as_mut() {
-                                Ok(conn) => {
-                                    windmill_common::trigger_history::record(
-                                        conn,
-                                        windmill_queue::jobs::schedule_auto_disable_event(
-                                            &flow_job.workspace_id,
-                                            &schedule.path,
-                                            &err.to_string(),
-                                        ),
-                                    )
-                                    .await
-                                    .map_err(|e| e.to_string())
-                                }
-                                Err(e) => Err(e.to_string()),
-                            };
+                            let recorded = windmill_common::trigger_history::record_with_retry(
+                                db,
+                                windmill_queue::jobs::schedule_auto_disable_event(
+                                    &flow_job.workspace_id,
+                                    &schedule.path,
+                                    &err.to_string(),
+                                ),
+                            )
+                            .await;
                             if let Err(history_err) = recorded {
                                 report_error_to_workspace_handler_or_critical_side_channel(
                                     &mini_job,
