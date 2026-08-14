@@ -20,10 +20,7 @@ set -f
 # separator that only ends statements would read that as an `echo`. Braces are handled as
 # words rather than separators, since splitting on them cuts `xargs -I {} … rm` in half and
 # strands the `rm` in a segment that no longer knows a wrapper preceded it.
-#
-# Past a wrapper the scan is bounded, because the tokens it walks are no longer known to be
-# commands: without a bound, one `timeout` in front of a long quoted argument turns every `rm`
-# written in that prose into a prompt.
+
 # Heredoc bodies are data, not commands, and a rule doesn't match a verb written inside one —
 # a PR body or a generated script would otherwise prompt for every `rm` in its text. Dropping a
 # body needs both a delimiter that could really open one and a line that terminates it; failing
@@ -83,13 +80,13 @@ strip_heredoc_bodies() {
 }
 
 runs_verb() {
-  local verb="$1" seg raw w wrapped
+  local verb="$1" seg w wrapped
   while IFS= read -r seg; do
     wrapped=0
-    for raw in $seg; do
+    for w in $seg; do
       # The shell strips quotes and backslashes before it looks up the command, so `'rm'` and
       # `r\m` run rm and have to compare equal to it.
-      w="${raw//[\"\'\\]/}"
+      w="${w//[\"\'\\]/}"
       case "$w" in
         "$verb" | */"$verb") return 0 ;;
         *=*) ;;                                        # leading env assignment
@@ -99,15 +96,13 @@ runs_verb() {
         timeout | time | nice | nohup | stdbuf | command | builtin | noglob | xargs | sudo | env)
           wrapped=1 ;;
         # A wrapper's option value is indistinguishable from a command name (`stdbuf -o L rm`),
-        # so past a wrapper the scan continues instead of stopping at the first ordinary word.
-        # Before one, that word is the command and the verb cannot follow it.
-        *)
-          [ "$wrapped" = 1 ] || break
-          # It runs to the first quoted word, which is an argument rather than a command
-          # (`claude -p "…rm…"`), so the prose inside it stays data. Counting words instead
-          # would have to guess a limit, and wrappers take unboundedly many (`env -u A -u B …`).
-          case "$raw" in [\"\']*) break ;; esac
-          ;;
+        # so past a wrapper the scan runs to the end of the segment instead of stopping at the
+        # first ordinary word. Before one, that word is the command and the verb cannot follow
+        # it. Nothing bounds the scan: a wrapper takes unboundedly many operands
+        # (`env -u A -u B …`), and any cutoff — a word count, or stopping at the first quoted
+        # word — drops the prompt for a real `sudo -u 'root' rm`. Prose after a wrapper is the
+        # price, and it only over-prompts.
+        *) [ "$wrapped" = 1 ] || break ;;
       esac
     done
     # `tr` and not `${2//[...]}`: a `}` inside the bracket expression closes the expansion
