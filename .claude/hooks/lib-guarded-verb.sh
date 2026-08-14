@@ -31,7 +31,7 @@ set -f
 # around it intact.
 strip_heredoc_bodies() {
   local -a lines=()
-  local line delim trimmed i j n
+  local line delim rest after trimmed i j n
   while IFS= read -r line; do lines+=("$line"); done <<< "$1"
   n=${#lines[@]}
   i=0
@@ -40,14 +40,24 @@ strip_heredoc_bodies() {
     printf '%s\n' "$line"
     i=$((i + 1))
     case "$line" in *'<<'*) ;; *) continue ;; esac
-    delim="${line#*<<}"
-    delim="${delim#-}"                              # <<- strips leading tabs from the body
-    delim="${delim#"${delim%%[![:space:]]*}"}"
-    delim="${delim%%[[:space:]]*}"                  # the word after <<, ignoring any redirect
-    # A real delimiter is a bare word, or one wholly quoted (`<<'EOF'`, `<<\EOF`). Anything
-    # else is a `<<` inside prose (`echo "cat <<EOF"` leaves a trailing quote), where treating
-    # the rest as a body would drop the real commands written between here and a line that
-    # happens to match.
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    case "$trimmed" in '#'*) continue ;; esac       # a comment line opens no heredoc
+    rest="${line#*<<}"
+    rest="${rest#-}"                                # <<- strips leading tabs from the body
+    rest="${rest#"${rest%%[![:space:]]*}"}"
+    delim="${rest%%[[:space:]]*}"
+    # Whatever follows the delimiter word decides whether this line could open a heredoc at
+    # all. Only a redirect or a pipe can (`cat <<EOF > f`); prose after it means the `<<` sits
+    # inside a string (`echo "cat <<EOF and more"`), and dropping down to a line that happens
+    # to match would discard the real commands in between.
+    after="${rest#"$delim"}"
+    after="${after#"${after%%[![:space:]]*}"}"
+    case "$after" in
+      "" | '>'* | '<'* | '|'* | [0-9]'>'* | [0-9]'<'*) ;;
+      *) continue ;;
+    esac
+    # A real delimiter is a bare word or one wholly quoted (`<<'EOF'`, `<<\EOF`); a stray quote
+    # left in it means the `<<` was quoted prose.
     case "$delim" in
       \'*\' | \"*\") delim="${delim:1:${#delim}-2}" ;;
       \\?*) delim="${delim#\\}" ;;
