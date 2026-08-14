@@ -78,6 +78,15 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		currentBatchSize = null
 	}
 
+	// A load that ends without rows would otherwise leave the rows of the query it replaced on
+	// screen, presented as the result of the new one.
+	function dropRowsOfReplacedQuery() {
+		if (!pendingLoadHasRows) {
+			logs = []
+			hasMore = false
+		}
+	}
+
 	function load(batchSize?: number): CancelablePromise<void> {
 		pendingLoad?.cancel()
 		pendingLoad = undefined
@@ -171,6 +180,7 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
 			loading = false
+			dropRowsOfReplacedQuery()
 			clearBatchState()
 			sendUserToast(
 				'There was an issue loading audit logs, see browser console for more details',
@@ -190,11 +200,9 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 	function stopBatchLoading() {
 		pendingLoad?.cancel()
 		pendingLoad = undefined
-		// Rows from the query this load replaced would show up under the new filters otherwise.
-		if (!pendingLoadHasRows) {
-			logs = []
-			hasMore = false
-		}
+		dropRowsOfReplacedQuery()
+		// A page stopped halfway says nothing about whether a next one exists.
+		hasMore = false
 		clearBatchState()
 		loading = false
 	}

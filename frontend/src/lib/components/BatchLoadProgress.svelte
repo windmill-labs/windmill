@@ -7,16 +7,26 @@
 		total: number
 		itemsLabel: string
 		batchSize?: number | null
+		/** Largest batch the caller can fetch in one request, when that is below the page size. */
+		batchSizeCap?: number
 		onBatchSizeChange?: (batchSize: number) => void
 		onStop: () => void
 	}
 
-	let { loaded, total, itemsLabel, batchSize = null, onBatchSizeChange, onStop }: Props = $props()
+	let {
+		loaded,
+		total,
+		itemsLabel,
+		batchSize = null,
+		batchSizeCap,
+		onBatchSizeChange,
+		onStop
+	}: Props = $props()
 
 	let percent = $derived(total > 0 ? Math.round((Math.min(loaded, total) / total) * 100) : 0)
 	// A batch as large as the whole page is not a batch: it would end the streaming this row exists
 	// to drive, taking the row itself away mid-edit.
-	let maxBatchSize = $derived(Math.max(1, total - 1))
+	let maxBatchSize = $derived(Math.max(1, Math.min(total - 1, batchSizeCap ?? total - 1)))
 </script>
 
 <div class="flex items-center gap-3 text-xs text-secondary">

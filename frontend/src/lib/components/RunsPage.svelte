@@ -941,6 +941,7 @@
 										total={batchProgress.total}
 										itemsLabel="jobs"
 										batchSize={currentBatchSize}
+										batchSizeCap={1000}
 										onBatchSizeChange={(v) => jobsLoader.restreamWithBatchSize(v)}
 										onStop={() => jobsLoader.stopBatchLoading()}
 									/>

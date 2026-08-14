@@ -184,7 +184,9 @@
 			<SplitPanesWrapper>
 				<Splitpanes>
 					<Pane size={70} minSize={50}>
-						{#if logs}
+						<!-- Also while a batched load has yet to return its first rows: the table footer
+						     carries the progress row and its Stop button. -->
+						{#if logs || batchProgress}
 							<AuditLogsTable
 								loading={auditLogsLoader.loading}
 								{logs}
