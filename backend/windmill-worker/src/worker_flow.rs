@@ -2926,6 +2926,13 @@ pub async fn handle_flow(
                     // One transaction, so this cannot leave the schedule
                     // disabled with nothing recording that the server did it.
                     // Safe to open here: the retried closure committed its own.
+                    //
+                    // This is the last attempt: a flow schedule arms its next
+                    // occurrence when the flow *starts*, so once the flow is
+                    // gone no job reaches this code again. If it fails, the
+                    // schedule stays enabled and never runs until someone acts,
+                    // which is why the failure below goes to the workspace
+                    // error handler and the critical alert channel.
                     let disable_result = async {
                         let mut tx = db.begin().await?;
                         let rows = sqlx::query!(
