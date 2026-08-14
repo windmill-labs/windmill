@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import LightweightResourcePicker from '$lib/components/LightweightResourcePicker.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { ResourceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -60,7 +60,6 @@
 	let pathError = $state('')
 	let description = $state('')
 	let saving = $state(false)
-	let pickerValue: string | undefined = $state(undefined)
 	// The path "Save changes" upserts back to, for a step forked from a saved agent. Lives in an
 	// external store so it survives this component unmounting when another node is selected, keyed
 	// by the forked `tools` identity so a stale entry can't resurface (see agentEditStore).
@@ -155,20 +154,6 @@
 			// empty unless this step stays selected. Load-time tools stay put (publishedFor unset).
 			clearLinkedAgentTools(toolScope, moduleId)
 			publishedFor = undefined
-		}
-	})
-
-	// Link the step as soon as a saved agent is picked. Linking is rigid, so the step keeps no tools
-	// of its own — they come from the resource. The picked value is consumed immediately: a stale
-	// pickerValue must not re-link over an external change to `agent` (undo, session drafts).
-	$effect(() => {
-		if (pickerValue && pickerValue !== agent) {
-			agent = pickerValue
-			pickerValue = undefined
-			tools = []
-			toolInputs = {}
-			// Drop the step's brain transforms; a linked step keeps only the flow-local inputs.
-			inputTransforms = flowLocalInputs(inputTransforms)
 		}
 	})
 
@@ -276,7 +261,7 @@
 		if (!sameSession) {
 			// The resource is written either way; say so, or the drawer just closes with no outcome.
 			sendUserToast(
-				`Saved ${path}, but the step changed while saving — it was not linked to the agent`,
+				`Saved ${path}, but the step changed while saving, so it was not linked to the agent`,
 				true
 			)
 			return false
@@ -285,7 +270,7 @@
 		// from the step too, losing them entirely. Keep the step as-is and let the user save again.
 		if (discardedOnLinkSnapshot() !== savedSnapshot) {
 			sendUserToast(
-				`Saved ${path}, but changes made while saving are not in it — save again to include them`,
+				`Saved ${path}, but changes made while saving are not in it. Save again to include them`,
 				true
 			)
 			return false
@@ -377,7 +362,6 @@
 		}
 		tools = forkedTools
 		agent = undefined
-		pickerValue = undefined
 		return path
 	}
 
@@ -387,9 +371,9 @@
 			const path = await forkFromResource(true)
 			if (path) {
 				setAgentEditingPath(tools, undefined)
-				sendUserToast('Forked agent — its configuration was copied into this step')
+				sendUserToast('Forked agent. Its configuration was copied into this step')
 			} else {
-				sendUserToast('The step changed while loading the agent — nothing was unlinked', true)
+				sendUserToast('The step changed while loading the agent, so nothing was unlinked', true)
 			}
 		} catch (e) {
 			sendUserToast(`Failed to unlink agent: ${e}`, true)
@@ -403,27 +387,28 @@
 			const path = await forkFromResource(false)
 			if (path) {
 				setAgentEditingPath(tools, path)
-				sendUserToast(`Editing ${path} — make changes, then Save changes to update it`)
+				sendUserToast(`Editing ${path}. Make changes, then Save changes to update it`)
 			} else {
-				sendUserToast('The step changed while loading the agent — try Edit again', true)
+				sendUserToast('The step changed while loading the agent. Try Edit again', true)
 			}
 		} catch (e) {
 			sendUserToast(`Failed to edit agent: ${e}`, true)
 		}
 	}
 
-	// Cancel keeps the edits as a standalone step. Edit preserved the flow-local overrides for the
-	// re-link; fold them into the tools (as Unlink does) so the step owns its bindings outright,
-	// leaving nothing for the runtime's unlinked overlay to apply.
+	// Cancel discards the edits and re-links the step, leaving the agent untouched. Diverging from
+	// the agent is Unlink's job, on the linked card. Edit kept this flow's `tool_inputs` off the
+	// forked tools rather than folding them in, so they survive the round trip as overrides.
 	function cancelEdit() {
-		for (const tool of tools) {
-			const overrides = toolInputs?.[tool.id]
-			if (overrides && tool.value?.input_transforms) {
-				tool.value.input_transforms = { ...tool.value.input_transforms, ...overrides }
-			}
-		}
-		toolInputs = {}
+		const path = editingPath
+		// Clear the entry while `tools` is still the fork's array, which is what keys it.
 		setAgentEditingPath(tools, undefined)
+		if (!path) {
+			return
+		}
+		agent = path
+		tools = []
+		inputTransforms = flowLocalInputs(inputTransforms)
 	}
 	let evalsOpen = $state(false)
 </script>
@@ -432,25 +417,15 @@
 
 <div class="px-2 xl:px-4 pt-2">
 	{#if agent}
-		<div class="rounded-md border border-light bg-surface-secondary px-3 py-2">
-			<div class="flex items-center gap-2 text-xs">
+		<div class="rounded-md border border-light bg-surface-tertiary px-3 py-2">
+			<div class="flex items-center gap-2">
 				<Bot size={16} class="text-primary shrink-0" />
-				<span class="text-secondary shrink-0">Linked to</span>
-				<span class="flex min-w-0 flex-1 items-center gap-1">
-					<a
-						class="font-medium truncate"
-						href={`/resources?path=${agent}&workspace=${ws}`}
-						title={agent}>{agent}</a
-					>
-					<Tooltip small placement="bottom">
-						{#snippet text()}
-							Read-only: the configuration comes from this saved agent, and only the message and
-							inputs are set in this flow. Edit changes the agent everywhere it's used. Unlink forks
-							an editable copy into just this step.
-						{/snippet}
-					</Tooltip>
-				</span>
-				<div class="ml-auto flex items-center gap-1 shrink-0">
+				<a
+					class="min-w-0 flex-1 truncate text-xs font-medium"
+					href={`/resources?path=${agent}&workspace=${ws}`}
+					title={agent}>{agent}</a
+				>
+				<div class="flex items-center gap-1 shrink-0">
 					<Button
 						size="xs2"
 						variant="default"
@@ -490,12 +465,7 @@
 							<dt class="text-tertiary shrink-0 w-28">Tools</dt>
 							<dd class="flex flex-wrap gap-1">
 								{#each inheritedTools as tool (tool.id)}
-									<span
-										class="inline-flex items-center rounded border border-light bg-surface px-1.5 py-0.5 text-secondary"
-										title={tool.id}
-									>
-										{toolLabel(tool)}
-									</span>
+									<Badge color="gray" title={tool.id}>{toolLabel(tool)}</Badge>
 								{/each}
 							</dd>
 						</div>
@@ -513,13 +483,24 @@
 			</div>
 		{/if}
 	{:else if editingPath}
-		<div
-			class="flex items-center gap-2 rounded-md border border-light bg-surface-secondary px-3 py-2 text-xs"
-		>
-			<Pencil size={16} class="text-primary shrink-0" />
-			<span class="text-secondary">Editing</span>
-			<span class="font-medium truncate" title={editingPath}>{editingPath}</span>
-			<div class="ml-auto flex items-center gap-1">
+		<div class="rounded-md border border-light bg-surface-tertiary px-3 py-2">
+			<div class="flex items-start gap-2">
+				<Pencil size={16} class="text-primary shrink-0 mt-0.5" />
+				<div class="min-w-0 flex-1">
+					<div class="truncate text-xs font-medium" title={editingPath}>{editingPath}</div>
+					<div class="text-2xs text-secondary">
+						Saving affects every flow using it<Tooltip small placement="bottom">
+							{#snippet text()}
+								Save changes writes back to the saved agent and re-links this step, so every flow
+								linking to it picks the change up. Cancel discards the edits and re-links it
+								unchanged.
+							{/snippet}
+						</Tooltip>
+					</div>
+				</div>
+			</div>
+			<div class="mt-2 flex items-center justify-end gap-1">
+				<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
 				<Button
 					size="xs2"
 					variant="accent"
@@ -529,33 +510,24 @@
 				>
 					Save changes
 				</Button>
-				<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
 			</div>
 		</div>
-		<p class="text-2xs text-tertiary mt-1">
-			Editing the saved agent. Save changes updates it and re-links this step — the update
-			propagates to every flow that links to it. Cancel keeps your edits here as a standalone step
-			instead.
-		</p>
 		{#if providerSaveError}
-			<p class="text-2xs text-red-600 dark:text-red-400 mt-1">
+			<p class="text-2xs text-red-500 mt-1">
 				{providerSaveError}
 			</p>
 		{/if}
 	{:else}
-		<div class="flex items-center gap-2">
-			<div class="grow min-w-0">
-				<LightweightResourcePicker
-					bind:value={pickerValue}
-					resourceType="ai_agent"
-					workspace={ws}
-				/>
-			</div>
-			<span class="text-2xs text-tertiary">or</span>
-			<Button size="xs2" variant="default" startIcon={{ icon: Save }} onclick={openSave}>
-				Save as agent
-			</Button>
-		</div>
+		<Button
+			size="xs2"
+			variant="default"
+			startIcon={{ icon: Save }}
+			wrapperClasses="w-full"
+			btnClasses="w-full"
+			onclick={openSave}
+		>
+			Save as agent
+		</Button>
 	{/if}
 </div>
 
