@@ -396,8 +396,6 @@ describe('resolveRequestReasoning', () => {
 				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
 			).toBeUndefined()
 		}
-		// Bedrock has no disable route, so off stays omission there — while the
-		// same model on the native provider now sends the explicit disable.
 		expect(
 			resolveRequestReasoning({
 				provider: 'aws_bedrock',
@@ -405,13 +403,13 @@ describe('resolveRequestReasoning', () => {
 				reasoning: REASONING_OFF
 			})
 		).toBeUndefined()
-		expect(
-			resolveRequestReasoning({
-				provider: 'anthropic',
-				model: 'claude-opus-4-8',
-				reasoning: REASONING_OFF
-			})
-		).toBe('none')
+		// Claude 4.6-4.8 keep omission as their off: it already works there, so
+		// the explicit disable is scoped to the models that need it.
+		for (const model of ['claude-opus-4-8', 'claude-opus-4-6', 'claude-sonnet-4-6']) {
+			expect(
+				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
+			).toBeUndefined()
+		}
 	})
 
 	it('turns the Anthropic off sentinel into an explicit thinking disable', () => {

@@ -359,12 +359,13 @@ const ANTHROPIC_ALWAYS_THINKING = /fable|mythos/
 export function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
 	switch (reasoningProviderFamily(provider, model)) {
 		case 'anthropic':
-			// Omission is not an off for the 5 family, which thinks by default,
-			// so send the explicit disable instead. Fable and Mythos reject it
-			// outright, so they get no off token at all.
-			return ANTHROPIC_ALWAYS_THINKING.test(model.toLowerCase())
-				? undefined
-				: ANTHROPIC_OFF_SENTINEL
+			// Claude 4.6-4.8 only think when asked, so omission is already a
+			// real off there and stays the wire form. Only the 5 family, which
+			// thinks when the field is absent, needs the explicit disable —
+			// Fable and Mythos reject it outright and get no off token at all.
+			return /claude-(opus|sonnet)-5/.test(model.toLowerCase())
+				? ANTHROPIC_OFF_SENTINEL
+				: undefined
 		case 'googleai':
 			// Gemini 2.5/3 think by default (dynamic budget / level). The backend
 			// proxy maps 'none' to off on Flash, or the floor on Pro (only
