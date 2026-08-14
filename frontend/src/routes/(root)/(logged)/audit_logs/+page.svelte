@@ -16,12 +16,12 @@
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import AuditLogsTimeline from '$lib/components/auditLogs/AuditLogsTimeline.svelte'
+	import { useAuditLogsLoader } from '$lib/components/auditLogs/useAuditLogsLoader.svelte'
+	import { untrack } from 'svelte'
 
 	let username: string = $state(page.url.searchParams.get('username') ?? 'all')
 	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 1)
 	let before: string | undefined = $state(page.url.searchParams.get('before') ?? undefined)
-	let hasMore: boolean = $state(false)
-	let loading: boolean = $state(false)
 	let after: string | undefined = $state(page.url.searchParams.get('after') ?? undefined)
 	let perPage: number | undefined = $state(Number(page.url.searchParams.get('perPage')) || 100)
 	let operation: string = $state(page.url.searchParams.get('operation') ?? 'all')
@@ -34,7 +34,30 @@
 		(page.url.searchParams.get('actionKind') as ActionKind) ?? 'all'
 	)
 
-	let logs: AuditLog[] | undefined = $state()
+	let auditLogsLoader = useAuditLogsLoader(() => ({
+		workspace: $workspaceStore,
+		scope,
+		username,
+		operation,
+		resource,
+		actionKind,
+		before,
+		after,
+		pageIndex: pageIndex ?? 1,
+		perPage: perPage ?? 100
+	}))
+	let logs: AuditLog[] | undefined = $derived(auditLogsLoader.logs)
+	let batchProgress = $derived(auditLogsLoader.batchProgress)
+
+	// Regrouping the timeline can fire extra requests to fill in missing job spans, so it gets the
+	// result of a batched load once it settles rather than every intermediate batch.
+	let timelineLogs: AuditLog[] | undefined = $state()
+	$effect(() => {
+		const settledLogs = batchProgress ? undefined : auditLogsLoader.logs
+		if (settledLogs) {
+			untrack(() => (timelineLogs = settledLogs))
+		}
+	})
 
 	let selectedId: number | undefined = $state(undefined)
 	let auditLogDrawer: Drawer | undefined = $state()
@@ -97,7 +120,7 @@
 			<div class="flex flex-row flex-wrap justify-between py-2 my-2 px-4 gap-1 items-center">
 				<div class="hidden 2xl:block">
 					<AuditLogsFilters
-						bind:logs
+						{logs}
 						bind:username
 						bind:before
 						bind:after
@@ -107,15 +130,15 @@
 						bind:pageIndex
 						bind:perPage
 						bind:scope
-						bind:hasMore
-						bind:loading
+						loading={auditLogsLoader.loading}
+						onRefresh={() => auditLogsLoader.reload()}
 					/>
 				</div>
 				<div class="2xl:hidden">
 					<AuditLogMobileFilters>
 						{#snippet filters()}
 							<AuditLogsFilters
-								bind:logs
+								{logs}
 								bind:username
 								bind:before
 								bind:after
@@ -123,7 +146,8 @@
 								bind:operation
 								bind:resource
 								bind:scope
-								bind:hasMore
+								loading={auditLogsLoader.loading}
+								onRefresh={() => auditLogsLoader.reload()}
 							/>
 						{/snippet}
 					</AuditLogMobileFilters>
@@ -131,9 +155,9 @@
 			</div>
 		</div>
 		<div class="h-2/6">
-			{#if logs}
+			{#if timelineLogs}
 				<AuditLogsTimeline
-					{logs}
+					logs={timelineLogs}
 					minTimeSet={after}
 					maxTimeSet={before}
 					onZoom={({ min, max }) => {
@@ -163,7 +187,7 @@
 					<Pane size={70} minSize={50}>
 						{#if logs}
 							<AuditLogsTable
-								{loading}
+								loading={auditLogsLoader.loading}
 								{logs}
 								{selectedId}
 								bind:pageIndex
@@ -172,7 +196,11 @@
 								bind:operation
 								bind:usernameFilter={username}
 								bind:resourceFilter={resource}
-								bind:hasMore
+								hasMore={auditLogsLoader.hasMore}
+								{batchProgress}
+								batchSize={auditLogsLoader.currentBatchSize}
+								onBatchSizeChange={(size) => auditLogsLoader.restreamWithBatchSize(size)}
+								onStopLoading={() => auditLogsLoader.stopBatchLoading()}
 								showWorkspace={scope === 'instance' || scope === 'all_workspaces'}
 								onselect={(id) => {
 									selectedId = id
@@ -197,13 +225,18 @@
 			<div class="md:hidden">
 				<AuditLogsTable
 					{logs}
-					bind:hasMore
+					loading={auditLogsLoader.loading}
+					hasMore={auditLogsLoader.hasMore}
 					bind:pageIndex
 					bind:perPage
 					bind:actionKind
 					bind:operation
 					bind:usernameFilter={username}
 					bind:resourceFilter={resource}
+					{batchProgress}
+					batchSize={auditLogsLoader.currentBatchSize}
+					onBatchSizeChange={(size) => auditLogsLoader.restreamWithBatchSize(size)}
+					onStopLoading={() => auditLogsLoader.stopBatchLoading()}
 					showWorkspace={scope === 'instance' || scope === 'all_workspaces'}
 					onselect={(id) => {
 						selectedId = id
