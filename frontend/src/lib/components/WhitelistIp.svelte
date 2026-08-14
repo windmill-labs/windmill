@@ -4,8 +4,8 @@
 
 	let ips: string[] | undefined = $state(undefined)
 
-	// Sentinels the backend stores when a worker's external IP is unknown: 'NO IP' while the
-	// lookup is pending or after it failed, 'unretrievable IP' from workers predating that.
+	// Sentinels the backend stores when a worker has no external IP to report: 'NO IP' while the
+	// lookup is still in flight, 'unretrievable IP' once it has failed.
 	const UNKNOWN_IPS = ['NO IP', 'unretrievable IP']
 
 	WorkerService.listWorkers({ pingSince: 300 }).then((workers) => {

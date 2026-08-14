@@ -15,10 +15,16 @@ use crate::utils::configure_client;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-/// Reported once the lookup has definitively failed, so that a worker reclaiming another's
-/// `worker_ping` row stops advertising an address nothing has confirmed. Matches the column
-/// default, and the frontend filters it out of the addresses it offers for whitelisting.
+/// No address has ever been established for the row. Matches the `worker_ping.ip` column default,
+/// and doubles as what an agent sends while its lookup is in flight, since a server that predates
+/// the lookup being asynchronous rejects an initial ping carrying nothing.
 pub const UNKNOWN_IP: &str = "NO IP";
+
+/// The lookup ran and could not produce an address. Distinct from [`UNKNOWN_IP`] because it tells
+/// an operator the difference between "never asked" and "asked, and this instance cannot reach the
+/// hub", which is the actionable one. Both are filtered out of the addresses the frontend offers
+/// for whitelisting.
+pub const UNRETRIEVABLE_IP: &str = "unretrievable IP";
 
 /// `worker_ping.ip` is `VARCHAR(50)`, and a failed initial ping takes the worker down, so an
 /// overlong value must not reach the insert.
@@ -26,8 +32,8 @@ const MAX_IP_LEN: usize = 50;
 
 static EXTERNAL_IP: OnceLock<String> = OnceLock::new();
 
-/// The external IP of this process, [`UNKNOWN_IP`] once the lookup has failed, or `None` while it
-/// is still in flight.
+/// The external IP of this process, [`UNRETRIEVABLE_IP`] once the lookup has failed, or `None`
+/// while it is still in flight.
 pub fn cached_ip() -> Option<&'static str> {
     EXTERNAL_IP.get().map(String::as_str)
 }
@@ -42,7 +48,7 @@ pub fn resolve_ip_in_background() {
             .map(|ip| {
                 if ip.len() > MAX_IP_LEN {
                     tracing::error!("external IP lookup returned an overlong value, ignoring it");
-                    UNKNOWN_IP.to_string()
+                    UNRETRIEVABLE_IP.to_string()
                 } else {
                     ip
                 }
@@ -50,9 +56,9 @@ pub fn resolve_ip_in_background() {
             .unwrap_or_else(|e| {
                 tracing::warn!(
                     error = e.to_string(),
-                    "failed to get external IP, workers of this process will report no IP"
+                    "failed to get external IP, workers of this process will report it as unretrievable"
                 );
-                UNKNOWN_IP.to_string()
+                UNRETRIEVABLE_IP.to_string()
             });
         let _ = EXTERNAL_IP.set(ip);
     });

@@ -41,7 +41,7 @@ use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
-    external_ip::{cached_ip, UNKNOWN_IP},
+    external_ip::cached_ip,
     schema::{should_validate_schema, SchemaValidator},
     utils::{create_directory_async, WarnAfterExt},
     worker::{
@@ -3074,11 +3074,11 @@ pub async fn run_worker(
         let ip_just_resolved = reported_ip.is_none() && ip.is_some();
         if ip_just_resolved || last_ping.elapsed().as_secs() > NUM_SECS_PING {
             // Servers older than the background lookup take an IP from the initial ping only, so an
-            // agent has to register a second time to deliver one that resolved after it. Registering
-            // also clears the row's job columns, which costs at most the last job's id here: no job
-            // of this worker is in flight at this point in the loop, and the next one refills them.
-            if ip_just_resolved && conn.as_sql().is_none() && ip.is_some_and(|ip| ip != UNKNOWN_IP)
-            {
+            // agent has to register a second time to deliver whatever the lookup settled on, an
+            // address or the unretrievable marker. Registering also clears the row's job columns,
+            // which costs at most the last job's id here: no job of this worker is in flight at this
+            // point in the loop, and the next one refills them.
+            if ip_just_resolved && conn.as_sql().is_none() {
                 if let Err(e) = insert_ping(hostname, &worker_name, ip, &conn).await {
                     tracing::warn!(
                         worker = %worker_name, hostname = %hostname,

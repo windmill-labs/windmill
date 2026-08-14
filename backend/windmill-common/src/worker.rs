@@ -1922,8 +1922,8 @@ pub async fn insert_ping_query(
 ) -> anyhow::Result<i32> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
     // meanwhile the value a previous process wrote to a reclaimed row is the best guess we have. A
-    // lookup that has failed reports `external_ip::UNKNOWN_IP` instead, which the literal below
-    // must stay equal to.
+    // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
+    // literal below must stay equal to `external_ip::UNKNOWN_IP`.
     let previous_jobs_executed = sqlx::query_scalar!(
         "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
         DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
