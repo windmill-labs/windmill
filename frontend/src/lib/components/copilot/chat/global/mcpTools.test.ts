@@ -127,6 +127,18 @@ describe('read/write split', () => {
 		expect(getTool('call_mcp_write_tool').requiresConfirmation).toBe(true)
 	})
 
+	// This classification comes from a listing that can predate a resource edited
+	// mid-turn, so the backend re-checks it against the server it is calling — but
+	// only knows to when the unconfirmed path says it assumed read-only.
+	it('tells the backend when it called without a confirmation', async () => {
+		callMcpToolMock.mockResolvedValue({ content: [] })
+		await run('call_mcp_read_tool', { server: 'u/hugo/github_mcp', tool: 'get_issue' })
+		expect(callMcpToolMock.mock.calls[0][0].requestBody.read_only).toBe(true)
+
+		await run('call_mcp_write_tool', { server: 'u/hugo/github_mcp', tool: 'merge_pull_request' })
+		expect(callMcpToolMock.mock.calls[1][0].requestBody.read_only).toBeUndefined()
+	})
+
 	// The cached tool list carries the annotations this gate reads, and the same
 	// path names a different server in another workspace: a cache keyed on path
 	// alone would let one workspace's read-only hint wave a call through in the next.

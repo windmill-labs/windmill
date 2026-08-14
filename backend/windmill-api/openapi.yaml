@@ -8103,6 +8103,12 @@ paths:
                   type: string
                 arguments:
                   type: object
+                read_only:
+                  type: boolean
+                  description: |
+                    set when the caller ran the tool without asking the user to
+                    confirm it; the call is refused unless the server's live
+                    listing marks the tool read-only
               required:
                 - tool
       responses:

@@ -65,6 +65,10 @@
 	// resource to everyone who can read it.
 	let sharedPath = $derived(!!manualPath && !manualPath.startsWith(`u/${$userStore?.username}/`))
 	let oauthConnect: McpServerOAuthConnect | undefined = $state()
+	// The connector owns the popup listener and is keyed on the url, so a url edit
+	// or a switch to token entry would destroy it and lose a callback still in
+	// flight. Editing waits for the popup instead.
+	let oauthPending = $derived(oauthConnect?.isConnecting() ?? false)
 	let pending: (Target & { client: string; scopes: string[] }) | undefined = undefined
 	let popup: Window | null = null
 
@@ -362,7 +366,7 @@
 				inputProps={{
 					type: 'url',
 					placeholder: 'https://mcp.example.com',
-					disabled: suggested !== undefined,
+					disabled: suggested !== undefined || oauthPending,
 					onchange: () => ((committedUrl = url), (discoveryFoundOAuth = undefined))
 				}}
 				bind:value={url}
@@ -375,6 +379,7 @@
 					unifiedSize="2xs"
 					variant="subtle"
 					selected={entry?.id === e.id}
+					disabled={oauthPending}
 					startIcon={{ icon: e.icon, props: { width: '12px', height: '12px' } }}
 					onClick={() => pick(e.id)}
 				>
@@ -505,6 +510,7 @@
 					unifiedSize="2xs"
 					variant="subtle"
 					wrapperClasses="self-start"
+					disabled={oauthPending}
 					onClick={() => (showToken = !showToken)}
 				>
 					{showToken

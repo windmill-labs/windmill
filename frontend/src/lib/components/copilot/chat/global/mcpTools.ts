@@ -189,14 +189,22 @@ async function executeTool(
 	workspace: string,
 	server: McpServer,
 	tool: McpToolDef,
-	args: Record<string, unknown>
+	args: Record<string, unknown>,
+	skippedConfirmation: boolean
 ): Promise<string> {
 	let raw: unknown
 	try {
 		raw = await ResourceService.callMcpTool({
 			workspace,
 			path: server.path,
-			requestBody: { tool: tool.name, arguments: args }
+			// The listing this classification came from can predate a resource
+			// edited mid-turn, so the backend re-checks the assertion against the
+			// server it is about to call.
+			requestBody: {
+				tool: tool.name,
+				arguments: args,
+				...(skippedConfirmation ? { read_only: true } : {})
+			}
 		})
 	} catch (e: any) {
 		const status = e?.status
@@ -348,7 +356,8 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 				workspace,
 				resolved.server,
 				resolved.tool,
-				parsed.arguments ?? {}
+				parsed.arguments ?? {},
+				isRead
 			)
 			const ok = JSON.parse(result).success === true
 			toolCallbacks.setToolStatus(toolId, {

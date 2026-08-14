@@ -172,6 +172,23 @@ pub(crate) async fn get_mcp_tools(
 pub(crate) struct CallMcpToolRequest {
     tool: String,
     arguments: Option<Box<RawValue>>,
+    /// Set by a caller that skipped the user's confirmation because it had
+    /// listed the tool as read-only. Verified below against the live listing.
+    read_only: Option<bool>,
+}
+
+/// `readOnlyHint` is the server's own claim, so this cannot tell a hostile
+/// server from an honest one; what it guarantees is that the claim comes from
+/// the server about to be called, not from a listing of whatever the resource
+/// pointed at when the caller cached it.
+fn tool_is_read_only(client: &windmill_mcp::McpClient, tool: &str) -> bool {
+    client
+        .available_tools()
+        .iter()
+        .find(|t| t.name.as_ref() == tool)
+        .and_then(|t| t.annotations.as_ref())
+        .and_then(|a| a.read_only_hint)
+        .unwrap_or(false)
 }
 
 pub(crate) async fn call_mcp_tool(
@@ -189,12 +206,22 @@ pub(crate) async fn call_mcp_tool(
     // stalls after answering the handshake is bounded too.
     let (client, result) = with_deadline(&format!("calling {}", req.tool), async {
         let client = connect_mcp_client(&authed, &db, &user_db, &w_id, path).await?;
+        if req.read_only == Some(true) && !tool_is_read_only(&client, &req.tool) {
+            return Ok((client, None));
+        }
         let result = client.call_tool(&req.tool, arguments).await;
-        Ok((client, result))
+        Ok((client, Some(result)))
     })
     .await?;
 
     shutdown_mcp_client(client).await;
+
+    let Some(result) = result else {
+        return Err(Error::BadRequest(format!(
+            "MCP tool {} is not marked read-only by the server, it must be called as a tool that modifies data",
+            req.tool
+        )));
+    };
 
     // A tool that ran but reported failure comes back as `Ok` with `isError:
     // true` in the payload; forwarding it verbatim lets the caller show the
