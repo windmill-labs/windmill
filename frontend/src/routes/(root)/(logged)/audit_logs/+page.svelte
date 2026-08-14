@@ -17,7 +17,6 @@
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import AuditLogsTimeline from '$lib/components/auditLogs/AuditLogsTimeline.svelte'
 	import { useAuditLogsLoader } from '$lib/components/auditLogs/useAuditLogsLoader.svelte'
-	import { untrack } from 'svelte'
 
 	let username: string = $state(page.url.searchParams.get('username') ?? 'all')
 	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 1)
@@ -55,7 +54,7 @@
 	$effect(() => {
 		const settledLogs = batchProgress ? undefined : auditLogsLoader.logs
 		if (settledLogs) {
-			untrack(() => (timelineLogs = settledLogs))
+			timelineLogs = settledLogs
 		}
 	})
 

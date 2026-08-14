@@ -18,6 +18,25 @@ export interface AuditLogsLoaderArgs {
 }
 
 const SMALL_BATCH_SIZE = 25
+// The page size comes from the url, and a batched load turns it into one request per batch, so it
+// has to be capped at the largest size the page itself offers.
+const MAX_PER_PAGE = 1000
+
+/**
+ * Where the first batch of a page starts. Rows are ordered by descending id, so the batches after
+ * it follow a `before_id` cursor and only this one needs an offset. `page` can only express
+ * offsets that are multiples of `batchSize`: land on the closest one at or below the page start,
+ * and report how many rows of that batch belong to the previous page.
+ */
+export function computeFirstBatch(
+	pageIndex: number,
+	perPage: number,
+	batchSize: number
+): { firstPage: number; skipFirst: number } {
+	const startOffset = (Math.max(1, pageIndex) - 1) * perPage
+	const firstPage = Math.floor(startOffset / batchSize) + 1
+	return { firstPage, skipFirst: startOffset - (firstPage - 1) * batchSize }
+}
 
 /**
  * Loads one page of audit logs, optionally streaming it in smaller batches so rows show up as
@@ -31,6 +50,7 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 	let currentBatchSize = $state<number | null>(null)
 
 	let pendingLoad: CancelablePromise<void> | undefined
+	let pendingLoadHasRows = false
 
 	function fetchBatch(
 		a: AuditLogsLoaderArgs,
@@ -53,26 +73,28 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		})
 	}
 
+	function clearBatchState() {
+		batchProgress = null
+		currentBatchSize = null
+	}
+
 	function load(batchSize?: number): CancelablePromise<void> {
 		pendingLoad?.cancel()
+		pendingLoad = undefined
+		pendingLoadHasRows = false
 
 		const a = args()
 		if (a.workspace == undefined && a.scope !== 'instance') {
+			loading = false
+			clearBatchState()
 			return CancelablePromiseUtils.pure<void>(undefined)
 		}
-		const total = Math.max(1, a.perPage)
+		const total = Math.min(Math.max(1, Math.floor(a.perPage) || 1), MAX_PER_PAGE)
 		const size = Math.min(Math.max(1, batchSize ?? total), total)
 		const isBatched = size < total
-		// Rows are ordered by descending id, so batches after the first one use the last id as a
-		// keyset cursor. Only the batch the page starts on needs an offset, and `page` can only
-		// express offsets that are multiples of `size`: land on the closest one below and drop the
-		// rows that come before the page.
-		const startOffset = (Math.max(1, a.pageIndex) - 1) * total
-		const firstPage = Math.floor(startOffset / size) + 1
-		const skipFirst = startOffset - (firstPage - 1) * size
+		const { firstPage, skipFirst } = computeFirstBatch(a.pageIndex, total, size)
 
 		loading = true
-		hasMore = false
 		batchProgress = isBatched ? { loaded: 0, total } : null
 		currentBatchSize = isBatched ? size : null
 
@@ -96,11 +118,14 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 				acc.push(...(skip > 0 ? rows.slice(skip) : rows).slice(0, total - acc.length))
 				logs = [...acc]
 				loading = false
-				hasMore = acc.length >= total
+				pendingLoadHasRows = true
 				if (isBatched) {
 					batchProgress = { loaded: acc.length, total }
 				}
 				if (rows.length < size || acc.length >= total) {
+					// Only once the page is complete: a half-streamed page says nothing about
+					// whether there is a next one.
+					hasMore = acc.length >= total
 					return CancelablePromiseUtils.pure<void>(undefined)
 				}
 				return loadBatch(rows[rows.length - 1].id, 0)
@@ -121,29 +146,32 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		}
 
 		let promise = loadBatch(undefined, skipFirst)
-		if (!isBatched && total > SMALL_BATCH_SIZE) {
+		if (!isBatched) {
 			promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
-				sendUserToast('Loading audit logs is taking longer than expected...', 'warning', [
-					{
-						label: `Stream by batches of ${SMALL_BATCH_SIZE}`,
-						callback: () => restreamWithBatchSize(SMALL_BATCH_SIZE)
-					}
-				])
+				const smaller = total > SMALL_BATCH_SIZE ? SMALL_BATCH_SIZE : 1
+				sendUserToast(
+					'Loading audit logs is taking longer than expected...',
+					'warning',
+					total > 1
+						? [
+								{
+									label: smaller === 1 ? 'Stream 1 by 1' : `Stream by batches of ${smaller}`,
+									callback: () => restreamWithBatchSize(smaller)
+								}
+							]
+						: []
+				)
 			})
 		}
 		promise = CancelablePromiseUtils.finallyDo(promise, () => {
 			if (slowLoadIntervalId) clearInterval(slowLoadIntervalId)
 		})
 		// Only on success: a cancel means another load already owns these.
-		promise = CancelablePromiseUtils.pipe(promise, () => {
-			batchProgress = null
-			currentBatchSize = null
-		})
+		promise = CancelablePromiseUtils.pipe(promise, clearBatchState)
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
 			loading = false
-			batchProgress = null
-			currentBatchSize = null
+			clearBatchState()
 			sendUserToast(
 				'There was an issue loading audit logs, see browser console for more details',
 				true
@@ -162,25 +190,18 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 	function stopBatchLoading() {
 		pendingLoad?.cancel()
 		pendingLoad = undefined
-		batchProgress = null
-		currentBatchSize = null
+		// Rows from the query this load replaced would show up under the new filters otherwise.
+		if (!pendingLoadHasRows) {
+			logs = []
+			hasMore = false
+		}
+		clearBatchState()
 		loading = false
 	}
 
 	$effect(() => {
-		const a = args()
-		;[
-			a.workspace,
-			a.scope,
-			a.username,
-			a.operation,
-			a.resource,
-			a.actionKind,
-			a.before,
-			a.after,
-			a.pageIndex,
-			a.perPage
-		]
+		// Building the args reads every filter, which is what registers this effect's dependencies.
+		args()
 		untrack(() => load())
 		return () => {
 			pendingLoad?.cancel()
