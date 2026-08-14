@@ -265,11 +265,14 @@ function canDisableReasoning(provider: AIProvider, model: string): boolean {
 	const base = baseModelId(model)
 	switch (reasoningProviderFamily(provider, model)) {
 		case 'anthropic':
-		case 'aws_bedrock':
 			// Every Claude but Fable and Mythos can stop thinking: 4.6-4.8 by
 			// omission, and the 5 family through the explicit disable that
-			// `explicitOffToken` sends (both routes translate it).
+			// `explicitOffToken` sends.
 			return !ANTHROPIC_ALWAYS_THINKING.test(m)
+		case 'aws_bedrock':
+			// Same models, different answer: AWS documents Sonnet 5 on Bedrock as
+			// always thinking, where the native API accepts a disable for it.
+			return !(ANTHROPIC_ALWAYS_THINKING.test(m) || m.includes('claude-sonnet-5'))
 		case 'googleai':
 			return geminiCanDisable(model)
 		case 'openai':
@@ -355,12 +358,17 @@ const ANTHROPIC_ALWAYS_THINKING = /fable|mythos/
 export function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
 	switch (reasoningProviderFamily(provider, model)) {
 		case 'anthropic':
-		case 'aws_bedrock':
 			// Claude 4.6-4.8 only think when asked, so omission is already a
 			// real off there and stays the wire form. Only the 5 family, which
 			// thinks when the field is absent, needs the explicit disable —
 			// Fable and Mythos reject it outright and get no off token at all.
 			return /claude-(opus|sonnet)-5/.test(model.toLowerCase())
+				? ANTHROPIC_OFF_SENTINEL
+				: undefined
+		case 'aws_bedrock':
+			// Bedrock's Sonnet 5 cannot be disabled at all, so only Opus 5 gets
+			// the sentinel; the rest keep omission.
+			return model.toLowerCase().includes('claude-opus-5')
 				? ANTHROPIC_OFF_SENTINEL
 				: undefined
 		case 'googleai':
