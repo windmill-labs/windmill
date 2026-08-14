@@ -261,6 +261,7 @@ const NUM_SECS_READINGS: u64 = 60;
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 
 const WORKER_SHELL_NAP_TIME_DURATION: u64 = 15;
+const WORKER_SHELL_INITIAL_NAP_TIME_DURATION: u64 = 5;
 const TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION: u64 = 2 * 60;
 
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
@@ -2202,15 +2203,20 @@ pub async fn handle_all_job_kind_error(
 }
 
 /// How long the interactive shell loop waits before polling its tag again, when it found no
-/// job. Fast while a shell session may be live, `WORKER_SHELL_NAP_TIME_DURATION` once nobody
-/// has used it for `TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION`, counted from the last
-/// shell job or from process start when there has not been one.
+/// job. The sub-second cadence only pays off while somebody is typing into the shell, so it
+/// is reserved for a session that has run a command: before the first one this process serves
+/// there is nothing to keep responsive, only the next session to notice.
 ///
-/// A worker whose process is recycled after N jobs cannot count on living that long, and at
-/// N=1 never does, so without this it would poll its shell tag twice a second for its whole
-/// life. It starts napping for any N, since N says nothing about how long a process lasts. It
-/// still pulls once per process start, and serving one shell job puts it on the fast cadence
-/// for the rest of the session.
+/// - a live session, last command under `TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION`
+///   ago: `sleep_queue() * 10`
+/// - no command yet this process: `WORKER_SHELL_INITIAL_NAP_TIME_DURATION`, which bounds how
+///   long the first command of a session waits
+/// - nothing for `TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION`, counted from the last
+///   command or from process start: `WORKER_SHELL_NAP_TIME_DURATION`
+///
+/// A worker whose process is recycled after N jobs cannot count on living long enough to
+/// reach that last state, and at N=1 never does, so it starts there instead. That holds for
+/// any N, since N says nothing about how long a process lasts.
 fn interactive_shell_nap(
     now: Instant,
     started_at: Instant,
@@ -2218,13 +2224,13 @@ fn interactive_shell_nap(
     recycles_after_n_jobs: bool,
 ) -> Duration {
     let quiet_since = last_executed_job.unwrap_or(started_at);
-    if (last_executed_job.is_none() && recycles_after_n_jobs)
-        || now.duration_since(quiet_since).as_secs()
-            > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION
-    {
-        Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
-    } else {
-        Duration::from_millis(sleep_queue() * 10)
+    if now.duration_since(quiet_since).as_secs() > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION {
+        return Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION);
+    }
+    match last_executed_job {
+        Some(_) => Duration::from_millis(sleep_queue() * 10),
+        None if recycles_after_n_jobs => Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION),
+        None => Duration::from_secs(WORKER_SHELL_INITIAL_NAP_TIME_DURATION),
     }
 }
 
@@ -2233,19 +2239,21 @@ mod interactive_shell_nap_tests {
     use super::*;
 
     const LONG: Duration = Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION);
+    const INITIAL: Duration = Duration::from_secs(WORKER_SHELL_INITIAL_NAP_TIME_DURATION);
 
     #[test]
-    fn naps_between_shell_sessions_and_polls_during_one() {
+    fn only_a_live_shell_session_gets_the_sub_second_cadence() {
         let start = Instant::now();
         let quiet =
             start + Duration::from_secs(TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION + 1);
         let fast = Duration::from_millis(sleep_queue() * 10);
-        // A plain worker polls fast until nobody has used its shell for two minutes.
-        assert_eq!(interactive_shell_nap(start, start, None, false), fast);
+        // Nobody has opened a shell on this worker yet, so there is no session to keep
+        // responsive: only the first command of the next one to notice.
+        assert_eq!(interactive_shell_nap(start, start, None, false), INITIAL);
         assert_eq!(interactive_shell_nap(quiet, start, None, false), LONG);
-        // A worker recycled after N jobs may never live that long, so it starts napping.
+        // A worker recycled after N jobs may never live to back off, so it starts backed off.
         assert_eq!(interactive_shell_nap(start, start, None, true), LONG);
-        // Either way, a served shell job puts the loop back on the fast cadence.
+        // Either way, a served shell job is a live session and gets the fast cadence.
         assert_eq!(interactive_shell_nap(quiet, start, Some(quiet), true), fast);
         assert_eq!(
             interactive_shell_nap(
