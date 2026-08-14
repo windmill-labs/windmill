@@ -49,10 +49,13 @@ strip_heredoc_bodies() {
     # Whatever follows the delimiter word decides whether this line could open a heredoc at
     # all. Only a redirect or a pipe can (`cat <<EOF > f`); prose after it means the `<<` sits
     # inside a string (`echo "cat <<EOF and more"`), and dropping down to a line that happens
-    # to match would discard the real commands in between.
+    # to match would discard the real commands in between. A quote anywhere in the remainder
+    # says the same thing, since `echo "cat <<EOF > f"` ends its redirect-looking text with the
+    # closing quote. That also refuses `cat <<EOF > "f"`, a real heredoc, which only over-prompts.
     after="${rest#"$delim"}"
     after="${after#"${after%%[![:space:]]*}"}"
     case "$after" in
+      *[\"\'\\]*) continue ;;
       "" | '>'* | '<'* | '|'* | [0-9]'>'* | [0-9]'<'*) ;;
       *) continue ;;
     esac
