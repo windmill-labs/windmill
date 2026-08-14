@@ -2583,10 +2583,10 @@ pub async fn run_worker(
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
-    let previous_jobs_executed = insert_ping(hostname, &worker_name, conn)
+    let mut reported_ip = cached_ip();
+    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, conn)
         .await
         .expect("initial ping could be sent");
-    let mut ip_reported = cached_ip().is_some();
 
     #[cfg(feature = "prometheus")]
     let uptime_metric = if METRICS_ENABLED.load(Ordering::Relaxed) {
@@ -3067,11 +3067,12 @@ pub async fn run_worker(
 
         otel_set_worker_uptime(&worker_name, start_time.elapsed().as_secs_f64());
 
-        // The external IP resolves in the background, after the initial ping. Reporting it on the
-        // very next iteration rather than the next periodic one is what gets it into the row of a
-        // worker whose process is short-lived (EXIT_AFTER_N_JOBS).
-        let ip_just_resolved = !ip_reported && cached_ip().is_some();
-        if ip_just_resolved || last_ping.elapsed().as_secs() > NUM_SECS_PING {
+        // The external IP resolves in the background, after the initial ping. Pinging on the very
+        // next iteration rather than the next periodic one is what gets it into the row of a worker
+        // whose process is short-lived (EXIT_AFTER_N_JOBS).
+        let ip = cached_ip();
+        if (reported_ip.is_none() && ip.is_some()) || last_ping.elapsed().as_secs() > NUM_SECS_PING
+        {
             let read_cgroups =
                 *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS;
             update_worker_ping_full(
@@ -3082,6 +3083,7 @@ pub async fn run_worker(
                 &hostname,
                 &mut occupancy_metrics,
                 &killpill_tx,
+                ip,
             )
             .await;
 
@@ -3089,7 +3091,7 @@ pub async fn run_worker(
                 last_reading = Instant::now();
             }
             last_ping = Instant::now();
-            ip_reported = cached_ip().is_some();
+            reported_ip = ip;
         }
 
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {

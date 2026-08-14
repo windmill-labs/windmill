@@ -4,12 +4,16 @@
 
 	let ips: string[] | undefined = $state(undefined)
 
+	// Sentinels the backend stores when a worker's external IP is unknown: 'NO IP' while the
+	// lookup is pending or after it failed, 'unretrievable IP' from workers predating that.
+	const UNKNOWN_IPS = ['NO IP', 'unretrievable IP']
+
 	WorkerService.listWorkers({ pingSince: 300 }).then((workers) => {
 		ips = [
 			...new Set(
 				workers
 					.filter((worker) => {
-						return worker.ip != 'unretrievable IP' && worker.last_ping && worker.last_ping < 300
+						return !UNKNOWN_IPS.includes(worker.ip) && worker.last_ping && worker.last_ping < 300
 					})
 					.map((worker) => worker.ip)
 			)
