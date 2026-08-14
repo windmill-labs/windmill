@@ -6640,6 +6640,20 @@ async fn push_inner<'c, 'd>(
         )
         .unzip();
 
+    // Which trigger kinds an instance actually fires. Counted here rather than
+    // aggregated from `v2_job` later: that table's only usable index is
+    // (workspace_id, created_at), so a windowed GROUP BY over it is a full scan.
+    //
+    // Root jobs only. A scheduled flow hands every step push its own
+    // `schedule_path` (see `FlowJob::schedule_path`), so counting per push would
+    // score one run as a fire per step job — a loop pushes two of those per
+    // iteration — burying every other kind, and would sit on the per-step path.
+    if flow_step_id.is_none() {
+        if let Some(kind) = trigger_kind.as_ref() {
+            windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+        }
+    }
+
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         check_workspace_queue_cap(&mut *tx, workspace_id).await?;

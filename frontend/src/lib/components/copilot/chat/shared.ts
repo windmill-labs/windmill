@@ -48,7 +48,7 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
-import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { logFeatureUsage, logHubScriptPick } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
@@ -1333,6 +1333,9 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 				if (!withContent) {
 					return { path, summary: s.summary }
 				}
+				// The content fetch, not the listing above: these are the few candidates
+				// the AI pulled to choose between, which is the closest signal we have.
+				logHubScriptPick(s, 'ai')
 				try {
 					// get_full, not the raw content endpoint: callers are told to match the
 					// script's language, which raw content does not carry.
