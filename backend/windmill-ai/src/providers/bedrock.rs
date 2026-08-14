@@ -25,6 +25,7 @@ use crate::{
     query_builder::{ParsedResponse, StreamEventSink},
     types::{OpenAIMessage, StreamingEvent, TokenUsage, ToolDef},
 };
+use super::REASONING_OFF_SENTINEL;
 use bytes::Bytes;
 use futures::{stream::BoxStream, StreamExt};
 use http::{HeaderMap, Method, StatusCode};
@@ -411,19 +412,15 @@ async fn handle_bedrock_sdk_streaming(
 /// Whether an effort token turns adaptive thinking on. `"none"` is the disable
 /// sentinel rather than a level, and sampling params stay usable alongside it.
 fn effort_enables_thinking(effort: Option<&str>) -> bool {
-    matches!(effort, Some(effort) if effort != OFF_SENTINEL)
+    matches!(effort, Some(effort) if effort != REASONING_OFF_SENTINEL)
 }
-
-/// The token the chat and agent surfaces send to turn reasoning off. Claude's
-/// effort vocabulary is `low`..`max` and rejects it, so it is translated here.
-const OFF_SENTINEL: &str = "none";
 
 /// Build the Converse `additionalModelRequestFields` carrying Claude's thinking
 /// config. `display: summarized` is billing-neutral on Anthropic models and
 /// matches the direct-Anthropic chat path, which renders summarized thinking in
 /// the UI.
 fn bedrock_thinking_fields(effort: &str) -> aws_smithy_types::Document {
-    if effort == OFF_SENTINEL {
+    if effort == REASONING_OFF_SENTINEL {
         // The disable carries no effort: pairing it with xhigh or max is a 400
         // on Opus 5, and omitting it leaves the model at the effort where the
         // disable is accepted.
