@@ -50,13 +50,16 @@ describe('resolveModelPrice', () => {
 		expect(resolveModelPrice('anthropic', 'claude-3-5-haiku-latest', undefined)?.price.input).toBe(
 			0.8
 		)
-		expect(
-			resolveModelPrice('openrouter', '~anthropic/claude-sonnet-latest', undefined)?.price.input
-		).toBe(3)
 		// …while a genuine sub-model stays unpriced, including one hiding behind a
 		// decoration.
 		expect(resolveModelPrice('openai', 'gpt-5-pro', undefined)).toBeUndefined()
 		expect(resolveModelPrice('openai', 'gpt-5-preview-pro', undefined)).toBeUndefined()
+		// A family fallback must not price a model the table deliberately left out,
+		// nor the floating alias pointing at it.
+		expect(resolveModelPrice('anthropic', 'claude-sonnet-5', undefined)).toBeUndefined()
+		expect(
+			resolveModelPrice('openrouter', '~anthropic/claude-sonnet-latest', undefined)
+		).toBeUndefined()
 	})
 
 	it('prefers a workspace override, keeping the model’s own cache ratios', () => {

@@ -77,7 +77,13 @@ const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	['claude-opus-4-5', { input: 5, output: 25 }],
 	['claude-opus-4-1', { input: 15, output: 75 }],
 	['claude-opus-4', { input: 15, output: 75 }],
-	['claude-sonnet-5', { input: 3, output: 15 }],
+	// Sonnet 5 runs at a promotional rate with a published end date, and
+	// `claude-sonnet-latest` floats to it. A rate applied at read time is timeless,
+	// so either figure restates history wrongly: the standard one overcharges every
+	// row recorded during the promotion, the promotional one undercharges every row
+	// after it. Unpriced until the rate is a single number again.
+	['claude-sonnet-5', null],
+	['claude-sonnet-latest', null],
 	['claude-sonnet-4-6', { input: 3, output: 15 }],
 	['claude-sonnet-4-5', { input: 3, output: 15 }],
 	['claude-sonnet-4', { input: 3, output: 15 }],

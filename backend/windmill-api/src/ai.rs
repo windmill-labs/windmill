@@ -429,9 +429,10 @@ pub struct AIConfig {
     pub model_pricing: Option<HashMap<String, ModelPriceOverride>>,
 }
 
-/// Negotiated rates in USD per million tokens. Cache rates fall back to the
-/// provider's usual multiples of the input rate when left unset, so an admin who
-/// only knows their input/output pricing does not have to invent the other two.
+/// Negotiated rates in USD per million tokens. An unset cache rate is read as the
+/// provider's own multiple of the input rate where the model has a published one,
+/// and as the input rate itself where it does not — an unstated discount is never
+/// filled in from another vendor's.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ModelPriceOverride {
     pub input: f64,
