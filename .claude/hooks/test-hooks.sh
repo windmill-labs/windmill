@@ -19,10 +19,11 @@ run() { # run <hook> <allow|ask|none> <command>
   else
     got=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // "PARSE-ERROR"' 2>/dev/null || echo PARSE-ERROR)
   fi
+  local shown="${cmd//$'\n'/ ⏎ }"
   if [ "$got" = "$want" ]; then
-    printf '  ok   %-5s %s\n' "$got" "$cmd"
+    printf '  ok   %-5s %s\n' "$got" "$shown"
   else
-    printf 'FAIL   want=%-5s got=%-5s %s\n       %s\n' "$want" "$got" "$cmd" "$out"
+    printf 'FAIL   want=%-5s got=%-5s %s\n       %s\n' "$want" "$got" "$shown" "$out"
     fails=$((fails + 1))
   fi
 }
@@ -59,6 +60,12 @@ run $G ask   'r\m -rf /etc'
 run $G ask   "! rm -rf /etc"
 run $G ask   "if true; then rm -rf /etc; fi"
 run $G ask   ">/dev/null rm -rf $OUT"
+# Data that merely mentions a verb is not a command. Both of these prompted in the field.
+run $G none  "$(printf 'gh pr create --body "$(cat <<%sEOF%s\ndrop `rm` and `mv` from the ask list\nrm is now guarded here\nEOF\n)"' "'" "'")"
+run $G none  "$(printf 'claude -p "run these in order:\n1: rm -rf /tmp/a\n2: mv /tmp/b /tmp/c"')"
+# ... but a real command after a heredoc still is one.
+run $G ask   "$(printf 'cat <<EOF > /tmp/s.sh\nhello\nEOF\nrm -rf %s' "$OUT")"
+run $G ask   "$(printf 'echo "a << b"\nrm -rf %s' "$OUT")"
 run $G none  "git rm frontend/foo.ts"
 run $G none  'echo $(ls /tmp)'
 run $G none  'grep -rn "rm" backend/'
