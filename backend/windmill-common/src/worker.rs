@@ -950,7 +950,13 @@ pub fn write_file_at_user_defined_location(
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     let q =
         crate::global_settings::load_value_from_global_settings(db, CUSTOM_TAGS_SETTING).await?;
+    apply_custom_tags_setting(q);
+    Ok(())
+}
 
+/// The half of [`reload_custom_tags_setting`] after the read, so a batched settings pass can
+/// apply a value it already fetched.
+pub fn apply_custom_tags_setting(q: Option<serde_json::Value>) {
     let tags = if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<Vec<String>>(q.clone()) {
             v
@@ -985,7 +991,6 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
         ]
         .concat(),
     ));
-    Ok(())
 }
 
 #[cfg(not(windows))]

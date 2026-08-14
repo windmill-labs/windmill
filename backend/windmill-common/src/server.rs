@@ -27,12 +27,17 @@ pub struct SmtpConfigOpt {
 }
 
 pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
-    let config: SmtpConfigOpt =
-        crate::global_settings::load_value_from_global_settings(db, SMTP_SETTING)
-            .await?
-            .map(|x| serde_json::from_value(x).ok())
-            .flatten()
-            .unwrap_or_default();
+    let value = crate::global_settings::load_value_from_global_settings(db, SMTP_SETTING).await?;
+    Ok(parse_smtp_config(value))
+}
+
+/// The half of [`load_smtp_config`] after the read, so a batched settings pass can parse a
+/// value it already fetched.
+pub fn parse_smtp_config(value: Option<serde_json::Value>) -> Option<Smtp> {
+    let config: SmtpConfigOpt = value
+        .map(|x| serde_json::from_value(x).ok())
+        .flatten()
+        .unwrap_or_default();
 
     let config_smtp = if let (Some(host), username, password) =
         (config.smtp_host, config.smtp_username, config.smtp_password)
@@ -86,7 +91,7 @@ pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
         tracing::warn!("SMTP not configured");
     }
 
-    Ok(smtp)
+    smtp
 }
 
 impl Default for SmtpConfigOpt {
