@@ -52,6 +52,7 @@ use windmill_common::{
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
+        load_value_from_global_settings, with_global_settings_snapshot,
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
@@ -225,7 +226,33 @@ lazy_static::lazy_static! {
         .unwrap_or(20);
 }
 
+/// Load every setting this process cares about, at startup and on every full-reload tick.
+///
+/// The dozens of settings the pass reads come from a single snapshot of `global_settings`.
+/// An agent worker holds an HTTP connection with no snapshot to take, and reads one setting
+/// per request.
 pub async fn initial_load(
+    conn: &Connection,
+    tx: KillpillSender,
+    worker_mode: bool,
+    server_mode: bool,
+    #[cfg(feature = "parquet")] disable_s3_store: bool,
+) {
+    let load = initial_load_inner(
+        conn,
+        tx,
+        worker_mode,
+        server_mode,
+        #[cfg(feature = "parquet")]
+        disable_s3_store,
+    );
+    match conn.as_sql() {
+        Some(db) => with_global_settings_snapshot(db, load).await,
+        None => load.await,
+    }
+}
+
+async fn initial_load_inner(
     conn: &Connection,
     tx: KillpillSender,
     worker_mode: bool,
@@ -2790,20 +2817,6 @@ pub async fn reload_option_setting_with_tracing<T: FromStr + DeserializeOwned>(
     if let Err(e) = reload_option_setting(conn, setting_name, std_env_var, lock.clone()).await {
         tracing::error!("Error reloading setting {}: {:?}", setting_name, e)
     }
-}
-
-pub async fn load_value_from_global_settings(
-    db: &DB,
-    setting_name: &str,
-) -> error::Result<Option<serde_json::Value>> {
-    let r = sqlx::query!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        setting_name
-    )
-    .fetch_optional(db)
-    .await?
-    .map(|x| x.value);
-    Ok(r)
 }
 
 pub async fn load_value_from_global_settings_with_conn(

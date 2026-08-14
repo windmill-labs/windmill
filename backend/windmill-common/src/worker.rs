@@ -948,20 +948,16 @@ pub fn write_file_at_user_defined_location(
 }
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
-    let q = sqlx::query!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        CUSTOM_TAGS_SETTING
-    )
-    .fetch_optional(db)
-    .await?;
+    let q =
+        crate::global_settings::load_value_from_global_settings(db, CUSTOM_TAGS_SETTING).await?;
 
     let tags = if let Some(q) = q {
-        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.value.clone()) {
+        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.clone()) {
             v
         } else {
             tracing::error!(
                 "Could not parse custom tags setting as vec of strings, found: {:#?}",
-                &q.value
+                &q
             );
             vec![]
         }

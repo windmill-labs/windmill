@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{error, DB};
+use crate::{error, global_settings::SMTP_SETTING, DB};
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct Smtp {
@@ -28,8 +28,7 @@ pub struct SmtpConfigOpt {
 
 pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
     let config: SmtpConfigOpt =
-        sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'smtp_settings'",)
-            .fetch_optional(db)
+        crate::global_settings::load_value_from_global_settings(db, SMTP_SETTING)
             .await?
             .map(|x| serde_json::from_value(x).ok())
             .flatten()

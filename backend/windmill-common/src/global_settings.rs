@@ -331,10 +331,52 @@ use crate::error;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 
+tokio::task_local! {
+    /// The whole `global_settings` table, read once for the task that installed it.
+    ///
+    /// Scoped to a task rather than process-global on purpose: the single-setting reload
+    /// paths (a `notify_global_setting_change` event for one changed key) run outside any
+    /// scope, and a cache they could read would stop settings changes from reaching a
+    /// running worker.
+    static SNAPSHOT: std::collections::HashMap<String, serde_json::Value>;
+}
+
+/// Read the whole `global_settings` table, then run `f` with it serving every
+/// [`load_value_from_global_settings`] call made by the same task, collapsing a pass that
+/// reads dozens of settings from one round trip each into one.
+///
+/// Values are as of the moment the snapshot was taken, so only wrap work that is meant to
+/// observe one consistent instant. Tasks spawned inside `f` do not inherit the snapshot.
+/// A failed snapshot query is not fatal: `f` then runs unscoped, one query per setting.
+pub async fn with_global_settings_snapshot<F: std::future::Future>(
+    db: &Pool<Postgres>,
+    f: F,
+) -> F::Output {
+    // The table is a handful of rows, so fetching all of it beats listing the wanted names.
+    match sqlx::query!("SELECT name, value FROM global_settings")
+        .fetch_all(db)
+        .await
+    {
+        Ok(rows) => {
+            let snapshot = rows.into_iter().map(|r| (r.name, r.value)).collect();
+            SNAPSHOT.scope(snapshot, f).await
+        }
+        Err(e) => {
+            tracing::error!(
+                "Could not snapshot global_settings, falling back to per-setting reads: {e:#}"
+            );
+            f.await
+        }
+    }
+}
+
 pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,
     setting_name: &str,
 ) -> error::Result<Option<serde_json::Value>> {
+    if let Ok(v) = SNAPSHOT.try_with(|s| s.get(setting_name).cloned()) {
+        return Ok(v);
+    }
     let r = sqlx::query!(
         "SELECT value FROM global_settings WHERE name = $1",
         setting_name
