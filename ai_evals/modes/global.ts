@@ -7,6 +7,7 @@ import {
   type GlobalUserFixture,
 } from "../adapters/frontend/core/global/globalEvalRunner";
 import type { SeededArtifact } from "../adapters/frontend/core/global/evalArtifactStore";
+import type { EvalPreviewTabFixture } from "../adapters/frontend/core/global/evalPreviewTabs";
 import type { BenchmarkWorkspaceRunnables } from "../adapters/frontend/mockBackend";
 import type { FrontendEvalModelConfig } from "../core/models";
 import type {
@@ -23,6 +24,7 @@ export interface GlobalInitialFixture {
   liveEditorDrafts?: GlobalLiveEditorDraftFixture[];
   user?: GlobalUserFixture;
   artifacts?: SeededArtifact[];
+  previewTabs?: EvalPreviewTabFixture[];
 }
 
 export function createGlobalModeRunner(
@@ -48,6 +50,7 @@ export function createGlobalModeRunner(
           liveEditorDrafts: initial?.liveEditorDrafts,
           user: initial?.user,
           artifacts: initial?.artifacts,
+          previewTabs: initial?.previewTabs,
           sessionChat: context.evalCase?.runtime?.sessionChat,
           planMode: context.evalCase?.runtime?.planMode,
           maxIterations: context.evalCase?.runtime?.maxTurns,
@@ -122,6 +125,7 @@ async function loadGlobalInitialFixture(
     liveEditorDrafts: parsed.liveEditorDrafts ?? [],
     user: parsed.user,
     artifacts: parsed.artifacts,
+    previewTabs: parsed.previewTabs ?? [],
   };
 }
 

@@ -1,6 +1,8 @@
 // SessionArtifactsStore can't run here (bun has no IndexedDB, nor the compiled $state runes),
 // so mirror only the shape the artifact tools call, not its scoping or race handling.
-export const EVAL_SESSION_ID = "eval-session";
+// Cases run concurrently in one process and the preview handlers are registered
+// process-wide, keyed by session id — so each run needs its own.
+let sessionSeq = 0;
 
 /** An artifact the session already holds when the case starts: history has to predate the
  * run, since one prompt cannot both build a past and reason about it. */
@@ -15,17 +17,21 @@ export interface SeededArtifact {
 }
 
 export function createEvalArtifactHelpers(seed: SeededArtifact[] = []) {
+  const sessionId = `eval-session-${sessionSeq++}`;
   const items = new Map<string, Record<string, any>>();
   // Snapshots per artifact id, oldest first — the version tools read history from here.
   const history = new Map<string, Array<Record<string, any>>>();
+  // How a preview-tab fixture names the artifact its tab shows.
+  const seededIds = new Map<string, string>();
   let seq = 0;
   for (const entry of seed) {
     const id = `eval-artifact-${seq++}`;
     const current = entry.versions.at(-1);
     if (!current) continue;
+    seededIds.set(entry.name, id);
     items.set(id, {
       id,
-      sessionId: EVAL_SESSION_ID,
+      sessionId,
       chatId: "eval-chat",
       kind: "md",
       name: entry.name,
@@ -150,10 +156,12 @@ export function createEvalArtifactHelpers(seed: SeededArtifact[] = []) {
   return {
     helpers: {
       artifacts: store,
-      sessionId: EVAL_SESSION_ID,
+      sessionId,
       getChatId: () => "eval-chat",
-      openArtifact: () => {},
+      openArtifact: (_id: string, _name: string) => {},
     },
+    sessionId,
+    seededIds,
     snapshot: () => [...items.values()],
   };
 }

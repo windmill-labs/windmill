@@ -20,6 +20,11 @@ import {
   createEvalArtifactHelpers,
   type SeededArtifact,
 } from "./evalArtifactStore";
+import {
+  createEvalPreviewPanel,
+  type EvalPreviewPanel,
+  type EvalPreviewTabFixture,
+} from "./evalPreviewTabs";
 import type { ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
@@ -98,6 +103,8 @@ export interface GlobalEvalOptions {
   workspaceRoot?: string;
   // Artifacts the session already holds when the run starts.
   artifacts?: SeededArtifact[];
+  /** Tabs already open in the side panel, including any artifact version the reader pinned. */
+  previewTabs?: EvalPreviewTabFixture[];
   runContext?: ModeRunContext;
 }
 
@@ -116,14 +123,29 @@ export async function runGlobalEval(
     options.workspaceFixtures ?? {},
   );
   seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
+  // Declared out here only so `finally` can reach it; a malformed fixture throws while
+  // building it, and everything seeded above still has to be torn down.
+  let panel: EvalPreviewPanel | undefined;
 
   try {
+    const evalArtifacts = createEvalArtifactHelpers(options.artifacts);
+    // Only a session chat has a side panel, so only it gets one here. Seeded tabs would
+    // otherwise vanish without a word, and the case would measure an empty panel.
+    if (!options.sessionChat && options.previewTabs?.length) {
+      throw new Error(
+        "This fixture seeds previewTabs, which only a session chat has — set runtime.sessionChat: true on the case.",
+      );
+    }
+    if (options.sessionChat) {
+      panel = createEvalPreviewPanel({
+        sessionId: evalArtifacts.sessionId,
+        tabs: options.previewTabs ?? [],
+        artifactIds: evalArtifacts.seededIds,
+      });
+    }
     const model = options.model ?? "claude-haiku-4-5-20251001";
     const injectActiveEditorContext =
       process.env[DISABLE_ACTIVE_EDITOR_CONTEXT_ENV] !== "1";
-    // Pass the seeded identity straight to the prompt builder rather than mutating
-    // the process-global `userStore`, so concurrent cases never race on it.
-    const evalArtifacts = createEvalArtifactHelpers(options.artifacts);
     const planMode = options.planMode
       ? createEvalPlanTools({
           create: evalArtifacts.helpers.artifacts.create,
@@ -131,6 +153,8 @@ export async function runGlobalEval(
           chatId: evalArtifacts.helpers.getChatId(),
         })
       : undefined;
+    // Pass the seeded identity straight to the prompt builder rather than mutating
+    // the process-global `userStore`, so concurrent cases never race on it.
     const baseSystemMessage = prepareGlobalSystemMessage(undefined, {
       user: options.user,
       previewTools: options.sessionChat ?? false,
@@ -149,16 +173,17 @@ export async function runGlobalEval(
         : undefined,
       isPlanModeActive: planMode?.isPlanModeActive,
       isToolAvailable: planMode?.isToolAvailable,
-      userMessage: prepareGlobalUserMessage(
-        userPrompt,
-        [],
-        injectActiveEditorContext ? { workspace: workspaceRoot } : {},
-      ),
+      userMessage: prepareGlobalUserMessage(userPrompt, [], {
+        ...(injectActiveEditorContext ? { workspace: workspaceRoot } : {}),
+        activePreview: panel?.activePreview(),
+      }),
       tools: [
         ...getGlobalEvalTools(options.sessionChat ?? false),
         ...(planMode?.tools ?? []),
       ],
-      helpers: evalArtifacts.helpers,
+      helpers: panel
+        ? { ...evalArtifacts.helpers, openArtifact: panel.openArtifact }
+        : evalArtifacts.helpers,
       apiKey,
       getOutput: async () => ({
         ...(await collectGlobalDraftState(workspaceRoot)),
@@ -191,6 +216,7 @@ export async function runGlobalEval(
       finalContextTokens: rawResult.finalContextTokens,
     };
   } finally {
+    panel?.dispose();
     clearGlobalDrafts(workspaceRoot);
     clearLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);
