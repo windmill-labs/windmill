@@ -1315,24 +1315,37 @@ pub async fn wait_for_db_migrations(
 const SERVER_HEARTBEAT_TASK: &str = "server_heartbeat";
 
 /// Write a server-started heartbeat to `background_task_state` so that
-/// other instances waiting to restart can detect this server is healthy.
+/// other instances waiting to restart can detect this process is healthy.
+///
+/// Every process that reaches `run_server` announces, worker-mode ones included:
+/// a worker waits for a peer too (a `restart_worker_group` notification puts every
+/// worker of the group through `spawn_graceful_killpill`), so in a deployment with
+/// no co-located server, workers are the only peers each other can detect.
+///
+/// The row is keyed by hostname rather than by `INSTANCE_NAME`, which is random per
+/// process: keying on the latter means the upsert never conflicts, so every start
+/// leaves behind a row no later start reuses and only the sweep below removes, a
+/// week on. That is a row per job under `EXIT_AFTER_N_JOBS`.
+/// `owner` stays per-process so `check_any_server_started` can still tell a peer's
+/// start from its own when several processes share a host, and hence a row.
 async fn announce_server_started(db: &DB) -> anyhow::Result<()> {
-    use windmill_common::INSTANCE_NAME;
+    use windmill_common::{utils::HOSTNAME, INSTANCE_NAME};
 
     let instance = INSTANCE_NAME.as_str();
+    let host = HOSTNAME.as_str();
 
     sqlx::query(
         "INSERT INTO background_task_state (name, value, running, owner, started_at, updated_at)
          VALUES ($1, '\"started\"'::jsonb, true, $2, NOW(), NOW())
          ON CONFLICT (name)
-         DO UPDATE SET updated_at = NOW(), running = true, owner = $2",
+         DO UPDATE SET started_at = NOW(), updated_at = NOW(), running = true, owner = $2",
     )
-    .bind(format!("{SERVER_HEARTBEAT_TASK}:{instance}"))
+    .bind(format!("{SERVER_HEARTBEAT_TASK}:{host}"))
     .bind(instance)
     .execute(db)
     .await?;
 
-    tracing::info!("Announced server started for instance {instance}");
+    tracing::info!("Announced server started for instance {instance} on host {host}");
     Ok(())
 }
 
@@ -1362,10 +1375,10 @@ pub async fn check_any_server_started(db: &DB, not_before: chrono::DateTime<chro
 }
 
 /// Delete `server_heartbeat:*` rows that have not been refreshed in a long
-/// time. Each server startup generates a fresh random `INSTANCE_NAME` and
-/// inserts a new row keyed by `server_heartbeat:{instance}`; because that
-/// row is only written once (on startup) and never updated thereafter, the
-/// table grows by one row per server restart and is otherwise never pruned.
+/// time. A restart in place reuses its host's row (see
+/// `announce_server_started`), but a host that never comes back leaves one
+/// behind, and hosts are disposable wherever the hostname carries a generated
+/// pod or container id.
 ///
 /// The row is only consulted by `check_any_server_started`, which itself
 /// filters on `updated_at > not_before` (the moment a restart was initiated),
