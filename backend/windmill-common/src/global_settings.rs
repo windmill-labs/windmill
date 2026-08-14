@@ -331,17 +331,55 @@ use crate::error;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 
-/// A setting name carrying a caller-generated suffix, as in
-/// `workspace_dependencies_map_rebuilt:<workspace_id>`. There is no bound on how many of these
-/// the table holds and no settings pass reads them, so they stay out of the snapshot; the
-/// predicate below and the `NOT LIKE` in [`with_global_settings_snapshot`] must agree.
-fn is_dynamically_named(setting_name: &str) -> bool {
-    setting_name.contains(':')
-}
+/// The setting names [`with_global_settings_snapshot`] prefetches, and exactly the names it
+/// may then answer from memory.
+///
+/// Membership is a performance choice, not a contract: a name absent here is read straight
+/// from the database, so adding a setting without listing it costs one round trip and never
+/// correctness. Keep dynamically named settings out — `global_settings` also holds
+/// `workspace_dependencies_map_rebuilt:<workspace_id>`, one row per workspace with no cleanup
+/// path, and listing that shape is what would make a settings pass scale with workspace count.
+const PREFETCHED_SETTINGS: &[&str] = &[
+    AI_CONFIG_SETTING, ALERT_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING,
+    AUDIT_LOG_RETENTION_DAYS_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+    AUTO_BUILD_BINARY_ON_DEPLOY_SETTING, AUTO_BUILD_BINARY_TAG_SETTING,
+    AUTO_LOGIN_PROVIDER_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
+    BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CARGO_REGISTRIES_SETTING,
+    CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+    CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+    CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+    DEFAULT_TAGS_WORKSPACES_SETTING, DEV_INSTANCE_SETTING, DISABLE_HUB_SETTING,
+    DISABLE_PASSWORD_LOGIN_SETTING, DISABLE_STATS_SETTING,
+    DISABLE_WORKSPACE_INVITE_EMAILS_SETTING, EMAIL_DOMAIN_SETTING,
+    EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+    FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, GITHUB_APP_WEBHOOK_BASE_URL_SETTING,
+    GITHUB_ENTERPRISE_APP_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+    HUB_ACCESSIBLE_URL_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+    INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+    JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+    KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
+    MIN_KEEP_ALIVE_VERSION_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+    NO_DEFAULT_MAVEN_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+    NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
+    OAUTH_SETTING, OBJECT_STORE_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING,
+    PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+    PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+    REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
+    RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
+    RUFF_CONFIG_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+    SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
+    SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
+    SECRET_BACKEND_SETTING, SMTP_SETTING, SSH_EXECUTION_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+    TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UNIQUE_ID_SETTING, UV_EXCLUDE_NEWER_SETTING,
+    UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+    WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+    WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+    WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING, WS_BASE_URL_SETTING,
+];
 
 tokio::task_local! {
-    /// Every statically named `global_settings` row, read once for the task that installed it.
-    /// `None` is an explicit bypass: reads fall through to the database.
+    /// The [`PREFETCHED_SETTINGS`] rows, read once for the task that installed them. `None` is
+    /// an explicit bypass: reads fall through to the database.
     ///
     /// Scoped to a task rather than process-global on purpose: the single-setting reload
     /// paths (a `notify_global_setting_change` event for one changed key) run outside any
@@ -350,23 +388,29 @@ tokio::task_local! {
     static SNAPSHOT: Option<std::collections::HashMap<String, serde_json::Value>>;
 }
 
-/// Read every statically named `global_settings` row, then run `f` with them serving each
+/// Read the [`PREFETCHED_SETTINGS`] rows, then run `f` with them serving each
 /// [`load_value_from_global_settings`] call made by the same task, collapsing a pass that
 /// reads dozens of settings from one round trip each into one.
 ///
 /// The snapshot is complete over that key space, so a name it holds no row for is genuinely
-/// unset rather than merely unrequested; [`is_dynamically_named`] names are excluded and always
-/// read through. Values are as of the moment the snapshot was taken, so only wrap work that is
-/// meant to observe one consistent instant. Tasks spawned inside `f` do not inherit it. A
-/// failed snapshot query is not fatal: `f` then runs with reads falling through to the
-/// database, one query per setting.
+/// unset rather than merely unrequested; every other name reads through. Values are as of the
+/// moment the snapshot was taken, so only wrap work that is meant to observe one consistent
+/// instant. Tasks spawned inside `f` do not inherit it. A failed snapshot query is not fatal:
+/// `f` then runs with reads falling through to the database, one query per setting.
 pub async fn with_global_settings_snapshot<F: std::future::Future>(
     db: &Pool<Postgres>,
     f: F,
 ) -> F::Output {
-    match sqlx::query!("SELECT name, value FROM global_settings WHERE name NOT LIKE '%:%'")
-        .fetch_all(db)
-        .await
+    // Listing the names is what lets this use the primary key: against 50k dynamically named
+    // rows it plans as a bitmap index scan, 7 buffers, where selecting the complement
+    // (`name NOT LIKE '%:%'`) is a leading wildcard the index cannot serve at all and reads
+    // the whole table, 516 buffers, however few rows come back.
+    match sqlx::query!(
+        "SELECT name, value FROM global_settings WHERE name = ANY($1)",
+        PREFETCHED_SETTINGS as &[&str]
+    )
+    .fetch_all(db)
+    .await
     {
         Ok(rows) => {
             let snapshot = rows.into_iter().map(|r| (r.name, r.value)).collect();
@@ -407,7 +451,7 @@ pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,
     setting_name: &str,
 ) -> error::Result<Option<serde_json::Value>> {
-    if !is_dynamically_named(setting_name) {
+    if PREFETCHED_SETTINGS.contains(&setting_name) {
         if let Ok(Some(v)) = SNAPSHOT.try_with(|s| s.as_ref().map(|m| m.get(setting_name).cloned()))
         {
             return Ok(v);

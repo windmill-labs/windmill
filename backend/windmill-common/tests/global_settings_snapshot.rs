@@ -5,8 +5,13 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use windmill_common::global_settings::{
-    load_value_from_global_settings, with_global_settings_snapshot,
+    load_value_from_global_settings, with_global_settings_snapshot, BASE_URL_SETTING,
+    SCIM_TOKEN_SETTING,
 };
+
+/// Not in `PREFETCHED_SETTINGS`, standing in for the `<prefix>:<id>` rows that keep the
+/// snapshot query from scaling with workspace count.
+const UNLISTED_SETTING: &str = "wm_test_dynamic:some_workspace";
 
 async fn set_setting(db: &Pool<Postgres>, name: &str, value: serde_json::Value) {
     sqlx::query(
@@ -22,26 +27,26 @@ async fn set_setting(db: &Pool<Postgres>, name: &str, value: serde_json::Value) 
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn snapshot_serves_reads_and_does_not_outlive_its_scope(db: Pool<Postgres>) {
-    set_setting(&db, "wm_test_setting", json!("before")).await;
+    set_setting(&db, BASE_URL_SETTING, json!("before")).await;
 
     with_global_settings_snapshot(&db, async {
         assert_eq!(
-            load_value_from_global_settings(&db, "wm_test_setting")
+            load_value_from_global_settings(&db, BASE_URL_SETTING)
                 .await
                 .unwrap(),
             Some(json!("before"))
         );
-        // A key with no row reads as unset, exactly like the per-setting query does.
+        // A prefetched name with no row reads as unset, exactly like the per-setting query does.
         assert_eq!(
-            load_value_from_global_settings(&db, "wm_test_absent")
+            load_value_from_global_settings(&db, SCIM_TOKEN_SETTING)
                 .await
                 .unwrap(),
             None
         );
 
-        set_setting(&db, "wm_test_setting", json!("after")).await;
+        set_setting(&db, BASE_URL_SETTING, json!("after")).await;
         assert_eq!(
-            load_value_from_global_settings(&db, "wm_test_setting")
+            load_value_from_global_settings(&db, BASE_URL_SETTING)
                 .await
                 .unwrap(),
             Some(json!("before")),
@@ -51,7 +56,7 @@ async fn snapshot_serves_reads_and_does_not_outlive_its_scope(db: Pool<Postgres>
     .await;
 
     assert_eq!(
-        load_value_from_global_settings(&db, "wm_test_setting")
+        load_value_from_global_settings(&db, BASE_URL_SETTING)
             .await
             .unwrap(),
         Some(json!("after")),
@@ -63,7 +68,7 @@ async fn snapshot_serves_reads_and_does_not_outlive_its_scope(db: Pool<Postgres>
 /// promised per-setting fallback would read another pass's instant instead of the database.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn failed_nested_snapshot_falls_through_to_the_database(db: Pool<Postgres>) {
-    set_setting(&db, "wm_test_setting", json!("before")).await;
+    set_setting(&db, BASE_URL_SETTING, json!("before")).await;
 
     // Closing a pool makes every query on it fail, which is the only way in. It has to be a
     // separate pool built from the same options — `Pool` is a handle, so closing a clone of
@@ -75,11 +80,11 @@ async fn failed_nested_snapshot_falls_through_to_the_database(db: Pool<Postgres>
     unusable.close().await;
 
     with_global_settings_snapshot(&db, async {
-        set_setting(&db, "wm_test_setting", json!("after")).await;
+        set_setting(&db, BASE_URL_SETTING, json!("after")).await;
 
         with_global_settings_snapshot(&unusable, async {
             assert_eq!(
-                load_value_from_global_settings(&db, "wm_test_setting")
+                load_value_from_global_settings(&db, BASE_URL_SETTING)
                     .await
                     .unwrap(),
                 Some(json!("after")),
@@ -91,14 +96,14 @@ async fn failed_nested_snapshot_falls_through_to_the_database(db: Pool<Postgres>
     .await;
 }
 
-/// Dynamically named rows (`<prefix>:<id>`) are unbounded in number, so they are left out of
-/// the snapshot query and must not be answered from it — absent there means unrequested.
+/// A name the snapshot never fetched must not be answered from it, or an unlisted setting
+/// would read as unset rather than as whatever the database holds.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn dynamically_named_settings_are_read_through(db: Pool<Postgres>) {
+async fn unlisted_settings_are_read_through(db: Pool<Postgres>) {
     with_global_settings_snapshot(&db, async {
-        set_setting(&db, "wm_test_dynamic:some_workspace", json!({})).await;
+        set_setting(&db, UNLISTED_SETTING, json!({})).await;
         assert_eq!(
-            load_value_from_global_settings(&db, "wm_test_dynamic:some_workspace")
+            load_value_from_global_settings(&db, UNLISTED_SETTING)
                 .await
                 .unwrap(),
             Some(json!({}))
