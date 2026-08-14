@@ -1166,8 +1166,10 @@ pub async fn run_server(
     }
 
     // Announce this server is ready so coordinated restarts can detect a healthy peer.
-    if let Err(e) = announce_server_started(&db).await {
-        tracing::warn!("Failed to announce server started: {e:#}");
+    if server_mode {
+        if let Err(e) = announce_server_started(&db).await {
+            tracing::warn!("Failed to announce server started: {e:#}");
+        }
     }
 
     let server = server.with_graceful_shutdown(async move {
@@ -1314,17 +1316,17 @@ pub async fn wait_for_db_migrations(
 
 const SERVER_HEARTBEAT_TASK: &str = "server_heartbeat";
 
-/// Write a server-started heartbeat to `background_task_state` so that
-/// other instances waiting to restart can detect this process is healthy.
+/// Write a server-started heartbeat to `background_task_state` so that other
+/// traffic-serving instances waiting to restart can detect this one is healthy.
 ///
-/// Worker-mode processes announce too: `restart_worker_group` puts every worker of
-/// the group through `spawn_graceful_killpill`, which waits for a peer, and where no
-/// server is co-located workers are the only peers each other can detect.
+/// Only `server_mode` processes announce, since only they are peers worth waiting
+/// for: `spawn_graceful_killpill` holds a shutdown open to keep requests answered,
+/// which a worker neither does nor needs.
 ///
 /// The row is keyed per host and `owner` per process, and both halves carry weight.
 /// `INSTANCE_NAME` is random per start, so a row keyed on it never conflicts and
-/// accumulates one row per start, which is one per job under `EXIT_AFTER_N_JOBS`;
-/// `owner` is what tells a peer's start from its own when processes share a host.
+/// accumulates one row per start; `owner` is what tells a peer's start from its own
+/// when processes share a host.
 async fn announce_server_started(db: &DB) -> anyhow::Result<()> {
     use windmill_common::{utils::HOSTNAME, INSTANCE_NAME};
 
