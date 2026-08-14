@@ -331,47 +331,69 @@ use crate::error;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 
+/// A setting name carrying a caller-generated suffix, as in
+/// `workspace_dependencies_map_rebuilt:<workspace_id>`. There is no bound on how many of these
+/// the table holds and no settings pass reads them, so they stay out of the snapshot; the
+/// predicate below and the `NOT LIKE` in [`with_global_settings_snapshot`] must agree.
+fn is_dynamically_named(setting_name: &str) -> bool {
+    setting_name.contains(':')
+}
+
 tokio::task_local! {
-    /// The whole `global_settings` table, read once for the task that installed it.
+    /// Every statically named `global_settings` row, read once for the task that installed it.
+    /// `None` is an explicit bypass: reads fall through to the database.
     ///
     /// Scoped to a task rather than process-global on purpose: the single-setting reload
     /// paths (a `notify_global_setting_change` event for one changed key) run outside any
     /// scope, and a cache they could read would stop settings changes from reaching a
     /// running worker.
-    static SNAPSHOT: std::collections::HashMap<String, serde_json::Value>;
+    static SNAPSHOT: Option<std::collections::HashMap<String, serde_json::Value>>;
 }
 
-/// Read the whole `global_settings` table, then run `f` with it serving every
+/// Read every statically named `global_settings` row, then run `f` with them serving each
 /// [`load_value_from_global_settings`] call made by the same task, collapsing a pass that
 /// reads dozens of settings from one round trip each into one.
 ///
-/// Values are as of the moment the snapshot was taken, so only wrap work that is meant to
-/// observe one consistent instant. Tasks spawned inside `f` do not inherit the snapshot.
-/// A failed snapshot query is not fatal: `f` then runs unscoped, one query per setting.
+/// The snapshot is complete over that key space, so a name it holds no row for is genuinely
+/// unset rather than merely unrequested; [`is_dynamically_named`] names are excluded and always
+/// read through. Values are as of the moment the snapshot was taken, so only wrap work that is
+/// meant to observe one consistent instant. Tasks spawned inside `f` do not inherit it. A
+/// failed snapshot query is not fatal: `f` then runs with reads falling through to the
+/// database, one query per setting.
 pub async fn with_global_settings_snapshot<F: std::future::Future>(
     db: &Pool<Postgres>,
     f: F,
 ) -> F::Output {
-    // Fetching the whole table rather than the wanted names keeps the snapshot complete, so a
-    // name it has no row for is genuinely unset rather than merely unrequested. That matters
-    // for the dynamically named rows (`workspace_dependencies_map_rebuilt:<workspace_id>`),
-    // which no caller could put on a list. It trades bytes for round trips: a pass reading
-    // only a couple of settings should query them directly instead.
-    match sqlx::query!("SELECT name, value FROM global_settings")
+    match sqlx::query!("SELECT name, value FROM global_settings WHERE name NOT LIKE '%:%'")
         .fetch_all(db)
         .await
     {
         Ok(rows) => {
             let snapshot = rows.into_iter().map(|r| (r.name, r.value)).collect();
-            SNAPSHOT.scope(snapshot, f).await
+            SNAPSHOT.scope(Some(snapshot), f).await
         }
         Err(e) => {
             tracing::error!(
                 "Could not snapshot global_settings, falling back to per-setting reads: {e:#}"
             );
-            f.await
+            // Scoped rather than bare so that a failure nested inside another snapshot falls
+            // through to the database, instead of silently inheriting the enclosing one.
+            SNAPSHOT.scope(None, f).await
         }
     }
+}
+
+/// Read one setting, always from the database.
+///
+/// For the caller that must not act on a stale value — see [`load_value_from_global_settings`]
+/// for the ordinary read, which a snapshot may serve.
+pub async fn load_value_from_global_settings_fresh(
+    db: &Pool<Postgres>,
+    setting_name: &str,
+) -> error::Result<Option<serde_json::Value>> {
+    SNAPSHOT
+        .scope(None, load_value_from_global_settings(db, setting_name))
+        .await
 }
 
 /// Read one setting.
@@ -379,13 +401,17 @@ pub async fn with_global_settings_snapshot<F: std::future::Future>(
 /// Served from the calling task's [`with_global_settings_snapshot`] scope when it has one, in
 /// which case `db` goes unused and the value is as of the instant that snapshot was taken. A
 /// caller that must observe a write it just made has to run outside any scope — see
-/// `reload_custom_tags_setting`'s caller in the instance-settings handler.
+/// `reload_custom_tags_setting`'s caller in the instance-settings handler — or use
+/// [`load_value_from_global_settings_fresh`].
 pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,
     setting_name: &str,
 ) -> error::Result<Option<serde_json::Value>> {
-    if let Ok(v) = SNAPSHOT.try_with(|s| s.get(setting_name).cloned()) {
-        return Ok(v);
+    if !is_dynamically_named(setting_name) {
+        if let Ok(Some(v)) = SNAPSHOT.try_with(|s| s.as_ref().map(|m| m.get(setting_name).cloned()))
+        {
+            return Ok(v);
+        }
     }
     let r = sqlx::query!(
         "SELECT value FROM global_settings WHERE name = $1",

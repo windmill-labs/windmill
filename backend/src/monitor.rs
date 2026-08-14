@@ -52,14 +52,14 @@ use windmill_common::{
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
-        load_value_from_global_settings, with_global_settings_snapshot,
-        AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
-        BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        load_value_from_global_settings, load_value_from_global_settings_fresh,
+        with_global_settings_snapshot, AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING,
+        BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
+        CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
@@ -5714,7 +5714,11 @@ async fn generate_and_save_jwt_secret(db: &DB) -> error::Result<String> {
 }
 
 pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
-    let jwt_secret = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
+    // Reading this one stale is not a brief inconsistency: an absent value makes
+    // `generate_and_save_jwt_secret` upsert over whatever is there, so a replica booting
+    // alongside another would overwrite the secret the other just generated and invalidate
+    // every token it issued.
+    let jwt_secret = load_value_from_global_settings_fresh(db, JWT_SECRET_SETTING).await?;
 
     let jwt_secret = if let Some(q) = jwt_secret {
         if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
