@@ -125,6 +125,7 @@ import {
 } from './global/core'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
+import { createMcpTools, loadMcpServers, type McpServer } from './global/mcpTools'
 import {
 	pipelineTools,
 	getPipelinePromptSection,
@@ -1071,6 +1072,13 @@ export class AIChatManager {
 	globalSkills = $state<AiSkillListItem[]>([])
 	private globalSkillsRefreshId = 0
 
+	// External MCP servers the user connected (resources of type `mcp`). Loaded
+	// asynchronously alongside skills; the MCP tools are only registered when
+	// this is non-empty, so a workspace with no connection pays no schema cost
+	// for them on every chat-loop iteration.
+	mcpServers = $state<McpServer[]>([])
+	private mcpServersRefreshId = 0
+
 	// Built-in session-chat slash commands, listed in the command picker
 	// alongside workspace skills. Unlike a skill, these run locally and never
 	// reach the model; the submit path intercepts them first, so they shadow any
@@ -1928,6 +1936,7 @@ export class AIChatManager {
 		} else if (mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 			void this.refreshGlobalSkills()
+			void this.refreshMcpServers()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
@@ -1946,7 +1955,8 @@ export class AIChatManager {
 	private configureGlobalMode = () => {
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
-			skills: this.globalSkills
+			skills: this.globalSkills,
+			mcpServers: this.mcpServers
 		})
 		const sessionCtx = this.sessionContextResolver?.()
 		if (sessionCtx) {
@@ -1981,12 +1991,17 @@ export class AIChatManager {
 			}
 		}
 		const pipeline = this.pipelineAiChatHelpers
+		const mcpTools = createMcpTools(this.mcpServers)
 		if (pipeline) {
 			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
-			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...pipelineTools]
+			this.tools = [
+				...globalToolsFor({ sessionPreview: this.isSessionChat }),
+				...pipelineTools,
+				...mcpTools
+			]
 			this.helpers = { ...baseHelpers, pipeline }
 		} else {
-			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
+			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...mcpTools]
 			this.helpers = baseHelpers
 		}
 		this.systemMessage = systemMessage
@@ -2005,6 +2020,29 @@ export class AIChatManager {
 		}
 	}
 
+	// Same shape as refreshGlobalSkills: rebuild GLOBAL mode once the connected
+	// MCP servers resolve so the next chat-loop iteration advertises their tools,
+	// ignoring stale resolves so a workspace change cannot overwrite newer ones.
+	//
+	// A server is a path, and the workspace a call runs against is read at call
+	// time, so a listing that resolves after the operating workspace moved must be
+	// dropped rather than installed: the same path in the workspace switched to is
+	// a different server, and one the user has not opted into.
+	refreshMcpServers = async (workspace = this.operatingWorkspace ?? '') => {
+		const refreshId = ++this.mcpServersRefreshId
+		const servers = await loadMcpServers(workspace)
+		if (refreshId !== this.mcpServersRefreshId) {
+			return
+		}
+		// Dropping the stale answer is not enough on its own: leaving the previous
+		// workspace's servers installed would go on advertising its paths against
+		// the workspace switched to.
+		this.mcpServers = workspace === (this.operatingWorkspace ?? '') ? servers : []
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
 	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
 	// the update_user_instructions tool) is picked up on the next chat-loop iteration, which
 	// re-reads this.systemMessage via a getter.
@@ -2014,7 +2052,8 @@ export class AIChatManager {
 		}
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
-			skills: this.globalSkills
+			skills: this.globalSkills,
+			mcpServers: this.mcpServers
 		})
 		// Preserve the session-state and active pipeline-editor augmentations that
 		// configureGlobalMode adds — otherwise update_user_instructions (which calls
@@ -2834,10 +2873,13 @@ export class AIChatManager {
 				return false
 			}
 		}
-		// Session chats commit their workspace in beforeSend; skills must match the
-		// committed workspace before the system prompt is sent.
+		// Session chats commit their workspace in beforeSend; skills and MCP servers
+		// must match the committed workspace before the system prompt is sent.
 		if (this.mode === AIMode.GLOBAL) {
-			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
+			await Promise.all([
+				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
+				this.refreshMcpServers(this.operatingWorkspace ?? '')
+			])
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
 		// request went out. Mirror the main "cancelled before usable output" recovery:

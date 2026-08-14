@@ -16,6 +16,7 @@
 		Hand,
 		HistoryIcon,
 		MousePointer2,
+		Plug,
 		Plus,
 		TextSelect,
 		X,
@@ -32,6 +33,7 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
+	import McpConnections from './McpConnections.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -189,6 +191,8 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
+	let mcpConnections: McpConnections | undefined = $state()
+	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
 	// Escape stops the generation when focus is on the chat (or parked on
@@ -853,11 +857,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						{#if canAttachFiles}
 							<DropdownV2
-								items={() => [
+								items={async () => [
 									{
 										displayName: 'Attach file or image',
 										icon: FileText,
-										action: () => linkFiles()
+										action: () => {
+											plusMenuOpen = false
+											linkFiles()
+										}
 									},
 									{
 										// A real (live) link needs the File System Access API; without it the
@@ -867,11 +874,26 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										tooltip: canUseFsAccess
 											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
 											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-										action: () => linkFolder()
-									}
+										action: () => {
+											plusMenuOpen = false
+											linkFolder()
+										}
+									},
+									...(aiChatManager.mode === AIMode.GLOBAL && mcpConnections
+										? [
+												{
+													displayName: 'MCP connections',
+													icon: Plug,
+													separatorTop: true,
+													submenuItems: await mcpConnections.menuItems(() => (plusMenuOpen = false))
+												}
+											]
+										: [])
 								]}
 								placement="bottom-start"
 								fixedHeight={false}
+								closeOnItemClick={false}
+								bind:open={plusMenuOpen}
 							>
 								{#snippet buttonReplacement()}
 									<Tooltip small placement="top">
@@ -1006,6 +1028,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						<ContextUsageIndicator />
 						<AIChatModelSettings />
+						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<McpConnections bind:this={mcpConnections} />
+						{/if}
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}
