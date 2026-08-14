@@ -154,12 +154,6 @@
 		)
 	})
 
-	let linkedVars = $derived(
-		Object.entries(current?.args ?? {})
-			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
-			.map(([k, _]) => k)
-	)
-
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
@@ -312,16 +306,18 @@
 			})
 	})
 
-	$effect(() => {
+	/** Sole writer of `current.path` — an arg still holding `$var:<the path being
+	 * replaced>` is the resource's own linked secret, which the backend renames
+	 * along with the resource, so the reference moves with it. An arg pointing at
+	 * any other variable was set by the user and is left alone. */
+	function setPath(npath: string): void {
 		if (!current) return
-		if (linkedVars.length > 0 && current.path) {
-			untrack(() => {
-				linkedVars.forEach((k) => {
-					current!.args[k] = `$var:${current!.path}`
-				})
-			})
+		const prev = current.path
+		for (const [k, v] of Object.entries(current.args)) {
+			if (v === `$var:${prev}`) current.args[k] = `$var:${npath}`
 		}
-	})
+		current.path = npath
+	}
 
 	export async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
@@ -388,7 +384,7 @@
 		{#if current}
 			{#key current}
 				<ResourceForm
-					bind:path={current.path}
+					bind:path={() => current!.path, setPath}
 					bind:labels={current.labels}
 					bind:description={current.description}
 					bind:args={current.args}
