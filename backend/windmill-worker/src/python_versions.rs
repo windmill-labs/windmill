@@ -604,6 +604,9 @@ impl PyV {
     /// Same as [`Self::find_python`] but backed by [`PY_PATH_CACHE_DIR`], which outlives the
     /// worker process. The subprocess is only spawned when there is nothing usable on disk.
     async fn find_python_cached(&self) -> error::Result<Option<String>> {
+        // Keyed on the requested version, not on the resolved patch: uv answers a minor-only
+        // request with its own minor-version link, which it re-points when a newer patch is
+        // installed, so an entry follows patch upgrades without being invalidated.
         let version = self.to_string();
         // Without an identity for uv an upgrade would go unnoticed, so the cache is skipped.
         let uv = uv_identity().await;
@@ -727,12 +730,16 @@ struct CachedPythonPath {
 /// `None` disables the cache: an upgrade of a uv we cannot stat would go unnoticed.
 async fn uv_identity() -> Option<String> {
     #[cfg(unix)]
-    let uv_cmd = UV_PATH.as_str();
+    let uv_cmd = UV_PATH.clone();
 
+    // Initializing the static probes PATH synchronously, which must not happen on the runtime.
     #[cfg(windows)]
-    let uv_cmd = UV_PATH.as_deref()?;
+    let uv_cmd = tokio::task::spawn_blocking(|| UV_PATH.clone())
+        .await
+        .ok()
+        .flatten()?;
 
-    let metadata = tokio::fs::metadata(uv_cmd).await.ok()?;
+    let metadata = tokio::fs::metadata(&uv_cmd).await.ok()?;
     let mtime = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some(format!("{uv_cmd}:{}:{}", metadata.len(), mtime.as_secs()))
 }
