@@ -8,7 +8,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Badge from '../common/badge/Badge.svelte'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
-	import ObjectViewer from '../propertyPicker/ObjectViewer.svelte'
+	import TriggerHistoryChanges from './TriggerHistoryChanges.svelte'
 	import type { TriggerType } from './utils'
 
 	interface Props {
@@ -89,7 +89,7 @@
 							<span class="text-xs text-secondary ml-auto">{displayDate(entry.created_at)}</span>
 						</div>
 						{#if entry.changes}
-							<ObjectViewer pureViewer json={entry.changes} />
+							<TriggerHistoryChanges changes={entry.changes} />
 						{/if}
 					</div>
 				{/each}
