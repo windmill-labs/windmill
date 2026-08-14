@@ -1180,6 +1180,7 @@
 - id: global-closepage1-close-runs-tab
   prompt: |-
     You just opened the runs page for me in the side panel. Close that tab, I'm done looking at it.
+  initial: ai_evals/fixtures/frontend/global/initial/preview_runs_tab.json
   runtime:
     maxTurns: 6
     sessionChat: true
@@ -1232,6 +1233,32 @@
   judgeChecklist:
     - creates one artifact and revises it rather than creating a second artifact
     - each revision carries a short description of what changed
+
+# A reader who pins an older version in the artifact's picker is looking at something the
+# artifact tools never report: an artifact tab carries no ACTIVE PREVIEW section, so the pin
+# reaches the chat through get_preview_status alone. Asked what is on screen, the model has
+# to read the panel instead of answering from the artifact's own history.
+
+- id: global-artifact-pinned-version-question
+  prompt: |-
+    Which version of the onboarding plan am I looking at right now?
+  initial: ai_evals/fixtures/frontend/global/initial/artifact_onboarding_plan_pinned_v2.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_preview_status
+    forbiddenToolsUsed:
+      - create_artifact
+      - update_artifact
+      - deploy_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - answers that the panel is showing version 2, not the latest version 5
+    - does not edit or re-create the artifact
 
 # --- Documentation search (search_docs) ---
 # Pure product-knowledge questions: the assistant should consult the docs via
@@ -1756,7 +1783,31 @@
   judgeChecklist:
     - saves the plan as a markdown artifact via create_artifact rather than only replying inline
     - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
+    - the artifact is registered as the session's plan (role "plan"), not as an ordinary note - the user asked for the plan they will come back to and revise
     - does not create a flow or script draft yet
+
+- id: global-planmode1-hands-over-a-plan
+  prompt: |-
+    Our support inbox is a mess. I want incoming emails triaged by urgency and routed to the
+    right team, with anything urgent also posted to Slack.
+    Work out how you'd build this in Windmill.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+    planMode: true
+  # No draft assertion: approving the plan opens the gate mid-run, and building from there is
+  # what production asks for, so a draft is not a failure. The gate itself is covered by
+  # shared.test.ts; what only a real model can show is whether it researches and hands over a
+  # usable plan instead of guessing at one.
+  toolExpect:
+    requiredToolsUsed:
+      - exit_plan_mode
+  # Not "saves the plan as an artifact": exit_plan_mode writes it, so the harness would
+  # satisfy that on every run the tool is called at all — it grades itself, not the model.
+  judgeChecklist:
+    - the plan covers classifying an incoming email by urgency, routing it to a team, and posting urgent ones to Slack
+    - the plan is specific about what would be built in Windmill (a flow and its steps, or the scripts involved)
 
 - id: global-npm1-script-search-package
   prompt: |-

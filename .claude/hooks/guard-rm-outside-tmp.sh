@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # PreToolUse guard for `rm`: auto-allow ONLY a single, plain, single-line `rm` whose every
 # operand is a whitelisted target — under /tmp, or inside a git working tree located in $HOME
-# (a version-controlled project dir). Anything else makes no decision (exit 0) and falls back
-# to the normal permission flow, where the `Bash(rm:*)` ask rule prompts (classifier as a
-# backstop).
+# (a version-controlled project dir). Any other command that runs `rm` gets an explicit `ask`,
+# which is the ordinary permission prompt and the only one `rm` gets (see lib-guarded-verb.sh);
+# a command that runs no `rm` at all makes no decision (exit 0).
 #
 # The git-tree allowance trades on "this is a project under version control" being lower-stakes
 # than a delete elsewhere — NOT on full recoverability: committed content is restorable via git,
@@ -19,13 +19,14 @@
 #
 # The git-repo allowance covers targets inside a git working tree under $HOME, and the tree's
 # own root folder only when it is a linked worktree (`.git` is a pointer file, so history in
-# the main repo survives); a primary checkout's root (`.git` is a history dir) and any `.git`
-# path are never auto-allowed. Globs auto-allow only under /tmp — elsewhere their expansion
+# the main repo survives); a primary checkout's root (`.git` is a history dir) and any `.git`,
+# `.claude` or `.env` path are never auto-allowed. Globs auto-allow only under /tmp — elsewhere their expansion
 # could reach `.git` or a dotfile the literal checks never see. Relative operands resolve
-# against the command's cwd (from the hook input). A PreToolUse `allow` overrides the ask rule.
+# against the command's cwd (from the hook input).
 #
 # Assumes GNU `realpath` (-m) and `jq`, both present in this repo's Linux dev env.
 set -uo pipefail
+. "${BASH_SOURCE[0]%/*}/lib-guarded-verb.sh"
 
 input=$(cat)
 command -v jq >/dev/null 2>&1 || exit 0
@@ -33,12 +34,20 @@ cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -z "$cmd" ] && exit 0
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 
+# Every bail-out below goes through `defer`, so the forms this guard refuses to reason about —
+# compound, quoted, wrapped — still reach the user as a prompt whenever an `rm` runs among them.
+runs_verb rm "$cmd" && guarded=1 || guarded=0
+defer() {
+  [ "$guarded" = 1 ] && decide ask "$1"
+  exit 0
+}
+
 # A newline separates commands, and the tokenizer below only reads the first line — defer.
-case "$cmd" in *$'\n'*) exit 0 ;; esac
+case "$cmd" in *$'\n'*) defer "multi-line command" ;; esac
 
 read -r -a toks <<< "$cmd"
 # Bare leading `rm` only; wrappers (`timeout rm`), env prefixes, and `/bin/rm` defer.
-[ "${toks[0]:-}" = "rm" ] || exit 0
+[ "${toks[0]:-}" = "rm" ] || defer "rm is not the leading command word"
 
 # 0 (allow) iff the canonical path is an auto-allowable rm target: under /tmp, or strictly
 # inside a git working tree located under $HOME. The walk stops at $HOME, so a dotfiles repo at
@@ -48,7 +57,13 @@ allowed_target() {
   case "$canon" in /tmp/?*) return 0 ;; esac
   [ -n "${HOME:-}" ] || return 1
   case "$canon" in "$HOME"/?*) ;; *) return 1 ;; esac
-  case "$canon" in *"/.git" | *"/.git/"*) return 1 ;; esac   # protect history, not recoverable
+  # Never auto-allow: history, and the two kinds of path the "it's under version control"
+  # premise doesn't hold for — the agent's own guards and settings (deleting them is what
+  # removes the prompt on everything else), and gitignored `.env` files.
+  case "$canon" in
+    *"/.git" | *"/.git/"* | *"/.claude" | *"/.claude/"*) return 1 ;;
+    *"/.env" | *"/.env."*) return 1 ;;
+  esac
   d="$canon"
   while [ "$d" != "/" ] && [ "$d" != "$HOME" ]; do
     [ -e "$d/.git" ] && { root="$d"; break; }
@@ -73,10 +88,10 @@ while [ "$i" -lt "${#toks[@]}" ]; do
   i=$((i + 1))
   # Whitelist every token (flags included, so an operator hidden in a flag like `-rf;rm`
   # can't slip past): any character outside the safe set makes it unsafe to reason about.
-  [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/*?[]-')" ] && exit 0
+  [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/*?[]-')" ] && defer "unsafe characters in \`$t\`"
   # A glob in an option-looking token (`-[-]`) can expand to `--` and turn a later `-name`
   # into an operand — never a real option, so defer.
-  case "$t" in -*[*?[]*) exit 0 ;; esac
+  case "$t" in -*[*?[]*) defer "glob inside the option \`$t\`" ;; esac
   if [ "$end_opts" = 0 ]; then
     [ "$t" = "--" ] && { end_opts=1; continue; }
     # Skip real options only before the first operand. A bare `-` is a filename, and under
@@ -89,18 +104,18 @@ while [ "$i" -lt "${#toks[@]}" ]; do
   had_operand=1
   # No wildcard in a non-final path segment (`a/*/b`): it can expand through a symlink
   # realpath can't see. A slashless glob (`*.rs`) is a final-segment match — fine.
-  case "$t" in */*) case "${t%/*}" in *[*?[]*) exit 0 ;; esac ;; esac
+  case "$t" in */*) case "${t%/*}" in *[*?[]*) defer "glob in a non-final segment of \`$t\`" ;; esac ;; esac
   case "$t" in
     /*) canon=$(realpath -m -- "$t" 2>/dev/null) ;;
     *)  canon=$(realpath -m -- "${cwd:-$PWD}/$t" 2>/dev/null) ;;
   esac
-  [ -n "$canon" ] || exit 0
+  [ -n "$canon" ] || defer "cannot resolve \`$t\`"
   # A glob may auto-allow only under /tmp, where everything is deletable. Elsewhere its
   # expansion could match `.git`, a dotfile like `.*`, or a nested checkout root that the
   # literal-path checks never see — so require literal operands in git repos.
-  case "$t" in *[*?[]*) case "$canon" in /tmp/?*) ;; *) exit 0 ;; esac ;; esac
-  allowed_target "$canon" || exit 0
+  case "$t" in *[*?[]*) case "$canon" in /tmp/?*) ;; *) defer "glob \`$t\` is outside /tmp" ;; esac ;; esac
+  allowed_target "$canon" || defer "\`$canon\` is outside /tmp and not inside a git checkout in \$HOME"
 done
 
-[ "$had_operand" = 1 ] || exit 0
-jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:"rm operands are under /tmp or inside a git checkout in $HOME"}}'
+[ "$had_operand" = 1 ] || defer "no operand"
+decide allow 'rm operands are under /tmp or inside a git checkout in $HOME'

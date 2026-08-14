@@ -30,6 +30,7 @@ use crate::{
     agent_workers::PingJobStatusResponse,
     cache::{unwrap_or_error, RawNode, RawScript},
     error::{self, to_anyhow},
+    external_ip::UNKNOWN_IP,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
@@ -948,20 +949,22 @@ pub fn write_file_at_user_defined_location(
 }
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
-    let q = sqlx::query!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        CUSTOM_TAGS_SETTING
-    )
-    .fetch_optional(db)
-    .await?;
+    let q =
+        crate::global_settings::load_value_from_global_settings(db, CUSTOM_TAGS_SETTING).await?;
+    apply_custom_tags_setting(q);
+    Ok(())
+}
 
+/// The half of [`reload_custom_tags_setting`] after the read, so a batched settings pass can
+/// apply a value it already fetched.
+pub fn apply_custom_tags_setting(q: Option<serde_json::Value>) {
     let tags = if let Some(q) = q {
-        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.value.clone()) {
+        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.clone()) {
             v
         } else {
             tracing::error!(
                 "Could not parse custom tags setting as vec of strings, found: {:#?}",
-                &q.value
+                &q
             );
             vec![]
         }
@@ -989,7 +992,6 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
         ]
         .concat(),
     ));
-    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -1749,25 +1751,23 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.ip.as_deref(),
                 db,
             )
             .await?
         }
         PingType::Initial => {
-            if insert_ping.worker_instance.is_none()
-                || insert_ping.version.is_none()
-                || insert_ping.ip.is_none()
-            {
-                return Err(anyhow::anyhow!(
-                    "Worker instance, version and ip are required"
-                ));
+            if insert_ping.worker_instance.is_none() || insert_ping.version.is_none() {
+                return Err(anyhow::anyhow!("Worker instance and version are required"));
             }
 
             insert_ping_query(
                 &insert_ping.worker_instance.unwrap(),
                 &worker_name,
                 worker_group,
-                &insert_ping.ip.unwrap(),
+                // An agent worker sends the sentinel rather than nothing, to stay acceptable to
+                // servers that still require an IP here; both mean "not resolved yet".
+                insert_ping.ip.as_deref().filter(|ip| *ip != UNKNOWN_IP),
                 insert_ping.tags.unwrap_or_default().as_slice(),
                 insert_ping.dw,
                 insert_ping.dws.as_deref(),
@@ -1904,12 +1904,13 @@ pub async fn fetch_raw_script_from_app_query(
 /// `wm_version`, hold the instance-wide `MIN_VERSION` back forever, and one still naming the
 /// job that process was killed mid-way through skews the zombie/OOM diagnostics that read it.
 /// `started_at` and `jobs_executed` are the only two columns carried over, being the
-/// continuity itself.
+/// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
+/// lookup has not resolved yet and the predecessor's address is still the best guess.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
     worker_group: &str,
-    ip: &str,
+    ip: Option<&str>,
     tags: &[String],
     dw: Option<String>,
     dws: Option<&[String]>,
@@ -1920,9 +1921,13 @@ pub async fn insert_ping_query(
     native_mode: bool,
     db: &DB,
 ) -> anyhow::Result<i32> {
+    // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
+    // meanwhile the value a previous process wrote to a reclaimed row is the best guess we have. A
+    // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
+    // literal below must stay equal to `external_ip::UNKNOWN_IP`.
     let previous_jobs_executed = sqlx::query_scalar!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
         RETURNING jobs_executed",
         worker_instance,
         worker_name,
@@ -2027,12 +2032,13 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
+    ip: Option<&str>,
     db: &DB,
 ) -> anyhow::Result<()> {
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12 WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -2045,6 +2051,7 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_5m,
         occupancy_rate_30m,
         native_mode,
+        ip,
     )
         .execute(db))
     .await??;

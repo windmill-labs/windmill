@@ -497,8 +497,8 @@ function createRuntime(session: Session): SessionRuntime {
 		})
 	}
 
-	manager.openArtifact = (id, name) => {
-		previewTabs.open({ type: 'artifact', id, name })
+	manager.openArtifact = (id, name, version) => {
+		previewTabs.open({ type: 'artifact', id, name, version })
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.

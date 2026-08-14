@@ -8,6 +8,12 @@ pub mod other;
 
 use std::time::{Duration, Instant};
 
+/// The effort token the chat and agent surfaces send to turn reasoning off.
+/// It is not a provider-native level — each provider translates it to its own
+/// disable (Anthropic and Bedrock to `thinking: {type: "disabled"}`, DeepSeek to
+/// its `thinking` param, Gemini to a zero budget or the model's floor).
+pub(crate) const REASONING_OFF_SENTINEL: &str = "none";
+
 use windmill_common::cache::Cache;
 
 use crate::{

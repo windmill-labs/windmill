@@ -150,6 +150,21 @@ Global initial fixtures can also seed `liveEditorDrafts` with `type`,
 currently open script, flow, or raw app editor so cases can test prompts that
 refer to "this" or the "current" item.
 
+Global initial fixtures can seed the session's `artifacts` — `{ name, versions: [{ content,
+note? }], role?, approvedVersion? }`, oldest version first, so the artifact starts with the
+history `list_artifact_versions` reports — and the `previewTabs` open in its side panel, for
+cases that run with `runtime.sessionChat: true`. A tab entry names one destination and may
+be the `active` one:
+
+```json
+"previewTabs": [{ "artifact": { "name": "Onboarding plan", "version": 2 }, "active": true }]
+```
+
+`page` (`{ href, label }`) and `item` (`{ kind, path }`) tabs work the same way. Tabs are
+driven by the production tab model, so `open_preview`, `get_preview_status` and
+`close_page` really open, report and close them, and a `version` is the pin a reader
+chose in the artifact's version picker — which only `get_preview_status` reports.
+
 Global initial fixtures can seed `workspace.variables` with
 `{ path, value, is_secret, description?, labels?, ws_specific? }` entries so cases can
 read and edit variables that already exist in the workspace. The mock mirrors the real
@@ -264,6 +279,10 @@ Typical artifacts by mode:
 - `modes/`: one runner per mode
 - `history/`: optional tracked pass-rate history written by `run --record`, one JSONL file per mode
 - `results/`: local benchmark output and artifacts
+
+Harness unit tests run in two lanes: `bun test adapters/` for plain TypeScript, and
+`bun run test:frontend-graph` for `*.vitest.ts` files, which exercise adapters built on
+frontend code (Svelte runes, SvelteKit aliases) that bun cannot load.
 
 ## Notes
 

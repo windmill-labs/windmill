@@ -307,6 +307,37 @@ pub async fn create_many_http_triggers(
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
         }
 
+        // Bulk create is still authoring, so it records like the single-create
+        // route rather than being the one way to make a trigger appear with no
+        // history behind it.
+        let created = windmill_common::trigger_history::snapshot_row(
+            &mut *tx,
+            "http_trigger",
+            &w_id,
+            &new_http_trigger.base.path,
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+        windmill_common::trigger_history::record(
+            &mut *tx,
+            windmill_common::trigger_history::TriggerHistoryEvent {
+                workspace_id: &w_id,
+                trigger_kind: HttpTrigger::TRIGGER_TYPE,
+                path: &new_http_trigger.base.path,
+                operation: windmill_common::trigger_history::TriggerOperation::Create,
+                source: windmill_common::trigger_history::TriggerSource::of_request(
+                    authed.is_session_token,
+                ),
+                username: Some(&authed.username),
+                changes: windmill_common::trigger_history::summarize_changes(
+                    None,
+                    created.as_ref(),
+                ),
+            },
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+
         audit_log(
             &mut *tx,
             &authed,

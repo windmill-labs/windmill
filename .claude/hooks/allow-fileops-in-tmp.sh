@@ -2,10 +2,12 @@
 # PreToolUse allowance for scratch file ops: auto-allow a single, plain, single-line
 # `mkdir` / `cp` / `mv` / `touch` / `chmod` / `tar` / `unzip` whose every path operand
 # resolves under /tmp. Anything else makes no decision (exit 0) and falls back to the normal
-# permission flow — where `Bash(mv:*)` and `Bash(chmod:*)` in the `ask` list prompt. A
-# PreToolUse `allow` overrides those ask rules, which is why this is a hook and not an allow
-# rule: permission rules match a command prefix, so they can only constrain the FIRST operand.
-# `cp /tmp/x ~/.zshrc` matches a `cp /tmp/` prefix, and requiring every operand is the point.
+# permission flow, except for `mv` and `chmod`: those get an explicit `ask`, the only prompt
+# they get (see lib-guarded-verb.sh).
+#
+# This is a hook rather than an allow rule because permission rules match a command prefix, so
+# they can only constrain the FIRST operand. `cp /tmp/x ~/.zshrc` matches a `cp /tmp/` prefix,
+# and requiring every operand is the point.
 #
 # Requiring the sources under /tmp too (not just the destination) keeps this from becoming a
 # read-exfiltration path around the `Read(**/.env)` / `Read(**/secrets/**)` deny rules: a copy
@@ -31,6 +33,7 @@
 #
 # Assumes GNU `realpath` (-m) and `jq`, both present in this repo's Linux dev env.
 set -uo pipefail
+. "${BASH_SOURCE[0]%/*}/lib-guarded-verb.sh"
 
 input=$(cat)
 command -v jq >/dev/null 2>&1 || exit 0
@@ -38,8 +41,19 @@ cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -z "$cmd" ] && exit 0
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 
+# Every bail-out below goes through `defer`: `mv` and `chmod` prompt from here, since no rule
+# covers them, while the other verbs stay silent and leave the decision to the normal flow.
+guarded=0
+for verb in mv chmod; do
+  runs_verb "$verb" "$cmd" && { guarded=1; break; }
+done
+defer() {
+  [ "$guarded" = 1 ] && decide ask "$1"
+  exit 0
+}
+
 # A newline separates commands, and the tokenizer below only reads the first line — defer.
-case "$cmd" in *$'\n'*) exit 0 ;; esac
+case "$cmd" in *$'\n'*) defer "multi-line command" ;; esac
 
 read -r -a toks <<< "$cmd"
 
@@ -65,11 +79,6 @@ under_tmp() {
   return 1
 }
 
-allow() {
-  jq -nc --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r}}'
-  exit 0
-}
-
 # Bare command word only; wrappers (`timeout cp`), env prefixes, and `/bin/cp` defer.
 # Options are an allowlist per command, so anything that changes how symlinks are followed
 # defers instead of needing enumeration. `cp -L` / `-H` matter most: they dereference while
@@ -84,7 +93,7 @@ case "${toks[0]:-}" in
   chmod) takes_mode=1; ok_opts='Rvfc' ;;   # chmod's first operand is a mode, not a path
   tar)   ok_flags='xctzjJavfC'; val_flags='fC' ;;
   unzip) ok_flags='oqnljvd';    val_flags='d'  ;;
-  *) exit 0 ;;
+  *) defer "not the leading command word" ;;
 esac
 
 # ---------------------------------------------------------------- tar / unzip
@@ -101,18 +110,18 @@ if [ -n "${ok_flags:-}" ]; then
           flags="${t#-}"
           # Allowlist: a long option, -P/--absolute-names, --transform, -I and friends all
           # leave a residue here and defer rather than being enumerated as denials.
-          [ -n "$(printf '%s' "$flags" | tr -d "$ok_flags")" ] && exit 0
+          [ -n "$(printf '%s' "$flags" | tr -d "$ok_flags")" ] && defer "unrecognized option \`$t\`"
           case "$flags" in *x*) extracting=1 ;; esac
           case "${toks[0]}$flags" in unzip*[lv]*) listing=1 ;; esac
           # A flag consuming the next token must be alone in its bundle's final position
           # (`-xzf a.tar`), else the token it eats is ambiguous.
-          case "${flags%?}" in *[$val_flags]*) exit 0 ;; esac
+          case "${flags%?}" in *[$val_flags]*) defer "ambiguous option bundle \`$t\`" ;; esac
           case "${flags: -1}" in
             [$val_flags])
               val="${toks[$i]:-}"
               i=$((i + 1))
-              [ -n "$val" ] || exit 0
-              under_tmp "$val" || exit 0
+              [ -n "$val" ] || defer "option \`$t\` has no value"
+              under_tmp "$val" || defer "\`$val\` is outside /tmp"
               case "${flags: -1}" in
                 f) saw_archive=1 ;;
                 C | d) saw_dest=1 ;;
@@ -126,17 +135,18 @@ if [ -n "${ok_flags:-}" ]; then
     # Positional. For tar these are sources (create) or member names (extract); for unzip the
     # first is the archive. Requiring every one under /tmp is conservative for member names,
     # which are not filesystem paths — those defer rather than being wrongly allowed.
-    under_tmp "$t" || exit 0
+    under_tmp "$t" || defer "\`$t\` is outside /tmp"
     [ "${toks[0]}" = "unzip" ] && saw_archive=1
   done
 
-  [ "$saw_archive" = 1 ] || exit 0   # tar without -f reads a tape/stdin; unzip needs an archive
+  # tar without -f reads a tape/stdin; unzip needs an archive
+  [ "$saw_archive" = 1 ] || defer "no archive operand"
   # Writes land relative to the working directory unless a destination was given. `unzip -l`
   # and `-v` only list, so they need no destination.
   if [ "$extracting" = 1 ] || { [ "${toks[0]}" = "unzip" ] && [ "$listing" = 0 ]; }; then
-    [ "$saw_dest" = 1 ] || under_tmp "${cwd:-$PWD}" || exit 0
+    [ "$saw_dest" = 1 ] || under_tmp "${cwd:-$PWD}" || defer "extraction target is outside /tmp"
   fi
-  allow "archive paths and extraction target are under /tmp"
+  decide allow "archive paths and extraction target are under /tmp"
 fi
 
 # ------------------------------------------- mkdir / cp / mv / touch / chmod
@@ -155,7 +165,7 @@ while [ "$i" -lt "${#toks[@]}" ]; do
     case "$t" in
       -?*)
         # Allowlist: long options and the dereferencing flags leave a residue and defer.
-        [ -n "$(printf '%s' "${t#-}" | tr -d "$ok_opts")" ] && exit 0
+        [ -n "$(printf '%s' "${t#-}" | tr -d "$ok_opts")" ] && defer "unrecognized option \`$t\`"
         continue
         ;;
     esac
@@ -165,15 +175,15 @@ while [ "$i" -lt "${#toks[@]}" ]; do
   if [ "$takes_mode" = 1 ] && [ "$seen_mode" = 0 ]; then
     case "$t" in
       [0-7] | [0-7][0-7] | [0-7][0-7][0-7] | [0-7][0-7][0-7][0-7]) ;;
-      *) printf '%s' "$t" | grep -Eq '^[ugoa]*[+=-][rwxXst]*(,[ugoa]*[+=-][rwxXst]*)*$' || exit 0 ;;
+      *) printf '%s' "$t" | grep -Eq '^[ugoa]*[+=-][rwxXst]*(,[ugoa]*[+=-][rwxXst]*)*$' || defer "unrecognized mode \`$t\`" ;;
     esac
     seen_mode=1
     continue
   fi
 
-  under_tmp "$t" || exit 0
+  under_tmp "$t" || defer "\`$t\` is outside /tmp"
   path_operand=1
 done
 
-[ "$path_operand" = 1 ] || exit 0
-allow "every path operand is under /tmp"
+[ "$path_operand" = 1 ] || defer "no path operand"
+decide allow "every path operand is under /tmp"

@@ -1,22 +1,22 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT igroup FROM email_to_igroup WHERE email = $1",
+  "query": "SELECT name FROM instance_group WHERE name = ANY($1) ORDER BY name FOR UPDATE",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "igroup",
+        "name": "name",
         "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "TextArray"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "5d160ba4958583f1ad42de846c544d8d8e81e1b54925a0c5f2cedc1817d99a1b"
+  "hash": "43a689277803e5e2204e10263a5749675652c23a231fce65257b053b6faad231"
 }

@@ -97,6 +97,7 @@ pub mod otel_oss;
 #[cfg(feature = "private")]
 pub mod partition_ee;
 pub mod partition_oss;
+pub mod per_minute_counter;
 #[cfg(feature = "private")]
 pub use partition_ee as partition;
 #[cfg(not(feature = "private"))]
@@ -128,6 +129,7 @@ pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
 pub mod trashbin;
+pub mod trigger_history;
 pub mod triggers;
 pub mod user_drafts;
 pub mod usernames;
