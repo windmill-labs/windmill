@@ -39,17 +39,24 @@
 //!   ducklake-maintenance schedule. The same category as the `server_id` and
 //!   `last_server_ping` columns the diff already drops.
 //!
-//! # The server-initiated disables are atomic
+//! # The server-initiated disables: the disable wins
 //!
-//! A trigger the server disables must never end up disabled with nothing saying
-//! the server did it: that state is already abnormal, and it is the one a
-//! history is most needed for. So each of those writers puts the disabling
-//! `UPDATE` and its `record` call in one transaction (or savepoint). A failure
-//! rolls back both and leaves the trigger enabled — wrong but visible, and
-//! retried on the next occurrence — rather than disabling it silently.
+//! When the server disables a trigger it could not run, two things want to be
+//! true and cannot both be guaranteed: the trigger ends up disabled, and the
+//! history says who disabled it. The disable wins, every time.
 //!
-//! There is deliberately no best-effort recorder to reach for: recording is
-//! either part of the caller's transaction or it does not happen.
+//! A trigger left enabled reads as healthy while never firing again, and for a
+//! flow schedule nothing comes back to retry — it arms its next occurrence when
+//! the flow *starts*, so once the runnable is gone that code is never reached
+//! again. Enabled-and-dead is silent; disabled-without-an-audit-row is not, and
+//! the trigger's own `error` column still says why.
+//!
+//! So each writer commits the disable on its own and records after it. On the
+//! success path both land together (the queue path shares one commit, via a
+//! savepoint that also keeps a failed insert from poisoning the transaction that
+//! completes the job). On failure the trigger is still disabled and the lost row
+//! is reported to the workspace error handler and the critical alert channel —
+//! loud, never silent.
 //!
 //! # Authorization contract
 //!

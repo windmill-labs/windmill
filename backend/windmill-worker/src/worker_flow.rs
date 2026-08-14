@@ -2923,52 +2923,63 @@ pub async fn handle_flow(
                     // its own disable write failed. Retry it: rearm_schedule turns
                     // these into NoOp, so without disabling here the schedule would
                     // stay enabled yet never run.
-                    // One transaction, so this cannot leave the schedule
-                    // disabled with nothing recording that the server did it.
-                    // Safe to open here: the retried closure committed its own.
-                    //
-                    // This is the last attempt: a flow schedule arms its next
-                    // occurrence when the flow *starts*, so once the flow is
-                    // gone no job reaches this code again. If it fails, the
-                    // schedule stays enabled and never runs until someone acts,
-                    // which is why the failure below goes to the workspace
-                    // error handler and the critical alert channel.
-                    let disable_result = async {
-                        let mut tx = db.begin().await?;
-                        let rows = sqlx::query!(
-                            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
-                            err.to_string(),
-                            &flow_job.workspace_id,
-                            &schedule.path
-                        )
-                        .execute(&mut *tx)
-                        .await?
-                        .rows_affected();
-                        if rows > 0 {
-                            windmill_common::trigger_history::record(
-                                &mut tx,
-                                windmill_queue::jobs::schedule_auto_disable_event(
-                                    &flow_job.workspace_id,
-                                    &schedule.path,
-                                    &err.to_string(),
+                    // The disable is what matters and commits on its own: a
+                    // flow schedule arms its next occurrence when the flow
+                    // *starts*, so once the flow is gone nothing reaches this
+                    // code again. Leaving it enabled would leave it enabled and
+                    // dead forever, which is worse than a missing audit row —
+                    // so a failing history insert is reported, not fatal.
+                    let disable_result = sqlx::query!(
+                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
+                        err.to_string(),
+                        &flow_job.workspace_id,
+                        &schedule.path
+                    )
+                    .execute(db)
+                    .await;
+
+                    match disable_result {
+                        Err(disable_err) => {
+                            report_error_to_workspace_handler_or_critical_side_channel(
+                                &mini_job,
+                                db,
+                                format!(
+                                    "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                                    schedule.path,
                                 ),
                             )
-                            .await?;
+                            .await;
                         }
-                        tx.commit().await?;
-                        Ok::<(), Error>(())
-                    }
-                    .await;
-                    if let Err(disable_err) = disable_result {
-                        report_error_to_workspace_handler_or_critical_side_channel(
-                            &mini_job,
-                            db,
-                            format!(
-                                "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
-                                schedule.path,
-                            ),
-                        )
-                        .await;
+                        Ok(result) if result.rows_affected() > 0 => {
+                            let mut conn = db.acquire().await;
+                            let recorded = match conn.as_mut() {
+                                Ok(conn) => {
+                                    windmill_common::trigger_history::record(
+                                        conn,
+                                        windmill_queue::jobs::schedule_auto_disable_event(
+                                            &flow_job.workspace_id,
+                                            &schedule.path,
+                                            &err.to_string(),
+                                        ),
+                                    )
+                                    .await
+                                    .map_err(|e| e.to_string())
+                                }
+                                Err(e) => Err(e.to_string()),
+                            };
+                            if let Err(history_err) = recorded {
+                                report_error_to_workspace_handler_or_critical_side_channel(
+                                    &mini_job,
+                                    db,
+                                    format!(
+                                        "Disabled schedule {} but could not record it in the trigger history: {history_err}",
+                                        schedule.path,
+                                    ),
+                                )
+                                .await;
+                            }
+                        }
+                        Ok(_) => {}
                     }
                 } else {
                     // Transient error (DB contention, timeout) after retry exhaustion:

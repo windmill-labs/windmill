@@ -2518,36 +2518,36 @@ pub fn schedule_auto_disable_event<'a>(
     )
 }
 
-/// Disable a schedule the server can no longer arm, together with the history
-/// row saying so, and report how many rows the disable moved.
+/// Disable a schedule the server can no longer arm, and record that it did.
 ///
-/// The two writes share a savepoint on the caller's transaction, which buys two
-/// things at once. The schedule cannot end up disabled with nothing recording
-/// that the server did it — on failure neither write lands and the schedule
-/// stays enabled, which the next occurrence retries. And a failed insert cannot
-/// poison the transaction that completes the job, which is what taking a second
-/// pooled connection instead would have risked under a burst.
+/// The disable is the operationally important half and always wins: it goes on
+/// the caller's transaction, while the history row goes in a savepoint below it.
+/// A failing insert therefore rolls back alone and leaves the schedule disabled
+/// with its `error` set, rather than enabled and never firing again — a schedule
+/// that reads as healthy but is dead is the worst of the available outcomes, and
+/// worse than a missing audit row.
 ///
-/// `tx.begin()` is a savepoint, not a second transaction: sqlx picks `BEGIN` only
-/// at depth 0 and `SAVEPOINT _sqlx_savepoint_<n>` below it, on the connection the
-/// transaction already holds. Nothing is checked out of the pool.
+/// The savepoint also keeps a failed insert from poisoning the transaction that
+/// completes the job. `tx.begin()` is a savepoint, not a second transaction:
+/// sqlx picks `BEGIN` only at depth 0 and `SAVEPOINT _sqlx_savepoint_<n>` below
+/// it, on the connection the transaction already holds. Nothing is checked out
+/// of the pool.
 ///
-/// Zero rows means a user disabled the schedule first: no transition of ours to
-/// record.
-async fn disable_schedule_with_history(
+/// Returns `Err` only when the disable itself failed. A lost history row is
+/// reported through `history_lost` instead, so it is loud rather than silent.
+async fn disable_schedule_and_record(
     tx: &mut Transaction<'_, Postgres>,
     schedule: &Schedule,
     err: &Error,
+    history_lost: &mut Option<String>,
 ) -> Result<u64, Error> {
-    let mut savepoint = tx.begin().await?;
-
     let disable_result = sqlx::query!(
         "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
         err.to_string(),
         &schedule.workspace_id,
         &schedule.path
     )
-    .execute(&mut *savepoint)
+    .execute(&mut **tx)
     .await;
 
     #[cfg(feature = "failpoints")]
@@ -2561,24 +2561,32 @@ async fn disable_schedule_with_history(
         disable_result
     };
 
-    let rows = match disable_result {
-        Ok(result) => result.rows_affected(),
-        Err(e) => {
-            savepoint.rollback().await.ok();
-            return Err(e.into());
-        }
-    };
-
-    if rows > 0 {
-        let event =
-            schedule_auto_disable_event(&schedule.workspace_id, &schedule.path, &err.to_string());
-        if let Err(e) = windmill_common::trigger_history::record(&mut savepoint, event).await {
-            savepoint.rollback().await.ok();
-            return Err(e);
-        }
+    let rows = disable_result?.rows_affected();
+    // Zero rows means a user disabled the schedule first: no transition of ours
+    // to record.
+    if rows == 0 {
+        return Ok(0);
     }
 
-    savepoint.commit().await?;
+    let event =
+        schedule_auto_disable_event(&schedule.workspace_id, &schedule.path, &err.to_string());
+    match tx.begin().await {
+        Ok(mut savepoint) => match windmill_common::trigger_history::record(&mut savepoint, event)
+            .await
+        {
+            Ok(()) => {
+                if let Err(e) = savepoint.commit().await {
+                    *history_lost = Some(e.to_string());
+                }
+            }
+            Err(e) => {
+                savepoint.rollback().await.ok();
+                *history_lost = Some(e.to_string());
+            }
+        },
+        Err(e) => *history_lost = Some(e.to_string()),
+    }
+
     Ok(rows)
 }
 
@@ -2736,7 +2744,8 @@ pub async fn try_schedule_next_job<'c>(
                 "Could not push next scheduled job for {}: {err}. Disabling schedule.",
                 schedule.path
             );
-            match disable_schedule_with_history(&mut tx, schedule, err).await {
+            let mut history_lost = None;
+            match disable_schedule_and_record(&mut tx, schedule, err, &mut history_lost).await {
                 Err(disable_err) => {
                     report_error_to_workspace_handler_or_critical_side_channel(
                         job,
@@ -2749,6 +2758,17 @@ pub async fn try_schedule_next_job<'c>(
                     .await;
                 }
                 Ok(_) => push_err = None,
+            }
+            if let Some(history_err) = history_lost {
+                report_error_to_workspace_handler_or_critical_side_channel(
+                    job,
+                    db,
+                    format!(
+                        "Disabled schedule {} but could not record it in the trigger history: {history_err}",
+                        schedule.path,
+                    ),
+                )
+                .await;
             }
         }
     }
