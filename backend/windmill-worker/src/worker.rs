@@ -41,6 +41,7 @@ use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
+    external_ip::cached_ip,
     schema::{should_validate_schema, SchemaValidator},
     utils::{create_directory_async, WarnAfterExt},
     worker::{
@@ -2487,7 +2488,6 @@ pub async fn run_worker(
     worker_name: String,
     i_worker: u64,
     num_workers: u32,
-    ip: &str,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     killpill_tx: KillpillSender,
     base_internal_url: &str,
@@ -2583,9 +2583,10 @@ pub async fn run_worker(
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
-    let previous_jobs_executed = insert_ping(hostname, &worker_name, ip, conn)
+    let previous_jobs_executed = insert_ping(hostname, &worker_name, conn)
         .await
         .expect("initial ping could be sent");
+    let mut ip_reported = cached_ip().is_some();
 
     #[cfg(feature = "prometheus")]
     let uptime_metric = if METRICS_ENABLED.load(Ordering::Relaxed) {
@@ -3066,7 +3067,11 @@ pub async fn run_worker(
 
         otel_set_worker_uptime(&worker_name, start_time.elapsed().as_secs_f64());
 
-        if last_ping.elapsed().as_secs() > NUM_SECS_PING {
+        // The external IP resolves in the background, after the initial ping. Reporting it on the
+        // very next iteration rather than the next periodic one is what gets it into the row of a
+        // worker whose process is short-lived (EXIT_AFTER_N_JOBS).
+        let ip_just_resolved = !ip_reported && cached_ip().is_some();
+        if ip_just_resolved || last_ping.elapsed().as_secs() > NUM_SECS_PING {
             let read_cgroups =
                 *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS;
             update_worker_ping_full(
@@ -3084,6 +3089,7 @@ pub async fn run_worker(
                 last_reading = Instant::now();
             }
             last_ping = Instant::now();
+            ip_reported = cached_ip().is_some();
         }
 
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {

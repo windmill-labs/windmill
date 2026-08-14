@@ -4,6 +4,7 @@ use uuid::Uuid;
 use windmill_common::{
     agent_workers::{PingJobStatus, PingJobStatusResponse},
     cache,
+    external_ip::cached_ip,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
         insert_ping_query, update_job_ping_query, update_worker_ping_from_job_query,
@@ -126,6 +127,7 @@ async fn update_worker_ping_full_inner(
                 occupancy_rate_5m,
                 occupancy_rate_30m,
                 native_mode,
+                cached_ip(),
                 db,
             )
             .await?;
@@ -139,7 +141,7 @@ async fn update_worker_ping_full_inner(
                         last_job_executed: None,
                         last_job_workspace_id: None,
                         worker_instance: None,
-                        ip: None,
+                        ip: cached_ip().map(str::to_string),
                         tags: Some(tags.to_vec()),
                         dw: None,
                         dws: None,
@@ -169,7 +171,6 @@ async fn update_worker_ping_full_inner(
 pub async fn insert_ping(
     worker_instance: &str,
     worker_name: &str,
-    ip: &str,
     db: &Connection,
 ) -> anyhow::Result<i32> {
     let (tags, dw, dws, native_mode) = {
@@ -206,7 +207,7 @@ pub async fn insert_ping(
                 worker_instance,
                 worker_name,
                 WORKER_GROUP.as_str(),
-                ip,
+                cached_ip(),
                 tags.as_slice(),
                 dw,
                 dws.as_deref(),
@@ -228,7 +229,7 @@ pub async fn insert_ping(
                         last_job_executed: None,
                         last_job_workspace_id: None,
                         worker_instance: Some(worker_instance.to_string()),
-                        ip: Some(ip.to_string()),
+                        ip: cached_ip().map(str::to_string),
                         tags: Some(tags.to_vec()),
                         dw: dw,
                         dws: dws,
