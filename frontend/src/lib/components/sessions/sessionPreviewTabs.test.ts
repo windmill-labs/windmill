@@ -473,6 +473,21 @@ describe('SessionPreviewTabs.open', () => {
 		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan, revised'))
 	})
 
+	it('moves the pin for an opener that names a version, and clears it for "latest"', () => {
+		const o = owner()
+		o.open(artifactTarget)
+		o.pinArtifactVersion('art1', 1)
+
+		// A plan card opening the version it proposed, which the reader is not on.
+		o.open({ type: 'artifact', id: 'art1', name: 'Plan', version: 2 })
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan', 2))
+
+		// 'latest' is the intent omitting a version cannot express: a plan going up for
+		// approval has to put the current text on screen even over a pin.
+		o.open({ type: 'artifact', id: 'art1', name: 'Plan', version: 'latest' })
+		expect(o.tabs[0].url).toBe(artifactUrl('art1', 'Plan'))
+	})
+
 	it('opens separate tabs for different artifact ids', () => {
 		const o = owner()
 		o.open(artifactTarget)

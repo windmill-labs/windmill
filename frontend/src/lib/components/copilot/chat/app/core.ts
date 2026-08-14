@@ -513,6 +513,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Lightweight file/runnable metadata tool (no source contents)
 	{
 		def: getListFilesToolDef(),
+		planModeSafe: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing files...' })
 			const files = helpers.getFiles()
@@ -548,6 +549,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Frontend tools
 	{
 		def: getGetFrontendFileToolDef(),
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getGetFrontendFileSchema().parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -680,6 +682,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Backend tools
 	{
 		def: getGetBackendRunnableToolDef(),
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getGetBackendRunnableSchema().parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -758,6 +761,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Lint tool
 	{
 		def: getLintToolDef(),
+		planModeSafe: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Linting app...' })
 			const lintResult = helpers.lint()
@@ -779,6 +783,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Data table tools
 	{
 		def: getListDatatablesToolDef(),
+		planModeSafe: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing datatables...' })
 			try {
@@ -801,6 +806,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	},
 	{
 		def: getGetDatatableTableSchemaToolDef(),
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getGetDatatableTableSchemaSchema().parse(args)
 			toolCallbacks.setToolStatus(toolId, {

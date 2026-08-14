@@ -442,7 +442,6 @@ pub fn spawn_test_worker(
     let (tx, rx) = KillpillSender::new(1);
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
-    let ip: &str = Default::default();
     let conn = conn.to_owned();
 
     let tx2 = tx.clone();
@@ -465,7 +464,6 @@ pub fn spawn_test_worker(
             worker_name,
             1,
             1,
-            ip,
             rx,
             tx2,
             &base_internal_url,
@@ -494,7 +492,6 @@ pub fn spawn_test_worker_dedicated(
     let (tx, rx) = KillpillSender::new(1);
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
-    let ip: &str = Default::default();
     let conn = conn.to_owned();
 
     let tx2 = tx.clone();
@@ -548,7 +545,6 @@ pub fn spawn_test_worker_dedicated(
             worker_name,
             1,
             1,
-            ip,
             rx,
             tx2,
             &base_internal_url,
