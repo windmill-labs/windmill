@@ -59,11 +59,10 @@ type PriceEntry = {
  * `strictVariants`, so an unlisted sub-model (`gpt-5-pro`) reports no rate instead
  * of inheriting its family's.
  *
- * One known gap the per-model shape cannot express: a few vendors charge more
- * above a context threshold (Gemini 2.5 Pro past 200k input, Anthropic's 1M-context
- * beta). Usage is aggregated per model before pricing, so those requests are
- * estimated at the standard tier and understate. An affected workspace can set the
- * higher rate as its override.
+ * One known gap the per-model shape cannot express: Anthropic's 1M-context beta
+ * charges more above a threshold. Usage is aggregated per model before pricing, so
+ * those requests are estimated at the standard tier and understate. An affected
+ * workspace can set the higher rate as its override.
  */
 const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	// Anthropic — Opus 4.1 and older bill at the pre-4.5 Opus rate, so the family
@@ -77,11 +76,10 @@ const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	['claude-opus-4-5', { input: 5, output: 25 }],
 	['claude-opus-4-1', { input: 15, output: 75 }],
 	['claude-opus-4', { input: 15, output: 75 }],
-	// Sonnet 5 runs at a promotional rate with a published end date, and
-	// `claude-sonnet-latest` floats to it. A rate applied at read time is timeless,
-	// so either figure restates history wrongly: the standard one overcharges every
-	// row recorded during the promotion, the promotional one undercharges every row
-	// after it. Unpriced until the rate is a single number again.
+	// Sonnet 5 runs a promotional rate with a published end date, and
+	// `claude-sonnet-latest` floats to it. Rates carry no date and apply at read
+	// time, so either figure misstates one side of that boundary — unpriced until
+	// the rate is a single number again.
 	['claude-sonnet-5', null],
 	['claude-sonnet-latest', null],
 	['claude-sonnet-4-6', { input: 3, output: 15 }],
