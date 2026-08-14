@@ -262,6 +262,7 @@ const NUM_SECS_READINGS: u64 = 60;
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 
 const WORKER_SHELL_NAP_TIME_DURATION: u64 = 15;
+const WORKER_SHELL_INITIAL_NAP_TIME_DURATION: u64 = 5;
 const TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION: u64 = 2 * 60;
 
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
@@ -2202,6 +2203,71 @@ pub async fn handle_all_job_kind_error(
     }
 }
 
+/// How long the interactive shell loop waits before polling its tag again, when it found no
+/// job. The sub-second cadence only pays off while somebody is typing into the shell, so it
+/// is reserved for a session that has run a command: before the first one this process serves
+/// there is nothing to keep responsive, only the next session to notice.
+///
+/// - a live session, last command under `TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION`
+///   ago: `sleep_queue() * 10`
+/// - no command yet this process: `WORKER_SHELL_INITIAL_NAP_TIME_DURATION`, which bounds how
+///   long the first command of a session waits
+/// - nothing for `TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION`, counted from the last
+///   command or from process start: `WORKER_SHELL_NAP_TIME_DURATION`
+///
+/// A worker whose process is recycled after N jobs cannot count on living long enough to
+/// reach that last state, and at N=1 never does, so it starts there instead. That holds for
+/// any N, since N says nothing about how long a process lasts.
+fn interactive_shell_nap(
+    now: Instant,
+    started_at: Instant,
+    last_executed_job: Option<Instant>,
+    recycles_after_n_jobs: bool,
+) -> Duration {
+    let quiet_since = last_executed_job.unwrap_or(started_at);
+    if now.duration_since(quiet_since).as_secs() > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION {
+        return Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION);
+    }
+    match last_executed_job {
+        Some(_) => Duration::from_millis(sleep_queue() * 10),
+        None if recycles_after_n_jobs => Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION),
+        None => Duration::from_secs(WORKER_SHELL_INITIAL_NAP_TIME_DURATION),
+    }
+}
+
+#[cfg(test)]
+mod interactive_shell_nap_tests {
+    use super::*;
+
+    const LONG: Duration = Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION);
+    const INITIAL: Duration = Duration::from_secs(WORKER_SHELL_INITIAL_NAP_TIME_DURATION);
+
+    #[test]
+    fn only_a_live_shell_session_gets_the_sub_second_cadence() {
+        let start = Instant::now();
+        let quiet =
+            start + Duration::from_secs(TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION + 1);
+        let fast = Duration::from_millis(sleep_queue() * 10);
+        // Nobody has opened a shell on this worker yet, so there is no session to keep
+        // responsive: only the first command of the next one to notice.
+        assert_eq!(interactive_shell_nap(start, start, None, false), INITIAL);
+        assert_eq!(interactive_shell_nap(quiet, start, None, false), LONG);
+        // A worker recycled after N jobs may never live to back off, so it starts backed off.
+        assert_eq!(interactive_shell_nap(start, start, None, true), LONG);
+        // Either way, a served shell job is a live session and gets the fast cadence.
+        assert_eq!(interactive_shell_nap(quiet, start, Some(quiet), true), fast);
+        assert_eq!(
+            interactive_shell_nap(
+                quiet + Duration::from_secs(TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION + 1),
+                start,
+                Some(quiet),
+                true
+            ),
+            LONG
+        );
+    }
+}
+
 fn start_interactive_worker_shell(
     conn: Connection,
     hostname: String,
@@ -2212,10 +2278,12 @@ fn start_interactive_worker_shell(
     worker_dir: String,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
+        let started_at = Instant::now();
+        let mut occupancy_metrics = OccupancyMetrics::new(started_at);
 
-        let mut last_executed_job: Option<Instant> =
-            Instant::now().checked_sub(Duration::from_millis(2500));
+        // `None` means no shell job has been served yet, which the nap distinguishes from a
+        // shell session that has gone quiet.
+        let mut last_executed_job: Option<Instant> = None;
 
         loop {
             if let Ok(_) = killpill_rx.try_recv() {
@@ -2330,16 +2398,12 @@ fn start_interactive_worker_shell(
                     last_executed_job = Some(Instant::now());
                 }
                 Ok(None) => {
-                    let now = Instant::now();
-                    let nap_time = match last_executed_job {
-                        Some(last)
-                            if now.duration_since(last).as_secs()
-                                > TIMEOUT_TO_RESET_WORKER_SHELL_NAP_TIME_DURATION =>
-                        {
-                            Duration::from_secs(WORKER_SHELL_NAP_TIME_DURATION)
-                        }
-                        _ => Duration::from_millis(sleep_queue() * 10),
-                    };
+                    let nap_time = interactive_shell_nap(
+                        Instant::now(),
+                        started_at,
+                        last_executed_job,
+                        EXIT_AFTER_N_JOBS.is_some(),
+                    );
                     tokio::select! {
                         _ = tokio::time::sleep(nap_time) => {
                         }
@@ -2800,7 +2864,7 @@ pub async fn run_worker(
                 .is_some_and(|dws| !dws.is_empty())
     };
 
-    if EXIT_AFTER_N_JOBS.is_some() && i_worker == 1 {
+    if let Some(max_jobs) = (*EXIT_AFTER_N_JOBS).filter(|_| i_worker == 1) {
         if num_workers > 1 {
             tracing::warn!(
                 worker = %worker_name, hostname = %hostname,
@@ -2815,6 +2879,27 @@ pub async fn run_worker(
                 worker = %worker_name, hostname = %hostname,
                 "EXIT_AFTER_N_JOBS does not apply to the jobs this worker hands to its dedicated \
                 workers: those run outside its main loop and are never counted."
+            );
+        }
+        let config = WORKER_CONFIG.load();
+        if config.init_bash.is_some() {
+            tracing::warn!(
+                worker = %worker_name, hostname = %hostname,
+                "EXIT_AFTER_N_JOBS is set and this worker group has an init script: the init \
+                script prepares the environment the limit recycles, so it is not counted and runs \
+                again on every restart. Every {max_jobs} job(s) therefore pushes and executes an \
+                init job of its own first, and waits for it."
+            );
+        }
+        // No interval check: loading a worker config whose periodic script has no interval, or
+        // one below MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, fails and kills the worker, so a
+        // script that reaches here is one the periodic task runs.
+        if config.periodic_script_bash.is_some() {
+            tracing::warn!(
+                worker = %worker_name, hostname = %hostname,
+                "EXIT_AFTER_N_JOBS is set and this worker group has a periodic script: it runs \
+                once when the worker starts, so it runs every {max_jobs} job(s) whatever its \
+                interval says."
             );
         }
     }
