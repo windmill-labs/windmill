@@ -41,7 +41,7 @@ use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
-    external_ip::cached_ip,
+    external_ip::{cached_ip, UNKNOWN_IP},
     schema::{should_validate_schema, SchemaValidator},
     utils::{create_directory_async, WarnAfterExt},
     worker::{
@@ -3071,8 +3071,24 @@ pub async fn run_worker(
         // next iteration rather than the next periodic one is what gets it into the row of a worker
         // whose process is short-lived (EXIT_AFTER_N_JOBS).
         let ip = cached_ip();
-        if (reported_ip.is_none() && ip.is_some()) || last_ping.elapsed().as_secs() > NUM_SECS_PING
-        {
+        let ip_just_resolved = reported_ip.is_none() && ip.is_some();
+        if ip_just_resolved || last_ping.elapsed().as_secs() > NUM_SECS_PING {
+            // Servers older than the background lookup take an IP from the initial ping only, so an
+            // agent has to register a second time to deliver one that resolved after it. Not worth
+            // it once this process has run a job, since registering clears the row's current job.
+            if ip_just_resolved
+                && conn.as_sql().is_none()
+                && jobs_executed == previous_jobs_executed
+                && ip.is_some_and(|ip| ip != UNKNOWN_IP)
+            {
+                if let Err(e) = insert_ping(hostname, &worker_name, ip, &conn).await {
+                    tracing::warn!(
+                        worker = %worker_name, hostname = %hostname,
+                        "failed to re-register with the resolved external IP: {e}"
+                    );
+                }
+            }
+
             let read_cgroups =
                 *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS;
             update_worker_ping_full(
