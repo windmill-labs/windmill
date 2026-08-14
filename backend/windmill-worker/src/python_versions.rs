@@ -1,12 +1,15 @@
 use std::{
+    collections::HashMap,
     ops::{Deref, DerefMut},
     process::Stdio,
     str::FromStr,
     sync::Arc,
+    time::UNIX_EPOCH,
 };
 
 use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{fs::DirBuilder, process::Command, sync::RwLock};
 use uuid::Uuid;
@@ -465,7 +468,7 @@ impl PyV {
         w_id: &str,
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     ) -> error::Result<Option<String>> {
-        let py_path = self.find_python().await;
+        let py_path = self.find_python_cached().await;
 
         // Runtime is not installed
         if let Err(py_err) = py_path {
@@ -480,7 +483,7 @@ impl PyV {
                 return Err(err);
             } else {
                 // Try to find one more time
-                let py_path = self.find_python().await;
+                let py_path = self.find_python_cached().await;
 
                 if let Err(err) = py_path {
                     tracing::error!(
@@ -489,7 +492,6 @@ impl PyV {
                     return Err(err);
                 }
 
-                // TODO: Cache the result
                 py_path
             }
         } else {
@@ -600,7 +602,33 @@ impl PyV {
         .await?;
         Ok(())
     }
+    /// Same as [`Self::find_python`] but backed by [`PY_PATH_CACHE_FILE`], which outlives the
+    /// worker process. The subprocess is only spawned when there is nothing usable on disk.
+    async fn find_python_cached(&self) -> error::Result<Option<String>> {
+        let version = self.to_string();
+
+        if let Some(py_path) = read_python_path_cache()
+            .await
+            .and_then(|cache| cache.paths.get(&version).cloned())
+        {
+            // Serving a path that no longer exists is far worse than the spawn it saves, so
+            // the interpreter is checked instead of trusted (the install dir may have been
+            // wiped, or uv may have moved it).
+            if tokio::fs::try_exists(&py_path).await.unwrap_or(false) {
+                return Ok(Some(py_path));
+            }
+        }
+
+        let py_path = self.find_python().await;
+        if let Ok(Some(ref py_path)) = py_path {
+            write_python_path_cache(&version, py_path).await;
+        }
+        py_path
+    }
+
     async fn find_python(&self) -> error::Result<Option<String>> {
+        tracing::debug!("Resolving python {} with uv python find", self.to_string());
+
         #[cfg(windows)]
         let uv_cmd = "uv";
 
@@ -667,6 +695,65 @@ impl PyV {
                 String::from_utf8(output.stderr).expect("Failed to convert error output to String");
             return Err(error::Error::FindPythonError(stderr));
         }
+    }
+}
+
+lazy_static::lazy_static! {
+    /// Sits next to `PY_INSTALL_DIR` rather than inside it, so uv never sees it while scanning
+    /// that directory for managed interpreters.
+    static ref PY_PATH_CACHE_FILE: String = format!("{}_paths.json", *PY_INSTALL_DIR);
+}
+
+/// Interpreter paths resolved by `uv python find`, keyed by the requested version.
+#[derive(Serialize, Deserialize)]
+struct PythonPathCache {
+    /// Identity of the uv that produced the entries. An upgraded uv may pick a different
+    /// interpreter for the same request, so entries from another uv are dropped wholesale.
+    uv: String,
+    paths: HashMap<String, String>,
+}
+
+/// `None` disables the cache entirely: without an identity for uv, an upgrade would go unnoticed.
+fn uv_identity() -> Option<String> {
+    #[cfg(windows)]
+    let uv_cmd = "uv";
+
+    #[cfg(unix)]
+    let uv_cmd = UV_PATH.as_str();
+
+    let metadata = std::fs::metadata(uv_cmd).ok()?;
+    let mtime = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    Some(format!("{uv_cmd}:{}:{}", metadata.len(), mtime.as_secs()))
+}
+
+async fn read_python_path_cache() -> Option<PythonPathCache> {
+    let uv = uv_identity()?;
+    let content = tokio::fs::read(&*PY_PATH_CACHE_FILE).await.ok()?;
+    let cache = serde_json::from_slice::<PythonPathCache>(&content).ok()?;
+    (cache.uv == uv).then_some(cache)
+}
+
+async fn write_python_path_cache(version: &str, py_path: &str) {
+    let Some(uv) = uv_identity() else {
+        return;
+    };
+
+    let mut cache = read_python_path_cache()
+        .await
+        .unwrap_or_else(|| PythonPathCache { uv, paths: HashMap::new() });
+    cache.paths.insert(version.to_owned(), py_path.to_owned());
+
+    // Written aside and renamed so that a concurrent worker never reads a half-written cache.
+    let tmp_file = format!("{}.{}.tmp", *PY_PATH_CACHE_FILE, Uuid::new_v4());
+    let write = async {
+        tokio::fs::write(&tmp_file, serde_json::to_vec(&cache)?).await?;
+        tokio::fs::rename(&tmp_file, &*PY_PATH_CACHE_FILE).await?;
+        Ok::<_, anyhow::Error>(())
+    };
+
+    if let Err(e) = write.await {
+        tracing::warn!("Could not cache resolved python path ({py_path}): {e}");
+        let _ = tokio::fs::remove_file(&tmp_file).await;
     }
 }
 
