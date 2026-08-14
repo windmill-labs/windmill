@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     ops::{Deref, DerefMut},
     process::Stdio,
     str::FromStr,
@@ -602,26 +601,27 @@ impl PyV {
         .await?;
         Ok(())
     }
-    /// Same as [`Self::find_python`] but backed by [`PY_PATH_CACHE_FILE`], which outlives the
+    /// Same as [`Self::find_python`] but backed by [`PY_PATH_CACHE_DIR`], which outlives the
     /// worker process. The subprocess is only spawned when there is nothing usable on disk.
     async fn find_python_cached(&self) -> error::Result<Option<String>> {
         let version = self.to_string();
+        // Without an identity for uv an upgrade would go unnoticed, so the cache is skipped.
+        let uv = uv_identity().await;
 
-        if let Some(py_path) = read_python_path_cache()
-            .await
-            .and_then(|cache| cache.paths.get(&version).cloned())
-        {
-            // Serving a path that no longer exists is far worse than the spawn it saves, so
-            // the interpreter is checked instead of trusted (the install dir may have been
-            // wiped, or uv may have moved it).
-            if tokio::fs::try_exists(&py_path).await.unwrap_or(false) {
-                return Ok(Some(py_path));
+        if let Some(ref uv) = uv {
+            if let Some(py_path) = read_cached_python_path(&PY_PATH_CACHE_DIR, uv, &version).await {
+                // Serving a path that no longer exists is far worse than the spawn it saves, so
+                // the interpreter is checked instead of trusted (the install dir may have been
+                // wiped, or uv may have moved it).
+                if tokio::fs::try_exists(&py_path).await.unwrap_or(false) {
+                    return Ok(Some(py_path));
+                }
             }
         }
 
         let py_path = self.find_python().await;
-        if let Ok(Some(ref py_path)) = py_path {
-            write_python_path_cache(&version, py_path).await;
+        if let (Some(uv), Ok(Some(py_path))) = (&uv, &py_path) {
+            write_cached_python_path(&PY_PATH_CACHE_DIR, uv, &version, py_path).await;
         }
         py_path
     }
@@ -699,55 +699,67 @@ impl PyV {
 }
 
 lazy_static::lazy_static! {
-    /// Sits next to `PY_INSTALL_DIR` rather than inside it, so uv never sees it while scanning
-    /// that directory for managed interpreters.
-    static ref PY_PATH_CACHE_FILE: String = format!("{}_paths.json", *PY_INSTALL_DIR);
+    /// Sits next to `PY_INSTALL_DIR` rather than inside it, so uv never sees these entries while
+    /// scanning that directory for managed interpreters.
+    static ref PY_PATH_CACHE_DIR: String = format!("{}_paths", *PY_INSTALL_DIR);
 }
 
-/// Interpreter paths resolved by `uv python find`, keyed by the requested version.
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    /// uv is invoked as a bare `uv` on windows, hence resolved through PATH, which
+    /// [`tokio::fs::metadata`] does not search. PATH does not change under us, so the lookup is
+    /// done once.
+    static ref UV_PATH: Option<String> = std::env::split_paths(PATH_ENV.as_str())
+        .map(|dir| dir.join("uv.exe"))
+        .find(|path| path.is_file())
+        .map(|path| path.to_string_lossy().into_owned());
+}
+
+/// Interpreter path resolved by `uv python find` for one requested version.
 #[derive(Serialize, Deserialize)]
-struct PythonPathCache {
-    /// Identity of the uv that produced the entries. An upgraded uv may pick a different
-    /// interpreter for the same request, so entries from another uv are dropped wholesale.
+struct CachedPythonPath {
+    /// Identity of the uv that resolved `path`. An upgraded uv may pick a different interpreter
+    /// for the same request, so an entry left by another uv is ignored.
     uv: String,
-    paths: HashMap<String, String>,
+    path: String,
 }
 
-/// `None` disables the cache entirely: without an identity for uv, an upgrade would go unnoticed.
-fn uv_identity() -> Option<String> {
-    #[cfg(windows)]
-    let uv_cmd = "uv";
-
+/// `None` disables the cache: an upgrade of a uv we cannot stat would go unnoticed.
+async fn uv_identity() -> Option<String> {
     #[cfg(unix)]
     let uv_cmd = UV_PATH.as_str();
 
-    let metadata = std::fs::metadata(uv_cmd).ok()?;
+    #[cfg(windows)]
+    let uv_cmd = UV_PATH.as_deref()?;
+
+    let metadata = tokio::fs::metadata(uv_cmd).await.ok()?;
     let mtime = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some(format!("{uv_cmd}:{}:{}", metadata.len(), mtime.as_secs()))
 }
 
-async fn read_python_path_cache() -> Option<PythonPathCache> {
-    let uv = uv_identity()?;
-    let content = tokio::fs::read(&*PY_PATH_CACHE_FILE).await.ok()?;
-    let cache = serde_json::from_slice::<PythonPathCache>(&content).ok()?;
-    (cache.uv == uv).then_some(cache)
+/// One file per version, so that workers resolving different versions concurrently cannot drop
+/// each other's entry the way a shared map would.
+fn cached_python_path_file(dir: &str, version: &str) -> String {
+    format!("{dir}/{version}.json")
 }
 
-async fn write_python_path_cache(version: &str, py_path: &str) {
-    let Some(uv) = uv_identity() else {
-        return;
-    };
-
-    let mut cache = read_python_path_cache()
+async fn read_cached_python_path(dir: &str, uv: &str, version: &str) -> Option<String> {
+    let content = tokio::fs::read(cached_python_path_file(dir, version))
         .await
-        .unwrap_or_else(|| PythonPathCache { uv, paths: HashMap::new() });
-    cache.paths.insert(version.to_owned(), py_path.to_owned());
+        .ok()?;
+    let cached = serde_json::from_slice::<CachedPythonPath>(&content).ok()?;
+    (cached.uv == uv).then_some(cached.path)
+}
 
-    // Written aside and renamed so that a concurrent worker never reads a half-written cache.
-    let tmp_file = format!("{}.{}.tmp", *PY_PATH_CACHE_FILE, Uuid::new_v4());
+async fn write_cached_python_path(dir: &str, uv: &str, version: &str, py_path: &str) {
+    let cached = CachedPythonPath { uv: uv.to_owned(), path: py_path.to_owned() };
+
+    // Written aside and renamed so that a concurrent worker never reads a half-written entry.
+    let tmp_file = format!("{dir}/{}.tmp", Uuid::new_v4());
     let write = async {
-        tokio::fs::write(&tmp_file, serde_json::to_vec(&cache)?).await?;
-        tokio::fs::rename(&tmp_file, &*PY_PATH_CACHE_FILE).await?;
+        tokio::fs::create_dir_all(dir).await?;
+        tokio::fs::write(&tmp_file, serde_json::to_vec(&cached)?).await?;
+        tokio::fs::rename(&tmp_file, cached_python_path_file(dir, version)).await?;
         Ok::<_, anyhow::Error>(())
     };
 
@@ -1051,5 +1063,26 @@ mod tests {
             pyv("2.3"),
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn test_cached_python_path_is_scoped_to_uv() {
+        let dir = std::env::temp_dir()
+            .join(format!("wm_py_path_cache_{}", Uuid::new_v4()))
+            .to_string_lossy()
+            .into_owned();
+
+        write_cached_python_path(&dir, "uv-a", "3.12", "/py/3.12/bin/python3.12").await;
+        assert_eq!(
+            read_cached_python_path(&dir, "uv-a", "3.12")
+                .await
+                .as_deref(),
+            Some("/py/3.12/bin/python3.12")
+        );
+        // An upgraded uv may pick a different interpreter, so its entries cannot be reused
+        assert_eq!(read_cached_python_path(&dir, "uv-b", "3.12").await, None);
+        assert_eq!(read_cached_python_path(&dir, "uv-a", "3.13").await, None);
+
+        tokio::fs::remove_dir_all(&dir).await.unwrap();
     }
 }
