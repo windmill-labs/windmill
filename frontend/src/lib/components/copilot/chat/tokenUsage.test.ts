@@ -41,4 +41,21 @@ describe('billedTokens', () => {
 			output: 200
 		})
 	})
+
+	// OpenRouter extends the OpenAI shape with cache-creation tokens, counted
+	// inside prompt_tokens like the reads beside them. Missing the field bills
+	// them as uncached input.
+	it('splits out OpenRouter cache-creation tokens', () => {
+		const usage = openAICompletionsUsageToChatTokenUsage({
+			prompt_tokens: 6300,
+			completion_tokens: 200,
+			prompt_tokens_details: { cached_tokens: 5000, cache_write_tokens: 300 }
+		})
+		expect(billedTokens(usage)).toEqual({
+			input: 1000,
+			cacheRead: 5000,
+			cacheWrite: 300,
+			output: 200
+		})
+	})
 })

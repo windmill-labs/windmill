@@ -657,7 +657,12 @@ export class AIChatManager {
 	 *
 	 * Only token counts leave the browser — rates are applied when the usage is
 	 * read, so a corrected price also corrects everything already recorded. */
-	private recordUsage(usage: ChatTokenUsage, provider: AIProvider, model: string) {
+	private recordUsage(
+		usage: ChatTokenUsage,
+		provider: AIProvider,
+		model: string,
+		workspace: string | undefined
+	) {
 		// A provider that reports no usage still yields an all-zero report. Recording
 		// it would add a $0 row to the usage view, claiming the request cost nothing
 		// rather than that it went uncounted.
@@ -674,7 +679,7 @@ export class AIChatManager {
 			cacheWriteTokens: tokens.cacheWrite,
 			outputTokens: tokens.output,
 			costUsd: usage.cost,
-			workspace: this.operatingWorkspace
+			workspace
 		})
 	}
 
@@ -2294,6 +2299,11 @@ export class AIChatManager {
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
 			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
 			const self = this
+			// Pinned for the whole turn, like the `workspace` the loop routes through:
+			// the global chat's operating workspace follows workspaceStore, so a switch
+			// while a response streams would bill it to the workspace the user landed
+			// on rather than the one whose credentials and proxy served it.
+			const usageWorkspace = this.operatingWorkspace
 			const result = await runChatLoop({
 				messages,
 				addedMessages,
@@ -2370,7 +2380,7 @@ export class AIChatManager {
 				onUsage: (usage, modelProvider) => {
 					// Accounting must never take a turn down with it.
 					try {
-						this.recordUsage(usage, modelProvider.provider, modelProvider.model)
+						this.recordUsage(usage, modelProvider.provider, modelProvider.model, usageWorkspace)
 					} catch (e) {
 						console.error('Failed to record AI usage', e)
 					}

@@ -68,9 +68,10 @@
 	type Row = {
 		key: string
 		cost: number | undefined
-		/** Every priced model behind this line was billed back by its provider, so
-		 * the figure is an invoice rather than an estimate. A line mixing the two
-		 * is reported as an estimate — the weaker of the two claims. */
+		/** Every model behind this line was billed back by its provider, so the
+		 * figure is an invoice rather than an estimate. A line mixing sources — or
+		 * one holding a model with no rate, whose spend the figure omits entirely —
+		 * makes the weaker claim. */
 		reported: boolean
 		tokensIn: number
 		tokensOut: number
@@ -93,8 +94,8 @@
 			existing.requests += row.requests
 			if (row.cost !== undefined) {
 				existing.cost = (existing.cost ?? 0) + row.cost
-				existing.reported &&= row.source === 'reported'
 			}
+			existing.reported &&= row.source === 'reported'
 			byKey.set(row.key, existing)
 		}
 		return [...byKey.values()].sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))

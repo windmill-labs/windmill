@@ -153,8 +153,9 @@ function isUsableRate(rate: number | undefined): boolean {
  *
  * An override that omits the cache rates inherits them from the model's own
  * built-in entry — the cached-read discount is a property of the provider, not of
- * the negotiated price, and the settings editor only asks for input/output. Only a
- * model with no built-in entry falls back to the generic ratios.
+ * the negotiated price. A model with no built-in entry has no discount to inherit:
+ * its cached tokens are billed at the input rate rather than at another vendor's
+ * ratio, so an unstated discount reads as none instead of as Anthropic's.
  */
 export function resolveModelPrice(
 	provider: AIProvider | string,
@@ -172,8 +173,8 @@ export function resolveModelPrice(
 			? candidate
 			: undefined
 	if (override) {
-		const cacheReadRatio = builtin ? builtin.cacheRead / builtin.input : CACHE_READ_RATIO
-		const cacheWriteRatio = builtin ? builtin.cacheWrite / builtin.input : CACHE_WRITE_RATIO
+		const cacheReadRatio = builtin ? builtin.cacheRead / builtin.input : 1
+		const cacheWriteRatio = builtin ? builtin.cacheWrite / builtin.input : 1
 		return {
 			source: 'override',
 			price: {

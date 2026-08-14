@@ -79,6 +79,23 @@ describe('resolveModelPrice', () => {
 		expect(resolved?.price.cacheRead).toBeCloseTo(1)
 	})
 
+	it('bills an unpriced model’s cached tokens at its input rate', () => {
+		// Gemini has no built-in entry, so there is no ratio to inherit. Falling back
+		// to Anthropic's tenth would invent a discount the provider may not give; the
+		// admin states the cache rates explicitly or pays full input.
+		const resolved = resolveModelPrice('googleai', 'gemini-2.5-flash', {
+			'googleai:gemini-2.5-flash': { input: 2, output: 8 }
+		})
+		expect(resolved?.price.cacheRead).toBe(2)
+		expect(resolved?.price.cacheWrite).toBe(2)
+
+		const stated = resolveModelPrice('googleai', 'gemini-2.5-flash', {
+			'googleai:gemini-2.5-flash': { input: 2, output: 8, cache_read: 0.5, cache_write: 1 }
+		})
+		expect(stated?.price.cacheRead).toBe(0.5)
+		expect(stated?.price.cacheWrite).toBe(1)
+	})
+
 	it('ignores an override whose rates could not be a price', () => {
 		for (const bad of [{ input: -1, output: 8 }, { input: 1e9, output: 8 }]) {
 			const resolved = resolveModelPrice('anthropic', 'claude-opus-5', {

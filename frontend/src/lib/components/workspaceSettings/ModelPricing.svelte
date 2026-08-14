@@ -37,14 +37,26 @@
 		)
 	)
 
-	type Field = 'input' | 'output'
+	type Field = 'input' | 'output' | 'cache_read' | 'cache_write'
+	type Rates = { input: number; output: number; cache_read?: number; cache_write?: number }
 
-	function currentRates(
-		provider: AIProvider,
-		model: string
-	): { input: number; output: number } | undefined {
+	// A model with a built-in entry already carries its provider's cached-read
+	// discount, which an override inherits, so asking for it again would be noise.
+	// A model with none has no ratio to inherit — without these fields its cached
+	// tokens can only be billed at the full input rate.
+	const RATE_FIELDS: Field[] = ['input', 'output']
+	const UNPRICED_RATE_FIELDS: Field[] = ['input', 'output', 'cache_read', 'cache_write']
+
+	function currentRates(provider: AIProvider, model: string): Rates | undefined {
 		const override = modelPricing[modelKey(provider, model)]
-		if (override) return { input: override.input, output: override.output }
+		if (override) {
+			return {
+				input: override.input,
+				output: override.output,
+				cache_read: override.cache_read,
+				cache_write: override.cache_write
+			}
+		}
 		const builtin = getKnownModelPrice(model)
 		return builtin ? { input: builtin.input, output: builtin.output } : undefined
 	}
@@ -124,14 +136,17 @@
 									{@const key = modelKey(provider as AIProvider, model)}
 									{@const rates = currentRates(provider as AIProvider, model)}
 									{@const overridden = isOverridden(provider as AIProvider, model)}
+									{@const builtin = getKnownModelPrice(model)}
 									<div class="flex flex-col gap-1">
-										<div class="flex items-center gap-3">
+										<div class="flex items-center gap-3 flex-wrap">
 											<div class="flex-1 min-w-0">
 												<span class="text-xs text-primary truncate block">{model}</span>
 											</div>
-											{#each ['input', 'output'] as const as field}
+											{#each builtin ? RATE_FIELDS : UNPRICED_RATE_FIELDS as field}
 												<div class="flex items-center gap-1">
-													<span class="text-xs text-secondary">{field}</span>
+													<span class="text-xs text-secondary whitespace-nowrap">
+														{field.replace('_', ' ')}
+													</span>
 													<div class="w-24">
 														<TextInput
 															value={rates?.[field] ?? ''}
@@ -156,10 +171,11 @@
 											{/each}
 											<span class="text-xs text-secondary whitespace-nowrap">$ / 1M</span>
 										</div>
-										{#if !rates}
+										{#if !builtin}
 											<div class="text-xs text-tertiary">
-												No built-in price — usage on this model is reported without a cost until you
-												set one.
+												{rates
+													? 'No built-in price for this model. Cached tokens bill at the input rate unless you give them their own.'
+													: 'No built-in price — usage on this model is reported without a cost until you set one.'}
 											</div>
 										{/if}
 										{#if overridden && (rates?.input === 0 || rates?.output === 0)}
