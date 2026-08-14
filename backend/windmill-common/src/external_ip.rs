@@ -20,24 +20,9 @@ use std::time::Duration;
 /// default, and the frontend filters it out of the addresses it offers for whitelisting.
 pub const UNKNOWN_IP: &str = "NO IP";
 
-/// `worker_ping.ip` is `VARCHAR(50)`, and the initial ping is a hard failure for the worker, so
-/// an overlong value must be rejected as config rather than reaching the insert.
+/// `worker_ping.ip` is `VARCHAR(50)`, and a failed initial ping takes the worker down, so an
+/// overlong value must not reach the insert.
 const MAX_IP_LEN: usize = 50;
-
-lazy_static::lazy_static! {
-    /// Skips the hub lookup entirely, for deployments that already know their egress address or
-    /// whose egress is blocked.
-    static ref WORKER_EXTERNAL_IP: Option<String> = std::env::var("WORKER_EXTERNAL_IP")
-        .ok()
-        .filter(|ip| !ip.is_empty())
-        .filter(|ip| {
-            let ok = ip.len() <= MAX_IP_LEN;
-            if !ok {
-                tracing::error!("WORKER_EXTERNAL_IP is longer than {MAX_IP_LEN} chars, ignoring it");
-            }
-            ok
-        });
-}
 
 static EXTERNAL_IP: OnceLock<String> = OnceLock::new();
 
@@ -51,10 +36,6 @@ pub fn cached_ip() -> Option<&'static str> {
 /// informational, and behind a firewall the lookup burns its whole 5s connect timeout on every
 /// process start, so nothing on the worker startup path may wait on it.
 pub fn resolve_ip_in_background() {
-    if let Some(ip) = WORKER_EXTERNAL_IP.as_ref() {
-        let _ = EXTERNAL_IP.set(ip.clone());
-        return;
-    }
     tokio::spawn(async {
         let ip = get_ip()
             .await
