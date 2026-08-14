@@ -647,15 +647,13 @@
 	}
 
 	/**
-	 * Whether closing would throw away work. Nothing is written before Finish, so the loss is
-	 * only what was typed -- but that includes a pasted database password and a project about
-	 * to be created, and a backdrop click is easy to do by accident. A run cannot be closed
-	 * at all while it is going, and once it has a result there is nothing left to lose.
+	 * Whether closing would throw away work. Until Finish the loss is only what was typed --
+	 * but that includes a pasted database password and a project about to be created, and a
+	 * backdrop click is easy to do by accident. A failed run counts too: its inputs are still
+	 * editable and it may have left something behind, which is the case most worth confirming.
+	 * A run cannot be closed while it is going, and one that succeeded has nothing left to lose.
 	 */
 	function hasUnfinishedIntent(): boolean {
-		// A failed run counts: its inputs are still editable and it is the case that can have
-		// left something behind, so leaving then is the discard most worth confirming. Only a
-		// run that succeeded has nothing left to lose.
 		return wiz.provider !== undefined && !run.running && !run.result?.ok
 	}
 
