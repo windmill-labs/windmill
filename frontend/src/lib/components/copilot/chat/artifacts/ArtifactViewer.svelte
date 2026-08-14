@@ -98,7 +98,15 @@
 	const isPlan = $derived(artifact.role === 'plan')
 	// Which pill and which bar this version earns — one place, so the list and this header
 	// cannot disagree about what counts as the plan.
-	const view = $derived(planVersionView(artifact, shownVersion))
+	// Silent until the snapshot lands, like the body below: `shownVersion` is still the head
+	// then, so a plan opened at the version its reader approved would wear the draft's badge
+	// and warning for the length of the read. Judging `pinned` instead would print the
+	// approved signal over text that is still the draft, which is worse.
+	const view = $derived(
+		restoringPin
+			? { badge: undefined, bar: undefined, backToPlan: undefined }
+			: planVersionView(artifact, shownVersion)
+	)
 	const badge = $derived(planBadge(view.badge))
 	// Browsing history offers the plan rather than the newest text, since that is what the
 	// user settled on — and the bar on the plan leads on to the draft, so neither needs a
