@@ -386,13 +386,21 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         error: String,
     ) {
         if listening_trigger.trigger_mode {
-            // The disable is what matters and commits on its own: a trigger
-            // left enabled here keeps a broken listener looking healthy, which
-            // is worse than a missing audit row. A failing history insert is
-            // reported, not fatal.
-            // SAFETY: Self::TABLE_NAME is a compile-time constant.
-            let report_status = sqlx::query(&format!(
-                r#"
+            // One transaction: the `UPDATE` holds the trigger's row lock until
+            // the commit below, and the history row is written inside that
+            // window. Recording afterwards on another connection would let a
+            // delete-and-recreate at the same path slip in between, and the row
+            // would then read as the server disabling the *replacement*.
+            //
+            // The disable still wins — `record_in_disable_tx` puts only the
+            // insert in a savepoint — because a trigger left enabled keeps a
+            // broken listener looking healthy.
+            let mut history_err = None;
+            let report_status = async {
+                let mut tx = db.begin().await?;
+                // SAFETY: Self::TABLE_NAME is a compile-time constant.
+                let rows = sqlx::query(&format!(
+                    r#"
                     UPDATE
                         {}
                     SET
@@ -402,42 +410,58 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                         last_server_ping = NULL
                     WHERE
                         workspace_id = $2 AND
-                        path = $3
+                        path = $3 AND
+                        mode <> 'disabled'::TRIGGER_MODE
                 "#,
-                Self::TABLE_NAME
-            ))
-            .bind(&error)
-            .bind(&listening_trigger.workspace_id)
-            .bind(&listening_trigger.path)
-            .execute(db)
+                    Self::TABLE_NAME
+                ))
+                .bind(&error)
+                .bind(&listening_trigger.workspace_id)
+                .bind(&listening_trigger.path)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+
+                // Zero rows means the trigger was deleted, or a user disabled it
+                // first: no transition of ours to record.
+                if rows > 0 {
+                    // `to_key`, not `Display`: it is what lines up with the
+                    // `TRIGGER_TYPE` the API records under.
+                    let trigger_kind = Self::TRIGGER_KIND.to_key();
+                    history_err = windmill_common::trigger_history::record_in_disable_tx(
+                        &mut tx,
+                        windmill_common::trigger_history::TriggerHistoryEvent::server_disable(
+                            &listening_trigger.workspace_id,
+                            &trigger_kind,
+                            &listening_trigger.path,
+                            serde_json::json!({ "mode": { "new": "disabled" } }),
+                            &error,
+                        ),
+                    )
+                    .await;
+                }
+                tx.commit().await?;
+                Ok::<(), Error>(())
+            }
             .await;
 
+            if let Some(history_err) = history_err {
+                report_critical_error(
+                    format!(
+                        "Disabled {} trigger {} but could not record it in the trigger history: {}",
+                        Self::TRIGGER_KIND,
+                        listening_trigger.path,
+                        history_err
+                    ),
+                    db.clone(),
+                    Some(&listening_trigger.workspace_id),
+                    None,
+                )
+                .await;
+            }
+
             match report_status {
-                Ok(result) => {
-                    // Gated on `rows_affected`: the trigger may have been
-                    // deleted meanwhile, and a disable row at a path someone
-                    // else may now own is a lie.
-                    if result.rows_affected() > 0 {
-                        // `to_key`, not `Display`: it is what lines up with the
-                        // `TRIGGER_TYPE` the API records under.
-                        let trigger_kind = Self::TRIGGER_KIND.to_key();
-                        let event =
-                            windmill_common::trigger_history::TriggerHistoryEvent::server_disable(
-                                &listening_trigger.workspace_id,
-                                &trigger_kind,
-                                &listening_trigger.path,
-                                serde_json::json!({ "mode": { "new": "disabled" } }),
-                                &error,
-                            );
-                        // Spawned, not awaited: the disable just cleared
-                        // `server_id`, so the ping branch of the enclosing
-                        // `select!` is about to exit and cancel everything left
-                        // in this future.
-                        windmill_common::trigger_history::spawn_record_after_disable(
-                            db.clone(),
-                            event.to_owned_event(),
-                        );
-                    }
+                Ok(()) => {
                     report_critical_error(
                         format!(
                             "Disabling {} trigger {} because of error: {}",

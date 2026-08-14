@@ -1464,6 +1464,11 @@ async fn set_default_error_handler(
     }
 
     if payload.override_existing {
+        // The rewrite and its history rows go in one transaction: on separate
+        // connections a concurrent edit could interleave, leaving the
+        // id-ordered drawer showing the wrong latest change, and a failed
+        // insert would leave the schedules rewritten with nothing recording it.
+        let mut tx = db.begin().await?;
         let updated_schedules: Vec<String>;
         match payload.handler_type {
             HandlerType::Error => {
@@ -1477,14 +1482,14 @@ async fn set_default_error_handler(
                         payload.number_of_occurence_exact,
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET ws_error_handler_muted = false, on_failure = NULL, on_failure_extra_args = NULL, on_failure_times = NULL, on_failure_exact = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 }
             }
@@ -1497,14 +1502,14 @@ async fn set_default_error_handler(
                         payload.number_of_occurence,
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET on_recovery = NULL, on_recovery_extra_args = NULL, on_recovery_times = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 }
             }
@@ -1516,14 +1521,14 @@ async fn set_default_error_handler(
                         payload.extra_args,
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET on_success = NULL, on_success_extra_args = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 }
             }
@@ -1566,9 +1571,8 @@ async fn set_default_error_handler(
                 "on_success_extra_args": { "new": extra_args },
             }),
         };
-        let mut conn = db.acquire().await?;
         trigger_history::record_bulk(
-            &mut conn,
+            &mut tx,
             &w_id,
             SCHEDULE_TRIGGER_KIND,
             &updated_schedules,
@@ -1578,6 +1582,8 @@ async fn set_default_error_handler(
             Some(handler_fields),
         )
         .await?;
+
+        tx.commit().await?;
 
         for updated_schedule_path in updated_schedules {
             // managed ducklake-maintenance rows get the handler update (their

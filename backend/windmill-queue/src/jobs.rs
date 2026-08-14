@@ -2527,11 +2527,10 @@ pub fn schedule_auto_disable_event<'a>(
 /// that reads as healthy but is dead is the worst of the available outcomes, and
 /// worse than a missing audit row.
 ///
-/// The savepoint also keeps a failed insert from poisoning the transaction that
-/// completes the job. `tx.begin()` is a savepoint, not a second transaction:
-/// sqlx picks `BEGIN` only at depth 0 and `SAVEPOINT _sqlx_savepoint_<n>` below
-/// it, on the connection the transaction already holds. Nothing is checked out
-/// of the pool.
+/// Recording inside `tx` also holds the schedule's row lock across both writes, so
+/// the row cannot end up describing a schedule deleted and recreated at that
+/// path in between, and a failed insert cannot poison the transaction that
+/// completes the job.
 ///
 /// Returns `Err` only when the disable itself failed. A lost history row is
 /// reported through `history_lost` instead, so it is loud rather than silent.
@@ -2570,22 +2569,7 @@ async fn disable_schedule_and_record(
 
     let event =
         schedule_auto_disable_event(&schedule.workspace_id, &schedule.path, &err.to_string());
-    match tx.begin().await {
-        Ok(mut savepoint) => match windmill_common::trigger_history::record(&mut savepoint, event)
-            .await
-        {
-            Ok(()) => {
-                if let Err(e) = savepoint.commit().await {
-                    *history_lost = Some(e.to_string());
-                }
-            }
-            Err(e) => {
-                savepoint.rollback().await.ok();
-                *history_lost = Some(e.to_string());
-            }
-        },
-        Err(e) => *history_lost = Some(e.to_string()),
-    }
+    *history_lost = windmill_common::trigger_history::record_in_disable_tx(tx, event).await;
 
     Ok(rows)
 }

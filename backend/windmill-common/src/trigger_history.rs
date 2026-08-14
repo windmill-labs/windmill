@@ -10,10 +10,12 @@
 //!
 //! Every field of a row is derived by the server at write time: the caller
 //! passes what it is doing, never who it claims to be or where it claims to
-//! come from. A history row therefore says three things a caller cannot forge:
-//! **who** (the authed username, or nobody for a server-initiated change),
-//! **what** (a field-level diff computed from the row before and after the
-//! write), and **from what kind of client** ([`TriggerSource`]).
+//! come from. **Who** (the authed username, or nobody for a server-initiated
+//! change) and **what** (a field-level diff computed from the row before and
+//! after the write) are derived by the server and cannot be forged. **From what
+//! kind of client** ([`TriggerSource`]) is weaker on purpose: a first-party
+//! client declares itself in a header, so it attributes rather than proves —
+//! see [`TriggerSource::of_request`].
 //!
 //! # What is recorded
 //!
@@ -51,14 +53,14 @@
 //! again. Enabled-and-dead is silent; disabled-without-an-audit-row is not, and
 //! the trigger's own `error` column still says why.
 //!
-//! So each writer commits the disable on its own and records after it. On the
-//! success path both land together (the queue path shares one commit, via a
-//! savepoint that also keeps a failed insert from poisoning the transaction that
-//! completes the job). Where the disable has already committed the insert is
-//! retried before giving up, since by then a retry cannot invent a row for a
-//! mutation that did not happen. Only if it still fails is the trigger left
-//! disabled without its row, and that is reported to the workspace error handler
-//! and the critical alert channel — loud, never silent.
+//! So each writer puts the disabling `UPDATE` and the record in one
+//! transaction, with only the insert inside a savepoint
+//! ([`record_in_disable_tx`]). Both land on the same commit, and the trigger's
+//! row lock is held across the pair — so the row cannot end up describing a
+//! trigger deleted and recreated at that path in between. If the insert alone
+//! fails it rolls back to the savepoint, the disable still commits, and the lost
+//! row is reported to the workspace error handler and the critical alert
+//! channel — loud, never silent.
 //!
 //! # Authorization contract
 //!
@@ -70,7 +72,7 @@
 //! carries. Reads are gated separately, by the RLS policies on the table and by
 //! the token scopes the listing route checks.
 
-use sqlx::PgConnection;
+use sqlx::{Acquire, PgConnection};
 
 use crate::error::Result;
 
@@ -318,9 +320,8 @@ fn json_len(value: &serde_json::Value) -> usize {
 }
 
 /// jsonb rejects `\u0000` inside a string, and `changes` quotes caller-supplied
-/// text — a schedule's `args`, a worker's error message. One NUL would fail the
-/// insert, and the insert now shares a transaction with the mutation it
-/// describes, so it would take that mutation down with it.
+/// text — a schedule's `args`, a worker's error message. One NUL anywhere in
+/// there would fail the insert and cost the row.
 fn strip_nuls(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::String(s) if s.contains('\0') => *s = s.replace('\0', ""),
@@ -393,106 +394,34 @@ impl<'a> TriggerHistoryEvent<'a> {
     }
 }
 
-/// Owned form of [`TriggerHistoryEvent`], for a recorder that outlives the code
-/// that built it.
-#[derive(Clone)]
-pub struct OwnedTriggerHistoryEvent {
-    pub workspace_id: String,
-    pub trigger_kind: String,
-    pub path: String,
-    pub operation: TriggerOperation,
-    pub source: TriggerSource,
-    pub username: Option<String>,
-    pub changes: Option<serde_json::Value>,
-}
-
-impl TriggerHistoryEvent<'_> {
-    pub fn to_owned_event(&self) -> OwnedTriggerHistoryEvent {
-        OwnedTriggerHistoryEvent {
-            workspace_id: self.workspace_id.to_string(),
-            trigger_kind: self.trigger_kind.to_string(),
-            path: self.path.to_string(),
-            operation: self.operation,
-            source: self.source,
-            username: self.username.map(str::to_string),
-            changes: self.changes.clone(),
+/// Record a disable inside the transaction that made it, without letting a
+/// failed insert take the disable down with it.
+///
+/// The caller's `UPDATE` holds the trigger's row lock until that transaction
+/// commits, and this runs inside that window — so the row cannot end up
+/// describing a trigger that was deleted and recreated at the same path in
+/// between, which is the whole point of doing it here rather than on a second
+/// connection afterwards.
+///
+/// The insert itself goes in a savepoint. If it fails it rolls back alone, the
+/// caller still commits the disable, and the reason comes back here so the
+/// caller can alert: a trigger left enabled reads as healthy while never firing
+/// again, which is worse than a missing audit row.
+pub async fn record_in_disable_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event: TriggerHistoryEvent<'_>,
+) -> Option<String> {
+    let mut savepoint = match tx.begin().await {
+        Ok(savepoint) => savepoint,
+        Err(e) => return Some(e.to_string()),
+    };
+    match record(&mut savepoint, event).await {
+        Ok(()) => savepoint.commit().await.err().map(|e| e.to_string()),
+        Err(e) => {
+            savepoint.rollback().await.ok();
+            Some(e.to_string())
         }
     }
-}
-
-impl OwnedTriggerHistoryEvent {
-    fn as_event(&self) -> TriggerHistoryEvent<'_> {
-        TriggerHistoryEvent {
-            workspace_id: &self.workspace_id,
-            trigger_kind: &self.trigger_kind,
-            path: &self.path,
-            operation: self.operation,
-            source: self.source,
-            username: self.username.as_deref(),
-            changes: self.changes.clone(),
-        }
-    }
-}
-
-/// Record a disable that has **already committed**, on a task of its own.
-///
-/// Detached because the trigger listener's `disable_with_error` runs inside a
-/// `tokio::select!` whose ping branch exits the moment the disable clears
-/// `server_id`: every await after the disable is a cancellation point there, so
-/// an inline retry — and the alert that should follow it — silently vanishes.
-/// Nothing here can invent a row for a mutation that did not happen, because the
-/// mutation is durable before this is spawned.
-pub fn spawn_record_after_disable(db: crate::DB, event: OwnedTriggerHistoryEvent) {
-    tokio::spawn(async move {
-        if let Err(e) = record_with_retry(&db, event.as_event()).await {
-            crate::utils::report_critical_error(
-                format!(
-                    "Disabled {} trigger {} but could not record it in the trigger history: {e:#}",
-                    event.trigger_kind, event.path
-                ),
-                db.clone(),
-                Some(&event.workspace_id),
-                None,
-            )
-            .await;
-        }
-    });
-}
-
-/// Append `event` to the history, retrying a few times on its own connection.
-///
-/// For the writers whose disable has already committed: the row is the point of
-/// recording the disable at all, so a pool blip or a momentary DB hiccup should
-/// not be what costs it. Retrying cannot invent a row for a mutation that did
-/// not happen, precisely because the mutation is already durable by the time
-/// this runs.
-///
-/// Gives up after `ATTEMPTS`; the caller alerts on the returned error.
-pub async fn record_with_retry(db: &crate::DB, event: TriggerHistoryEvent<'_>) -> Result<()> {
-    const ATTEMPTS: usize = 3;
-    let mut last_err = None;
-    for attempt in 1..=ATTEMPTS {
-        let outcome = match db.acquire().await {
-            Ok(mut conn) => record(&mut conn, event.clone()).await,
-            Err(e) => Err(e.into()),
-        };
-        match outcome {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                tracing::warn!(
-                    "could not record trigger history for {} (attempt {attempt}/{ATTEMPTS}): {e:#}",
-                    event.path
-                );
-                last_err = Some(e);
-            }
-        }
-        if attempt < ATTEMPTS {
-            tokio::time::sleep(std::time::Duration::from_millis(200 * attempt as u64)).await;
-        }
-    }
-    Err(last_err.unwrap_or_else(|| {
-        crate::error::Error::internal_err("could not record trigger history".to_string())
-    }))
 }
 
 /// Append `event` to the history.
@@ -602,9 +531,9 @@ mod tests {
         );
     }
 
-    /// A NUL reaching the column fails the insert, and the server-initiated
-    /// disables now roll their own `UPDATE` back with it — so this is the
-    /// difference between a logged oddity and a trigger that will not disable.
+    /// A NUL reaching the column fails the insert, and `changes` quotes
+    /// caller-supplied text — so this is the difference between a recorded
+    /// disable and a lost one.
     #[test]
     fn nul_bytes_never_reach_the_column() {
         let changes = cap_changes(Some(json!({ "error": { "new": "boom\u{0}tail" } })));
