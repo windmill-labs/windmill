@@ -59,3 +59,36 @@ async fn batch_reports_failure_rather_than_an_empty_result(db: Pool<Postgres>) {
         "a failed read must be an error, not an empty map that reads as every setting unset"
     );
 }
+
+/// `get_or_create_jwt_secret` decides in SQL rather than from the caller's read, so that
+/// replicas booting together cannot each install their own secret and reject each other's
+/// tokens. Reverting it to a plain upsert would pass every other test in this file.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn jwt_secret_is_created_once_and_never_overwritten(db: Pool<Postgres>) {
+    let first = windmill_common::global_settings::get_or_create_jwt_secret(&db)
+        .await
+        .unwrap();
+    assert!(!first.is_empty());
+
+    // Concurrent callers must converge on the one secret that landed, not clobber it.
+    let (a, b) = tokio::join!(
+        windmill_common::global_settings::get_or_create_jwt_secret(&db),
+        windmill_common::global_settings::get_or_create_jwt_secret(&db),
+    );
+    assert_eq!(a.unwrap(), first);
+    assert_eq!(b.unwrap(), first);
+
+    // A value that is not a usable secret is replaced rather than left in place.
+    set_setting(&db, "jwt_secret", json!(12345)).await;
+    let repaired = windmill_common::global_settings::get_or_create_jwt_secret(&db)
+        .await
+        .unwrap();
+    assert_ne!(repaired, first);
+    assert_eq!(
+        windmill_common::global_settings::get_or_create_jwt_secret(&db)
+            .await
+            .unwrap(),
+        repaired,
+        "once repaired it must be stable again"
+    );
+}

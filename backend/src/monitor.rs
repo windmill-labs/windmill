@@ -51,7 +51,8 @@ use windmill_common::{
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
-        load_value_from_global_settings, AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING,
+        get_or_create_jwt_secret, load_value_from_global_settings,
+        AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING,
         BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
         CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
@@ -82,7 +83,7 @@ use windmill_common::{
     server::load_smtp_config,
     tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode, HUB_API_SECRET},
+    utils::{empty_as_none, now_from_db, report_critical_error, Mode, HUB_API_SECRET},
     worker::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
@@ -402,10 +403,8 @@ pub async fn initial_load(
     });
 
     if let Some(db) = conn.as_sql() {
-        // Its own read on purpose: an absent value makes it upsert over whatever is there,
-        // so the pass must not sit between reading it absent and writing a replacement.
-        pass.action(async move {
-            if let Err(e) = reload_jwt_secret_setting(db).await {
+        pass.setting(JWT_SECRET_SETTING, false, move |v| async move {
+            if let Err(e) = apply_jwt_secret_setting(db, v).await {
                 tracing::error!("Could not reload jwt secret setting: {:?}", e);
             }
         });
@@ -6236,34 +6235,34 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
     Ok(())
 }
 
-async fn generate_and_save_jwt_secret(db: &DB) -> error::Result<String> {
-    let secret = rd_string(32);
-    sqlx::query!(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
-        JWT_SECRET_SETTING,
-        serde_json::to_value(&secret).unwrap()
-    ).execute(db).await?;
-
-    Ok(secret)
-}
 
 pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
-    // Reading this one stale is not a brief inconsistency: an absent value makes
-    // `generate_and_save_jwt_secret` upsert over whatever is there, so a replica booting
-    // alongside another would overwrite the secret the other just generated and invalidate
-    // every token it issued.
-    let jwt_secret = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
+    let v = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
+    apply_jwt_secret_setting(db, v).await
+}
 
-    let jwt_secret = if let Some(q) = jwt_secret {
-        if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
-            v
-        } else {
-            tracing::error!("Could not parse jwt_secret setting, generating new one");
-            generate_and_save_jwt_secret(db).await?
+/// The half of [`reload_jwt_secret_setting`] after the read.
+///
+/// `value` may be stale, which is why generating falls to
+/// [`get_or_create_jwt_secret`]: that statement, not this read, decides whether a new secret
+/// is stored, so a pass that batched an absent read cannot overwrite one another process
+/// wrote in the meantime.
+pub async fn apply_jwt_secret_setting(
+    db: &DB,
+    value: Option<serde_json::Value>,
+) -> error::Result<()> {
+    let jwt_secret = match value {
+        Some(q) => match serde_json::from_value::<String>(q) {
+            Ok(v) => v,
+            Err(_) => {
+                tracing::error!("Could not parse jwt_secret setting, generating new one");
+                get_or_create_jwt_secret(db).await?
+            }
+        },
+        None => {
+            tracing::info!("No jwt secret found, generating one");
+            get_or_create_jwt_secret(db).await?
         }
-    } else {
-        tracing::info!("Not jwt secret found, generating one");
-        generate_and_save_jwt_secret(db).await?
     };
 
     JWT_SECRET.store(std::sync::Arc::new(jwt_secret));

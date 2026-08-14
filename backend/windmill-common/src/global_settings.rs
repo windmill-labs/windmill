@@ -349,6 +349,42 @@ pub async fn load_values_from_global_settings(
     Ok(rows.into_iter().map(|r| (r.name, r.value)).collect())
 }
 
+/// Return the instance's JWT secret, generating one only if the row holds nothing usable.
+///
+/// The write has to be conditional rather than a plain upsert, for two reasons. A usable
+/// secret must never be overwritten: replicas booting together would each install their own
+/// and reject each other's tokens. And `notify_global_setting_change` fires on every write to
+/// this table, so an unconditional upsert would make each startup trigger a cluster-wide
+/// settings reload. An empty `RETURNING` is how a caller learns another process's secret
+/// stands, and reads that one instead.
+///
+/// Safe to call with a value read earlier: the statement, not the caller's read, decides.
+pub async fn get_or_create_jwt_secret(db: &Pool<Postgres>) -> error::Result<String> {
+    let candidate = crate::utils::rd_string(32);
+    let stored = sqlx::query_scalar!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
+         WHERE jsonb_typeof(global_settings.value) <> 'string'
+         RETURNING value",
+        JWT_SECRET_SETTING,
+        serde_json::to_value(&candidate)?
+    )
+    .fetch_optional(db)
+    .await?;
+
+    match stored {
+        Some(_) => Ok(candidate),
+        None => load_value_from_global_settings(db, JWT_SECRET_SETTING)
+            .await?
+            .and_then(|v| serde_json::from_value::<String>(v).ok())
+            .ok_or_else(|| {
+                error::Error::InternalErr(
+                    "jwt_secret conflicted but holds no usable value".to_string(),
+                )
+            }),
+    }
+}
+
 pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,
     setting_name: &str,
