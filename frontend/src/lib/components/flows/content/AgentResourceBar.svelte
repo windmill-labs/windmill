@@ -7,6 +7,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { AiEvalsService, ResourceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { Bot, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
@@ -330,6 +331,8 @@
 		const path = editingPath
 		try {
 			if (await persist(path)) {
+				// Deployed: the draft described what is now the agent, so it describes nothing.
+				clearDraft(path)
 				sendUserToast(`Updated agent ${path}`)
 			}
 		} catch (e) {
@@ -413,6 +416,67 @@
 		}
 	}
 
+	/**
+	 * Mirror the edit in progress into the agent's own draft.
+	 *
+	 * The step is forked while you edit it, which is what makes the edits runnable here — but the
+	 * agent is what is being edited, so that is where the unsaved state belongs. Kept there, it
+	 * survives closing the flow, shows the agent as drafted wherever it appears, and is what evals
+	 * run when you ask them to run the draft rather than what is deployed.
+	 */
+	function mirrorEditToDraft(path: string) {
+		if (!ws) return
+		UserDraftDbSyncer.save({
+			workspace: ws,
+			itemKind: 'resource',
+			path,
+			value: {
+				path,
+				description: '',
+				args: inputTransformsToAgentConfig(inputTransforms, tools),
+				labels: undefined,
+				wsSpecific: false
+			}
+		})
+	}
+
+	/** Drop it: the edit was saved, so the draft describes nothing that is not deployed, or it was
+	 *  abandoned, so it describes nothing at all. */
+	function clearDraft(path: string) {
+		if (!ws) return
+		UserDraftDbSyncer.save({ workspace: ws, itemKind: 'resource', path, value: null })
+	}
+
+	$effect(() => {
+		const path = editingPath
+		// Read so an edit to either re-runs this.
+		const brain = JSON.stringify(inputTransforms)
+		const toolset = JSON.stringify(tools)
+		untrack(() => {
+			if (!path || (brain === mirroredBrain && toolset === mirroredTools)) return
+			// The state the fork opened on is what the agent already holds: mirroring it would
+			// mark an untouched agent as drafted.
+			if (mirroredBrain === undefined) {
+				mirroredBrain = brain
+				mirroredTools = toolset
+				return
+			}
+			mirroredBrain = brain
+			mirroredTools = toolset
+			mirrorEditToDraft(path)
+		})
+	})
+	let mirroredBrain: string | undefined = $state(undefined)
+	let mirroredTools: string | undefined = $state(undefined)
+	$effect(() => {
+		if (!editingPath) {
+			untrack(() => {
+				mirroredBrain = undefined
+				mirroredTools = undefined
+			})
+		}
+	})
+
 	// Cancel discards the edits and re-links the step, leaving the agent untouched. Diverging from
 	// the agent is Unlink's job, on the linked card. Edit kept this flow's `tool_inputs` off the
 	// forked tools rather than folding them in, so they survive the round trip as overrides.
@@ -423,6 +487,7 @@
 		if (!path) {
 			return
 		}
+		clearDraft(path)
 		agent = path
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
@@ -493,8 +558,16 @@
 			<div class="flex items-start gap-2">
 				<Pencil size={16} class="text-primary shrink-0 mt-0.5" />
 				<div class="min-w-0 flex-1">
-					<div class="truncate text-xs font-medium" title={editingPath}>{editingPath}</div>
+					<div class="flex items-center gap-2 min-w-0">
+						<span class="truncate text-xs font-medium" title={editingPath}>{editingPath}</span>
+						{#if mirroredBrain !== undefined}
+							<Badge color="yellow">unsaved changes</Badge>
+						{/if}
+					</div>
 					<div class="text-2xs text-secondary">
+						{#if mirroredBrain !== undefined}
+							Kept on the agent as a draft, so they survive leaving this flow.
+						{/if}
 						Saving affects every flow using it<Tooltip small placement="bottom">
 							{#snippet text()}
 								Save changes writes back to the saved agent and re-links this step, so every flow
