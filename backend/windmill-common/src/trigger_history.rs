@@ -187,6 +187,12 @@ const MAX_CHANGES_BYTES: usize = 32 * 1024;
 /// The row at `path` as JSON, or `None` when there is none — which, on an RLS
 /// connection, also covers a row the caller cannot see.
 ///
+/// `FOR UPDATE`, so the preimage and the mutation that follows it see the same
+/// row: without the lock another request can commit between the two, and its
+/// change then lands in this caller's diff under this caller's name. The lock is
+/// on the trigger row and the callers touch the job queue only afterwards, which
+/// is the order the schedule paths already document.
+///
 /// `table` is interpolated: pass a compile-time constant, never anything a
 /// caller can reach.
 pub async fn snapshot_row(
@@ -197,7 +203,7 @@ pub async fn snapshot_row(
 ) -> Result<Option<serde_json::Value>> {
     // SAFETY: `table` is a compile-time constant.
     let snapshot: Option<serde_json::Value> = sqlx::query_scalar(&format!(
-        "SELECT to_jsonb(t) FROM {table} t WHERE workspace_id = $1 AND path = $2"
+        "SELECT to_jsonb(t) FROM {table} t WHERE workspace_id = $1 AND path = $2 FOR UPDATE"
     ))
     .bind(workspace_id)
     .bind(path)
