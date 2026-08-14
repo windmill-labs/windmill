@@ -291,9 +291,11 @@ pub async fn initial_load(
 
         // Load per-workspace retention overrides before the first cleanup tick so a fresh server
         // never sweeps globally without honoring configured longer-retention workspaces.
-        if let Err(e) = load_retention_period_overrides(db).await {
-            tracing::error!("Error loading per-workspace retention overrides: {e:#}");
-        }
+        pass.action(async move {
+            if let Err(e) = load_retention_period_overrides(db).await {
+                tracing::error!("Error loading per-workspace retention overrides: {e:#}");
+            }
+        });
 
         // Workspace fairness (cloud-only). The percentage/duration/min knobs apply
         // *before* the enabled flag so that `apply_workspace_fairness_enabled` reads
@@ -338,13 +340,15 @@ pub async fn initial_load(
             pass.setting(DISABLE_PASSWORD_LOGIN_SETTING, false, |v| async move {
                 apply_disable_password_login(v)
             });
-            if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
-                tracing::error!(
-                    "Error reloading critical alerts on db oversize setting: {:?}",
-                    e
-                )
-            }
-            windmill_common::min_version::store_min_keep_alive_version(db).await;
+            pass.action(async move {
+                if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
+                    tracing::error!(
+                        "Error reloading critical alerts on db oversize setting: {:?}",
+                        e
+                    )
+                }
+            });
+            pass.action(windmill_common::min_version::store_min_keep_alive_version(db));
             pass.setting(
                 windmill_common::global_settings::INSTANCE_EVENTS_WEBHOOK_SETTING,
                 false,
@@ -398,9 +402,13 @@ pub async fn initial_load(
     });
 
     if let Some(db) = conn.as_sql() {
-        if let Err(e) = reload_jwt_secret_setting(db).await {
-            tracing::error!("Could not reload jwt secret setting: {:?}", e);
-        }
+        // Its own read on purpose: an absent value makes it upsert over whatever is there,
+        // so the pass must not sit between reading it absent and writing a replacement.
+        pass.action(async move {
+            if let Err(e) = reload_jwt_secret_setting(db).await {
+                tracing::error!("Could not reload jwt secret setting: {:?}", e);
+            }
+        });
 
         pass.setting(CUSTOM_TAGS_SETTING, false, |v| async move {
             windmill_common::worker::apply_custom_tags_setting(v)
@@ -505,15 +513,17 @@ pub async fn initial_load(
         // Enterprise feature; the core logic lives in `crate::ee` (OSS gets a
         // no-op), gated here on a valid Enterprise license.
         #[cfg(feature = "parquet")]
-        if STORE_AUDIT_LOGS_S3.load(std::sync::atomic::Ordering::Relaxed)
-            && matches!(
-                windmill_common::ee_oss::get_license_plan().await,
-                windmill_common::ee_oss::LicensePlan::Enterprise
-            )
-        {
-            if let Some(db) = conn.as_sql() {
-                crate::ee_oss::anchor_audit_logs_s3_checkpoint_env_var(&db).await;
-            }
+        if let Some(db) = conn.as_sql() {
+            pass.action(async move {
+                if STORE_AUDIT_LOGS_S3.load(std::sync::atomic::Ordering::Relaxed)
+                    && matches!(
+                        windmill_common::ee_oss::get_license_plan().await,
+                        windmill_common::ee_oss::LicensePlan::Enterprise
+                    )
+                {
+                    crate::ee_oss::anchor_audit_logs_s3_checkpoint_env_var(&db).await;
+                }
+            });
         }
         pass.required_setting(
             REQUEST_SIZE_LIMIT_SETTING,
@@ -529,9 +539,13 @@ pub async fn initial_load(
         );
         pass.option_setting(SCIM_TOKEN_SETTING, "SCIM_TOKEN", SCIM_TOKEN.clone());
 
-        // Ensure audit partitions exist before any requests arrive
+        // Ensure audit partitions exist before any requests arrive. A step rather than a
+        // plain await: it drops partitions past `audit_log_retention_days`, so running it
+        // before that setting is applied would sweep with the compile-time default.
         if let Some(db) = conn.as_sql() {
-            manage_audit_partitions(&db, audit_log_retention_days().await).await;
+            pass.action(async move {
+                manage_audit_partitions(&db, audit_log_retention_days().await).await
+            });
         }
     }
 
@@ -3150,6 +3164,13 @@ impl<'a> SettingsPass<'a> {
             .collect();
 
         let mut values = fetch_settings_batch(conn, &names).await;
+        if values.is_empty() && !names.is_empty() {
+            // The batch failed outright. At startup there is no known-good in-memory state to
+            // preserve, so read each setting on its own rather than leaving the process on
+            // compile-time defaults until the next full reload.
+            tracing::warn!("Falling back to per-setting reads for {} settings", names.len());
+            values = fetch_settings_individually(conn, &names).await;
+        }
         for (name, http) in &declared {
             if over_http && !*http {
                 values.insert(name.to_string(), None);
@@ -3187,6 +3208,45 @@ impl<'a> SettingsPass<'a> {
 ///
 /// A read that fails is reported and left absent, which is the same value the caller would
 /// have parsed from a failed single read.
+/// Parse whitespace-separated URLs, dropping and reporting the ones that do not parse.
+fn parse_url_list(raw: &str, source: &str) -> Vec<url::Url> {
+    raw.trim()
+        .split_whitespace()
+        .filter_map(|url_str| match url::Url::parse(url_str) {
+            Ok(url) => Some(url),
+            Err(e) => {
+                tracing::error!("Invalid URL in {}: '{}': {}", source, url_str, e);
+                None
+            }
+        })
+        .collect()
+}
+
+/// One read per setting, concurrently. The fallback for a batch that failed as a whole: a
+/// name whose own read also fails is left out, so its applier is skipped rather than told the
+/// setting is unset.
+async fn fetch_settings_individually(
+    conn: &Connection,
+    names: &[&str],
+) -> std::collections::HashMap<String, Option<serde_json::Value>> {
+    futures::future::join_all(names.iter().map(|name| async move {
+        (
+            name.to_string(),
+            load_value_from_global_settings_with_conn(conn, name, true).await,
+        )
+    }))
+    .await
+    .into_iter()
+    .filter_map(|(name, value)| match value {
+        Ok(value) => Some((name, value)),
+        Err(e) => {
+            tracing::error!("Error loading setting {name}: {e:#}");
+            None
+        }
+    })
+    .collect()
+}
+
 async fn fetch_settings_batch(
     conn: &Connection,
     names: &[&str],
@@ -3207,26 +3267,9 @@ async fn fetch_settings_batch(
                 }
             }
         }
-        Connection::Http(_) => {
-            // An agent worker has no batch endpoint, but issuing the reads together still
-            // costs one round trip instead of one per setting.
-            futures::future::join_all(names.iter().map(|name| async move {
-                (
-                    name.to_string(),
-                    load_value_from_global_settings_with_conn(conn, name, true).await,
-                )
-            }))
-            .await
-            .into_iter()
-            .filter_map(|(name, value)| match value {
-                Ok(value) => Some((name, value)),
-                Err(e) => {
-                    tracing::error!("Error loading setting {name}: {e:#}");
-                    None
-                }
-            })
-            .collect()
-        }
+        // An agent worker has no batch endpoint, but issuing the reads together still costs
+        // one round instead of one per setting.
+        Connection::Http(_) => fetch_settings_individually(conn, names).await,
     }
 }
 
@@ -3366,12 +3409,20 @@ pub async fn load_url_list_setting_value(
 }
 
 /// The half of [`load_url_list_setting_value`] after the read, so [`SettingsPass`] can parse a
-/// value it already fetched. The `FORCE_` override is handled by the caller, which can fail.
+/// value it already fetched.
 pub fn parse_url_list_setting_value(
     q: Option<serde_json::Value>,
     setting_name: &str,
     std_env_var: &str,
 ) -> Option<Vec<url::Url>> {
+    // A FORCE_ override wins over both the database and the ordinary env var. Invalid URLs in
+    // it are dropped with an error here rather than failing the read, since a settings pass
+    // has nowhere to return the failure to.
+    if let Ok(force_value) = std::env::var(format!("FORCE_{}", std_env_var)) {
+        let urls = parse_url_list(&force_value, &format!("FORCE_{}", std_env_var));
+        return if urls.is_empty() { None } else { Some(urls) };
+    }
+
     // Check regular environment variable
     let mut value = if let Ok(env_value) = std::env::var(std_env_var) {
         let mut urls = Vec::new();
