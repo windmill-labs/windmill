@@ -574,8 +574,8 @@
 		if (dev) {
 			return `Edits to this workspace are made in its ${devLabelNoun(dev.dev_workspace_label)} ${dev.name} (${dev.id}) and promoted here.`
 		}
+		// Non-empty wherever this is read: the entry is only disabled when the same rulesets say so.
 		const rulesets = getActiveRulesetsForKind('DisableDirectDeployment')
-		if (rulesets.length === 0) return 'Direct edits to this workspace are restricted.'
 		const names = rulesets.map((r) => r.name).join(', ')
 		return rulesets.length > 1
 			? `The rules ${names} restrict direct edits to this workspace.`
