@@ -358,8 +358,6 @@ async fn handle_bedrock_sdk_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Sampling params are dropped under adaptive thinking and on the models
-    // that removed them outright — see `bedrock_temperature`.
     let temperature = bedrock_temperature(
         model,
         openai_req.reasoning_effort.as_deref(),
@@ -689,8 +687,6 @@ async fn handle_bedrock_sdk_non_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Sampling params are dropped under adaptive thinking and on the models
-    // that removed them outright — see `bedrock_temperature`.
     let temperature = bedrock_temperature(
         model,
         openai_req.reasoning_effort.as_deref(),
@@ -961,8 +957,6 @@ impl BedrockQueryBuilder {
         let (bedrock_messages, system_prompts) =
             openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 
-        // Sampling params are dropped under adaptive thinking and on the models
-        // that removed them outright — see `bedrock_temperature`.
         let temperature = bedrock_temperature(model, reasoning_effort, temperature);
 
         // Build inference configuration using shared helper

@@ -1178,15 +1178,17 @@ mod tests {
 
     #[test]
     fn anthropic_request_serializes_the_off_sentinel_as_a_thinking_disable() {
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-opus-5", Some("none"), Some(0.5));
         let request = AnthropicRequest {
             model: "claude-opus-5",
             system: None,
             messages: vec![],
             tools: None,
             tool_choice: None,
-            temperature: Some(0.5),
-            thinking: Some(AnthropicThinking::disabled()),
-            output_config: None,
+            temperature,
+            thinking,
+            output_config,
             max_tokens: Some(64000),
             stream: true,
         };
@@ -1198,8 +1200,7 @@ mod tests {
         // only applies to a thinking mode that actually runs.
         assert!(body["thinking"].get("display").is_none());
         assert!(body.get("output_config").is_none());
-        // Sampling params are only rejected alongside adaptive thinking.
-        assert_eq!(body["temperature"], 0.5);
+        assert!(body.get("temperature").is_none());
     }
 
     #[test]
