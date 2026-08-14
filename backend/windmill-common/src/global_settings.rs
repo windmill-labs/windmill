@@ -352,7 +352,11 @@ pub async fn with_global_settings_snapshot<F: std::future::Future>(
     db: &Pool<Postgres>,
     f: F,
 ) -> F::Output {
-    // The table is a handful of rows, so fetching all of it beats listing the wanted names.
+    // Fetching the whole table rather than the wanted names keeps the snapshot complete, so a
+    // name it has no row for is genuinely unset rather than merely unrequested. That matters
+    // for the dynamically named rows (`workspace_dependencies_map_rebuilt:<workspace_id>`),
+    // which no caller could put on a list. It trades bytes for round trips: a pass reading
+    // only a couple of settings should query them directly instead.
     match sqlx::query!("SELECT name, value FROM global_settings")
         .fetch_all(db)
         .await
@@ -370,6 +374,12 @@ pub async fn with_global_settings_snapshot<F: std::future::Future>(
     }
 }
 
+/// Read one setting.
+///
+/// Served from the calling task's [`with_global_settings_snapshot`] scope when it has one, in
+/// which case `db` goes unused and the value is as of the instant that snapshot was taken. A
+/// caller that must observe a write it just made has to run outside any scope — see
+/// `reload_custom_tags_setting`'s caller in the instance-settings handler.
 pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,
     setting_name: &str,
