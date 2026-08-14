@@ -360,6 +360,7 @@
 		createdProjectName = undefined
 		createdProjectPath = undefined
 		nameConflict = ''
+		lastFailure = ''
 		pathTakenError = ''
 		poolerUnavailable = undefined
 		if (resume) {
@@ -516,6 +517,8 @@
 	/** The secret path a previous attempt wrote, which this one is allowed to write over. */
 	let claimedPath = $state<string | undefined>(undefined)
 	let nameConflict = $state('')
+	/** Why the last run failed, kept on the review step after the checklist is dropped. */
+	let lastFailure = $state('')
 
 	/**
 	 * A refused pre-flight means nothing ran, so the checklist from a previous attempt has to
@@ -523,6 +526,10 @@
 	 * the review step.
 	 */
 	function backToReview() {
+		// The checklist is the only place a failure is reported, and this drops it -- so what it
+		// said has to come with us. It is the whole reason the user is on their way back: which
+		// project to rename to, which path not to write over.
+		lastFailure = run.result?.ok ? '' : (run.result?.error ?? '')
 		run = { steps: [], running: false }
 		enterStep(3)
 	}
@@ -592,6 +599,7 @@
 			return
 		}
 		run = { steps: planSteps(wiz), running: true }
+		lastFailure = ''
 		// The database is registered by the call whatever it answers, so asking for one is
 		// already leaving something behind.
 		if (wiz.provider === 'instance' && wiz.instance.mode === 'create') {
@@ -1243,6 +1251,9 @@
 {/snippet}
 
 {#snippet reviewStep()}
+	{#if lastFailure}
+		<Alert type="error" size="xs" bgClass="border-0" title="">{lastFailure}</Alert>
+	{/if}
 	<div>
 		<span class="text-xs font-semibold text-emphasis">Data table name</span>
 		<TextInput
@@ -1311,6 +1322,7 @@
 				bind:error={resourcePathError}
 				initialPath={initialResourcePath}
 				checkInitialPathExistence
+				allowedExistingPath={claimedPath}
 				namePlaceholder="database"
 				kind="resource"
 				autofocus={false}

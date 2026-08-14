@@ -526,10 +526,18 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 				const projects = await listSupabaseProjects(deps.supabaseToken!)
 				const existing = projects.find(inOrg(wanted))
 				if (existing) {
-					if (!(await exists('variable', deps.workspace, path)))
+					if (!(await exists('variable', deps.workspace, path))) {
+						// A project this same session created is the one case where the password is
+						// held after all, just not here: the path has been edited since. Saying so
+						// beats telling someone to reset or delete a project that is working.
+						if (deps.createdProjectName === wanted && deps.createdProjectPath)
+							return fail(
+								`The password for ${wanted}, which this setup created, is stored at ${deps.createdProjectPath}, not at ${path}. Set the path back to ${deps.createdProjectPath} to carry on with that project.`
+							)
 						return fail(
 							`A Supabase project called ${wanted} already exists, but Windmill does not hold its password and Supabase cannot return it. Reset the password in Supabase and connect it as an existing project, or delete the project and retry.`
 						)
+					}
 					project = existing
 				} else {
 					// The earlier attempt's project has to still be there for its password to be worth

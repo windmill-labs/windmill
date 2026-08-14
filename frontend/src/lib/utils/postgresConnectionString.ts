@@ -9,14 +9,14 @@
  * user switch, so parse and compose have to be inverses: whatever one produces,
  * the other must read back unchanged.
  *
- * libpq is the arbiter of what a connection string means, so this follows it rather than
- * RFC 3986 where they differ: credentials are split at the *first* `@` -- an unencoded one
- * lands in the host for libpq too -- and percent escapes in them are decoded, so `p%40ss`
- * authenticates as `p@ss`.
+ * Credentials are split at the *last* `@`, since that is the only one that can precede a
+ * host: a password holding an unescaped `@` is common enough that reading the first one
+ * would quietly put half the password in the host. Everything else is taken literally --
+ * a percent escape stays the characters that were typed.
  */
 
 const CONNECTION_STRING =
-	/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
+	/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>.+))?@(?<host>[^:\/?@]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
 
 /**
  * A database someone types into Windmill is almost never localhost, so callers ask for TLS
@@ -33,15 +33,6 @@ export type PostgresConnectionParts = {
 	sslmode?: string
 }
 
-/** A lone `%` is not an escape, and a password is free to contain one. */
-function decode(value: string): string {
-	try {
-		return decodeURIComponent(value)
-	} catch {
-		return value
-	}
-}
-
 /** Undefined when the string is not a postgres URI. */
 export function parsePostgresConnectionString(
 	connectionString: string
@@ -50,8 +41,8 @@ export function parsePostgresConnectionString(
 	if (!match?.groups) return undefined
 	const { user, password, host, port, dbname, sslmode } = match.groups
 	return {
-		user: decode(user),
-		password: password ? decode(password) : undefined,
+		user,
+		password: password || undefined,
 		host,
 		port: port ? Number(port) : undefined,
 		dbname: dbname || undefined,
@@ -64,9 +55,7 @@ export function parsePostgresConnectionString(
  * string stays the short one people recognize when nothing was overridden.
  */
 export function composePostgresConnectionString(parts: PostgresConnectionParts): string {
-	const credentials = parts.password
-		? `${encodeURIComponent(parts.user)}:${encodeURIComponent(parts.password)}`
-		: encodeURIComponent(parts.user)
+	const credentials = parts.password ? `${parts.user}:${parts.password}` : parts.user
 	const port = parts.port ? `:${parts.port}` : ''
 	const query = parts.sslmode && parts.sslmode !== 'prefer' ? `?sslmode=${parts.sslmode}` : ''
 	return `postgres://${credentials}@${parts.host}${port}/${parts.dbname ?? ''}${query}`

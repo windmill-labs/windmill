@@ -85,6 +85,10 @@
 		 *  workspace when the editor operates on a workspace other than the one the
 		 *  top nav points at (see the sessions preview / dev-workspace flows). */
 		workspaceOverride?: string
+		/** One path that does not count as taken, for a caller creating something that may
+		 *  already have written there itself — a setup flow correcting its own failed attempt.
+		 *  Every other existing path is still refused. */
+		allowedExistingPath?: string
 	}
 
 	let {
@@ -102,7 +106,8 @@
 		disableEditing = false,
 		size = 'md',
 		drawerOffset = 0,
-		workspaceOverride = undefined
+		workspaceOverride = undefined,
+		allowedExistingPath = undefined
 	}: Props = $props()
 
 	let ws = $derived(workspaceOverride ?? $workspaceStore)
@@ -240,6 +245,7 @@
 		}
 		validateTimeout = setTimeout(async () => {
 			if (
+				path !== allowedExistingPath &&
 				(path == '' || checkInitialPathExistence || path != initialPath) &&
 				(await pathExists(path, kind))
 			) {
