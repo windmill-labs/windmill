@@ -37,11 +37,19 @@
 
 	let openedDescriptions: Record<number, true> = $state({})
 
+	function toggleDescription(i: number) {
+		if (openedDescriptions[i]) delete openedDescriptions[i]
+		else openedDescriptions[i] = true
+	}
+
 	$effect(() => {
 		for (let i = 0; i < steps.length; i++) {
 			if (steps[i].status === 'failed') openedDescriptions[i] = true
 		}
 	})
+
+	const titleRowClass = (status: SetupStepStatus) =>
+		twMerge('text-xs font-medium flex justify-between items-center', titleClass[status])
 
 	const titleClass: Record<SetupStepStatus, string> = {
 		pending: 'text-hint/75',
@@ -55,17 +63,7 @@
 <div class={twMerge('flex flex-col gap-0.5', className)}>
 	{#each steps as step, i}
 		{@const descriptionOpened = openedDescriptions[i] ?? false}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			class="flex flex-col bg-surface rounded-md py-1 pr-2 cursor-pointer"
-			role=""
-			onclick={() => {
-				if (!step.description) return
-				if (descriptionOpened) delete openedDescriptions[i]
-				else openedDescriptions[i] = true
-			}}
-		>
+		<div class="flex flex-col bg-surface rounded-md py-1 pr-2">
 			<div class="flex gap-2">
 				<span class="inline-flex w-4 h-5 shrink-0 justify-center items-center">
 					{#if step.status === 'running'}
@@ -79,14 +77,15 @@
 					{/if}
 				</span>
 				<div class="flex-1 my-0.5">
-					<span
-						class={twMerge(
-							'text-xs font-medium flex justify-between items-center',
-							titleClass[step.status]
-						)}
-					>
-						{step.title}
-						{#if step.description}
+					<!-- The title is the whole interactive surface, so a step without a description
+					stays inert rather than offering a focus stop that does nothing. -->
+					{#if step.description}
+						<button
+							type="button"
+							class={twMerge(titleRowClass(step.status), 'w-full text-left cursor-pointer')}
+							onclick={() => toggleDescription(i)}
+						>
+							{step.title}
 							<ChevronDown
 								class={twMerge(
 									'text-hint transition-transform',
@@ -94,14 +93,13 @@
 								)}
 								size={14}
 							/>
-						{/if}
-					</span>
+						</button>
+					{:else}
+						<span class={titleRowClass(step.status)}>{step.title}</span>
+					{/if}
 					<ResizeTransitionWrapper vertical class="text-2xs text-secondary">
 						{#if descriptionOpened}
-							<div
-								class="whitespace-pre-wrap cursor-default mt-1.5"
-								onclick={(e) => e.stopPropagation()}
-							>
+							<div class="whitespace-pre-wrap mt-1.5">
 								{step.description}
 							</div>
 						{/if}
@@ -109,7 +107,7 @@
 				</div>
 			</div>
 			{#if step.substeps?.length}
-				<div class="ml-6" onclick={(e) => e.stopPropagation()}>
+				<div class="ml-6">
 					<Self steps={step.substeps} />
 				</div>
 			{/if}

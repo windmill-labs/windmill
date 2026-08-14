@@ -36,24 +36,18 @@ describe('parsePostgresConnectionString', () => {
 		expect(parsePostgresConnectionString('')).toBeUndefined()
 	})
 
-	// Only the last `@` can be the one before the host, and passwords hold `@` often enough
-	// that splitting at the first would silently keep half of one and connect nowhere.
-	it('splits credentials at the last @', () => {
-		expect(
-			parsePostgresConnectionString('postgres://u:p@ss@db.example.com:5432/mydb')
-		).toMatchObject({ password: 'p@ss', host: 'db.example.com', port: 5432 })
-	})
-
-	// A password is free to contain a `%`, which is not the start of an escape, so nothing
-	// here is unescaped -- a credential means the characters it is written with.
-	it('keeps percent escapes as typed', () => {
-		expect(parsePostgresConnectionString('postgres://u:p%40ss@host/db')?.password).toBe('p%40ss')
+	// Verified against psql: `postgres://role:p%40ss@host/db` authenticates as `p@ss`, and an
+	// unencoded `@` puts the rest of the password in libpq's host too. Reading these any other
+	// way would make the same string mean something here that it means nowhere else.
+	it('decodes percent escapes in credentials, as libpq does', () => {
+		expect(parsePostgresConnectionString('postgres://u:p%40ss@host/db')?.password).toBe('p@ss')
+		expect(parsePostgresConnectionString('postgres://u%40corp:p@host/db')?.user).toBe('u@corp')
 	})
 })
 
 // The wizard offers the same connection as a string or as fields and switches between them
-// by composing and reparsing, so a password holding a reserved character has to survive the
-// trip: it would otherwise come back wrong rather than failing to parse.
+// by composing and reparsing. A password holding a character the URI reserves is the case
+// that breaks silently: it comes back wrong rather than failing to parse.
 describe('composePostgresConnectionString', () => {
 	it('leaves an explicit prefer out of the string, since libpq assumes it', () => {
 		const parts = { user: 'u', host: 'h', port: undefined, dbname: 'db', sslmode: 'prefer' }
@@ -66,8 +60,8 @@ describe('composePostgresConnectionString', () => {
 
 	it('round-trips through parse', () => {
 		const parts = {
-			user: 'u',
-			password: 'p@ss/w:rd%',
+			user: 'u@corp',
+			password: 'p@ss/w:rd',
 			host: 'db.example.com',
 			port: 6543,
 			dbname: 'mydb',

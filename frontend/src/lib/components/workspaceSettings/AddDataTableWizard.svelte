@@ -415,6 +415,9 @@
 		// Read off one attempt against one project; the review step would otherwise warn about
 		// a limitation that no longer applies while claiming session pooling right above it.
 		poolerUnavailable = undefined
+		// Same for the failure carried back to the review step: it names inputs that have since
+		// been edited, so it would describe a run nobody can still act on.
+		lastFailure = ''
 		if (maxStep > wiz.step) maxStep = wiz.step
 	}
 
@@ -650,7 +653,10 @@
 	 * at all while it is going, and once it has a result there is nothing left to lose.
 	 */
 	function hasUnfinishedIntent(): boolean {
-		return wiz.provider !== undefined && !run.running && !run.result
+		// A failed run counts: its inputs are still editable and it is the case that can have
+		// left something behind, so leaving then is the discard most worth confirming. Only a
+		// run that succeeded has nothing left to lose.
+		return wiz.provider !== undefined && !run.running && !run.result?.ok
 	}
 
 	/** Backdrop, Escape and the close button all arrive here. */
