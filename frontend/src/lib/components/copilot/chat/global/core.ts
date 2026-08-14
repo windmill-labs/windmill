@@ -3794,7 +3794,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getPreviewStatusSchema,
 			'get_preview_status',
-			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited. Only meaningful inside a session.'
+			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing — for an artifact tab, also the version the user has pinned in its version picker, which may be older than the latest. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited, and whenever the user asks what they are looking at with no ACTIVE PREVIEW section to answer from. Only meaningful inside a session.'
 		),
 		planModeSafe: true,
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
