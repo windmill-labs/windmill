@@ -3120,7 +3120,7 @@ impl<'a> SettingsPass<'a> {
         });
     }
 
-    /// The batched form of [`reload_setting`].
+    /// A setting with a default, the batched counterpart of [`load_setting_value`].
     pub fn required_setting<T: FromStr + DeserializeOwned + Display + Send + Sync + 'a>(
         &mut self,
         name: &'static str,
@@ -3496,11 +3496,9 @@ pub async fn reload_url_list_setting(
     Ok(())
 }
 
-/// Load a required setting value without writing it anywhere.
-///
-/// Extracted from [`reload_setting`] so callers that store the value in
-/// something other than `Arc<RwLock<T>>` (e.g. `AtomicI64`, `AtomicBool`,
-/// `ArcSwap<T>`) can reuse the load pipeline.
+/// Load a required setting value without writing it anywhere, so callers that store it in
+/// something other than `Arc<RwLock<T>>` (e.g. `AtomicI64`, `AtomicBool`, `ArcSwap<T>`) can
+/// reuse the load pipeline.
 pub async fn load_setting_value<T: FromStr + DeserializeOwned + Display>(
     conn: &Connection,
     setting_name: &str,
