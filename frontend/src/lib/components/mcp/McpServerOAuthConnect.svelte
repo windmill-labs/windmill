@@ -38,6 +38,7 @@
 	let noOAuth = $state(false)
 	let pending: { workspace: string; path: string; serverUrl: string } | undefined = undefined
 	let popup: Window | null = null
+	let destroyed = false
 
 	async function discoverOAuth() {
 		status = 'discovering'
@@ -46,11 +47,17 @@
 			discoveryResult = await McpOauthService.discoverMcpOauth({
 				requestBody: { mcp_server_url: serverUrl }
 			})
+			// The caller keys this component on the url, so editing it replaces this
+			// instance while its request is still in flight. Reporting the answer then
+			// would describe the previous server: a slow failure would take the new
+			// connector down with it.
+			if (destroyed) return
 			selectedScopes = discoveryResult?.scopes_supported ?? []
 			noOAuth = false
 			status = 'discovered'
 			onDiscovered?.(true)
 		} catch (e) {
+			if (destroyed) return
 			console.error('Error discovering OAuth settings', e)
 			noOAuth = true
 			status = 'idle'
@@ -187,7 +194,10 @@
 
 	onMount(discoverOAuth)
 
-	onDestroy(cleanup)
+	onDestroy(() => {
+		destroyed = true
+		cleanup()
+	})
 </script>
 
 <div class="flex flex-col gap-4">

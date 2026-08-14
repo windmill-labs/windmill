@@ -127,6 +127,30 @@ describe('read/write split', () => {
 		expect(getTool('call_mcp_write_tool').requiresConfirmation).toBe(true)
 	})
 
+	// The rejection sends the model to the write tool, which classifies from the
+	// same cached listing: without dropping it, that retry is refused too and the
+	// model has nowhere to go until the entry expires.
+	it('reclassifies after the backend refuses the read-only assertion', async () => {
+		callMcpToolMock.mockRejectedValueOnce({
+			status: 400,
+			body: 'Bad request: MCP tool get_issue is not marked read-only by the server, it must be called as a tool that modifies data'
+		})
+		const refused = await run('call_mcp_read_tool', {
+			server: 'u/hugo/github_mcp',
+			tool: 'get_issue'
+		})
+		expect(refused.success).toBe(false)
+
+		// The server now reports the same name as mutating.
+		getMcpToolsMock.mockResolvedValue([{ ...TOOLS[0], annotations: { readOnlyHint: false } }])
+		callMcpToolMock.mockResolvedValue({ content: [] })
+		const retried = await run('call_mcp_write_tool', {
+			server: 'u/hugo/github_mcp',
+			tool: 'get_issue'
+		})
+		expect(retried.success).toBe(true)
+	})
+
 	// This classification comes from a listing that can predate a resource edited
 	// mid-turn, so the backend re-checks it against the server it is calling — but
 	// only knows to when the unconfirmed path says it assumed read-only.
