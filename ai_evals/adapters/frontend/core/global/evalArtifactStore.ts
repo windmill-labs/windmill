@@ -28,6 +28,13 @@ export function createEvalArtifactHelpers(seed: SeededArtifact[] = []) {
     const id = `eval-artifact-${seq++}`;
     const current = entry.versions.at(-1);
     if (!current) continue;
+    // A preview tab names the artifact it shows, so a shared name would open whichever
+    // one happened to be seeded last.
+    if (seededIds.has(entry.name)) {
+      throw new Error(
+        `Two seeded artifacts are named "${entry.name}" — a preview tab fixture could not tell them apart`,
+      );
+    }
     seededIds.set(entry.name, id);
     items.set(id, {
       id,

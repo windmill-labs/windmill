@@ -154,6 +154,13 @@ function seedTab(
   fixture: EvalPreviewTabFixture,
   artifactIds: Map<string, string>,
 ): string | undefined {
+  // A tab shows one destination; the branches below would silently keep the first.
+  const named = [fixture.artifact, fixture.page, fixture.item].filter(Boolean);
+  if (named.length > 1) {
+    throw new Error(
+      "Preview tab fixture sets more than one of artifact, page and item — a tab shows one of them",
+    );
+  }
   if (fixture.artifact) {
     const id = artifactIds.get(fixture.artifact.name);
     if (!id) {
