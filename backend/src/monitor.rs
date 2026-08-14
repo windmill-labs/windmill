@@ -772,8 +772,8 @@ pub async fn load_otel(db: &DB) {
 }
 
 pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
-    let v = load_value_from_global_settings(db, DEFAULT_TAGS_PER_WORKSPACE_SETTING).await;
-    apply_tag_per_workspace_enabled(v.ok().flatten());
+    let v = load_value_from_global_settings(db, DEFAULT_TAGS_PER_WORKSPACE_SETTING).await?;
+    apply_tag_per_workspace_enabled(v);
     Ok(())
 }
 
@@ -784,8 +784,8 @@ pub fn apply_tag_per_workspace_enabled(value: Option<serde_json::Value>) {
 }
 
 pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
-    let v = load_value_from_global_settings(db, DEFAULT_TAGS_WORKSPACES_SETTING).await;
-    apply_tag_per_workspace_workspaces(v.ok().flatten());
+    let v = load_value_from_global_settings(db, DEFAULT_TAGS_WORKSPACES_SETTING).await?;
+    apply_tag_per_workspace_workspaces(v);
     Ok(())
 }
 
@@ -807,8 +807,8 @@ pub fn apply_tag_per_workspace_workspaces(value: Option<serde_json::Value>) {
 }
 
 pub async fn load_preview_tags_override(db: &DB) -> error::Result<()> {
-    let v = load_value_from_global_settings(db, PREVIEW_TAGS_OVERRIDE_SETTING).await;
-    apply_preview_tags_override(v.ok().flatten());
+    let v = load_value_from_global_settings(db, PREVIEW_TAGS_OVERRIDE_SETTING).await?;
+    apply_preview_tags_override(v);
     Ok(())
 }
 
@@ -1025,8 +1025,8 @@ pub fn apply_workspace_max_queued_jobs(value: Option<serde_json::Value>) {
 
 pub async fn load_fork_workspace_tag_append_fork_suffix(db: &DB) -> error::Result<()> {
     let v =
-        load_value_from_global_settings(db, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING).await;
-    apply_fork_workspace_tag_append_fork_suffix(v.ok().flatten());
+        load_value_from_global_settings(db, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING).await?;
+    apply_fork_workspace_tag_append_fork_suffix(v);
     Ok(())
 }
 
@@ -1042,8 +1042,8 @@ pub fn apply_fork_workspace_tag_append_fork_suffix(value: Option<serde_json::Val
 
 pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::Result<()> {
     let v =
-        load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await;
-    apply_critical_alert_mute_ui_setting(v.ok().flatten());
+        load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await?;
+    apply_critical_alert_mute_ui_setting(v);
     Ok(())
 }
 
@@ -1061,8 +1061,8 @@ pub async fn reload_critical_alerts_on_token_expiry_setting(
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
         true,
     )
-    .await;
-    apply_critical_alerts_on_token_expiry_setting(v.ok().flatten());
+    .await?;
+    apply_critical_alerts_on_token_expiry_setting(v);
     Ok(())
 }
 
@@ -1074,8 +1074,8 @@ pub fn apply_critical_alerts_on_token_expiry_setting(value: Option<serde_json::V
 
 pub async fn load_metrics_debug_enabled(conn: &Connection) -> error::Result<()> {
     let v =
-        load_value_from_global_settings_with_conn(conn, EXPOSE_DEBUG_METRICS_SETTING, true).await;
-    apply_metrics_debug_enabled(v.ok().flatten());
+        load_value_from_global_settings_with_conn(conn, EXPOSE_DEBUG_METRICS_SETTING, true).await?;
+    apply_metrics_debug_enabled(v);
     Ok(())
 }
 
@@ -3114,6 +3114,12 @@ impl<'a> SettingsPass<'a> {
         std_env_var: &'static str,
         lock: Arc<RwLock<Option<T>>>,
     ) {
+        if forced_env_value::<T>(std_env_var).is_some() {
+            self.forced(move || async move {
+                *lock.write().await = parse_option_setting_value(None, name, std_env_var);
+            });
+            return;
+        }
         self.setting(name, true, move |v| async move {
             *lock.write().await = parse_option_setting_value(v, name, std_env_var);
         });
@@ -3140,9 +3146,29 @@ impl<'a> SettingsPass<'a> {
         std_env_var: &'static str,
         lock: Arc<RwLock<Option<Vec<url::Url>>>>,
     ) {
+        if std::env::var(format!("FORCE_{}", std_env_var)).is_ok() {
+            self.forced(move || async move {
+                *lock.write().await = parse_url_list_setting_value(None, name, std_env_var);
+            });
+            return;
+        }
         self.setting(name, true, move |v| async move {
             *lock.write().await = parse_url_list_setting_value(v, name, std_env_var);
         });
+    }
+
+    /// Apply a setting whose value comes from a `FORCE_` override.
+    ///
+    /// Declared as a step with no read: the override outranks the database, so fetching is
+    /// pointless, and more importantly a failed fetch must not drop it. A skipped applier is
+    /// how an unreadable setting keeps its current value, which for a forced one would mean
+    /// silently running unforced.
+    fn forced<F, Fut>(&mut self, apply: F)
+    where
+        F: FnOnce() -> Fut + Send + 'a,
+        Fut: std::future::Future<Output = ()> + Send + 'a,
+    {
+        self.action(async move { apply().await });
     }
 
     /// Fetch every declared setting in one go, then run the steps in declaration order.
@@ -3207,6 +3233,16 @@ impl<'a> SettingsPass<'a> {
             }
         }
     }
+}
+
+/// The value of a `FORCE_<VAR>` override, when it is set and parses.
+///
+/// Mirrors the check [`load_option_setting_value`] makes before it reads, so the batched and
+/// per-setting paths agree on when the database is consulted at all.
+fn forced_env_value<T: FromStr>(std_env_var: &str) -> Option<T> {
+    std::env::var(format!("FORCE_{}", std_env_var))
+        .ok()
+        .and_then(|x| x.parse::<T>().ok())
 }
 
 /// Parse whitespace-separated URLs, dropping and reporting the ones that do not parse.
