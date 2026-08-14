@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ChevronDown, ChevronRight, Minus, Pencil, Plus } from 'lucide-svelte'
 	import Badge from '../common/badge/Badge.svelte'
+	import Button from '../common/button/Button.svelte'
 	import ObjectViewer from '../propertyPicker/ObjectViewer.svelte'
 	import { formatScalar, isComplex, parseChanges, type FieldChange } from './triggerHistoryChanges'
 
@@ -49,17 +50,16 @@
 			<Icon size={12} class={`${marker[change.kind].class} shrink-0 translate-y-0.5`} />
 			<span class="text-2xs font-mono text-emphasis py-0.5">{change.field}</span>
 			{#if tree}
-				<button
-					class="text-2xs text-secondary hover:text-primary flex flex-row items-center gap-1 py-0.5 w-fit"
-					onclick={() => (expanded[change.field] = !expanded[change.field])}
+				<Button
+					unifiedSize="2xs"
+					variant="subtle"
+					wrapperClasses="w-fit"
+					btnClasses="!text-2xs !font-normal !px-1"
+					startIcon={{ icon: expanded[change.field] ? ChevronDown : ChevronRight }}
+					on:click={() => (expanded[change.field] = !expanded[change.field])}
 				>
-					{#if expanded[change.field]}
-						<ChevronDown size={12} />
-					{:else}
-						<ChevronRight size={12} />
-					{/if}
 					{change.kind === 'changed' ? 'value changed' : 'value'}
-				</button>
+				</Button>
 			{:else}
 				<span class="text-2xs font-mono py-0.5 break-all">
 					{#if change.kind === 'changed' || (change.kind === 'removed' && change.prev !== undefined)}
