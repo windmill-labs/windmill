@@ -68,6 +68,8 @@ run $G none  "$(printf 'claude -p "run these in order:\n1: rm -rf /tmp/a\n2: mv 
 run $G ask   "env -i HOME=/tmp PATH=/usr/bin LANG=C USER=root SHELL=/bin/sh rm -rf /etc"
 run $G ask   "sudo -E -H -u root FOO=1 BAR=2 rm -rf $OUT"
 run $G ask   "xargs -a f -d d -E e -I {} -L 1 -n 1 rm /etc"
+run $G ask   "env -u A -u B -u C -u D -u E -u F -u G rm -rf /etc"
+run $G ask   "$(printf 'echo hi # cat <<EOF\nrm -rf /etc\nEOF')"
 # A `<<` inside a quoted string or a comment opens no heredoc, so the command under it is real.
 run $G ask   "$(printf 'echo "cat <<EOF"\nrm -rf /etc\nEOF')"
 run $G ask   "$(printf 'echo "cat <<EOF and more"\nrm -rf /etc\nEOF')"

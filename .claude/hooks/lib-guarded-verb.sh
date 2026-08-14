@@ -39,9 +39,11 @@ strip_heredoc_bodies() {
     line="${lines[$i]}"
     printf '%s\n' "$line"
     i=$((i + 1))
+    # A `#` opens a comment, and a comment opens no heredoc — including mid-line, as in
+    # `echo hi # cat <<EOF`. Cutting there also discards a `#` that is really part of a word or
+    # a string, which at worst leaves a real body to be scanned: an extra prompt, never a lost one.
+    line="${line%%'#'*}"
     case "$line" in *'<<'*) ;; *) continue ;; esac
-    trimmed="${line#"${line%%[![:space:]]*}"}"
-    case "$trimmed" in '#'*) continue ;; esac       # a comment line opens no heredoc
     rest="${line#*<<}"
     rest="${rest#-}"                                # <<- strips leading tabs from the body
     rest="${rest#"${rest%%[![:space:]]*}"}"
@@ -81,13 +83,13 @@ strip_heredoc_bodies() {
 }
 
 runs_verb() {
-  local verb="$1" seg w wrapped budget
+  local verb="$1" seg raw w wrapped
   while IFS= read -r seg; do
-    wrapped=0 budget=0
-    for w in $seg; do
+    wrapped=0
+    for raw in $seg; do
       # The shell strips quotes and backslashes before it looks up the command, so `'rm'` and
       # `r\m` run rm and have to compare equal to it.
-      w="${w//[\"\'\\]/}"
+      w="${raw//[\"\'\\]/}"
       case "$w" in
         "$verb" | */"$verb") return 0 ;;
         *=*) ;;                                        # leading env assignment
@@ -95,16 +97,16 @@ runs_verb() {
         [0-9]*) [ "$wrapped" = 1 ] || break ;;         # a wrapper's duration, not `1:` in prose
         '!' | '{' | '}' | if | then | elif | else | while | until | do) ;;   # never the command
         timeout | time | nice | nohup | stdbuf | command | builtin | noglob | xargs | sudo | env)
-          wrapped=1 budget=6 ;;
+          wrapped=1 ;;
         # A wrapper's option value is indistinguishable from a command name (`stdbuf -o L rm`),
-        # so past a wrapper the next few words are scanned instead of stopping at the first
-        # ordinary one. Before one, that word is the command and the verb cannot follow it.
-        # Only these ordinary words are charged: the arms above have already proved themselves
-        # not to be commands, and charging them ends the scan before `env A=1 … F=6 rm`.
+        # so past a wrapper the scan continues instead of stopping at the first ordinary word.
+        # Before one, that word is the command and the verb cannot follow it.
         *)
           [ "$wrapped" = 1 ] || break
-          [ "$budget" -gt 0 ] || break
-          budget=$((budget - 1))
+          # It runs to the first quoted word, which is an argument rather than a command
+          # (`claude -p "…rm…"`), so the prose inside it stays data. Counting words instead
+          # would have to guess a limit, and wrappers take unboundedly many (`env -u A -u B …`).
+          case "$raw" in [\"\']*) break ;; esac
           ;;
       esac
     done
