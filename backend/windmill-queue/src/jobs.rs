@@ -2520,20 +2520,11 @@ pub fn schedule_auto_disable_event<'a>(
 
 /// Disable a schedule the server can no longer arm, and record that it did.
 ///
-/// The disable is the operationally important half and always wins: it goes on
-/// the caller's transaction, while the history row goes in a savepoint below it.
-/// A failing insert therefore rolls back alone and leaves the schedule disabled
-/// with its `error` set, rather than enabled and never firing again — a schedule
-/// that reads as healthy but is dead is the worst of the available outcomes, and
-/// worse than a missing audit row.
+/// Contract on `record_in_disable_tx`. Here `tx` is the job-completion
+/// transaction, so the savepoint also keeps a failed insert from poisoning it.
 ///
-/// Recording inside `tx` also holds the schedule's row lock across both writes, so
-/// the row cannot end up describing a schedule deleted and recreated at that
-/// path in between, and a failed insert cannot poison the transaction that
-/// completes the job.
-///
-/// Returns `Err` only when the disable itself failed. A lost history row is
-/// reported through `history_lost` instead, so it is loud rather than silent.
+/// Returns `Err` only when the disable itself failed; a lost history row comes
+/// back through `history_lost` for the caller to report.
 async fn disable_schedule_and_record(
     tx: &mut Transaction<'_, Postgres>,
     schedule: &Schedule,

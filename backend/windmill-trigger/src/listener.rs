@@ -386,15 +386,8 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         error: String,
     ) {
         if listening_trigger.trigger_mode {
-            // One transaction: the `UPDATE` holds the trigger's row lock until
-            // the commit below, and the history row is written inside that
-            // window. Recording afterwards on another connection would let a
-            // delete-and-recreate at the same path slip in between, and the row
-            // would then read as the server disabling the *replacement*.
-            //
-            // The disable still wins — `record_in_disable_tx` puts only the
-            // insert in a savepoint — because a trigger left enabled keeps a
-            // broken listener looking healthy.
+            // Contract on `record_in_disable_tx`: one transaction so the row
+            // lock spans both writes.
             let mut history_err = None;
             let report_status = async {
                 let mut tx = db.begin().await?;
@@ -422,8 +415,8 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 .await?
                 .rows_affected();
 
-                // Zero rows means the trigger was deleted, or a user disabled it
-                // first: no transition of ours to record.
+                // Zero rows: deleted, or a user disabled it first — no
+                // transition of ours to record.
                 if rows > 0 {
                     // `to_key`, not `Display`: it is what lines up with the
                     // `TRIGGER_TYPE` the API records under.
@@ -446,18 +439,20 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             .await;
 
             if let Some(history_err) = history_err {
-                report_critical_error(
-                    format!(
-                        "Disabled {} trigger {} but could not record it in the trigger history: {}",
-                        Self::TRIGGER_KIND,
-                        listening_trigger.path,
-                        history_err
-                    ),
-                    db.clone(),
-                    Some(&listening_trigger.workspace_id),
-                    None,
-                )
-                .await;
+                // Spawned: the commit above made the cleared `server_id` visible,
+                // so the ping branch of the enclosing `select!` is about to
+                // finish and drop everything left in this future. Awaiting the
+                // alert here would lose the one signal that the row is missing.
+                let message = format!(
+                    "Disabled {} trigger {} but could not record it in the trigger history: {}",
+                    Self::TRIGGER_KIND,
+                    listening_trigger.path,
+                    history_err
+                );
+                let (db, workspace_id) = (db.clone(), listening_trigger.workspace_id.clone());
+                tokio::spawn(async move {
+                    report_critical_error(message, db, Some(&workspace_id), None).await;
+                });
             }
 
             match report_status {

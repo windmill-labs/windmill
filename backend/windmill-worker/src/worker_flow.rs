@@ -2923,18 +2923,10 @@ pub async fn handle_flow(
                     // its own disable write failed. Retry it: rearm_schedule turns
                     // these into NoOp, so without disabling here the schedule would
                     // stay enabled yet never run.
-                    // One transaction: the `UPDATE` holds the schedule's row
-                    // lock until the commit, and the history row is written
-                    // inside that window. Recording afterwards on another
-                    // connection would let a delete-and-recreate at the same
-                    // path slip in between.
-                    //
-                    // The disable still wins — only the insert sits in a
-                    // savepoint — because this is the last chance to disable: a
-                    // flow schedule arms its next occurrence when the flow
-                    // *starts*, so once the flow is gone nothing reaches this
-                    // code again, and leaving it enabled would leave it enabled
-                    // and dead forever.
+                    // Contract on `record_in_disable_tx`. Worth knowing here:
+                    // this is the last chance to disable, because a flow
+                    // schedule arms its next occurrence when the flow *starts*,
+                    // so once the flow is gone nothing reaches this code again.
                     let mut history_lost = None;
                     let disable_result = async {
                         let mut tx = db.begin().await?;
