@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { parkWizard, type WizardResume } from './wizardParking'
 	import type { Snippet } from 'svelte'
-	import { Database, ArrowRight, Plus, ChevronRight } from 'lucide-svelte'
+	import { Database, ArrowRight, Plus } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -15,6 +15,7 @@
 	import Toggle from '../Toggle.svelte'
 	import Path from '../Path.svelte'
 	import Label from '../Label.svelte'
+	import Section from '../Section.svelte'
 	import SupabaseIcon from '../icons/SupabaseIcon.svelte'
 	import {
 		FolderService,
@@ -270,7 +271,6 @@
 		{ value: 'accept', label: 'Accept any certificate' }
 	]
 
-	let advancedOpen = $state(false)
 	let certVerification = $derived(
 		wiz.own.advanced.accept_invalid_certs === undefined
 			? 'default'
@@ -1174,19 +1174,8 @@
 
 {#snippet advancedGroup()}
 	<div class="border-t border-border-light pt-2">
-		<Button
-			variant="subtle"
-			size="xs2"
-			startIcon={{
-				icon: ChevronRight,
-				classes: `transition-transform ${advancedOpen ? 'rotate-90' : ''}`
-			}}
-			onclick={() => (advancedOpen = !advancedOpen)}
-		>
-			Advanced
-		</Button>
-		{#if advancedOpen}
-			<div class="flex flex-col gap-2 mt-2">
+		<Section label="Advanced" small collapsable>
+			<div class="flex flex-col gap-2">
 				<div>
 					<span class="text-2xs text-secondary">Root certificate</span>
 					<textarea
@@ -1230,7 +1219,7 @@
 					</div>
 				{/if}
 			</div>
-		{/if}
+		</Section>
 	</div>
 {/snippet}
 
