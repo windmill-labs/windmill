@@ -1317,17 +1317,14 @@ const SERVER_HEARTBEAT_TASK: &str = "server_heartbeat";
 /// Write a server-started heartbeat to `background_task_state` so that
 /// other instances waiting to restart can detect this process is healthy.
 ///
-/// Every process that reaches `run_server` announces, worker-mode ones included:
-/// a worker waits for a peer too (a `restart_worker_group` notification puts every
-/// worker of the group through `spawn_graceful_killpill`), so in a deployment with
-/// no co-located server, workers are the only peers each other can detect.
+/// Worker-mode processes announce too: `restart_worker_group` puts every worker of
+/// the group through `spawn_graceful_killpill`, which waits for a peer, and where no
+/// server is co-located workers are the only peers each other can detect.
 ///
-/// The row is keyed by hostname rather than by `INSTANCE_NAME`, which is random per
-/// process: keying on the latter means the upsert never conflicts, so every start
-/// leaves behind a row no later start reuses and only the sweep below removes, a
-/// week on. That is a row per job under `EXIT_AFTER_N_JOBS`.
-/// `owner` stays per-process so `check_any_server_started` can still tell a peer's
-/// start from its own when several processes share a host, and hence a row.
+/// The row is keyed per host and `owner` per process, and both halves carry weight.
+/// `INSTANCE_NAME` is random per start, so a row keyed on it never conflicts and
+/// accumulates one row per start, which is one per job under `EXIT_AFTER_N_JOBS`;
+/// `owner` is what tells a peer's start from its own when processes share a host.
 async fn announce_server_started(db: &DB) -> anyhow::Result<()> {
     use windmill_common::{utils::HOSTNAME, INSTANCE_NAME};
 
