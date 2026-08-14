@@ -7,11 +7,12 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { autoPlacement } from '@floating-ui/core'
 	import { WandSparkles } from 'lucide-svelte'
-	import { aiChatManager } from './chat/AIChatManager.svelte'
+	import { aiChatManager, type AIChatManager } from './chat/AIChatManager.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { getOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
+	import { getContext } from 'svelte'
 
 	let {
 		lang,
@@ -31,70 +32,87 @@
 	// standalone script, FlowBuilder for a step), seeded with the error so the
 	// session lands with a ready-to-send prompt the user can still edit.
 	const handoff = getOpenInSessionHandoff()
+	const seedPrompt = $derived(
+		error ? `Fix this error:\n\n\`\`\`\n${error}\n\`\`\`` : 'Fix the error from the last run.'
+	)
 	const sessionSource = $derived.by(() => {
 		const source = handoff?.source({ moduleId })
-		if (!source) return undefined
-		return {
-			...source,
-			seedPrompt: error
-				? `Fix this error:\n\n\`\`\`\n${error}\n\`\`\``
-				: 'Fix the error from the last run.'
-		}
+		return source ? { ...source, seedPrompt } : undefined
 	})
+
+	// Inside a session pane the chat is already beside this panel, so there is
+	// nothing to hand off to: drop the error into that chat's composer instead.
+	// OpenInSessionButton renders nothing there, which would otherwise leave the
+	// sessions population with no fix affordance at all.
+	const sessionScopedManager = getContext<AIChatManager | undefined>('aiChatManager')
 </script>
 
 {#if SUPPORTED_LANGUAGES.has(lang)}
-	<OpenInSessionButton
-		source={sessionSource}
-		btnClasses={AIBtnClasses('default')}
-		label="AI Fix"
-		btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
-	>
-		{#snippet fallback()}
-			<Popover
-				floatingConfig={{
-					middleware: [
-						autoPlacement({
-							allowedPlacements: ['bottom-end', 'top-end']
-						})
-					]
-				}}
-				displayArrow={true}
-			>
-				{#snippet trigger()}
-					<div class="flex flex-row">
-						<Button
-							title="Fix code"
-							size="xs"
-							color="light"
-							spacingSize="xs2"
-							startIcon={{ icon: WandSparkles }}
-							on:click={() => {
-								if ($copilotInfo.enabled) {
-									aiChatManager.fix()
-								}
-							}}
-							btnClasses="text-ai bg-violet-100 dark:bg-gray-700 min-w-[84px]"
-							propagateEvent={!$copilotInfo.enabled}
-						>
-							AI Fix
-						</Button>
-					</div>
-				{/snippet}
-				{#snippet content()}
-					<div class="p-4">
-						<div class="w-80">
-							<p class="text-sm"
-								>Enable Windmill AI in the <a
-									class="inline-flex flex-row items-center gap-1"
-									href="{base}/workspace_settings?tab=ai"
-									target="_blank">workspace settings</a
-								></p
-							></div
-						>
-					</div>
-				{/snippet}
-			</Popover>
-		{/snippet}
-	</OpenInSessionButton>
+	{#if sessionScopedManager}
+		<Button
+			title="Fix code"
+			size="xs"
+			color="light"
+			spacingSize="xs2"
+			startIcon={{ icon: WandSparkles }}
+			on:click={() => sessionScopedManager.seedComposer(seedPrompt)}
+			btnClasses={AIBtnClasses('default')}
+		>
+			AI Fix
+		</Button>
+	{:else}
+		<OpenInSessionButton
+			source={sessionSource}
+			btnClasses={AIBtnClasses('default')}
+			label="AI Fix"
+			btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
+		>
+			{#snippet fallback()}
+				<Popover
+					floatingConfig={{
+						middleware: [
+							autoPlacement({
+								allowedPlacements: ['bottom-end', 'top-end']
+							})
+						]
+					}}
+					displayArrow={true}
+				>
+					{#snippet trigger()}
+						<div class="flex flex-row">
+							<Button
+								title="Fix code"
+								size="xs"
+								color="light"
+								spacingSize="xs2"
+								startIcon={{ icon: WandSparkles }}
+								on:click={() => {
+									if ($copilotInfo.enabled) {
+										aiChatManager.fix()
+									}
+								}}
+								btnClasses="text-ai bg-violet-100 dark:bg-gray-700 min-w-[84px]"
+								propagateEvent={!$copilotInfo.enabled}
+							>
+								AI Fix
+							</Button>
+						</div>
+					{/snippet}
+					{#snippet content()}
+						<div class="p-4">
+							<div class="w-80">
+								<p class="text-sm"
+									>Enable Windmill AI in the <a
+										class="inline-flex flex-row items-center gap-1"
+										href="{base}/workspace_settings?tab=ai"
+										target="_blank">workspace settings</a
+									></p
+								></div
+							>
+						</div>
+					{/snippet}
+				</Popover>
+			{/snippet}
+		</OpenInSessionButton>
+	{/if}
 {/if}

@@ -266,7 +266,9 @@
 	const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 	const dispatch = createEventDispatcher()
 	// Set by the sessions pane; undefined everywhere else. ⌘L targets it so the
-	// shortcut reaches the chat the user is actually looking at.
+	// shortcut reaches the chat the user is actually looking at. Read directly
+	// rather than via getAiChatManager(), which collapses "no session" into the
+	// singleton — the distinction is what tells ⌘L whether a pane exists to open.
 	const sessionScopedChatManager = getContext<AIChatManager | undefined>('aiChatManager')
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 

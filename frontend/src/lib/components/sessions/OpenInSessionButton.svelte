@@ -75,7 +75,7 @@
 		togglePanel={open}
 		btnClasses={btnClasses ?? AIBtnClasses('default')}
 		{btnProps}
-		label={label ?? 'Open in AI session'}
+		{label}
 	/>
 {:else if !inSessionPanel}
 	{@render fallback?.()}

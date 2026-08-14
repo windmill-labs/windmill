@@ -2,8 +2,8 @@
 	import { Button } from '$lib/components/common'
 	import { Pencil, WandSparkles } from 'lucide-svelte'
 	import { aiChatManager } from './chat/AIChatManager.svelte'
-	import AskAiButton from './AskAiButton.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
@@ -41,13 +41,23 @@
 <div class="my-3 p-3 bg-surface-secondary rounded-md relative flex flex-col gap-3">
 	<div class="flex flex-row gap-2 justify-between items-center">
 		<h3 class="text-sm font-medium">Fill the inputs with AI</h3>
+		<!-- Labelled per branch: the hand-off runs the item, only the legacy path
+		     actually fills the form. A plain Button rather than AskAiButton, whose
+		     own session branch would fire here too and open an empty session. -->
 		<OpenInSessionButton
 			source={sessionSource}
-			label="Fill with AI"
+			label="Run with AI"
 			btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
 		>
 			{#snippet fallback()}
-				<AskAiButton label="Fill with AI" onClick={fillFormWithAI} />
+				<Button
+					unifiedSize="md"
+					startIcon={{ icon: WandSparkles }}
+					btnClasses={AIBtnClasses('default')}
+					on:click={fillFormWithAI}
+				>
+					Fill with AI
+				</Button>
 			{/snippet}
 		</OpenInSessionButton>
 	</div>

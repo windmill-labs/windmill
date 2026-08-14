@@ -247,10 +247,13 @@
 
 	/** Hand this app off to a fresh AI session with `seedPrompt` pre-filled.
 	 * Exposed for the template picker's "Start with AI": the route owns the
-	 * prompt, but the draft persistence the preview depends on lives here. */
-	export async function openInSession(seedPrompt: string): Promise<void> {
-		if (!sessionOpen) return
+	 * prompt, but the draft persistence the preview depends on lives here.
+	 * False when there is no path to open yet, so the caller can fall back
+	 * rather than swallow the click. */
+	export async function openInSession(seedPrompt: string): Promise<boolean> {
+		if (!sessionOpen) return false
 		await openSourceInSession(sessionOpen, { seedPrompt })
+		return true
 	}
 
 	// Convert to object format for child components
