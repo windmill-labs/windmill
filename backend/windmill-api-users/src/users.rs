@@ -1386,7 +1386,7 @@ async fn convert_user_to_group(
         ));
     }
 
-    // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
+    // Determine the group with highest precedence (same logic as reconcile_workspace_instance_groups)
     let roles: std::collections::HashMap<String, String> =
         if let Some(roles_json) = &eligible_groups[0].instance_groups_roles {
             serde_json::from_value(roles_json.clone()).unwrap_or_default()

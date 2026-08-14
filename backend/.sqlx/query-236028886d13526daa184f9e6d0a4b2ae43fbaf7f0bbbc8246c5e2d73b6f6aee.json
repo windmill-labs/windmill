@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT DISTINCT email FROM usr WHERE added_via->>'source' = 'instance_group' AND added_via->>'group' = $1",
+  "query": "SELECT instance_role FROM instance_group WHERE name = $1 FOR UPDATE",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "email",
+        "name": "instance_role",
         "type_info": "Varchar"
       }
     ],
@@ -15,8 +15,8 @@
       ]
     },
     "nullable": [
-      false
+      true
     ]
   },
-  "hash": "9530b234b2ac8f7360552be5e6bb25270e6b4185ce5c7f3c6edd9fbaabf77544"
+  "hash": "236028886d13526daa184f9e6d0a4b2ae43fbaf7f0bbbc8246c5e2d73b6f6aee"
 }
