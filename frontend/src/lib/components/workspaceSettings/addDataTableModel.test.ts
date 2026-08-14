@@ -17,6 +17,10 @@ vi.mock('./supabaseProvisioning', async (importOriginal) => ({
 
 const existsVariableMock = vi.fn()
 const createVariableMock = vi.fn()
+const getSettingsMock = vi.fn()
+const editDataTableConfigMock = vi.fn()
+const testDataTableConnectionMock = vi.fn()
+const setupCustomInstanceDbMock = vi.fn()
 vi.mock('$lib/gen', () => ({
 	VariableService: {
 		existsVariable: (...a: any[]) => existsVariableMock(...a),
@@ -24,8 +28,12 @@ vi.mock('$lib/gen', () => ({
 		updateVariable: vi.fn()
 	},
 	ResourceService: { existsResource: vi.fn(), createResource: vi.fn(), updateResource: vi.fn() },
-	SettingService: { setupCustomInstanceDb: vi.fn() },
-	WorkspaceService: { getSettings: vi.fn(), editDataTableConfig: vi.fn() }
+	SettingService: { setupCustomInstanceDb: (...a: any[]) => setupCustomInstanceDbMock(...a) },
+	WorkspaceService: {
+		getSettings: (...a: any[]) => getSettingsMock(...a),
+		editDataTableConfig: (...a: any[]) => editDataTableConfigMock(...a),
+		testDataTableConnection: (...a: any[]) => testDataTableConnectionMock(...a)
+	}
 }))
 
 import { newWizardState, runSetup, type WizardState } from './addDataTableModel'
@@ -112,5 +120,39 @@ describe('runSetup refusing to mint over a project it already created', () => {
 		const result = await runSetup(creating(), deps('earlier'))
 		expect(result.ok).toBe(false)
 		expect(createSupabaseProjectMock).not.toHaveBeenCalled()
+	})
+})
+
+// The instance branch is the one that has to write its row before it can probe it, since the
+// probe is by data table name. A database Windmill cannot store data in must not stay in the
+// config -- and a probe that throws leaves exactly the same unusable row as one that says no.
+describe('runSetup rolling the instance row back', () => {
+	function usingInstanceDb(): WizardState {
+		const state = newWizardState({ name: 'main', projectName: 'x', folder: 'f/team' })
+		state.provider = 'instance'
+		state.instance = { mode: 'existing', dbName: 'shared' }
+		return state
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		getSettingsMock.mockResolvedValue({ datatable: { datatables: {} } })
+		editDataTableConfigMock.mockResolvedValue(undefined)
+		setupCustomInstanceDbMock.mockResolvedValue({ success: true, logs: {} })
+	})
+
+	it('takes the row back out when the probe never answers', async () => {
+		testDataTableConnectionMock.mockRejectedValue(new Error('connection refused'))
+		const result = await runSetup(usingInstanceDb(), {
+			workspace: 'w',
+			supabaseToken: undefined,
+			onProgress: () => {}
+		} as any)
+		expect(result.ok).toBe(false)
+		expect(result.error).toContain('connection refused')
+		expect(result.rowRolledBack).toBe(true)
+		expect(result.rowWritten).toBe(false)
+		const lastWrite = editDataTableConfigMock.mock.calls.at(-1)?.[0]
+		expect(lastWrite.requestBody.settings.datatables).not.toHaveProperty('main')
 	})
 })

@@ -9,7 +9,21 @@
 
 const RESUME_KEY = 'datatable_wizard_resume'
 
-export type WizardResume = { name: string; region: string; projectName: string }
+export type WizardResume = {
+	name: string
+	region: string
+	projectName: string
+	/**
+	 * What the interrupted run had already created. Without these the resumed run meets its
+	 * own secret variable and resource as somebody else's and refuses to write over them,
+	 * which strands the Supabase project it just paid for. No secret is parked -- these are
+	 * paths, and the password they name is already in the workspace.
+	 */
+	resourcePath?: string
+	claimedPath?: string
+	createdProjectName?: string
+	createdProjectPath?: string
+}
 
 /** True while a wizard run is waiting on the Supabase redirect to come back. */
 export function hasParkedWizard(): boolean {

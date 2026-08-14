@@ -680,6 +680,13 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 				const report = await WorkspaceService.testDataTableConnection({
 					workspace: deps.workspace,
 					datatableName: name
+				}).catch(async (err) => {
+					// A probe that never answered leaves the same unusable row behind as one that
+					// answered no -- an unreachable database or a timeout lands here -- so it takes
+					// the same way out rather than the bare outer catch.
+					rowRolledBack = await removeRow(deps, name)
+					rowWritten = !rowRolledBack
+					throw err
 				})
 				if (!report.can_create_table) {
 					rowRolledBack = await removeRow(deps, name)

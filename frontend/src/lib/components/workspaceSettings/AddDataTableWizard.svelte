@@ -338,7 +338,11 @@
 			parkWizard({
 				name: wiz.review.name,
 				region: wiz.supabase.region,
-				projectName: wiz.supabase.projectName
+				projectName: wiz.supabase.projectName,
+				resourcePath,
+				claimedPath,
+				createdProjectName,
+				createdProjectPath
 			})
 	})
 
@@ -365,6 +369,17 @@
 		poolerUnavailable = undefined
 		if (resume) {
 			wiz.provider = 'supabase'
+			// The clears above are for a fresh run. This one is the same run coming back from the
+			// redirect, so what it had already created is still its own to write over.
+			claimedPath = resume.claimedPath
+			createdProjectName = resume.createdProjectName
+			createdProjectPath = resume.createdProjectPath
+			leftBehind = !!(resume.claimedPath || resume.createdProjectPath)
+			const cut = resume.resourcePath?.lastIndexOf('/') ?? -1
+			if (resume.resourcePath && cut > 0) {
+				wiz.review.folder = resume.resourcePath.slice(0, cut)
+				wiz.review.resourceName = resume.resourcePath.slice(cut + 1)
+			}
 			enterStep(2)
 		}
 	}
