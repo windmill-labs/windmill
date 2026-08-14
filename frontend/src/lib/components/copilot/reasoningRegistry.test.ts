@@ -75,11 +75,17 @@ describe('supportsReasoning (static registry)', () => {
 				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
 			).toBe('none')
 		}
-		// Bedrock routes them over the OpenAI-compatible surface, where the only
-		// off is omission — which these models ignore.
+		// Bedrock translates the same sentinel on its Converse path.
 		expect(
 			getReasoningCapability('aws_bedrock', 'global.anthropic.claude-opus-5').canDisable
-		).toBe(false)
+		).toBe(true)
+		expect(
+			resolveRequestReasoning({
+				provider: 'aws_bedrock',
+				model: 'global.anthropic.claude-opus-5',
+				reasoning: REASONING_OFF
+			})
+		).toBe('none')
 	})
 	it('flags Claude models served through Bedrock, with the Anthropic ladder', () => {
 		expect(supportsReasoning('aws_bedrock', 'us.anthropic.claude-opus-4-6-v1')).toBe(true)

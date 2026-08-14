@@ -265,15 +265,11 @@ function canDisableReasoning(provider: AIProvider, model: string): boolean {
 	const base = baseModelId(model)
 	switch (reasoningProviderFamily(provider, model)) {
 		case 'anthropic':
-			// Every Claude but Fable and Mythos takes an explicit
-			// `thinking: {type: "disabled"}` (see `explicitOffToken`), which is
-			// the only off that also holds for the 5 family — it thinks by
-			// default, so omitting the field would leave it reasoning.
-			return !ANTHROPIC_ALWAYS_THINKING.test(m)
 		case 'aws_bedrock':
-			// Bedrock routes through the OpenAI-compatible surface, where off is
-			// omission — a no-op on the models that think by default.
-			return !(ANTHROPIC_ALWAYS_THINKING.test(m) || /claude-(opus|sonnet)-5/.test(m))
+			// Every Claude but Fable and Mythos can stop thinking: 4.6-4.8 by
+			// omission, and the 5 family through the explicit disable that
+			// `explicitOffToken` sends (both routes translate it).
+			return !ANTHROPIC_ALWAYS_THINKING.test(m)
 		case 'googleai':
 			return geminiCanDisable(model)
 		case 'openai':
@@ -359,6 +355,7 @@ const ANTHROPIC_ALWAYS_THINKING = /fable|mythos/
 export function explicitOffToken(provider: AIProvider, model: string): ReasoningEffort | undefined {
 	switch (reasoningProviderFamily(provider, model)) {
 		case 'anthropic':
+		case 'aws_bedrock':
 			// Claude 4.6-4.8 only think when asked, so omission is already a
 			// real off there and stays the wire form. Only the 5 family, which
 			// thinks when the field is absent, needs the explicit disable —

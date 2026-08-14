@@ -358,9 +358,7 @@ async fn handle_bedrock_sdk_streaming(
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
     // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = openai_req
-        .reasoning_effort
-        .is_none()
+    let temperature = (!effort_enables_thinking(openai_req.reasoning_effort.as_deref()))
         .then_some(openai_req.temperature)
         .flatten();
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
@@ -410,11 +408,29 @@ async fn handle_bedrock_sdk_streaming(
     })
 }
 
-/// Build the Converse `additionalModelRequestFields` enabling Claude adaptive
-/// thinking at the given effort. `display: summarized` is billing-neutral on
-/// Anthropic models and matches the direct-Anthropic chat path, which renders
-/// summarized thinking in the UI.
+/// Whether an effort token turns adaptive thinking on. `"none"` is the disable
+/// sentinel rather than a level, and sampling params stay usable alongside it.
+fn effort_enables_thinking(effort: Option<&str>) -> bool {
+    matches!(effort, Some(effort) if effort != OFF_SENTINEL)
+}
+
+/// The token the chat and agent surfaces send to turn reasoning off. Claude's
+/// effort vocabulary is `low`..`max` and rejects it, so it is translated here.
+const OFF_SENTINEL: &str = "none";
+
+/// Build the Converse `additionalModelRequestFields` carrying Claude's thinking
+/// config. `display: summarized` is billing-neutral on Anthropic models and
+/// matches the direct-Anthropic chat path, which renders summarized thinking in
+/// the UI.
 fn bedrock_thinking_fields(effort: &str) -> aws_smithy_types::Document {
+    if effort == OFF_SENTINEL {
+        // The disable carries no effort: pairing it with xhigh or max is a 400
+        // on Opus 5, and omitting it leaves the model at the effort where the
+        // disable is accepted.
+        return json_to_document(serde_json::json!({
+            "thinking": { "type": "disabled" }
+        }));
+    }
     json_to_document(serde_json::json!({
         "thinking": { "type": "adaptive", "display": "summarized" },
         "output_config": { "effort": effort }
@@ -664,9 +680,7 @@ async fn handle_bedrock_sdk_non_streaming(
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
     // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = openai_req
-        .reasoning_effort
-        .is_none()
+    let temperature = (!effort_enables_thinking(openai_req.reasoning_effort.as_deref()))
         .then_some(openai_req.temperature)
         .flatten();
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
@@ -935,7 +949,8 @@ impl BedrockQueryBuilder {
             openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 
         // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-        let temperature = reasoning_effort.is_none().then_some(temperature).flatten();
+        let temperature =
+            (!effort_enables_thinking(reasoning_effort)).then_some(temperature).flatten();
 
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
@@ -1283,6 +1298,18 @@ mod tests {
             delta_json["choices"][0]["delta"]["tool_calls"][0]["index"],
             0
         );
+    }
+
+    #[test]
+    fn bedrock_thinking_fields_translate_the_off_sentinel_to_a_disable() {
+        let fields = document_to_json(&bedrock_thinking_fields("none"));
+        assert_eq!(fields["thinking"]["type"], "disabled");
+        // An effort alongside the disable is a 400 on Opus 5.
+        assert!(fields.get("output_config").is_none());
+        // Sampling params survive a disable, unlike adaptive thinking.
+        assert!(effort_enables_thinking(Some("xhigh")));
+        assert!(!effort_enables_thinking(Some("none")));
+        assert!(!effort_enables_thinking(None));
     }
 
     #[test]
