@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
-import { enterSessionMode } from './sessionSwitch.svelte'
+import { enterSessionMode, startSessionWithPrompt } from './sessionSwitch.svelte'
 import { sessionState, type Session } from './sessionState.svelte'
 import { usersWorkspaceStore, workspaceStore, type UserWorkspace } from '$lib/stores'
 
@@ -43,7 +43,9 @@ describe('enterSessionMode — restore is scoped to the active family', () => {
 		try {
 			await enterSessionMode()
 			expect(sessionState.currentSessionId).toBe('sw-in-family')
-			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-911', { replaceState: false })
+			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-911', {
+				replaceState: false
+			})
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sw-in-family')
 			sessionState.currentSessionId = prevCurrent
@@ -61,7 +63,9 @@ describe('enterSessionMode — restore is scoped to the active family', () => {
 		try {
 			await enterSessionMode()
 			expect(sessionState.currentSessionId).toBe('sw-local')
-			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-913', { replaceState: false })
+			expect(goto).toHaveBeenCalledWith('/sessions?session_name=session-913', {
+				replaceState: false
+			})
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => s.id !== 'sw-foreign' && s.id !== 'sw-local'
@@ -91,6 +95,39 @@ describe('enterSessionMode — restore is scoped to the active family', () => {
 			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
+		}
+	})
+})
+
+describe('startSessionWithPrompt', () => {
+	beforeEach(() => {
+		vi.mocked(goto).mockClear()
+	})
+
+	// The hand-off must not re-pick the workspace: createSession already steers off
+	// a root the user cannot deploy to onto its dev, and overwriting that with the
+	// raw current workspace lands the session somewhere it cannot edit.
+	it('seeds the composer and keeps createSession’s workspace choice', async () => {
+		const prevUsers = get(usersWorkspaceStore)
+		const prevWs = get(workspaceStore)
+		const prevCurrent = sessionState.currentSessionId
+		usersWorkspaceStore.set({
+			email: 't@t',
+			workspaces: [ws('prod'), { ...ws('prod-dev', 'prod'), is_dev_workspace: true }]
+		} as never)
+		workspaceStore.set('prod')
+		let createdId: string | undefined
+		try {
+			await startSessionWithPrompt('list my flows')
+			createdId = sessionState.currentSessionId
+			const created = sessionState.sessions.find((s) => s.id === createdId)
+			expect(created?.draftPrompt).toBe('list my flows')
+			expect(created?.pending_workspace_id).toBe('prod-dev')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
+			sessionState.currentSessionId = prevCurrent
+			usersWorkspaceStore.set(prevUsers)
+			workspaceStore.set(prevWs)
 		}
 	})
 })

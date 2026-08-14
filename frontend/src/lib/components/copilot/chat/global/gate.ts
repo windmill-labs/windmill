@@ -26,16 +26,10 @@ export function isGlobalAiEnabled(): boolean {
 }
 
 /**
- * Whether an AI entry point should hand off to a session rather than drive the
- * docked chat. This is exactly the condition under which the root layout stops
- * mounting the docked pane (`AiChatLayout`'s `disableAi`), so a caller that
- * falls back on `false` always has a pane to fall back to.
- *
- * Operators are the exception: `/sessions` refuses them, so they keep the
- * legacy pane their layout still mounts. Drop the operator clause when the
- * operator chat ships.
- *
- * Takes the flag rather than reading `$userStore` so this stays a plain module.
+ * Whether an AI entry point hands off to a session instead of driving the docked
+ * chat. Deliberately the same condition as the root layout's `disableAi`, so a
+ * caller falling back on `false` always has a mounted pane to fall back to.
+ * Operators keep that pane (`/sessions` refuses them) until the operator chat ships.
  */
 export function prefersSessionHandoff(isOperator: boolean | undefined): boolean {
 	return isGlobalAiEnabled() && !isOperator

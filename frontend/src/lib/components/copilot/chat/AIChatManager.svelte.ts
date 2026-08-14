@@ -2466,13 +2466,9 @@ export class AIChatManager {
 	}
 
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
-		// A turn with nowhere to render is worse than a dead button: it streams,
-		// spends tokens and applies tool calls entirely off-screen. The docked
-		// pane is unmounted whenever sessions are on (AiChatLayout's `disableAi`),
-		// so any entry point that still drives this manager instead of handing off
-		// to a session lands here. Session chats always have their own UI.
-		// `sendInlineRequest` is deliberately exempt — the ⌘K widget renders its
-		// own composer inside Monaco and needs no pane.
+		// A turn with nowhere to render still streams, spends tokens and applies
+		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
+		// exempt: the ⌘K widget renders its own composer inside Monaco.
 		if (!this.isSessionChat && !chatState.dockedChatAvailable) {
 			console.error('sendRequest called with no chat UI mounted; dropping the turn')
 			sendUserToast('Open the AI chat to use this action', true)

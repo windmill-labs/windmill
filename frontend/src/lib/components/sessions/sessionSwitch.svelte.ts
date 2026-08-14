@@ -70,6 +70,15 @@ export async function exitSessionMode(): Promise<void> {
 	await goto(target)
 }
 
+// A pipeline is a folder rather than a workspace item, so it has no `…/edit`
+// route: its preview is the `/pipeline/<folder>` page, built (normalized +
+// encoded) by the same helper the preview tabs use.
+function previewHrefFor(target: SessionTarget): string | undefined {
+	if (target.kind !== 'pipeline') return sessionTargetHref(target)
+	const page = previewTargetForSessionTarget(target.kind, target.path)
+	return page?.type === 'page' ? page.href : undefined
+}
+
 // Open a fresh AI session showing an editor (flow/script/raw_app) in its preview,
 // then route into session mode. The preview loads the item from its live draft,
 // so the caller MUST persist any unsaved edits first (e.g. save a draft) for the
@@ -77,16 +86,6 @@ export async function exitSessionMode(): Promise<void> {
 // editor's workspace (instead of createSession's root default) so it opens the
 // same flow/script the user was editing. `previewParams` ride on the tab URL to
 // tell the previewed editor where to open (a flow's `selected` step).
-// The page a preview tab should open for `target`. A pipeline is a folder
-// rather than a workspace item, so it has no `…/edit` route: its preview is the
-// `/pipeline/<folder>` page, built (normalized + encoded) by the same helper the
-// preview tabs use.
-function previewHrefFor(target: SessionTarget): string | undefined {
-	if (target.kind !== 'pipeline') return sessionTargetHref(target)
-	const page = previewTargetForSessionTarget(target.kind, target.path)
-	return page?.type === 'page' ? page.href : undefined
-}
-
 export async function openEditorInSession(
 	target: SessionTarget,
 	workspaceId?: string,
@@ -134,9 +133,10 @@ export async function openSourceInSession(
 // one (`enterSessionMode`), so the seed cannot overwrite a prompt the user has
 // already typed into a session they are mid-way through.
 export async function startSessionWithPrompt(prompt: string): Promise<void> {
+	// No setSessionPendingWorkspace: createSession already picked the workspace,
+	// steering off a root the user cannot deploy to onto its dev. Overwriting it
+	// with the raw current workspace would land the session where it cannot edit.
 	const session = createSession()
-	const workspace = get(workspaceStore)
-	if (workspace) setSessionPendingWorkspace(session.id, workspace)
 	setSessionDraftPrompt(session.id, prompt)
 	selectSession(session.id)
 	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
