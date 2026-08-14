@@ -79,6 +79,11 @@ run $G ask   "$(printf '# usage: cat <<EOF\nrm -rf /etc\nEOF')"
 run $G ask   "$(printf 'echo "cat <<EOF > f"\nrm -rf /etc\nEOF')"
 run $G ask   "$(printf 'echo "cat <<true > /tmp/a"\nrm -rf /etc\ntrue')"
 run $G ask   "$(printf "echo 'cat <<EOF | tee'\nrm -rf /etc\nEOF")"
+# A body fed to a shell is executed, so it is commands and not data.
+run $G ask   "$(printf 'bash <<EOF\nrm -rf /etc\nEOF')"
+run $G ask   "$(printf 'cat <<EOF | bash\nrm -rf /etc\nEOF')"
+run $G ask   "$(printf 'ssh host <<EOF\nrm -rf /etc\nEOF')"
+run $G ask   "$(printf '/bin/sh <<EOF\nrm -rf /etc\nEOF')"
 # A redirect or pipe after the delimiter is still a real heredoc.
 run $G none  "$(printf 'cat <<EOF > /tmp/a\nrm -rf /etc\nEOF')"
 run $G none  "$(printf 'cat <<EOF 2>&1 | tee /tmp/a\nrm -rf /etc\nEOF')"

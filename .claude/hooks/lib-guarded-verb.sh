@@ -21,14 +21,13 @@ set -f
 # words rather than separators, since splitting on them cuts `xargs -I {} … rm` in half and
 # strands the `rm` in a segment that no longer knows a wrapper preceded it.
 
-# Heredoc bodies are data, not commands, and a rule doesn't match a verb written inside one —
-# a PR body or a generated script would otherwise prompt for every `rm` in its text. Dropping a
-# body needs both a delimiter that could really open one and a line that terminates it; failing
-# either, nothing is dropped, so a `<<` in prose or in an arithmetic shift leaves the commands
-# around it intact.
+# A heredoc body is data rather than commands unless something executes it, and a rule doesn't
+# match a verb written inside one — a PR body would otherwise prompt for every `rm` in its text.
+# Dropping a body needs a delimiter that could really open one, a terminator line, and an opener
+# that doesn't feed it to a shell; failing any of those, nothing is dropped.
 strip_heredoc_bodies() {
   local -a lines=()
-  local line delim rest after trimmed i j n
+  local line delim rest after trimmed word i j n
   while IFS= read -r line; do lines+=("$line"); done <<< "$1"
   n=${#lines[@]}
   i=0
@@ -69,6 +68,15 @@ strip_heredoc_bodies() {
       *) continue ;;
     esac
     case "$delim" in *[!A-Za-z0-9_]*) continue ;; esac
+    # A body is only data when nothing executes it. Fed to a shell — `bash <<EOF`,
+    # `cat <<EOF | bash`, `ssh host <<EOF` — every line in it is a command, so it has to be
+    # scanned like one.
+    for word in $line; do
+      word="${word//[\"\'\\]/}"
+      case "${word##*/}" in
+        bash | sh | zsh | dash | ksh | ssh | eval | source) continue 2 ;;
+      esac
+    done
     j="$i"
     while [ "$j" -lt "$n" ]; do
       trimmed="${lines[$j]#"${lines[$j]%%[![:space:]]*}"}"
