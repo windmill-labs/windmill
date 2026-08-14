@@ -1166,8 +1166,10 @@ pub async fn run_server(
     }
 
     // Announce this server is ready so coordinated restarts can detect a healthy peer.
-    if let Err(e) = announce_server_started(&db).await {
-        tracing::warn!("Failed to announce server started: {e:#}");
+    if server_mode {
+        if let Err(e) = announce_server_started(&db).await {
+            tracing::warn!("Failed to announce server started: {e:#}");
+        }
     }
 
     let server = server.with_graceful_shutdown(async move {
@@ -1314,25 +1316,35 @@ pub async fn wait_for_db_migrations(
 
 const SERVER_HEARTBEAT_TASK: &str = "server_heartbeat";
 
-/// Write a server-started heartbeat to `background_task_state` so that
-/// other instances waiting to restart can detect this server is healthy.
+/// Write a server-started heartbeat to `background_task_state` so that other
+/// traffic-serving instances waiting to restart can detect this one is healthy.
+///
+/// Only `server_mode` processes announce, since only they are peers worth waiting for:
+/// `spawn_graceful_killpill` holds a shutdown open to keep the API answered, and a worker,
+/// indexer or MCP process coming up is no evidence that it is.
+///
+/// The row is keyed per host and `owner` per process, and both halves carry weight.
+/// `INSTANCE_NAME` is random per start, so a row keyed on it never conflicts and
+/// accumulates one row per start; `owner` is what tells a peer's start from its own
+/// when processes share a host.
 async fn announce_server_started(db: &DB) -> anyhow::Result<()> {
-    use windmill_common::INSTANCE_NAME;
+    use windmill_common::{utils::HOSTNAME, INSTANCE_NAME};
 
     let instance = INSTANCE_NAME.as_str();
+    let host = HOSTNAME.as_str();
 
     sqlx::query(
         "INSERT INTO background_task_state (name, value, running, owner, started_at, updated_at)
          VALUES ($1, '\"started\"'::jsonb, true, $2, NOW(), NOW())
          ON CONFLICT (name)
-         DO UPDATE SET updated_at = NOW(), running = true, owner = $2",
+         DO UPDATE SET started_at = NOW(), updated_at = NOW(), running = true, owner = $2",
     )
-    .bind(format!("{SERVER_HEARTBEAT_TASK}:{instance}"))
+    .bind(format!("{SERVER_HEARTBEAT_TASK}:{host}"))
     .bind(instance)
     .execute(db)
     .await?;
 
-    tracing::info!("Announced server started for instance {instance}");
+    tracing::info!("Announced server started for instance {instance} on host {host}");
     Ok(())
 }
 
@@ -1362,10 +1374,10 @@ pub async fn check_any_server_started(db: &DB, not_before: chrono::DateTime<chro
 }
 
 /// Delete `server_heartbeat:*` rows that have not been refreshed in a long
-/// time. Each server startup generates a fresh random `INSTANCE_NAME` and
-/// inserts a new row keyed by `server_heartbeat:{instance}`; because that
-/// row is only written once (on startup) and never updated thereafter, the
-/// table grows by one row per server restart and is otherwise never pruned.
+/// time. A restart in place reuses its host's row (see
+/// `announce_server_started`), but a host that never comes back leaves one
+/// behind, and hosts are disposable wherever the hostname carries a generated
+/// pod or container id.
 ///
 /// The row is only consulted by `check_any_server_started`, which itself
 /// filters on `updated_at > not_before` (the moment a restart was initiated),
