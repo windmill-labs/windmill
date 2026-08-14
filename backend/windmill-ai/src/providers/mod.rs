@@ -18,8 +18,18 @@ pub(crate) const REASONING_OFF_SENTINEL: &str = "none";
 /// `top_k`). On these, any value is a hard 400 — `temperature is deprecated for
 /// this model` — whatever the thinking mode, so the param has to be dropped on
 /// the reasoning-off and no-reasoning paths too, not only under adaptive
-/// thinking. Live-verified against the Messages API: Opus 4.8 and the 5 family
-/// reject them, Sonnet 4.6 still accepts them.
+/// thinking.
+///
+/// Probed against the Messages API: `claude-opus-5`, `claude-sonnet-5` and
+/// `claude-opus-4-8` reject them; `claude-sonnet-4-6` still accepts them. Opus
+/// 4.7, Fable and Mythos are included from Anthropic's migration guide, which
+/// documents the same removal, rather than from a probe.
+///
+/// Matching is on the model name, so a Bedrock *application* inference profile —
+/// whose id is opaque (`k1c3lwu20lem`) rather than derived from the model —
+/// cannot be classified and keeps its sampling params. Resolving the backing
+/// model would need a per-request AWS lookup; `bedrock_model_supports_prompt_caching`
+/// degrades on the same ids for the same reason.
 pub(crate) fn anthropic_model_rejects_sampling_params(model: &str) -> bool {
     let model = model.to_lowercase().replace('.', "-");
     model.contains("claude-opus-4-7")
