@@ -39,6 +39,18 @@
 //!   ducklake-maintenance schedule. The same category as the `server_id` and
 //!   `last_server_ping` columns the diff already drops.
 //!
+//! # The server-initiated disables are atomic
+//!
+//! A trigger the server disables must never end up disabled with nothing saying
+//! the server did it: that state is already abnormal, and it is the one a
+//! history is most needed for. So each of those writers puts the disabling
+//! `UPDATE` and its `record` call in one transaction (or savepoint). A failure
+//! rolls back both and leaves the trigger enabled — wrong but visible, and
+//! retried on the next occurrence — rather than disabling it silently.
+//!
+//! There is deliberately no best-effort recorder to reach for: recording is
+//! either part of the caller's transaction or it does not happen.
+//!
 //! # Authorization contract
 //!
 //! None of the helpers here authorize anything: they take a connection and
@@ -296,11 +308,25 @@ fn json_len(value: &serde_json::Value) -> usize {
     counter.0
 }
 
-/// The last word on payload size, applied at the write itself so a hand-built
-/// `changes` (the server-initiated disables carry an error string of unknown
-/// length) is bounded too, not just a computed diff.
+/// jsonb rejects `\u0000` inside a string, and `changes` quotes caller-supplied
+/// text — a schedule's `args`, a worker's error message. One NUL would fail the
+/// insert, and the insert now shares a transaction with the mutation it
+/// describes, so it would take that mutation down with it.
+fn strip_nuls(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(s) if s.contains('\0') => *s = s.replace('\0', ""),
+        serde_json::Value::Array(items) => items.iter_mut().for_each(strip_nuls),
+        serde_json::Value::Object(map) => map.values_mut().for_each(strip_nuls),
+        _ => {}
+    }
+}
+
+/// The last word on what reaches the column, applied at the write itself so a
+/// hand-built `changes` (the server-initiated disables carry an error string of
+/// unknown length and origin) gets it too, not just a computed diff.
 fn cap_changes(changes: Option<serde_json::Value>) -> Option<serde_json::Value> {
-    let changes = changes?;
+    let mut changes = changes?;
+    strip_nuls(&mut changes);
     if json_len(&changes) <= MAX_CHANGES_BYTES {
         return Some(changes);
     }
@@ -414,28 +440,6 @@ pub async fn record_bulk(
     Ok(())
 }
 
-/// Append `event` on its own connection, logging rather than propagating a
-/// failure.
-///
-/// For the server-initiated disables that hold no transaction of their own: a
-/// history row is not worth failing the caller over. **Only** for those — taking
-/// a second pooled connection while a transaction is held is how a
-/// pool-exhaustion deadlock starts, so a caller inside one records through a
-/// savepoint on its own transaction instead. Does not authorize — see the
-/// module docs.
-pub async fn record_best_effort(db: &crate::DB, event: TriggerHistoryEvent<'_>) {
-    let mut conn = match db.acquire().await {
-        Ok(conn) => conn,
-        Err(e) => {
-            tracing::error!("could not record trigger history for {}: {e:#}", event.path);
-            return;
-        }
-    };
-    if let Err(e) = record(&mut conn, event).await {
-        tracing::error!("could not record trigger history: {e:#}");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +488,15 @@ mod tests {
             summarize_changes(None, Some(&after)),
             Some(json!({"schedule": {"new": "0 0 * * *"}}))
         );
+    }
+
+    /// A NUL reaching the column fails the insert, and the server-initiated
+    /// disables now roll their own `UPDATE` back with it — so this is the
+    /// difference between a logged oddity and a trigger that will not disable.
+    #[test]
+    fn nul_bytes_never_reach_the_column() {
+        let changes = cap_changes(Some(json!({ "error": { "new": "boom\u{0}tail" } })));
+        assert_eq!(changes, Some(json!({ "error": { "new": "boomtail" } })));
     }
 
     #[test]

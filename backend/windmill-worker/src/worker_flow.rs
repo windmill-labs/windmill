@@ -2923,40 +2923,45 @@ pub async fn handle_flow(
                     // its own disable write failed. Retry it: rearm_schedule turns
                     // these into NoOp, so without disabling here the schedule would
                     // stay enabled yet never run.
-                    match sqlx::query!(
-                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
-                        err.to_string(),
-                        &flow_job.workspace_id,
-                        &schedule.path
-                    )
-                    .execute(db)
-                    .await
-                    {
-                        Err(disable_err) => {
-                            report_error_to_workspace_handler_or_critical_side_channel(
-                                &mini_job,
-                                db,
-                                format!(
-                                    "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
-                                    schedule.path,
-                                ),
-                            )
-                            .await;
-                        }
-                        Ok(result) if result.rows_affected() > 0 => {
-                            // No transaction is held here (the retried closure
-                            // committed its own), so a second connection is safe.
-                            windmill_common::trigger_history::record_best_effort(
-                                db,
+                    // One transaction, so this cannot leave the schedule
+                    // disabled with nothing recording that the server did it.
+                    // Safe to open here: the retried closure committed its own.
+                    let disable_result = async {
+                        let mut tx = db.begin().await?;
+                        let rows = sqlx::query!(
+                            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
+                            err.to_string(),
+                            &flow_job.workspace_id,
+                            &schedule.path
+                        )
+                        .execute(&mut *tx)
+                        .await?
+                        .rows_affected();
+                        if rows > 0 {
+                            windmill_common::trigger_history::record(
+                                &mut tx,
                                 windmill_queue::jobs::schedule_auto_disable_event(
                                     &flow_job.workspace_id,
                                     &schedule.path,
                                     &err.to_string(),
                                 ),
                             )
-                            .await;
+                            .await?;
                         }
-                        Ok(_) => {}
+                        tx.commit().await?;
+                        Ok::<(), Error>(())
+                    }
+                    .await;
+                    if let Err(disable_err) = disable_result {
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            &mini_job,
+                            db,
+                            format!(
+                                "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                                schedule.path,
+                            ),
+                        )
+                        .await;
                     }
                 } else {
                     // Transient error (DB contention, timeout) after retry exhaustion:

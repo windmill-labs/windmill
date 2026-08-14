@@ -2518,46 +2518,64 @@ pub fn schedule_auto_disable_event<'a>(
     )
 }
 
-/// Record an auto-disable through a savepoint on the caller's transaction.
+/// Disable a schedule the server can no longer arm, together with the history
+/// row saying so, and report how many rows the disable moved.
 ///
-/// Not a second pooled connection: `tx` is the one completing the job and is
-/// still held, so acquiring another is how a pool-exhaustion deadlock starts
-/// when many completions reach this branch at once. The savepoint keeps a
-/// failed insert from poisoning `tx` all the same.
-async fn record_schedule_auto_disable(
+/// The two writes share a savepoint on the caller's transaction, which buys two
+/// things at once. The schedule cannot end up disabled with nothing recording
+/// that the server did it — on failure neither write lands and the schedule
+/// stays enabled, which the next occurrence retries. And a failed insert cannot
+/// poison the transaction that completes the job, which is what taking a second
+/// pooled connection instead would have risked under a burst.
+///
+/// Zero rows means a user disabled the schedule first: no transition of ours to
+/// record.
+async fn disable_schedule_with_history(
     tx: &mut Transaction<'_, Postgres>,
     schedule: &Schedule,
     err: &Error,
-) {
-    let event =
-        schedule_auto_disable_event(&schedule.workspace_id, &schedule.path, &err.to_string());
-    let mut savepoint = match tx.begin().await {
-        Ok(savepoint) => savepoint,
+) -> Result<u64, Error> {
+    let mut savepoint = tx.begin().await?;
+
+    let disable_result = sqlx::query!(
+        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
+        err.to_string(),
+        &schedule.workspace_id,
+        &schedule.path
+    )
+    .execute(&mut *savepoint)
+    .await;
+
+    #[cfg(feature = "failpoints")]
+    let disable_result = if schedule_failpoints::is_active(
+        schedule_failpoints::ScheduleFailPoint::ScheduleDisable,
+    ) {
+        Err(sqlx::Error::Protocol(
+            "failpoint: schedule disable".to_string(),
+        ))
+    } else {
+        disable_result
+    };
+
+    let rows = match disable_result {
+        Ok(result) => result.rows_affected(),
         Err(e) => {
-            tracing::error!(
-                "Could not create savepoint to record trigger history for disabled schedule {}: {e:#}",
-                schedule.path
-            );
-            return;
+            savepoint.rollback().await.ok();
+            return Err(e.into());
         }
     };
-    match windmill_common::trigger_history::record(&mut savepoint, event).await {
-        Ok(()) => {
-            if let Err(e) = savepoint.commit().await {
-                tracing::error!(
-                    "Could not commit trigger history for disabled schedule {}: {e:#}",
-                    schedule.path
-                );
-            }
-        }
-        Err(e) => {
-            tracing::error!(
-                "Could not record trigger history for disabled schedule {}: {e:#}",
-                schedule.path
-            );
+
+    if rows > 0 {
+        let event =
+            schedule_auto_disable_event(&schedule.workspace_id, &schedule.path, &err.to_string());
+        if let Err(e) = windmill_common::trigger_history::record(&mut savepoint, event).await {
             savepoint.rollback().await.ok();
+            return Err(e);
         }
     }
+
+    savepoint.commit().await?;
+    Ok(rows)
 }
 
 pub async fn try_schedule_next_job<'c>(
@@ -2714,40 +2732,19 @@ pub async fn try_schedule_next_job<'c>(
                 "Could not push next scheduled job for {}: {err}. Disabling schedule.",
                 schedule.path
             );
-            let disable_result = sqlx::query!(
-                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
-                err.to_string(),
-                &schedule.workspace_id,
-                &schedule.path
-            )
-            .execute(&mut *tx)
-            .await;
-            #[cfg(feature = "failpoints")]
-            let disable_result = if schedule_failpoints::is_active(
-                schedule_failpoints::ScheduleFailPoint::ScheduleDisable,
-            ) {
-                Err(sqlx::Error::Protocol(
-                    "failpoint: schedule disable".to_string(),
-                ))
-            } else {
-                disable_result
-            };
-            let disabled_rows = disable_result.as_ref().map(|r| r.rows_affected()).unwrap_or(0);
-            if let Err(disable_err) = disable_result {
-                report_error_to_workspace_handler_or_critical_side_channel(
-                    job,
-                    db,
-                    format!(
-                        "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
-                        schedule.path,
-                    ),
-                )
-                .await;
-            } else {
-                if disabled_rows > 0 {
-                    record_schedule_auto_disable(&mut tx, schedule, &err).await;
+            match disable_schedule_with_history(&mut tx, schedule, err).await {
+                Err(disable_err) => {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                        job,
+                        db,
+                        format!(
+                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            schedule.path,
+                        ),
+                    )
+                    .await;
                 }
-                push_err = None;
+                Ok(_) => push_err = None,
             }
         }
     }
