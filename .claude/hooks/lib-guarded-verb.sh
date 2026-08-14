@@ -21,13 +21,13 @@ set -f
 # words rather than separators, since splitting on them cuts `xargs -I {} … rm` in half and
 # strands the `rm` in a segment that no longer knows a wrapper preceded it.
 
-# A heredoc body is data rather than commands unless something executes it, and a rule doesn't
-# match a verb written inside one — a PR body would otherwise prompt for every `rm` in its text.
-# Dropping a body needs a delimiter that could really open one, a terminator line, and an opener
-# that doesn't feed it to a shell; failing any of those, nothing is dropped.
+# A heredoc body is data rather than commands only when its delimiter is quoted and nothing
+# executes it; a rule doesn't match a verb inside such a body, and a PR body would otherwise
+# prompt for every `rm` in its text. Dropping one needs all of that, a delimiter that could
+# really open a heredoc, and a terminator line — failing any part, nothing is dropped.
 strip_heredoc_bodies() {
   local -a lines=()
-  local line delim rest after trimmed word i j n
+  local line delim rest after trimmed word quoted i j n
   while IFS= read -r line; do lines+=("$line"); done <<< "$1"
   n=${#lines[@]}
   i=0
@@ -59,22 +59,27 @@ strip_heredoc_bodies() {
     esac
     # A real delimiter is a bare word or one wholly quoted (`<<'EOF'`, `<<\EOF`); a stray quote
     # left in it means the `<<` was quoted prose.
+    quoted=0
     case "$delim" in
-      \'*\' | \"*\") delim="${delim:1:${#delim}-2}" ;;
-      \\?*) delim="${delim#\\}" ;;
+      \'*\' | \"*\") delim="${delim:1:${#delim}-2}" quoted=1 ;;
+      \\?*) delim="${delim#\\}" quoted=1 ;;
     esac
     case "$delim" in
       [A-Za-z_]*) ;;
       *) continue ;;
     esac
     case "$delim" in *[!A-Za-z0-9_]*) continue ;; esac
+    # Only a quoted delimiter makes the body inert. Unquoted, the shell expands it before the
+    # consumer ever sees it, so a `$(rm -rf ~)` written in the body runs whatever reads it.
+    [ "$quoted" = 1 ] || continue
     # A body is only data when nothing executes it. Fed to a shell — `bash <<EOF`,
     # `cat <<EOF | bash`, `ssh host <<EOF` — every line in it is a command, so it has to be
     # scanned like one.
     for word in $line; do
       word="${word//[\"\'\\]/}"
+      word="${word%%<<*}"                           # a redirect needs no space: `bash<<EOF`
       case "${word##*/}" in
-        bash | sh | zsh | dash | ksh | ssh | eval | source) continue 2 ;;
+        bash | sh | zsh | dash | ksh | fish | csh | tcsh | ssh | eval | source) continue 2 ;;
       esac
     done
     j="$i"

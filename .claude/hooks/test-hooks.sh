@@ -83,10 +83,14 @@ run $G ask   "$(printf "echo 'cat <<EOF | tee'\nrm -rf /etc\nEOF")"
 run $G ask   "$(printf 'bash <<EOF\nrm -rf /etc\nEOF')"
 run $G ask   "$(printf 'cat <<EOF | bash\nrm -rf /etc\nEOF')"
 run $G ask   "$(printf 'ssh host <<EOF\nrm -rf /etc\nEOF')"
+run $G ask   "$(printf 'bash<<%sEOF%s\nrm -rf /etc\nEOF' "'" "'")"
 run $G ask   "$(printf '/bin/sh <<EOF\nrm -rf /etc\nEOF')"
 # A redirect or pipe after the delimiter is still a real heredoc.
-run $G none  "$(printf 'cat <<EOF > /tmp/a\nrm -rf /etc\nEOF')"
-run $G none  "$(printf 'cat <<EOF 2>&1 | tee /tmp/a\nrm -rf /etc\nEOF')"
+run $G none  "$(printf 'cat <<%sEOF%s > /tmp/a\nrm -rf /etc\nEOF' "'" "'")"
+run $G none  "$(printf 'cat <<%sEOF%s 2>&1 | tee /tmp/a\nrm -rf /etc\nEOF' "'" "'")"
+# An unquoted body is expanded before its consumer sees it, so it is code.
+run $G ask   "$(printf 'cat <<EOF > /tmp/a\n$(rm -rf /etc)\nEOF')"
+run $G ask   "$(printf 'cat <<EOF > /tmp/a\nrm -rf /etc\nEOF')"
 # ... but a real command after a heredoc still is one.
 run $G ask   "$(printf 'cat <<EOF > /tmp/s.sh\nhello\nEOF\nrm -rf %s' "$OUT")"
 run $G ask   "$(printf 'echo "a << b"\nrm -rf %s' "$OUT")"
