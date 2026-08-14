@@ -330,6 +330,11 @@ impl<'a> TriggerHistoryEvent<'a> {
     /// `forced_state` is the column the disable wrote, in the same
     /// `{field: {old, new}}` shape as a diff — the two disable paths write
     /// different columns (`enabled` for a schedule, `mode` for a trigger).
+    ///
+    /// Record this only when the disabling `UPDATE` reported an affected row,
+    /// and only when that `UPDATE` was itself predicated on the trigger still
+    /// being enabled. The server reads the trigger long before it writes, so
+    /// without both the row describes a transition a user had already made.
     pub fn server_disable(
         workspace_id: &'a str,
         trigger_kind: &'a str,

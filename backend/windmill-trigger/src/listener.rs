@@ -410,10 +410,6 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
 
             match report_status {
                 Ok(result) => {
-                    // Gated on `rows_affected`, not just `Ok`: the trigger may
-                    // have been deleted between the listener reading it and
-                    // this write, and a history row for a disable that touched
-                    // nothing is a lie about a path someone else may now own.
                     if result.rows_affected() > 0 {
                         windmill_common::trigger_history::record_best_effort(
                             db,

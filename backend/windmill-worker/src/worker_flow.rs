@@ -2924,12 +2924,7 @@ pub async fn handle_flow(
                     // these into NoOp, so without disabling here the schedule would
                     // stay enabled yet never run.
                     match sqlx::query!(
-                        // `AND enabled = true`: the schedule was read as enabled, but a user
-                // can disable it before this runs. Without the predicate the UPDATE
-                // still reports one affected row, and the `rows_affected` gate below
-                // would let the worker claim a `true -> false` transition the user
-                // had already made.
-                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
+                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
                         err.to_string(),
                         &flow_job.workspace_id,
                         &schedule.path
@@ -2948,14 +2943,9 @@ pub async fn handle_flow(
                             )
                             .await;
                         }
-                        // Gated on `rows_affected` like the other two server
-                        // disables: retries have taken seconds to get here, so
-                        // the schedule may be gone, and a `worker` disable row
-                        // at a path someone else may now own is a lie.
-                        //
-                        // No transaction is held here (the retried closure
-                        // committed its own), so a second connection is safe.
                         Ok(result) if result.rows_affected() > 0 => {
+                            // No transaction is held here (the retried closure
+                            // committed its own), so a second connection is safe.
                             windmill_common::trigger_history::record_best_effort(
                                 db,
                                 windmill_queue::jobs::schedule_auto_disable_event(
