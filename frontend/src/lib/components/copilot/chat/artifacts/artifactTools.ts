@@ -150,7 +150,7 @@ export const artifactTools: Tool<{}>[] = [
 		def: createToolDef(
 			listArtifactsSchema,
 			'list_artifacts',
-			"List the current session's artifacts (id, name, kind, version, role, approvedVersion). `role` is `plan` on the session's one plan document and on nothing else. On that one, `approvedVersion` is the version the user signed off: below `version` means the current text is a proposal they have not agreed to, and absent means nothing here was ever approved."
+			"List the current session's artifacts (id, name, kind, version, role, approvedVersion). `version` is the latest one saved, which is not necessarily the one the user is reading — get_preview_status reports the version they have pinned. `role` is `plan` on the session's one plan document and on nothing else. On that one, `approvedVersion` is the version the user signed off: below `version` means the current text is a proposal they have not agreed to, and absent means nothing here was ever approved."
 		),
 		planModeSafe: true,
 		fn: async ({ toolId, toolCallbacks, helpers }) => {
