@@ -991,6 +991,7 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="http"
 			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}

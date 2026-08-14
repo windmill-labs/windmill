@@ -178,6 +178,7 @@ mod teams_oss;
 mod token;
 mod tracing_init;
 mod trash;
+mod trigger_history;
 pub mod triggers;
 mod users;
 #[cfg(feature = "private")]
@@ -278,6 +279,23 @@ async fn set_deploy_origin(
         .map(windmill_common::deploy_origin::DeployOrigin::from_header_value)
         .unwrap_or(windmill_common::deploy_origin::DeployOrigin::Authored);
     windmill_common::deploy_origin::scope(origin, next.run(req)).await
+}
+
+/// Scope the request in the client kind it declares, so a trigger mutation can
+/// be attributed to the CLI rather than to a bare API call. Entered for every
+/// request, undeclared ones included: `TriggerSource::of_request` reads the
+/// scope's absence as "no request is being served", which is what separates a
+/// caller from a worker disabling a trigger on its own.
+async fn set_request_client(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let client = req
+        .headers()
+        .get(windmill_common::trigger_history::CLIENT_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(windmill_common::trigger_history::client_from_header);
+    windmill_common::trigger_history::scope_client(client, next.run(req)).await
 }
 
 #[cfg(not(feature = "tantivy"))]
@@ -639,6 +657,7 @@ pub async fn run_server(
                         .nest("/folders_history", folder_history::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/groups_history", group_history::workspaced_service())
+                        .nest("/triggers_history", trigger_history::workspaced_service())
                         .nest("/inputs", windmill_api_inputs::workspaced_service())
                         .nest("/internal_db", internal_db::workspaced_service())
                         .route("/labels/list", get(list_workspace_labels))
@@ -1135,6 +1154,8 @@ pub async fn run_server(
     ));
 
     let app = app.layer(axum::middleware::from_fn(set_deploy_origin));
+
+    let app = app.layer(axum::middleware::from_fn(set_request_client));
 
     let app = app.layer(CatchPanicLayer::custom(|err| {
         tracing::error!("panic in handler, returning 500: {:?}", err);

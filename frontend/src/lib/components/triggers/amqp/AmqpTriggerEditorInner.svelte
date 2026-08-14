@@ -445,6 +445,7 @@
 {#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="amqp"
 			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}

@@ -410,6 +410,24 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
 
             match report_status {
                 Ok(_) => {
+                    windmill_common::trigger_history::record_best_effort(
+                        db,
+                        windmill_common::trigger_history::TriggerHistoryEvent {
+                            workspace_id: &listening_trigger.workspace_id,
+                            // `to_key`, not `Display`: it is what lines up with
+                            // the `TRIGGER_TYPE` the API routes record under.
+                            trigger_kind: &Self::TRIGGER_KIND.to_key(),
+                            path: &listening_trigger.path,
+                            operation: windmill_common::trigger_history::TriggerOperation::Disable,
+                            source: windmill_common::trigger_history::TriggerSource::Worker,
+                            username: None,
+                            changes: Some(serde_json::json!({
+                                "mode": { "new": "disabled" },
+                                "error": { "new": error },
+                            })),
+                        },
+                    )
+                    .await;
                     report_critical_error(
                         format!(
                             "Disabling {} trigger {} because of error: {}",

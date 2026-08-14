@@ -2503,6 +2503,35 @@ pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Syn
     Ok(())
 }
 
+/// Record a schedule the server disabled on its own.
+///
+/// Deliberately on its own connection rather than the job-completion
+/// transaction: a failed statement there would poison it and take the job down
+/// with it. The cost is that the history row can outlive a rolled-back disable.
+pub async fn record_schedule_auto_disable(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    path: &str,
+    err: &Error,
+) {
+    windmill_common::trigger_history::record_best_effort(
+        db,
+        windmill_common::trigger_history::TriggerHistoryEvent {
+            workspace_id,
+            trigger_kind: windmill_common::trigger_history::SCHEDULE_TRIGGER_KIND,
+            path,
+            operation: windmill_common::trigger_history::TriggerOperation::Disable,
+            source: windmill_common::trigger_history::TriggerSource::Worker,
+            username: None,
+            changes: Some(serde_json::json!({
+                "enabled": { "old": true, "new": false },
+                "error": { "new": err.to_string() },
+            })),
+        },
+    )
+    .await;
+}
+
 pub async fn try_schedule_next_job<'c>(
     db: &Pool<Postgres>,
     mut tx: Transaction<'c, Postgres>,
@@ -2686,6 +2715,7 @@ pub async fn try_schedule_next_job<'c>(
                 )
                 .await;
             } else {
+                record_schedule_auto_disable(db, &schedule.workspace_id, &schedule.path, err).await;
                 push_err = None;
             }
         }

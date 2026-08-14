@@ -2941,6 +2941,14 @@ pub async fn handle_flow(
                             ),
                         )
                         .await;
+                    } else {
+                        windmill_queue::jobs::record_schedule_auto_disable(
+                            db,
+                            &flow_job.workspace_id,
+                            &schedule.path,
+                            &err,
+                        )
+                        .await;
                     }
                 } else {
                     // Transient error (DB contention, timeout) after retry exhaustion:

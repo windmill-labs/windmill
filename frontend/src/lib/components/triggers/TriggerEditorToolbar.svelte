@@ -5,7 +5,7 @@
 
 	import { Tooltip } from '../meltComponents'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
-	import { type Trigger } from './utils'
+	import { type Trigger, type TriggerType } from './utils'
 	import TriggerSuspendedJobsModal from './TriggerSuspendedJobsModal.svelte'
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
@@ -14,6 +14,7 @@
 	import { pageDrawerSessionSource } from '../sessions/pageDrawerSession'
 	import { page } from '$app/state'
 	import { workspaceStore } from '$lib/stores'
+	import TriggerHistoryButton from './TriggerHistoryButton.svelte'
 
 	interface Props {
 		saveDisabled: any
@@ -35,6 +36,10 @@
 		/** Path of the trigger being edited, used to deep-link "Open in AI session"
 		 * at this trigger. Empty while creating one. */
 		triggerPath?: string
+		/** Kind the modification history is recorded under. Only the schedule
+		 * editor has to pass it: every other editor renders with a `trigger`,
+		 * whose `type` is the same value. */
+		triggerKind?: TriggerType
 	}
 
 	let {
@@ -54,7 +59,8 @@
 		trigger,
 		suspendedJobsModal,
 		disableSuspendedMode = false,
-		triggerPath
+		triggerPath,
+		triggerKind
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
@@ -77,10 +83,20 @@
 				)
 			: undefined
 	)
+
+	// Only a deployed trigger has a history: a draft has never been written.
+	// `triggerKind` is what opts an editor in, so the kinds `trigger_history`
+	// does not record (native triggers) simply never pass it.
+	const historyPath = $derived(
+		triggerKind && edit && !trigger?.isDraft ? triggerPath || trigger?.path : undefined
+	)
 </script>
 
 {#if !allowDraft}
 	{@render extra?.()}
+	{#if triggerKind && historyPath}
+		<TriggerHistoryButton {triggerKind} path={historyPath} />
+	{/if}
 	<OpenInSessionButton source={sessionSource} />
 	{#if edit}
 		<TriggerModeToggle
@@ -107,6 +123,9 @@
 	{/if}
 {:else}
 	<div class="flex flex-row gap-2 items-center">
+		{#if triggerKind && historyPath}
+			<TriggerHistoryButton {triggerKind} path={historyPath} />
+		{/if}
 		<OpenInSessionButton source={sessionSource} />
 		{#if !trigger?.draftConfig}
 			<div class="center-center">

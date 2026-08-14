@@ -20333,6 +20333,36 @@ paths:
                       type: string
                       nullable: true
 
+  /w/{workspace}/triggers_history/list:
+    get:
+      summary: list the history of schedule and trigger modifications
+      operationId: listTriggerHistory
+      tags:
+        - trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: trigger_kind
+          description: "'schedule' or a trigger type (http, kafka, ...)"
+          in: query
+          schema:
+            type: string
+        - name: path
+          description: only return the history of the trigger at this path
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: trigger history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TriggerHistoryEntry"
+
   /w/{workspace}/folders/list:
     get:
       summary: list folders
@@ -28235,6 +28265,44 @@ components:
           type: string
         is_fileset:
           type: boolean
+
+    TriggerHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        trigger_kind:
+          type: string
+          description: "'schedule' or a trigger type (http, kafka, ...)"
+        path:
+          type: string
+        operation:
+          type: string
+          enum: [create, update, delete, enable, disable, suspend]
+        source:
+          type: string
+          description: The kind of client the change came from. `worker` means the server disabled the trigger on its own after a failure.
+          enum: [ui, cli, api, worker]
+        username:
+          type: string
+          nullable: true
+          description: Unset when the server acted on its own.
+        created_at:
+          type: string
+          format: date-time
+        changes:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: "{field: {old, new}} for the fields that actually changed. Unset for a delete."
+      required:
+        - id
+        - trigger_kind
+        - path
+        - operation
+        - source
+        - created_at
 
     Schedule:
       type: object

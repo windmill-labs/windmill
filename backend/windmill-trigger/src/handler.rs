@@ -16,6 +16,7 @@ use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    trigger_history::{self, TriggerHistoryEvent, TriggerOperation, TriggerSource},
     user_drafts::{
         delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
         overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
@@ -458,6 +459,36 @@ pub trait TriggerCrud: Send + Sync + 'static {
     }
 }
 
+/// Append this mutation to `trigger_history`, diffing the row at `path` against
+/// `before`.
+///
+/// Call it on the transaction that made the change, after the change: the
+/// snapshot it takes is the "after" side of the diff, and the two commit or roll
+/// back together.
+async fn record_trigger_history<T: TriggerCrud>(
+    tx: &mut PgConnection,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    path: &str,
+    operation: TriggerOperation,
+    before: Option<serde_json::Value>,
+) -> Result<()> {
+    let after = trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, workspace_id, path).await?;
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id,
+            trigger_kind: T::TRIGGER_TYPE,
+            path,
+            operation,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: trigger_history::summarize_changes(before.as_ref(), after.as_ref()),
+        },
+    )
+    .await
+}
+
 pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     let mut router = Router::new()
         .route("/create", post(create_trigger::<T>))
@@ -555,6 +586,16 @@ async fn create_trigger<T: TriggerCrud>(
         .execute(&mut *tx)
         .await?;
     }
+
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        &new_path,
+        TriggerOperation::Create,
+        None,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -782,6 +823,9 @@ async fn update_trigger<T: TriggerCrud>(
         &authed.username,
     );
 
+    let before =
+        trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
+
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
@@ -798,6 +842,18 @@ async fn update_trigger<T: TriggerCrud>(
         .execute(&mut *tx)
         .await?;
     }
+
+    // Recorded at the new path, so a rename reads as one event there with
+    // `path` among the changed fields rather than a delete plus a create.
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        &new_path,
+        TriggerOperation::Update,
+        before,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -912,6 +968,22 @@ async fn delete_trigger<T: TriggerCrud>(
         )
         .await?;
     }
+
+    // No diff: the row is gone, and the trashbin above already keeps its full
+    // contents for a restore.
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id: &workspace_id,
+            trigger_kind: T::TRIGGER_TYPE,
+            path,
+            operation: TriggerOperation::Delete,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: None,
+        },
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -1052,6 +1124,9 @@ async fn set_trigger_mode<T: TriggerCrud>(
         }
     }
 
+    let before =
+        trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
+
     let updated = handler
         .set_trigger_mode(&authed, &mut *tx, &workspace_id, path, &payload.mode)
         .await?;
@@ -1062,6 +1137,20 @@ async fn set_trigger_mode<T: TriggerCrud>(
             path
         )));
     }
+
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        path,
+        match payload.mode {
+            TriggerMode::Enabled => TriggerOperation::Enable,
+            TriggerMode::Disabled => TriggerOperation::Disable,
+            TriggerMode::Suspended => TriggerOperation::Suspend,
+        },
+        before,
+    )
+    .await?;
 
     tx.commit().await?;
 
