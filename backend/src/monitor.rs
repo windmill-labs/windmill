@@ -465,13 +465,11 @@ pub async fn initial_load(
         });
     }
 
-    pass.setting(HUB_API_SECRET_SETTING, true, |v| async move {
-        HUB_API_SECRET.store(std::sync::Arc::new(parse_option_setting_value::<String>(
-            v,
-            HUB_API_SECRET_SETTING,
-            "HUB_API_SECRET",
-        )));
-    });
+    pass.option_setting_with(
+        HUB_API_SECRET_SETTING,
+        "HUB_API_SECRET",
+        |v: Option<String>| async move { HUB_API_SECRET.store(std::sync::Arc::new(v)) },
+    );
 
     if server_mode {
         pass.setting(RETENTION_PERIOD_SECS_SETTING, true, |v| async move {
@@ -3114,14 +3112,33 @@ impl<'a> SettingsPass<'a> {
         std_env_var: &'static str,
         lock: Arc<RwLock<Option<T>>>,
     ) {
+        self.option_setting_with(name, std_env_var, move |v| async move {
+            *lock.write().await = v;
+        });
+    }
+
+    /// [`Self::option_setting`] for a setting held in something other than an
+    /// `Arc<RwLock<Option<T>>>`, such as an `ArcSwap`. Going through here rather than calling
+    /// [`parse_option_setting_value`] from a bare [`Self::setting`] is what applies the
+    /// `FORCE_` rule, which a hand-rolled declaration would silently miss.
+    pub fn option_setting_with<T, F, Fut>(
+        &mut self,
+        name: &'static str,
+        std_env_var: &'static str,
+        store: F,
+    ) where
+        T: FromStr + DeserializeOwned + Send + Sync + 'a,
+        F: FnOnce(Option<T>) -> Fut + Send + 'a,
+        Fut: std::future::Future<Output = ()> + Send + 'a,
+    {
         if forced_env_value::<T>(std_env_var).is_some() {
             self.forced(move || async move {
-                *lock.write().await = parse_option_setting_value(None, name, std_env_var);
+                store(parse_option_setting_value(None, name, std_env_var)).await
             });
             return;
         }
         self.setting(name, true, move |v| async move {
-            *lock.write().await = parse_option_setting_value(v, name, std_env_var);
+            store(parse_option_setting_value(v, name, std_env_var)).await
         });
     }
 
