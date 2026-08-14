@@ -12,7 +12,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
+use windmill_api_auth::{build_scope_path_filter, check_scopes, ApiAuthed, ScopePathFilter};
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
@@ -60,6 +60,15 @@ async fn list_trigger_history(
         check_scopes(&authed, || format!("triggers_history:read:{}", path))?;
     }
 
+    // In the WHERE, not a retain after the fetch: the result is paginated, and a
+    // post-fetch filter would let a page's size report how many rows the token
+    // may not read — and return short pages that read as "no history".
+    let (scope_all, scope_exact, scope_prefix) =
+        match build_scope_path_filter(&authed, "triggers_history", "read") {
+            ScopePathFilter::AllowAll => (true, Vec::new(), Vec::new()),
+            ScopePathFilter::Restricted { exact, prefix } => (false, exact, prefix),
+        };
+
     let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
@@ -71,21 +80,26 @@ async fn list_trigger_history(
          WHERE workspace_id = $1
            AND ($2::TEXT IS NULL OR trigger_kind = $2)
            AND ($3::TEXT IS NULL OR path = $3)
+           AND ( $6
+                 OR path = ANY($7)
+                 OR EXISTS ( SELECT 1 FROM unnest($8::text[]) AS pfx
+                             WHERE path = pfx
+                                OR left(path, length(pfx) + 1) = pfx || '/' ) )
          ORDER BY id DESC
          LIMIT $4 OFFSET $5",
         w_id,
         query.trigger_kind,
         query.path,
         per_page as i64,
-        offset as i64
+        offset as i64,
+        scope_all,
+        &scope_exact[..],
+        &scope_prefix[..],
     )
     .fetch_all(&mut *tx)
     .await?;
 
     tx.commit().await?;
 
-    let allowed = build_scope_path_predicate(&authed, "triggers_history", "read");
-    Ok(axum::Json(
-        history.into_iter().filter(|e| allowed(&e.path)).collect(),
-    ))
+    Ok(axum::Json(history))
 }

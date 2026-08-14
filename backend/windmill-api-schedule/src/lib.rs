@@ -1536,22 +1536,34 @@ async fn set_default_error_handler(
         // already-had-this-value filter — the UPDATE rewrites the whole
         // workspace unconditionally, so these rows record the write rather than
         // a delta.
+        // Built from the same values the branch that ran actually bound: a reset
+        // (`payload.path` absent) hardcodes NULL / false in SQL while the request
+        // still carries the form's other fields, so reading them here would name
+        // values the write never produced.
+        let cleared = payload.path.is_none();
+        let handler_path = payload.path.clone();
+        let extra_args = (!cleared).then(|| payload.extra_args.clone()).flatten();
+        let times = (!cleared).then_some(payload.number_of_occurence).flatten();
         let handler_fields = match payload.handler_type {
             HandlerType::Error => serde_json::json!({
-                "on_failure": { "new": payload.path },
-                "on_failure_extra_args": { "new": payload.extra_args },
-                "on_failure_times": { "new": payload.number_of_occurence },
-                "on_failure_exact": { "new": payload.number_of_occurence_exact },
-                "ws_error_handler_muted": { "new": payload.workspace_handler_muted },
+                "on_failure": { "new": handler_path },
+                "on_failure_extra_args": { "new": extra_args },
+                "on_failure_times": { "new": times },
+                "on_failure_exact": {
+                    "new": (!cleared).then_some(payload.number_of_occurence_exact).flatten()
+                },
+                "ws_error_handler_muted": {
+                    "new": !cleared && payload.workspace_handler_muted.unwrap_or(false)
+                },
             }),
             HandlerType::Recovery => serde_json::json!({
-                "on_recovery": { "new": payload.path },
-                "on_recovery_extra_args": { "new": payload.extra_args },
-                "on_recovery_times": { "new": payload.number_of_occurence },
+                "on_recovery": { "new": handler_path },
+                "on_recovery_extra_args": { "new": extra_args },
+                "on_recovery_times": { "new": times },
             }),
             HandlerType::Success => serde_json::json!({
-                "on_success": { "new": payload.path },
-                "on_success_extra_args": { "new": payload.extra_args },
+                "on_success": { "new": handler_path },
+                "on_success_extra_args": { "new": extra_args },
             }),
         };
         let mut conn = db.acquire().await?;

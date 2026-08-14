@@ -2923,7 +2923,7 @@ pub async fn handle_flow(
                     // its own disable write failed. Retry it: rearm_schedule turns
                     // these into NoOp, so without disabling here the schedule would
                     // stay enabled yet never run.
-                    if let Err(disable_err) = sqlx::query!(
+                    match sqlx::query!(
                         "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
                         err.to_string(),
                         &flow_job.workspace_id,
@@ -2932,27 +2932,36 @@ pub async fn handle_flow(
                     .execute(db)
                     .await
                     {
-                        report_error_to_workspace_handler_or_critical_side_channel(
-                            &mini_job,
-                            db,
-                            format!(
-                                "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
-                                schedule.path,
-                            ),
-                        )
-                        .await;
-                    } else {
+                        Err(disable_err) => {
+                            report_error_to_workspace_handler_or_critical_side_channel(
+                                &mini_job,
+                                db,
+                                format!(
+                                    "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                                    schedule.path,
+                                ),
+                            )
+                            .await;
+                        }
+                        // Gated on `rows_affected` like the other two server
+                        // disables: retries have taken seconds to get here, so
+                        // the schedule may be gone, and a `worker` disable row
+                        // at a path someone else may now own is a lie.
+                        //
                         // No transaction is held here (the retried closure
                         // committed its own), so a second connection is safe.
-                        windmill_common::trigger_history::record_best_effort(
-                            db,
-                            windmill_queue::jobs::schedule_auto_disable_event(
-                                &flow_job.workspace_id,
-                                &schedule.path,
-                                &err.to_string(),
-                            ),
-                        )
-                        .await;
+                        Ok(result) if result.rows_affected() > 0 => {
+                            windmill_common::trigger_history::record_best_effort(
+                                db,
+                                windmill_queue::jobs::schedule_auto_disable_event(
+                                    &flow_job.workspace_id,
+                                    &schedule.path,
+                                    &err.to_string(),
+                                ),
+                            )
+                            .await;
+                        }
+                        Ok(_) => {}
                     }
                 } else {
                     // Transient error (DB contention, timeout) after retry exhaustion:
