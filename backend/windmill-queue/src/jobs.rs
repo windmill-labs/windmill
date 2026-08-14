@@ -2715,7 +2715,12 @@ pub async fn try_schedule_next_job<'c>(
                 schedule.path
             );
             let disable_result = sqlx::query!(
-                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                // `AND enabled = true`: the schedule was read as enabled, but a user
+                // can disable it before this runs. Without the predicate the UPDATE
+                // still reports one affected row, and the `rows_affected` gate below
+                // would let the worker claim a `true -> false` transition the user
+                // had already made.
+                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
                 err.to_string(),
                 &schedule.workspace_id,
                 &schedule.path

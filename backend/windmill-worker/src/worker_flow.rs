@@ -2924,7 +2924,12 @@ pub async fn handle_flow(
                     // these into NoOp, so without disabling here the schedule would
                     // stay enabled yet never run.
                     match sqlx::query!(
-                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                        // `AND enabled = true`: the schedule was read as enabled, but a user
+                // can disable it before this runs. Without the predicate the UPDATE
+                // still reports one affected row, and the `rows_affected` gate below
+                // would let the worker claim a `true -> false` transition the user
+                // had already made.
+                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
                         err.to_string(),
                         &flow_job.workspace_id,
                         &schedule.path

@@ -189,9 +189,20 @@ const MAX_CHANGES_BYTES: usize = 32 * 1024;
 ///
 /// `FOR UPDATE`, so the preimage and the mutation that follows it see the same
 /// row: without the lock another request can commit between the two, and its
-/// change then lands in this caller's diff under this caller's name. The lock is
-/// on the trigger row and the callers touch the job queue only afterwards, which
-/// is the order the schedule paths already document.
+/// change then lands in this caller's diff under this caller's name.
+///
+/// Two things follow from taking the lock here rather than at the write:
+///
+/// - The only row locked is the one the caller is about to write, and the
+///   schedule paths reach the job queue only afterwards, so their documented
+///   schedule-then-queue order is unchanged.
+/// - The lock is held for whatever the caller does before its own `UPDATE`. For
+///   `TriggerCrud::update_trigger` that includes the impl's external work — the
+///   postgres impl opens a replication slot on a user-supplied host, the gcp and
+///   azure impls call their subscription APIs — so a concurrent `setmode`, a
+///   listener error write, or a script rename's bulk `script_path` update waits
+///   on that call. Bounded by those APIs, not by us; the alternative is a
+///   preimage inside each impl next to its own `UPDATE`.
 ///
 /// `table` is interpolated: pass a compile-time constant, never anything a
 /// caller can reach.
