@@ -222,10 +222,17 @@ async function executeTool(
 		})
 	} catch (e: any) {
 		const status = e?.status
+		const error = errorMessage(e)
+		// The server disagrees with the listing this call was classified from, so the
+		// write tool the model is sent to must not be handed the same answer. Matching
+		// loosely is safe: the worst a false positive costs is one extra listing.
+		if (skippedConfirmation && status === 400 && /read-only/i.test(error)) {
+			forgetServerTools(workspace, server.path)
+		}
 		return bounded({
 			success: false,
 			...(status ? { status } : {}),
-			error: errorMessage(e),
+			error,
 			// Wrong arguments are the common failure: echo the schema so the model
 			// can self-correct on the next call without a separate schema tool.
 			...(status >= 400 && status < 500 ? { schema: tool.inputSchema } : {})
@@ -373,14 +380,7 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 				parsed.arguments ?? {},
 				isRead
 			)
-			const payload = JSON.parse(result)
-			const ok = payload.success === true
-			// The server disagrees with the listing this call was classified from, so
-			// the retry has to reclassify. Matching loosely is safe: the worst a false
-			// positive costs is one extra listing.
-			if (isRead && payload.status === 400 && /read-only/i.test(payload.error ?? '')) {
-				forgetServerTools(workspace, resolved.server.path)
-			}
+			const ok = JSON.parse(result).success === true
 			toolCallbacks.setToolStatus(toolId, {
 				content: ok ? `Called ${parsed.tool}` : `Call to ${parsed.tool} failed`,
 				result,
