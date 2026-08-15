@@ -67,6 +67,20 @@ export function clearMcpToolsCache() {
 }
 
 /**
+ * Drop one server's listing after the backend refused the read-only assertion it
+ * produced. Without this the write call the model is being sent to would be
+ * rejected by the same stale `readOnlyHint`, leaving it with nowhere to go until
+ * the entry expires.
+ */
+function forgetServerTools(workspace: string, path: string) {
+	cacheGeneration++
+	const prefix = `${workspace}:${path}:`
+	for (const key of Object.keys(toolsCache)) {
+		if (key.startsWith(prefix)) delete toolsCache[key]
+	}
+}
+
+/**
  * The `mcp` resources the user turned on for this workspace. Readable is not
  * enough: a shared resource would otherwise put a server the user never chose
  * into every one of their sessions.
@@ -208,10 +222,17 @@ async function executeTool(
 		})
 	} catch (e: any) {
 		const status = e?.status
+		const error = errorMessage(e)
+		// The server disagrees with the listing this call was classified from, so the
+		// write tool the model is sent to must not be handed the same answer. Matching
+		// loosely is safe: the worst a false positive costs is one extra listing.
+		if (skippedConfirmation && status === 400 && /read-only/i.test(error)) {
+			forgetServerTools(workspace, server.path)
+		}
 		return bounded({
 			success: false,
 			...(status ? { status } : {}),
-			error: errorMessage(e),
+			error,
 			// Wrong arguments are the common failure: echo the schema so the model
 			// can self-correct on the next call without a separate schema tool.
 			...(status >= 400 && status < 500 ? { schema: tool.inputSchema } : {})
