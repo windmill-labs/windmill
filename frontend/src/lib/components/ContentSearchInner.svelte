@@ -14,7 +14,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './home/FlowIcon.svelte'
-	import { Button } from './common'
+	import Tooltip from './meltComponents/Tooltip.svelte'
+	import { Badge, Button } from './common'
 	import YAML from 'yaml'
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInnerItem from './ContentSearchInnerItem.svelte'
@@ -55,8 +56,13 @@
 	let scripts: undefined | { path: string; content: string }[] = $state(undefined)
 	let filteredScriptItems: { path: string; content: string; marked: any }[] = $state([])
 
-	let resources: undefined | { path: string; value: any }[] = $state(undefined)
-	let filteredResourceItems: { path: string; value: any; marked: any }[] = $state([])
+	// Resource values are arbitrary user JSON and can be huge, so the API sends them already
+	// rendered and length-capped. Keep them as text — re-serializing here blocks the main
+	// thread for seconds on workspaces with many large resources.
+	let resources: undefined | { path: string; value: string; truncated: boolean }[] =
+		$state(undefined)
+	let filteredResourceItems: { path: string; value: string; truncated: boolean; marked: any }[] =
+		$state([])
 
 	let flows: undefined | { path: string; value: any }[] = $state(undefined)
 	let filteredFlowItems: { path: string; value: any; marked: any }[] = $state([])
@@ -127,7 +133,7 @@
 	filter={search}
 	items={resources}
 	f={(s) => {
-		return YAML.stringify(s.value)
+		return s.value
 	}}
 	bind:filteredItems={filteredResourceItems}
 />
@@ -269,6 +275,15 @@
 							on:close
 						>
 							{#snippet actions()}
+								{#if item.truncated}
+									<Tooltip>
+										<Badge color="gray">Truncated</Badge>
+										{#snippet text()}
+											This resource is too large to search in full: only its beginning is matched
+											and shown.
+										{/snippet}
+									</Tooltip>
+								{/if}
 								<Button href={`/resources#${item.path}`} target="_blank" startIcon={{ icon: Edit }}>
 									Edit
 								</Button>
