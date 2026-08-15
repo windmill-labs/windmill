@@ -1629,6 +1629,10 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
 
+        // `workers_f` must stay ahead of `server_f`: these are polled on one task in
+        // declaration order, and `run_server` yields once after handing over the base
+        // internal url so the workers get past that oneshot before it builds its router.
+        // Ordering `server_f` first makes them wait out the whole build instead.
         if mcp_mode {
             futures::try_join!(workers_f, server_f)?;
         } else {

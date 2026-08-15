@@ -584,6 +584,16 @@ pub async fn run_server(
         (Router::new(), Router::new(), Option::<()>::None)
     };
 
+    // Workers block on this before pulling their first job, so it is released ahead of
+    // the router tree below. `try_join!` polls this future and `workers_f` on one task,
+    // so the yield is what lets them proceed; without it they wait out the whole
+    // synchronous build. A request arriving first queues in the bound listener's backlog.
+    if let Err(e) = port_tx.send(format!("http://localhost:{}", port)) {
+        tracing::error!("Failed to send port: {e:#}");
+        return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
+    }
+    tokio::task::yield_now().await;
+
     let mcp_list_tools_service = {
         #[cfg(feature = "mcp")]
         {
@@ -1180,11 +1190,6 @@ pub async fn run_server(
         ip,
         name.map(|x| format!("name={x}")).unwrap_or_default()
     );
-
-    if let Err(e) = port_tx.send(format!("http://localhost:{}", port)) {
-        tracing::error!("Failed to send port: {e:#}");
-        return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
-    }
 
     // Announce this server is ready so coordinated restarts can detect a healthy peer.
     if server_mode {
