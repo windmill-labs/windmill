@@ -228,7 +228,8 @@
 				<!-- A resource whose only match sits past the API's cap drops out of the results with
 					 nothing to show, so say up front how much of the corpus is only partly searched. -->
 				<div class="text-xs text-secondary">
-					{nTruncated} of those resources are too large to search in full — only their beginning is matched.
+					{nTruncated} of those resources {nTruncated === 1 ? 'is' : 'are'} too large to search in full
+					— only {nTruncated === 1 ? 'its' : 'their'} beginning is matched.
 				</div>
 			{/if}
 		{/if}

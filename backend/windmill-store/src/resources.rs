@@ -258,6 +258,7 @@ pub struct SearchResource {
 /// This route hands the browser every readable resource's value at once and the client keeps
 /// them all in memory, so without a cap a workspace of large JSON resources sends tens of MB
 /// and freezes the tab. Content search only fuzzy-matches and previews a few lines of each.
+/// The value is spelled out in `listSearchResource`'s openapi.yaml description; change both.
 const SEARCH_RESOURCE_VALUE_MAX_CHARS: i32 = 4000;
 
 async fn list_search_resources(
