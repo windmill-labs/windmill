@@ -893,7 +893,14 @@
 									`SSE error (1), retrying ...  attempt: ${attempt + 1}/${MAX_SSE_ATTEMPTS}`
 								)
 							}
-							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), delay)
+							// A no-logs restart is deliberate (the caller wants a stream with different
+							// query args), not a failure, so it must not consume the retry budget:
+							// toggling the flow graph tab would otherwise exhaust it in a few clicks
+							// and strand a healthy stream on polling.
+							setTimeout(
+								() => loadTestJobWithSSE(id, isNoLogsChange ? attempt : attempt + 1, callbacks),
+								delay
+							)
 						} else {
 							// Fall back to polling on error
 							setTimeout(() => syncer(id, callbacks), 1000)
