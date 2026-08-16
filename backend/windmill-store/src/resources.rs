@@ -271,11 +271,13 @@ async fn list_search_resources(
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as!(
         SearchResource,
-        // The LATERAL keeps jsonb_pretty to a single serialization per row.
+        // `OFFSET 0` fences the subquery so the planner cannot pull it up: without it
+        // jsonb_pretty is inlined into both the left() and the length(), serializing
+        // every value twice.
         r#"SELECT resource.path,
                   COALESCE(left(pretty.value, $3), '') as "value!",
                   COALESCE(length(pretty.value) > $3, false) as "truncated!"
-           FROM resource, LATERAL (SELECT jsonb_pretty(resource.value) as value) pretty
+           FROM resource, LATERAL (SELECT jsonb_pretty(resource.value) as value OFFSET 0) pretty
            WHERE workspace_id = $1 LIMIT $2"#,
         &w_id,
         n,

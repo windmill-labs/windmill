@@ -59,10 +59,9 @@
 	// Resource values are arbitrary user JSON and can be huge, so the API sends them already
 	// rendered and length-capped. Keep them as text — re-serializing here blocks the main
 	// thread for seconds on workspaces with many large resources.
-	let resources: undefined | { path: string; value: string; truncated: boolean }[] =
-		$state(undefined)
-	let filteredResourceItems: { path: string; value: string; truncated: boolean; marked: any }[] =
-		$state([])
+	type ResourceHit = { path: string; value: string; truncated: boolean }
+	let resources: undefined | ResourceHit[] = $state(undefined)
+	let filteredResourceItems: (ResourceHit & { marked: any })[] = $state([])
 
 	let flows: undefined | { path: string; value: any }[] = $state(undefined)
 	let filteredFlowItems: { path: string; value: any; marked: any }[] = $state([])
@@ -223,6 +222,16 @@
 			</div>
 			apps
 		</div>
+		{#if resources}
+			{@const nTruncated = resources.filter((r) => r.truncated).length}
+			{#if nTruncated > 0}
+				<!-- A resource whose only match sits past the API's cap drops out of the results with
+					 nothing to show, so say up front how much of the corpus is only partly searched. -->
+				<div class="text-xs text-secondary">
+					{nTruncated} of those resources are too large to search in full — only their beginning is matched.
+				</div>
+			{/if}
+		{/if}
 	</div>
 
 	<div class={twMerge('p-2')}>
