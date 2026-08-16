@@ -3231,6 +3231,22 @@ async fn update_app_internal<'a>(
         .execute(&mut *tx)
         .await?;
     }
+    if npath != path {
+        // Everything left at the old path is a draft this deploy didn't consume
+        // — teammates' rows, and the deployer's own when the caller asked us to
+        // keep it (a move re-deploys the DEPLOYED content, not the draft).
+        // Carry them rather than strand them.
+        windmill_common::user_drafts::move_drafts_for_path(
+            &mut tx,
+            &w_id,
+            &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
+            path,
+            &npath,
+            UserDraftItemKind::App.typed_path_field(),
+            Some(("parent_version", v_id.to_string())),
+        )
+        .await?;
+    }
     audit_log(
         &mut *tx,
         &authed,

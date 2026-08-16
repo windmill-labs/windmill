@@ -16,7 +16,7 @@
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import type { RowSelection } from './rowSelection'
+	import { selectMenuItems, type RowSelection } from './rowSelection'
 	import { sendUserToast } from '$lib/toast'
 	import { capitalize, copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
@@ -266,12 +266,26 @@
 				const canEdit = script.canWrite && showEditButton
 				if (script.draft_only) {
 					return [
+						...selectMenuItems(rowSelection),
 						{
 							displayName: 'View code',
 							icon: Code,
 							action: () => {
 								showCode(script.path, script.summary)
 							}
+						},
+						{
+							displayName: 'Move/Rename',
+							icon: FolderOpen,
+							action: () => {
+								// Addressed by the generated path its draft row sits at, but
+								// named by the path typed in the editor.
+								moveDrawer.openDrawer(script.draft_path ?? script.path, script.summary, 'script', {
+									storagePath: script.path
+								})
+							},
+							disabled: !showEditButton,
+							hide: $userStore?.operator
 						},
 						{
 							displayName: 'Delete',
@@ -296,6 +310,7 @@
 					]
 				}
 				return [
+					...selectMenuItems(rowSelection),
 					{
 						displayName: 'View code',
 						icon: Code,

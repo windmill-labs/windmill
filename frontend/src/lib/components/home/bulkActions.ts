@@ -8,10 +8,16 @@
  * addresses the deployed row. A draft-only item is therefore not deletable —
  * there is nothing deployed at its path.
  */
-import { AppService, FlowService, ScriptService } from '$lib/gen'
+import { AppService, DraftService, FlowService, ScriptService } from '$lib/gen'
+import type { UserDraftItemKind } from '$lib/gen'
 import { updateItemPathAndSummary } from '$lib/components/moveRenameManager'
 import { discardDraft } from '$lib/utils_draft_deploy'
 import type { BulkItem } from './homeSelection.svelte'
+
+/** The draft overlay is the one place a raw app is its own kind. */
+function draftKind(item: BulkItem): UserDraftItemKind {
+	return item.kind === 'app' && item.rawApp ? 'raw_app' : item.kind
+}
 
 export type BulkAction = 'move' | 'archive' | 'unarchive' | 'delete' | 'discard'
 
@@ -32,7 +38,6 @@ export function blockedReason(
 	const notOwner = 'you are not an owner of this path'
 	switch (action) {
 		case 'move':
-			if (item.draftOnly) return 'a draft-only item has no deployed path to move'
 			if (item.archived) return 'archived items cannot be moved'
 			if (!item.owner) return notOwner
 			if (!item.canWrite) return 'you do not have write permission on this path'
@@ -64,17 +69,35 @@ export function eligible(action: BulkAction, items: BulkItem[], ctx: BulkContext
 	return items.filter((i) => blockedReason(action, i, ctx) == undefined)
 }
 
+/** The path a move reads from. A draft-only item is parked at a generated
+ * storage path but named by what was typed in the editor, and it is that name
+ * the user expects to find under the target. */
+export function sourcePath(item: BulkItem): string {
+	return item.draftOnly ? item.displayPath : item.path
+}
+
 /** Where an item lands under `target` (`f/<folder>` or `u/<user>`): everything
  * below its own owner prefix is preserved, so nested paths keep their shape. */
 export function movedPath(item: BulkItem, target: string): string {
-	const rest = item.path.split('/').slice(2).join('/')
+	const rest = sourcePath(item).split('/').slice(2).join('/')
 	return `${target}/${rest}`
 }
 
 async function moveItem(ctx: BulkContext, item: BulkItem, target: string): Promise<void> {
 	const newPath = movedPath(item, target)
 	// Re-saving a script at its current path would mint a pointless new version.
-	if (newPath === item.path) return
+	if (newPath === sourcePath(item)) return
+	if (item.draftOnly) {
+		// Nothing is deployed at this path, so there is no deploy to re-run: the
+		// item IS its draft row, and moving it rewrites that row.
+		await DraftService.moveDraft({
+			workspace: ctx.workspace,
+			kind: draftKind(item),
+			path: item.path,
+			requestBody: { new_path: newPath }
+		})
+		return
+	}
 	await updateItemPathAndSummary({
 		workspace: ctx.workspace,
 		kind: item.kind,
@@ -117,10 +140,15 @@ async function deleteItem(ctx: BulkContext, item: BulkItem): Promise<void> {
 }
 
 async function discardItemDraft(ctx: BulkContext, item: BulkItem): Promise<void> {
-	// The draft overlay is the one place a raw app is its own kind.
-	const kind = item.kind === 'app' && item.rawApp ? 'raw_app' : item.kind
 	// invalidate=false: the caller refreshes the draft list once for the batch.
-	const res = await discardDraft(kind, item.path, ctx.workspace, item.draftOnly, false, false)
+	const res = await discardDraft(
+		draftKind(item),
+		item.path,
+		ctx.workspace,
+		item.draftOnly,
+		false,
+		false
+	)
 	if (!res.success) throw new Error(res.error ?? 'discard failed')
 }
 

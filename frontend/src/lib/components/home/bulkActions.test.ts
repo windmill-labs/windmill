@@ -56,10 +56,12 @@ describe('blockedReason', () => {
 		expect(blockedReason('unarchive', item({ archived: false }), admin)).toBeDefined()
 	})
 
-	it('routes a draft-only row to discard, never to move/archive/delete', () => {
+	it('lets a draft-only row move or discard, never archive/delete', () => {
 		const draftOnly = item({ draftOnly: true, isDraft: true })
 		expect(blockedReason('discard', draftOnly, admin)).toBeUndefined()
-		expect(blockedReason('move', draftOnly, admin)).toBeDefined()
+		// Moving one rewrites its own draft row (DraftService.moveDraft) — there is
+		// no deployed path, but there is somewhere for it to go.
+		expect(blockedReason('move', draftOnly, admin)).toBeUndefined()
 		expect(blockedReason('archive', draftOnly, admin)).toBeDefined()
 		expect(blockedReason('delete', draftOnly, admin)).toBeDefined()
 	})
@@ -74,5 +76,14 @@ describe('movedPath', () => {
 		expect(movedPath(item({ path: 'f/alpha/x' }), 'f/beta')).toBe('f/beta/x')
 		expect(movedPath(item({ path: 'f/alpha/sub/x' }), 'f/beta')).toBe('f/beta/sub/x')
 		expect(movedPath(item({ path: 'u/ana/x' }), 'f/beta')).toBe('f/beta/x')
+	})
+
+	it('names a draft-only row by what it displays, not the path it is parked at', () => {
+		const parked = item({
+			draftOnly: true,
+			path: 'u/ana/draft_9f3c',
+			displayPath: 'u/ana/my_script'
+		})
+		expect(movedPath(parked, 'f/beta')).toBe('f/beta/my_script')
 	})
 })

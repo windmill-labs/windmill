@@ -77,8 +77,9 @@ export class HomeSelection {
 	/** The page offers multi-selection at all (never to an operator, and not on
 	 * the embedded read-only variants of the list). */
 	available = $state(false)
-	/** Selection mode is on even with nothing selected yet — entered from the
-	 * toolbar, so every row reveals its checkbox before the first pick. */
+	/** The user has started selecting. Kept separate from `size > 0` so that
+	 * unticking the last row leaves them in selection mode rather than dropping
+	 * them out of it mid-task; only `exit` clears it. */
 	private explicit = $state(false)
 	private selected = new SvelteMap<string, BulkItem>()
 	/** Every rendered selectable row, so a shift-click range can resolve the keys
@@ -131,10 +132,6 @@ export class HomeSelection {
 
 	unregister(key: string): void {
 		this.registry.delete(key)
-	}
-
-	enter(): void {
-		this.explicit = true
 	}
 
 	exit(): void {

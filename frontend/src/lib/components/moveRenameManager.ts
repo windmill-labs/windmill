@@ -21,6 +21,11 @@ export async function checkFlowOnBehalfOf(
  *
  * Note: on_behalf_of_email is intentionally omitted from flow updates for security
  * reasons — the backend will redeploy the flow on behalf of the current user.
+ *
+ * `skip_draft_deletion` on every call: this re-deploys the DEPLOYED content at a
+ * new path, so the caller's draft is unrelated work, not the thing being
+ * deployed. Without the flag the backend would delete it. The backend carries
+ * every remaining draft at the old path over to the new one.
  */
 export async function updateItemPathAndSummary(opts: {
 	workspace: string
@@ -47,7 +52,8 @@ export async function updateItemPathAndSummary(opts: {
 				dedicated_worker: flow.dedicated_worker,
 				ws_error_handler_muted: flow.ws_error_handler_muted,
 				visible_to_runner_only: flow.visible_to_runner_only,
-				labels
+				labels,
+				skip_draft_deletion: true
 			}
 		})
 	} else if (kind === 'script') {
@@ -61,7 +67,8 @@ export async function updateItemPathAndSummary(opts: {
 				lock: script.lock,
 				parent_hash: script.hash,
 				path: newPath,
-				labels
+				labels,
+				skip_draft_deletion: true
 			}
 		})
 	} else if (kind === 'app') {
@@ -71,7 +78,8 @@ export async function updateItemPathAndSummary(opts: {
 			requestBody: {
 				path: newPath !== initialPath ? newPath : undefined,
 				summary: newSummary,
-				labels
+				labels,
+				skip_draft_deletion: true
 			}
 		})
 	}

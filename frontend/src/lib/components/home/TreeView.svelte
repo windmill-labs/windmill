@@ -9,6 +9,8 @@
 	import { pluralize } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { Button } from '$lib/components/common'
+	import { getHomeSelection } from './homeSelection.svelte'
+	import { SELECTION_GUTTER_CLASS } from '../common/table/rowSelection'
 
 	interface Props {
 		item: ItemType | FolderItem | UserItem
@@ -243,6 +245,11 @@
 			onCollapseOwner?.(nodePrefix)
 		}
 	}
+
+	// A leaf row reserves a checkbox gutter whenever selection is offered, which
+	// would otherwise push its kind icon 16px right of a sibling folder's — the
+	// two must stay on the same x to read as the same level of the tree.
+	const homeSelection = getHomeSelection()
 </script>
 
 {#if isFolder(item) || isUser(item)}
@@ -257,6 +264,9 @@
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
 			>
+				{#if homeSelection?.available}
+					<div class={SELECTION_GUTTER_CLASS}></div>
+				{/if}
 				<div class="flex justify-center items-center">
 					{#if isUser(item)}
 						<User size={16} class="text-secondary" />
@@ -308,6 +318,9 @@
 						class="flex items-center gap-4 px-4 py-3 border-b text-sm hover:bg-surface-hover transition-colors"
 						style="padding-left: {(depth + 1) * 16}px;"
 					>
+						{#if homeSelection?.available}
+							<div class={SELECTION_GUTTER_CLASS}></div>
+						{/if}
 						<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
 						<span class="text-xs font-medium text-emphasis">Pipeline</span>
 					</a>

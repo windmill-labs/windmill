@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE draft AS d\n           SET path = $3,\n               value = to_json(\n                   jsonb_set(to_jsonb(d.value), ARRAY[$4::text], to_jsonb($3::text), false)\n               )\n           WHERE d.workspace_id = $1\n             AND d.path = $2\n             AND d.typ::text = ANY($5::text[])\n             AND NOT EXISTS (\n                 SELECT 1 FROM draft o\n                 WHERE o.workspace_id = d.workspace_id\n                   AND o.path = $3\n                   AND o.typ = d.typ\n                   AND o.email IS NOT DISTINCT FROM d.email\n             )\n           RETURNING d.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "30958446d29c3fa521bda176c23994caad0c7a1c05374f872f87ea838a412801"
+}

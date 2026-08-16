@@ -1982,6 +1982,24 @@ async fn create_script_internal<'c>(
             .await?;
         }
 
+        if p_path != &ns.path {
+            // Everything left at the old path is a draft this deploy didn't
+            // consume — teammates' rows, and the deployer's own when the caller
+            // asked us to keep it (a move re-deploys the DEPLOYED content, not
+            // the draft). Carry them rather than strand them.
+            windmill_common::user_drafts::move_drafts_for_path(
+                &mut tx,
+                &w_id,
+                &[UserDraftItemKind::Script],
+                p_path,
+                &ns.path,
+                UserDraftItemKind::Script.typed_path_field(),
+                // Drafts store a hash the way the API serializes one: hex text.
+                Some(("parent_hash", format!("\"{}\"", hash))),
+            )
+            .await?;
+        }
+
         sqlx::query!(
             "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS FALSE",
             ns.path,
