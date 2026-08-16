@@ -5,8 +5,12 @@ compose flows and full-code apps out of runnables that already exist. It does no
 authors: the boundary the operator role draws is **authoring code and running arbitrary code**,
 and builder rights do not move it.
 
-Read the flag with `windmill_common::workspaces::operator_builder_enabled` (60s cache, invalidated
-on write by `update_operator_settings`). Gate a write with `check_operator_can_build`.
+Read the flag with `windmill_common::workspaces::operator_builder_enabled` (60s cache). Gate a
+write with `check_operator_can_build`. The cache is per process, so revoking the setting has to
+reach every replica: an `AFTER UPDATE OF operator_settings` trigger writes a
+`notify_operator_settings_change` row and `process_notify_event` drops the entry. Keep both ends
+if you touch either, or a revoked workspace keeps authorizing writes on every other replica until
+its own entry expires.
 
 ## What the check has to cover
 
@@ -23,8 +27,14 @@ anything that carries code. Three of its rules exist because the obvious walk mi
   resource at run time, and operators may write resources, so the tool list is outside this check
   and can be swapped for a raw script after the flow is approved.
 
-It also returns the worker tags the steps pin. Authorize them (`check_tag_available_for_workspace_internal`)
-or a builder routes a job onto a privileged worker group.
+It also returns what a value-only walk cannot authorize, for the caller to check against its own
+permissions:
+
+- **the worker tags the steps pin**, or a builder routes a job onto a privileged worker group;
+- **the `(path, hash)` of every version-pinned step**. A step carrying a `hash` is dispatched by
+  that hash alone: `script_to_payload` ignores the path, reads the row with root permissions, and
+  takes that script's tag and `on_behalf_of` identity. An unverified pair therefore runs some other
+  script's code, possibly as some other identity, from behind a path the builder may read.
 
 Call it on every write **and** every preview: `run_preview_flow_job` and
 `push_flow_dependencies_job` both take a request-supplied flow value, so leaving either out makes
@@ -44,6 +54,13 @@ deploy through the multipart endpoints.
 A builder-authored app is forced to `policy.sandbox = true` (`check_operator_composed_app`). That
 is what makes it safe to let an operator publish a bundle nobody reviewed: without it the bundle
 runs same-origin with each viewer's Windmill session.
+
+The same check refuses a `rawscript/<sha>` key in either triggerables map. That key is the
+deployed app's authorization to run caller-supplied `raw_code` hashing to it (`execute_component`'s
+run mode authorizes inline code by the policy alone; its operator guard only covers preview mode),
+so pinning one would be arbitrary code execution behind a value that passed the inline-script
+check. It also uses `app_value_has_inline_script` rather than `traverse_app_inline_scripts`: the
+latter only reports a script whose `language` parses, and the author picks the fields.
 
 ## Accepted risks
 

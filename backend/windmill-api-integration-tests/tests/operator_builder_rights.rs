@@ -178,6 +178,49 @@ async fn test_operator_builder_rights_boundary(db: Pool<Postgres>) -> anyhow::Re
         "a builder must not create a low-code app"
     );
 
+    // A version-pinned step dispatches on its hash alone, so the pair must be real and readable:
+    // otherwise a builder pins the hash of a script it cannot reach and runs that instead.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema,
+             summary, description, lock, extra_perms)
+         VALUES ($1, 4242, 'u/operator/pinned', 'x', 'bun', 'script', 'operator', '{}', '', '', '', '{}')",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
+
+    let pinned = |hash: &str| {
+        json!({
+            "path": "u/operator/f3", "summary": "", "description": "", "schema": {},
+            "value": {"modules": [{
+                "id": "a",
+                "value": {
+                    "type": "script", "path": "u/operator/pinned", "hash": hash,
+                    "input_transforms": {}
+                }
+            }]}
+        })
+    };
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&pinned("0000000000000000"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a builder must not pin a hash that is not a version of the step's path"
+    );
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&pinned("0000000000001092"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "a builder must be able to pin the real version of a readable script: {}",
+        resp.text().await?
+    );
+
     invalidate_operator_builder_cache(WS);
     Ok(())
 }

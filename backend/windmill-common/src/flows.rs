@@ -17,6 +17,7 @@ use crate::{
     cache::{self, FlowExtras},
     db::DB,
     error::{to_anyhow, Error},
+    scripts::ScriptHash,
     utils::{http_get_from_hub, StripPath},
     worker::{to_raw_value, Connection},
     DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
@@ -250,35 +251,46 @@ pub async fn resolve_modules(
 /// all an operator with builder rights may author. Walks the modules, the preprocessor and failure
 /// modules, every branch, and the `tools` of an AI agent step.
 ///
-/// Returns the worker tags its steps pin, for the caller to authorize against its own scope: a tag
-/// is how a step picks the worker group it runs on.
-pub fn check_flow_is_composition_only(value: &FlowValue) -> Result<Vec<String>, Error> {
-    let mut tags = Vec::new();
+/// Returns what the caller still has to authorize against its own permissions, which this
+/// value-only walk cannot: the worker tags the steps pin (a tag is how a step picks the worker
+/// group it runs on) and the `(path, hash)` pairs of version-pinned script steps.
+pub fn check_flow_is_composition_only(value: &FlowValue) -> Result<ComposedFlowRefs, Error> {
+    let mut refs = ComposedFlowRefs::default();
     for module in value
         .modules
         .iter()
         .chain(value.preprocessor_module.as_deref())
         .chain(value.failure_module.as_deref())
     {
-        check_module_is_composition_only(module, &mut tags)?;
+        check_module_is_composition_only(module, &mut refs)?;
     }
-    Ok(tags)
+    Ok(refs)
+}
+
+/// What [`check_flow_is_composition_only`] collects for the caller to authorize.
+#[derive(Default)]
+pub struct ComposedFlowRefs {
+    pub tags: Vec<String>,
+    /// Version-pinned script steps. A step carrying a `hash` is dispatched by that hash alone,
+    /// with the path ignored and the row read with root permissions, so an unverified pair runs
+    /// some other script's code under some other script's `on_behalf_of` identity.
+    pub pinned_scripts: Vec<(String, ScriptHash)>,
 }
 
 fn check_module_is_composition_only(
     module: &FlowModule,
-    tags: &mut Vec<String>,
+    refs: &mut ComposedFlowRefs,
 ) -> Result<(), Error> {
     let value = module
         .get_value()
         .map_err(|e| Error::BadRequest(format!("Step {} could not be read: {e}", module.id)))?;
-    check_module_value_is_composition_only(&value, &module.id, tags)
+    check_module_value_is_composition_only(&value, &module.id, refs)
 }
 
 fn check_module_value_is_composition_only(
     value: &FlowModuleValue,
     id: &str,
-    tags: &mut Vec<String>,
+    refs: &mut ComposedFlowRefs,
 ) -> Result<(), Error> {
     let refuse = |what: &str| {
         Err(Error::NotAuthorized(format!(
@@ -297,7 +309,7 @@ fn check_module_value_is_composition_only(
     };
     let mut push_tag = |tag: &Option<String>| {
         if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
-            tags.push(tag.to_string());
+            refs.tags.push(tag.to_string());
         }
     };
 
@@ -307,27 +319,30 @@ fn check_module_value_is_composition_only(
             return refuse("references code stored outside the flow")
         }
         FlowModuleValue::Identity => {}
-        FlowModuleValue::Script { path, tag_override, .. } => {
+        FlowModuleValue::Script { path, hash, tag_override, .. } => {
             check_composable_path(path, id)?;
             push_tag(tag_override);
+            if let Some(hash) = hash {
+                refs.pinned_scripts.push((path.clone(), *hash));
+            }
         }
         FlowModuleValue::Flow { path, .. } => check_composable_path(path, id)?,
         FlowModuleValue::ForloopFlow { modules, modules_node, .. }
         | FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
             refuse_node(modules_node)?;
             for module in modules {
-                check_module_is_composition_only(module, tags)?;
+                check_module_is_composition_only(module, refs)?;
             }
         }
         FlowModuleValue::BranchOne { branches, default, default_node } => {
             refuse_node(default_node)?;
             for module in default {
-                check_module_is_composition_only(module, tags)?;
+                check_module_is_composition_only(module, refs)?;
             }
-            check_branches_are_composition_only(branches, id, tags)?;
+            check_branches_are_composition_only(branches, id, refs)?;
         }
         FlowModuleValue::BranchAll { branches, .. } => {
-            check_branches_are_composition_only(branches, id, tags)?
+            check_branches_are_composition_only(branches, id, refs)?
         }
         FlowModuleValue::AIAgent { tools, tag, agent, .. } => {
             // A linked agent resolves its tools from an `ai_agent` resource at run time, and
@@ -339,7 +354,7 @@ fn check_module_value_is_composition_only(
             push_tag(tag);
             for tool in tools {
                 if let ToolValue::FlowModule(value) = &tool.value {
-                    check_module_value_is_composition_only(value, &tool.id, tags)?;
+                    check_module_value_is_composition_only(value, &tool.id, refs)?;
                 }
             }
         }
@@ -350,7 +365,7 @@ fn check_module_value_is_composition_only(
 fn check_branches_are_composition_only(
     branches: &[Branch],
     id: &str,
-    tags: &mut Vec<String>,
+    refs: &mut ComposedFlowRefs,
 ) -> Result<(), Error> {
     for branch in branches {
         if branch.modules_node.is_some() {
@@ -361,7 +376,7 @@ fn check_branches_are_composition_only(
             )));
         }
         for module in &branch.modules {
-            check_module_is_composition_only(module, tags)?;
+            check_module_is_composition_only(module, refs)?;
         }
     }
     Ok(())
@@ -419,7 +434,7 @@ mod tests {
 
     #[test]
     fn composition_check_accepts_a_composed_flow_and_collects_its_tags() {
-        let tags = check_flow_is_composition_only(&flow(serde_json::json!({"modules": [{
+        let refs = check_flow_is_composition_only(&flow(serde_json::json!({"modules": [{
             "id": "a",
             "value": {"type": "forloopflow", "iterator": {"type": "static", "value": []},
                 "parallel": false, "modules": [
@@ -431,7 +446,7 @@ mod tests {
                 ]}
         }]})))
         .unwrap();
-        assert_eq!(tags, vec!["gpu".to_string(), "ai".to_string()]);
+        assert_eq!(refs.tags, vec!["gpu".to_string(), "ai".to_string()]);
     }
 
     /// The walk covers `modules`, so a node reference is a way past it: it names code hoisted
@@ -478,6 +493,21 @@ mod tests {
         ] {
             assert!(check_flow_is_composition_only(&flow(value)).is_err());
         }
+    }
+
+    /// A step carrying a `hash` dispatches on that hash alone: the caller must verify the pair
+    /// exists and is readable, so the walk has to surface it rather than pass it through.
+    #[test]
+    fn composition_check_reports_version_pinned_steps() {
+        let refs = check_flow_is_composition_only(&flow(serde_json::json!({"modules": [
+            {"id": "a", "value": {"type": "script", "path": "f/x/s", "hash": "000000000000007b"}},
+            {"id": "b", "value": {"type": "script", "path": "f/x/t"}}
+        ]})))
+        .unwrap();
+        assert_eq!(
+            refs.pinned_scripts,
+            vec![("f/x/s".to_string(), ScriptHash(123))]
+        );
     }
 
     #[test]

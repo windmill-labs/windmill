@@ -56,7 +56,7 @@ use std::str;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    apps::{traverse_app_inline_scripts, AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
+    apps::{app_value_has_inline_script, AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
     auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
     db::{DbWithOptAuthed, UserDB},
@@ -1914,18 +1914,34 @@ fn check_operator_composed_app(
     }
     if let Some(value) = value {
         let value: serde_json::Value = serde_json::from_str(value.get()).map_err(to_anyhow)?;
-        traverse_app_inline_scripts(&value, None, &mut |_, _| {
-            Err(Error::NotAuthorized(
+        if app_value_has_inline_script(&value) {
+            return Err(Error::NotAuthorized(
                 "Operators with builder rights cannot deploy an app carrying inline scripts"
                     .to_string(),
-            ))
-        })?;
+            ));
+        }
     }
     let Some(policy) = policy else {
         return Err(Error::BadRequest(
             "Operators with builder rights must deploy an app with its policy".to_string(),
         ));
     };
+    // A `rawscript/<sha>` triggerable is the deployed app's authorization to run caller-supplied
+    // `raw_code` whose content hashes to it (see `execute_component`'s run mode, which authorizes
+    // inline code by this key alone). Pinning one would hand a builder arbitrary code execution
+    // through an app whose *value* passed the inline-script check above. A composition-only app
+    // has none, so refusing them costs nothing.
+    fn pins_raw_script<'a, T>(map: &'a Option<HashMap<String, T>>) -> bool {
+        map.iter().flat_map(|m| m.keys()).any(|k| {
+            k.starts_with("rawscript/") || k.contains(":rawscript/")
+        })
+    }
+    if pins_raw_script(&policy.triggerables) || pins_raw_script(&policy.triggerables_v2) {
+        return Err(Error::NotAuthorized(
+            "Operators with builder rights cannot deploy an app whose policy pins inline code"
+                .to_string(),
+        ));
+    }
     if policy.sandbox == Some(false) {
         return Err(Error::NotAuthorized(
             "Operators with builder rights can only deploy sandboxed apps".to_string(),
@@ -5571,5 +5587,68 @@ mod embed_token_tests {
 
         // Invalid JSON still errors.
         assert!(parse_embed_policy("not json").is_err());
+    }
+}
+
+#[cfg(test)]
+mod operator_app_tests {
+    use super::{check_operator_composed_app, Policy};
+    use windmill_common::error::Result;
+    use windmill_common::worker::to_raw_value;
+
+    fn builder_policy(triggerables_v2: serde_json::Value) -> Policy {
+        serde_json::from_value(serde_json::json!({
+            "execution_mode": "publisher",
+            "triggerables_v2": triggerables_v2,
+        }))
+        .unwrap()
+    }
+
+    fn composed_app(
+        value: serde_json::Value,
+        policy: &mut Policy,
+    ) -> Result<()> {
+        let value = to_raw_value(&value);
+        check_operator_composed_app(true, Some(&value), Some(policy), false)
+    }
+
+    #[test]
+    fn operator_app_check_forces_the_sandbox_and_refuses_code() {
+        let clean = serde_json::json!({"files": {}, "runnables": {
+            "a": {"name": "a", "type": "runnableByPath", "path": "f/x/s", "runType": "script"}
+        }});
+
+        // A composition-only app goes through, sandboxed whether or not it asked to be.
+        let mut policy = builder_policy(serde_json::json!({"a:script/f/x/s": {"static_inputs": {}, "one_of_inputs": {}}}));
+        composed_app(clean.clone(), &mut policy).unwrap();
+        assert_eq!(policy.sandbox, Some(true));
+
+        let mut policy = builder_policy(serde_json::json!({}));
+        policy.sandbox = Some(false);
+        assert!(composed_app(clean.clone(), &mut policy).is_err());
+
+        // An inline script is refused even with no `language`, which the locking traversal skips.
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert!(composed_app(
+            serde_json::json!({"runnables": {"a": {"inlineScript": {"content": "x"}}}}),
+            &mut policy
+        )
+        .is_err());
+
+        // A `rawscript/<sha>` triggerable is what authorizes caller-supplied `raw_code` on the
+        // deployed app, so pinning one would be arbitrary code execution behind a clean value.
+        for key in ["rawscript/abc", "a:rawscript/abc"] {
+            let mut policy = builder_policy(serde_json::json!({ key: {"static_inputs": {}, "one_of_inputs": {}} }));
+            assert!(
+                composed_app(clean.clone(), &mut policy).is_err(),
+                "{key} must be refused"
+            );
+        }
+
+        // Low-code apps and kind conversion stay closed.
+        let value = to_raw_value(&clean);
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert!(check_operator_composed_app(false, Some(&value), Some(&mut policy), false).is_err());
+        assert!(check_operator_composed_app(true, Some(&value), Some(&mut policy), true).is_err());
     }
 }

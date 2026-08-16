@@ -537,6 +537,7 @@ async fn validate_flow(
     new_flow: &NewFlow,
     authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
 ) -> error::Result<()> {
     #[cfg(not(feature = "enterprise"))]
@@ -555,6 +556,7 @@ async fn validate_flow(
             &new_flow.tag,
             authed,
             db,
+            user_db,
             w_id,
         )
         .await?;
@@ -564,18 +566,22 @@ async fn validate_flow(
 }
 
 /// Runs on every write and every preview of a flow authored by an operator with builder rights.
-/// The tags a step pins are authorized here rather than in the walk: without it a builder could
-/// route a job onto a privileged worker group.
+/// The walk in `check_flow_is_composition_only` only sees the value; what it collects is
+/// authorized here against the caller's own permissions.
 pub async fn validate_operator_composed_flow(
     value: &FlowValue,
     flow_tag: &Option<String>,
     authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
 ) -> error::Result<()> {
-    let mut tags = windmill_common::flows::check_flow_is_composition_only(value)?;
-    tags.extend(flow_tag.clone());
-    for tag in tags.iter().filter(|t| !t.is_empty()) {
+    let mut refs = windmill_common::flows::check_flow_is_composition_only(value)?;
+
+    // A tag is how a step picks the worker group it runs on: unauthorized, a builder could route
+    // a job onto a privileged one.
+    refs.tags.extend(flow_tag.clone());
+    for tag in refs.tags.iter().filter(|t| !t.is_empty()) {
         windmill_common::jobs::check_tag_available_for_workspace_internal(
             db,
             w_id,
@@ -584,6 +590,31 @@ pub async fn validate_operator_composed_flow(
             get_scope_tags(authed),
         )
         .await?;
+    }
+
+    // A version-pinned step dispatches on its `hash` alone, reading the row with root permissions
+    // and taking that script's tag and `on_behalf_of` identity; the `path` beside it is never
+    // consulted. So the pair has to be real, and readable by this caller, or a builder pins the
+    // hash of a script it cannot reach and runs that instead.
+    if !refs.pinned_scripts.is_empty() {
+        let mut tx = user_db.clone().begin(authed).await?;
+        for (path, hash) in &refs.pinned_scripts {
+            let exists = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND hash = $3)",
+                w_id,
+                path,
+                hash.0,
+            )
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(false);
+            if !exists {
+                return Err(Error::NotAuthorized(format!(
+                    "Version {hash} is not a readable version of {path}"
+                )));
+            }
+        }
+        tx.commit().await?;
     }
     Ok(())
 }
@@ -616,7 +647,7 @@ async fn create_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, &authed, &db, &w_id).await?;
+    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -649,8 +680,7 @@ async fn create_flow(
 
     // Apply folder default_permissioned_as on create when the caller did not
     // explicitly preserve a value and the user can preserve.
-    let explicit_preserve = (nf.on_behalf_of_email.is_some()
-        || nf.on_behalf_of.is_some())
+    let explicit_preserve = (nf.on_behalf_of_email.is_some() || nf.on_behalf_of.is_some())
         && nf.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
@@ -670,16 +700,15 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
-    let resolved_on_behalf_of =
-        windmill_common::resolve_on_behalf_of(
-            nf.on_behalf_of_email.as_deref(),
-            nf.on_behalf_of.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-            &w_id,
-            &db,
-        )
-        .await?;
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
     // Written beside the principal only while a worker that still reads it may be live.
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
@@ -1174,7 +1203,7 @@ async fn update_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, &authed, &db, &w_id).await?;
+    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -1193,16 +1222,15 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     let is_new_path = nf.path != flow_path;
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
-    let resolved_on_behalf_of =
-        windmill_common::resolve_on_behalf_of(
-            nf.on_behalf_of_email.as_deref(),
-            nf.on_behalf_of.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-            &w_id,
-            &db,
-        )
-        .await?;
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
     // Written beside the principal only while a worker that still reads it may be live.
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)

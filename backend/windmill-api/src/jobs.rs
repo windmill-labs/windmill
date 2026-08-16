@@ -8675,6 +8675,7 @@ pub struct RunFlowDependenciesResponse {
 async fn push_flow_dependencies_job(
     authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
     req: RunFlowDependenciesRequest,
 ) -> error::Result<Uuid> {
@@ -8684,7 +8685,7 @@ async fn push_flow_dependencies_job(
     // composition-only flow has none, so validating here costs a builder nothing and keeps the
     // lock step from becoming the way to run code the write path refuses.
     if authed.is_operator {
-        validate_operator_composed_flow(&req.flow_value, &None, authed, db, w_id).await?;
+        validate_operator_composed_flow(&req.flow_value, &None, authed, db, user_db, w_id).await?;
     }
 
     if req.raw_deps.is_some() {
@@ -8750,20 +8751,22 @@ async fn push_flow_dependencies_job(
 async fn run_flow_dependencies_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<Response> {
-    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    let uuid = push_flow_dependencies_job(&authed, &db, &user_db, &w_id, req).await?;
     run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await
 }
 
 async fn run_flow_dependencies_job_async(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<(StatusCode, String)> {
-    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    let uuid = push_flow_dependencies_job(&authed, &db, &user_db, &w_id, req).await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
@@ -9072,8 +9075,15 @@ async fn run_preview_flow_job(
     // A builder must be able to test what it composes, but the submitted value is not the stored
     // one: without this the preview is a way to run inline code the write path refuses.
     if authed.is_operator {
-        validate_operator_composed_flow(&raw_flow.value, &raw_flow.tag, &authed, &db, &w_id)
-            .await?;
+        validate_operator_composed_flow(
+            &raw_flow.value,
+            &raw_flow.tag,
+            &authed,
+            &db,
+            &user_db,
+            &w_id,
+        )
+        .await?;
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());

@@ -18,6 +18,22 @@ lazy_static::lazy_static! {
     pub static ref APP_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
 }
 
+/// Whether the app value carries an `inlineScript` anywhere.
+///
+/// Deliberately not built on [`traverse_app_inline_scripts`], which only reports a script whose
+/// `language` parses and stops descending as soon as it sees an `inlineScript` key. That is right
+/// for locking (nothing to lock without a language) and wrong for an authorization check, where
+/// the author picks the fields: this refuses the key itself, whatever it contains.
+pub fn app_value_has_inline_script(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => {
+            object.contains_key("inlineScript") || object.values().any(app_value_has_inline_script)
+        }
+        Value::Array(array) => array.iter().any(app_value_has_inline_script),
+        _ => false,
+    }
+}
+
 /// Traverse FlowValue while invoking provided by caller callback on leafs
 // #[async_recursion::async_recursion(?Send)]
 pub fn traverse_app_inline_scripts<
