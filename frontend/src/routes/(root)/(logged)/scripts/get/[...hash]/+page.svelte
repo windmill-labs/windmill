@@ -242,14 +242,15 @@
 		}
 
 		isHubScript = false
+		let byHashError: any
 		try {
 			script = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
 				hash,
-				withStarredInfo: true,
-				authed: true
+				withStarredInfo: true
 			})
-		} catch {
+		} catch (e) {
+			byHashError = e
 			try {
 				script = await ScriptService.getScriptByPath({
 					workspace: $workspaceStore!,
@@ -258,7 +259,11 @@
 				})
 				hash = script.hash
 			} catch (e) {
-				sendUserToast('Could not load script: ' + e.body, true)
+				// This route takes either a hash or a path, so both lookups are tried.
+				// Report the one that matches what was actually addressed, otherwise a
+				// permission failure on a hash surfaces as "no script at path <hash>".
+				const err = /^[0-9a-f]{16}$/.test(hash) ? byHashError : e
+				sendUserToast('Could not load script: ' + err.body, true)
 				return
 			}
 		}
@@ -470,7 +475,8 @@
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path),
-					onClick: (e: Event | undefined) => onEditInForkClick(e, 'script', script.path, { hasHref: true }),
+					onClick: (e: Event | undefined) =>
+						onEditInForkClick(e, 'script', script.path, { hasHref: true }),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: Pen
