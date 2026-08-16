@@ -1,6 +1,6 @@
 import type { Job } from '$lib/gen'
 import { triggerDisplayNamesMap, triggerIconMap } from '$lib/components/triggers/utils'
-import { formatMemory } from '$lib/utils'
+import { formatMemory, jobDisplayDurationMs } from '$lib/utils'
 import { flowPathToHref } from '$lib/scripts'
 import { Calendar, Bot } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -309,8 +309,8 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		field: 'duration',
 		label: 'Duration',
 		getValue: (job) => {
-			if ('duration_ms' in job && job.duration_ms) {
-				const ms = job.duration_ms
+			const ms = jobDisplayDurationMs(job)
+			if (ms) {
 				if (ms < 1000) return `${ms}ms`
 				if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
 				return `${(ms / 60000).toFixed(1)}m`
