@@ -36,7 +36,7 @@
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { type Job } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { operatorBuilderRights, workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -206,6 +206,7 @@
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false &&
+			!$operatorBuilderRights &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
 	let workspaceScriptNoEditReason = $derived(

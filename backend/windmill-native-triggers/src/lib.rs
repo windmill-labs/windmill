@@ -49,6 +49,7 @@ use windmill_common::{
     triggers::TriggerKind,
     utils::HTTP_CLIENT,
     variables::{build_crypt, decrypt, encrypt},
+    workspaces::operator_builder_enabled,
     DB,
 };
 use windmill_queue::PushArgsOwned;
@@ -1633,10 +1634,11 @@ pub async fn store_workspace_integration(
 /// Authorization gate for the integration *use* routes (calendar/drive/repo/event
 /// pickers). A workspace admin configures the integration, but any member who can
 /// create a native trigger needs the pickers to configure one. Operators are
-/// read-only and cannot create triggers, so they must not be able to drive the
-/// admin-configured integration's upstream API and enumerate its data.
-pub fn require_native_integration_use(authed: &ApiAuthed) -> Result<()> {
-    if authed.is_operator {
+/// read-only, so they must not be able to drive the admin-configured integration's
+/// upstream API and enumerate its data, unless the workspace granted them builder
+/// rights, which is what makes them trigger authors.
+pub async fn require_native_integration_use(authed: &ApiAuthed, db: &DB, w_id: &str) -> Result<()> {
+    if authed.is_operator && !operator_builder_enabled(db, w_id).await? {
         return Err(Error::NotAuthorized(
             "Operators cannot use workspace integrations".to_string(),
         ));

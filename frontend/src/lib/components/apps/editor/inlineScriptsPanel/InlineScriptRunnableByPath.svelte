@@ -19,7 +19,7 @@
 		CtxAppInput
 	} from '../../inputType'
 	import type { AppViewerContext } from '../../types'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, operatorBuilderRights } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
@@ -360,16 +360,18 @@
 			>
 				Edit
 			</Button>
-			<Button
-				size="xs"
-				variant="default"
-				startIcon={{ icon: GitFork }}
-				on:click={() => {
-					fork(runnable.path)
-				}}
-			>
-				Fork
-			</Button>
+			{#if !$operatorBuilderRights}
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: GitFork }}
+					on:click={() => {
+						fork(runnable.path)
+					}}
+				>
+					Fork
+				</Button>
+			{/if}
 		{/if}
 		<Popover
 			floatingConfig={{

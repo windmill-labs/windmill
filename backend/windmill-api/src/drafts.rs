@@ -21,6 +21,7 @@ use windmill_common::{
     users::resolve_username_to_email,
     utils::strip_json_nul,
     variables::{build_crypt, encrypt},
+    workspaces::operator_builder_enabled,
 };
 
 pub fn workspaced_service() -> Router {
@@ -100,10 +101,10 @@ async fn list_drafts(
     Path(w_id): Path<String>,
     Query(query): Query<ListDraftsQuery>,
 ) -> Result<Json<Vec<DraftListItem>>> {
-    // Operators have no drafts of their own (they can't write any, see
-    // `require_can_write_path`), so this list is always empty for them. They
-    // can still READ some collaborators' drafts via `/drafts/get`.
-    if authed.is_operator {
+    // Without builder rights an operator has no drafts of their own (they can't write any, see
+    // `require_can_write_path`), so this list is always empty for them. They can still READ some
+    // collaborators' drafts via `/drafts/get`.
+    if authed.is_operator && !operator_builder_enabled(&db, &w_id).await? {
         return Ok(Json(vec![]));
     }
     let all_users = query.all_users.unwrap_or(false);
@@ -682,11 +683,14 @@ async fn require_can_write_path(
     if authed.is_admin {
         return Ok(());
     }
-    // Operators are read-only and never WRITE drafts. Read access is
-    // deliberately asymmetric: `require_can_read_path` has no operator block,
-    // so an operator can still READ a draft they can read via `/drafts/get`,
-    // mirroring their read access to deployed content. Intended.
-    if authed.is_operator {
+    // Operators are read-only and never WRITE drafts, except for the two kinds a workspace with
+    // builder rights lets them author. Read access is deliberately asymmetric:
+    // `require_can_read_path` has no operator block, so an operator can still READ a draft they
+    // can read via `/drafts/get`, mirroring their read access to deployed content. Intended.
+    if authed.is_operator
+        && !(matches!(kind, UserDraftItemKind::Flow | UserDraftItemKind::RawApp)
+            && operator_builder_enabled(db, w_id).await?)
+    {
         return Err(Error::NotAuthorized(
             "operators cannot save drafts".to_string(),
         ));

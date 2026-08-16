@@ -182,8 +182,13 @@ pub fn canonical_base_url(input: &str) -> String {
 }
 
 /// Checks if the user is allowed to preserve on_behalf_of values (admin or deployer).
+///
+/// Never an operator, whatever their groups: membership of `wm_deployers` can be granted by that
+/// group's owner rather than by a workspace admin, so an operator who edits a runnable would
+/// otherwise keep it pointed at the identity of the admin who first authored it.
 pub fn can_preserve_on_behalf_of(authed: &impl db::Authable) -> bool {
-    authed.is_admin() || authed.groups().iter().any(|g| g == &WM_DEPLOYERS_GROUP)
+    !authed.is_operator()
+        && (authed.is_admin() || authed.groups().iter().any(|g| g == &WM_DEPLOYERS_GROUP))
 }
 
 /// Checks if on-behalf-of preservation actually happened (the target user differs from the acting user).
@@ -2396,4 +2401,43 @@ impl KillpillSender {
     // fn is_sent(&self) -> bool {
     //     self.already_sent.load(Ordering::SeqCst)
     // }
+}
+
+#[cfg(test)]
+mod on_behalf_of_tests {
+    use super::*;
+    use crate::db::Authed;
+
+    fn authed(is_admin: bool, is_operator: bool, groups: &[&str]) -> Authed {
+        Authed {
+            email: "u@windmill.dev".to_string(),
+            username: "u".to_string(),
+            is_admin,
+            is_operator,
+            groups: groups.iter().map(|g| g.to_string()).collect(),
+            folders: vec![],
+            scopes: None,
+            token_prefix: None,
+        }
+    }
+
+    #[test]
+    fn operators_never_preserve_on_behalf_of() {
+        // A group owner can put anyone in `wm_deployers`, so the group alone must not let an
+        // operator keep a runnable pointed at the identity of the admin who authored it.
+        assert!(!can_preserve_on_behalf_of(&authed(
+            false,
+            true,
+            &[WM_DEPLOYERS_GROUP]
+        )));
+        assert!(!can_preserve_on_behalf_of(&authed(true, true, &[])));
+
+        assert!(can_preserve_on_behalf_of(&authed(true, false, &[])));
+        assert!(can_preserve_on_behalf_of(&authed(
+            false,
+            false,
+            &[WM_DEPLOYERS_GROUP]
+        )));
+        assert!(!can_preserve_on_behalf_of(&authed(false, false, &[])));
+    }
 }

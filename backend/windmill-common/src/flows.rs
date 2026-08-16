@@ -246,6 +246,137 @@ pub async fn resolve_modules(
     Ok(())
 }
 
+/// Checks a flow value contains nothing but composition of runnables that already exist, which is
+/// all an operator with builder rights may author. Walks the modules, the preprocessor and failure
+/// modules, every branch, and the `tools` of an AI agent step.
+///
+/// Returns the worker tags its steps pin, for the caller to authorize against its own scope: a tag
+/// is how a step picks the worker group it runs on.
+pub fn check_flow_is_composition_only(value: &FlowValue) -> Result<Vec<String>, Error> {
+    let mut tags = Vec::new();
+    for module in value
+        .modules
+        .iter()
+        .chain(value.preprocessor_module.as_deref())
+        .chain(value.failure_module.as_deref())
+    {
+        check_module_is_composition_only(module, &mut tags)?;
+    }
+    Ok(tags)
+}
+
+fn check_module_is_composition_only(
+    module: &FlowModule,
+    tags: &mut Vec<String>,
+) -> Result<(), Error> {
+    let value = module
+        .get_value()
+        .map_err(|e| Error::BadRequest(format!("Step {} could not be read: {e}", module.id)))?;
+    check_module_value_is_composition_only(&value, &module.id, tags)
+}
+
+fn check_module_value_is_composition_only(
+    value: &FlowModuleValue,
+    id: &str,
+    tags: &mut Vec<String>,
+) -> Result<(), Error> {
+    let refuse = |what: &str| {
+        Err(Error::NotAuthorized(format!(
+            "Step {id}: {what}. Operators with builder rights compose runnables that are already \
+             deployed; they cannot author code."
+        )))
+    };
+    // A node id points at code stored in a `flow_node` row. Only the dependency job produces them,
+    // by hoisting a step's code out of the flow value, so an authored value carrying one names
+    // code that belongs to some other flow. `modules` is what the walk below covers, and an
+    // editor payload comes from the un-hoisted `flow_version.value`, so refusing them costs
+    // nothing legitimate.
+    let refuse_node = |node: &Option<FlowNodeId>| match node {
+        Some(_) => refuse("references code stored outside the flow"),
+        None => Ok(()),
+    };
+    let mut push_tag = |tag: &Option<String>| {
+        if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
+            tags.push(tag.to_string());
+        }
+    };
+
+    match value {
+        FlowModuleValue::RawScript { .. } => return refuse("has inline code"),
+        FlowModuleValue::FlowScript { .. } => {
+            return refuse("references code stored outside the flow")
+        }
+        FlowModuleValue::Identity => {}
+        FlowModuleValue::Script { path, tag_override, .. } => {
+            check_composable_path(path, id)?;
+            push_tag(tag_override);
+        }
+        FlowModuleValue::Flow { path, .. } => check_composable_path(path, id)?,
+        FlowModuleValue::ForloopFlow { modules, modules_node, .. }
+        | FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
+            refuse_node(modules_node)?;
+            for module in modules {
+                check_module_is_composition_only(module, tags)?;
+            }
+        }
+        FlowModuleValue::BranchOne { branches, default, default_node } => {
+            refuse_node(default_node)?;
+            for module in default {
+                check_module_is_composition_only(module, tags)?;
+            }
+            check_branches_are_composition_only(branches, id, tags)?;
+        }
+        FlowModuleValue::BranchAll { branches, .. } => {
+            check_branches_are_composition_only(branches, id, tags)?
+        }
+        FlowModuleValue::AIAgent { tools, tag, agent, .. } => {
+            // A linked agent resolves its tools from an `ai_agent` resource at run time, and
+            // operators may write resources, so those tools are outside this check: the list can
+            // be swapped for a raw script after the flow is deployed.
+            if agent.is_some() {
+                return refuse("links an AI agent resource, whose tools live outside the flow");
+            }
+            push_tag(tag);
+            for tool in tools {
+                if let ToolValue::FlowModule(value) = &tool.value {
+                    check_module_value_is_composition_only(value, &tool.id, tags)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_branches_are_composition_only(
+    branches: &[Branch],
+    id: &str,
+    tags: &mut Vec<String>,
+) -> Result<(), Error> {
+    for branch in branches {
+        if branch.modules_node.is_some() {
+            return Err(Error::NotAuthorized(format!(
+                "Step {id}: a branch references code stored outside the flow. Operators with \
+                 builder rights compose runnables that are already deployed; they cannot author \
+                 code."
+            )));
+        }
+        for module in &branch.modules {
+            check_module_is_composition_only(module, tags)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_composable_path(path: &str, id: &str) -> Result<(), Error> {
+    if path.starts_with("hub/") {
+        return Err(Error::NotAuthorized(format!(
+            "Step {id}: hub runnables are not available to operators with builder rights. Deploy \
+             it to the workspace first."
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,5 +411,81 @@ mod tests {
     fn extract_hub_flow_id_rejects_zero_ids() {
         let err = extract_hub_flow_id_from_path("hub/flows/0").unwrap_err();
         assert!(matches!(err, Error::BadRequest(_)));
+    }
+
+    fn flow(value: serde_json::Value) -> FlowValue {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn composition_check_accepts_a_composed_flow_and_collects_its_tags() {
+        let tags = check_flow_is_composition_only(&flow(serde_json::json!({"modules": [{
+            "id": "a",
+            "value": {"type": "forloopflow", "iterator": {"type": "static", "value": []},
+                "parallel": false, "modules": [
+                    {"id": "b", "value": {"type": "script", "path": "f/x/s", "tag_override": "gpu"}},
+                    {"id": "c", "value": {"type": "flow", "path": "f/x/f"}},
+                    {"id": "d", "value": {"type": "aiagent", "input_transforms": {}, "tag": "ai",
+                        "tools": [{"id": "t", "value": {"tool_type": "flowmodule",
+                            "type": "script", "path": "f/x/tool"}}]}}
+                ]}
+        }]})))
+        .unwrap();
+        assert_eq!(tags, vec!["gpu".to_string(), "ai".to_string()]);
+    }
+
+    /// The walk covers `modules`, so a node reference is a way past it: it names code hoisted
+    /// into a `flow_node` row, possibly another flow's.
+    #[test]
+    fn composition_check_rejects_node_references() {
+        for value in [
+            serde_json::json!({"modules": [{"id": "a", "value": {"type": "forloopflow",
+                "iterator": {"type": "static", "value": []}, "parallel": false,
+                "modules": [], "modules_node": 7}}]}),
+            serde_json::json!({"modules": [{"id": "a", "value": {"type": "branchone",
+                "branches": [], "default": [], "default_node": 7}}]}),
+            serde_json::json!({"modules": [{"id": "a", "value": {"type": "branchall",
+                "branches": [{"expr": "true", "modules": [], "modules_node": 7}]}}]}),
+            serde_json::json!({"modules": [{"id": "a", "value": {"type": "flowscript",
+                "id": 7, "language": "bun"}}]}),
+        ] {
+            assert!(check_flow_is_composition_only(&flow(value)).is_err());
+        }
+    }
+
+    /// An agent tool wraps a whole `FlowModuleValue`, and a linked agent resolves its tools from a
+    /// resource an operator may rewrite after the flow is deployed.
+    #[test]
+    fn composition_check_rejects_code_reachable_through_an_ai_agent() {
+        for value in [
+            serde_json::json!({"modules": [{"id": "a", "value": {"type": "aiagent",
+                "input_transforms": {}, "tools": [{"id": "t", "value": {"tool_type": "flowmodule",
+                    "type": "rawscript", "content": "x", "language": "bun"}}]}}]}),
+            serde_json::json!({"modules": [{"id": "a", "value": {"type": "aiagent",
+                "input_transforms": {}, "tools": [], "agent": "$res:f/x/agent"}}]}),
+        ] {
+            assert!(check_flow_is_composition_only(&flow(value)).is_err());
+        }
+    }
+
+    #[test]
+    fn composition_check_rejects_code_in_every_module_slot() {
+        let inline = serde_json::json!({"type": "rawscript", "content": "x", "language": "bun"});
+        for value in [
+            serde_json::json!({"modules": [{"id": "a", "value": inline}]}),
+            serde_json::json!({"modules": [], "failure_module": {"id": "f", "value": inline}}),
+            serde_json::json!({"modules": [], "preprocessor_module": {"id": "p", "value": inline}}),
+        ] {
+            assert!(check_flow_is_composition_only(&flow(value)).is_err());
+        }
+    }
+
+    #[test]
+    fn composition_check_rejects_hub_runnables() {
+        for kind in ["script", "flow"] {
+            let value = serde_json::json!({"modules": [{"id": "a",
+                "value": {"type": kind, "path": "hub/1234/thing"}}]});
+            assert!(check_flow_is_composition_only(&flow(value)).is_err());
+        }
     }
 }

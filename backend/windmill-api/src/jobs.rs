@@ -25,6 +25,7 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use url::Url;
+use windmill_api_flows::flows::validate_operator_composed_flow;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
@@ -53,7 +54,9 @@ use windmill_common::worker::{Connection, CLOUD_HOSTED, WINDMILL_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
-use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
+use windmill_common::workspaces::{
+    check_operator_can_build, check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+};
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
@@ -8676,10 +8679,12 @@ async fn push_flow_dependencies_job(
     req: RunFlowDependenciesRequest,
 ) -> error::Result<Uuid> {
     check_scopes(authed, || format!("jobs:run"))?;
+    check_operator_can_build(db, w_id, authed.is_operator, "run dependencies jobs").await?;
+    // The dependency job locks whatever inline code this request carries, on a worker. A
+    // composition-only flow has none, so validating here costs a builder nothing and keeps the
+    // lock step from becoming the way to run code the write path refuses.
     if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run dependencies jobs for security reasons".to_string(),
-        ));
+        validate_operator_composed_flow(&req.flow_value, &None, authed, db, w_id).await?;
     }
 
     if req.raw_deps.is_some() {
@@ -9059,15 +9064,17 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(&db, &w_id, authed.is_operator, "run preview jobs").await?;
     // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
+    // A builder must be able to test what it composes, but the submitted value is not the stored
+    // one: without this the preview is a way to run inline code the write path refuses.
+    if authed.is_operator {
+        validate_operator_composed_flow(&raw_flow.value, &raw_flow.tag, &authed, &db, &w_id)
+            .await?;
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;

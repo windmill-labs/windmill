@@ -21,7 +21,7 @@ async fn list_available_events<T: External>(
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<NextCloudEventType>> {
-    require_native_integration_use(&authed)?;
+    require_native_integration_use(&authed, &db, &workspace_id).await?;
     let integration = get_workspace_integration(&db, &workspace_id, ServiceName::Nextcloud).await?;
 
     let base_url = integration

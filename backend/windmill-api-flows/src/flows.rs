@@ -16,10 +16,10 @@ use axum::{
 };
 use windmill_api_auth::{
     auth::{list_tokens_internal, TruncatedTokenWithEmail},
-    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
-    ApiAuthed,
+    build_scope_path_predicate, check_scopes, get_scope_tags, maybe_refresh_folders,
+    require_owner_of_path, ApiAuthed,
 };
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::workspaces::{check_deploy_rules, check_operator_can_build, RuleCheckResult};
 use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     utils::HTTP_CLIENT,
@@ -35,7 +35,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::assets::{clear_static_asset_usage, AssetUsageKind};
-use windmill_common::flows::FlowModule;
+use windmill_common::flows::{FlowModule, FlowValue};
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
     MIN_VERSION_SUPPORTS_NODE_DEBOUNCING,
@@ -533,7 +533,12 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
-async fn validate_flow(new_flow: &NewFlow) -> error::Result<()> {
+async fn validate_flow(
+    new_flow: &NewFlow,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> error::Result<()> {
     #[cfg(not(feature = "enterprise"))]
     if new_flow.ws_error_handler_muted.is_some_and(|val| val) {
         return Err(Error::BadRequest(
@@ -544,7 +549,43 @@ async fn validate_flow(new_flow: &NewFlow) -> error::Result<()> {
 
     guard_flow_from_debounce_data(new_flow).await?;
 
+    if authed.is_operator {
+        validate_operator_composed_flow(
+            &new_flow.parse_flow_value()?,
+            &new_flow.tag,
+            authed,
+            db,
+            w_id,
+        )
+        .await?;
+    }
+
     return Ok(());
+}
+
+/// Runs on every write and every preview of a flow authored by an operator with builder rights.
+/// The tags a step pins are authorized here rather than in the walk: without it a builder could
+/// route a job onto a privileged worker group.
+pub async fn validate_operator_composed_flow(
+    value: &FlowValue,
+    flow_tag: &Option<String>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> error::Result<()> {
+    let mut tags = windmill_common::flows::check_flow_is_composition_only(value)?;
+    tags.extend(flow_tag.clone());
+    for tag in tags.iter().filter(|t| !t.is_empty()) {
+        windmill_common::jobs::check_tag_available_for_workspace_internal(
+            db,
+            w_id,
+            tag,
+            &authed.email,
+            get_scope_tags(authed),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 async fn create_flow(
@@ -555,11 +596,7 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(mut nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create flows for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(&db, &w_id, authed.is_operator, "create flows").await?;
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
 
     // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
@@ -579,7 +616,7 @@ async fn create_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf).await?;
+    validate_flow(&nf, &authed, &db, &w_id).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -1110,11 +1147,7 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(ef): Json<EditFlow>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update flows for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(&db, &w_id, authed.is_operator, "update flows").await?;
     let flow_path = flow_path.to_path();
     // The URL identifies the flow being updated; the body path is only needed to rename.
     let mut nf = ef.into_new_flow(flow_path);
@@ -1141,7 +1174,7 @@ async fn update_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf).await?;
+    validate_flow(&nf, &authed, &db, &w_id).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -1765,11 +1798,7 @@ async fn archive_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot archive flows for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(&db, &w_id, authed.is_operator, "archive flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -1910,11 +1939,7 @@ async fn delete_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete flows for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(&db, &w_id, authed.is_operator, "delete flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(

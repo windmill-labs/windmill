@@ -165,6 +165,19 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 	}
 )
 
+/**
+ * True when the current user is an operator of a workspace that granted operators builder rights:
+ * they compose flows and raw apps out of runnables that are already deployed, but still author no
+ * code. Everywhere else `operator` keeps meaning read-only, so a gate on the operator role has to
+ * consult this before refusing.
+ */
+export const operatorBuilderRights: Readable<boolean> = derived(
+	[userStore, userWorkspaces, workspaceStore],
+	([user, workspaces, workspace]) =>
+		(user?.operator ?? false) &&
+		workspaces.find((w) => w.id === workspace)?.operator_settings?.builder === true
+)
+
 export const codeCompletionLoading = writable<boolean>(false)
 export const metadataCompletionEnabled = writable<boolean>(true)
 export const stepInputCompletionEnabled = writable<boolean>(true)

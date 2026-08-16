@@ -93,7 +93,7 @@ async fn list_calendars(
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<GoogleCalendarEntry>> {
-    require_native_integration_use(&authed)?;
+    require_native_integration_use(&authed, &db, &workspace_id).await?;
     get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
 
     let url = format!(
@@ -126,7 +126,7 @@ async fn list_drive_files(
     Path(workspace_id): Path<String>,
     Query(query): Query<DriveFilesQuery>,
 ) -> JsonResult<GoogleDriveFilesResponse> {
-    require_native_integration_use(&authed)?;
+    require_native_integration_use(&authed, &db, &workspace_id).await?;
     get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
 
     let drive_query = if query.shared_with_me {
@@ -201,7 +201,7 @@ async fn list_shared_drives(
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<SharedDriveEntry>> {
-    require_native_integration_use(&authed)?;
+    require_native_integration_use(&authed, &db, &workspace_id).await?;
     get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
 
     let url = format!(

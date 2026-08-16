@@ -33151,6 +33151,9 @@ components:
         workers:
           type: boolean
           description: Whether operators can view workers page
+        builder:
+          type: boolean
+          description: Whether operators can compose flows and raw apps out of existing runnables (consumes a full seat)
 
     WorkspaceComparison:
       type: object

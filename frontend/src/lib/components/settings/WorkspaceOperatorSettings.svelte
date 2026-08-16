@@ -6,6 +6,8 @@
 	import Section from '$lib/components/Section.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -25,23 +27,37 @@
 		workers: true
 	})
 
-	let originalSettings = $state({ ...untrack(() => operatorWorkspaceSettings) })
+	// Kept out of `operatorWorkspaceSettings` so the visibility table's "Enable all" never flips a
+	// write right, and so its own row stays out of that table.
+	let builder = $state(false)
+
+	let originalSettings = $state({ ...untrack(() => operatorWorkspaceSettings), builder: false })
 	let isChanged = $state(false)
 	let currentWorkspace: string | null = $state(null)
+	let confirmBuilderOpen = $state(false)
+
+	const settingsPayload = $derived({ ...operatorWorkspaceSettings, builder })
 
 	async function saveSettings() {
-		console.log('Saving operator settings:', operatorWorkspaceSettings)
 		try {
 			await WorkspaceService.updateOperatorSettings({
 				workspace: $workspaceStore!,
-				requestBody: operatorWorkspaceSettings
+				requestBody: settingsPayload
 			})
-			originalSettings = { ...operatorWorkspaceSettings }
+			originalSettings = { ...settingsPayload }
 			isChanged = false
 			sendUserToast('Operator settings saved successfully!', false)
 		} catch (error) {
 			console.error('Error updating operator settings:', error)
 			sendUserToast('Failed to save operator settings.', true)
+		}
+	}
+
+	function onSaveClicked() {
+		if (builder && !originalSettings.builder) {
+			confirmBuilderOpen = true
+		} else {
+			saveSettings()
 		}
 	}
 
@@ -66,18 +82,17 @@
 					workspace: $workspaceStore
 				})
 				if (settings.operator_settings !== null) {
-					operatorWorkspaceSettings = {
-						...operatorWorkspaceSettings,
-						...(settings.operator_settings ?? {})
-					}
-					originalSettings = { ...operatorWorkspaceSettings }
+					const { builder: remoteBuilder, ...remoteVisibility } = settings.operator_settings ?? {}
+					operatorWorkspaceSettings = { ...operatorWorkspaceSettings, ...remoteVisibility }
+					builder = remoteBuilder ?? false
+					originalSettings = { ...operatorWorkspaceSettings, builder }
 				}
 			})()
 		}
 	})
 
 	$effect(() => {
-		isChanged = JSON.stringify(operatorWorkspaceSettings) !== JSON.stringify(originalSettings)
+		isChanged = JSON.stringify(settingsPayload) !== JSON.stringify(originalSettings)
 	})
 
 	const allDisabled = $derived(
@@ -96,7 +111,7 @@
 >
 	{#snippet action()}
 		<Button
-			on:click={saveSettings}
+			on:click={onSaveClicked}
 			startIcon={{ icon: SaveIcon }}
 			disabled={!isChanged}
 			variant="accent"
@@ -104,6 +119,19 @@
 			Save operator settings
 		</Button>
 	{/snippet}
+
+	<div class="flex flex-col gap-y-1 mb-4">
+		<span class="text-xs font-semibold text-emphasis">Builder rights</span>
+		<span class="text-xs font-normal text-secondary">
+			Let operators compose flows and raw apps out of scripts and flows that are already deployed.
+			They still cannot write code. Each operator then consumes a full seat instead of half a seat.
+		</span>
+		<Toggle
+			bind:checked={builder}
+			options={{ right: 'Operators can build flows and raw apps' }}
+			size="xs"
+		/>
+	</div>
 
 	<DataTable tableFixed={true} size="xs">
 		<Head>
@@ -157,3 +185,26 @@
 		</tbody>
 	</DataTable>
 </Section>
+
+<ConfirmationModal
+	open={confirmBuilderOpen}
+	title="Give operators builder rights"
+	confirmationText="Enable builder rights"
+	onCanceled={() => (confirmBuilderOpen = false)}
+	onConfirmed={async () => {
+		confirmBuilderOpen = false
+		await saveSettings()
+	}}
+>
+	<div class="flex flex-col gap-2 text-sm">
+		<span>This applies to every operator of this workspace, not to a chosen few.</span>
+		<span>
+			Each of them then consumes a full seat instead of half a seat, which changes what this
+			instance is billed.
+		</span>
+		<span>
+			They can create, edit and delete flows and raw apps wherever their folder permissions already
+			let them write. Review those permissions before enabling.
+		</span>
+	</div>
+</ConfirmationModal>

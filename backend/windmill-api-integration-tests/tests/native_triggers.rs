@@ -16,17 +16,17 @@ use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::Error,
     variables::{build_crypt, encrypt},
+    workspaces::invalidate_operator_builder_cache,
 };
 use windmill_native_triggers::{
-    classify_read_failure, decrypt_oauth_data, delete_native_trigger,
-    delete_workspace_integration, get_workspace_integration,
+    classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
+    get_workspace_integration,
     github::GitHub,
     google::{parse_stop_channel_params, should_renew_channel},
-    http_error_status, list_native_triggers, map_external_error,
+    grant_refused, http_error_status, list_native_triggers, map_external_error,
     nextcloud::NextCloud,
-    grant_refused, require_native_integration_use, store_native_trigger,
-    store_workspace_integration, External, ExternalReadFailure, HttpRequestError,
-    NativeTriggerConfig, OAuthConfig, ServiceName,
+    require_native_integration_use, store_native_trigger, store_workspace_integration, External,
+    ExternalReadFailure, HttpRequestError, NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
 // ============================================================================
@@ -339,24 +339,53 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
 // 3. Channel Expiration Renewal — should_renew_channel
 // ============================================================================
 
-#[test]
-fn test_require_native_integration_use_blocks_operators() {
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_require_native_integration_use_blocks_operators(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     // Regression: the integration *use* routes (calendar/drive/repo/event pickers)
-    // must reject read-only operators, who cannot create native triggers and so
-    // must not be able to drive the admin-configured integration's upstream API.
+    // must reject read-only operators, who must not be able to drive the
+    // admin-configured integration's upstream API.
+    let w_id = "test-workspace";
+    // The builder flag is read through a process-global 60s cache keyed by workspace id, and
+    // every test in this crate shares that id.
+    invalidate_operator_builder_cache(w_id);
+
     let mut operator = test_authed();
     operator.is_admin = false;
     operator.is_operator = true;
-    assert!(require_native_integration_use(&operator).is_err());
+    assert!(require_native_integration_use(&operator, &db, w_id)
+        .await
+        .is_err());
 
     // A regular non-admin author (the population that configures triggers) is allowed.
     let mut author = test_authed();
     author.is_admin = false;
     author.is_operator = false;
-    assert!(require_native_integration_use(&author).is_ok());
+    assert!(require_native_integration_use(&author, &db, w_id)
+        .await
+        .is_ok());
 
     // Admins are allowed.
-    assert!(require_native_integration_use(&test_authed()).is_ok());
+    assert!(require_native_integration_use(&test_authed(), &db, w_id)
+        .await
+        .is_ok());
+
+    // Operators with builder rights author triggers, so they need the pickers.
+    sqlx::query(
+        "UPDATE workspace_settings SET operator_settings = '{\"builder\": true}'::jsonb
+         WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .execute(&db)
+    .await?;
+    invalidate_operator_builder_cache(w_id);
+    assert!(require_native_integration_use(&operator, &db, w_id)
+        .await
+        .is_ok());
+
+    invalidate_operator_builder_cache(w_id);
+    Ok(())
 }
 
 #[test]
@@ -782,7 +811,10 @@ fn test_refresh_failures_blame_only_the_grant_they_refuse() {
     let ok = Some(StatusCode::OK);
     assert!(grant_refused(ok, r#"{"error":"bad_refresh_token"}"#));
     assert!(grant_refused(ok, r#"{"error":"invalid_grant"}"#));
-    assert!(!grant_refused(ok, r#"{"access_token":"t","token_type":"bearer"}"#));
+    assert!(!grant_refused(
+        ok,
+        r#"{"access_token":"t","token_type":"bearer"}"#
+    ));
 }
 
 /// A service that is busy or broken has not refused anything, and callers react differently to
@@ -824,7 +856,9 @@ fn test_transient_service_failures_are_not_refusals() {
         body: r#"{"message":"Must have admin rights to Repository."}"#.to_string(),
     });
     assert!(
-        map_external_error(refused).to_string().contains("admin rights"),
+        map_external_error(refused)
+            .to_string()
+            .contains("admin rights"),
         "a real 403 keeps its guidance"
     );
 }

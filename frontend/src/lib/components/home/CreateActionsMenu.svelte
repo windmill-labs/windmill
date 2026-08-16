@@ -24,6 +24,7 @@
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { importStore } from '$lib/components/apps/store'
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { operatorBuilderRights } from '$lib/stores'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import YAML from 'yaml'
 
@@ -227,9 +228,15 @@
 		}
 	}
 
-	let activeKey = $state(allOptions[0]?.key)
+	// A builder composes runnables that already exist, so only the two kinds it may author are
+	// offered. Everything else here writes code, which the backend refuses from an operator.
+	const options: Option[] = $operatorBuilderRights
+		? allOptions.filter((o) => o.key === 'flow' || o.key === 'app-fullcode')
+		: allOptions
+
+	let activeKey = $state(options[0]?.key)
 	// every option's import action, surfaced together under the bottom "Import" submenu
-	const importActions: Extra[] = allOptions.flatMap((o) => o.extras ?? [])
+	const importActions: Extra[] = options.flatMap((o) => o.extras ?? [])
 
 	// melt dropdown menu: arrow-key nav, typeahead, focus management and outside/escape
 	// close all come for free; we only drive the doc panel off the highlighted item.
@@ -321,7 +328,7 @@
 		// only persist the non-default (hidden) state, so a cleared key means "shown"
 		storeLocalSetting(SHOW_DOC_SETTING, value ? undefined : 'false')
 	}
-	let active = $derived(allOptions.find((o) => o.key === activeKey) ?? allOptions[0])
+	let active = $derived(options.find((o) => o.key === activeKey) ?? options[0])
 	let activeAc = $derived(accentClasses[active.accent])
 
 	// shared YAML/JSON import drawer, reused by every "Import …" extra
@@ -454,7 +461,7 @@
 						</span>
 					{/if}
 				{/snippet}
-				{#each allOptions as option (option.key)}
+				{#each options as option (option.key)}
 					{@const ac = accentClasses[option.accent]}
 					{@const rowClass =
 						'w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover'}

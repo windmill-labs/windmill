@@ -56,7 +56,7 @@ use std::str;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
+    apps::{traverse_app_inline_scripts, AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
     auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
     db::{DbWithOptAuthed, UserDB},
@@ -75,7 +75,8 @@ use windmill_common::{
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
     workspaces::{
-        check_deploy_rules, check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+        check_deploy_rules, check_operator_can_build, check_user_against_rule,
+        operator_builder_enabled, ProtectionRuleKind, RuleCheckResult,
     },
     HUB_BASE_URL,
 };
@@ -1426,11 +1427,7 @@ async fn mint_preview_sdk_token(
     Path(w_id): Path<String>,
     Json(req): Json<PreviewSdkTokenRequest>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot preview raw apps".to_string(),
-        ));
-    }
+    check_operator_can_build(&db, &w_id, authed.is_operator, "preview raw apps").await?;
     check_scopes(&authed, || format!("apps:write:{}", req.path))?;
     let (token, _expiration) =
         mint_raw_app_sdk_token(&db, &w_id, &req.path, &authed, &req.scopes, job_id).await?;
@@ -1897,6 +1894,47 @@ async fn store_raw_app_file<'a>(
 
     Ok(())
 }
+/// Runs on every app write by an operator with builder rights, from inside the create/update
+/// internals so both raw-app endpoints are covered by one check.
+///
+/// A raw app's behaviour lives in a bundle the browser built, which no server-side check can read,
+/// so isolation is what makes it safe to let an operator publish one: `sandbox` renders it in an
+/// opaque-origin iframe instead of handing it the viewer's Windmill session. Inline scripts are
+/// the low-code side's way of carrying code and must not appear either.
+fn check_operator_composed_app(
+    raw_app: bool,
+    value: Option<&RawValue>,
+    policy: Option<&mut Policy>,
+    allow_kind_change: bool,
+) -> Result<()> {
+    if !raw_app || allow_kind_change {
+        return Err(Error::NotAuthorized(
+            "Operators with builder rights can only author full-code apps, and cannot convert an existing app into one".to_string(),
+        ));
+    }
+    if let Some(value) = value {
+        let value: serde_json::Value = serde_json::from_str(value.get()).map_err(to_anyhow)?;
+        traverse_app_inline_scripts(&value, None, &mut |_, _| {
+            Err(Error::NotAuthorized(
+                "Operators with builder rights cannot deploy an app carrying inline scripts"
+                    .to_string(),
+            ))
+        })?;
+    }
+    let Some(policy) = policy else {
+        return Err(Error::BadRequest(
+            "Operators with builder rights must deploy an app with its policy".to_string(),
+        ));
+    };
+    if policy.sandbox == Some(false) {
+        return Err(Error::NotAuthorized(
+            "Operators with builder rights can only deploy sandboxed apps".to_string(),
+        ));
+    }
+    policy.sandbox = Some(true);
+    Ok(())
+}
+
 macro_rules! process_app_multipart {
     ($authed:expr, $user_db:expr, $db:expr, $w_id:expr, $path:expr, $multipart:expr, $internal_fn:expr) => {
         async {
@@ -1973,11 +2011,7 @@ async fn create_app_raw<'a>(
     Path(w_id): Path<String>,
     multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create apps for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(&db, &w_id, authed.is_operator, "create apps").await?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -2112,6 +2146,9 @@ async fn create_app_internal<'a>(
     // denied app committed in the DB.
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
     validate_frontend_sdk_scopes(&app.policy)?;
+    if authed.is_operator {
+        check_operator_composed_app(raw_app, Some(&app.value.0), Some(&mut app.policy), false)?;
+    }
     if *CLOUD_HOSTED {
         let nb_apps =
             sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
@@ -2394,13 +2431,16 @@ async fn delete_app(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete apps for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(&db, &w_id, authed.is_operator, "delete apps").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
+    // One endpoint deletes both kinds, and builder rights only cover full-code apps.
+    if authed.is_operator && deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
+    {
+        return Err(Error::NotAuthorized(
+            "Operators with builder rights can only delete full-code apps".to_string(),
+        ));
+    }
 
     if path == "g/all/setup_app" && w_id == "admins" {
         return Err(Error::BadRequest(
@@ -2641,6 +2681,10 @@ async fn update_app_raw_source(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
+    // Stays closed to operators even with builder rights, unlike `create_app_raw`/`update_app_raw`
+    // next to it: this path compiles caller-supplied sources with a bundler job on a worker, which
+    // is arbitrary code execution. Builders lose nothing: the browser and the CLI both bundle
+    // locally and deploy through the multipart endpoints.
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot update apps for security reasons".to_string(),
@@ -2777,6 +2821,10 @@ async fn create_app_raw_source(
     Path(w_id): Path<String>,
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
+    // Stays closed to operators even with builder rights, unlike `create_app_raw`/`update_app_raw`
+    // next to it: this path compiles caller-supplied sources with a bundler job on a worker, which
+    // is arbitrary code execution. Builders lose nothing: the browser and the CLI both bundle
+    // locally and deploy through the multipart endpoints.
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot create apps for security reasons".to_string(),
@@ -2916,11 +2964,7 @@ async fn update_app_raw<'a>(
     Path((w_id, path)): Path<(String, StripPath)>,
     multipart: Multipart,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update apps for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(&db, &w_id, authed.is_operator, "update apps").await?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -2936,6 +2980,14 @@ async fn update_app_raw<'a>(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
+    // `update_app_internal` only compares kinds when a new value is deployed, so a
+    // policy-only update would otherwise let a builder rewrite a low-code app's policy.
+    if authed.is_operator && deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
+    {
+        return Err(Error::NotAuthorized(
+            "Operators with builder rights can only update full-code apps".to_string(),
+        ));
+    }
     let opath = path.to_string();
     let db2 = db.clone();
     let (npath, v_id) = process_app_multipart!(
@@ -2976,7 +3028,7 @@ async fn update_app_internal<'a>(
     w_id: &str,
     path: &str,
     raw_app: bool,
-    ns: EditApp,
+    mut ns: EditApp,
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
     use sql_builder::prelude::*;
 
@@ -2984,6 +3036,15 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+    }
+
+    if authed.is_operator {
+        check_operator_composed_app(
+            raw_app,
+            ns.value.as_ref().map(|v| v.0.as_ref()),
+            ns.policy.as_mut(),
+            ns.allow_kind_change.unwrap_or(false),
+        )?;
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -3490,7 +3551,12 @@ async fn execute_component(
         let authed = opt_authed.as_ref().ok_or_else(|| {
             Error::NotAuthorized("App component preview requires authentication".to_string())
         })?;
-        if authed.is_operator {
+        // A builder testing the app it is composing only ever previews a deployed runnable
+        // (`path`) or a persisted app script (`id`), both confined below to what it may read.
+        // Inline `raw_code` is authoring code, so it stays closed to every operator.
+        if authed.is_operator
+            && (payload.raw_code.is_some() || !operator_builder_enabled(&db, &w_id).await?)
+        {
             return Err(Error::NotAuthorized(
                 "Operators cannot run preview jobs for security reasons".to_string(),
             ));

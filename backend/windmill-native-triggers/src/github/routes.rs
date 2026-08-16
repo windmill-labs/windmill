@@ -21,7 +21,7 @@ async fn list_repos(
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<GithubRepoEntry>> {
-    require_native_integration_use(&authed)?;
+    require_native_integration_use(&authed, &db, &workspace_id).await?;
     get_workspace_integration(&db, &workspace_id, ServiceName::Github).await?;
 
     let mut all_entries = Vec::new();
