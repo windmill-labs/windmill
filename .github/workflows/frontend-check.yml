@@ -16,7 +16,7 @@ jobs:
     runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: "npm"
