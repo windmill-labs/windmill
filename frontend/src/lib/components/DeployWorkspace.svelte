@@ -38,6 +38,7 @@
 	import { isRunnableByPath } from './apps/inputType'
 	import type { Runnable } from './raw_apps/utils'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import { sendUserToast } from '$lib/toast'
 	import OnBehalfOfSelector, {
 		needsOnBehalfOfSelection,
 		type OnBehalfOfChoice,
@@ -344,6 +345,17 @@
 		if (result.success) {
 			allAlreadyExists[statusPath] = true
 			deploymentStatus[statusPath] = { status: 'deployed' }
+			// The folder landed with less access than its source, which is not something to discover
+			// later from someone who can no longer open it.
+			if (result.droppedAccess?.length) {
+				sendUserToast(
+					`${statusPath}: dropped access for ${result.droppedAccess.join(', ')} — no account in ${workspaceToDeployTo}`,
+					'warning',
+					undefined,
+					undefined,
+					10000
+				)
+			}
 		} else {
 			deploymentStatus[statusPath] = { status: 'failed', error: result.error }
 		}

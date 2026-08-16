@@ -41,6 +41,7 @@ import {
 	checkItemExists as sharedCheckItemExists,
 	getOnBehalfOf as sharedGetOnBehalfOf,
 	getItemValue as sharedGetItemValue,
+	folderName,
 	type DeployProvider,
 	type DeployKind,
 	type DeployResult,
@@ -352,7 +353,7 @@ export interface DeployItemParams {
  */
 export async function deployItem(
 	params: DeployItemParams
-): Promise<DeployResult & { conflict?: boolean }> {
+): Promise<DeployResult & { conflict?: boolean; droppedAccess?: string[] }> {
 	const {
 		kind,
 		path,
@@ -398,6 +399,10 @@ export async function deployItem(
 		} catch (e: any) {
 			return { success: false, error: e.body || e.message || String(e) }
 		}
+	}
+
+	if (kind === 'folder') {
+		return deployFolder(folderName(path), workspaceFrom, workspaceTo, !!createOnly)
 	}
 
 	const appIdentity =
@@ -528,6 +533,24 @@ export async function getItemValue(
 			return {}
 		}
 	}
+	if (kind === 'folder') {
+		// The published shared value omits the two fields `deployFolder` carries, so the diff a
+		// reviewer reads would not mention the identity rules the deploy is about to rewrite.
+		// Delete with `deployFolder`.
+		try {
+			const folder = await FolderService.getFolder({ workspace, name: folderName(path) })
+			return {
+				name: folder.name,
+				owners: folder.owners,
+				extra_perms: folder.extra_perms,
+				summary: folder.summary,
+				default_permissioned_as: folder.default_permissioned_as,
+				labels: folder.labels
+			}
+		} catch {
+			return {}
+		}
+	}
 	return sharedGetItemValue(makeProvider(), kind as DeployKind, path, workspace)
 }
 
@@ -568,17 +591,18 @@ export async function getOnBehalfOfOrThrow(
 }
 
 /**
- * Every workspace group, not just the first page.
+ * Every workspace `group_` row, not just the first page — the only groups an identity rule resolves
+ * against (`ensure_permissioned_as_exists`). `listGroupNames` is the wrong call here: it unions in
+ * instance groups, and a same-named one would let a rule through that the server then rejects.
  *
- * `listGroupNames` would be the obvious call but unions in instance groups, which folder rules do
- * not resolve against — a same-named instance group would let an unusable rule through. `listGroups`
- * reads the workspace's own `group_` rows, which is what the server checks, but it paginates: a
- * group missed here reads as "no account in the target", which now refuses a folder copy outright.
+ * A group missed here reads as "has no account in the target", which refuses a folder copy
+ * outright, so the listing has to be exhaustive. A short page ends it — `list_groups` runs through
+ * `paginate()`, which caps `per_page` at `MAX_PER_PAGE` (10000), so it can never return fewer than
+ * the 1000 asked for while more remain. The size check backstops a server that ignores `page`.
  */
 async function workspaceGroupNames(workspace: string): Promise<Set<string>> {
 	const PER_PAGE = 1000
 	const names = new Set<string>()
-	// Stops on a short page; the size check is the backstop for a server that ignores `page`.
 	for (let page = 1; page <= 50; page++) {
 		const batch = await GroupService.listGroups({ workspace, page, perPage: PER_PAGE })
 		const before = names.size
@@ -595,29 +619,118 @@ async function workspaceGroupNames(workspace: string): Promise<Set<string>> {
  * so copying one verbatim can hand a folder — or an item's execution identity — to a namesake. Email
  * is the only identifier stable across workspaces, so users go source username -> email -> target
  * username, and anyone without an account there resolves to undefined for the caller to deal with.
+ * Groups match by name, but against *different* sets depending on where the principal sits — see
+ * `translateAccess` and `translateRule`.
  */
 async function principalTranslator(workspaceFrom: string, workspaceTo: string) {
-	const [fromUsers, toUsers, targetGroups] = await Promise.all([
-		// `list_users` is unpaginated, unlike the group listing below.
+	const [fromUsers, toUsers, ruleGroups, accessGroups] = await Promise.all([
+		// `list_users` is unpaginated, unlike the `listGroups` listing above.
 		UserService.listUsers({ workspace: workspaceFrom }),
 		UserService.listUsers({ workspace: workspaceTo }),
-		workspaceGroupNames(workspaceTo)
+		workspaceGroupNames(workspaceTo),
+		GroupService.listGroupNames({ workspace: workspaceTo }).then((names) => new Set(names))
 	])
 	const emailOfSourceUsername = new Map(fromUsers.map((u) => [u.username, u.email]))
 	const targetUsernameOfEmail = new Map(toUsers.map((u) => [u.email, u.username]))
 
-	/** The same principal as `workspaceTo` names it, or undefined when it has no account there. */
-	return (principal: string): string | undefined => {
+	const resolve = (principal: string, groups: Set<string>): string | undefined => {
 		if (principal.startsWith('u/')) {
 			const email = emailOfSourceUsername.get(principal.slice(2))
 			const username = email ? targetUsernameOfEmail.get(email) : undefined
 			return username ? `u/${username}` : undefined
 		}
 		if (principal.startsWith('g/')) {
-			return targetGroups.has(principal.slice(2)) ? principal : undefined
+			return groups.has(principal.slice(2)) ? principal : undefined
 		}
 		// An email is already workspace-independent; it only has to name someone there.
 		return targetUsernameOfEmail.has(principal) ? principal : undefined
+	}
+
+	return {
+		/**
+		 * For an owner or an ACL entry. Instance groups count: they are instance-wide, and
+		 * `get_groups_for_user` folds them into the `authed.groups` that `extra_perms` is matched
+		 * against, so `g/<instance group>` grants access in the target exactly as it did in the source.
+		 */
+		translateAccess: (principal: string) => resolve(principal, accessGroups),
+		/**
+		 * For an identity rule, which resolves only against the workspace's own `group_` rows —
+		 * `ensure_permissioned_as_exists` rejects an instance group, so accepting one here would write
+		 * a folder the server then refuses every item deploy into.
+		 */
+		translateRule: (principal: string) => resolve(principal, ruleGroups),
+		/**
+		 * The principal names a user the *source* no longer has, so it is untranslatable for want of
+		 * an email to match on — adding that username to the target would not resolve it. Only `u/`
+		 * can fail this way: a group name and an email are already what the target is searched by.
+		 */
+		danglesInSource: (principal: string): boolean =>
+			principal.startsWith('u/') && !emailOfSourceUsername.has(principal.slice(2))
+	}
+}
+
+/**
+ * `f/<name>` as `workspaceTo` would have to store it, or the identity rule that stops it being
+ * copied there at all.
+ *
+ * Every principal is translated into the target's own naming (see `principalTranslator`), and the
+ * two kinds of unresolvable principal are separated because they fail differently:
+ *
+ *  - an **owner or ACL entry** with no account in the target is dropped, and named in `dropped`.
+ *    The folder ends up more restrictive than its source, never less, and `create_folder` makes
+ *    the caller an owner, so nobody is locked out of what they just created.
+ *  - an **identity rule** with no account in the target stops the copy, whichever caller asked for
+ *    it. Dropping it would leave the folder applying no rule where the source applied one, so an
+ *    item landing inside runs as whoever deployed it; carrying it verbatim is worse still, since
+ *    the server validates a rule's shape at folder-create time but its principal's existence at
+ *    item-create time, so the folder would be written and then reject every deploy into it.
+ */
+async function translatedFolderBody(
+	name: string,
+	workspaceFrom: string,
+	workspaceTo: string
+): Promise<
+	| { unresolvableRule: string; danglesInSource: boolean }
+	| { requestBody: Record<string, unknown>; dropped: string[] }
+> {
+	const folder = await FolderService.getFolder({ workspace: workspaceFrom, name })
+	const rules = folder.default_permissioned_as ?? []
+	const owners = folder.owners ?? []
+	const acl = Object.entries((folder.extra_perms ?? {}) as Record<string, boolean>)
+	const { translateAccess, translateRule, danglesInSource } = await principalTranslator(
+		workspaceFrom,
+		workspaceTo
+	)
+
+	const unresolvableRule = rules.map((r) => r.permissioned_as).find((p) => !translateRule(p))
+	if (unresolvableRule) {
+		return { unresolvableRule, danglesInSource: danglesInSource(unresolvableRule) }
+	}
+
+	const translatedOwners = owners.map(translateAccess).filter((p): p is string => !!p)
+	return {
+		dropped: [...new Set([...owners, ...acl.map(([p]) => p)])].filter((p) => !translateAccess(p)),
+		requestBody: {
+			// Sending `[]` would blank the target's owners, and `update_folder` only force-appends the
+			// caller when they are not an admin — so an admin deploying a folder whose every owner is
+			// untranslatable would leave an owner-less folder behind. Omitting the key keeps whatever
+			// the target had; on create the server appends the caller regardless.
+			owners: translatedOwners.length ? translatedOwners : undefined,
+			extra_perms: Object.fromEntries(
+				acl.flatMap(([p, write]) => {
+					const t = translateAccess(p)
+					return t ? [[t, write] as const] : []
+				})
+			),
+			summary: folder.summary ?? undefined,
+			// Both mirror the source rather than preserving the target: a rule or label cleared at the
+			// source has to clear here too, or the copy keeps applying an identity nobody asked for.
+			default_permissioned_as: rules.map((r) => ({
+				...r,
+				permissioned_as: translateRule(r.permissioned_as)!
+			})),
+			labels: folder.labels ?? []
+		}
 	}
 }
 
@@ -629,26 +742,10 @@ export type CreateFolderResult = DeployResult & {
 /**
  * Copy a folder into `workspaceTo`, creating it and never updating it.
  *
- * `deployItem` re-probes and switches to `updateFolder` when the folder turns out to exist, which
- * would replace its owners and ACL with the source's. For a folder the user asked to deploy that is
- * the point; for one created on their behalf to give an item somewhere to land it would silently
- * rewrite the permissions of a folder someone else just created. Losing that race is success here —
- * the folder exists, which is all the caller needed.
- *
- * Every principal is translated into the target's own naming (see `principalTranslator`), and the
- * two kinds of unresolvable principal are treated differently because they fail differently:
- *
- *  - an **owner or ACL entry** with no account in the target is dropped. The folder ends up more
- *    restrictive than its source, never less, and `create_folder` makes the caller an owner, so
- *    nobody is locked out of what they just created.
- *  - an **identity rule** with no account in the target refuses the whole copy. Dropping it would
- *    leave the folder applying no rule where the source applied one, so an item landing inside runs
- *    as whoever deployed it — the silent substitution this prompt exists to prevent — and carrying
- *    it verbatim is worse still: the server validates a rule's shape at folder-create time but its
- *    principal's existence at item-create time, so the folder would be created and then reject
- *    every deploy into it, including the retry.
- *
- * `default_permissioned_as` and `labels` are carried at all, which the shared folder deploy drops.
+ * `deployItem` writes the folder the user selected, so it updates an existing one. This creates the
+ * folder nobody asked to deploy — the one an item needs somewhere to land — so an update would
+ * silently rewrite the permissions of a folder someone else just created. Losing that race is
+ * success: the folder exists, which is all the caller needed.
  */
 export async function createFolderIfAbsent(
 	name: string,
@@ -656,43 +753,22 @@ export async function createFolderIfAbsent(
 	workspaceTo: string
 ): Promise<CreateFolderResult> {
 	try {
-		const folder = await FolderService.getFolder({ workspace: workspaceFrom, name })
-		const rules = folder.default_permissioned_as ?? []
-		const owners = folder.owners ?? []
-		const acl = Object.entries((folder.extra_perms ?? {}) as Record<string, boolean>)
-		const translate = await principalTranslator(workspaceFrom, workspaceTo)
-
-		const unresolvableRule = rules.map((r) => r.permissioned_as).find((p) => !translate(p))
-		if (unresolvableRule) {
+		const copy = await translatedFolderBody(name, workspaceFrom, workspaceTo)
+		if ('unresolvableRule' in copy) {
 			return {
 				success: false,
 				error:
-					`f/${name} runs items on behalf of ${unresolvableRule}, which has no account in ` +
-					`the target workspace. Bring the folder across from the compare page first.`
+					`f/${name} runs items on behalf of ${copy.unresolvableRule}, who ` +
+					(copy.danglesInSource
+						? `no longer has an account in ${workspaceFrom}. Point the folder's rule at someone who does first.`
+						: `has no account in ${workspaceTo}. Bring the folder across from the compare page first.`)
 			}
 		}
-
-		const droppedAccess = [...owners, ...acl.map(([p]) => p)].filter((p) => !translate(p))
 		await FolderService.createFolder({
 			workspace: workspaceTo,
-			requestBody: {
-				name,
-				owners: owners.map(translate).filter((p): p is string => !!p),
-				extra_perms: Object.fromEntries(
-					acl.flatMap(([p, write]) => {
-						const t = translate(p)
-						return t ? [[t, write] as const] : []
-					})
-				),
-				summary: folder.summary ?? undefined,
-				default_permissioned_as: rules.map((r) => ({
-					...r,
-					permissioned_as: translate(r.permissioned_as)!
-				})),
-				labels: folder.labels
-			}
+			requestBody: { name, ...copy.requestBody }
 		})
-		return { success: true, droppedAccess: droppedAccess.length ? droppedAccess : undefined }
+		return { success: true, droppedAccess: copy.dropped.length ? copy.dropped : undefined }
 	} catch (e) {
 		// The name conflict a concurrent create produces is not part of the API contract, so ask
 		// again rather than matching its message.
@@ -700,6 +776,59 @@ export async function createFolderIfAbsent(
 			if (await checkItemExists('folder', `f/${name}`, workspaceTo)) return { success: true }
 		} catch {}
 		return { success: false, error: `${e}` }
+	}
+}
+
+/**
+ * The folder half of `deployItem`, kept here rather than taken from the shared package.
+ *
+ * This app consumes the published `windmill-utils-internal`, whose folder branch builds both bodies
+ * from `owners`/`extra_perms`/`summary` alone: it drops the folder's identity rules and labels, and
+ * copies workspace-local `u/<username>` principals verbatim into a workspace where the same
+ * username can be a different account. The shared branch is fixed in this repo — delete this once
+ * that version ships and the dependency is bumped.
+ */
+async function deployFolder(
+	name: string,
+	workspaceFrom: string,
+	workspaceTo: string,
+	createOnly: boolean
+): Promise<DeployResult & { conflict?: boolean; droppedAccess?: string[] }> {
+	try {
+		const copy = await translatedFolderBody(name, workspaceFrom, workspaceTo)
+		if ('unresolvableRule' in copy) {
+			return {
+				success: false,
+				error:
+					`f/${name} runs items on behalf of ${copy.unresolvableRule}, who ` +
+					(copy.danglesInSource
+						? `no longer has an account in ${workspaceFrom}. Point the folder's rule at someone who does`
+						: `has no account in ${workspaceTo}. Add them there`) +
+					`, then deploy the folder again.`
+			}
+		}
+		if (await FolderService.existsFolder({ workspace: workspaceTo, name })) {
+			if (createOnly) {
+				return {
+					success: false,
+					conflict: true,
+					error: `f/${name} already exists in ${workspaceTo}`
+				}
+			}
+			await FolderService.updateFolder({
+				workspace: workspaceTo,
+				name,
+				requestBody: copy.requestBody
+			})
+		} else {
+			await FolderService.createFolder({
+				workspace: workspaceTo,
+				requestBody: { name, ...copy.requestBody }
+			})
+		}
+		return { success: true, droppedAccess: copy.dropped.length ? copy.dropped : undefined }
+	} catch (e: any) {
+		return { success: false, error: e.body || e.message || String(e) }
 	}
 }
 

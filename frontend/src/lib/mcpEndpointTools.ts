@@ -335,7 +335,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "label": {
                         "type": "string",
@@ -527,7 +527,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "resource_type": {
                         "type": "string",
@@ -600,7 +600,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "order_desc": {
                         "type": "boolean",
@@ -861,7 +861,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "order_desc": {
                         "type": "boolean",
@@ -1097,7 +1097,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "path_start": {
                         "type": "string",
@@ -1579,7 +1579,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "all_workspaces": {
                         "type": "boolean",
@@ -1713,7 +1713,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "trigger_kind": {
                         "type": "string",
@@ -2315,7 +2315,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "args": {
                         "type": "string",
@@ -2380,7 +2380,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "per_page": {
                         "type": "integer",
-                        "description": "number of items to return for a given page (default 30, max 100)"
+                        "description": "number of items to return for a given page (default 1000, max 10000; the script and job listings default to 10000 and apply no maximum)"
                 },
                 "ping_since": {
                         "type": "integer",
