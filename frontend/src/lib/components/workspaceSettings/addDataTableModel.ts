@@ -22,6 +22,7 @@ import { claim, stillOurs, type Claims } from './setupClaims'
 import {
 	DEFAULT_SSLMODE,
 	parsePostgresConnectionString,
+	unsupportedConnectionParam,
 	type PostgresConnectionParts
 } from '$lib/utils/postgresConnectionString'
 import {
@@ -135,7 +136,11 @@ export function intentComplete(state: WizardState): boolean {
 	// it correctable -- but the connection on screen is then not the one they describe, and
 	// testing or saving the old one behind an unparseable string points the data table
 	// somewhere nobody asked for.
-	if (state.own.form === 'string' && !parsePostgresConnectionString(state.own.connectionString))
+	if (
+		state.own.form === 'string' &&
+		(!parsePostgresConnectionString(state.own.connectionString) ||
+			unsupportedConnectionParam(state.own.connectionString))
+	)
 		return false
 	return !!newResourceParts(state)
 }

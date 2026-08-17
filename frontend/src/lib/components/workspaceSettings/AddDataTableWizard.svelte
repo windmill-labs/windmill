@@ -44,7 +44,8 @@
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
 	import {
 		composePostgresConnectionString,
-		parsePostgresConnectionString
+		parsePostgresConnectionString,
+		unsupportedConnectionParam
 	} from '$lib/utils/postgresConnectionString'
 	import {
 		clearProbe,
@@ -199,11 +200,15 @@
 				)
 			: undefined
 	)
-	let connectionStringError = $derived(
-		wiz.own.connectionString && !parsePostgresConnectionString(wiz.own.connectionString)
-			? 'That is not a Postgres connection string.'
+	let connectionStringError = $derived.by(() => {
+		const text = wiz.own.connectionString
+		if (!text) return undefined
+		if (!parsePostgresConnectionString(text)) return 'That is not a Postgres connection string.'
+		const unsupported = unsupportedConnectionParam(text)
+		return unsupported
+			? `Windmill cannot store ${unsupported} on a Postgres resource, and ignoring it would put the data table in a different schema. Remove it from the string.`
 			: undefined
-	)
+	})
 	let resourcePath = $derived(resourcePathOf(wiz))
 
 	/**

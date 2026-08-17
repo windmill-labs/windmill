@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
 	composePostgresConnectionString,
-	parsePostgresConnectionString
+	parsePostgresConnectionString,
+	unsupportedConnectionParam
 } from './postgresConnectionString'
 
 // Two callers depend on this producing the same resource value from the same string:
@@ -95,5 +96,25 @@ describe('composePostgresConnectionString', () => {
 			sslmode: 'require'
 		}
 		expect(parsePostgresConnectionString(composePostgresConnectionString(parts))).toEqual(parts)
+	})
+})
+
+// A parameter the resource has no field for is not a preference we can drop: `options` picks
+// the schema tables are created in, so ignoring it puts the data table somewhere else while
+// the probe still reports success.
+describe('unsupportedConnectionParam', () => {
+	it('names a parameter that would change where data lands', () => {
+		expect(unsupportedConnectionParam('postgres://u:p@h/db?options=-csearch_path%3Dtenant')).toBe(
+			'options'
+		)
+		expect(unsupportedConnectionParam('postgres://u:p@h/db?search_path=tenant')).toBe('search_path')
+	})
+
+	it('ignores parameters that change nothing about the connection', () => {
+		expect(unsupportedConnectionParam('postgres://u:p@h/db?sslmode=require')).toBeUndefined()
+		expect(
+			unsupportedConnectionParam('postgres://u:p@h/db?application_name=wm&connect_timeout=5')
+		).toBeUndefined()
+		expect(unsupportedConnectionParam('postgres://u:p@h/db')).toBeUndefined()
 	})
 })

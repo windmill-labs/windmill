@@ -66,6 +66,27 @@ export function parsePostgresConnectionString(
 }
 
 /**
+ * Parameters that decide what the connection *means* rather than how it is dressed:
+ * `options=-csearch_path=…` chooses the schema tables are created in. The resource has no field
+ * to carry them, so a string naming one cannot be honoured — and dropping it silently would
+ * create the data table somewhere the user did not choose, behind a probe that reports success.
+ * Cosmetic parameters (`application_name`, `connect_timeout`, …) change nothing and are ignored.
+ *
+ * Returns the offending parameter's name.
+ */
+const UNSUPPORTED_PARAMS = ['options', 'search_path']
+
+export function unsupportedConnectionParam(connectionString: string): string | undefined {
+	const query = connectionString.split('?').slice(1).join('?')
+	if (!query) return undefined
+	let found: string | undefined = undefined
+	new URLSearchParams(query).forEach((_value, name) => {
+		if (!found && UNSUPPORTED_PARAMS.includes(name.toLowerCase())) found = name
+	})
+	return found
+}
+
+/**
  * Every part that was set is emitted, `sslmode` included. Leaving `prefer` out because it is
  * libpq's own default would be shorter, but it does not survive the trip: a caller that
  * reparses this string gets `undefined` back and substitutes its own default, which is how an
