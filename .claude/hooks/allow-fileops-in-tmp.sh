@@ -238,7 +238,7 @@ split_segments "$cmd"
 seg_cwd="${cwd:-$PWD}"
 alt_cwd=""                                # where a `cd` that failed would have left the command
 saw_cd=0                                  # a `cd` moved the working directory somewhere
-proved=0                                  # at least one op came out inside a single root
+proved=0                                  # how many ops came out inside a single root
 only_ours=1                               # ... and nothing else shares the command line
 
 for seg in "${SEGMENTS[@]}"; do
@@ -247,12 +247,12 @@ for seg in "${SEGMENTS[@]}"; do
     "") continue ;;
     mkdir | cp | mv | touch | chmod)
       check_fileops_segment "${SEG_TOKS[0]}"
-      proved=1
+      proved=$((proved + 1))
       continue
       ;;
     tar | unzip)
       check_archive_segment "${SEG_TOKS[0]}"
-      proved=1
+      proved=$((proved + 1))
       continue
       ;;
     cd)
@@ -265,7 +265,10 @@ for seg in "${SEGMENTS[@]}"; do
         alt_cwd="$seg_cwd"
         seg_cwd="$new_cwd"
       else
+        # Not the harmless segment an allow assumes: whatever this guard could not account for
+        # may be a redirect, and a redirect writes. Leave the line to the normal flow.
         seg_cwd="" alt_cwd=""
+        only_ours=0
       fi
       saw_cd=1
       continue
@@ -279,6 +282,11 @@ for seg in "${SEGMENTS[@]}"; do
   only_ours=0
 done
 
-[ "$proved" = 1 ] || exit 0
-[ "$only_ours" = 1 ] && decide allow "every path operand is under /tmp"
+# Exactly one write per line. Each segment is proved against the filesystem as it stands now,
+# and an earlier write can change what a later operand means: `cp -r /tmp/tree /tmp/live` that
+# recreates a symlink out of /tmp turns `/tmp/live/link` — a path under /tmp when this ran —
+# into a write through that symlink. Deletes compose safely and guard-rm-outside-tmp.sh allows
+# several, because `rm` unlinks a symlink rather than following it.
+[ "$proved" -ge 1 ] || exit 0
+[ "$only_ours" = 1 ] && [ "$proved" = 1 ] && decide allow "every path operand is inside a single root"
 exit 0

@@ -122,7 +122,10 @@ for seg in "${SEGMENTS[@]}"; do
         alt_cwd="$seg_cwd"
         seg_cwd="$new_cwd"
       else
+        # Not the harmless segment an allow assumes: whatever this guard could not account for
+        # may be a redirect, and a redirect writes. Leave the line to the normal flow.
         seg_cwd="" alt_cwd=""
+        only_ours=0
       fi
       saw_cd=1
       continue

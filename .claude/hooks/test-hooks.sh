@@ -131,6 +131,7 @@ run $G ask   "cd /tmp/does-not-exist; rm -rf backend/.env"
 run $G ask   "cd /tmp/a && cd /tmp/b && rm -rf sub"
 run $G ask   "rm -rf /tmp/clone/.git"                     # history is never in a class
 run $G ask   "rm -rf /tmp/scratch/id_rsa.key"
+run $G none  "cd /tmp >$OUT; rm -f /tmp/a"
 
 echo
 echo "== allow-fileops-in-tmp.sh =="
@@ -154,8 +155,8 @@ run $A none  "cp $CWD/AGENTS.md /tmp/a"
 run $A none  "tar -xzf /tmp/a.tar.gz -C $OUT"
 run $A none  "cargo build"
 
-run $A allow "mkdir -p /tmp/x; mv /tmp/a /tmp/x; chmod 755 /tmp/x"
-run $A allow "$(printf 'mv /tmp/a /tmp/b\nchmod 755 /tmp/b')"
+run $A none  "mkdir -p /tmp/x; mv /tmp/a /tmp/x; chmod 755 /tmp/x"   # one write per line
+run $A none  "$(printf 'mv /tmp/a /tmp/b\nchmod 755 /tmp/b')"
 run $A ask   "ls && mv /tmp/a /etc"
 run $A ask   "$(printf 'mkdir -p /tmp/x\nchmod -R 777 %s' "$CWD")"
 run $A allow "cd /tmp/x && tar -xzf /tmp/a.tar.gz -C /tmp/out"
@@ -175,6 +176,10 @@ run $A none  "cp backend/secrets/token frontend/token.txt"   # cp has no prompt 
                                                             # so what matters is it is not allowed
 run $A ask   "mv $CWD/backend/credentials.json /tmp/x"
 run $A ask   "cd /tmp/does-not-exist; mv .claude/settings.json settings.bak"
+# A segment this hook cannot read whole may carry a redirect, and an earlier write can change
+# what a later operand resolves to — neither may ride along on an allow.
+run $A none  "cd /tmp >$OUT; mv /tmp/a /tmp/b"
+run $A none  "cp -r /tmp/tree /tmp/live; cp /tmp/payload /tmp/live/link"
 
 echo
 [ "$fails" = 0 ] && echo "ALL PASS" || { echo "$fails FAILURES"; exit 1; }
