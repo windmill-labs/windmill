@@ -287,8 +287,11 @@ pub type AllowUserResources = Vec<String>;
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionMode {
-    #[default]
     Anonymous,
+    /// Default for a policy that omits `execution_mode`. It MUST stay a mode
+    /// that requires an authenticated viewer: an omitted field must never be
+    /// able to publish an app anonymously (publicly executable).
+    #[default]
     Publisher,
     Viewer,
 }
@@ -334,6 +337,10 @@ pub struct Policy {
     pub triggerables: Option<HashMap<String, StaticFields>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub triggerables_v2: Option<HashMap<String, PolicyTriggerableInputs>>,
+    /// Optional in the OpenAPI schema (and therefore in the MCP tools derived
+    /// from it), so it must deserialize when absent. See [`ExecutionMode`] for
+    /// why the default is `publisher`.
+    #[serde(default)]
     pub execution_mode: ExecutionMode,
     pub s3_inputs: Option<Vec<S3Input>>,
     pub allowed_s3_keys: Option<Vec<S3Key>>,
@@ -5505,5 +5512,21 @@ mod embed_token_tests {
 
         // Invalid JSON still errors.
         assert!(parse_embed_policy("not json").is_err());
+    }
+
+    /// `execution_mode` is optional in the OpenAPI schema the API clients and the
+    /// MCP tools are generated from, so an omitted one must deserialize, and must
+    /// never resolve to `anonymous`, which would publish the app to unauthenticated
+    /// callers.
+    #[test]
+    fn policy_execution_mode_defaults_to_publisher() {
+        use super::{ExecutionMode, Policy};
+
+        let p: Policy = serde_json::from_str("{}").expect("empty policy must deserialize");
+        assert_eq!(p.execution_mode, ExecutionMode::Publisher);
+
+        // An explicit mode still wins.
+        let p: Policy = serde_json::from_str(r#"{"execution_mode": "anonymous"}"#).unwrap();
+        assert_eq!(p.execution_mode, ExecutionMode::Anonymous);
     }
 }

@@ -107,8 +107,7 @@
 				itemKind: 'app',
 				path
 			})
-			// Backend's `Policy` requires `execution_mode` (empty object fails to
-			// deserialize on deploy); `publisher` is the default authoring mode.
+			// `publisher` is the default authoring mode.
 			const emptyPolicy = { execution_mode: 'publisher' } as any
 			// One-shot import handoff via $importStore (YAML/JSON or "Build app").
 			// Wrapped exports carry { summary, value, policy }; bare ones are the App value.

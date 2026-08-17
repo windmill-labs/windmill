@@ -1199,7 +1199,8 @@ Creates a new version of an existing script when called with the same path and t
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Possible values: viewer, publisher, anonymous"
+                                        "default": "publisher",
+                                        "description": "Who the app's runnables execute as. Optional: when omitted it defaults to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer). `anonymous` makes the app publicly executable and is therefore never assumed by default. Possible values: viewer, publisher, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
@@ -1313,7 +1314,8 @@ Creates a new version of an existing script when called with the same path and t
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Possible values: viewer, publisher, anonymous"
+                                        "default": "publisher",
+                                        "description": "Who the app's runnables execute as. Optional: when omitted it defaults to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer). `anonymous` makes the app publicly executable and is therefore never assumed by default. Possible values: viewer, publisher, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
