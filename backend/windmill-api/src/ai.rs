@@ -677,10 +677,10 @@ struct AITokenUsageBucket {
     requests: i64,
 }
 
-/// Grouping by session (or by day over a long range) can produce more buckets than
-/// a table is worth rendering, so the listing is capped. `truncated` says so
-/// explicitly — a caller that sums the rows into a total must be able to tell that
-/// the total is partial rather than silently under-reporting spend.
+/// Grouping by day over a long range, or by model across many models, can produce
+/// more buckets than a table is worth rendering, so the listing is capped.
+/// `truncated` says so explicitly — a caller that sums the rows into a total must be
+/// able to tell that the total is partial rather than silently under-reporting spend.
 #[derive(Serialize)]
 struct AITokenUsageListing {
     buckets: Vec<AITokenUsageBucket>,
@@ -709,7 +709,11 @@ async fn list_ai_usage(
 
     let days = query.days.unwrap_or(30).clamp(1, 365);
     let group_by = query.group_by.as_deref().unwrap_or("day");
-    if !matches!(group_by, "day" | "user" | "model" | "session") {
+    // No `session`: a session is identified by a client-generated id whose name
+    // lives only in the browser that made it, so a bucket keyed on one is a label
+    // nobody can resolve. `session_id` is still stored, at the grain the client
+    // batches on, should sessions ever gain a server-side name.
+    if !matches!(group_by, "day" | "user" | "model") {
         return Err(Error::BadRequest(format!(
             "Unsupported group_by: {}",
             group_by
@@ -726,7 +730,6 @@ async fn list_ai_usage(
             (CASE $3::text
                 WHEN 'day' THEN day::text
                 WHEN 'user' THEN email
-                WHEN 'session' THEN session_id
                 ELSE ''
             END) AS "key!",
             provider AS "provider!",

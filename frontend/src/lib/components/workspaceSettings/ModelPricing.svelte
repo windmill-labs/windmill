@@ -2,7 +2,7 @@
 	import type { AIConfig, AIProvider, ModelPriceOverride } from '$lib/gen'
 	import { Badge, Button } from '../common'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { getKnownModelPrice } from '../copilot/modelPricing'
+	import { getKnownModelPrice, inheritedCacheRates } from '../copilot/modelPricing'
 	import { modelKey } from '../copilot/modelConfig'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
@@ -40,12 +40,18 @@
 	type Field = 'input' | 'output' | 'cache_read' | 'cache_write'
 	type Rates = { input: number; output: number; cache_read?: number; cache_write?: number }
 
-	// A model with a built-in entry already carries its provider's cached-read
-	// discount, which an override inherits, so asking for it again would be noise.
-	// A model with none has no ratio to inherit — without these fields its cached
-	// tokens can only be billed at the full input rate.
-	const RATE_FIELDS: Field[] = ['input', 'output']
-	const UNPRICED_RATE_FIELDS: Field[] = ['input', 'output', 'cache_read', 'cache_write']
+	const RATE_FIELDS: Field[] = ['input', 'output', 'cache_read', 'cache_write']
+
+	// Show what a blank cache rate falls back to, so the inherited figure is visible
+	// rather than implied. Read from the resolver's own helper: a placeholder that
+	// computed the rule separately would drift from the price actually charged.
+	function inheritedCacheRate(model: string, field: Field, rates: Rates | undefined): string {
+		if (field !== 'cache_read' && field !== 'cache_write') return '—'
+		const input = rates?.input
+		if (input === undefined) return '—'
+		const inherited = inheritedCacheRates(model, input)
+		return `${+(field === 'cache_read' ? inherited.cacheRead : inherited.cacheWrite).toFixed(4)}`
+	}
 
 	function currentRates(provider: AIProvider, model: string): Rates | undefined {
 		const override = modelPricing[modelKey(provider, model)]
@@ -107,7 +113,8 @@
 {#if Object.keys(aiProviders).length > 0}
 	<SettingCard
 		label="Model pricing"
-		description="Rates in USD per million tokens, used to cost AI chat usage. Built-in list prices are a best-effort snapshot; set a rate here to use your negotiated one, or to price a model that has none."
+		description="Rates in USD per million tokens, used to cost AI chat usage. Built-in list prices are a best-effort snapshot you can adjust."
+		tooltip="A model with no built-in price starts empty, and its usage is reported without a cost until you set one. A cache rate left empty uses the figure shown in the field. A rate of 0 prices those tokens as free."
 	>
 		<div class="flex flex-col gap-3">
 			{#each Object.entries(modelsByProvider).filter(([_, models]) => models.length > 0) as [provider, models]}
@@ -136,63 +143,55 @@
 									{@const key = modelKey(provider as AIProvider, model)}
 									{@const rates = currentRates(provider as AIProvider, model)}
 									{@const overridden = isOverridden(provider as AIProvider, model)}
-									{@const builtin = getKnownModelPrice(model)}
 									<div class="flex flex-col gap-1">
 										<div class="flex items-center gap-3 flex-wrap">
-											<div class="flex-1 min-w-0">
+											<!-- Floor the name's width so it keeps a readable share and the rate
+											     fields wrap below it, rather than the name collapsing to an
+											     ellipsis on a narrow panel. -->
+											<div class="flex-1 min-w-[10rem]">
 												<span class="text-xs text-primary truncate block">{model}</span>
 											</div>
-											{#each builtin ? RATE_FIELDS : UNPRICED_RATE_FIELDS as field}
-												<div class="flex items-center gap-1">
-													<span class="text-xs text-secondary whitespace-nowrap">
-														{field.replace('_', ' ')}
-													</span>
-													<div class="w-24">
-														<TextInput
-															value={rates?.[field] ?? ''}
-															size="sm"
-															error={!!errors[key]}
-															inputProps={{
-																type: 'number',
-																min: 0,
-																max: MAX_RATE,
-																step: 0.01,
-																placeholder: '—',
-																oninput: (e: Event & { currentTarget: HTMLInputElement }) => {
-																	const value = parseFloat(e.currentTarget.value)
-																	if (!isNaN(value)) {
-																		updateRate(provider as AIProvider, model, field, value)
+											<div class="flex items-center gap-3 flex-wrap">
+												{#each RATE_FIELDS as field}
+													<div class="flex items-center gap-1">
+														<span class="text-xs text-secondary whitespace-nowrap">
+															{field.replace('_', ' ')}
+														</span>
+														<div class="w-24">
+															<TextInput
+																value={rates?.[field] ?? ''}
+																size="sm"
+																error={!!errors[key]}
+																inputProps={{
+																	type: 'number',
+																	min: 0,
+																	max: MAX_RATE,
+																	step: 0.01,
+																	placeholder: inheritedCacheRate(model, field, rates),
+																	oninput: (e: Event & { currentTarget: HTMLInputElement }) => {
+																		const value = parseFloat(e.currentTarget.value)
+																		if (!isNaN(value)) {
+																			updateRate(provider as AIProvider, model, field, value)
+																		}
 																	}
-																}
-															}}
-														/>
+																}}
+															/>
+														</div>
 													</div>
-												</div>
-											{/each}
-											<span class="text-xs text-secondary whitespace-nowrap">$ / 1M</span>
+												{/each}
+												<span class="text-xs text-secondary whitespace-nowrap">$ / 1M</span>
+											</div>
 										</div>
-										{#if !builtin}
-											<div class="text-xs text-tertiary">
-												{rates
-													? 'No built-in price for this model. Cached tokens bill at the input rate unless you give them their own.'
-													: 'No built-in price — usage on this model is reported without a cost until you set one.'}
-											</div>
-										{/if}
-										{#if overridden && (rates?.input === 0 || rates?.output === 0)}
-											<div class="text-xs text-red-500">
-												A rate left at 0 prices those tokens as free — set both.
-											</div>
-										{/if}
 										{#if overridden}
-											<div class="text-xs text-primary flex flex-row items-center gap-1">
+											<div class="text-xs text-tertiary flex flex-row items-center gap-2">
 												<span>Overriding the built-in price</span>
-												<Button
-													variant="default"
-													unifiedSize="xs"
+												<button
+													type="button"
+													class="text-xs text-blue-500 hover:underline"
 													onclick={() => resetModel(provider as AIProvider, model)}
 												>
 													Reset
-												</Button>
+												</button>
 											</div>
 										{/if}
 										{#if errors[key]}

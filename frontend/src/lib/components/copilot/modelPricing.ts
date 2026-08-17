@@ -161,6 +161,21 @@ function isUsableRate(rate: number | undefined): boolean {
  * its cached tokens are billed at the input rate rather than at another vendor's
  * ratio, so an unstated discount reads as none instead of as Anthropic's.
  */
+/** What a cache rate falls back to when an override leaves it unset: the model's
+ * own published multiple of the input rate where the table has one, and the input
+ * rate itself where it does not, so an unstated discount is never borrowed from
+ * another vendor. Shared with the rates editor, which shows these as placeholders. */
+export function inheritedCacheRates(
+	model: string,
+	input: number
+): { cacheRead: number; cacheWrite: number } {
+	const builtin = getKnownModelPrice(model)
+	return {
+		cacheRead: input * (builtin ? builtin.cacheRead / builtin.input : 1),
+		cacheWrite: input * (builtin ? builtin.cacheWrite / builtin.input : 1)
+	}
+}
+
 export function resolveModelPrice(
 	provider: AIProvider | string,
 	model: string,
@@ -177,15 +192,14 @@ export function resolveModelPrice(
 			? candidate
 			: undefined
 	if (override) {
-		const cacheReadRatio = builtin ? builtin.cacheRead / builtin.input : 1
-		const cacheWriteRatio = builtin ? builtin.cacheWrite / builtin.input : 1
+		const inherited = inheritedCacheRates(model, override.input)
 		return {
 			source: 'override',
 			price: {
 				input: override.input,
 				output: override.output,
-				cacheRead: override.cache_read ?? override.input * cacheReadRatio,
-				cacheWrite: override.cache_write ?? override.input * cacheWriteRatio
+				cacheRead: override.cache_read ?? inherited.cacheRead,
+				cacheWrite: override.cache_write ?? inherited.cacheWrite
 			}
 		}
 	}

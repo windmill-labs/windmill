@@ -587,8 +587,6 @@
 
 		<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
 
-		<ModelPricing {aiProviders} bind:modelPricing />
-
 		<SettingCard label="Custom system prompts" description={promptDescription}>
 			<div class="flex items-center gap-2 pt-1">
 				<Button
@@ -632,6 +630,13 @@
 		workspace={effectiveWorkspace}
 		modelPricing={usesInstanceAiConfig ? ($copilotInfo.modelPricing ?? {}) : modelPricing}
 	/>
+{/if}
+
+<!-- Below the usage it explains: the rates are read as a correction to what the
+     table above already shows. Kept on its own `showWorkspaceOverrideEditor` gate so
+     the instance scope, which has no usage panel, still edits rates. -->
+{#if showWorkspaceOverrideEditor}
+	<ModelPricing {aiProviders} bind:modelPricing />
 {/if}
 
 {#if showWorkspaceOverrideEditor}

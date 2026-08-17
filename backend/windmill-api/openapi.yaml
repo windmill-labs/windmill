@@ -11879,7 +11879,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [day, user, model, session]
+            enum: [day, user, model]
         - name: scope
           in: query
           description: workspace-wide usage (admin only) or the calling user's own
