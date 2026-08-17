@@ -318,6 +318,22 @@ import LocalContextsIcon from './LocalContextsIcon.svelte'
 import WeatherApiIcon from './WeatherApiIcon.svelte'
 import WebScrapingAiIcon from './WebScrapingAiIcon.svelte'
 import type { Component } from 'svelte'
+/**
+ * Trigger icons live in ./triggers/ as monochrome variants of the marks in this folder.
+ *
+ * A trigger picker lists brand marks next to lucide glyphs (Webhook, Route, Database), so
+ * a coloured mark reads as a different kind of thing rather than a peer. The variants are
+ * the same artwork painted with currentColor, so they take the surrounding text colour.
+ *
+ * They are separate files rather than a CSS override on the coloured ones: forcing fills
+ * to currentColor breaks lucide's outline icons (fill="none" with a stroke), and marks
+ * that set their own text-[#hex] class ignore it entirely.
+ *
+ * Use ./triggers/<Name>.svelte from trigger surfaces -- the capture dropdown, flow-graph
+ * badges, the sidebar trigger list. Use the full-colour mark in this folder everywhere
+ * else: the resource picker, AppConnect, docs. If the artwork changes, change both.
+ */
+
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
 	mysql: Mysql,

@@ -91,9 +91,7 @@
 		{@render itemReplacement?.()}
 	{:else}
 		<div class="flex flex-row gap-2 items-center px-2 py-1.5 rounded-md pr-6 text-sm">
-			<!-- icon-mono: search results are a uniform list, so a brand mark takes the row's
-				text colour rather than colouring one entry differently -->
-			<div class="w-4 icon-mono">
+			<div class="w-4">
 				{#if icon}
 					{@const SvelteComponent = icon}
 					<SvelteComponent size={16} />

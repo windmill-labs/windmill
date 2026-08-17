@@ -5,15 +5,13 @@
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { enterpriseLicense } from '$lib/stores'
-	import {
-		MqttIcon,
-		AmqpIcon,
-		NatsIcon,
-		KafkaIcon,
-		AwsIcon,
-		GoogleCloudIcon
-	} from '$lib/components/icons'
-	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
+	import MqttIcon from '$lib/components/icons/triggers/MqttIcon.svelte'
+	import AmqpIcon from '$lib/components/icons/triggers/AmqpIcon.svelte'
+	import NatsIcon from '$lib/components/icons/triggers/NatsIcon.svelte'
+	import KafkaIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
+	import AwsIcon from '$lib/components/icons/triggers/AwsIcon.svelte'
+	import GoogleCloudIcon from '$lib/components/icons/triggers/GoogleCloudIcon.svelte'
+	import AzureIcon from '$lib/components/icons/triggers/AzureIcon.svelte'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
@@ -21,9 +19,9 @@
 	import type { NativeServiceName } from '$lib/gen/types.gen'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
-	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
-	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
-	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+	import NextcloudIcon from '$lib/components/icons/triggers/NextcloudIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/triggers/GoogleIcon.svelte'
+	import GithubIcon from '$lib/components/icons/triggers/GithubIcon.svelte'
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -303,9 +301,7 @@
 			{@const count = $triggersCount?.[countKey] ?? 0}
 			<CountBadge {count} {small} alwaysVisible={noTriggers} />
 		{/if}
-		<!-- icon-mono: the badge row mixes lucide glyphs with Kafka/GCP/AWS marks and has to
-			read as one set of controls -->
-		<span class="contents icon-mono"><SvelteComponent size={small ? 12 : 14} /></span>
+		<SvelteComponent size={small ? 12 : 14} />
 	</MeltButton>
 {/snippet}
 
@@ -327,7 +323,7 @@
 		countKey: undefined
 	}}
 	<MenuItem {item} class={itemClass}>
-		<div class="flex flex-row items-center gap-2 icon-mono">
+		<div class="flex flex-row items-center gap-2">
 			<SvelteComponent size={14} />
 			{camelCaseToWords(type)}
 			{#if countKey}

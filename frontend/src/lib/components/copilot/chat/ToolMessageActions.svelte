@@ -21,13 +21,13 @@
 		Webhook,
 		Zap
 	} from 'lucide-svelte'
-	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
-	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
-	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
-	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
-	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
-	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
-	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import AwsIcon from '$lib/components/icons/triggers/AwsIcon.svelte'
+	import AzureIcon from '$lib/components/icons/triggers/AzureIcon.svelte'
+	import GoogleCloudIcon from '$lib/components/icons/triggers/GoogleCloudIcon.svelte'
+	import KafkaIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
+	import MqttIcon from '$lib/components/icons/triggers/MqttIcon.svelte'
+	import AmqpIcon from '$lib/components/icons/triggers/AmqpIcon.svelte'
+	import NatsIcon from '$lib/components/icons/triggers/NatsIcon.svelte'
 	import { runToolDisplayAction } from './createdResourceActions.svelte'
 	import type { CreatedResourceTriggerKind, ToolDisplayAction } from './shared'
 

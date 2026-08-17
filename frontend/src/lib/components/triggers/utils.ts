@@ -11,13 +11,13 @@ import {
 	LayoutDashboard,
 	MousePointerClick
 } from 'lucide-svelte'
-import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
-import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
-import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
-import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
-import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
-import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
-import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
+import KafkaIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
+import NatsIcon from '$lib/components/icons/triggers/NatsIcon.svelte'
+import MqttIcon from '$lib/components/icons/triggers/MqttIcon.svelte'
+import AmqpIcon from '$lib/components/icons/triggers/AmqpIcon.svelte'
+import AwsIcon from '$lib/components/icons/triggers/AwsIcon.svelte'
+import GoogleCloudIcon from '$lib/components/icons/triggers/GoogleCloudIcon.svelte'
+import AzureIcon from '$lib/components/icons/triggers/AzureIcon.svelte'
 import type {
 	CaptureTriggerKind,
 	ErrorHandler,
@@ -43,9 +43,9 @@ import { saveAzureTriggerFromCfg } from './azure/utils'
 import type { Triggers } from './triggers.svelte'
 import { emptyString } from '$lib/utils'
 import { saveEmailTriggerFromCfg } from './email/utils'
-import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
-import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
-import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+import NextcloudIcon from '$lib/components/icons/triggers/NextcloudIcon.svelte'
+import GoogleIcon from '$lib/components/icons/triggers/GoogleIcon.svelte'
+import GithubIcon from '$lib/components/icons/triggers/GithubIcon.svelte'
 import { saveNativeTriggerFromCfg } from './native/utils'
 
 export const CLOUD_DISABLED_TRIGGER_TYPES = [

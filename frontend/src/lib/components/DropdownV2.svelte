@@ -40,7 +40,7 @@
 		open?: boolean
 		customWidth?: number | undefined
 		/** Classes for the menu panel. The menu is portalled, so a wrapper around this
-		 * component cannot style it — pass e.g. `icon-mono` here instead. */
+		 * component cannot style it. */
 		menuClass?: string | undefined
 		customMenu?: boolean
 		class?: string | undefined

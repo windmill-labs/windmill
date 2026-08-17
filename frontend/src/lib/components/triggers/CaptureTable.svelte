@@ -6,7 +6,7 @@
 	import Button from '../common/button/Button.svelte'
 	import CustomPopover from '../CustomPopover.svelte'
 	import { Webhook, Route, Unplug, Mail, Play } from 'lucide-svelte'
-	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
+	import KafkaIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { type TriggerKind } from '../triggers'
 	import { CaptureService } from '$lib/gen'
@@ -18,7 +18,7 @@
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
 	import { AwsIcon, MqttIcon, AmqpIcon } from '../icons'
-	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
+	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 
 	interface Props {
 		path: string

@@ -55,11 +55,11 @@
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
-	import KafkaIcon from '../icons/KafkaIcon.svelte'
-	import NatsIcon from '../icons/NatsIcon.svelte'
-	import MqttIcon from '../icons/MqttIcon.svelte'
-	import AmqpIcon from '../icons/AmqpIcon.svelte'
-	import AwsIcon from '../icons/AwsIcon.svelte'
+	import KafkaIcon from '../icons/triggers/KafkaIcon.svelte'
+	import NatsIcon from '../icons/triggers/NatsIcon.svelte'
+	import MqttIcon from '../icons/triggers/MqttIcon.svelte'
+	import AmqpIcon from '../icons/triggers/AmqpIcon.svelte'
+	import AwsIcon from '../icons/triggers/AwsIcon.svelte'
 	import {
 		getAvailableNativeTriggerServices,
 		getServiceConfig,
@@ -74,8 +74,8 @@
 		MeltButton
 	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
-	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
-	import AzureIcon from '../icons/AzureIcon.svelte'
+	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
+	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
 	import { leaveCurrentWorkspace } from './leaveWorkspace'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 
@@ -575,10 +575,7 @@
 					</button>
 				{/if}
 				{#if isCollapsed || !triggersCollapsed.val}
-					<!-- icon-mono: trigger links mix lucide glyphs with Kafka/MQTT/NATS/GCP brand
-						marks, and the nav reads as one set. Applied to the whole section so the
-						"more triggers" menu below matches the pinned links. -->
-					<div transition:slide={{ duration: 180 }} class="icon-mono">
+					<div transition:slide={{ duration: 180 }}>
 						<Menubar class="flex flex-col gap-1">
 							{#snippet children({ createMenu })}
 								{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
@@ -612,7 +609,7 @@
 													{item}
 													disabled={subItem.disabled}
 												>
-													<div class="flex flex-row items-center gap-2 icon-mono">
+													<div class="flex flex-row items-center gap-2">
 														{#if subItem.icon}
 															<subItem.icon size={16} />
 														{/if}
@@ -667,7 +664,7 @@
 													aiId={subItem.aiId}
 													aiDescription={subItem.aiDescription}
 												>
-													<div class="flex flex-row items-center gap-2 icon-mono">
+													<div class="flex flex-row items-center gap-2">
 														{#if subItem.icon}
 															<subItem.icon size={16} />
 														{/if}
@@ -738,7 +735,7 @@
 													target={subItem.external !== false ? '_blank' : undefined}
 													{item}
 												>
-													<div class="flex flex-row items-center gap-2 icon-mono">
+													<div class="flex flex-row items-center gap-2">
 														{#if subItem.icon}
 															<subItem.icon size={16} />
 														{/if}

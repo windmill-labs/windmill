@@ -1,18 +1,18 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { Webhook, Route, Unplug, Mail, Plus, Database } from 'lucide-svelte'
-	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
+	import KafkaIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import CaptureIcon from './CaptureIcon.svelte'
-	import NatsIcon from '../icons/NatsIcon.svelte'
-	import AwsIcon from '../icons/AwsIcon.svelte'
+	import NatsIcon from '../icons/triggers/NatsIcon.svelte'
+	import AwsIcon from '../icons/triggers/AwsIcon.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import MqttIcon from '../icons/MqttIcon.svelte'
-	import AmqpIcon from '../icons/AmqpIcon.svelte'
-	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
+	import MqttIcon from '../icons/triggers/MqttIcon.svelte'
+	import AmqpIcon from '../icons/triggers/AmqpIcon.svelte'
+	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 
 	interface Props {
 		small?: boolean
@@ -92,9 +92,7 @@
 	])
 </script>
 
-<!-- icon-mono: the trigger list mixes lucide glyphs (Webhook, Route, Database) with
-	Kafka/GCP/AWS brand marks, and one coloured entry in a menu of grey ones reads as an error -->
-<DropdownV2 {items} placement="bottom-start" fixedHeight={false} menuClass="icon-mono">
+<DropdownV2 {items} placement="bottom-start" fixedHeight={false}>
 	{#snippet buttonReplacement()}
 		{#if small}
 			<Button
