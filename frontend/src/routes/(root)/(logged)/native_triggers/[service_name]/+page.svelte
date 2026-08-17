@@ -41,6 +41,9 @@
 	let loading = $state(true)
 	let serviceAvailable: boolean | undefined = $state(undefined)
 	let serviceSupported = $state(true)
+	// The card only renders inside the serviceAvailable branch, so the header button
+	// stays put when the service is not connected — that state shows an alert, not a card.
+	let emptyCtaShown = $derived(Boolean(serviceAvailable) && !loading && !triggers?.length)
 	let editor: NativeTriggerEditor
 
 	let filteredItems: TriggerW[] = $state([])
@@ -215,15 +218,17 @@
 			tooltip="Native triggers managed externally by {serviceConfig?.serviceDisplayName ||
 				serviceName}. These are more efficient than regular triggers as they're handled directly by the service provider."
 		>
-			<Button
-				unifiedSize="md"
-				variant="accent"
-				startIcon={{ icon: Plus }}
-				on:click={() => editor?.openNew()}
-				disabled={!serviceAvailable}
-			>
-				New&nbsp;{serviceConfig?.serviceDisplayName || serviceName} trigger
-			</Button>
+			{#if !emptyCtaShown}
+				<Button
+					unifiedSize="md"
+					variant="accent"
+					startIcon={{ icon: Plus }}
+					on:click={() => editor?.openNew()}
+					disabled={!serviceAvailable}
+				>
+					New&nbsp;{serviceConfig?.serviceDisplayName || serviceName} trigger
+				</Button>
+			{/if}
 		</PageHeader>
 
 		{#if serviceAvailable === false}

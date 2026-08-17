@@ -58,6 +58,7 @@
 	let triggers: TriggerW[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
+	let emptyCtaShown = $derived(!loading && !triggers?.length)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
@@ -295,14 +296,16 @@
 			title="NATS triggers"
 			tooltip="Windmill can consume NATS events and trigger scripts or flows based on them."
 		>
-			<Button
-				unifiedSize="md"
-				variant="accent"
-				startIcon={{ icon: Plus }}
-				on:click={() => natsTriggerEditor?.openNew(false)}
-			>
-				New&nbsp;NATS trigger
-			</Button>
+			{#if !emptyCtaShown}
+				<Button
+					unifiedSize="md"
+					variant="accent"
+					startIcon={{ icon: Plus }}
+					on:click={() => natsTriggerEditor?.openNew(false)}
+				>
+					New&nbsp;NATS trigger
+				</Button>
+			{/if}
 		</PageHeader>
 
 		{#if isCloudHosted()}

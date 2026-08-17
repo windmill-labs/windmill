@@ -66,6 +66,7 @@
 	let triggers: TriggerD[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
+	let emptyCtaShown = $derived(!loading && !triggers?.length)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 	let isDeleting = $state(false)
@@ -353,14 +354,16 @@
 
 <CenteredPage>
 	<PageHeader title="Azure Event Grid triggers" tooltip="Azure Event Grid trigger">
-		<Button
-			unifiedSize="md"
-			variant="accent"
-			startIcon={{ icon: Plus }}
-			on:click={() => azureTriggerEditor?.openNew(false)}
-		>
-			New&nbsp;Azure Event Grid trigger
-		</Button>
+		{#if !emptyCtaShown}
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				startIcon={{ icon: Plus }}
+				on:click={() => azureTriggerEditor?.openNew(false)}
+			>
+				New&nbsp;Azure Event Grid trigger
+			</Button>
+		{/if}
 	</PageHeader>
 
 	{#if isCloudHosted()}

@@ -67,6 +67,9 @@
 	let triggers: TriggerW[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
+	let emptyCtaShown = $derived(
+		!loading && !triggers?.length && Boolean($userStore?.is_admin || $userStore?.is_super_admin)
+	)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 	let emailDomain: string | null = $state(null)
@@ -281,14 +284,16 @@
 			documentationLink="https://www.windmill.dev/docs/advanced/email_triggers"
 		>
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
-				<Button
-					unifiedSize="md"
-					variant="accent"
-					startIcon={{ icon: Plus }}
-					on:click={() => emailTriggerEditor?.openNew(false)}
-				>
-					New&nbsp;email trigger
-				</Button>
+				{#if !emptyCtaShown}
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						startIcon={{ icon: Plus }}
+						on:click={() => emailTriggerEditor?.openNew(false)}
+					>
+						New&nbsp;email trigger
+					</Button>
+				{/if}
 			{/if}
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">

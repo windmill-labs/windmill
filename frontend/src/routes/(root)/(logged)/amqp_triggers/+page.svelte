@@ -53,6 +53,7 @@
 	let triggers: TriggerM[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
+	let emptyCtaShown = $derived(!loading && !triggers?.length)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
@@ -286,14 +287,16 @@
 		title="AMQP triggers"
 		tooltip="Windmill can connect to an AMQP broker, subscribe to specific topics, and trigger scripts or flows based on those topics."
 	>
-		<Button
-			unifiedSize="md"
-			variant="accent"
-			startIcon={{ icon: Plus }}
-			on:click={() => amqpTriggerEditor?.openNew(false)}
-		>
-			New&nbsp;AMQP trigger
-		</Button>
+		{#if !emptyCtaShown}
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				startIcon={{ icon: Plus }}
+				on:click={() => amqpTriggerEditor?.openNew(false)}
+			>
+				New&nbsp;AMQP trigger
+			</Button>
+		{/if}
 	</PageHeader>
 
 	{#if isCloudHosted()}

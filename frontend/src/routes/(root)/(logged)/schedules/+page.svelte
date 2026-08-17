@@ -255,6 +255,7 @@
 	let hasActiveFilters = $derived(
 		Object.values(filters.val).some((v) => v !== undefined && v !== null && v !== '' && v !== false)
 	)
+	let emptyCtaShown = $derived(!loading && !schedules?.length && !hasActiveFilters)
 	let allFolders = $derived(
 		Array.from(
 			new Set(
@@ -351,16 +352,18 @@
 			tooltip="Trigger Scripts and Flows according to a cron schedule"
 			documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 		>
-			<Button
-				size="lg"
-				variant="accent"
-				startIcon={{ icon: Plus }}
-				on:click={() => scheduleEditor?.openNew(false)}
-				aiId="schedules-add-schedule"
-				aiDescription="Add schedule"
-			>
-				New schedule
-			</Button>
+			{#if !emptyCtaShown}
+				<Button
+					size="lg"
+					variant="accent"
+					startIcon={{ icon: Plus }}
+					on:click={() => scheduleEditor?.openNew(false)}
+					aiId="schedules-add-schedule"
+					aiDescription="Add schedule"
+				>
+					New schedule
+				</Button>
+			{/if}
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
 			<div class="flex flex-row items-center justify-end gap-4 pb-4">

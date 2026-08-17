@@ -65,6 +65,7 @@
 	let triggers: TriggerD[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
+	let emptyCtaShown = $derived(!loading && !triggers?.length)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
@@ -361,14 +362,16 @@
 		title="Postgres triggers"
 		tooltip="Windmill enables real-time responsiveness by listening to specific database transactions—such as inserts, updates, and deletes—and automatically triggering scripts or workflows in response."
 	>
-		<Button
-			unifiedSize="md"
-			variant="accent"
-			startIcon={{ icon: Plus }}
-			on:click={() => postgresTriggerEditor?.openNew(false)}
-		>
-			New&nbsp;Postgres trigger
-		</Button>
+		{#if !emptyCtaShown}
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				startIcon={{ icon: Plus }}
+				on:click={() => postgresTriggerEditor?.openNew(false)}
+			>
+				New&nbsp;Postgres trigger
+			</Button>
+		{/if}
 	</PageHeader>
 
 	{#if isCloudHosted()}

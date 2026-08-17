@@ -242,6 +242,22 @@
 	let hasActiveFilters = $derived(
 		Object.values(filters.val).some((v) => v !== undefined && v !== null && v !== '' && v !== false)
 	)
+	// `tab` goes through a typed parameter: a $derived reading a same-scope $state
+	// narrows it to its initial literal, so comparing the other tab fails to compile.
+	function isEmptyCtaShown(currentTab: 'workspace' | 'contextual'): boolean {
+		if (!showCreateButtons) {
+			return false
+		}
+		if (currentTab === 'contextual') {
+			return (
+				!loading.contextual &&
+				contextualVariables.filter((x) => x.is_custom).length === 0 &&
+				Boolean($userStore?.is_admin || $userStore?.is_super_admin)
+			)
+		}
+		return filteredItems?.length === 0 && !hasActiveFilters
+	}
+	let emptyCtaShown = $derived(isEmptyCtaShown(tab))
 
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 
@@ -295,7 +311,7 @@
 			tooltip="Save and permission strings to be reused in Scripts and Flows."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 		>
-			{#if showCreateButtons}
+			{#if showCreateButtons && !emptyCtaShown}
 				<div class="flex flex-row justify-end">
 					{#if tab == 'contextual' && ($userStore?.is_admin || $userStore?.is_super_admin)}
 						<Button

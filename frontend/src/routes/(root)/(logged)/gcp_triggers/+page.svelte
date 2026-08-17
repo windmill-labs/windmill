@@ -66,6 +66,7 @@
 	let triggers: TriggerD[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
+	let emptyCtaShown = $derived(!loading && !triggers?.length)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 	let isDeleting = $state(false)
@@ -332,14 +333,16 @@
 
 <CenteredPage>
 	<PageHeader title="GCP Pub/Sub triggers" tooltip="GCP Pub/Sub trigger">
-		<Button
-			unifiedSize="md"
-			variant="accent"
-			startIcon={{ icon: Plus }}
-			on:click={() => gcpTriggerEditor?.openNew(false)}
-		>
-			New&nbsp;GCP Pub/Sub trigger
-		</Button>
+		{#if !emptyCtaShown}
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				startIcon={{ icon: Plus }}
+				on:click={() => gcpTriggerEditor?.openNew(false)}
+			>
+				New&nbsp;GCP Pub/Sub trigger
+			</Button>
+		{/if}
 	</PageHeader>
 
 	{#if isCloudHosted()}

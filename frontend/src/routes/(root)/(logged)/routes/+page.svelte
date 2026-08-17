@@ -71,6 +71,7 @@
 	let triggers: TriggerW[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
+	let emptyCtaShown = $derived(!loading && !triggers?.length)
 	let openAPISpecGenerator: OpenApiSpecGenerator | undefined = $state()
 	let routesGenerator: RoutesGenerator | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
@@ -320,14 +321,16 @@
 				>
 					To OpenAPI spec
 				</Button>
-				<Button
-					unifiedSize="md"
-					variant="accent"
-					startIcon={{ icon: Plus }}
-					on:click={() => routeEditor?.openNew(false)}
-				>
-					New&nbsp;route
-				</Button>
+				{#if !emptyCtaShown}
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						startIcon={{ icon: Plus }}
+						on:click={() => routeEditor?.openNew(false)}
+					>
+						New&nbsp;route
+					</Button>
+				{/if}
 			</div>
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">

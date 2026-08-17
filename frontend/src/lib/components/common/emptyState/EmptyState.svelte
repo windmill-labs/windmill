@@ -6,6 +6,12 @@
 		icon: any
 		title: string
 		description?: string
+		/**
+		 * Accent create button. A page that renders one here should hide the page-header
+		 * button for the same action while it shows, so the two accent CTAs don't sit on
+		 * screen together — and must derive that from the very conditions gating this
+		 * `action`, or a state where the card has no button leaves no way to create at all.
+		 */
 		action?: {
 			label: string
 			icon?: any
