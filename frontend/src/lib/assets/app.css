@@ -432,3 +432,18 @@ input[type='time']::-webkit-calendar-picker-indicator {
 .svelte-flow__edges {
 	z-index: -10;
 }
+
+/* Renders a brand icon in the surrounding text colour, for control strips where a
+   coloured mark would break the set — a trigger picker mixing lucide glyphs with
+   Kafka/GCP/AWS marks, for instance. Overriding the paint rather than passing a
+   text-* class is what makes this work on every icon: most brand marks hardcode
+   their fills and never read currentColor, and some have no class prop to pass.
+   !important is load-bearing — a handful paint through style="fill:…", which no
+   selector can outrank. Stroke is only redirected where one is actually declared,
+   so shapes carrying stroke="none" do not sprout outlines. */
+.icon-mono :where(svg, svg *) {
+	fill: currentColor !important;
+}
+.icon-mono :where(svg, svg *)[stroke]:not([stroke='none']) {
+	stroke: currentColor !important;
+}

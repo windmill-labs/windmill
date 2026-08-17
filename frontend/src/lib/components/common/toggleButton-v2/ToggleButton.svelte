@@ -15,6 +15,9 @@
 		small?: boolean
 		size?: 'sm' | 'md' | 'lg'
 		iconProps?: Record<string, any>
+		/** Paint a brand icon in the button's own text colour, so a strip mixing lucide
+		 * glyphs with brand marks reads as one set. */
+		monochromeIcon?: boolean
 		showTooltipIcon?: boolean
 		documentationLink?: string | undefined
 		id?: string | undefined
@@ -38,6 +41,7 @@
 		small = false,
 		size = undefined,
 		iconProps = {},
+		monochromeIcon = false,
 		showTooltipIcon = false,
 		documentationLink = undefined,
 		id = undefined,
@@ -89,17 +93,20 @@
 	>
 		{#if icon}
 			{@const SvelteComponent = icon}
-			<SvelteComponent
-				size={iconSize}
-				{...iconProps}
-				class={twMerge(
-					'text-primary',
-					selectedColor
-						? 'group-data-[state=on]:text-[var(--selected-color)]'
-						: 'group-data-[state=on]:text-blue-500 dark:group-data-[state=on]:text-nord-800',
-					iconProps.class
-				)}
-			/>
+			<!-- display:contents so the wrapper carries the class without adding a box -->
+			<span class={monochromeIcon ? 'contents icon-mono' : 'contents'}>
+				<SvelteComponent
+					size={iconSize}
+					{...iconProps}
+					class={twMerge(
+						'text-primary',
+						selectedColor
+							? 'group-data-[state=on]:text-[var(--selected-color)]'
+							: 'group-data-[state=on]:text-blue-500 dark:group-data-[state=on]:text-nord-800',
+						iconProps.class
+					)}
+				/>
+			</span>
 		{/if}
 		{#if label && !iconOnly}
 			{label}

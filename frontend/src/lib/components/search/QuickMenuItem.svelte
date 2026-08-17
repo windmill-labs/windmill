@@ -66,7 +66,6 @@
 	} else {
 		kbdClass += ' !text-xs px-1.5'
 	}
-
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -92,7 +91,9 @@
 		{@render itemReplacement?.()}
 	{:else}
 		<div class="flex flex-row gap-2 items-center px-2 py-1.5 rounded-md pr-6 text-sm">
-			<div class="w-4">
+			<!-- icon-mono: search results are a uniform list, so a brand mark takes the row's
+				text colour rather than colouring one entry differently -->
+			<div class="w-4 icon-mono">
 				{#if icon}
 					{@const SvelteComponent = icon}
 					<SvelteComponent size={16} />

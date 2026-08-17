@@ -303,7 +303,9 @@
 			{@const count = $triggersCount?.[countKey] ?? 0}
 			<CountBadge {count} {small} alwaysVisible={noTriggers} />
 		{/if}
-		<SvelteComponent size={small ? 12 : 14} />
+		<!-- icon-mono: the badge row mixes lucide glyphs with Kafka/GCP/AWS marks and has to
+			read as one set of controls -->
+		<span class="contents icon-mono"><SvelteComponent size={small ? 12 : 14} /></span>
 	</MeltButton>
 {/snippet}
 
@@ -325,7 +327,7 @@
 		countKey: undefined
 	}}
 	<MenuItem {item} class={itemClass}>
-		<div class="flex flex-row items-center gap-2">
+		<div class="flex flex-row items-center gap-2 icon-mono">
 			<SvelteComponent size={14} />
 			{camelCaseToWords(type)}
 			{#if countKey}

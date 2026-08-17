@@ -609,7 +609,7 @@
 													{item}
 													disabled={subItem.disabled}
 												>
-													<div class="flex flex-row items-center gap-2">
+													<div class="flex flex-row items-center gap-2 icon-mono">
 														{#if subItem.icon}
 															<subItem.icon size={16} />
 														{/if}
@@ -664,7 +664,7 @@
 													aiId={subItem.aiId}
 													aiDescription={subItem.aiDescription}
 												>
-													<div class="flex flex-row items-center gap-2">
+													<div class="flex flex-row items-center gap-2 icon-mono">
 														{#if subItem.icon}
 															<subItem.icon size={16} />
 														{/if}
@@ -735,7 +735,7 @@
 													target={subItem.external !== false ? '_blank' : undefined}
 													{item}
 												>
-													<div class="flex flex-row items-center gap-2">
+													<div class="flex flex-row items-center gap-2 icon-mono">
 														{#if subItem.icon}
 															<subItem.icon size={16} />
 														{/if}

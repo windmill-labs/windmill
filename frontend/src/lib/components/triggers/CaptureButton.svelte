@@ -92,7 +92,9 @@
 	])
 </script>
 
-<DropdownV2 {items} placement="bottom-start" fixedHeight={false}>
+<!-- icon-mono: the trigger list mixes lucide glyphs (Webhook, Route, Database) with
+	Kafka/GCP/AWS brand marks, and one coloured entry in a menu of grey ones reads as an error -->
+<DropdownV2 {items} placement="bottom-start" fixedHeight={false} menuClass="icon-mono">
 	{#snippet buttonReplacement()}
 		{#if small}
 			<Button
