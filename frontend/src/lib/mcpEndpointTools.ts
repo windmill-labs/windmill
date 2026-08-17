@@ -1207,7 +1207,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Possible values: viewer, publisher, anonymous"
+                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
@@ -1321,7 +1321,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Possible values: viewer, publisher, anonymous"
+                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
