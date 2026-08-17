@@ -235,6 +235,88 @@ mod suspend_resume {
         Ok(())
     }
 
+    /// A suspend gate that ends without approval leaves the worker that ran the approval step
+    /// alive, so the error handler it routes to must stay pinned to that worker rather than
+    /// being unpinned and routed by tag — which would break the `./shared` contract of a
+    /// `same_worker` flow.
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn disapproved_suspend_keeps_same_worker_pin(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let value: FlowValue = serde_json::from_value(json!({
+            "same_worker": true,
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "input_transforms": {
+                        "port": { "type": "javascript", "expr": "flow_input.port" },
+                    },
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "\
+                        export async function main(port) {\
+                            const job = Deno.env.get('WM_JOB_ID');\
+                            const token = Deno.env.get('WM_TOKEN');\
+                            const secret = await (await fetch(\
+                                `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}&approver=ruben`,\
+                                { headers: { 'Authorization': `Bearer ${token}` } }\
+                            )).text();\
+                            await fetch(\
+                                `http://localhost:${port}/api/w/test-workspace/jobs_u/cancel/${job}/0/${secret}?approver=ruben`,\
+                                { method: 'POST', body: JSON.stringify('from job'), headers: { 'content-type': 'application/json' } }\
+                            );\
+                            return 'a ran';\
+                        }",
+                },
+                "suspend": { "required_events": 1 },
+            }, {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'b ran' }",
+                },
+                // The gate holds `b` back, so `b` never runs and its error policy describes
+                // nothing: honouring it here would skip `b` instead of reaching the handler.
+                "continue_on_error": true,
+            }],
+            "failure_module": {
+                "id": "failure",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'handled' }",
+                },
+            },
+        }))?;
+
+        let completed =
+            RunJob::from(JobPayload::RawFlow { value, path: None, restarted_from: None })
+                .arg("port", json!(port))
+                .run_until_complete(&db, false, port)
+                .await;
+
+        server.close().await.unwrap();
+
+        assert_eq!(json!("handled"), completed.json_result().unwrap());
+
+        let same_worker: Option<bool> = sqlx::query_scalar(
+            "SELECT same_worker FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'failure'",
+        )
+        .bind(completed.id)
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(Some(true), same_worker);
+
+        Ok(())
+    }
+
     /// Test that self-approval is blocked when self_approval_disabled is true.
     ///
     /// This test verifies that when a flow has an approval step with self_approval_disabled=true,
@@ -247,7 +329,9 @@ mod suspend_resume {
     #[cfg(feature = "enterprise")]
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
-    async fn test_self_approval_disabled_blocks_owner_resume(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_self_approval_disabled_blocks_owner_resume(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await?;
@@ -350,6 +434,208 @@ mod suspend_resume {
         Ok(())
     }
 
+    /// The UI "Resume" button (POST /jobs_u/flow/resume_suspended/:job_id) must reject the
+    /// triggerer approving their own self_approval_disabled step even when they own the flow
+    /// path: only admins are exempt from the self-approval restriction, so owning the runnable
+    /// does not grant the right to self-approve.
+    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn test_self_approval_disabled_blocks_ui_resume_for_owner(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let flow_with_self_approval_disabled: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step1'; }"
+                },
+                "suspend": {
+                    "required_events": 1,
+                    "user_auth_required": true,
+                    "self_approval_disabled": true
+                }
+            }, {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step2 - after approval'; }"
+                }
+            }]
+        }))
+        .unwrap();
+
+        // Push as a non-admin who owns the flow path, so the owner shortcut is exercised.
+        let flow = RunJob::from(JobPayload::RawFlow {
+            value: flow_with_self_approval_disabled,
+            path: Some("u/test-user-2/test_ui_resume".to_string()),
+            restarted_from: None,
+        })
+        .push_as(&db, "test-user-2", "test2@windmill.dev")
+        .await;
+
+        let queue = listen_for_queue(&db).await;
+        let db_ = db.clone();
+
+        in_test_worker(
+            &db,
+            async move {
+                let db = db_;
+
+                wait_until_flow_suspends(flow, queue, &db).await;
+
+                let token = windmill_common::auth::create_token_for_owner(
+                    &db,
+                    "test-workspace",
+                    "u/test-user-2",
+                    "test-token",
+                    100,
+                    "test2@windmill.dev",
+                    &Uuid::nil(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+
+                // Resume via the UI endpoint as the owner who triggered the flow.
+                let response = reqwest::Client::new()
+                    .post(format!(
+                        "http://localhost:{port}/api/w/test-workspace/jobs_u/flow/resume_suspended/{flow}"
+                    ))
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body("{}")
+                    .send()
+                    .await
+                    .unwrap();
+
+                let status = response.status();
+                assert!(
+                    status == reqwest::StatusCode::FORBIDDEN,
+                    "Self-approval via the UI resume endpoint should be blocked for the owner when \
+                     self_approval_disabled=true. Expected 403 Forbidden, got {}. Response: {}",
+                    status,
+                    response.text().await.unwrap_or_default()
+                );
+            },
+            port,
+        )
+        .await;
+
+        server.close().await.unwrap();
+        Ok(())
+    }
+
+    /// self_approval_disabled must hold even when user_auth_required is not set: the worker must
+    /// persist the condition and the resume boundary must enforce it for the authenticated
+    /// triggerer. The triggerer here is a non-owner (folder path they don't own), so the owner
+    /// shortcut is not involved and this exercises the persistence + authenticated-check path.
+    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn test_self_approval_disabled_without_user_auth_required(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        // self_approval_disabled without user_auth_required (as a raw-flow/CLI author could set).
+        let flow_value: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step1'; }"
+                },
+                "suspend": {
+                    "required_events": 1,
+                    "self_approval_disabled": true
+                }
+            }, {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return 'step2 - after approval'; }"
+                }
+            }]
+        }))
+        .unwrap();
+
+        // Folder path test-user-2 does not own -> non-owner triggerer (no folders in the base
+        // fixture), so the owner shortcut is bypassed and only persistence matters here.
+        let flow = RunJob::from(JobPayload::RawFlow {
+            value: flow_value,
+            path: Some("f/system/test_persist".to_string()),
+            restarted_from: None,
+        })
+        .push_as(&db, "test-user-2", "test2@windmill.dev")
+        .await;
+
+        let queue = listen_for_queue(&db).await;
+        let db_ = db.clone();
+
+        in_test_worker(
+            &db,
+            async move {
+                let db = db_;
+
+                wait_until_flow_suspends(flow, queue, &db).await;
+
+                let token = windmill_common::auth::create_token_for_owner(
+                    &db,
+                    "test-workspace",
+                    "u/test-user-2",
+                    "test-token",
+                    100,
+                    "test2@windmill.dev",
+                    &Uuid::nil(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+
+                let response = reqwest::Client::new()
+                    .post(format!(
+                        "http://localhost:{port}/api/w/test-workspace/jobs_u/flow/resume_suspended/{flow}"
+                    ))
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Content-Type", "application/json")
+                    .body("{}")
+                    .send()
+                    .await
+                    .unwrap();
+
+                let status = response.status();
+                assert!(
+                    status == reqwest::StatusCode::FORBIDDEN,
+                    "Self-approval should be blocked when self_approval_disabled=true even without \
+                     user_auth_required. Expected 403 Forbidden, got {}. Response: {}",
+                    status,
+                    response.text().await.unwrap_or_default()
+                );
+            },
+            port,
+        )
+        .await;
+
+        server.close().await.unwrap();
+        Ok(())
+    }
+
     /// Test that self-approval WORKS when self_approval_disabled is false (default behavior).
     ///
     /// This is the complementary test to test_self_approval_disabled_blocks_owner_resume.
@@ -358,7 +644,9 @@ mod suspend_resume {
     #[cfg(feature = "enterprise")]
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
-    async fn test_self_approval_allowed_when_not_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_self_approval_allowed_when_not_disabled(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await?;
@@ -462,7 +750,9 @@ mod suspend_resume {
     #[cfg(feature = "enterprise")]
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
-    async fn test_different_user_can_approve_when_self_approval_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_different_user_can_approve_when_self_approval_disabled(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await?;
@@ -620,6 +910,55 @@ mod suspend_resume {
             json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by unknown"}}),
             result
         );
+        Ok(())
+    }
+
+    /// A step that declares a `suspend` but is skipped via `skip_if` never arms
+    /// its approval, so it must not gate the following step. If it did, the flow
+    /// would park forever waiting for a resume event that is never dispatched.
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base"))]
+    async fn skipped_suspend_step_does_not_block_next_step(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "id": "a",
+                    "skip_if": { "type": "javascript", "expr": "true" },
+                    "suspend": { "required_events": 1, "timeout": 86400 },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export async function main() { return 1 }",
+                        "input_transforms": {},
+                    },
+                },
+                {
+                    "id": "b",
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export async function main() { return 42 }",
+                        "input_transforms": {},
+                    },
+                },
+            ],
+        }))
+        .unwrap();
+
+        let result =
+            RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+                .run_until_complete(&db, false, server.addr.port())
+                .await
+                .json_result()
+                .unwrap();
+
+        assert_eq!(result, json!(42));
         Ok(())
     }
 }

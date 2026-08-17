@@ -32,17 +32,40 @@ pub enum JobTriggerKind {
     Email,
     Nats,
     Mqtt,
+    Amqp,
     Sqs,
     Postgres,
     Schedule,
     Gcp,
+    Azure,
     Nextcloud,
     Google,
+    Github,
+    #[serde(rename = "ci_test")]
+    #[sqlx(rename = "ci_test")]
+    CiTest,
+    // A run dispatched because an upstream pipeline script wrote an asset
+    // this runnable subscribes to via `// on s3://...` annotations.
+    Asset,
+    // A run pushed by the pipeline freshness watchdog (EE) because the
+    // script's `// freshness` window elapsed without a successful run.
+    Freshness,
+    // A run launched by a deployed app's runtime (`execute_component`). `trigger`
+    // carries the app path. This is the authoritative app-origination marker: a
+    // direct `/jobs/run` cannot set it, so it distinguishes files an app actually
+    // produced from files a viewer forged by running a declared runnable directly.
+    App,
+    // A run started from the browser (the `/jobs/run*` request carried the session token
+    // minted at login). Nothing writes this yet — it exists so every binary from this release
+    // can decode it, which is what a later release needs before it can start stamping it.
+    // When that happens: attribution, not authority, unlike `App` — a member can have a
+    // session token minted for a script (`/users/refresh_token`), so nothing may gate on it.
+    Ui,
 }
 
-impl std::fmt::Display for JobTriggerKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let kind = match self {
+impl JobTriggerKind {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
             JobTriggerKind::Webhook => "webhook",
             JobTriggerKind::Http => "http",
             JobTriggerKind::Websocket => "websocket",
@@ -50,14 +73,65 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Email => "email",
             JobTriggerKind::Nats => "nats",
             JobTriggerKind::Mqtt => "mqtt",
+            JobTriggerKind::Amqp => "amqp",
             JobTriggerKind::Sqs => "sqs",
             JobTriggerKind::Postgres => "postgres",
             JobTriggerKind::Schedule => "schedule",
             JobTriggerKind::Gcp => "gcp",
+            JobTriggerKind::Azure => "azure",
             JobTriggerKind::Nextcloud => "nextcloud",
             JobTriggerKind::Google => "google",
-        };
-        write!(f, "{}", kind)
+            JobTriggerKind::Github => "github",
+            JobTriggerKind::CiTest => "ci_test",
+            JobTriggerKind::Asset => "asset",
+            JobTriggerKind::Freshness => "freshness",
+            JobTriggerKind::App => "app",
+            JobTriggerKind::Ui => "ui",
+        }
+    }
+}
+
+impl std::fmt::Display for JobTriggerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// `v2_job.trigger_kind` as a worker reads it back, kept as the raw label rather than as
+/// [`JobTriggerKind`]. A worker has to keep running jobs stamped with a kind added after it was
+/// built, and decoding into the enum turns an unfamiliar label into a hard error — sqlx on the
+/// pull query, serde on the agent-worker payload — which strands the job instead of running it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TriggerKindLabel(pub String);
+
+impl TriggerKindLabel {
+    pub fn is(&self, kind: JobTriggerKind) -> bool {
+        self.0 == kind.as_str()
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<JobTriggerKind> for TriggerKindLabel {
+    fn from(kind: JobTriggerKind) -> Self {
+        Self(kind.as_str().to_string())
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for TriggerKindLabel {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("JOB_TRIGGER_KIND")
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TriggerKindLabel {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        Ok(Self(
+            <&str as sqlx::Decode<sqlx::Postgres>>::decode(value)?.to_owned(),
+        ))
     }
 }
 
@@ -105,6 +179,30 @@ pub enum JobStatus {
 }
 
 impl JobKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            JobKind::Script => "script",
+            JobKind::Script_Hub => "script_hub",
+            JobKind::Preview => "preview",
+            JobKind::Dependencies => "dependencies",
+            JobKind::Flow => "flow",
+            JobKind::FlowPreview => "flowpreview",
+            JobKind::SingleStepFlow => "singlestepflow",
+            JobKind::Identity => "identity",
+            JobKind::FlowDependencies => "flowdependencies",
+            JobKind::AppDependencies => "appdependencies",
+            JobKind::Noop => "noop",
+            JobKind::DeploymentCallback => "deploymentcallback",
+            JobKind::FlowScript => "flowscript",
+            JobKind::FlowNode => "flownode",
+            JobKind::AppScript => "appscript",
+            JobKind::AIAgent => "aiagent",
+            JobKind::UnassignedScript => "unassigned_script",
+            JobKind::UnassignedFlow => "unassigned_flow",
+            JobKind::UnassignedSinglestepFlow => "unassigned_singlestepflow",
+        }
+    }
+
     pub fn is_flow(&self) -> bool {
         matches!(
             self,
@@ -117,6 +215,10 @@ impl JobKind {
             self,
             JobKind::FlowDependencies | JobKind::AppDependencies | JobKind::Dependencies
         )
+    }
+
+    pub fn is_preview(&self) -> bool {
+        matches!(self, JobKind::Preview | JobKind::FlowPreview)
     }
 }
 
@@ -190,6 +292,23 @@ pub struct QueuedJob {
     pub preprocessed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runnable_settings_handle: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    // True when this job is a native retry attempt (has a native_retry_attempt
+    // marker). Lets the run-page chain distinguish real retries from other
+    // same-script children (e.g. WAC inline children). The list and single-job
+    // GET endpoints select it; `#[sqlx(default)]` lets any other query omit the
+    // column and default to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_retry: Option<bool>,
+    // How the run was started. NULL on every job pushed before the API began stamping it, and
+    // on the paths that still don't, so the run page treats it as "unknown" rather than
+    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column, and
+    // the label type keeps a kind added after this binary was built readable instead of fatal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_kind: Option<TriggerKindLabel>,
 }
 
 impl QueuedJob {
@@ -264,6 +383,9 @@ impl Default for QueuedJob {
             priority: None,
             preprocessed: None,
             runnable_settings_handle: None,
+            labels: None,
+            is_retry: None,
+            trigger_kind: None,
         }
     }
 }
@@ -316,9 +438,48 @@ pub struct CompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    // True when this job is a native retry attempt (has a native_retry_attempt
+    // marker). Lets the run-page chain distinguish real retries from other
+    // same-script children (e.g. WAC inline children). The list and single-job
+    // GET endpoints select it; `#[sqlx(default)]` lets any other query omit the
+    // column and default to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_retry: Option<bool>,
+    // True when this failure has been marked handled (has a job_resolution row), so
+    // triage surfaces stop rendering it red. `status` stays 'failure' either way.
+    // The details are only selected by the single-job GET; the runs list carries
+    // `resolved` alone to keep its payload small.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved: Option<bool>,
+    // None does NOT imply automatic: attribution is enterprise-only, so a manual resolution in
+    // CE is also None, and list responses omit it deliberately. Use `resolved_automatically`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolution_note: Option<String>,
+    // True when a succeeding retry resolved this, rather than a person. Explicit rather than
+    // inferred from a NULL `resolved_by`, which is also NULL for a manual resolution outside
+    // enterprise (attribution is an EE feature).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_automatically: Option<bool>,
+    // How the run was started. NULL on every job pushed before the API began stamping it, and
+    // on the paths that still don't, so the run page treats it as "unknown" rather than
+    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column, and
+    // the label type keeps a kind added after this binary was built readable instead of fatal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_kind: Option<TriggerKindLabel>,
 }
 
 impl CompletedJob {
@@ -353,6 +514,7 @@ pub enum JobPayload {
         apply_preprocessor: bool,
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
+        labels: Option<Vec<String>>,
     },
     FlowNode {
         id: FlowNodeId,
@@ -381,6 +543,14 @@ pub enum JobPayload {
         dedicated_worker: Option<bool>,
         debouncing_settings: DebouncingSettings,
     },
+    /// Compile a deployed script's binary and push it to the instance object store, so its
+    /// first run does not pay the compile. Runs as a `dependencies` job — it needs the same
+    /// worker-side toolchain and job dir — but generates no lock and touches no script row.
+    BuildBinary {
+        path: String,
+        hash: ScriptHash,
+        language: ScriptLang,
+    },
     FlowDependencies {
         path: String,
         dedicated_worker: Option<bool>,
@@ -406,12 +576,19 @@ pub enum JobPayload {
         dedicated_worker: Option<bool>,
         apply_preprocessor: bool,
         version: i64,
+        labels: Option<Vec<String>>,
     },
     RestartedFlow {
         completed_job_id: Uuid,
         step_id: String,
         branch_or_iteration_n: Option<usize>,
         flow_version: Option<i64>,
+        /// Optional locked branch for BranchOne nested restart at the top level of this run.
+        branch_chosen: Option<crate::flow_status::BranchChosen>,
+        /// Optional nested restart chain. When Some, the worker for the spawned flow,
+        /// upon reaching `step_id`, should spawn the inner child as a `RestartedFlow`
+        /// using this chain rather than fresh-launching it.
+        nested: Option<Box<crate::flow_status::RestartedFrom>>,
     },
     RawFlow {
         value: FlowValue,
@@ -422,6 +599,10 @@ pub enum JobPayload {
         path: String,
         hash: Option<ScriptHash>,
         flow_version: Option<i64>,
+        // Set when wrapping a script (not a flow). Lets `push` materialize a
+        // bare-script-with-retry as a native retryable `Script` job instead of
+        // spawning a one-step flow.
+        language: Option<ScriptLang>,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
         retry: Option<Retry>,
         error_handler_path: Option<String>,
@@ -439,6 +620,10 @@ pub enum JobPayload {
     DeploymentCallback {
         path: String,
         debouncing_settings: DebouncingSettings,
+        // Per-invocation suffix appended to the `{workspace_id}:git_sync` concurrency key.
+        // Used in promotion mode so sync jobs targeting different branches run in parallel
+        // instead of serializing through a single workspace-wide key.
+        concurrency_key_append: Option<String>,
     },
     Identity,
     Noop,
@@ -465,6 +650,7 @@ pub struct RawCode {
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
     pub dedicated_worker: Option<bool>,
+    pub tag: Option<String>,
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettingsWithCustom,
     #[serde(flatten)]
@@ -486,6 +672,7 @@ impl JobPayload {
             JobPayload::ScriptHub { .. } => JobKind::Script_Hub,
             JobPayload::FlowScript { .. } => JobKind::FlowScript,
             JobPayload::Dependencies { .. } => JobKind::Dependencies,
+            JobPayload::BuildBinary { .. } => JobKind::Dependencies,
             JobPayload::SingleStepFlow { .. } => JobKind::SingleStepFlow,
             JobPayload::AppDependencies { .. } => JobKind::AppDependencies,
             JobPayload::FlowDependencies { .. } => JobKind::FlowDependencies,
@@ -504,10 +691,114 @@ pub struct OnBehalfOf {
 }
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
+
+/// Reserved job-arg key holding the inbound W3C `traceparent` captured from the
+/// request that enqueued the job (run endpoints). It rides the `args` jsonb like
+/// [`ENTRYPOINT_OVERRIDE`]; normal scripts never see it because args are bound by
+/// declared parameter name. Read back at root-job completion to link the job's
+/// OTLP span to the originating distributed trace (EE/OTel only).
+pub const WM_TRACEPARENT: &str = "_wm_traceparent";
+
+/// The entrypoint override (`_ENTRYPOINT_OVERRIDE` job arg ->
+/// `v2_job.script_entrypoint_override`) is interpolated verbatim into
+/// generated worker wrappers in a code position (e.g. the NativeTS
+/// `import(...).then(m => m.<name>(...))` glue, the bun `Main.<name>(...)`
+/// call, the deno `import { <name> } from "./main.ts"` line, the PHP
+/// `<name>(...)` call and the Python `inner_script.<name>(**args)` call).
+/// A caller only needs `jobs:run` to set it, so it MUST be restricted to a
+/// conventional identifier or an attacker who can merely run a deployed
+/// script could break out of the call expression into arbitrary
+/// worker-process code. This ASCII subset is a valid function name in every
+/// language Windmill wraps this way (JS/TS, Python, PHP).
+pub fn is_valid_entrypoint_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 255 {
+        return false;
+    }
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 pub const LARGE_LOG_THRESHOLD_SIZE: usize = 9000;
 pub const EMAIL_ERROR_HANDLER_USER_EMAIL: &str = "email_error_handler@windmill.dev";
 
 #[inline(always)]
 pub fn generate_dynamic_input_key(workspace_id: &str, path: &str) -> String {
     format!("{workspace_id}:{path}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_valid_entrypoint_name, JobTriggerKind, TriggerKindLabel};
+
+    #[test]
+    fn valid_entrypoint_names_are_accepted() {
+        for name in [
+            "main",
+            "preprocessor",
+            "my_helper",
+            "_private",
+            "fn2",
+            "a",
+            "MixedCase",
+        ] {
+            assert!(is_valid_entrypoint_name(name), "expected {name:?} valid");
+        }
+    }
+
+    #[test]
+    fn malicious_entrypoint_names_are_rejected() {
+        // Regression for GHSA-wxjq-w5pj-jqhx: the entrypoint override is
+        // interpolated verbatim into a code position of generated worker
+        // wrappers (e.g. bun `Main.<name>(...)`, nativets
+        // `m.<name>(...)`, python `inner_script.<name>(**args)`). Any value
+        // that is not a strict identifier could break out of the call
+        // expression into attacker-controlled worker code.
+        for name in [
+            "main(); globalThis.x = 1; //", // breaks out of `Main.<name>(...)`
+            "x); require('child_process').execSync('id'); (",
+            "1main",     // starts with a digit
+            "my-fn",     // hyphen
+            "my fn",     // space
+            "my.fn",     // member access
+            "$fn",       // dollar
+            "fn\nother", // newline
+            "fn;other",
+            "",
+        ] {
+            assert!(
+                !is_valid_entrypoint_name(name),
+                "expected {name:?} to be rejected"
+            );
+        }
+        // Over-long names are rejected.
+        assert!(!is_valid_entrypoint_name(&"a".repeat(256)));
+    }
+
+    /// The point of [`TriggerKindLabel`]: a worker built before a trigger kind existed must
+    /// still be able to read — and therefore run — a job stamped with it. Decoding into
+    /// [`JobTriggerKind`] instead makes an unfamiliar label a hard error and strands the job.
+    #[test]
+    fn an_unknown_trigger_kind_label_survives_deserialization() {
+        #[derive(serde::Deserialize)]
+        struct Job {
+            trigger_kind: Option<TriggerKindLabel>,
+        }
+
+        let job: Job =
+            serde_json::from_str(r#"{"trigger_kind":"a_kind_from_the_future"}"#).unwrap();
+        assert_eq!(
+            job.trigger_kind.as_ref().map(|k| k.as_str()),
+            Some("a_kind_from_the_future")
+        );
+        assert!(!job.trigger_kind.unwrap().is(JobTriggerKind::Schedule));
+
+        let job: Job = serde_json::from_str(r#"{"trigger_kind":"schedule"}"#).unwrap();
+        assert!(job.trigger_kind.unwrap().is(JobTriggerKind::Schedule));
+    }
 }

@@ -114,3 +114,89 @@ async fn test_settings_2xx(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_alert_job_queue_waiting_in_global_settings(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let settings_base = format!("http://localhost:{port}/api/settings");
+    let configs_base = format!("http://localhost:{port}/api/configs");
+
+    let alert_payload = json!({
+        "alerts": [
+            {
+                "name": "Test Alert",
+                "tags_to_monitor": ["default", "gpu"],
+                "jobs_num_threshold": 5,
+                "alert_cooldown_seconds": 300,
+                "alert_time_threshold_seconds": 60
+            }
+        ]
+    });
+
+    // Set alert_job_queue_waiting in global_settings
+    let resp = authed(client().post(format!("{settings_base}/global/alert_job_queue_waiting")))
+        .json(&json!({"value": alert_payload}))
+        .send()
+        .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "POST /settings/global/alert_job_queue_waiting",
+    );
+
+    // Read it back
+    let resp = authed(client().get(format!("{settings_base}/global/alert_job_queue_waiting")))
+        .send()
+        .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(
+        status,
+        &body,
+        "GET /settings/global/alert_job_queue_waiting",
+    );
+    let value: serde_json::Value = serde_json::from_str(&body)?;
+    assert_eq!(value["alerts"][0]["name"], "Test Alert");
+    assert_eq!(value["alerts"][0]["jobs_num_threshold"], 5);
+
+    // Verify alert_job_queue_waiting does NOT appear in list_worker_groups
+    let resp = authed(client().get(format!("{configs_base}/list_worker_groups")))
+        .send()
+        .await?;
+    let body = resp.text().await?;
+    let groups: Vec<serde_json::Value> = serde_json::from_str(&body)?;
+    let alert_in_groups = groups.iter().find(|g| {
+        let name = g["name"].as_str().unwrap_or("");
+        name.contains("alert")
+    });
+    assert!(
+        alert_in_groups.is_none(),
+        "alert_job_queue_waiting should not appear in worker groups"
+    );
+
+    // Delete by setting to null
+    let resp = authed(client().post(format!("{settings_base}/global/alert_job_queue_waiting")))
+        .json(&json!({"value": null}))
+        .send()
+        .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "POST /settings/global/alert_job_queue_waiting (null)",
+    );
+
+    // Verify it reads back as null
+    let resp = authed(client().get(format!("{settings_base}/global/alert_job_queue_waiting")))
+        .send()
+        .await?;
+    let body = resp.text().await?;
+    let value: serde_json::Value = serde_json::from_str(&body)?;
+    assert!(
+        value.is_null(),
+        "alert_job_queue_waiting should be null after deletion"
+    );
+
+    Ok(())
+}

@@ -11,9 +11,11 @@
 </script>
 
 <script lang="ts">
+	import { registerPendingEditor } from './pendingEditorFlush'
 	import { BROWSER } from 'esm-env'
 
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash } from '$lib/editorLangUtils'
 
 	// import {
@@ -28,7 +30,7 @@
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
-	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
@@ -58,9 +60,15 @@
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
+	/** Trailing debounce window (ms) on Monaco's onDidChangeModelContent. */
+	const CHANGE_TIMEOUT = 200
+
+	let changeTimeoutId: number | undefined = undefined
+
 	let divEl: HTMLDivElement | null = null
 	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
 	let model: meditor.ITextModel
+	let pasteListenerCleanup: (() => void) | undefined = undefined
 
 	let statusDiv = $state<Element | null>(null)
 	let width = $state(0)
@@ -93,9 +101,11 @@
 		loadAsync = false,
 		key,
 		disabled = false,
+		readOnly = false,
 		minHeight = 1000,
 		renderLineHighlight = 'none',
-		suggestion
+		suggestion,
+		leadingChangeSync = false
 	}: {
 		lang: string
 		code?: string
@@ -121,9 +131,17 @@
 		initialCursorPos?: IPosition
 		key?: string
 		disabled?: boolean
+		/** Read-only Monaco mode: not editable, but still scrollable/selectable
+		 * (unlike `disabled`, which makes the editor non-interactive). */
+		readOnly?: boolean
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
 		suggestion?: string
+		/** Materialize `code` on the first change of a burst instead of only after
+		 * the trailing debounce. Set it when a control's enabled state derives from
+		 * `code`; leave it off where each extra sync costs work downstream (an app
+		 * code input feeding an autoRefresh runnable re-runs a job per sync). */
+		leadingChangeSync?: boolean
 	} = $props()
 
 	let yPadding = MONACO_Y_PADDING
@@ -131,6 +149,18 @@
 	const dispatch = createEventDispatcher()
 
 	const uri = `file:///${untrack(() => hash)}.${langToExt(untrack(() => lang))}`
+
+	/** Materialise the debounced buffer into `code` now. A consumer that must act on
+	 * what is on screen — persisting a draft before navigating away — cannot wait out
+	 * CHANGE_TIMEOUT. Mirrors `Editor.flushPendingChanges`. */
+	export function flushPendingChanges(): void {
+		// Same guards as onDestroy: only a pending keystroke debounce is ours to flush.
+		// `getCode()` is '' until Monaco finishes initialising, and a caller draining every
+		// mounted editor reaches ones that have not — flushing those writes the blank out.
+		if (!editor || changeTimeoutId === undefined) return
+		cancelPendingChanges()
+		updateCode()
+	}
 
 	export function getCode(): string {
 		if (valueAfterDispose != undefined) {
@@ -150,8 +180,18 @@
 			code = ncode
 		}
 		editor?.setValue(ncode)
+		// setValue emits a change event of its own; drop the burst it opens so an edit
+		// made right after an authoritative overwrite still counts as a leading change.
+		cancelPendingChanges()
 		if (formatCode) {
 			format()
+		}
+	}
+
+	function cancelPendingChanges(): void {
+		if (changeTimeoutId !== undefined) {
+			clearTimeout(changeTimeoutId)
+			changeTimeoutId = undefined
 		}
 	}
 
@@ -237,6 +277,9 @@
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
+	$effect(() => {
+		editor?.updateOptions({ readOnly })
+	})
 
 	function onVimDisable() {
 		vimDisposable?.dispose()
@@ -297,7 +340,14 @@
 		}
 	})
 
-	let fontSize = $derived(small ? 12 : 13.5)
+	let fontSize = $derived(small ? editorFontSize.small : editorFontSize.regular)
+
+	$effect(() => {
+		const next = fontSize
+		if (editor) {
+			editor.updateOptions({ fontSize: next })
+		}
+	})
 
 	async function loadMonaco() {
 		setMonacoJsonOptions()
@@ -333,6 +383,7 @@
 				),
 				model,
 				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
+				readOnly,
 				renderLineHighlight,
 				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
@@ -370,18 +421,42 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
+			// Paste is intercepted via a keydown listener scoped to THIS editor's
+			// DOM node. `editor.addCommand` registers a *global* keybinding in the
+			// shared standalone services, so with multiple SimpleEditor instances
+			// the last-registered handler wins and paste lands in the wrong editor.
+			// The native `paste` event can't be used either: in the VSCode webview
+			// `clipboardData` is empty, so the only way to read the clipboard is to
+			// focus a real <input> and run `document.execCommand('paste')`.
+			const pasteTarget = divEl
+			const onPasteKeydown = (e: KeyboardEvent) => {
+				const isPaste = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')
+				if (!isPaste) return
+				if (!editor || !editor.hasTextFocus()) return
+				e.preventDefault()
+				e.stopPropagation()
 				inputEl?.focus()
 				document.execCommand('paste')
-			})
+			}
+			pasteTarget?.addEventListener('keydown', onPasteKeydown, true)
+			pasteListenerCleanup = () => pasteTarget?.removeEventListener('keydown', onPasteKeydown, true)
 		}
 
-		let timeoutModel: number | undefined = undefined
-		editor.onDidChangeModelContent((event) => {
-			timeoutModel && clearTimeout(timeoutModel)
-			timeoutModel = setTimeout(() => {
+		editor.onDidChangeModelContent(() => {
+			// A paste is a single change, so under a trailing-only sync `code` stays
+			// stale for CHANGE_TIMEOUT after it: a consumer gating a control on `code`
+			// (FlowYamlEditor disables "Apply changes" until it differs from a snapshot)
+			// then swallows a click made in that window. Schedule before firing so a
+			// re-entrant change from a consumer does not count as leading too.
+			const leading = leadingChangeSync && changeTimeoutId === undefined
+			cancelPendingChanges()
+			changeTimeoutId = setTimeout(() => {
+				changeTimeoutId = undefined
 				updateCode()
-			}, 200)
+			}, CHANGE_TIMEOUT)
+			if (leading) {
+				updateCode()
+			}
 		})
 		editor.onDidChangeCursorPosition((event) => {
 			if (key) editorPositionMap[key] = event.position
@@ -395,6 +470,10 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers, after `tick()` so they see
+				// the value `updateCode()` just materialized.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
@@ -424,6 +503,10 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers, after `tick()` so they see
+				// the value `updateCode()` just materialized.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
@@ -580,9 +663,17 @@
 		}
 	})
 
+	onMount(() => registerPendingEditor({ flushPendingChanges: () => flushPendingChanges() }))
+
 	onDestroy(() => {
 		try {
+			// Same guards as Editor: only a pending keystroke debounce is ours to flush.
+			if (editor && changeTimeoutId !== undefined) {
+				updateCode()
+			}
+			cancelPendingChanges()
 			valueAfterDispose = getCode()
+			pasteListenerCleanup?.()
 			vimDisposable?.dispose()
 			model && model.dispose()
 			editor && editor.dispose()
@@ -600,23 +691,28 @@
 
 	updatePlaceholderVisibility(code ?? '')
 
+	// Hidden input used as the paste sink in the VSCode webview: focusing it and
+	// running `document.execCommand('paste')` fills `pasteValue`, which is then
+	// inserted into this editor's model below. This is an inline equivalent of
+	// `registerWebviewPaste` in $lib/editorUtils (used by Editor/TemplateEditor/
+	// DiffEditor) — kept inline here because it relies on Svelte bindings; keep
+	// the two implementations in sync.
 	let inputEl = $state<HTMLInputElement | null>(null)
 	let pasteValue = $state('')
 	$effect(() => {
 		if (inputEl && pasteValue) {
 			untrack(() => {
-				editor?.executeEdits('paste', [
-					{
-						range: editor?.getSelection() ?? {
-							startLineNumber: 1,
-							startColumn: 1,
-							endLineNumber: 1,
-							endColumn: 1
-						},
-						text: pasteValue,
-						forceMoveMarkers: true
-					}
-				])
+				const selection = editor?.getSelection()
+				if (editor && selection) {
+					editor.executeEdits('paste', [
+						{
+							range: selection,
+							text: pasteValue,
+							forceMoveMarkers: true
+						}
+					])
+					editor.focus()
+				}
 				pasteValue = ''
 			})
 		}
@@ -627,6 +723,8 @@
 	<input
 		style="height: 0; width: 0; opacity: 0; position: absolute; top: 0; left: 0; z-index: -1;"
 		type="text"
+		aria-hidden="true"
+		tabindex="-1"
 		bind:this={inputEl}
 		bind:value={pasteValue}
 	/>

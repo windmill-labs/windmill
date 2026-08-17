@@ -1,5 +1,14 @@
 import type { ButtonType } from './common/button/model'
 import { z } from 'zod'
+import { writable } from 'svelte/store'
+
+/**
+ * Bumped after instance settings are successfully saved. Settings whose display
+ * depends on server-side state derived from a saved value (rather than on the value
+ * in the form) subscribe to this to refetch — the form values change on every
+ * keystroke, so they are not a usable signal for that.
+ */
+export const instanceSettingsSaved = writable(0)
 
 // Languages that support HTTP request tracing via OTEL proxy
 export const OTEL_TRACING_PROXY_LANGUAGES = [
@@ -52,7 +61,9 @@ export interface Setting {
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
 		| 'github_enterprise_app'
+		| 'webhook_base_url'
 		| 'ws_connectivity'
+		| 'retention_overrides'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -64,6 +75,7 @@ export interface Setting {
 	hiddenInEe?: boolean
 	hideInQuickSetup?: boolean
 	requiresReloadOnChange?: boolean
+	triggersRestart?: boolean
 	isValid?: (value: any) => boolean
 	validate?: (value: any) => Record<string, string>
 	error?: string
@@ -79,6 +91,7 @@ export interface Setting {
 export type SettingStorage = 'setting'
 
 const positiveNumber = z.number().positive('Must be a positive number')
+const nonNegativeNumber = z.number().nonnegative('Must be zero or a positive number')
 
 const indexerSettingsSchema = z
 	.object({
@@ -88,7 +101,7 @@ const indexerSettingsSchema = z
 		max_indexed_job_log_size: positiveNumber.optional(),
 		commit_log_max_batch_size: positiveNumber.optional(),
 		refresh_log_index_period: positiveNumber.optional(),
-		max_index_time_window_secs: positiveNumber.optional()
+		max_index_time_window_secs: nonNegativeNumber.optional()
 	})
 	.passthrough()
 
@@ -121,9 +134,50 @@ export const scimSamlSetting: Setting[] = [
 		fieldType: 'textarea',
 		placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
 		storage: 'setting',
-		ee_only: ''
+		ee_only: '',
+		triggersRestart: true
 	}
 ]
+
+/**
+ * Mirror of `validate_webhook_base_url` in backend/windmill-common/src/global_settings.rs.
+ * Parses rather than pattern-matches so the two agree on the awkward cases (an
+ * invalid port like `https://x:abc`, IPv6 hosts, surrounding whitespace) — the
+ * server trims and runs `Url::parse`, so this does the same. The webhook path is
+ * appended to this value verbatim, hence no query, fragment or trailing slash.
+ */
+export function isValidWebhookBaseUrl(value: unknown): boolean {
+	if (value == undefined) return true
+	// `Setting.isValid` receives `any`, and YAML mode can put any JSON type here — a
+	// non-string must read as invalid rather than throw while the form computes which
+	// categories are in error.
+	if (typeof value !== 'string') return false
+	if (value.trim() === '') return true
+	const trimmed = value.trim()
+	let url: URL
+	try {
+		url = new URL(trimmed)
+	} catch {
+		return false
+	}
+	return (
+		(url.protocol === 'http:' || url.protocol === 'https:') &&
+		url.host !== '' &&
+		// Userinfo would end up in the per-repository receiver stored in workspace
+		// settings, which workspace admins can read.
+		url.username === '' &&
+		url.password === '' &&
+		// Tested on the raw string, not `url.search`/`url.hash`: those are `''` for a
+		// bare `?` or `#`, while Rust reports an empty-but-present query/fragment and
+		// rejects it. A literal delimiter is never valid here either way.
+		!trimmed.includes('?') &&
+		!trimmed.includes('#') &&
+		// `new URL` silently percent-encodes a space in the path, where the server
+		// rejects it outright.
+		!/\s/.test(trimmed) &&
+		!trimmed.endsWith('/')
+	)
+}
 
 export const settings: Record<string, Setting[]> = {
 	Core: [
@@ -150,6 +204,7 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			placeholder: 'mail.windmill.com',
 			storage: 'setting',
+			triggersRestart: true,
 			error: 'Must be a valid domain',
 			isValid: (value: string | undefined) =>
 				value == undefined ||
@@ -165,7 +220,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'request_size_limit_mb',
 			fieldType: 'number',
 			placeholder: '50',
-			storage: 'setting'
+			storage: 'setting',
+			triggersRestart: true
 		},
 		{
 			label: 'License key',
@@ -219,6 +275,27 @@ export const settings: Record<string, Setting[]> = {
 	],
 	Jobs: [
 		{
+			label: 'Retention period in secs',
+			key: 'retention_period_secs',
+			description:
+				'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
+			fieldType: 'seconds',
+			placeholder: '30',
+			storage: 'setting',
+			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
+			cloudonly: false
+		},
+		{
+			label: 'Per-workspace retention overrides',
+			key: 'retention_period_secs_overrides',
+			description:
+				'Override the job retention period for specific workspaces, independently of the instance-wide value above (longer or shorter). Jobs in a workspace without an override follow the instance-wide setting.',
+			fieldType: 'retention_overrides',
+			storage: 'setting',
+			ee_only: 'Per-workspace retention overrides are only available in the EE version',
+			cloudonly: false
+		},
+		{
 			label: 'Job isolation',
 			key: 'job_isolation',
 			fieldType: 'select',
@@ -239,6 +316,93 @@ export const settings: Record<string, Setting[]> = {
 					value: 'nsjail_sandboxing'
 				}
 			]
+		},
+		{
+			label: 'Nsjail /tmp backing',
+			key: 'nsjail_tmp_backing',
+			fieldType: 'select',
+			description:
+				'How <code>/tmp</code> is backed inside the nsjail sandbox. <strong>RAM (tmpfs)</strong> is the default — fast, with a hard size cap from <em>Nsjail tmpfs size</em>, but consumes worker memory. <strong>Disk (bind mount)</strong> uses a per-job directory on the worker disk — no RAM cost, but the only remaining per-file ceiling is <code>rlimit_fsize</code> (~1GB for python/ansible, unbounded for most other languages because they set <code>disable_rl: true</code>); pair with host disk monitoring or quotas.',
+			storage: 'setting',
+			placeholder: 'tmpfs',
+			defaultValue: () => 'tmpfs',
+			select_items: [
+				{ label: 'RAM (tmpfs) — default', value: 'tmpfs' },
+				{ label: 'Disk (bind mount)', value: 'disk' }
+			]
+		},
+		{
+			label: 'Nsjail tmpfs size (MB)',
+			key: 'nsjail_tmpfs_size_mb',
+			description:
+				'Override the size of the <code>/tmp</code> tmpfs mount inside the nsjail sandbox (in MB). When left empty, defaults to 800MB. Only applies when <em>Nsjail /tmp backing</em> is RAM (tmpfs).',
+			fieldType: 'number',
+			placeholder: '800',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image max size (MB)',
+			key: 'sandbox_image_max_size_mb',
+			description:
+				'Reject a <code># sandbox &lt;image&gt;</code> whose compressed download size exceeds this many MB, before any layer is downloaded. Leave empty for no limit.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image cache cap (MB)',
+			key: 'sandbox_image_cache_max_mb',
+			description:
+				"Best-effort cap on the worker's cached sandbox rootfs tars. When exceeded, the oldest (by creation time) are evicted after a run. Leave empty for unbounded.",
+			fieldType: 'number',
+			placeholder: 'unbounded',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image pull policy',
+			key: 'sandbox_image_pull_policy',
+			description:
+				'When to re-pull a <code># sandbox</code> image. <strong>newer</strong> (default) re-pulls only when the registry digest changed, so moving tags like <code>:latest</code> stay fresh without re-downloading unchanged layers. <strong>missing</strong> pulls only if absent (fastest, tags can go stale). <strong>always</strong> re-checks every job.',
+			fieldType: 'select',
+			storage: 'setting',
+			placeholder: 'newer',
+			defaultValue: () => 'newer',
+			select_items: [
+				{ label: 'Newer (default)', value: 'newer' },
+				{ label: 'Missing', value: 'missing' },
+				{ label: 'Always', value: 'always' },
+				{ label: 'Never', value: 'never' }
+			]
+		},
+		{
+			label: 'Sandbox image default registry',
+			key: 'sandbox_image_default_registry',
+			description:
+				'If set, unqualified <code># sandbox</code> images (e.g. <code>alpine</code>) are pulled from this registry instead of <code>docker.io</code>. Fully-qualified refs (e.g. <code>ghcr.io/org/img</code>) are unaffected. Example: <code>myregistry.example.com</code>.',
+			fieldType: 'text',
+			placeholder: 'docker.io',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox registry auth',
+			key: 'sandbox_registry_auth',
+			description:
+				'Credentials for private registries used by <code># sandbox</code> images, in docker <code>config.json</code> / <code>auth.json</code> format. Written to a per-job <code>DOCKER_CONFIG</code> dir (removed with the job) and used by crane for the pull.',
+			fieldType: 'codearea',
+			codeAreaLang: 'json',
+			placeholder:
+				'{\n  "auths": {\n    "myregistry.example.com": {\n      "auth": "BASE64(username:password)"\n    }\n  }\n}',
+			storage: 'setting'
+		},
+		{
+			label: 'SSH execution (#ssh)',
+			key: 'ssh_execution_enabled',
+			fieldType: 'boolean',
+			description:
+				'Allow bash scripts starting with a <code>#ssh &lt;resource_path&gt;</code> directive to run on the remote host described by the referenced <code>ssh_target</code> resource instead of the worker. Off by default.',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		},
 		{
 			label: 'Default timeout',
@@ -266,15 +430,76 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Retention period in secs',
-			key: 'retention_period_secs',
+			label: 'Workspace fairness — enabled',
 			description:
-				'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
-			fieldType: 'seconds',
-			placeholder: '30',
+				'Multi-tenant safeguard against a single workspace dominating the shared worker pool. <strong>Only relevant on instances where multiple workspaces share one worker group</strong> — single-tenant deployments do not need this. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, each worker pull stochastically excludes that workspace so its share converges to the cap without on/off oscillation. Idle workers always fall back to running its jobs, so capping never starves the queue.',
+			key: 'workspace_fairness_enabled',
+			fieldType: 'boolean',
 			storage: 'setting',
-			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
-			cloudonly: false
+			cloudonly: false,
+			ee_only:
+				'Workspace fairness is an Enterprise feature — only useful on multi-tenant clusters where one noisy workspace would otherwise degrade QoS for other workspaces sharing the same worker pool.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — max percent',
+			description:
+				'Maximum share of cluster activity any single workspace may sustain before being stochastically throttled by the pull query. The admitted probability for capped workspaces is set just above this value so the cap is statistically stable rather than oscillating. Default 50.',
+			key: 'workspace_fairness_max_percent',
+			fieldType: 'number',
+			placeholder: '50',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — duration (seconds)',
+			description:
+				'Rolling window used to measure workspace share. Activity = currently running jobs ∪ jobs completed in the last N seconds. Default 10.',
+			key: 'workspace_fairness_duration_secs',
+			fieldType: 'seconds',
+			placeholder: '10',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — minimum total jobs',
+			description:
+				'Cap is only applied when cluster-wide activity exceeds this floor. Prevents over-eager capping on small clusters or quiet periods. Default 4.',
+			key: 'workspace_fairness_min_total_jobs',
+			fieldType: 'number',
+			placeholder: '4',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per concurrency key',
+			description:
+				'Rejects new jobs once this many are already queued behind one concurrency key. Jobs sharing a key run at most <em>concurrent limit</em> at a time regardless of spare worker capacity, so a caller pushing faster than the key drains grows a backlog no capacity can absorb. Scoped per key, so a runaway producer cannot block the rest of the workspace. Set 0 to disable. Default 10000.',
+			key: 'concurrency_key_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '10000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per workspace',
+			description:
+				'Rejects new jobs once a workspace has this many queued in total, across every concurrency key and script. Guards against a single workspace flooding the queue generally, including from parallel for-loops. Applies even to premium workspaces. Jobs already queued still drain; only new pushes past the ceiling are rejected. Set 0 to disable. Default 20000.',
+			key: 'workspace_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '20000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Object Storage': [
@@ -294,11 +519,42 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Delete logs from s3 periodically',
 			description:
-				'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
+				'Job and service logs are periodically deleted from disk when they expire. When this setting is on, they are also deleted from object storage. Defaults to on when object storage is configured; turn off to keep logs in object storage indefinitely.',
 			key: 'monitor_logs_on_s3',
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Store audit logs in object storage',
+			description:
+				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Enabling (or re-enabling) anchors the export at ~now: while it stays enabled, every audit log committed from that point on is exported (transactions in flight at the moment of enabling may include a bounded set of just-prior rows). Pre-existing history, and any window during which export was disabled, are NOT exported by this cursor — use the opt-in backfill API to export a chosen historical range, back to when audit-log partitioning was introduced (older rows in the legacy audit table are not exported, and a window overlapping them is rejected): POST /settings/audit_logs_s3_backfill {from, to} (status at GET /settings/audit_logs_s3_backfill_status).',
+			key: 'store_audit_logs_s3',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build binaries on deployment',
+			description:
+				'When enabled and instance object storage is configured, deploying a Rust, Go or C# script queues a job that compiles it and uploads the binary to object storage, so the first run does not pay the compile. Requires instance object storage: without it the binary would only reach the building worker. Does nothing for languages whose artifact is not cached in object storage.',
+			key: 'auto_build_binary_on_deploy',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build worker tag',
+			description:
+				'Worker tag the auto-build jobs run on. Leave empty to use the script language tag, where its dependency job already runs. Set it to pin builds to a pool that has the toolchain and matches the platform of your runtime workers — the cache key includes the OS and architecture, so a binary built elsewhere is never reused. Note that compiling runs script-author-controlled build steps (Cargo build scripts, MSBuild targets, cgo) with exactly the isolation the cold build of a first run has — nsjail for Rust when job isolation is on, none for the Go and C# compilers — so this pool now executes them at deploy time rather than at first run.',
+			key: 'auto_build_binary_tag',
+			fieldType: 'text',
+			placeholder: 'e.g. build',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Private Hub': [
@@ -348,7 +604,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Azure OpenAI base path',
 			description:
-				'All workspaces using an OpenAI resource for Windmill AI will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
+				'All workspaces using an OpenAI resource for Windmill AI will run against the specified Azure resource. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id} — keep the URL as stored; the model comes from each workspace\'s configured model list, whose entries must be your Azure deployment names. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
@@ -373,9 +629,35 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'smtp_connect',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Disable workspace invite emails',
+			description:
+				'Do not send email notifications when a user is invited or added to a workspace. Useful for automated workflows that add users programmatically.',
+			key: 'disable_workspace_invite_emails',
+			fieldType: 'boolean',
+			storage: 'setting'
 		}
 	],
-	'Auth/OAuth/SAML': [],
+	'Auth/OAuth/SAML': [
+		{
+			label: 'Disable password login',
+			description:
+				'Hide the email/password form on the login page and reject password login requests. Use when you only want OAuth/SAML logins.',
+			key: 'disable_password_login',
+			fieldType: 'boolean',
+			storage: 'setting'
+		},
+		{
+			label: 'Auto-login SSO provider',
+			description:
+				'If set, the login page redirects automatically to this provider. Use the OAuth provider key (e.g. "okta", "google") or "saml". The provider must be configured; otherwise the setting is ignored. Visit /user/login?no_sso=1 to bypass the redirect and fall back to the normal login form.',
+			key: 'auto_login_provider',
+			fieldType: 'text',
+			placeholder: 'okta',
+			storage: 'setting'
+		}
+	],
 	'DB Health': [],
 	Registries: [
 		{
@@ -426,6 +708,15 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'https://username:password@pypi.company.com/simple',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'UV Python install mirror',
+			description:
+				'Mirror URL for downloading managed Python interpreters. Wires to <code>UV_PYTHON_INSTALL_MIRROR</code>. See <a href="https://docs.astral.sh/uv/configuration/environment/#uv_python_install_mirror">uv docs</a>.',
+			key: 'uv_python_install_mirror',
+			fieldType: 'text',
+			placeholder: 'https://mirror.example.com/python-build-standalone',
+			storage: 'setting'
 		},
 		{
 			label: 'UV index strategy',
@@ -485,6 +776,24 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hiddenIfEmpty: true
+		},
+		{
+			label: 'Minimum release age (uv / Python)',
+			description:
+				'Refuse to install Python packages younger than this many seconds. Protects against supply-chain attacks via freshly published versions. Wires to <code>uv pip --exclude-newer</code>.',
+			key: 'uv_exclude_newer',
+			fieldType: 'seconds',
+			placeholder: '604800',
+			storage: 'setting'
+		},
+		{
+			label: 'Minimum release age (bun / npm)',
+			description:
+				'Refuse to install npm packages younger than this many seconds. Protects against supply-chain attacks via freshly published versions. Sets <code>BUN_INSTALL_MINIMUM_RELEASE_AGE</code>.',
+			key: 'bun_install_min_release_age',
+			fieldType: 'seconds',
+			placeholder: '604800',
+			storage: 'setting'
 		},
 		{
 			label: 'Nuget Config',
@@ -639,7 +948,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'otel',
 			fieldType: 'otel',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			triggersRestart: true
 		},
 		{
 			label: 'HTTP Request Tracing',
@@ -649,6 +959,7 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'otel_tracing_proxy',
 			storage: 'setting',
 			ee_only: 'HTTP Request Tracing is an EE feature',
+			triggersRestart: true,
 			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
 		},
 		{
@@ -658,7 +969,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'expose_metrics',
 			fieldType: 'boolean',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			triggersRestart: true
 		}
 	],
 	Indexer: [
@@ -683,18 +995,21 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Backend type',
 			description:
-				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault as an external secret store.',
+				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager as external secret backends.',
 			key: 'secret_backend',
 			fieldType: 'secret_backend',
 			storage: 'setting',
-			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
+			ee_only:
+				'HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager integrations are Enterprise Edition features'
 		}
 	],
 	'GitHub App': [
 		{
-			label: 'GitHub App',
+			// The category header above already names the section; this labels the
+			// card that holds the app credentials, next to the webhook base url one.
+			label: 'App configuration',
 			description:
-				'Configure a self-managed GitHub App to enable git sync without stats.windmill.dev.',
+				'Use your own GitHub App instead of the Windmill-managed one on stats.windmill.dev.',
 			key: 'github_enterprise_app',
 			fieldType: 'github_enterprise_app',
 			storage: 'setting',
@@ -705,6 +1020,19 @@ export const settings: Record<string, Setting[]> = {
 				if (!v?.self_managed) return true
 				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.client_id && v?.private_key)
 			}
+		},
+		{
+			label: 'Webhook base url',
+			description:
+				'Base url GitHub delivers git sync webhooks to, without trailing slash. Leave empty to use the instance base url. Set it when GitHub cannot reach the base url and a separate ingress fronts this instance for inbound webhooks.',
+			key: 'github_app_webhook_base_url',
+			fieldType: 'webhook_base_url',
+			placeholder: 'https://windmill-webhooks.company.com',
+			storage: 'setting',
+			ee_only: '',
+			error:
+				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
 		}
 	],
 	WebSocket: [
@@ -722,6 +1050,18 @@ export const settings: Record<string, Setting[]> = {
 					value.includes('://') &&
 					!value.endsWith('/') &&
 					!value.endsWith(' '))
+		}
+	],
+	LSP: [
+		{
+			label: 'Ruff config (ruff.toml)',
+			description:
+				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. Leave empty to use the Windmill default (<code>select = ["E4", "E7", "E9", "F"]</code>); anything set here replaces that default entirely. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
+			key: 'ruff_config',
+			fieldType: 'codearea',
+			codeAreaLang: 'toml',
+			placeholder: 'line-length = 100\n\n[lint]\nselect = ["E", "F", "I"]\nignore = ["E501"]',
+			storage: 'setting'
 		}
 	]
 }
@@ -884,6 +1224,12 @@ export const instanceSettingsNavigationGroups = [
 				label: 'WebSocket',
 				aiId: 'instance-settings-websocket',
 				aiDescription: 'WebSocket connectivity test and URL override'
+			},
+			{
+				id: 'lsp',
+				label: 'LSP',
+				aiId: 'instance-settings-lsp',
+				aiDescription: 'Language server protocol settings (ruff config, editor linting)'
 			}
 		]
 	}
@@ -908,7 +1254,8 @@ export const tabToCategoryMap: Record<string, string> = {
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
-	db_health: 'DB Health'
+	db_health: 'DB Health',
+	lsp: 'LSP'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -942,7 +1289,8 @@ export const categoryToTabMap: Record<string, string> = {
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',
-	'DB Health': 'db_health'
+	'DB Health': 'db_health',
+	LSP: 'lsp'
 }
 
 export interface SearchableSettingItem {
@@ -966,6 +1314,13 @@ export function extractMarkedLabel(marked: string | undefined, labelLength: numb
 		if (marked[markedIdx] === '<') {
 			while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
 			markedIdx++
+		} else if (marked[markedIdx] === '&') {
+			// SearchItems escapes the haystack, so one plain character can arrive
+			// as an entity. Skipping the whole entity keeps this offset walk in
+			// step with `labelLength`, which counts unescaped characters.
+			const end = marked.indexOf(';', markedIdx)
+			markedIdx = end === -1 ? markedIdx + 1 : end + 1
+			plainIdx++
 		} else {
 			plainIdx++
 			markedIdx++
@@ -1026,7 +1381,10 @@ export function buildSearchableSettingItems(
 	return items
 }
 
-/** Registry settings that support per-workspace overrides. Excludes instance_python_version and uv_index_strategy which are instance-wide only. */
+/** Registry settings that support per-workspace overrides. Excludes instance_python_version, uv_index_strategy, and uv_python_install_mirror which are instance-wide only. */
 export const WORKSPACE_REGISTRY_SETTINGS: Setting[] = settings['Registries'].filter(
-	(s) => s.key !== 'instance_python_version' && s.key !== 'uv_index_strategy'
+	(s) =>
+		s.key !== 'instance_python_version' &&
+		s.key !== 'uv_index_strategy' &&
+		s.key !== 'uv_python_install_mirror'
 )

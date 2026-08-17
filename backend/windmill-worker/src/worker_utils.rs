@@ -4,6 +4,7 @@ use uuid::Uuid;
 use windmill_common::{
     agent_workers::{PingJobStatus, PingJobStatusResponse},
     cache,
+    external_ip::UNKNOWN_IP,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
         insert_ping_query, update_job_ping_query, update_worker_ping_from_job_query,
@@ -26,8 +27,9 @@ pub(crate) async fn update_worker_ping_full(
     hostname: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_tx: &KillpillSender,
+    ip: Option<&str>,
 ) {
-    let wc = WORKER_CONFIG.read().await;
+    let wc = WORKER_CONFIG.load();
     let tags = wc.worker_tags.clone();
     let native_mode = wc.native_mode;
     drop(wc);
@@ -64,6 +66,7 @@ pub(crate) async fn update_worker_ping_full(
             occupancy_rate_5m,
             occupancy_rate_30m,
             native_mode,
+            ip,
         )
     })
     .retry(
@@ -110,6 +113,7 @@ async fn update_worker_ping_full_inner(
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
+    ip: Option<&str>,
 ) -> anyhow::Result<()> {
     match conn {
         Connection::Sql(db) => {
@@ -126,6 +130,7 @@ async fn update_worker_ping_full_inner(
                 occupancy_rate_5m,
                 occupancy_rate_30m,
                 native_mode,
+                ip,
                 db,
             )
             .await?;
@@ -139,7 +144,7 @@ async fn update_worker_ping_full_inner(
                         last_job_executed: None,
                         last_job_workspace_id: None,
                         worker_instance: None,
-                        ip: None,
+                        ip: ip.map(str::to_string),
                         tags: Some(tags.to_vec()),
                         dw: None,
                         dws: None,
@@ -164,14 +169,16 @@ async fn update_worker_ping_full_inner(
     Ok(())
 }
 
+/// Registers the worker in `worker_ping` and returns the number of jobs already attributed
+/// to that worker name, which is 0 unless this process reclaims the row of an earlier one.
 pub async fn insert_ping(
     worker_instance: &str,
     worker_name: &str,
-    ip: &str,
+    ip: Option<&str>,
     db: &Connection,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<i32> {
     let (tags, dw, dws, native_mode) = {
-        let wc = WORKER_CONFIG.read().await.clone();
+        let wc = (**WORKER_CONFIG.load()).clone();
         (
             wc.worker_tags,
             wc.dedicated_worker
@@ -200,7 +207,7 @@ pub async fn insert_ping(
 
     match db {
         Connection::Sql(db) => {
-            insert_ping_query(
+            return insert_ping_query(
                 worker_instance,
                 worker_name,
                 WORKER_GROUP.as_str(),
@@ -215,7 +222,7 @@ pub async fn insert_ping(
                 native_mode,
                 db,
             )
-            .await?;
+            .await;
         }
         Connection::Http(client) => {
             client
@@ -226,7 +233,10 @@ pub async fn insert_ping(
                         last_job_executed: None,
                         last_job_workspace_id: None,
                         worker_instance: Some(worker_instance.to_string()),
-                        ip: Some(ip.to_string()),
+                        // Servers older than the background lookup reject an initial ping with
+                        // no IP, and an agent worker routinely runs against one, so the
+                        // not-resolved-yet case goes over the wire as the sentinel.
+                        ip: Some(ip.unwrap_or(UNKNOWN_IP).to_string()),
                         tags: Some(tags.to_vec()),
                         dw: dw,
                         dws: dws,
@@ -248,7 +258,9 @@ pub async fn insert_ping(
                 .await?;
         }
     }
-    Ok(())
+    // The agent ping endpoint answers with nothing, so an agent worker always starts its
+    // counter from zero.
+    Ok(0)
 }
 
 pub async fn update_worker_ping_from_job(
@@ -346,6 +358,34 @@ pub async fn ping_job_status(
     }
 }
 
+/// Keeps the job's ping fresh during phases that run before the executor's own polling
+/// loop starts (volume setup, s3object materialization, ...). Without it, a slow wait or
+/// download with no ping in between can exceed ZOMBIE_JOB_TIMEOUT (default 60s) and get
+/// the job falsely restarted as a zombie.
+pub(crate) struct JobPingHeartbeat(tokio::task::JoinHandle<()>);
+
+impl JobPingHeartbeat {
+    pub(crate) fn start(conn: &Connection, job_id: Uuid, context: &'static str) -> Self {
+        let conn = conn.clone();
+        JobPingHeartbeat(tokio::spawn(async move {
+            // 10s stays well under the 60s zombie timeout
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                if let Err(e) = ping_job_status(&conn, &job_id, None, None).await {
+                    tracing::warn!("failed to ping job {job_id} during {context}: {e}");
+                }
+            }
+        }))
+    }
+}
+
+impl Drop for JobPingHeartbeat {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname: &str) {
     match conn {
         Connection::Sql(db) => {
@@ -353,8 +393,8 @@ pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname:
             let current_span = tracing::Span::current();
             let worker_name = worker_name.to_string();
             let hostname = hostname.to_string();
-            tokio::task::spawn(
-                (async move {
+            windmill_common::log_context::spawn_with_log_context(async move {
+                async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
                     if let Err(e) = sqlx::query!("VACUUM (SKIP_LOCKED) v2_job_queue, v2_job_runtime, v2_job_status, job_perms")
                         .execute(&db2)
@@ -363,9 +403,10 @@ pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname:
                         tracing::error!(worker = %worker_name, hostname = %hostname, "failed to vacuum queue: {}", e);
                     }
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuumed queue");
-                })
-                .instrument(current_span),
-            );
+                }
+                .instrument(current_span)
+                .await
+            });
         }
         Connection::Http(_) => {
             // do nothing in http mode

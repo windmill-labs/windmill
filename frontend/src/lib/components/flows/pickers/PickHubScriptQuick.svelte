@@ -36,9 +36,9 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { classNames, createCache, sendUserToast } from '$lib/utils'
+	import { classNames, createCache } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle, ExternalLink } from 'lucide-svelte'
@@ -48,6 +48,10 @@
 	import { get } from 'svelte/store'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Alert } from '$lib/components/common'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { logHubScriptPick } from '$lib/utils/featureUsage'
+
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
 	let hubNotAvailable = $state(false)
 
@@ -62,6 +66,8 @@
 		items?: {
 			path: string
 			summary: string
+			/** The hub's own wording, before `summary` is rewritten as the display label. */
+			hubSummary: string
 			id: number
 			version_id: number
 			ask_id: number
@@ -71,6 +77,7 @@
 		displayPath?: boolean
 		apps?: string[]
 		refreshCount?: number
+		onHover?: (index: number) => void
 	}
 
 	let {
@@ -82,7 +89,8 @@
 		items = $bindable([]),
 		displayPath = false,
 		apps = $bindable([]),
-		refreshCount = 0
+		refreshCount = 0,
+		onHover = undefined
 	}: Props = $props()
 
 	let allApps: string[] = $state([])
@@ -135,6 +143,9 @@
 				}) => ({
 					...x,
 					path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+					// `summary` below becomes the display label; keep the hub's own wording,
+					// which is what telemetry keys off.
+					hubSummary: x.summary,
 					summary: `${x.summary} (${x.app})`
 				})
 			)
@@ -145,10 +156,14 @@
 
 	async function handlePickScript(item: (typeof items)[number]) {
 		if (item.path.startsWith('hub/')) {
+			logHubScriptPick(
+				{ version_id: item.version_id, app: item.app, summary: item.hubSummary },
+				'picker'
+			)
 			try {
 				await ScriptService.pickHubScriptByPath({ path: item.path })
 			} catch (error) {
-				sendUserToast('Failed to call ScriptService.pickHubScriptByPath: ' + error, 'error')
+				console.error('Failed to track hub script pick:', error)
 				// Don't block the flow if tracking fails
 			}
 		}
@@ -184,7 +199,8 @@
 {:else if hubNotAvailable}
 	<div class="px-3 py-2 mt-2">
 		<Alert type="warning" title="Hub not available" size="xs">
-			Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
+			Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the
+			Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
 		</Alert>
 	</div>
 {:else if loading}
@@ -195,7 +211,14 @@
 	<ul class="gap-1 flex flex-col">
 		{#each items as item, index (item.path)}
 			<li class="w-full">
-				<Popover class="w-full" placement="right" forceOpen={index === selected}>
+				<!-- Only the selected row may show a tooltip: the Popover opens on its own hover too, and a
+				     row scrolled under a stationary cursor would otherwise open a second one. -->
+				<Popover
+					class="w-full"
+					placement="right"
+					forceOpen={index === selected}
+					disablePopup={index !== selected}
+				>
 					{#snippet text()}
 						<div class="flex flex-col">
 							<div class="text-left text-xs font-normal leading-tight py-0"
@@ -207,10 +230,14 @@
 						</div>
 					{/snippet}
 					<Button
-						selected={selected === index}
 						variant="subtle"
 						unifiedSize="sm"
-						btnClasses="justify-start"
+						btnClasses="justify-start h-auto min-h-7 py-1 {selected === index
+							? 'bg-surface-hover'
+							: onHover
+								? 'hover:bg-transparent'
+								: ''}"
+						onmousemove={() => onHover?.(index)}
 						onClick={() => handlePickScript(item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
@@ -225,11 +252,11 @@
 						</div>
 
 						<div class="flex flex-col grow min-w-0">
-							<div class="grow truncate text-left font-normal leading-tight py-0.5"
+							<div class="min-w-0 truncate text-left font-normal leading-tight"
 								>{item.summary ?? ''}</div
 							>
 							{#if displayPath && item.path}
-								<div class="grow truncate text-left text-2xs font-thin">
+								<div class="min-w-0 truncate text-left text-2xs font-thin leading-tight">
 									{item.path}
 								</div>
 							{/if}
@@ -246,7 +273,7 @@
 		<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
 			There are more items than being displayed. Refine your search.
 		</div>
-	{:else}
+	{:else if customUi?.suggestScript != false}
 		<div class="px-2 py-1">
 			<a
 				href={`${$hubBaseUrlStore}?suggest_script=true`}

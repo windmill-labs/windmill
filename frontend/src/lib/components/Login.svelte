@@ -17,10 +17,13 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, tick } from 'svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
+	import Password from './Password.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
+	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 
 	interface Props {
 		rd?: string | undefined
@@ -29,6 +32,7 @@
 		error?: string | undefined
 		popup?: boolean
 		firstTime?: boolean
+		autoRedirect?: boolean
 		onLoginSuccess?: () => void
 	}
 
@@ -39,6 +43,7 @@
 		error = undefined,
 		popup = false,
 		firstTime = false,
+		autoRedirect = true,
 		onLoginSuccess = undefined
 	}: Props = $props()
 
@@ -88,9 +93,15 @@
 	const providersType = providers.map((p) => p.type as string)
 
 	let showPassword = $state(false)
-	let logins: OAuthLogin[] | undefined = $state(undefined)
+	let passwordField = $state<Password | undefined>(undefined)
+	// Type argument rather than annotation: annotating narrows the declaration to the
+	// initializer's `undefined`, so a top-level read sees `never` instead of the array.
+	let logins = $state<OAuthLogin[] | undefined>(undefined)
 	let saml: string | undefined = $state(undefined)
 	let smtpConfigured: boolean | undefined = $state(undefined)
+	let disablePasswordLogin = $state(false)
+	let autoRedirecting = $state(false)
+	let oauthFlowDone = false
 
 	type OAuthLogin = {
 		type: string
@@ -107,6 +118,11 @@
 			email,
 			password
 		}
+
+		// Await the DOM update: the field must be back to type="password" before the
+		// request goes out, or the browser may not offer to save the credential
+		passwordField?.conceal()
+		await tick()
 
 		try {
 			await UserService.login({ requestBody })
@@ -133,17 +149,25 @@
 	}
 
 	async function redirectUser() {
-		if (rd?.startsWith('http')) {
-			window.location.href = rd
+		// Reduce same-origin full URLs to relative paths so deep links from
+		// e.g. /a/[...path] (which carry the full URL as rd) still navigate
+		// correctly instead of falling through to the cross-origin branch.
+		let resolvedRd = toSameOriginRelativePath(rd) ?? rd
+		if (resolvedRd?.startsWith('http')) {
+			if (isValidLogoutRedirect(resolvedRd)) {
+				window.location.href = resolvedRd
+				return
+			}
+			goto('/')
 			return
 		}
 		if ($workspaceStore) {
-			goto(rd ?? '/')
+			goto(resolvedRd ?? '/')
 		} else {
-			let workspaceTarget = parseQueryParams(rd ?? undefined)['workspace']
-			if (rd && workspaceTarget) {
+			let workspaceTarget = parseQueryParams(resolvedRd ?? undefined)['workspace']
+			if (resolvedRd && workspaceTarget) {
 				$workspaceStore = workspaceTarget
-				goto(rd)
+				goto(resolvedRd)
 				return
 			}
 
@@ -167,36 +191,72 @@
 						const prefix = defaultApp.default_app_raw ? '/apps_raw/get' : '/apps/get'
 						goto(`${prefix}/${defaultApp.default_app_path}`)
 					} else {
-						goto(rd ?? '/')
+						goto(resolvedRd ?? '/')
 					}
 				} else {
-					goto(rd ?? '/')
+					goto(resolvedRd ?? '/')
 				}
-			} else if (rd?.startsWith('/user/workspaces')) {
-				goto(rd)
-			} else if (rd == '/#user-settings') {
+			} else if (resolvedRd?.startsWith('/user/workspaces')) {
+				goto(resolvedRd)
+			} else if (resolvedRd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)
 			} else {
-				goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
+				goto(`/user/workspaces${resolvedRd ? `?rd=${encodeURIComponent(resolvedRd)}` : ''}`)
 			}
 		}
 	}
 
 	async function loadLogins() {
-		try {
-			const allLogins = await OauthService.listOauthLogins()
-			logins = allLogins.oauth.map((login) => ({
+		const [loginsResult, disabledResult] = await Promise.allSettled([
+			OauthService.listOauthLogins(),
+			UserService.isPasswordLoginDisabled()
+		])
+
+		if (disabledResult.status === 'fulfilled') {
+			disablePasswordLogin = disabledResult.value ?? false
+		} else {
+			disablePasswordLogin = false
+			console.error('Could not load password login setting', disabledResult.reason)
+		}
+
+		let autoLogin: string | undefined = undefined
+		if (loginsResult.status === 'fulfilled') {
+			logins = loginsResult.value.oauth.map((login) => ({
 				type: login.type,
 				displayName: login.display_name || login.type
 			}))
-			saml = allLogins.saml
-
-			showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
-		} catch (e) {
+			saml = loginsResult.value.saml
+			autoLogin = loginsResult.value.auto_login
+		} else {
 			logins = []
 			saml = undefined
-			showPassword = true
-			console.error('Could not load logins', e)
+			console.error('Could not load logins', loginsResult.reason)
+		}
+
+		showPassword =
+			!disablePasswordLogin &&
+			((logins?.length === 0 && !saml) || (email != undefined && email.length > 0))
+
+		if (autoRedirect && autoLogin && !error && !shouldSkipAutoRedirect()) {
+			if (autoLogin === 'saml' && saml) {
+				autoRedirecting = true
+				if (!redirectSaml()) autoRedirecting = false
+			} else if (logins?.some((l) => l.type === autoLogin)) {
+				autoRedirecting = true
+				if (!storeRedirect(autoLogin)) {
+					autoRedirecting = false
+					sendUserToast('Popup blocked — please click the sign-in button to continue.', true)
+				}
+			}
+		}
+	}
+
+	function shouldSkipAutoRedirect(): boolean {
+		try {
+			const params = new URLSearchParams(window.location.search)
+			return params.get('no_sso') === '1'
+		} catch {
+			return false
 		}
 	}
 
@@ -220,10 +280,12 @@
 
 	checkSmtpConfigured()
 
-	function handleKeyUp(event: KeyboardEvent) {
+	function handleKeyDown(event: KeyboardEvent) {
 		const key = event.key
 
-		if (key === 'Enter') {
+		// keydown auto-repeats while held, and Enter also confirms an IME candidate —
+		// either would submit the form more than once per keypress
+		if (key === 'Enter' && !event.isComposing && !event.repeat) {
 			event.preventDefault()
 			login()
 		}
@@ -256,18 +318,23 @@
 		if (data.type === 'error') {
 			sendUserToast(data.error, true)
 		} else if (data.type === 'success') {
-			onLoginSuccess?.()
+			finishOauthFlow('postMessage')
 		}
 	}
 
 	function handleStorageEvent(event) {
 		if (event.key === 'oauth-success') {
 			try {
-				processPopupData(JSON.parse(event.newValue))
+				const data = JSON.parse(event.newValue)
 				console.log('oauth-success from storage')
 				// Clean up
 				localStorage.removeItem('oauth-success')
 				window.removeEventListener('storage', handleStorageEvent)
+				if (data?.type === 'success') {
+					finishOauthFlow('storage')
+				} else {
+					processPopupData(data)
+				}
 			} catch (e) {
 				console.error('Could not process oauth-success from storage', e)
 			}
@@ -276,19 +343,37 @@
 		}
 	}
 
+	function finishOauthFlow(via: 'postMessage' | 'storage' | 'poll', win?: Window) {
+		if (oauthFlowDone) return
+		oauthFlowDone = true
+		console.log(`oauth: signaled via ${via}`)
+		if (win && !win.closed) win.close()
+		window.removeEventListener('message', popupListener)
+		window.removeEventListener('storage', handleStorageEvent)
+		onLoginSuccess?.()
+	}
+
 	onDestroy(() => {
 		window.removeEventListener('message', popupListener)
 		window.removeEventListener('storage', handleStorageEvent)
 	})
 
-	function storeRedirect(provider: string) {
-		if (rd) {
-			try {
-				localStorage.setItem('rd', rd)
-			} catch (e) {
-				console.error('Could not persist redirection to local storage', e)
-			}
+	function persistRd() {
+		if (!rd) return
+		// Only persist a same-origin relative path. Storing a full URL pollutes
+		// the localStorage key with a value that the post-login redirect logic
+		// can't reuse safely (it would fall through the open-redirect guard).
+		const safe = toSameOriginRelativePath(rd)
+		if (!safe) return
+		try {
+			localStorage.setItem('rd', safe)
+		} catch (e) {
+			console.error('Could not persist redirection to local storage', e)
 		}
+	}
+
+	function storeRedirect(provider: string): boolean {
+		persistRd()
 		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
 		console.log('storeRedirect', popup, url)
 
@@ -296,20 +381,103 @@
 			localStorage.setItem('closeUponLogin', 'true')
 			window.addEventListener('message', popupListener)
 			window.addEventListener('storage', handleStorageEvent)
-			window.open(url, '_blank', 'popup')
+			const win = window.open(url, '_blank', 'popup')
+			if (!win) {
+				window.removeEventListener('message', popupListener)
+				window.removeEventListener('storage', handleStorageEvent)
+				return false
+			}
+			// Safety net for Safari: when the popup is opened without a fresh user
+			// gesture (auto-login), ITP can partition cookies/localStorage between
+			// popup and parent, so neither the close cookie, the postMessage, nor
+			// the localStorage 'oauth-success' signal reaches us. The session
+			// cookie is set same-origin and isn't subject to that partitioning, so
+			// polling whoami catches the success and lets us force-close the popup.
+			pollForLoginSuccess(win)
+			return true
 		} else {
 			localStorage.setItem('closeUponLogin', 'false')
 			window.location.href = url
+			return true
 		}
+	}
+
+	function pollForLoginSuccess(win: Window) {
+		const startedAt = Date.now()
+		const interval = setInterval(async () => {
+			if (oauthFlowDone) {
+				clearInterval(interval)
+				return
+			}
+			if (Date.now() - startedAt > 5 * 60 * 1000) {
+				clearInterval(interval)
+				console.log('oauth: poll timed out after 5 minutes')
+				return
+			}
+			if (win.closed) {
+				clearInterval(interval)
+				console.log('oauth: popup closed before login completed')
+				return
+			}
+			try {
+				await UserService.getCurrentEmail()
+			} catch {
+				return
+			}
+			clearInterval(interval)
+			finishOauthFlow('poll', win)
+		}, 1500)
+	}
+
+	function redirectSaml(): boolean {
+		if (!saml) {
+			sendUserToast('No SAML login available', true)
+			return false
+		}
+		let target = saml
+		let relayStateSet = false
+		// Carry the SP-initiated deep link through the IdP round-trip via SAML
+		// RelayState so the ACS redirects straight back to it (bypassing
+		// /user/login). Same-origin relative paths are passed verbatim;
+		// full URLs (e.g. the page URL from /a/[...path]) are reduced to their
+		// path component first. The backend re-validates. Cross-origin or
+		// otherwise unsafe values fall through to the localStorage fallback.
+		const safePath = toSameOriginRelativePath(rd)
+		if (safePath) {
+			try {
+				const url = new URL(saml)
+				url.searchParams.set('RelayState', safePath)
+				target = url.toString()
+				relayStateSet = true
+			} catch (e) {
+				console.error('Could not set SAML RelayState', e)
+			}
+		}
+		// Only use the localStorage fallback when RelayState is NOT carrying the
+		// deep link. With RelayState the ACS redirects straight to the target and
+		// /user/login never consumes/clears the key, so a persisted value would
+		// go stale and hijack a later plain visit to /user/login.
+		if (!relayStateSet) {
+			persistRd()
+		}
+		window.location.href = target
+		return true
 	}
 
 	$effect(() => {
 		error && sendUserToast(escapeHtml(error), true)
 	})
+
+	let loginOptionCount = $derived((logins?.length ?? 0) + (saml ? 1 : 0))
 </script>
 
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
-	<div class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4">
+	{#if autoRedirecting}
+		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
+	{/if}
+	<div
+		class="grid {loginOptionCount > 3 ? 'grid-cols-2' : ''} gap-4 {autoRedirecting ? 'hidden' : ''}"
+	>
 		{#if !logins}
 			{#each Array(4) as _}
 				<Skeleton layout={[0.5, [2.375]]} />
@@ -327,39 +495,16 @@
 				{/if}
 			{/each}
 			{#each logins.filter((login) => !providersType?.includes(login.type)) as login}
-				<Button
-					variant="default"
-					btnClasses="mt-2 w-full"
-					on:click={() => storeRedirect(login.type)}
-				>
+				<Button variant="default" on:click={() => storeRedirect(login.type)}>
 					{login.displayName}
 				</Button>
 			{/each}
 		{/if}
 		{#if saml}
-			<Button
-				variant="default"
-				btnClasses="mt-2 w-full"
-				on:click={() => {
-					if (saml) {
-						if (rd) {
-							try {
-								localStorage.setItem('rd', rd)
-							} catch (e) {
-								console.error('Could not persist redirection to local storage', e)
-							}
-						}
-						window.location.href = saml
-					} else {
-						sendUserToast('No SAML login available', true)
-					}
-				}}
-			>
-				SSO
-			</Button>
+			<Button variant="default" on:click={redirectSaml}>SSO</Button>
 		{/if}
 	</div>
-	{#if saml || (logins && logins.length > 0)}
+	{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
 		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-6' : '')}>
 			<Button
 				size="xs"
@@ -373,7 +518,7 @@
 		</div>
 	{/if}
 
-	{#if showPassword}
+	{#if !autoRedirecting && showPassword && !disablePasswordLogin}
 		<div>
 			{#if firstTime}
 				<p class="text-xs text-center w-full pb-4 text-secondary">
@@ -390,19 +535,37 @@
 				<div class="space-y-1">
 					<label for="email" class="block text-xs font-semibold text-emphasis"> Email </label>
 					<div>
-						<input type="email" bind:value={email} id="email" autocomplete="email" />
+						<TextInput
+							size="md"
+							bind:value={email}
+							inputProps={{
+								id: 'email',
+								type: 'email',
+								autocomplete: 'username',
+								onkeydown: (e) => {
+									// Only move on once the field holds something: while the browser's
+									// credential dropdown is open, Enter belongs to the dropdown
+									if (e.key === 'Enter' && !e.isComposing && !e.repeat && e.currentTarget.value) {
+										e.preventDefault()
+										passwordField?.focus()
+									}
+								}
+							}}
+						/>
 					</div>
 				</div>
 
 				<div class="space-y-1">
 					<label for="password" class="block text-xs font-semibold text-emphasis"> Password </label>
 					<div>
-						<input
-							onkeyup={handleKeyUp}
-							bind:value={password}
+						<Password
+							bind:this={passwordField}
+							bind:password
 							id="password"
-							type="password"
+							placeholder=""
 							autocomplete="current-password"
+							allowMultiline={false}
+							onKeyDown={handleKeyDown}
 						/>
 					</div>
 					{#if smtpConfigured}

@@ -1,0 +1,40 @@
+summary: Notes and groups (#8641)
+description: ''
+value:
+  modules:
+    - id: fetch
+      summary: Fetch product
+      value:
+        type: script
+        input_transforms: {}
+        is_trigger: false
+        path: f/api/product_get
+    - id: map
+      summary: Map item
+      value:
+        type: script
+        input_transforms:
+          bc_item:
+            type: javascript
+            expr: flow_input.bc_item
+        is_trigger: false
+        path: f/mapping/item_to_product
+  groups:
+    - summary: My group
+      color: green
+      end_id: map
+      start_id: fetch
+  notes:
+    - id: note-abc123
+      type: group
+      color: blue
+      contained_node_ids:
+        - fetch
+        - map
+      locked: false
+      text: These steps must run together
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

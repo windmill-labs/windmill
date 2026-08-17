@@ -2,13 +2,13 @@
 	import { tick } from 'svelte'
 	import SqsTriggerEditorInner from './SqsTriggerEditorInner.svelte'
 
-	let { onUpdate } = $props()
+	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
 
 	let open = $state(false)
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(ePath: string, isFlow: boolean, fixedScriptPath?: string) {
 		open = true
 		await tick()
-		drawer?.openEdit(ePath, isFlow)
+		drawer?.openEdit(ePath, isFlow, undefined, fixedScriptPath)
 	}
 
 	export async function openNew(

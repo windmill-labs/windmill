@@ -13,6 +13,7 @@
 	import {
 		inputBaseClass,
 		inputBorderClass,
+		inputLeadingClasses,
 		inputSizeClasses
 	} from '../text_input/TextInput.svelte'
 	import { ButtonType } from '../common/button/model'
@@ -45,6 +46,7 @@
 		itemButtonWrapperClasses,
 		size = 'md',
 		showPlaceholderOnOpen = false,
+		dropdownClass,
 		transformInputSelectedText,
 		groupBy,
 		sortBy,
@@ -52,9 +54,11 @@
 		onBlur,
 		onClear,
 		onCreateItem,
+		useContentEditable = false,
 		startSnippet,
 		endSnippet,
-		bottomSnippet
+		bottomSnippet,
+		inputLeadingSnippet
 	}: {
 		items?: Item[]
 		value: Value | undefined
@@ -80,6 +84,7 @@
 		itemButtonWrapperClasses?: string
 		size?: 'sm' | 'md' | 'lg'
 		showPlaceholderOnOpen?: boolean
+		dropdownClass?: string
 		transformInputSelectedText?: (text: string, value: Value) => string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
@@ -87,15 +92,19 @@
 		onBlur?: () => void
 		onClear?: () => void
 		onCreateItem?: (value: string) => void
+		useContentEditable?: boolean
 		startSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
 		endSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
 		bottomSnippet?: Snippet<[{ close: () => void }]>
+		// Adornment pinned inside the input, left of the text. Pass `undefined` rather than a
+		// snippet that renders nothing — its presence is what reserves the leading padding.
+		inputLeadingSnippet?: Snippet
 	} = $props()
 
 	let disabled = $derived(_disabled || (loading && !value))
 	let iconSize = $derived(ButtonType.UnifiedIconSizes[size])
 
-	let inputEl: HTMLInputElement | undefined = $state()
+	let inputEl: HTMLInputElement | HTMLDivElement | undefined = $state()
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
 		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
@@ -133,6 +142,16 @@
 		let text = valueEntry?.label ?? getLabel({ value }) ?? ''
 		return transformInputSelectedText?.(text, value) ?? text
 	})
+
+	// contenteditable is owned by the browser while typing, so the text node
+	// must be set imperatively — `>{expr}</div>` would race with the browser's
+	// own DOM mutations and produce duplicated text.
+	$effect(() => {
+		const target = open ? filterText : inputText
+		if (useContentEditable && inputEl && inputEl.textContent !== target) {
+			inputEl.textContent = target
+		}
+	})
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -157,8 +176,14 @@
 			/>
 		</div>
 	{:else if RightIcon}
-		<div class="absolute z-10 right-2 h-full flex items-center">
+		<div class="absolute z-10 right-2 h-full flex items-center pointer-events-none">
 			<RightIcon size={iconSize} class="text-secondary" />
+		</div>
+	{/if}
+
+	{#if inputLeadingSnippet}
+		<div class="absolute z-10 left-2 h-full flex items-center pointer-events-none text-secondary">
+			{@render inputLeadingSnippet()}
 		</div>
 	{/if}
 
@@ -169,40 +194,83 @@
 	{/if}
 
 	<!-- svelte-ignore a11y_autofocus -->
-	<input
-		{autofocus}
-		{disabled}
-		type="text"
-		bind:value={() => (open ? filterText : inputText), (v) => open && (filterText = v)}
-		placeholder={loading && !value
-			? 'Loading...'
-			: value && !showPlaceholderOnOpen
-				? inputText
-				: placeholder}
-		style={containerStyle}
-		class={twMerge(
-			inputBaseClass,
-			inputSizeClasses[size],
-			ButtonType.UnifiedHeightClasses[size],
-			inputBorderClass({ error, forceFocus: open }),
-			'w-full',
-			open ? '' : 'cursor-pointer',
-			// Show value as placeholder when opening the dropdown and the search is empty
-			!value ? 'placeholder-hint' : '!placeholder-primary',
-			(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
-			inputClass ?? ''
-		)}
-		autocomplete="off"
-		oninput={(e) => {
-			// Explicitly open dropdown if closed and update filterText
-			if (!open) open = true
-			filterText = e.currentTarget.value
-		}}
-		onpointerdown={() => (open = true)}
-		bind:this={inputEl}
-		{id}
-	/>
+	{#if useContentEditable}
+		{@const placeholderText =
+			loading && !value ? 'Loading...' : value && !showPlaceholderOnOpen ? inputText : placeholder}
+		<div
+			contenteditable={!disabled}
+			role="textbox"
+			aria-disabled={disabled}
+			tabindex={disabled ? -1 : 0}
+			{id}
+			style={containerStyle}
+			class={twMerge(
+				inputBaseClass,
+				inputSizeClasses[size],
+				ButtonType.UnifiedHeightClasses[size],
+				inputBorderClass({ error, forceFocus: open }),
+				'w-full whitespace-pre overflow-hidden',
+				inputLeadingClasses[size],
+				'focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0',
+				open ? '' : 'cursor-pointer',
+				loading || (clearable && !disabled && value) || RightIcon ? 'pr-7' : '',
+				inputLeadingSnippet ? 'pl-7' : '',
+				'empty:before:content-[attr(data-placeholder)]',
+				!value ? 'empty:before:text-hint' : 'empty:before:text-primary',
+				disabled && '!bg-surface-disabled !border-transparent !text-disabled pointer-events-none',
+				inputClass ?? ''
+			)}
+			data-placeholder={placeholderText}
+			oninput={(e) => {
+				if (!open) open = true
+				filterText = e.currentTarget.textContent ?? ''
+			}}
+			onpointerdown={() => !disabled && (open = true)}
+			onkeydown={(e) => {
+				if (e.key === 'Enter') {
+					e.preventDefault()
+				}
+			}}
+			bind:this={inputEl}
+		></div>
+	{:else}
+		<input
+			{autofocus}
+			{disabled}
+			type="text"
+			bind:value={() => (open ? filterText : inputText), (v) => open && (filterText = v)}
+			placeholder={loading && !value
+				? 'Loading...'
+				: value && !showPlaceholderOnOpen
+					? inputText
+					: placeholder}
+			style={containerStyle}
+			class={twMerge(
+				inputBaseClass,
+				inputSizeClasses[size],
+				ButtonType.UnifiedHeightClasses[size],
+				inputBorderClass({ error, forceFocus: open }),
+				'w-full',
+				open ? '' : 'cursor-pointer',
+				// Show value as placeholder when opening the dropdown and the search is empty
+				!value ? 'placeholder-hint' : '!placeholder-primary',
+				loading || (clearable && !disabled && value) || RightIcon ? 'pr-8' : '',
+				inputLeadingSnippet ? 'pl-7' : '',
+				inputClass ?? ''
+			)}
+			autocomplete="off"
+			oninput={(e) => {
+				// Explicitly open dropdown if closed and update filterText
+				if (!open) open = true
+				filterText = e.currentTarget.value
+			}}
+			onpointerdown={() => !disabled && (open = true)}
+			bind:this={inputEl}
+			{id}
+		/>
+	{/if}
 	<SelectDropdown
+		class={dropdownClass}
 		{disablePortal}
 		onSelectValue={setValue}
 		{open}

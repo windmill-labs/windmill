@@ -1,34 +1,48 @@
-#[cfg(feature = "bedrock")]
-use crate::ai::providers::bedrock::check_env_credentials;
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
     get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
-    parse_raw_script_schema, should_use_structured_output_tool,
-    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    parse_raw_script_schema, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
+use sha2::Digest;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+#[cfg(feature = "bedrock")]
+use windmill_ai::ai_bedrock::check_env_credentials;
 #[cfg(feature = "mcp")]
 use windmill_mcp::McpClient;
 
 #[cfg(not(feature = "mcp"))]
 use crate::ai::tools::McpClientStub as McpClient;
-use windmill_common::{
+use windmill_ai::{
     ai_providers::AIProvider,
+    image_handler::upload_image_to_s3,
+    providers::{
+        create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
+        remember_chat_completions_only,
+    },
+    proxy::{
+        common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
+    },
+    query_builder::{BuildRequestArgs, ParsedResponse},
+    types::*,
+    utils::{pinned_ai_client_for, should_use_structured_output_tool},
+};
+use windmill_common::{
     cache,
     client::AuthedClient,
     db::DB,
     error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{FlowModule, FlowModuleValue, ToolValue},
+    flows::{AgentTool, FlowModule, FlowModuleValue, InputTransform, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::get_full_hub_script_by_path,
@@ -38,46 +52,15 @@ use windmill_common::{
 use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
-    ai::{
-        image_handler::upload_image_to_s3,
-        query_builder::{
-            create_query_builder, BuildRequestArgs, ParsedResponse, StreamEventProcessor,
-        },
-        types::*,
+    ai::stream_event_processor::StreamEventProcessor,
+    common::{
+        build_args_map, resolve_job_timeout, transform_json_value, OccupancyMetrics, StreamNotifier,
     },
-    common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
 
 lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
-
-    /// Parse AI_HTTP_HEADERS environment variable into a vector of (header_name, header_value) tuples
-    /// Format: "header1: value1, header2: value2"
-    static ref AI_HTTP_HEADERS: Vec<(String, String)> = {
-        std::env::var("AI_HTTP_HEADERS")
-            .ok()
-            .map(|headers_str| {
-                headers_str
-                    .split(',')
-                    .filter_map(|header| {
-                        let parts: Vec<&str> = header.splitn(2, ':').collect();
-                        if parts.len() == 2 {
-                            let name = parts[0].trim().to_string();
-                            let value = parts[1].trim().to_string();
-                            if !name.is_empty() && !value.is_empty() {
-                                Some((name, value))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
 
     static ref AI_AGENT_TOOL_SCHEMA: Box<RawValue> = to_raw_value(&serde_json::json!({
         "type": "object",
@@ -91,6 +74,38 @@ lazy_static::lazy_static! {
 
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
+
+fn strip_system_messages(messages: &[OpenAIMessage]) -> Vec<OpenAIMessage> {
+    messages
+        .iter()
+        .filter(|message| message.role != "system")
+        .cloned()
+        .collect()
+}
+
+fn strip_leading_tool_messages(messages: Vec<OpenAIMessage>) -> Vec<OpenAIMessage> {
+    match messages.iter().position(|message| message.role != "tool") {
+        Some(first_non_tool_index) => messages.into_iter().skip(first_non_tool_index).collect(),
+        None => Vec::new(),
+    }
+}
+
+fn prepare_auto_memory_messages_for_request(
+    loaded_messages: &[OpenAIMessage],
+    context_length: usize,
+) -> Vec<OpenAIMessage> {
+    let start_idx = loaded_messages.len().saturating_sub(context_length);
+    strip_leading_tool_messages(loaded_messages[start_idx..].to_vec())
+}
+
+fn prepare_auto_memory_messages_for_persistence(
+    all_messages: &[OpenAIMessage],
+    context_length: usize,
+) -> Vec<OpenAIMessage> {
+    let non_system_messages = strip_system_messages(all_messages);
+    let start_idx = non_system_messages.len().saturating_sub(context_length);
+    non_system_messages[start_idx..].to_vec()
+}
 
 fn find_module_by_id(
     modules: &Vec<FlowModule>,
@@ -107,17 +122,49 @@ fn find_module_by_id(
     Ok(found)
 }
 
-fn find_ai_agent_tool_module_in_parent_agent(
+async fn find_ai_agent_tool_module_in_parent_agent(
     modules: &Vec<FlowModule>,
     parent_agent_step_id: &str,
     tool_module_id: &str,
+    client: &AuthedClient,
 ) -> Result<Option<FlowModule>, Error> {
     let Some(parent_agent_module) = find_module_by_id(modules, parent_agent_step_id)? else {
         return Ok(None);
     };
 
-    let FlowModuleValue::AIAgent { tools, .. } = parent_agent_module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, agent, .. } = parent_agent_module.get_value()? else {
         return Ok(None);
+    };
+
+    // A linked parent carries no tools on the module (they live in the resource, resolved only in
+    // the main execution branch). Resolve them from the resource here too, so a nested agent tool
+    // of a saved+linked agent can still be located when it runs as its own job.
+    let tools = if let Some(agent_ref) = agent.as_deref() {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        // Definitions only: resolving their defaults here would hit the same inaccessible resources.
+        let resource_value = client
+            .get_resource_value::<serde_json::Value>(agent_path)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "failed to load ai_agent resource {agent_path}: {e}"
+                ))
+            })?;
+        match resource_value {
+            serde_json::Value::Object(mut map) => match map.remove("tools") {
+                Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                    Error::internal_err(format!(
+                        "invalid tools in ai_agent resource {agent_path}: {e}"
+                    ))
+                })?,
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    } else {
+        tools
     };
 
     for tool in tools {
@@ -127,6 +174,73 @@ fn find_ai_agent_tool_module_in_parent_agent(
     }
 
     Ok(None)
+}
+
+/// Resolve the `description` sent to the model for an AI agent tool, in priority order:
+/// an explicit per-tool description, then one auto-derived from the underlying runnable,
+/// then the tool name as the historical last-resort fallback. Blank/whitespace-only values
+/// at each level are skipped so a lower-priority source can still apply.
+fn resolve_tool_description(
+    user_description: Option<String>,
+    derived_description: Option<String>,
+    tool_name: &str,
+) -> String {
+    fn non_empty(value: Option<String>) -> Option<String> {
+        value
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    non_empty(user_description)
+        .or_else(|| non_empty(derived_description))
+        .unwrap_or_else(|| tool_name.to_string())
+}
+
+/// Fetch a workspace script's stored description by hash, used to auto-derive an AI agent
+/// tool's description when the user did not provide an explicit one. Returns `None` when the
+/// script has no description or on any lookup error, so the caller falls back to the tool name.
+async fn fetch_script_description(db: &DB, w_id: &str, hash: i64) -> Option<String> {
+    sqlx::query_scalar!(
+        "SELECT description FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .map(|d| d.trim().to_string())
+    .filter(|d| !d.is_empty())
+}
+
+/// Overlay a linked step's host-local tool wiring onto the agent resource's tools. For each tool
+/// id present in `tool_inputs`, merge its per-input transforms into that tool's `input_transforms`
+/// (step wins). Only `FlowModule` tools carry input transforms; MCP/websearch tools are skipped.
+fn overlay_tool_inputs(
+    tools: &mut [AgentTool],
+    tool_inputs: &HashMap<String, HashMap<String, InputTransform>>,
+) {
+    if tool_inputs.is_empty() {
+        return;
+    }
+    for tool in tools.iter_mut() {
+        let Some(overrides) = tool_inputs.get(&tool.id) else {
+            continue;
+        };
+        let ToolValue::FlowModule(fmv) = &mut tool.value else {
+            continue;
+        };
+        let input_transforms = match fmv {
+            FlowModuleValue::Script { input_transforms, .. }
+            | FlowModuleValue::RawScript { input_transforms, .. }
+            | FlowModuleValue::FlowScript { input_transforms, .. }
+            | FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+            _ => continue,
+        };
+        for (key, transform) in overrides {
+            input_transforms.insert(key.clone(), transform.clone());
+        }
+    }
 }
 
 pub async fn handle_ai_agent_job(
@@ -150,14 +264,20 @@ pub async fn handle_ai_agent_job(
     has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
     // build_args_map returns None if no $res:/$var: transforms needed, in which case use original args
-    let args = match build_args_map(job, client, conn).await? {
+    let local_args = match build_args_map(job, client, conn).await? {
         Some(transformed) => transformed,
         None => job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default(),
     };
-    let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
 
-    // Handle dry_run mode - check credentials without making API calls
-    if args.credentials_check {
+    // Handle dry_run mode - check credentials without making API calls.
+    // The credentials check is always invoked inline (provider present, no agent link and no
+    // parent flow), so it resolves before any flow/agent-resource context is fetched.
+    let is_credentials_check = local_args
+        .get("credentials_check")
+        .map(|v| v.get().trim() == "true")
+        .unwrap_or(false);
+    if is_credentials_check {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
         return handle_credentials_check(&args.provider).await;
     }
 
@@ -230,7 +350,9 @@ pub async fn handle_ai_agent_job(
             &value.modules,
             parent_agent_step_id,
             flow_step_id,
-        )?
+            client,
+        )
+        .await?
     } else {
         find_module_by_id(&value.modules, flow_step_id)?
     };
@@ -243,14 +365,123 @@ pub async fn handle_ai_agent_job(
 
     let summary = module.summary.clone();
 
-    let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
+    let FlowModuleValue::AIAgent {
+        tools: module_tools,
+        omit_output_from_conversation,
+        agent,
+        tool_inputs,
+        ..
+    } = module.get_value()?
+    else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
     };
 
+    // A linked step takes its brain and tools from the resource and keeps only the flow-local
+    // inputs (user_message/user_attachments) of its own; both stay rigid, so the one thing it may
+    // bind to this flow is the tools' inputs, overlaid from `tool_inputs` below.
+    let (args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref() {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        // Read raw and interpolate only the brain below. Interpolating the whole resource would also
+        // resolve each tool's default `$res:`/`$var:`, which a host flow may be overriding and which
+        // may be unreadable to whoever runs this flow — an unused tool could then fail the agent.
+        let resource_value = client
+            .get_resource_value::<serde_json::Value>(agent_path)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "failed to load ai_agent resource {agent_path}: {e}"
+                ))
+            })?;
+        let mut config = match resource_value {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "ai_agent resource {agent_path} must be a JSON object"
+                )))
+            }
+        };
+        let mut tools = match config.remove("tools") {
+            Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid tools in ai_agent resource {agent_path}: {e}"
+                ))
+            })?,
+            None => Vec::new(),
+        };
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+        let brain = transform_json_value(
+            "ai_agent",
+            client,
+            &job.workspace_id,
+            serde_json::Value::Object(config),
+            job,
+            conn,
+            0,
+        )
+        .await?;
+        let mut brain = match brain {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "ai_agent resource {agent_path} must be a JSON object"
+                )))
+            }
+        };
+        // Only after interpolating the resource: these are caller-controlled and already resolved by
+        // build_args_map, so passing them through it again would expand contextual values —
+        // `$WM_TOKEN` in a user message would reach the model provider.
+        for key in ["user_message", "user_attachments"] {
+            if let Some(v) = local_args.get(key) {
+                brain.insert(
+                    key.to_string(),
+                    serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
+                );
+            }
+        }
+        let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(brain))
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid ai_agent resource config {agent_path}: {e}"
+                ))
+            })?;
+        (args, tools)
+    } else {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
+        // "Edit" on a linked step clears `agent` but keeps the host's `tool_inputs` until Save or
+        // Cancel folds them back, so overlay them here too: a flow persisted mid-edit must still
+        // bind its tools to this flow's context rather than the agent author's.
+        let mut tools = module_tools;
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+        (args, tools)
+    };
+
+    // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
+    // a linked resource's tool set may still contain AIAgent tools (the editor can't constrain a
+    // shared resource); don't advertise them — invoking one would only fail the depth check as a
+    // third-level agent.
+    let tools = if direct_parent_job_kind == JobKind::AIAgent {
+        tools
+            .into_iter()
+            .filter(|t| {
+                !matches!(
+                    &t.value,
+                    ToolValue::FlowModule(FlowModuleValue::AIAgent { .. })
+                )
+            })
+            .collect()
+    } else {
+        tools
+    };
+
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
+    // Explicit per-tool descriptions keyed by tool id. When set, these override the
+    // description auto-derived from the underlying runnable when building tool definitions.
+    let mut tool_descriptions: HashMap<String, String> = HashMap::new();
     #[allow(unused_mut)]
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
     let mut has_websearch = false;
@@ -283,6 +514,14 @@ pub async fn handle_ai_agent_job(
             ToolValue::FlowModule(_) => {
                 // Regular Windmill flow module (script, flow, etc.) - convert to FlowModule
                 tracing::debug!("Windmill module: {:?}", tool.id);
+                if let Some(description) = tool
+                    .description
+                    .as_ref()
+                    .map(|d| d.trim())
+                    .filter(|d| !d.is_empty())
+                {
+                    tool_descriptions.insert(tool.id.clone(), description.to_string());
+                }
                 if let Some(flow_module) = Option::<FlowModule>::from(&tool) {
                     windmill_modules.push(flow_module);
                 }
@@ -300,6 +539,7 @@ pub async fn handle_ai_agent_job(
         let conn = conn;
         let db = db;
         let job = job;
+        let user_description = tool_descriptions.get(&t.id).cloned();
         async move {
             let Some(summary) = t.summary.as_ref().filter(|s| TOOL_NAME_REGEX.is_match(s)) else {
                 return Err(Error::internal_err(format!(
@@ -308,9 +548,9 @@ pub async fn handle_ai_agent_job(
                 )));
             };
 
-            // Extract schema and input_transforms from the module value
+            // Extract schema, input_transforms, and an auto-derived description from the module value
             let module_value = t.get_value()?;
-            let (schema, input_transforms) = match &module_value {
+            let (schema, input_transforms, derived_description) = match &module_value {
                 FlowModuleValue::Script {
                     hash,
                     path,
@@ -319,9 +559,12 @@ pub async fn handle_ai_agent_job(
                     is_trigger,
                     pass_flow_input_directly,
                 } => {
+                    let derived_description: Option<String>;
                     let schema = match hash {
                         Some(hash) => {
                             let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
+                            derived_description =
+                                fetch_script_description(db, &job.workspace_id, hash.0).await;
                             Ok::<_, Error>(
                                 metadata
                                     .schema
@@ -338,9 +581,16 @@ pub async fn handle_ai_agent_job(
                                     None,
                                 )
                                 .await?;
+                                // Hub scripts carry their free-text description in `summary`.
+                                derived_description = hub_script
+                                    .summary
+                                    .as_ref()
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty());
                                 Ok(Some(hub_script.schema))
                             } else {
                                 let hash = get_latest_hash_for_path(
+                                    db,
                                     db,
                                     &job.workspace_id,
                                     path.as_str(),
@@ -357,6 +607,8 @@ pub async fn handle_ai_agent_job(
                                     is_trigger: *is_trigger,
                                     pass_flow_input_directly: *pass_flow_input_directly,
                                 });
+                                derived_description =
+                                    fetch_script_description(db, &job.workspace_id, hash.0).await;
                                 let (_, metadata) = cache::script::fetch(conn, hash).await?;
                                 Ok(metadata
                                     .schema
@@ -366,11 +618,11 @@ pub async fn handle_ai_agent_job(
                             }
                         }
                     }?;
-                    (schema, input_transforms)
+                    (schema, input_transforms, derived_description)
                 }
                 FlowModuleValue::RawScript { content, language, input_transforms, .. } => {
                     let schema = Some(parse_raw_script_schema(&content, &language)?);
-                    (schema, input_transforms)
+                    (schema, input_transforms, None)
                 }
                 FlowModuleValue::AIAgent { input_transforms, .. } => {
                     // By convention for AIAgent tools, only user_message is expected to be AI-filled.
@@ -380,6 +632,7 @@ pub async fn handle_ai_agent_job(
                                 .expect("AI_AGENT_TOOL_SCHEMA should always be valid JSON"),
                         ),
                         input_transforms,
+                        None,
                     )
                 }
                 _ => {
@@ -397,12 +650,15 @@ pub async fn handle_ai_agent_job(
                 None
             };
 
+            let description =
+                resolve_tool_description(user_description, derived_description, summary);
+
             Ok(Tool {
                 def: ToolDef {
                     r#type: "function".to_string(),
                     function: ToolDefFunction {
                         name: summary.clone(),
-                        description: Some(summary.clone()),
+                        description: Some(description),
                         parameters: schema.unwrap_or_else(|| {
                             to_raw_value(&serde_json::json!({
                                 "type": "object",
@@ -424,7 +680,7 @@ pub async fn handle_ai_agent_job(
 
     let mcp_clients = if !mcp_configs.is_empty() {
         let (clients, mcp_tools) =
-            load_mcp_tools(db, &job.workspace_id, mcp_configs, &client.token).await?;
+            load_mcp_tools(db, &job.workspace_id, mcp_configs, client).await?;
         tools.extend(mcp_tools);
         clients
     } else {
@@ -472,6 +728,7 @@ pub async fn handle_ai_agent_job(
             killpill_rx,
             has_stream,
             has_websearch,
+            omit_output_from_conversation,
             cancel_rx,
             tool_abort_handles.clone(),
         );
@@ -543,6 +800,24 @@ pub async fn handle_ai_agent_job(
     }
 }
 
+/// OpenAI rejects a `prompt_cache_key` over 64 characters
+/// (`Invalid 'prompt_cache_key': string too long`), and a runnable path alone can pass
+/// that. Fold an over-long key into a digest of itself: same step still yields the same
+/// key across runs, which is the whole property that routes them to one cache.
+fn bounded_prompt_cache_key(raw: &str) -> String {
+    const MAX_LEN: usize = 64;
+    if raw.len() <= MAX_LEN {
+        return raw.to_string();
+    }
+    let suffix = hex::encode(&sha2::Sha256::digest(raw.as_bytes())[..16]);
+    // Keep a readable head so a key stays traceable to its workspace in provider logs.
+    let mut head = MAX_LEN - suffix.len() - 1;
+    while head > 0 && !raw.is_char_boundary(head) {
+        head -= 1;
+    }
+    format!("{}:{}", &raw[..head], suffix)
+}
+
 #[async_recursion]
 pub async fn run_agent(
     // connection
@@ -568,6 +843,7 @@ pub async fn run_agent(
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
     has_websearch: bool,
+    omit_output_from_conversation: bool,
 
     // cancellation signal from parent
     cancel_rx: tokio::sync::watch::Receiver<bool>,
@@ -576,16 +852,21 @@ pub async fn run_agent(
     tool_abort_handles: ToolAbortHandles,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
-    // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
-    let base_url = if args.provider.kind == AIProvider::AWSBedrock {
-        String::new()
-    } else {
-        args.provider.get_base_url(db).await?
-    };
-    let api_key = args.provider.get_api_key().unwrap_or("");
+    let credentials = args.provider.to_provider_credentials(db).await?;
+    let base_url = &credentials.base_url;
+    let api_key = credentials.api_key.as_deref().unwrap_or("");
 
     // Create the query builder for the provider
-    let query_builder = create_query_builder(&args.provider);
+    let mut query_builder = create_query_builder(&credentials, args.provider.get_model());
+    if query_builder.supports_chat_completions_fallback(base_url)
+        && is_chat_completions_only(base_url, args.provider.get_model())
+    {
+        query_builder = create_chat_completions_query_builder(&credentials);
+    }
+    // These outlive the iteration that discovers them: a request shape or a route the
+    // endpoint rejected once stays rejected for the whole step.
+    let mut include_usage = true;
+    let mut include_prompt_cache_key = true;
 
     // Initialize messages
     let mut messages =
@@ -602,6 +883,17 @@ pub async fn run_agent(
     // Effective flow_step_id: override for nested agents, otherwise from job
     let effective_flow_step_id: Option<&str> =
         flow_step_id_override.or(job.flow_step_id.as_deref());
+
+    // Keyed on the step, not the run: every run of this step opens with the same system
+    // prompt and tool definitions, and each agent-loop iteration extends the previous
+    // one's prefix. Above ~15 requests/minute one key starts missing again, which is a
+    // reason to split it further, never to make it per-run.
+    let prompt_cache_key = bounded_prompt_cache_key(&format!(
+        "{}:{}:{}",
+        job.workspace_id,
+        job.runnable_path(),
+        effective_flow_step_id.unwrap_or_default()
+    ));
 
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
@@ -654,18 +946,10 @@ pub async fn run_agent(
                         // Read messages from memory
                         match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
                             Ok(Some(loaded_messages)) => {
-                                // Take the last n messages
-                                let start_idx =
-                                    loaded_messages.len().saturating_sub(*context_length);
-                                let mut messages_to_load = loaded_messages[start_idx..].to_vec();
-                                let first_non_tool_message_index =
-                                    messages_to_load.iter().position(|m| m.role != "tool");
-
-                                // Remove the first messages if their role is "tool" to avoid OpenAI API error
-                                if let Some(index) = first_non_tool_message_index {
-                                    messages_to_load = messages_to_load[index..].to_vec();
-                                }
-
+                                let messages_to_load = prepare_auto_memory_messages_for_request(
+                                    &loaded_messages,
+                                    *context_length,
+                                );
                                 messages.extend(messages_to_load);
                             }
                             Ok(None) => {}
@@ -729,9 +1013,7 @@ pub async fn run_agent(
             .unwrap_or(false);
 
         if has_message && has_attachments {
-            let mut parts = vec![ContentPart::Text {
-                text: args.user_message.clone().unwrap(),
-            }];
+            let mut parts = vec![ContentPart::Text { text: args.user_message.clone().unwrap() }];
             for attachment in args.user_attachments.as_ref().unwrap() {
                 if !attachment.s3.is_empty() {
                     parts.push(ContentPart::S3Object { s3_object: attachment.clone() });
@@ -765,7 +1047,7 @@ pub async fn run_agent(
 
     let mut actions = vec![];
     let mut content = None;
-    let mut final_usage: Option<crate::ai::types::TokenUsage> = None;
+    let mut final_usage: Option<TokenUsage> = None;
 
     // Check if this provider supports tools with the current output type
     let supports_tools = query_builder.supports_tools_with_output_type(output_type);
@@ -838,6 +1120,7 @@ pub async fn run_agent(
         .as_ref()
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
+    let persist_output_to_conversation = chat_enabled && !omit_output_from_conversation;
 
     let step_name = get_step_name_from_flow(summary.as_deref(), effective_flow_step_id);
 
@@ -858,30 +1141,31 @@ pub async fn run_agent(
         }
 
         // Handle AWS Bedrock provider specially using the official SDK
-        let parsed = if args.provider.kind == AIProvider::AWSBedrock {
+        let parsed = if credentials.provider == AIProvider::AWSBedrock {
             #[cfg(feature = "bedrock")]
             {
-                let region = args
-                    .provider
-                    .get_region()
-                    .unwrap_or(windmill_common::ai_providers::USE_ENV_REGION);
+                let region = credentials
+                    .region
+                    .as_deref()
+                    .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
                 // Use Bedrock SDK via dedicated query builder
-                crate::ai::providers::bedrock::BedrockQueryBuilder::default()
+                windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
                     .execute_request(
                         &messages,
                         tool_defs.as_deref(),
                         args.provider.get_model(),
                         args.temperature,
+                        args.provider.get_reasoning_effort(),
                         args.max_completion_tokens,
                         api_key,
                         region,
-                        stream_event_processor.clone(),
+                        stream_event_processor.as_ref().map(|p| p.boxed_sink()),
                         client,
                         &job.workspace_id,
                         structured_output_tool_name.as_deref(),
-                        args.provider.get_aws_access_key_id(),
-                        args.provider.get_aws_secret_access_key(),
-                        args.provider.get_aws_session_token(),
+                        credentials.aws_access_key_id.as_deref(),
+                        credentials.aws_secret_access_key.as_deref(),
+                        credentials.aws_session_token.as_deref(),
                     )
                     .await?
             }
@@ -893,11 +1177,12 @@ pub async fn run_agent(
             }
         } else {
             // For all other providers, use the HTTP client approach
-            let build_args = BuildRequestArgs {
+            let mut build_args = BuildRequestArgs {
                 messages: &messages,
                 tools: tool_defs.as_deref(),
                 model: args.provider.get_model(),
                 temperature: args.temperature,
+                reasoning_effort: args.provider.get_reasoning_effort(),
                 max_tokens: args.max_completion_tokens,
                 output_schema: args.output_schema.as_ref(),
                 output_type,
@@ -905,103 +1190,162 @@ pub async fn run_agent(
                 user_message: args.user_message.as_deref().unwrap_or(""),
                 attachments: args.user_attachments.as_deref(),
                 has_websearch,
+                prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
             };
 
-            let request_body = query_builder
-                .build_request(&build_args, client, &job.workspace_id)
-                .await?;
-
-            let endpoint =
-                query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
-            let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
+            // A worker cannot run the client credentials exchange, so an OAuth resource
+            // has no token here: the request would carry an empty credential and come
+            // back 401.
+            if needs_unavailable_oauth_exchange(
+                &credentials,
+                args.provider.resource.token_url.as_deref(),
+                &query_builder.get_auth_headers(api_key, base_url, output_type),
+            ) {
+                return Err(Error::ExecutionErr(format!(
+                    "The {:?} resource authenticates with OAuth, which AI agent steps do not \
+                     support. Set an API key on the resource, or carry the provider's credential \
+                     header in its `headers`.",
+                    credentials.provider
+                )));
+            }
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                 .await
                 .0;
 
-            let resource_headers = args.provider.get_headers();
+            let trailing_headers = common_outbound_headers(&credentials).collect::<Vec<_>>();
+
+            // `endpoint` derives from the user-controlled provider base_url, so pin
+            // DNS to the SSRF-validated address: the connect must not rebind to an
+            // internal IP between the check and the request (TOCTOU).
+            let pinned_ai_client = pinned_ai_client_for(base_url).await?;
 
             // Helper to build HTTP request with headers
-            let build_http_request = |body: String| {
-                let mut req = HTTP_CLIENT
-                    .post(&endpoint)
-                    .timeout(timeout)
-                    .header("Content-Type", "application/json");
+            let build_http_request =
+                |endpoint: &str, auth_headers: &[(&'static str, String)], body: String| {
+                    let mut req = pinned_ai_client
+                        .post(endpoint)
+                        .timeout(timeout)
+                        .header("Content-Type", "application/json");
 
-                for (header_name, header_value) in &auth_headers {
-                    req = req.header(*header_name, header_value.clone());
-                }
+                    for (header_name, header_value) in auth_headers {
+                        req = req.header(*header_name, header_value.clone());
+                    }
 
-                for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-                    req = req.header(header_name.as_str(), header_value.as_str());
-                }
+                    for (header_name, header_value) in &trailing_headers {
+                        req = req.header(header_name.as_str(), header_value.as_str());
+                    }
 
-                for (header_name, header_value) in resource_headers {
-                    req = req.header(header_name.as_str(), header_value.as_str());
-                }
+                    req.body(body)
+                };
 
-                req.body(body)
-            };
+            // An endpoint can reject the request shape rather than the model:
+            // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
+            // gateway accepts, and the route itself, when an Azure resource is outside
+            // the Responses API's model/region matrix. Each is retried once with that
+            // part dropped.
+            // Set where the route is found to be absent, and read once the fallback has
+            // answered: a rejection it did not resolve says nothing about the deployment.
+            let mut rerouted_by_a_route_rejection = false;
+            let resp = loop {
+                let request_body = if include_usage {
+                    query_builder
+                        .build_request(&build_args, client, &job.workspace_id)
+                        .await?
+                } else {
+                    query_builder
+                        .build_request_without_usage(&build_args, client, &job.workspace_id)
+                        .await?
+                };
+                let endpoint =
+                    query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
+                let auth_headers = retain_effective_credentials(
+                    &credentials,
+                    query_builder.get_auth_headers(api_key, base_url, output_type),
+                );
 
-            let resp = build_http_request(request_body.clone())
-                .send()
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
+                let resp = build_http_request(&endpoint, &auth_headers, request_body)
+                    .send()
+                    .await
+                    .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
 
-            // Check if request failed and we should retry without stream_options
-            let resp = match resp.error_for_status_ref() {
-                Ok(_) => resp,
-                Err(e) => {
-                    let status = resp.status();
-                    let text = resp
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "<failed to read body>".to_string());
-
-                    // Retry without stream_options if provider supports it and error suggests incompatibility
-                    // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
-                    let should_retry = query_builder.supports_retry_without_usage()
-                        && status.as_u16() == 400
-                        && (text.contains("stream_options")
-                            || text.contains("include_usage")
-                            || text.contains("Additional properties are not allowed"));
-
-                    if should_retry {
-                        tracing::info!(
-                            "Retrying request without stream_options due to provider incompatibility"
-                        );
-
-                        let retry_body = query_builder
-                            .build_request_without_usage(&build_args, client, &job.workspace_id)
-                            .await?;
-
-                        let retry_resp =
-                            build_http_request(retry_body).send().await.map_err(|e| {
-                                Error::internal_err(format!("Failed to call API on retry: {}", e))
-                            })?;
-
-                        match retry_resp.error_for_status_ref() {
-                            Ok(_) => retry_resp,
-                            Err(retry_e) => {
-                                let retry_text = retry_resp
-                                    .text()
-                                    .await
-                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
-                                return Err(Error::internal_err(format!(
-                                    "API error on retry: {} - {}",
-                                    retry_e, retry_text
-                                )));
-                            }
+                match resp.error_for_status_ref() {
+                    Ok(_) => {
+                        if rerouted_by_a_route_rejection {
+                            remember_chat_completions_only(base_url, args.provider.get_model());
                         }
-                    } else {
-                        return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+                        break resp;
+                    }
+                    Err(e) => {
+                        let status = resp.status();
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "<failed to read body>".to_string());
+
+                        // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
+                        let rejects_usage_tracking = include_usage
+                            && query_builder.supports_retry_without_usage()
+                            && status.as_u16() == 400
+                            && (text.contains("stream_options")
+                                || text.contains("include_usage")
+                                || text.contains("Additional properties are not allowed"));
+
+                        // An OpenAI-compatible gateway that validates the body strictly
+                        // names the offending field, whether it calls it an unrecognized
+                        // argument or an unexpected additional property.
+                        let rejects_prompt_cache_key = build_args.prompt_cache_key.is_some()
+                            && status.as_u16() == 400
+                            && text.contains("prompt_cache_key");
+
+                        // Only the first call of the step may re-route: an endpoint that
+                        // does not serve this API rejects that one already, whereas a
+                        // rejection once the conversation is under way is about the
+                        // conversation (context length, content filter, tool schema).
+                        let route_unserved = i == 0
+                            && query_builder.supports_chat_completions_fallback(base_url)
+                            && matches!(status.as_u16(), 400 | 404)
+                            && *output_type == OutputType::Text;
+
+                        if rejects_usage_tracking {
+                            tracing::info!(
+                                "Retrying request without stream_options due to provider incompatibility"
+                            );
+                            include_usage = false;
+                        } else if rejects_prompt_cache_key {
+                            // Checked before the route fallback: the endpoint serves this
+                            // route, it just refuses one optional field, and re-routing
+                            // the whole step over that would give up far more.
+                            tracing::info!(
+                                "Retrying request without prompt_cache_key due to provider incompatibility"
+                            );
+                            include_prompt_cache_key = false;
+                            build_args.prompt_cache_key = None;
+                        } else if route_unserved {
+                            tracing::info!(
+                                "Endpoint rejected the request ({}), falling back to chat/completions",
+                                status
+                            );
+                            // Only a 404 says the route is absent. A 400 is ambiguous —
+                            // a deployment that does serve the route rejects tool
+                            // schemas, blocked hosted tools and filtered content the
+                            // same way — so it re-routes this step and nothing more.
+                            rerouted_by_a_route_rejection = status.as_u16() == 404;
+                            query_builder = create_chat_completions_query_builder(&credentials);
+                            include_usage = true;
+                        } else {
+                            return Err(Error::internal_err(format!(
+                                "API error calling {}: {} - {}",
+                                endpoint, e, text
+                            )));
+                        }
                     }
                 }
             };
 
             if let Some(ref stream_event_processor) = stream_event_processor {
                 query_builder
-                    .parse_streaming_response(resp, stream_event_processor.clone())
+                    .parse_streaming_response(resp, stream_event_processor.boxed_sink())
                     .await?
             } else {
                 query_builder.parse_image_response(resp).await?
@@ -1031,6 +1375,11 @@ pub async fn run_agent(
                 // Add websearch tool message if websearch was used
                 if used_websearch {
                     actions.push(AgentAction::WebSearch {});
+                    if let Some(parent_job) = parent_job {
+                        update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+                        update_flow_status_module_with_actions_success(db, parent_job, true)
+                            .await?;
+                    }
                     messages.push(OpenAIMessage {
                         role: "tool".to_string(),
                         content: Some(OpenAIContent::Text(
@@ -1039,7 +1388,7 @@ pub async fn run_agent(
                         agent_action: Some(AgentAction::WebSearch {}),
                         ..Default::default()
                     });
-                    if chat_enabled {
+                    if persist_output_to_conversation {
                         if let Some(memory_id) = memory_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
@@ -1091,7 +1440,7 @@ pub async fn run_agent(
                     content = Some(OpenAIContent::Text(response_content.clone()));
 
                     // Add assistant message to conversation if chat_input_enabled
-                    if chat_enabled && !response_content.is_empty() {
+                    if persist_output_to_conversation && !response_content.is_empty() {
                         if let Some(memory_id) = memory_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
@@ -1173,6 +1522,7 @@ pub async fn run_agent(
                     killpill_rx,
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
+                    omit_output_from_conversation,
                     previous_result: &previous_result,
                     id_context: &id_context,
                     tool_abort_handles: tool_abort_handles.clone(),
@@ -1203,12 +1553,13 @@ pub async fn run_agent(
             }
             ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
-                let s3_object = upload_image_to_s3(&base64_data, job, client).await?;
+                let s3_object =
+                    upload_image_to_s3(&base64_data, &job.workspace_id, &job.id, client).await?;
 
                 let content = to_raw_value(&s3_object);
 
                 // Add assistant message to conversation if chat_input_enabled
-                if chat_enabled {
+                if persist_output_to_conversation {
                     if let Some(memory_id) = memory_id {
                         let agent_job_id = job.id;
                         let db_clone = db.clone();
@@ -1306,9 +1657,10 @@ pub async fn run_agent(
                     final_messages.iter().map(|m| m.message.clone()).collect();
 
                 if !all_messages.is_empty() {
-                    // Keep only the last n messages
-                    let start_idx = all_messages.len().saturating_sub(*context_length);
-                    let messages_to_persist = all_messages[start_idx..].to_vec();
+                    let messages_to_persist = prepare_auto_memory_messages_for_persistence(
+                        &all_messages,
+                        *context_length,
+                    );
 
                     if let Some(memory_id) = memory_id {
                         if let Err(e) = write_to_memory(
@@ -1347,6 +1699,238 @@ pub async fn run_agent(
             final_usage
         },
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text_message(role: &str, content: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(content.to_string())),
+            ..Default::default()
+        }
+    }
+
+    /// Over 64 characters OpenAI rejects the key outright, which costs a wasted round
+    /// trip per run and silently leaves that step with no prompt caching at all.
+    #[test]
+    fn prompt_cache_key_stays_within_the_provider_bound() {
+        let long = format!("my-workspace:f/{}/agent:step_12", "nested_folder".repeat(8));
+        assert!(long.len() > 64);
+
+        let bounded = bounded_prompt_cache_key(&long);
+
+        assert!(
+            bounded.len() <= 64,
+            "got {} chars: {bounded}",
+            bounded.len()
+        );
+        // Stable for the same step, or every run would land on a different cache.
+        assert_eq!(bounded, bounded_prompt_cache_key(&long));
+        assert_ne!(
+            bounded,
+            bounded_prompt_cache_key(&long.replace("step_12", "step_13"))
+        );
+    }
+
+    #[test]
+    fn prompt_cache_key_passes_short_keys_through_unchanged() {
+        let short = "admins:f/agent/step:a";
+        assert_eq!(bounded_prompt_cache_key(short), short);
+    }
+
+    /// Truncation on a byte index would panic mid-character.
+    #[test]
+    fn prompt_cache_key_truncates_on_a_char_boundary() {
+        let long = format!("workspace:f/{}/agent:step", "é".repeat(80));
+        assert!(bounded_prompt_cache_key(&long).len() <= 64);
+    }
+
+    #[test]
+    fn overlay_tool_inputs_binds_matching_flowmodule_tool_only() {
+        fn js(expr: &str) -> InputTransform {
+            InputTransform::Javascript { expr: expr.to_string() }
+        }
+        fn script_tool(id: &str, key: &str, expr: &str) -> AgentTool {
+            let mut its = HashMap::new();
+            its.insert(key.to_string(), js(expr));
+            AgentTool {
+                id: id.to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::FlowModule(FlowModuleValue::Script {
+                    input_transforms: its,
+                    path: "u/test/tool".to_string(),
+                    hash: None,
+                    tag_override: None,
+                    is_trigger: None,
+                    pass_flow_input_directly: None,
+                }),
+            }
+        }
+        fn script_its(tool: &AgentTool) -> &HashMap<String, InputTransform> {
+            let ToolValue::FlowModule(FlowModuleValue::Script { input_transforms, .. }) =
+                &tool.value
+            else {
+                panic!("expected script tool")
+            };
+            input_transforms
+        }
+
+        // "a" gets rebound, "b" is left alone, the MCP tool is skipped even though it has an override.
+        let mut tools = vec![
+            script_tool("a", "x", "authoring_flow_expr"),
+            script_tool("b", "y", "keep_me"),
+            AgentTool {
+                id: "m".to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::Mcp(windmill_common::flows::McpToolValue {
+                    resource_path: "u/test/mcp".to_string(),
+                    include_tools: vec![],
+                    exclude_tools: vec![],
+                }),
+            },
+        ];
+
+        let mut tool_inputs: HashMap<String, HashMap<String, InputTransform>> = HashMap::new();
+        tool_inputs.insert(
+            "a".to_string(),
+            HashMap::from([
+                ("x".to_string(), js("flow_input.tenant")),
+                ("z".to_string(), js("results.step1")),
+            ]),
+        );
+        tool_inputs.insert(
+            "m".to_string(),
+            HashMap::from([("q".to_string(), js("ignored"))]),
+        );
+
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+
+        // "a": existing key replaced, new key added.
+        let a = script_its(&tools[0]);
+        assert!(
+            matches!(a.get("x"), Some(InputTransform::Javascript { expr }) if expr == "flow_input.tenant")
+        );
+        assert!(
+            matches!(a.get("z"), Some(InputTransform::Javascript { expr }) if expr == "results.step1")
+        );
+        // "b": no override for it, untouched.
+        let b = script_its(&tools[1]);
+        assert!(
+            matches!(b.get("y"), Some(InputTransform::Javascript { expr }) if expr == "keep_me")
+        );
+        // MCP tool: not a FlowModule, left as-is.
+        assert!(matches!(&tools[2].value, ToolValue::Mcp(_)));
+    }
+
+    #[test]
+    fn tool_description_prefers_explicit_over_derived_and_name() {
+        assert_eq!(
+            resolve_tool_description(
+                Some("  Use to look up a user by id  ".to_string()),
+                Some("derived from script".to_string()),
+                "get_user"
+            ),
+            "Use to look up a user by id"
+        );
+    }
+
+    #[test]
+    fn tool_description_falls_back_to_derived_when_no_explicit() {
+        assert_eq!(
+            resolve_tool_description(None, Some("Sync resources".to_string()), "sync_tool"),
+            "Sync resources"
+        );
+        // A blank explicit description must not shadow a usable derived one.
+        assert_eq!(
+            resolve_tool_description(
+                Some("   ".to_string()),
+                Some("Sync resources".to_string()),
+                "sync_tool"
+            ),
+            "Sync resources"
+        );
+    }
+
+    #[test]
+    fn tool_description_falls_back_to_name_when_nothing_usable() {
+        assert_eq!(resolve_tool_description(None, None, "my_tool"), "my_tool");
+        assert_eq!(
+            resolve_tool_description(Some("  ".to_string()), Some("".to_string()), "my_tool"),
+            "my_tool"
+        );
+    }
+
+    #[test]
+    fn auto_memory_request_preserves_messages_within_context_window() {
+        let loaded_messages = vec![
+            text_message("system", "instructions-a"),
+            text_message("user", "first-user"),
+            text_message("assistant", "first-assistant"),
+            text_message("system", "instructions-b"),
+            text_message("user", "second-user"),
+            text_message("assistant", "second-assistant"),
+        ];
+
+        let prepared = prepare_auto_memory_messages_for_request(&loaded_messages, 3);
+        let roles: Vec<&str> = prepared
+            .iter()
+            .map(|message| message.role.as_str())
+            .collect();
+        let contents: Vec<&str> = prepared
+            .iter()
+            .map(|message| match message.content.as_ref() {
+                Some(OpenAIContent::Text(text)) => text.as_str(),
+                _ => "",
+            })
+            .collect();
+
+        assert_eq!(roles, vec!["system", "user", "assistant"]);
+        assert_eq!(
+            contents,
+            vec!["instructions-b", "second-user", "second-assistant"]
+        );
+    }
+
+    #[test]
+    fn auto_memory_request_drops_leading_tool_messages() {
+        let loaded_messages = vec![
+            text_message("tool", "stale-tool-result"),
+            text_message("user", "hello"),
+            text_message("assistant", "hi"),
+        ];
+
+        let prepared = prepare_auto_memory_messages_for_request(&loaded_messages, 10);
+        let roles: Vec<&str> = prepared
+            .iter()
+            .map(|message| message.role.as_str())
+            .collect();
+
+        assert_eq!(roles, vec!["user", "assistant"]);
+    }
+
+    #[test]
+    fn auto_memory_persistence_excludes_system_messages() {
+        let all_messages = vec![
+            text_message("system", "instructions"),
+            text_message("user", "hello"),
+            text_message("assistant", "hi"),
+            text_message("system", "duplicate-instructions"),
+            text_message("user", "follow-up"),
+        ];
+
+        let persisted = prepare_auto_memory_messages_for_persistence(&all_messages, 10);
+        let roles: Vec<&str> = persisted
+            .iter()
+            .map(|message| message.role.as_str())
+            .collect();
+
+        assert_eq!(roles, vec!["user", "assistant", "user"]);
+    }
 }
 
 /// Handle credentials check mode - check credentials without making API calls

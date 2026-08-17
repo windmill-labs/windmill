@@ -253,8 +253,8 @@ var $Script = {
     timeout: {
       type: "integer",
     },
-    delete_after_use: {
-      type: "boolean",
+    delete_after_secs: {
+      type: "integer",
     },
     visible_to_runner_only: {
       type: "boolean",
@@ -369,8 +369,8 @@ var $NewScript = {
     timeout: {
       type: "integer",
     },
-    delete_after_use: {
-      type: "boolean",
+    delete_after_secs: {
+      type: "integer",
     },
     deployment_message: {
       type: "string",
@@ -2830,8 +2830,8 @@ var $FlowModule = {
     timeout: {
       type: "number",
     },
-    delete_after_use: {
-      type: "boolean",
+    delete_after_secs: {
+      type: "integer",
     },
     summary: {
       type: "string",
@@ -3000,6 +3000,7 @@ var $RawScript = {
         "nativets",
         "duckdb",
         "ruby",
+        "rlang",
         // for related places search: ADD_NEW_LANG
       ],
     },
@@ -4751,25 +4752,6 @@ var WorkspaceService = class {
     return request(OpenAPI, {
       method: "POST",
       url: "/w/{workspace}/workspaces/run_slack_message_test_job",
-      path: {
-        workspace: data.workspace,
-      },
-      body: data.requestBody,
-      mediaType: "application/json",
-    });
-  }
-  /**
-   * edit deploy to
-   * @param data The data for the request.
-   * @param data.workspace
-   * @param data.requestBody
-   * @returns string status
-   * @throws ApiError
-   */
-  static editDeployTo(data) {
-    return request(OpenAPI, {
-      method: "POST",
-      url: "/w/{workspace}/workspaces/edit_deploy_to",
       path: {
         workspace: data.workspace,
       },

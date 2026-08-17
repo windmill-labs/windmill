@@ -2,6 +2,8 @@
 
 Deno runtime with npm support via `npm:` prefix and native Deno libraries.
 
+**Prefer Bun (`write-script-bun`) for TypeScript.** Only use Deno when the script specifically requires the Deno runtime — Deno's standard library or `deno.land` URL imports that have no npm equivalent. For all other TypeScript, use Bun instead.
+
 ## Structure
 
 Export a single **async** function called `main`:
@@ -50,7 +52,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 ```
 
-See the SDK documentation for available methods.
+**Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 
@@ -84,19 +88,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The `wmill.S3Object` type covers both the `s3://storage/key` URI form (`s3:///key` for the workspace default storage) and the `{ s3, storage? }` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 ```typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 ```
 
-## TypeScript Operations
+### S3 operations
 
 ```typescript
 import * as wmill from "windmill-client";
@@ -108,7 +113,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use

@@ -26,10 +26,12 @@ use windmill_common::DB;
 
 use windmill_common::{
     auth::{
-        get_folders_for_user, get_groups_for_user, hash_token, safe_token_prefix, JWTAuthClaims,
+        get_folders_for_user, get_groups_for_user, hash_token, is_session_label, safe_token_prefix,
+        JWTAuthClaims,
     },
     error::{Error, JsonResult},
     jwt,
+    usernames::get_instance_username_or_fallback_to_email,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
 
@@ -37,15 +39,21 @@ lazy_static::lazy_static! {
     // Global auth cache accessible from main.rs for direct invalidation
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
     // Cache for token -> email lookups (for non-workspace-member authenticated users)
-    static ref TOKEN_EMAIL_CACHE: Cache<String, Option<String>> = Cache::new(500);
+    static ref TOKEN_EMAIL_CACHE: Cache<String, (Option<String>, std::time::Instant)> = Cache::new(500);
 }
+
+/// A token keeps its identity when a superadmin moves the account to another address, so entries
+/// here must expire on their own; nothing invalidates them by token hash.
+const TOKEN_EMAIL_CACHE_TTL_SECS: u64 = 60;
 
 /// Get email from a valid token, with caching.
 /// Used for WM_END_USER_EMAIL when user is authenticated but not a workspace member.
 async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
     let t_hash = hash_token(token);
-    if let Some(cached) = TOKEN_EMAIL_CACHE.get(&t_hash) {
-        return cached;
+    if let Some((cached, cached_at)) = TOKEN_EMAIL_CACHE.get(&t_hash) {
+        if cached_at.elapsed().as_secs() < TOKEN_EMAIL_CACHE_TTL_SECS {
+            return cached;
+        }
     }
 
     let email = sqlx::query_scalar!(
@@ -58,7 +66,7 @@ async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
     .flatten()
     .flatten(); // email column is nullable, so we get Option<Option<String>>
 
-    TOKEN_EMAIL_CACHE.insert(t_hash, email.clone());
+    TOKEN_EMAIL_CACHE.insert(t_hash, (email.clone(), std::time::Instant::now()));
     email
 }
 
@@ -130,6 +138,13 @@ impl AuthCache {
         w_id: Option<String>,
         token: &str,
     ) -> Option<OptJobAuthed> {
+        // In no-auth mode there are no real tokens: resolve directly as the
+        // admin superadmin so direct cache callers (e.g. get_all_runnables,
+        // which re-validates the request token per workspace) don't reject the
+        // fabricated token.
+        if is_no_auth() {
+            return Some(OptJobAuthed { authed: no_auth_admin_authed(), job_id: None });
+        }
         let key = (
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
@@ -182,7 +197,9 @@ impl AuthCache {
                             tracing::error!("JWT auth error: workspace_id mismatch");
                             return None;
                         }
-                        let username_override = username_override_from_label(claims.label);
+                        let is_session_token = is_session_label(claims.label.as_deref());
+                        let (username_override, username_override_is_token_label) =
+                            username_override_from_label(claims.label);
 
                         let authed = ApiAuthed {
                             email: claims.email,
@@ -191,9 +208,16 @@ impl AuthCache {
                             is_operator: claims.is_operator,
                             groups: claims.groups,
                             folders: claims.folders,
-                            scopes: None,
+                            // Honor the scopes embedded in the JWT (mirrors the EE
+                            // jwt_ext_ branch). The route middleware only enforces
+                            // scopes when Some, so a None-scoped JWT (e.g. the job
+                            // WM_TOKEN) keeps full user privileges as before.
+                            scopes: claims.scopes,
                             username_override,
+                            username_override_is_token_label,
+                            is_session_token,
                             token_prefix: claims.audit_span,
+                            read_only: false,
                         };
                         let job_id = claims.job_id.and_then(|j| uuid::Uuid::from_str(&j).ok());
                         AUTH_CACHE.insert(
@@ -221,7 +245,7 @@ impl AuthCache {
                         token_hash = $1
                         AND (expiration > NOW() OR expiration IS NULL)
                         AND (workspace_id IS NULL OR workspace_id = $2)
-                    RETURNING owner, email, super_admin, scopes, label",
+                    RETURNING owner, email, super_admin, scopes, label, read_only",
                     t_hash,
                     w_id.as_ref(),
                 )
@@ -232,6 +256,7 @@ impl AuthCache {
                         x.super_admin,
                         x.scopes,
                         x.label,
+                        x.read_only,
                     )
                 })
                 .fetch_optional(&self.db)
@@ -242,103 +267,139 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (
-                                Some(owner),
-                                Some(email),
-                                super_admin,
-                                _,
-                                label,
-                            ) if w_id.is_some() => {
-                                let username_override = username_override_from_label(label);
+                            (Some(owner), Some(email), super_admin, _, label, read_only)
+                                if w_id.is_some() =>
+                            {
+                                let is_session_token = is_session_label(label.as_deref());
+                                let (username_override, username_override_is_token_label) =
+                                    username_override_from_label(label);
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
-                                        let (is_admin, is_operator) = if super_admin {
-                                            (true, false)
+                                        let lookup = if super_admin {
+                                            Some((true, false))
                                         } else {
-                                            let r = sqlx::query!(
+                                            sqlx::query!(
                                                 "SELECT is_admin, operator FROM usr where username = $1 AND \
                                                  workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
                                             )
-                                            .fetch_one(&self.db)
+                                            .fetch_optional(&self.db)
                                             .await
-                                            .ok();
-                                            if let Some(r) = r {
-                                                (r.is_admin, r.operator)
-                                            } else {
-                                                (false, true)
-                                            }
+                                            .ok()
+                                            .flatten()
+                                            .map(|r| (r.is_admin, r.operator))
                                         };
 
-                                        let w_id = &w_id.unwrap();
-                                        let groups =
-                                            get_groups_for_user(w_id, &name, &email, &self.db)
-                                                .await
-                                                .ok()
-                                                .unwrap_or_default();
+                                        if let Some((is_admin, is_operator)) = lookup {
+                                            let w_id = &w_id.unwrap();
+                                            let groups =
+                                                get_groups_for_user(w_id, &name, &email, &self.db)
+                                                    .await
+                                                    .ok()
+                                                    .unwrap_or_default();
 
-                                        let folders =
-                                            get_folders_for_user(w_id, &name, &groups, &self.db)
-                                                .await
-                                                .ok()
-                                                .unwrap_or_default();
+                                            let folders = get_folders_for_user(
+                                                w_id, &name, &groups, &self.db,
+                                            )
+                                            .await
+                                            .ok()
+                                            .unwrap_or_default();
 
-                                        Some(ApiAuthed {
-                                            email: email,
-                                            username: name.to_string(),
-                                            is_admin,
-                                            is_operator,
-                                            groups,
-                                            folders,
-                                            scopes: None,
-                                            username_override,
-                                            token_prefix: Some(safe_token_prefix(token)),
-                                        })
+                                            Some(ApiAuthed {
+                                                email: email,
+                                                username: name.to_string(),
+                                                is_admin,
+                                                is_operator,
+                                                groups,
+                                                folders,
+                                                scopes: None,
+                                                username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
+                                                token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
+                                            })
+                                        } else {
+                                            tracing::warn!(
+                                                "Token owner u/{} is not a member of workspace {}; rejecting auth",
+                                                name,
+                                                w_id.as_deref().unwrap_or("")
+                                            );
+                                            None
+                                        }
+                                    } else if prefix == "g" {
+                                        let group_exists = if super_admin {
+                                            true
+                                        } else {
+                                            sqlx::query_scalar!(
+                                                "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+                                                &w_id.as_ref().unwrap(),
+                                                name,
+                                            )
+                                            .fetch_one(&self.db)
+                                            .await
+                                            .ok()
+                                            .flatten()
+                                            .unwrap_or(false)
+                                        };
+
+                                        if group_exists {
+                                            let groups = vec![name.to_string()];
+                                            let folders = get_folders_for_user(
+                                                &w_id.unwrap(),
+                                                "",
+                                                &groups,
+                                                &self.db,
+                                            )
+                                            .await
+                                            .ok()
+                                            .unwrap_or_default();
+                                            Some(ApiAuthed {
+                                                email: email,
+                                                username: format!(
+                                                    "{}{name}",
+                                                    windmill_common::users::USERNAME_GROUP_PREFIX
+                                                ),
+                                                is_admin: false,
+                                                groups,
+                                                is_operator: false,
+                                                folders,
+                                                scopes: None,
+                                                username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
+                                                token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
+                                            })
+                                        } else {
+                                            tracing::warn!(
+                                                "Token owner g/{} is not a group in workspace {}; rejecting auth",
+                                                name,
+                                                w_id.as_deref().unwrap_or("")
+                                            );
+                                            None
+                                        }
                                     } else {
-                                        let groups = vec![name.to_string()];
-                                        let folders = get_folders_for_user(
-                                            &w_id.unwrap(),
-                                            "",
-                                            &groups,
-                                            &self.db,
-                                        )
-                                        .await
-                                        .ok()
-                                        .unwrap_or_default();
-                                        Some(ApiAuthed {
-                                            email: email,
-                                            username: format!(
-                                                "{}{name}",
-                                                windmill_common::users::USERNAME_GROUP_PREFIX
-                                            ),
-                                            is_admin: false,
-                                            groups,
-                                            is_operator: false,
-                                            folders,
-                                            scopes: None,
-                                            username_override,
-                                            token_prefix: Some(safe_token_prefix(token)),
-                                        })
+                                        tracing::warn!(
+                                            "Token owner '{}' has unrecognised prefix '{}'; rejecting auth",
+                                            owner,
+                                            prefix
+                                        );
+                                        None
                                     }
                                 } else {
-                                    let groups = vec![];
-                                    let folders = vec![];
-                                    Some(ApiAuthed {
-                                        email: email,
-                                        username: owner,
-                                        is_admin: super_admin,
-                                        is_operator: true,
-                                        groups,
-                                        folders,
-                                        scopes: None,
-                                        username_override,
-                                        token_prefix: Some(safe_token_prefix(token)),
-                                    })
+                                    tracing::warn!(
+                                        "Token owner '{}' is missing a prefix (expected u/ or g/); rejecting auth",
+                                        owner
+                                    );
+                                    None
                                 }
                             }
-                            (_, Some(email), super_admin, scopes, label) => {
-                                let username_override = username_override_from_label(label);
+                            (_, Some(email), super_admin, scopes, label, read_only) => {
+                                let is_session_token = is_session_label(label.as_deref());
+                                let (username_override, username_override_is_token_label) =
+                                    username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query!(
                                         "SELECT username, is_admin, operator FROM usr WHERE
@@ -381,20 +442,42 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
                                             })
                                         }
-                                        None if super_admin => Some(ApiAuthed {
-                                            email: email.clone(),
-                                            username: email,
-                                            is_admin: super_admin,
-                                            is_operator: false,
-                                            groups: vec![],
-                                            folders: vec![],
-                                            scopes,
-                                            username_override,
-                                            token_prefix: Some(safe_token_prefix(token)),
-                                        }),
+                                        None if super_admin => {
+                                            // Fail closed on a DB error rather than
+                                            // letting the email leak in as the username.
+                                            match get_instance_username_or_fallback_to_email(
+                                                &self.db, &email,
+                                            )
+                                            .await
+                                            {
+                                                Ok(username) => Some(ApiAuthed {
+                                                    email,
+                                                    username,
+                                                    is_admin: super_admin,
+                                                    is_operator: false,
+                                                    groups: vec![],
+                                                    folders: vec![],
+                                                    scopes,
+                                                    username_override,
+                                                    username_override_is_token_label,
+                                                    is_session_token,
+                                                    token_prefix: Some(safe_token_prefix(token)),
+                                                    read_only,
+                                                }),
+                                                Err(e) => {
+                                                    tracing::error!(
+                                                        "Failed to resolve instance username for superadmin {email}: {e:#}"
+                                                    );
+                                                    None
+                                                }
+                                            }
+                                        }
                                         None => None,
                                     }
                                 } else {
@@ -407,7 +490,10 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
+                                        username_override_is_token_label,
+                                        is_session_token,
                                         token_prefix: Some(safe_token_prefix(token)),
+                                        read_only,
                                     })
                                 }
                             }
@@ -441,7 +527,10 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
+                        username_override_is_token_label: false,
+                        is_session_token: false,
                         token_prefix: Some(safe_token_prefix(token)),
+                        read_only: false,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -543,6 +632,12 @@ where
                 let tokened = Self { token };
                 parts.extensions.insert(tokened.clone());
                 Ok(tokened)
+            } else if is_no_auth() {
+                // In `--no-auth` mode requests carry no token, but handlers that
+                // also require Tokened (e.g. global_whoami) must still resolve.
+                let tokened = Self { token: "no_auth".to_string() };
+                parts.extensions.insert(tokened.clone());
+                Ok(tokened)
             } else {
                 BRUTE_FORCE_COUNTER.increment().await;
                 Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
@@ -622,6 +717,32 @@ fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
     workspace_id
 }
 
+/// `--no-auth` mode: compiled-in `oss` builds, or the `NO_AUTH` runtime flag on
+/// any build (the runtime flag is force-disabled on CLOUD_HOSTED). When on,
+/// every request resolves as the admin superadmin so a fronting gateway can
+/// handle authentication instead.
+pub fn is_no_auth() -> bool {
+    cfg!(feature = "no_auth") || *windmill_common::worker::NO_AUTH
+}
+
+/// The synthetic superadmin identity returned for every request in no-auth mode.
+fn no_auth_admin_authed() -> ApiAuthed {
+    ApiAuthed {
+        email: "admin@windmill.dev".to_string(),
+        username: "admin".to_string(),
+        is_admin: true,
+        is_operator: false,
+        groups: Vec::new(),
+        folders: Vec::new(),
+        scopes: None,
+        username_override: None,
+        username_override_is_token_label: false,
+        is_session_token: false,
+        token_prefix: None,
+        read_only: false,
+    }
+}
+
 /// Resolves OptJobAuthed from request parts.
 /// Takes ownership of Parts and returns them back.
 #[allow(unreachable_code, unused_mut)]
@@ -632,20 +753,11 @@ pub async fn resolve_opt_job_authed(
         return Ok((OptJobAuthed::default(), parts));
     };
 
-    #[cfg(feature = "no_auth")]
-    {
-        let authed = ApiAuthed {
-            email: "admin@windmill.dev".to_string(),
-            username: "admin".to_string(),
-            is_admin: true,
-            is_operator: false,
-            groups: Vec::new(),
-            folders: Vec::new(),
-            scopes: None,
-            username_override: None,
-            token_prefix: None,
-        };
-        return Ok((OptJobAuthed { authed, job_id: None }, parts));
+    if is_no_auth() {
+        return Ok((
+            OptJobAuthed { authed: no_auth_admin_authed(), job_id: None },
+            parts,
+        ));
     }
 
     let already_authed = parts.extensions.get::<OptJobAuthed>().cloned();
@@ -681,25 +793,59 @@ pub async fn resolve_opt_job_authed(
                 cache.get_opt_job_authed(workspace_id.clone(), &token).await
             {
                 let authed = &mut opt_job_authed.authed;
+                let path = original_uri.path();
+                let method = parts.method.as_str();
                 if authed.scopes.is_some() {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());
-
-                    let path = original_uri.path();
-                    let method = parts.method.as_str();
 
                     if let Err(err) = crate::scopes::check_scopes_for_route(
                         authed.scopes.as_deref(),
                         path,
                         method,
                     ) {
-                        BRUTE_FORCE_COUNTER.increment().await;
                         return Err((err, parts));
+                    }
+                }
+                if authed.read_only {
+                    // MCP transport runs over POST (streamable HTTP / SSE handshake),
+                    // so the middleware can't safely reject mutating methods on it —
+                    // the MCP runner itself filters out write tools and rejects
+                    // mutating tool calls for read-only tokens. Narrow to the actual
+                    // transport endpoints: anything else under `/api/mcp/*` (OAuth
+                    // approve, token exchange, client registration) must still go
+                    // through the read-only check, otherwise a read-only token
+                    // could approve an OAuth flow that mints a new non-read-only
+                    // token.
+                    let is_mcp_transport = path == "/api/mcp/gateway"
+                        || (path.starts_with("/api/mcp/w/")
+                            && (path.ends_with("/mcp")
+                                || path.ends_with("/sse")
+                                || path.ends_with("/list_tools")));
+                    if !is_mcp_transport {
+                        if let Err(err) = crate::scopes::check_read_only_for_route(path, method) {
+                            return Err((err, parts));
+                        }
                     }
                 }
                 parts.extensions.insert(authed.clone());
 
                 Span::current().record("username", &authed.username.as_str());
                 Span::current().record("email", &authed.email);
+
+                // Mirror into the per-request LogContext so exported OTEL
+                // LogRecords carry the same identifiers (the log bridge
+                // doesn't walk span fields — see windmill_common::log_context).
+                let username_copy = authed.username.clone();
+                let email_copy = authed.email.clone();
+                let workspace_copy = workspace_id.clone();
+                windmill_common::log_context::update_log_context(move |c| {
+                    windmill_common::log_context::LogContext {
+                        username: Some(username_copy),
+                        email: Some(email_copy),
+                        workspace_id: workspace_copy.or_else(|| c.workspace_id.clone()),
+                        ..c.clone()
+                    }
+                });
 
                 if let Some(workspace_id) = workspace_id {
                     Span::current().record("workspace_id", &workspace_id);
@@ -712,26 +858,47 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
-fn username_override_from_label(label: Option<String>) -> Option<String> {
+/// Returns the override and whether it names the token's *label* rather than the entity that
+/// fired the request. Callers must not re-derive the second element from the first: the
+/// `ephemeral-script-end-user-` arm forwards a `created_by` verbatim, and `created_by` is
+/// unconstrained, so it may itself look like any of these shapes.
+///
+/// Only namespaces `create_token` rejects (`is_server_minted_label`) are trusted to name the
+/// entity acting, so the label can only have come from a server-side mint. Tokens minted
+/// before that guard existed are the remaining hole; closing it needs the token row to record
+/// who minted it rather than inferring it from the label.
+///
+/// Note that a trigger whose identity is set server-side — the SMTP one builds an `email-*`
+/// override directly — does not rely on this at all, so its prefix must not be trusted here.
+pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<String>, bool) {
     match label {
+        Some(label) if label.starts_with("ephemeral-webhook-") => (Some(label), false),
+        Some(label) if label.starts_with("ephemeral-script-end-user-") => (
+            Some(
+                label
+                    .trim_start_matches("ephemeral-script-end-user-")
+                    .to_string(),
+            ),
+            false,
+        ),
+        // User-mintable, so they name nobody in particular — the trigger panels merely
+        // pre-fill `webhook-`/`http-`, and the editor mints the lsp one. The override keeps
+        // its value because `require_job_read_access` matches it against the `created_by` of
+        // jobs launched under it, which these shapes produced while they were trusted.
+        Some(label) if label == "Ephemeral lsp token" => (Some("lsp".to_string()), true),
         Some(label)
             if label.starts_with("webhook-")
                 || label.starts_with("http-")
                 || label.starts_with("email-")
                 || label.starts_with("ws-") =>
         {
-            Some(label)
+            (Some(label), true)
         }
-        Some(label) if label.starts_with("ephemeral-script-end-user-") => Some(
-            label
-                .trim_start_matches("ephemeral-script-end-user-")
-                .to_string(),
+        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => (
+            Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX)),
+            true,
         ),
-        Some(label) if label == "Ephemeral lsp token" => Some("lsp".to_string()),
-        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => {
-            Some(format!("label-{label}"))
-        }
-        _ => None,
+        _ => (None, false),
     }
 }
 

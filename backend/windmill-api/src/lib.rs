@@ -24,6 +24,7 @@ use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
 use crate::{
+    s3_log_batching::{s3_proxy_log_middleware, FLUSH_INTERVAL_MS},
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
@@ -65,22 +66,24 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
+mod ai_skills;
 mod apps;
+mod apps_raw_bundle;
+pub use apps::invalidate_app_policy_cache;
 pub mod args;
 mod audit;
 pub mod auth;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod azure_proxy_ee;
 mod azure_proxy_oss;
-#[cfg(feature = "bedrock")]
-mod bedrock;
 mod capture;
 mod concurrency_groups;
 mod db;
 mod db_health;
-mod google;
-
+mod dbt;
+mod docs;
 mod drafts;
+
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
@@ -93,18 +96,21 @@ mod granular_acls;
 mod group_history;
 mod groups;
 mod health;
+mod hub_publish;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
-#[cfg(feature = "private")]
-mod inkeep_ee;
-mod inkeep_oss;
 mod integration;
 mod internal_db;
 mod live_migrations;
+mod runnables;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
+#[cfg(all(feature = "private", feature = "parquet"))]
+pub mod storage_list_ee;
+#[cfg(feature = "parquet")]
+mod storage_list_oss;
 mod workspace_dependencies;
 
 mod approvals;
@@ -130,6 +136,7 @@ pub mod oauth2_oss;
 #[cfg(feature = "private")]
 pub mod oidc_ee;
 mod oidc_oss;
+mod path_autocomplete;
 mod raw_apps;
 mod resources;
 #[cfg(feature = "private")]
@@ -149,11 +156,14 @@ mod smtp_server_oss;
 #[cfg(feature = "private")]
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
+mod workspace_shared_ui;
 
 #[cfg(feature = "native_trigger")]
 pub mod native_triggers;
+mod offboarding;
 mod public_app_layer;
 mod public_app_rate_limit;
+mod s3_log_batching;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 pub mod stripe_ee;
@@ -168,6 +178,7 @@ mod teams_oss;
 mod token;
 mod tracing_init;
 mod trash;
+mod trigger_history;
 pub mod triggers;
 mod users;
 #[cfg(feature = "private")]
@@ -212,6 +223,8 @@ pub use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 
 pub use windmill_common::utils::{COOKIE_DOMAIN, IS_SECURE};
 
+pub use windmill_api_debug::reload_debug_signing_key;
+
 #[cfg(feature = "oauth2")]
 pub use windmill_oauth::OAUTH_CLIENTS;
 
@@ -221,6 +234,11 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
 
+    // Comma-separated Slack v2 OAuth bot scopes requested when connecting a workspace.
+    // Must be a subset of the bot scopes declared in the Slack app manifest. Default matches
+    // Windmill's recommended manifest at docs.windmill.dev/docs/misc/setup_oauth.
+    pub static ref SLACK_OAUTH_SCOPES: String = std::env::var("SLACK_OAUTH_SCOPES")
+        .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read".to_string());
 }
 
 // Compliance with cloud events spec.
@@ -243,6 +261,41 @@ pub async fn add_webhook_allowed_origin(
         }
     }
     next.run(req).await
+}
+
+/// Scope the request in the deploy origin it declares, so the fork tally can tell
+/// a write applied by a sync from one authored in the workspace. Entered for
+/// every request, including unmarked ones: `deploy_origin::current` reads the
+/// scope's presence as "the caller is serving this write", which is what
+/// separates a request from a worker that tallies someone else's.
+async fn set_deploy_origin(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let origin = req
+        .headers()
+        .get(windmill_common::deploy_origin::DEPLOY_ORIGIN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(windmill_common::deploy_origin::DeployOrigin::from_header_value)
+        .unwrap_or(windmill_common::deploy_origin::DeployOrigin::Authored);
+    windmill_common::deploy_origin::scope(origin, next.run(req)).await
+}
+
+/// Scope the request in the client kind it declares, so a trigger mutation can
+/// be attributed to the CLI rather than to a bare API call. Entered for every
+/// request, undeclared ones included: `TriggerSource::of_request` reads the
+/// scope's absence as "no request is being served", which is what separates a
+/// caller from a worker disabling a trigger on its own.
+async fn set_request_client(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let client = req
+        .headers()
+        .get(windmill_common::trigger_history::CLIENT_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(windmill_common::trigger_history::client_from_header);
+    windmill_common::trigger_history::scope_client(client, next.run(req)).await
 }
 
 #[cfg(not(feature = "tantivy"))]
@@ -317,7 +370,10 @@ async fn inject_agent_authed(
                 folders: Vec::new(),
                 scopes: None,
                 username_override: None,
+                username_override_is_token_label: false,
+                is_session_token: false,
                 token_prefix: None,
+                read_only: false,
             },
             job_id: None,
         });
@@ -379,9 +435,32 @@ pub async fn run_server(
             REQUEST_SIZE_LIMIT.read().await.clone(),
         ));
 
+    let request_size_limit = REQUEST_SIZE_LIMIT.read().await.clone();
+
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+        .allow_origin(Any);
+
+    // MCP carries protocol state in its own headers: `MCP-Protocol-Version` from
+    // revision 2025-06-18 onward, plus `Mcp-Method` and `Mcp-Name` at 2026-07-28.
+    // None of them are CORS-simple, so a browser-based MCP client fails preflight
+    // unless they are allowed — hence a separate layer rather than widening the
+    // one every other route shares. (`Mcp-Param-*` is only sent for tool inputs
+    // annotated with `x-mcp-header`, which no tool here declares.)
+    let mcp_cors = CorsLayer::new()
+        .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
+        .allow_headers([
+            http::header::CONTENT_TYPE,
+            http::header::AUTHORIZATION,
+            http::HeaderName::from_static("mcp-protocol-version"),
+            http::HeaderName::from_static("mcp-method"),
+            http::HeaderName::from_static("mcp-name"),
+        ])
+        // The 401 challenge is how a client discovers where to authorize (RFC 9728),
+        // and it is not a safelisted response header, so without this a browser
+        // client sees an empty one and has no way to begin the OAuth flow.
+        .expose_headers([http::header::WWW_AUTHENTICATE])
         .allow_origin(Any);
 
     let sp_extension = Arc::new(saml_oss::build_sp_extension().await?);
@@ -472,20 +551,22 @@ pub async fn run_server(
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
                 extract_workspace_from_token,
             };
-            let (mcp_router, mcp_cancellation_token) =
-                setup_mcp_server(db.clone(), user_db, _base_internal_url.clone()).await?;
+            let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
+                db.clone(),
+                user_db,
+                _base_internal_url.clone(),
+                auth_cache.clone(),
+            )
+            .await?;
             // Workspace-scoped MCP router
-            // Use `layer` instead of `route_layer` because the MCP router only has
-            // a fallback_service (no explicit routes), and axum 0.8 panics on
-            // route_layer with no routes.
             let workspaced_mcp_router = mcp_router
                 .clone()
-                .layer(from_extractor::<ApiAuthed>())
+                .route_layer(from_extractor::<ApiAuthed>())
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
-                .layer(from_extractor::<ApiAuthed>())
+                .route_layer(from_extractor::<ApiAuthed>())
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
                 ))
@@ -502,6 +583,16 @@ pub async fn run_server(
         #[cfg(not(feature = "mcp"))]
         (Router::new(), Router::new(), Option::<()>::None)
     };
+
+    // Workers block on this before pulling their first job, so it is released ahead of
+    // the router tree below. `try_join!` polls this future and `workers_f` on one task,
+    // so the yield is what lets them proceed; without it they wait out the whole
+    // synchronous build. A request arriving first queues in the bound listener's backlog.
+    if let Err(e) = port_tx.send(format!("http://localhost:{}", port)) {
+        tracing::error!("Failed to send port: {e:#}");
+        return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
+    }
+    tokio::task::yield_now().await;
 
     let mcp_list_tools_service = {
         #[cfg(feature = "mcp")]
@@ -536,7 +627,15 @@ pub async fn run_server(
                     Router::new()
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
-                        .nest("/apps", apps::workspaced_service())
+                        // CORS so the opaque-origin in-workspace app viewer (WIN-2006,
+                        // sandboxed /apps/get) can read the app definition by path
+                        // (apps/get/p, apps/embed_token/p) with a scoped embed token.
+                        // Bearer-token-only (no cookies), consistent with the other
+                        // workspaced services the iframe calls.
+                        .nest(
+                            "/apps",
+                            apps::workspaced_service(request_size_limit * 5).layer(cors.clone()),
+                        )
                         .nest("/assets", windmill_api_assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
@@ -544,10 +643,12 @@ pub async fn run_server(
                             "/concurrency_groups",
                             concurrency_groups::workspaced_service(),
                         )
-                        .nest("/embeddings", embeddings::workspaced_service())
+                        .nest("/dbt", dbt::workspaced_service())
                         .nest("/drafts", drafts::workspaced_service())
+                        .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest("/runnables", runnables::workspaced_service())
                         .nest(
                             "/workspace_dependencies",
                             workspace_dependencies::workspaced_service(),
@@ -556,12 +657,20 @@ pub async fn run_server(
                             "/flow_conversations",
                             windmill_api_flow_conversations::workspaced_service(),
                         )
-                        .nest("/folders", folders::workspaced_service())
+                        // CORS so an opaque-origin app iframe (WIN-2006 embed,
+                        // no separate domain) can read folders/listnames with a
+                        // scoped embed token. Consistent with apps_u/jobs_u cors.
+                        .nest(
+                            "/folders",
+                            folders::workspaced_service().layer(cors.clone()),
+                        )
                         .nest("/folders_history", folder_history::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/groups_history", group_history::workspaced_service())
+                        .nest("/triggers_history", trigger_history::workspaced_service())
                         .nest("/inputs", windmill_api_inputs::workspaced_service())
                         .nest("/internal_db", internal_db::workspaced_service())
+                        .route("/labels/list", get(list_workspace_labels))
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
@@ -598,20 +707,51 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
+                        .nest("/ai_skills", ai_skills::workspaced_service())
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
+                        .nest(
+                            "/path_autocomplete",
+                            path_autocomplete::workspaced_service(),
+                        )
                         .nest("/raw_apps", raw_apps::workspaced_service())
-                        .nest("/resources", resources::workspaced_service())
+                        // CORS so the opaque-origin app iframe can read
+                        // resources/list, resources/type/* with a scoped token.
+                        .nest(
+                            "/resources",
+                            resources::workspaced_service().layer(cors.clone()),
+                        )
+                        .nest("/shared_ui", workspace_shared_ui::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
                         .nest("/trash", trash::workspaced_service())
                         .nest(
                             "/users",
-                            users::workspaced_service().layer(Extension(argon2.clone())),
+                            // CORS so the opaque-origin app iframe can read
+                            // users/whoami with a scoped embed token.
+                            users::workspaced_service()
+                                .layer(Extension(argon2.clone()))
+                                .layer(cors.clone()),
                         )
-                        .nest("/variables", variables::workspaced_service())
+                        // CORS so a sandboxed raw app's opaque-origin bundle can
+                        // read variables with its frontend SDK token. Bearer-only:
+                        // the layer never allows credentials, so no cookie can ride
+                        // a cross-origin call. Consistent with resources/users.
+                        .nest(
+                            "/variables",
+                            variables::workspaced_service().layer(cors.clone()),
+                        )
                         .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
+                        .nest("/hub", hub_publish::workspaced_service())
+                        .nest(
+                            "/data_metrics",
+                            windmill_api_workspaces::data_metrics::workspaced_service(),
+                        )
+                        .nest(
+                            "/deployment_request",
+                            windmill_api_workspaces::deployment_requests::workspaced_service(),
+                        )
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", {
                             #[cfg(feature = "http_trigger")]
@@ -643,7 +783,7 @@ pub async fn run_server(
                 .nest("/schedules", windmill_api_schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
-                .nest("/inkeep", inkeep_oss::global_service())
+                .nest("/docs", docs::global_service())
                 .nest("/indexer", indexer_oss::management_service())
                 .nest("/mcp/w/{workspace_id}/list_tools", mcp_list_tools_service)
                 .nest("/db_health", db_health::global_service())
@@ -704,10 +844,15 @@ pub async fn run_server(
                 .nest("/tokens", token::global_service())
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
+                .nest("/settings_u", windmill_api_settings::unauthed_service())
                 .nest("/apps_u", {
                     #[cfg(feature = "enterprise")]
                     {
-                        apps_oss::global_unauthed_service()
+                        // CORS so the opaque-origin app viewer (WIN-2006 embed, no
+                        // separate domain) can load a custom-path public app via
+                        // public_app_by_custom_path cross-origin. Consistent with
+                        // the workspaced /w/{workspace_id}/apps_u mount below.
+                        apps_oss::global_unauthed_service().layer(cors.clone())
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -725,13 +870,13 @@ pub async fn run_server(
                 // Deprecated, here for backwards compatibility: user should use /mcp/w/{workspace_id}/mcp instead
                 .nest(
                     "/mcp/w/{workspace_id}/sse",
-                    mcp_router.clone().layer(cors.clone()),
+                    mcp_router.clone().layer(mcp_cors.clone()),
                 )
                 .nest(
                     "/mcp/w/{workspace_id}/mcp",
-                    mcp_router.clone().layer(cors.clone()),
+                    mcp_router.clone().layer(mcp_cors.clone()),
                 )
-                .nest("/mcp/gateway", gateway_mcp_router.layer(cors.clone()))
+                .nest("/mcp/gateway", gateway_mcp_router.layer(mcp_cors.clone()))
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
@@ -880,6 +1025,24 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
+                .nest("/azure/w/{workspace_id}", {
+                    #[cfg(all(
+                        feature = "enterprise",
+                        feature = "azure_trigger",
+                        feature = "private"
+                    ))]
+                    {
+                        triggers::azure::handler_oss::azure_push_route_handler()
+                    }
+                    #[cfg(not(all(
+                        feature = "enterprise",
+                        feature = "azure_trigger",
+                        feature = "private"
+                    )))]
+                    {
+                        Router::new()
+                    }
+                })
                 .route("/version", get(git_v))
                 .nest("/health/status", health::status_service())
                 .route("/min_keep_alive_version", get(min_keep_alive_version))
@@ -943,23 +1106,44 @@ pub async fn run_server(
             }
         })
         // JWKS endpoint for HashiCorp Vault JWT authentication (must be outside /api prefix)
-        .route(
-            "/.well-known/jwks.json",
-            get(windmill_api_settings::get_jwks),
-        )
+        .route("/.well-known/jwks.json", {
+            #[cfg(all(feature = "private", feature = "enterprise", feature = "openidconnect"))]
+            {
+                get(crate::oidc_oss::jwks)
+            }
+            #[cfg(not(all(
+                feature = "private",
+                feature = "enterprise",
+                feature = "openidconnect"
+            )))]
+            {
+                get(windmill_api_settings::get_jwks)
+            }
+        })
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 
     let app = if disable_response_logs {
         app
     } else {
-        app.layer(
-            TraceLayer::new_for_http()
-                .on_response(MyOnResponse {})
-                .make_span_with(MyMakeSpan {})
-                .on_request(())
-                .on_failure(MyOnFailure {}),
-        )
+        tokio::spawn(async {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_millis(FLUSH_INTERVAL_MS));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                crate::s3_log_batching::flush_s3_batches();
+            }
+        });
+
+        app.layer(axum::middleware::from_fn(s3_proxy_log_middleware))
+            .layer(
+                TraceLayer::new_for_http()
+                    .on_response(MyOnResponse {})
+                    .make_span_with(MyMakeSpan {})
+                    .on_request(())
+                    .on_failure(MyOnFailure {}),
+            )
     };
 
     let app = if let Some(domain) = public_app_layer::PUBLIC_APP_DOMAIN.as_ref() {
@@ -970,6 +1154,18 @@ pub async fn run_server(
     } else {
         app
     };
+
+    // Seed the per-request LogContext task-local. Registered outside
+    // TraceLayer so MyOnResponse::on_response's `"response"` log fires inside
+    // the scope and gets method/uri/workspace_id/email attached by the EE
+    // LogContextBridge.
+    let app = app.layer(axum::middleware::from_fn(
+        tracing_init::log_context_middleware,
+    ));
+
+    let app = app.layer(axum::middleware::from_fn(set_deploy_origin));
+
+    let app = app.layer(axum::middleware::from_fn(set_request_client));
 
     let app = app.layer(CatchPanicLayer::custom(|err| {
         tracing::error!("panic in handler, returning 500: {:?}", err);
@@ -995,9 +1191,11 @@ pub async fn run_server(
         name.map(|x| format!("name={x}")).unwrap_or_default()
     );
 
-    if let Err(e) = port_tx.send(format!("http://localhost:{}", port)) {
-        tracing::error!("Failed to send port: {e:#}");
-        return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
+    // Announce this server is ready so coordinated restarts can detect a healthy peer.
+    if server_mode {
+        if let Err(e) = announce_server_started(&db).await {
+            tracing::warn!("Failed to announce server started: {e:#}");
+        }
     }
 
     let server = server.with_graceful_shutdown(async move {
@@ -1078,12 +1276,33 @@ async fn ee_license() -> &'static str {
     ""
 }
 
+async fn list_workspace_labels(
+    Extension(db): Extension<DB>,
+    axum::extract::Path(w_id): axum::extract::Path<String>,
+) -> windmill_common::error::JsonResult<Vec<String>> {
+    let labels = sqlx::query_scalar!(
+        "SELECT DISTINCT unnest(labels) as \"label!\" FROM (
+            SELECT labels FROM script WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM flow WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM resource WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM variable WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM schedule WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM app WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM folder WHERE workspace_id = $1 AND labels IS NOT NULL
+        ) t ORDER BY 1",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(axum::Json(labels))
+}
+
 #[cfg(feature = "enterprise")]
 async fn ee_license() -> String {
     use windmill_common::ee_oss::{LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
-    if *LICENSE_KEY_VALID.read().await {
-        LICENSE_KEY_ID.read().await.clone()
+    if LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed) {
+        (**LICENSE_KEY_ID.load()).clone()
     } else {
         "".to_string()
     }
@@ -1119,4 +1338,86 @@ pub async fn wait_for_db_migrations(
     db::wait_for_migrations(db, killpill_rx)
         .await
         .map_err(|e| anyhow::anyhow!("Error waiting for db migrations: {e:#}"))
+}
+
+const SERVER_HEARTBEAT_TASK: &str = "server_heartbeat";
+
+/// Write a server-started heartbeat to `background_task_state` so that other
+/// traffic-serving instances waiting to restart can detect this one is healthy.
+///
+/// Only `server_mode` processes announce, since only they are peers worth waiting for:
+/// `spawn_graceful_killpill` holds a shutdown open to keep the API answered, and a worker,
+/// indexer or MCP process coming up is no evidence that it is.
+///
+/// The row is keyed per host and `owner` per process, and both halves carry weight.
+/// `INSTANCE_NAME` is random per start, so a row keyed on it never conflicts and
+/// accumulates one row per start; `owner` is what tells a peer's start from its own
+/// when processes share a host.
+async fn announce_server_started(db: &DB) -> anyhow::Result<()> {
+    use windmill_common::{utils::HOSTNAME, INSTANCE_NAME};
+
+    let instance = INSTANCE_NAME.as_str();
+    let host = HOSTNAME.as_str();
+
+    sqlx::query(
+        "INSERT INTO background_task_state (name, value, running, owner, started_at, updated_at)
+         VALUES ($1, '\"started\"'::jsonb, true, $2, NOW(), NOW())
+         ON CONFLICT (name)
+         DO UPDATE SET started_at = NOW(), updated_at = NOW(), running = true, owner = $2",
+    )
+    .bind(format!("{SERVER_HEARTBEAT_TASK}:{host}"))
+    .bind(instance)
+    .execute(db)
+    .await?;
+
+    tracing::info!("Announced server started for instance {instance} on host {host}");
+    Ok(())
+}
+
+/// Check whether any server instance (other than ourselves) has announced
+/// itself as started after `not_before` (i.e. after the restart was initiated).
+pub async fn check_any_server_started(db: &DB, not_before: chrono::DateTime<chrono::Utc>) -> bool {
+    use windmill_common::INSTANCE_NAME;
+
+    let my_instance = INSTANCE_NAME.as_str();
+    let prefix = format!("{SERVER_HEARTBEAT_TASK}:");
+
+    sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM background_task_state
+            WHERE name LIKE $1
+              AND owner != $2
+              AND running = true
+              AND updated_at > $3
+        ) AS \"exists!\"",
+        format!("{prefix}%"),
+        my_instance,
+        not_before
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(false)
+}
+
+/// Delete `server_heartbeat:*` rows that have not been refreshed in a long
+/// time. A restart in place reuses its host's row (see
+/// `announce_server_started`), but a host that never comes back leaves one
+/// behind, and hosts are disposable wherever the hostname carries a generated
+/// pod or container id.
+///
+/// The row is only consulted by `check_any_server_started`, which itself
+/// filters on `updated_at > not_before` (the moment a restart was initiated),
+/// so rows older than the cutoff cannot influence any restart decision and
+/// are safe to delete.
+pub async fn cleanup_stale_server_heartbeats(db: &DB) -> anyhow::Result<u64> {
+    let prefix = format!("{SERVER_HEARTBEAT_TASK}:");
+    let res = sqlx::query!(
+        "DELETE FROM background_task_state
+         WHERE name LIKE $1
+           AND updated_at < NOW() - INTERVAL '7 days'",
+        format!("{prefix}%"),
+    )
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
 }

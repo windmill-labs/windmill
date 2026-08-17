@@ -12,6 +12,12 @@
 	import DBManagerContent from '../DBManagerContent.svelte'
 	import type { DbInput } from '../dbTypes'
 	import type { SelectedTable } from '../DBManager.svelte'
+	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import { useDbManagerTag } from '../dbManagerTag.svelte'
+	import DbWorkerTagButton from '../DbWorkerTagButton.svelte'
+
+	const getOpWs = getRawAppOperatingWorkspace()
+	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	interface Props {
 		onAdd?: (ref: DataTableRef) => void
@@ -40,9 +46,9 @@
 
 	// Load available datatables from workspace
 	const datatables = resource<string[]>([], async () => {
-		if (!$workspaceStore) return []
+		if (!opWs) return []
 		try {
-			return await WorkspaceService.listDataTables({ workspace: $workspaceStore })
+			return (await WorkspaceService.listDataTables({ workspace: opWs })).map((d) => d.name)
 		} catch (e) {
 			console.error('Failed to load datatables:', e)
 			return []
@@ -144,6 +150,13 @@
 
 	// Can add: has tables selected
 	const canAdd = $derived(selectedDatatable && selectedTables.length > 0)
+
+	// Shares the drawer-set override with the Database Manager: same data table,
+	// same worker group needed to reach it.
+	const workerTag = useDbManagerTag(
+		() => opWs,
+		() => dbInput
+	)
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} />
@@ -161,11 +174,13 @@
 		CloseIcon={hasReplResult ? ArrowLeft : undefined}
 		noPadding
 	>
-		{#if dbInput && $workspaceStore}
+		{#if dbInput && opWs}
 			{#key selectedDatatable}
 				<DBManagerContent
 					bind:this={dbManagerContent}
 					input={dbInput}
+					workspace={opWs}
+					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
 					bind:selectedSchemaKey
 					bind:selectedTableKey
@@ -212,6 +227,14 @@
 					Add to app
 				{/if}
 			</Button>
+
+			{#if dbInput && opWs}
+				<DbWorkerTagButton
+					bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+					input={dbInput}
+					workspace={opWs}
+				/>
+			{/if}
 
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}

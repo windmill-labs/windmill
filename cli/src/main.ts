@@ -21,6 +21,7 @@ import schedule from "./commands/schedule/schedule.ts";
 import trigger from "./commands/trigger/trigger.ts";
 import sync from "./commands/sync/sync.ts";
 import gitsyncSettings from "./commands/gitsync-settings/gitsync-settings.ts";
+import protectionRules from "./commands/protection-rules/protection-rules.ts";
 import instance from "./commands/instance/instance.ts";
 import workerGroups from "./commands/worker-groups/worker-groups.ts";
 import lint from "./commands/lint/lint.ts";
@@ -29,7 +30,9 @@ import dev from "./commands/dev/dev.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
 import { getHeaders } from "./utils/utils.ts";
+import { detectAuthGatewayChallenge } from "./utils/http_guards.ts";
 import { setShowDiffs } from "./core/conf.ts";
+import { markRequestsAsCliClient } from "./core/client.ts";
 import { NpmProvider } from "./utils/upgrade.ts";
 import { pull as hubPull } from "./commands/hub/hub.ts";
 import { pull, push } from "./commands/sync/sync.ts";
@@ -38,6 +41,8 @@ import workers from "./commands/workers/workers.ts";
 import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
+import refresh from "./commands/refresh/refresh.ts";
+import { shouldRunFreshnessCheck } from "./guidance/freshness_gate.ts";
 import jobs from "./commands/jobs/jobs.ts";
 import job from "./commands/job/job.ts";
 import group from "./commands/group/group.ts";
@@ -46,6 +51,10 @@ import token from "./commands/token/token.ts";
 import generateMetadata from "./commands/generate-metadata/generate-metadata.ts";
 import docs from "./commands/docs/docs.ts";
 import config from "./commands/config/config.ts";
+import datatable from "./commands/datatable/datatable.ts";
+import pipeline from "./commands/pipeline/pipeline.ts";
+import ducklake from "./commands/ducklake/ducklake.ts";
+import objectStorage from "./commands/object-storage/object-storage.ts";
 import { fetchVersion } from "./core/context.ts";
 
 export {
@@ -64,10 +73,15 @@ export {
   sync,
   lint,
   gitsyncSettings,
+  protectionRules,
   instance,
   dev,
   docs,
   config,
+  datatable,
+  pipeline,
+  ducklake,
+  objectStorage,
   hubPull,
   pull,
   push,
@@ -78,10 +92,40 @@ export {
   token,
 };
 
-export const VERSION = "1.668.2";
+// VERSION and WM_FORK_PREFIX are defined in constants.ts (which keeps its
+// imports minimal) and re-exported here for backwards compatibility. VERSION is
+// also imported below for internal use. Defining VERSION in constants.ts rather
+// than here lets utils.ts read it without importing main.ts, which previously
+// created a circular dependency (main → workspace → utils → main) and a TDZ
+// crash ("Cannot access 'workspace' before initialization") on some load orders.
+import { VERSION } from "./core/constants.ts";
+export { VERSION, WM_FORK_PREFIX } from "./core/constants.ts";
 
-// Re-exported from constants.ts to maintain backwards compatibility
-export { WM_FORK_PREFIX } from "./core/constants.ts";
+// Re-implementation of cliffy's internal `checkVersion` so the help path
+// can wrap it in try/catch. `_check_version` is not in cliffy's package
+// exports map, so it can't be imported directly.
+async function checkVersionSafe(cmd: any): Promise<void> {
+  const mainCommand = cmd.getMainCommand();
+  const upgradeCommand = mainCommand.getCommand("upgrade");
+  if (
+    !upgradeCommand ||
+    typeof (upgradeCommand as any).getLatestVersion !== "function" ||
+    typeof (upgradeCommand as any).hasRequiredPermissions !== "function"
+  ) {
+    return;
+  }
+  if (!(await (upgradeCommand as any).hasRequiredPermissions())) {
+    return;
+  }
+  const latestVersion = await (upgradeCommand as any).getLatestVersion();
+  const currentVersion = mainCommand.getVersion();
+  if (!currentVersion || currentVersion === latestVersion) {
+    return;
+  }
+  mainCommand.version(
+    `${currentVersion}  (New version available: ${latestVersion}. Run '${mainCommand.getName()} upgrade' to upgrade to the latest version!)`
+  );
+}
 
 const command = new Command()
   .name("wmill")
@@ -117,7 +161,32 @@ const command = new Command()
   )
   .version(VERSION)
   .versionOption(false)
+  // Override the default help option action so that a failure to contact
+  // the npm registry (e.g. offline / firewalled environment) does not
+  // prevent help from being displayed. Cliffy's default action awaits
+  // `checkVersion` before `showHelp`, which aborts the whole command if
+  // the fetch to registry.npmjs.org fails.
+  .helpOption("-h, --help", "Show this help.", {
+    action: async function () {
+      const self = this as any;
+      const long = self
+        .getRawArgs()
+        .includes(`--${self.getHelpOption()?.name}`);
+      try {
+        await checkVersionSafe(self);
+      } catch (e) {
+        log.warn(
+          `Skipping latest-version check: ${
+            e instanceof Error ? e.message : String(e)
+          }`
+        );
+      }
+      self.showHelp({ long });
+      self.exit();
+    },
+  })
   .command("init", init)
+  .command("refresh", refresh)
   .command("app", app)
   .command("flow", flow)
   .command("script", script)
@@ -134,6 +203,7 @@ const command = new Command()
   .command("sync", sync)
   .command("lint", lint)
   .command("gitsync-settings", gitsyncSettings)
+  .command("protection-rules", protectionRules)
   .command("instance", instance)
   .command("worker-groups", workerGroups)
   .command("workers", workers)
@@ -147,6 +217,10 @@ const command = new Command()
   .command("generate-metadata", generateMetadata)
   .command("docs", docs)
   .command("config", config)
+  .command("datatable", datatable)
+  .command("pipeline", pipeline)
+  .command("ducklake", ducklake)
+  .command("object-storage", objectStorage)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);
@@ -227,11 +301,31 @@ async function main() {
     if (extraHeaders) {
       OpenAPI.HEADERS = extraHeaders;
     }
+    markRequestsAsCliClient();
+    OpenAPI.interceptors.response.use(async (response) => {
+      await detectAuthGatewayChallenge(response);
+      return response;
+    });
+
+    // Warn (one line) if AGENTS.wmill.md predates this CLI's prompts bundle.
+    // The check is gated on argv parsing (cheap) so the ~360 KB skills.gen.ts
+    // bundle stays out of the import graph for help/version/init/refresh/etc.
+    if (shouldRunFreshnessCheck(process.argv)) {
+      const { warnIfPromptsStale } = await import("./guidance/freshness.ts");
+      await warnIfPromptsStale({ argv: process.argv }).catch(() => {});
+      const { warnIfTsconfigStale } = await import(
+        "./commands/refresh/tsconfig.ts"
+      );
+      await warnIfTsconfigStale().catch(() => {});
+    }
+
     await command.parse(args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
       const body = (e as any).body;
-      const bodyStr = typeof body === "object" && body !== null ? JSON.stringify(body) : body;
+      let bodyStr = typeof body === "object" && body !== null ? JSON.stringify(body) : String(body ?? "");
+      // Strip backend source file references like (flows.rs:1400) or @scripts.rs:123:45
+      bodyStr = bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
       log.error(
         "Server failed. " + (e as any).statusText + ": " + bodyStr
       );

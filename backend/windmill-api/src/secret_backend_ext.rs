@@ -8,122 +8,23 @@
 
 //! Secret backend extension for the API layer
 //!
-//! This module provides helper functions for integrating the SecretBackend
-//! trait with variable operations in the API.
+//! Backend resolution and read helpers live in
+//! `windmill_common::secret_backend`; this module keeps the API-specific bulk
+//! rename helper used when renaming users.
 //!
 //! Note: HashiCorp Vault integration requires Enterprise Edition.
 //! The OSS version only supports the database backend.
 
-#[cfg(all(feature = "private", feature = "enterprise"))]
-use std::sync::Arc;
-
 use windmill_common::{db::DB, error::Result};
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
-use windmill_common::error::Error;
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-use windmill_common::secret_backend::{database::DatabaseBackend, SecretBackend};
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::{
-    global_settings::{load_value_from_global_settings, SECRET_BACKEND_SETTING},
-    secret_backend::{SecretBackendConfig, VaultBackend, VaultSettings},
+    error::Error,
+    secret_backend::{
+        get_secret_backend, is_aws_sm_stored_value, is_azure_kv_stored_value,
+        is_external_stored_value, is_vault_backend_configured,
+    },
 };
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-use tokio::sync::RwLock;
-
-// Cached Vault backend to avoid recreating it for every request
-// This enables connection pooling and avoids repeated setup overhead
-#[cfg(all(feature = "private", feature = "enterprise"))]
-struct CachedVaultBackend {
-    backend: Arc<dyn SecretBackend>,
-    settings: VaultSettings,
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
-lazy_static::lazy_static! {
-    static ref VAULT_BACKEND_CACHE: RwLock<Option<CachedVaultBackend>> = RwLock::new(None);
-}
-
-/// Get the current secret backend based on global settings (EE only)
-#[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
-    let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
-        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
-        None => SecretBackendConfig::default(),
-    };
-
-    match config {
-        SecretBackendConfig::Database => Ok(Arc::new(DatabaseBackend::new(db.clone()))),
-        SecretBackendConfig::HashiCorpVault(settings) => {
-            get_or_create_vault_backend(db, settings).await
-        }
-    }
-}
-
-/// Get a cached Vault backend or create a new one if settings changed
-#[cfg(all(feature = "private", feature = "enterprise"))]
-async fn get_or_create_vault_backend(
-    _db: &DB,
-    settings: VaultSettings,
-) -> Result<Arc<dyn SecretBackend>> {
-    // Check if we have a cached backend with matching settings (read lock)
-    {
-        let cache = VAULT_BACKEND_CACHE.read().await;
-        if let Some(ref cached) = *cache {
-            if cached.settings == settings {
-                return Ok(cached.backend.clone());
-            }
-        }
-    }
-
-    // Need to create a new backend - acquire write lock
-    let mut cache = VAULT_BACKEND_CACHE.write().await;
-
-    // Double-check (another task may have created it while we waited)
-    if let Some(ref cached) = *cache {
-        if cached.settings == settings {
-            return Ok(cached.backend.clone());
-        }
-    }
-
-    // Create new backend
-    let backend: Arc<dyn SecretBackend> = {
-        #[cfg(feature = "openidconnect")]
-        if settings.token.is_none() {
-            Arc::new(VaultBackend::new_with_db(settings.clone(), _db.clone()))
-        } else {
-            Arc::new(VaultBackend::new(settings.clone()))
-        }
-
-        #[cfg(not(feature = "openidconnect"))]
-        Arc::new(VaultBackend::new(settings.clone()))
-    };
-
-    // Cache it
-    *cache = Some(CachedVaultBackend { backend: backend.clone(), settings });
-
-    Ok(backend)
-}
-
-/// Check if a Vault backend is currently configured (EE only)
-#[cfg(all(feature = "private", feature = "enterprise"))]
-async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
-    let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
-        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
-        None => SecretBackendConfig::default(),
-    };
-
-    Ok(matches!(config, SecretBackendConfig::HashiCorpVault(_)))
-}
-
-/// Check if a value is stored in Vault (indicated by the $vault: prefix)
-#[cfg(all(feature = "private", feature = "enterprise"))]
-fn is_vault_stored_value(value: &str) -> bool {
-    value.starts_with("$vault:")
-}
 
 /// Bulk rename secrets in Vault when a path prefix changes (e.g., user rename)
 /// EE only feature.
@@ -150,7 +51,7 @@ pub async fn rename_vault_secrets_with_prefix(
     new_prefix: &str,
     variables: Vec<(String, String)>, // (path, value) pairs
 ) -> Result<Vec<(String, String)>> {
-    // Only process if Vault is configured
+    // Only process if an external secret backend is configured
     if !is_vault_backend_configured(db).await? {
         return Ok(vec![]);
     }
@@ -159,10 +60,19 @@ pub async fn rename_vault_secrets_with_prefix(
     let mut updates = Vec::new();
 
     for (old_path, value) in variables {
-        // Only handle Vault-stored values
-        if !is_vault_stored_value(&value) {
+        // Only handle externally-stored values
+        if !is_external_stored_value(&value) {
             continue;
         }
+
+        // Determine the marker prefix from the stored value
+        let marker_prefix = if is_azure_kv_stored_value(&value) {
+            "$azure_kv:"
+        } else if is_aws_sm_stored_value(&value) {
+            "$aws_sm:"
+        } else {
+            "$vault:"
+        };
 
         // Calculate new path by replacing prefix
         let new_path = if old_path.starts_with(old_prefix) {
@@ -176,7 +86,7 @@ pub async fn rename_vault_secrets_with_prefix(
             Ok(v) => v,
             Err(Error::NotFound(_)) => {
                 // Just update DB reference
-                updates.push((old_path, format!("$vault:{}", new_path)));
+                updates.push((old_path, format!("{}{}", marker_prefix, new_path)));
                 continue;
             }
             Err(e) => {
@@ -211,7 +121,7 @@ pub async fn rename_vault_secrets_with_prefix(
             );
         }
 
-        updates.push((old_path, format!("$vault:{}", new_path)));
+        updates.push((old_path, format!("{}{}", marker_prefix, new_path)));
     }
 
     Ok(updates)

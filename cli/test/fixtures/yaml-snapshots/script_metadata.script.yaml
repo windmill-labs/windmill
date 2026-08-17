@@ -1,0 +1,22 @@
+summary: List active users
+description: Returns users active in the last N days.
+lock: '!inline list_users.lock'
+concurrency_time_window_s: 0
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - days
+    - limit
+  properties:
+    days:
+      type: integer
+      description: Lookback window in days
+      default: 30
+    limit:
+      type: integer
+      description: Max rows
+      default: 100
+  required:
+    - days

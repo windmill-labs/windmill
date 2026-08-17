@@ -8,12 +8,12 @@
 	import { editor as meditor, KeyMod, KeyCode } from 'monaco-editor'
 
 	import { initializeVscode } from './vscode'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
+	import { registerWebviewPaste } from '$lib/editorUtils'
 	import EditorTheme from './EditorTheme.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { ButtonProp } from './diffEditorTypes'
-
-	const SIDE_BY_SIDE_MIN_WIDTH = 700
+	import { SIDE_BY_SIDE_MIN_WIDTH, type ButtonProp } from './diffEditorTypes'
 
 	interface Props {
 		open?: boolean
@@ -28,6 +28,10 @@
 		buttons?: ButtonProp[]
 		modifiedModel?: meditor.ITextModel | meditor.IEditorModel
 		inlineDiff?: boolean
+		// Opt out of Monaco's auto-inline fallback (see useInlineViewWhenSpaceIsLimited
+		// below). Only set this when the consumer fully owns the inline/side-by-side
+		// decision; otherwise the default keeps Monaco's built-in narrow fallback.
+		disableAutoInline?: boolean
 	}
 
 	let {
@@ -42,11 +46,13 @@
 		readOnly = false,
 		buttons = [],
 		modifiedModel,
-		inlineDiff = false
+		inlineDiff = false,
+		disableAutoInline = false
 	}: Props = $props()
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
 	let diffDivEl: HTMLDivElement | null = $state(null)
+	let pasteCleanup: (() => void) | undefined = undefined
 	let editorWidth: number = $state(SIDE_BY_SIDE_MIN_WIDTH)
 
 	async function loadDiffEditor() {
@@ -59,6 +65,12 @@
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
 			renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
+			// Monaco forces the inline view below renderSideBySideInlineBreakpoint (900px),
+			// overriding our SIDE_BY_SIDE_MIN_WIDTH gate. Consumers that fully own the
+			// inline/side-by-side decision (e.g. the diff drawer's toggle) opt out via
+			// disableAutoInline; everyone else keeps Monaco's auto-inline fallback so
+			// narrow panels (inline scripts, flow modules) stay readable in unified view.
+			useInlineViewWhenSpaceIsLimited: !disableAutoInline,
 			originalEditable: false,
 			readOnly,
 			minimap: {
@@ -68,6 +80,7 @@
 			scrollBeyondLastLine: false,
 			lineDecorationsWidth: 15,
 			lineNumbersMinChars: 2,
+			fontSize: editorFontSize.regular,
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
 
@@ -81,28 +94,18 @@
 			modifiedEditor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			modifiedEditor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
-				try {
-					const text = await navigator.clipboard.readText()
-					if (text) {
-						const selection = modifiedEditor.getSelection()
-						if (selection) {
-							modifiedEditor.executeEdits('paste', [
-								{
-									range: selection,
-									text: text,
-									forceMoveMarkers: true
-								}
-							])
-						}
-					}
-				} catch (e) {
-					document.execCommand('paste')
-				}
-			})
+			// Paste is scoped to this editor's container instead of a global
+			// Ctrl+V keybinding, which would leak across editor instances.
+			pasteCleanup?.()
+			pasteCleanup = registerWebviewPaste(diffDivEl, () => diffEditor?.getModifiedEditor())
 		}
 
-		if (defaultLang !== undefined || defaultOriginal !== undefined || defaultModified !== undefined) {
+		if (
+			defaultLang !== undefined ||
+			defaultOriginal !== undefined ||
+			defaultModified !== undefined ||
+			modifiedModel !== undefined
+		) {
 			setupModel(defaultLang ?? 'plaintext', defaultOriginal, defaultModified, defaultModifiedLang)
 		}
 	}
@@ -113,6 +116,11 @@
 		modified?: string,
 		modifiedLang?: string
 	) {
+		defaultLang = lang
+		defaultOriginal = original
+		defaultModified = modified
+		defaultModifiedLang = modifiedLang
+
 		const o = meditor.createModel(original ?? '', lang)
 		const m = modifiedModel ?? meditor.createModel(modified ?? '', modifiedLang ?? lang)
 		diffEditor?.setModel({
@@ -136,6 +144,7 @@
 	}
 
 	export function setModifiedModel(model: meditor.ITextModel) {
+		modifiedModel = model
 		const curr = diffEditor?.getModel()
 		if (!curr) return
 		diffEditor?.setModel({
@@ -177,9 +186,60 @@
 		}
 	})
 
+	$effect(() => {
+		const fontSize = editorFontSize.regular
+		if (diffEditor) {
+			diffEditor.updateOptions({ fontSize })
+		}
+	})
+
+	$effect(() => {
+		if (!diffEditor) {
+			return
+		}
+
+		const lang = defaultLang ?? 'plaintext'
+		const modifiedLang = defaultModifiedLang ?? lang
+		const currentModel = diffEditor.getModel()
+
+		if (!currentModel) {
+			setupModel(lang, defaultOriginal, defaultModified, defaultModifiedLang)
+			return
+		}
+
+		if (currentModel.original.getLanguageId() !== lang) {
+			meditor.setModelLanguage(currentModel.original, lang)
+		}
+
+		const originalValue = defaultOriginal ?? ''
+		if (currentModel.original.getValue() !== originalValue) {
+			currentModel.original.setValue(originalValue)
+		}
+
+		if (modifiedModel) {
+			if (currentModel.modified !== modifiedModel) {
+				diffEditor.setModel({
+					original: currentModel.original,
+					modified: modifiedModel as meditor.ITextModel
+				})
+			}
+			return
+		}
+
+		if (currentModel.modified.getLanguageId() !== modifiedLang) {
+			meditor.setModelLanguage(currentModel.modified, modifiedLang)
+		}
+
+		const modifiedValue = defaultModified ?? ''
+		if (currentModel.modified.getValue() !== modifiedValue) {
+			currentModel.modified.setValue(modifiedValue)
+		}
+	})
+
 	onMount(() => {
 		if (BROWSER) {
 			return () => {
+				pasteCleanup?.()
 				diffEditor?.dispose()
 			}
 		}

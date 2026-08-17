@@ -6,3 +6,4 @@ mod tests;
 
 pub use client::{SdkError, Windmill};
 pub use windmill_api::apis;
+pub use windmill_api::models;

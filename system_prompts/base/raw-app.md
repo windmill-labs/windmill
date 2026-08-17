@@ -2,73 +2,82 @@
 
 Raw apps let you build custom frontends with React, Svelte, or Vue that connect to Windmill backend runnables and datatables.
 
-## Creating a Raw App
+## App shape
 
-```bash
-wmill app new
+A raw app has three logical parts:
+
+- **Frontend** — bundled with esbuild from `index.tsx` as the entrypoint. Files include the entrypoint, components (`App.tsx`), styles, etc.
+- **Backend runnables** — server-side scripts the frontend calls, each addressed by a unique key.
+- **Data** — optional whitelisted datatables (managed PostgreSQL) that the backend runnables can query. The frontend never queries the database directly; backend runnables are the only bridge.
+
+## Frontend
+
+### Entrypoint
+
+The entrypoint is `index.tsx` for React and `index.ts` for Svelte and Vue. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty `<div id="root">` and auto-renders nothing, so the entrypoint must mount a top-level `App` itself. Keep the UI in `App.tsx` / `App.svelte` / `App.vue` and keep the entrypoint as the mount shim.
+
+React (`index.tsx`):
+
+```tsx
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import App from './App'
+
+createRoot(document.getElementById('root')!).render(<App />)
 ```
 
-This interactive command creates a complete app structure with your choice of frontend framework (React, Svelte, or Vue).
+Svelte (`index.ts`): `mount(App, { target: document.getElementById('root')! })`. Vue (`index.ts`): `createApp(App).mount('#root')`.
 
-## App Structure
+**Never replace the entrypoint with a bare component** (`export default function App() { ... }` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — it never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that the entrypoint still mounts `App` into `#root`.
 
-```
-my_app__raw_app/
-├── AGENTS.md              # AI agent instructions (auto-generated)
-├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
-├── raw_app.yaml           # App configuration (summary, path, data settings)
-├── index.tsx              # Frontend entry point
-├── App.tsx                # Main React/Svelte/Vue component
-├── index.css              # Styles
-├── package.json           # Frontend dependencies
-├── wmill.ts               # Auto-generated backend type definitions (DO NOT EDIT)
-├── backend/               # Backend runnables (server-side scripts)
-│   ├── <id>.<ext>         # Code file (e.g., get_user.ts)
-│   ├── <id>.yaml          # Optional: config for fields, or to reference existing scripts
-│   └── <id>.lock          # Lock file (run 'wmill app generate-locks' to create)
-└── sql_to_apply/          # SQL migrations (dev only, not synced)
-    └── *.sql              # SQL files to apply via dev server
-```
+**Always begin every React file (`.tsx`/`.jsx`) that uses JSX with `import React from 'react'`.** esbuild uses the classic JSX transform, so `React` must be in scope wherever JSX appears — a missing import compiles fine but throws `React is not defined` at runtime, leaving a blank screen.
 
-## Backend Runnables
+### Generated bindings (`wmill.d.ts` / `wmill.ts`)
 
-Backend runnables are server-side scripts that your frontend can call. They live in the `backend/` folder.
+The frontend imports a generated module that mirrors the backend runnables. **Never write to it directly** — it gets regenerated whenever backend runnables change. Modifying it by hand will be overwritten.
 
-### Creating a Backend Runnable
+### Calling backend runnables
 
-Add a code file to the `backend/` folder:
+Import the generated bindings and call the runnable like a function:
 
-```
-backend/<id>.<ext>
+```typescript
+import { backend } from './wmill';
+
+// Call a backend runnable
+const user = await backend.get_user({ user_id: '123' });
 ```
 
-The runnable ID is the filename without extension. For example, `get_user.ts` creates a runnable with ID `get_user`.
+The frontend cannot reach datatables, workspace items, or external services on its own — it goes through `backend.<key>(args)` for everything server-side.
 
-### Supported Languages
+### Keeping data out of recorded demos
 
-| Language         | Extension    | Example          |
-|------------------|--------------|------------------|
-| TypeScript       | `.ts`        | `myFunc.ts`      |
-| TypeScript (Bun) | `.bun.ts`    | `myFunc.bun.ts`  |
-| TypeScript (Deno)| `.deno.ts`   | `myFunc.deno.ts` |
-| Python           | `.py`        | `myFunc.py`      |
-| Go               | `.go`        | `myFunc.go`      |
-| Bash             | `.sh`        | `myFunc.sh`      |
-| PowerShell       | `.ps1`       | `myFunc.ps1`     |
-| PostgreSQL       | `.pg.sql`    | `myFunc.pg.sql`  |
-| MySQL            | `.my.sql`    | `myFunc.my.sql`  |
-| BigQuery         | `.bq.sql`    | `myFunc.bq.sql`  |
-| Snowflake        | `.sf.sql`    | `myFunc.sf.sql`  |
-| MS SQL           | `.ms.sql`    | `myFunc.ms.sql`  |
-| GraphQL          | `.gql`       | `myFunc.gql`     |
-| PHP              | `.php`       | `myFunc.php`     |
-| Rust             | `.rs`        | `myFunc.rs`      |
-| C#               | `.cs`        | `myFunc.cs`      |
-| Java             | `.java`      | `myFunc.java`    |
+An app can be demoed by recording a session: every interaction becomes a step carrying a snapshot of the page, replayed publicly or on the Hub. Password inputs are masked automatically. Mark anything else that must not appear with `data-wm-no-record` — the whole marked subtree is dropped from every snapshot, along with its values and the step's own metadata:
 
-### Example Backend Runnable
+```tsx
+<label data-wm-no-record>
+  Customer SSN <input value={ssn} onChange={onSsn} />
+</label>
+```
 
-**backend/get_user.ts:**
+Apply it to customer data, internal notes and anything else a viewer of the demo should not see. It costs nothing when the app is never recorded.
+
+## Backend runnables
+
+Each runnable has a unique key (used to call it from the frontend) and one of four types:
+
+| Type | What it is |
+|---|---|
+| `inline` | Custom code stored on the app itself. Most common for app-specific logic. |
+| `script` | Reference to an existing workspace script by path. |
+| `flow` | Reference to an existing workspace flow by path. |
+| `hubscript` | Reference to a hub script by path. |
+
+### Inline runnables
+
+Inline runnables carry their own source code. For file-based raw apps, the runnable language is determined by the backend file extension. The script must expose a `main` function as its entrypoint.
+
+**TypeScript example** (`backend/get_user.ts`):
+
 ```typescript
 import * as wmill from 'windmill-client';
 
@@ -79,80 +88,34 @@ export async function main(user_id: string) {
 }
 ```
 
-After creating, tell the user they can generate lock files by running:
-```bash
-wmill app generate-locks
+**Python example** (`backend/get_user.py`):
+
+```python
+import wmill
+
+def main(user_id: str):
+    db = wmill.datatable()
+    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+    return user
 ```
 
-### Optional YAML Configuration
+### Path runnables (script / flow / hubscript)
 
-Add a `<id>.yaml` file to configure fields or static values:
+When `type` is `script`, `flow`, or `hubscript`, the runnable just stores a `path` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface.
 
-**backend/get_user.yaml:**
-```yaml
-type: inline
-fields:
-  user_id:
-    type: static
-    value: "default_user"
-```
+### Static inputs
 
-### Referencing Existing Scripts
-
-To use an existing Windmill script instead of inline code:
-
-**backend/existing_script.yaml:**
-```yaml
-type: script
-path: f/my_folder/existing_script
-```
-
-For flows:
-```yaml
-type: flow
-path: f/my_folder/my_flow
-```
-
-### Calling Backend from Frontend
-
-Import from the auto-generated `wmill.ts`:
-
-```typescript
-import { backend } from './wmill';
-
-// Call a backend runnable
-const user = await backend.get_user({ user_id: '123' });
-```
-
-The `wmill.ts` file provides type-safe access to all backend runnables.
+`staticInputs` is an optional `Record<string, any>` for arguments not overridable from the frontend. Useful with path runnables to pre-fill some args while leaving the rest to the frontend caller.
 
 ## Data Tables
 
-Raw apps can query Windmill datatables (PostgreSQL databases managed by Windmill).
+Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the `wmill` client; the frontend never queries them directly.
 
-### Critical Rules
+### Critical rules
 
-1. **ONLY USE WHITELISTED TABLES**: You can ONLY query tables listed in `raw_app.yaml` → `data.tables`. Tables not in this list are NOT accessible.
-
-2. **ADD TABLES BEFORE USING**: To use a new table, first add it to `data.tables` in `raw_app.yaml`.
-
-3. **USE CONFIGURED DATATABLE/SCHEMA**: Check the app's `raw_app.yaml` for the default datatable and schema.
-
-### Configuration in raw_app.yaml
-
-```yaml
-data:
-  datatable: main           # Default datatable
-  schema: app_schema        # Default schema (optional)
-  tables:
-    - main/users            # Table in public schema
-    - main/app_schema:items # Table in specific schema
-```
-
-**Table reference formats:**
-- `<datatable>` - All tables in the datatable
-- `<datatable>/<table>` - Specific table in public schema
-- `<datatable>/<schema>:<table>` - Table in specific schema
+1. **Whitelisted tables only**: a runnable can only query tables listed in the app's `data.tables` config. Tables not in this list are not accessible.
+2. **Add tables before using**: queries against unlisted tables fail at runtime. When you introduce a new table, register it in `data.tables` first.
+3. **Use the configured datatable/schema**: the app's `data` config sets the default datatable and schema; reference them consistently across runnables.
 
 ### Querying in TypeScript (Bun/Deno)
 
@@ -193,61 +156,11 @@ def main(user_id: str):
     return user
 ```
 
-## SQL Migrations (sql_to_apply/)
-
-The `sql_to_apply/` folder is for creating/modifying database tables during development.
-
-### Workflow
-
-1. Create `.sql` files in `sql_to_apply/`
-2. Run `wmill app dev` - the dev server watches this folder
-3. When SQL files change, a modal appears in the browser to confirm execution
-4. After creating tables, **add them to `data.tables`** in `raw_app.yaml`
-
-### Example Migration
-
-**sql_to_apply/001_create_users.sql:**
-```sql
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    name TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-```
-
-After applying, add to `raw_app.yaml`:
-```yaml
-data:
-  tables:
-    - main/users
-```
-
-### Migration Best Practices
-
-- **Use idempotent SQL**: `CREATE TABLE IF NOT EXISTS`, etc.
-- **Number files**: `001_`, `002_` for ordering
-- **Always whitelist tables** after creation
-- This folder is NOT synced - it's for local development only
-
-## CLI Commands
-
-Tell the user they can run these commands (do NOT run them yourself):
-
-| Command | Description |
-|---------|-------------|
-| `wmill app new` | Create a new raw app interactively |
-| `wmill app dev` | Start dev server with live reload |
-| `wmill app generate-agents` | Refresh AGENTS.md and DATATABLES.md |
-| `wmill app generate-locks` | Generate lock files for backend runnables |
-| `wmill sync push` | Deploy app to Windmill |
-| `wmill sync pull` | Pull latest from Windmill |
-
 ## Best Practices
 
-1. **Check DATATABLES.md** for existing tables before creating new ones
-2. **Use parameterized queries** - never concatenate user input into SQL
-3. **Keep runnables focused** - one function per file
-4. **Use descriptive IDs** - `get_user.ts` not `a.ts`
-5. **Always whitelist tables** - add to `data.tables` before querying
-6. **Generate locks** - tell the user to run `wmill app generate-locks` after adding/modifying backend runnables
+1. **Check existing tables** before creating new ones — reuse beats schema growth.
+2. **Use parameterized queries** — never concatenate user input into SQL.
+3. **Keep runnables focused** — one function per runnable; small surface area.
+4. **Use descriptive keys** — `get_user`, not `a`.
+5. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in `data.tables` first.
+6. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.

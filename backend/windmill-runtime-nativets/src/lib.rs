@@ -15,6 +15,12 @@
 mod dedicated;
 pub use dedicated::{ExecutingIsolate, PrewarmedIsolate, PrewarmedResult};
 
+#[cfg(test)]
+mod smoke_tests;
+
+#[cfg(test)]
+mod cert_tests;
+
 use std::{
     borrow::Cow,
     cell::RefCell,
@@ -32,8 +38,10 @@ use deno_core::{
     v8::{self, IsolateHandle},
     Extension, JsRuntime, OpState, PollEventLoopOptions, RuntimeOptions,
 };
+use deno_error::JsErrorBox;
 use deno_fetch::FetchPermissions;
 use deno_net::NetPermissions;
+use deno_tls::{rustls::pki_types::CertificateDer, rustls::RootCertStore, RootCertStoreProvider};
 use deno_web::{BlobStore, TimersPermission};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -46,6 +54,28 @@ use uuid::Uuid;
 use windmill_common::error::Error;
 use windmill_common::result_stream::append_result_stream_db;
 use windmill_common::worker::{write_file, Connection, WINDMILL_DIR};
+
+// ── Snapshot-matched extensions ──────────────────────────────────────
+//
+// `deno_core` 0.352 validates that the snapshot's extension list is a
+// *prefix* of the runtime's extension list (snapshot does not need an
+// exact match — runtime is allowed to add extensions at the tail, but
+// must not reorder or omit any that the snapshot baked in).
+//
+// Our snapshot (in build.rs) is the same eight deno_* extensions ending
+// with this local `fetch` ext. The runtime adds one extra entry at the
+// end — the windmill `ext` carrying our own ops — which is fine because
+// it's after the snapshot prefix.
+//
+// This local `fetch` extension declaration must be present in both
+// build.rs and lib.rs so the type passes through the `init()` macro.
+// The ESM is already in the snapshot, so this `init()` call at runtime
+// is a no-op for esm — the registration just records the ext.
+deno_core::extension!(
+    fetch,
+    esm_entry_point = "ext:fetch/src/runtime.js",
+    esm = ["src/runtime.js"],
+);
 
 // ── Permission container ─────────────────────────────────────────────
 
@@ -64,11 +94,31 @@ impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_read<'a>(
         &mut self,
-        _resolved: bool,
-        p: &'a std::path::Path,
+        path: Cow<'a, std::path::Path>,
         _api_name: &str,
-    ) -> Result<Cow<'a, std::path::Path>, deno_io::fs::FsError> {
-        Ok(Cow::Borrowed(p))
+        _get_path: &'a dyn deno_fs::GetPath,
+    ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
+        Ok(deno_fs::CheckedPath::Unresolved(path))
+    }
+
+    #[inline(always)]
+    fn check_write<'a>(
+        &mut self,
+        path: Cow<'a, std::path::Path>,
+        _api_name: &str,
+        _get_path: &'a dyn deno_fs::GetPath,
+    ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
+        Ok(deno_fs::CheckedPath::Unresolved(path))
+    }
+
+    #[inline(always)]
+    fn check_net_vsock(
+        &mut self,
+        _cid: u32,
+        _port: u32,
+        _api_name: &str,
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
+        Ok(())
     }
 }
 
@@ -80,17 +130,17 @@ impl TimersPermission for PermissionsContainer {
 }
 
 impl NetPermissions for PermissionsContainer {
-    fn check_read<'a>(
+    fn check_read(
         &mut self,
-        p: &'a str,
+        p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         Ok(PathBuf::from(p))
     }
 
-    fn check_write<'a>(
+    fn check_write(
         &mut self,
-        p: &'a str,
+        p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         Ok(PathBuf::from(p))
@@ -106,10 +156,19 @@ impl NetPermissions for PermissionsContainer {
 
     fn check_write_path<'a>(
         &mut self,
-        p: &'a std::path::Path,
+        p: Cow<'a, std::path::Path>,
         _api_name: &str,
-    ) -> Result<std::borrow::Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
-        Ok(Cow::Borrowed(p))
+    ) -> Result<Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
+        Ok(p)
+    }
+
+    fn check_vsock(
+        &mut self,
+        _cid: u32,
+        _port: u32,
+        _api_name: &str,
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
+        Ok(())
     }
 }
 
@@ -158,6 +217,123 @@ lazy_static::lazy_static! {
 lazy_static! {
     static ref RE_PROXY: Regex =
         Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
+}
+
+lazy_static! {
+    /// Root cert store for the in-process nativets fetch runtime.
+    ///
+    /// Unlike the Deno/Bun executors, nativets never spawns a child process, so
+    /// the CA env vars those executors forward (`DENO_CERT`, `DENO_TLS_CA_STORE`,
+    /// `SSL_CERT_FILE`/`NODE_EXTRA_CA_CERTS`) are never consumed by deno's CLI
+    /// layer. `deno_fetch` with `root_cert_store_provider: None` falls back to
+    /// the Mozilla webpki roots only, so corporate CAs fail with `UnknownIssuer`.
+    /// We read those env vars here and merge the certs into the default store.
+    ///
+    /// Snapshotted once for the process lifetime, like the Deno executor's
+    /// `DENO_CERT`/`DENO_TLS_CA_STORE` lazy statics (`deno_executor.rs`): the
+    /// fetch root store is shared across all (potentially prewarmed) isolates, so
+    /// per-job CA reconfiguration is out of scope. A later `WORKER_CONFIG` reload
+    /// is not picked up until the process restarts.
+    static ref NATIVE_ROOT_CERT_STORE_PROVIDER: Option<Arc<dyn RootCertStoreProvider>> =
+        build_native_root_cert_store_provider();
+}
+
+struct NativeRootCertStoreProvider {
+    store: RootCertStore,
+}
+
+impl RootCertStoreProvider for NativeRootCertStoreProvider {
+    fn get_or_try_init(&self) -> Result<&RootCertStore, JsErrorBox> {
+        Ok(&self.store)
+    }
+}
+
+/// Resolve a CA-related env var the same way the child executors see it: the
+/// worker's own process env, then the worker-group config (`env_vars_allowlist`
+/// forwarded values + DB `env_vars_static` literals, resolved into
+/// `WORKER_CONFIG.env_vars`). Child Deno/Bun jobs receive that config map via
+/// `.envs(...)`, so nativets must consult it too or a CA set only through worker
+/// config would silently not apply in-process.
+fn resolve_ca_env_var(name: &str) -> Option<String> {
+    if let Ok(v) = std::env::var(name) {
+        if !v.is_empty() {
+            return Some(v);
+        }
+    }
+    windmill_common::worker::WORKER_CONFIG
+        .load()
+        .env_vars
+        .get(name)
+        .filter(|v| !v.is_empty())
+        .cloned()
+}
+
+/// Build a root cert store seeded with the Mozilla webpki roots plus any custom
+/// CAs configured via env. Returns `None` when no custom CA is configured, which
+/// preserves the previous default-only behaviour.
+fn build_native_root_cert_store_provider() -> Option<Arc<dyn RootCertStoreProvider>> {
+    let mut store = deno_tls::create_default_root_cert_store();
+    let mut added = 0usize;
+
+    // File-path env vars, each pointing at a PEM bundle of one or more certs.
+    // `DENO_CERT` mirrors the Deno CLI; `SSL_CERT_FILE` is the OpenSSL standard
+    // also honoured by Bun/Node (via NODE_EXTRA_CA_CERTS). Dedupe by path because
+    // the tracing proxy points several of these at the same bundle, and rustls'
+    // RootCertStore::add does not dedupe — we'd otherwise trust the same root N times.
+    let mut seen_paths = std::collections::HashSet::new();
+    for var in ["DENO_CERT", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"] {
+        let Some(path) = resolve_ca_env_var(var).filter(|p| !p.is_empty()) else {
+            continue;
+        };
+        if !seen_paths.insert(path.clone()) {
+            continue;
+        }
+        match load_pem_certs_from_path(&path) {
+            Ok(certs) => {
+                for cert in certs {
+                    if let Err(e) = store.add(cert) {
+                        tracing::warn!("nativets: failed to add cert from {var}={path}: {e}");
+                    } else {
+                        added += 1;
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("nativets: failed to read CA file {var}={path}: {e}"),
+        }
+    }
+
+    // `DENO_TLS_CA_STORE=system` (comma-separated, may also contain `mozilla`)
+    // pulls in the OS trust store. Unlike the Deno CLI — where the list selects
+    // and orders the stores — this is purely additive: the Mozilla defaults are
+    // always seeded above, and `system` augments them. That is a strict superset
+    // of the public roots, which is what the corporate-CA use case needs.
+    if resolve_ca_env_var("DENO_TLS_CA_STORE")
+        .map(|v| v.split(',').any(|s| s.trim() == "system"))
+        .unwrap_or(false)
+    {
+        match deno_tls::deno_native_certs::load_native_certs() {
+            Ok(certs) => {
+                for cert in certs {
+                    if store.add(CertificateDer::from(cert.0)).is_ok() {
+                        added += 1;
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("nativets: failed to load system CA store: {e}"),
+        }
+    }
+
+    if added == 0 {
+        return None;
+    }
+    tracing::info!("nativets: loaded {added} custom CA cert(s) into fetch root store");
+    Some(Arc::new(NativeRootCertStoreProvider { store }))
+}
+
+fn load_pem_certs_from_path(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    deno_tls::load_certs(&mut reader).map_err(|e| anyhow::anyhow!(e))
 }
 
 // ── Public interface ─────────────────────────────────────────────────
@@ -379,9 +555,9 @@ pub(crate) fn create_nativets_runtime(
     let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
     let fetch_options = deno_fetch::Options {
-        root_cert_store_provider: None,
+        root_cert_store_provider: NATIVE_ROOT_CERT_STORE_PROVIDER.clone(),
         user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
-        proxy: ann.proxy.map(|x| deno_tls::Proxy {
+        proxy: ann.proxy.map(|x| deno_tls::Proxy::Http {
             url: x.0,
             basic_auth: x
                 .1
@@ -391,13 +567,17 @@ pub(crate) fn create_nativets_runtime(
     };
 
     let exts: Vec<Extension> = vec![
-        deno_telemetry::deno_telemetry::init_ops(),
-        deno_webidl::deno_webidl::init_ops(),
-        deno_url::deno_url::init_ops(),
-        deno_console::deno_console::init_ops(),
-        deno_web::deno_web::init_ops::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
-        deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(fetch_options),
-        deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
+        deno_telemetry::deno_telemetry::init(),
+        deno_webidl::deno_webidl::init(),
+        deno_url::deno_url::init(),
+        deno_console::deno_console::init(),
+        deno_web::deno_web::init::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
+        // Registered after deno_web to keep the snapshot (build.rs) a prefix of
+        // the runtime extension list; deno_crypto declares deps = [deno_webidl, deno_web].
+        deno_crypto::deno_crypto::init(None),
+        deno_fetch::deno_fetch::init::<PermissionsContainer>(fetch_options),
+        deno_net::deno_net::init::<PermissionsContainer>(None, None),
+        fetch::init(),
         ext,
     ];
 
@@ -443,6 +623,13 @@ pub(crate) fn create_nativets_runtime(
         op_state.put(MainArgs { args: initial_args });
         op_state.put(LogString { s: log_sender });
     }
+
+    // Per-isolate JS init that can't run in the snapshot (runtime.js executes at
+    // snapshot-build time): currently seeds performance.timeOrigin via
+    // setTimeOrigin(), which must read this isolate's wall clock.
+    js_runtime
+        .execute_script("<wm_init>", "globalThis.__wmInitPerIsolate()")
+        .map_err(windmill_common::error::to_anyhow)?;
 
     Ok(CreatedRuntime { js_runtime, log_receiver, memory_limit_rx })
 }
@@ -579,6 +766,7 @@ pub async fn eval_fetch_timeout(
         ));
     }
 
+    let w_id_for_tracing = w_id.to_string();
     let result_f = tokio::task::spawn_blocking(move || {
         let CreatedRuntime { mut js_runtime, mut log_receiver, mut memory_limit_rx } =
             create_nativets_runtime(ann, spread)?;
@@ -604,11 +792,30 @@ pub async fn eval_fetch_timeout(
                     tracing::error!("failed to send extra logs: {e}");
                 }
             }
+            let w_id_for_tracing = w_id_for_tracing;
             let handle = tokio::spawn(async move {
                 let mut result_stream = String::new();
                 let mut is_stream = false;
                 while let Some(log) = log_receiver.recv().await {
                     use windmill_common::result_stream::extract_stream_from_logs;
+                    use windmill_common::tracing_init::{OTEL_JOB_LOGS, OTEL_PREFIX};
+
+                    // Mirror `process_streaming_log_lines` (EE) + the OTEL_JOB_LOGS
+                    // hook from handle_child.rs, neither of which runs for nativets
+                    // since nativets delivers logs in-process via the log channel.
+                    for line in log.lines() {
+                        tracing::info!(
+                            target: "windmill:job_log",
+                            job_id = ?job_id,
+                            workspace_id = ?w_id_for_tracing,
+                            "{line}"
+                        );
+                        if *OTEL_JOB_LOGS {
+                            if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {
+                                tracing::event!(tracing::Level::INFO, otel_suffix);
+                            }
+                        }
+                    }
 
                     if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
                         if !is_stream {
@@ -813,7 +1020,10 @@ function processStreamIterative(res) {{
 
 {otel_context_inject}
 
-let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
+// A slot is `null` only when the arg was not provided: pass `undefined` so the
+// parameter default applies (JS defaults ignore `null`), matching the bun runner.
+// A provided JSON `null` arrives as the string "null" and stays `null`.
+let args = Deno.core.ops.op_get_static_args().map((arg) => arg === null ? undefined : JSON.parse(arg))
 import("file:///eval.ts").then((module) => module.{main_fn}(...args))
     .then(res => {{
         if (isAsyncIterable(res)) {{

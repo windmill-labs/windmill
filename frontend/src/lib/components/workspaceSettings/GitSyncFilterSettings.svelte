@@ -25,12 +25,20 @@
 		settings: boolean
 		key: boolean
 		workspaceDependencies: boolean
+		dataTableMigrations: boolean
 	}
 
 	let {
 		git_repo_resource_path = $bindable(''),
 		include_path = $bindable(['f/**']),
-		include_type = $bindable(['script', 'flow', 'app', 'folder'] as GitSyncObjectType[]),
+		include_type = $bindable([
+			'script',
+			'flow',
+			'app',
+			'folder',
+			'workspacedependencies',
+			'datatablemigration'
+		] as GitSyncObjectType[]),
 		exclude_types_override = $bindable([] as GitSyncObjectType[]),
 		isLegacyRepo = false,
 		excludes = $bindable([] as string[]),
@@ -70,7 +78,8 @@
 		triggers: effectiveIncludeTypes.includes('trigger'),
 		settings: effectiveIncludeTypes.includes('settings'),
 		key: effectiveIncludeTypes.includes('key'),
-		workspaceDependencies: effectiveIncludeTypes.includes('workspacedependencies')
+		workspaceDependencies: effectiveIncludeTypes.includes('workspacedependencies'),
+		dataTableMigrations: effectiveIncludeTypes.includes('datatablemigration')
 	})
 
 	// Tab selection for filter kinds
@@ -93,7 +102,8 @@
 			triggers: 'trigger',
 			settings: 'settings',
 			key: 'key',
-			workspaceDependencies: 'workspacedependencies'
+			workspaceDependencies: 'workspacedependencies',
+			dataTableMigrations: 'datatablemigration'
 		}
 
 		if (value) {
@@ -315,6 +325,14 @@
 									options={{ right: 'Workspace dependencies' }}
 								/>
 							</div>
+							<div class="flex items-center gap-2">
+								<Toggle
+									size="xs"
+									checked={typeToggles.dataTableMigrations}
+									on:change={(e) => updateIncludeType('dataTableMigrations', e.detail)}
+									options={{ right: 'Data table migrations' }}
+								/>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -424,7 +442,7 @@ git push
 										> file:</div
 									>
 									<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto"
-										>gitBranches:
+										>workspaces:
   main:
     promotionOverrides:
       # Add your promotion-specific settings here</pre

@@ -7,5 +7,5 @@
 	{#snippet text()}
 		Library script (no exported main function)
 	{/snippet}
-	<Badge small color="yellow" baseClass="border border-indigo-200">Library</Badge>
+	<Badge small color="yellow" baseClass="border">Library</Badge>
 </Popover>

@@ -7,6 +7,7 @@
 
 	interface ExtendedWorkspace extends UserWorkspace {
 		_children?: ExtendedWorkspace[]
+		_dev?: ExtendedWorkspace
 		marked?: string
 	}
 
@@ -75,7 +76,6 @@
 			}
 		})
 
-		// Combine manual and auto-expanded states
 		return { ...manualExpansionStates, ...autoExpanded }
 	})
 
@@ -121,12 +121,22 @@
 			const directChildren = childrenMap.get(workspace.id) || []
 			const thisWorkspaceMatches = matchedWorkspaceIds.has(workspace.id)
 
+			// The canonical dev workspace is presented on its parent's own card, as the second half of
+			// a prod/dev pair, so it never enters the fork list. Forks branched off it come up beside
+			// the parent's own forks — `findDefaultForkBase` bases a fork on the dev workspace whenever
+			// one exists, so that is where most forks of a family hang.
+			const dev = directChildren.find((child) => child.is_dev_workspace)
+			const forkChildren = [
+				...directChildren.filter((child) => child !== dev),
+				...(dev ? (childrenMap.get(dev.id) ?? []) : [])
+			]
+
 			// If this workspace or a parent matches, show all children
 			// Otherwise, only show children that match or have matching descendants
 			const visibleChildren =
 				searchFilter && !parentMatched && !thisWorkspaceMatches
-					? directChildren.filter((child) => hasMatchingDescendant(child.id))
-					: directChildren
+					? forkChildren.filter((child) => hasMatchingDescendant(child.id))
+					: forkChildren
 
 			const childrenWithNestedStructure = visibleChildren.map((child) =>
 				buildWorkspaceWithChildren(child, parentMatched || thisWorkspaceMatches)
@@ -138,6 +148,7 @@
 			return {
 				...workspace,
 				marked: filteredWorkspace?.marked,
+				_dev: dev,
 				_children: childrenWithNestedStructure
 			}
 		}
@@ -169,13 +180,17 @@
 		manualExpansionStates = { ...manualExpansionStates, [workspaceId]: !currentState }
 	}
 
-	// Get IDs of workspaces that have children (can be expanded)
+	// Ids of the cards that actually render a fork section. Read off the built tree, not off
+	// `parent_workspace_id`: a workspace whose only child is its dev workspace shows the pair inline
+	// and has nothing to expand.
 	let workspacesWithChildren = $derived.by(() => {
-		if (!workspaces) return []
-		const parentIds = new Set(
-			workspaces.filter((w) => w.parent_workspace_id).map((w) => w.parent_workspace_id)
-		)
-		return workspaces.filter((w) => parentIds.has(w.id)).map((w) => w.id)
+		const ids: string[] = []
+		function collect(workspace: ExtendedWorkspace) {
+			if (workspace._children?.length) ids.push(workspace.id)
+			workspace._children?.forEach(collect)
+		}
+		rootWorkspaces.forEach(collect)
+		return ids
 	})
 
 	// Check if all expandable workspaces are currently expanded
@@ -208,6 +223,8 @@
 
 		function addWorkspaceAndChildren(workspace: ExtendedWorkspace) {
 			result.push(workspace.id)
+			// The dev half of the pair sits on the same card, so it is always reachable.
+			if (workspace._dev) result.push(workspace._dev.id)
 			if (workspace._children && expansionStates[workspace.id]) {
 				workspace._children.forEach((child) => addWorkspaceAndChildren(child))
 			}
@@ -387,6 +404,7 @@
 		{#each rootWorkspaces as workspace (workspace.id)}
 			<WorkspaceCard
 				{workspace}
+				dev={workspace._dev}
 				children={workspace._children || []}
 				isExpanded={expansionStates[workspace.id] ?? false}
 				{expansionStates}

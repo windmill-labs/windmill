@@ -16,6 +16,7 @@ mod dependency_map {
         parent_hash: Option<String>,
     ) -> NewScript {
         NewScript {
+            draft_only: None,
             content: content.into(),
             language,
             lock,
@@ -26,7 +27,6 @@ mod dependency_map {
             cache_ttl: None,
             dedicated_worker: None,
             description: "".to_string(),
-            draft_only: None,
             envs: vec![],
             is_template: None,
             kind: None,
@@ -35,7 +35,7 @@ mod dependency_map {
             schema: std::collections::HashMap::new(),
             ws_error_handler_muted: Some(false),
             priority: None,
-            delete_after_use: None,
+            delete_after_secs: None,
             timeout: None,
             restart_unless_cancelled: None,
             deployment_message: None,
@@ -441,15 +441,17 @@ def main():
                     .unwrap(),
                 ),
                 schema: None,
-                draft_only: None,
                 tag: None,
                 dedicated_worker: None,
                 timeout: None,
                 deployment_message: None,
                 visible_to_runner_only: None,
                 on_behalf_of_email: None,
+                on_behalf_of: None,
                 preserve_on_behalf_of: None,
                 ws_error_handler_muted: None,
+                labels: None,
+                skip_draft_deletion: None,
             })
             .send()
             .await
@@ -511,6 +513,9 @@ def main():
                 deployment_message: None,
                 custom_path: None,
                 preserve_on_behalf_of: None,
+                labels: None,
+                skip_draft_deletion: None,
+                allow_kind_change: None,
             })
             .send()
             .await

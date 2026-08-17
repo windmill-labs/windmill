@@ -77,7 +77,7 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
                         }
                     }
                     let (otyp, typ, name) = parse_csharp_typ(p_list_node, code)?;
-                    args.push(Arg { name, otyp, typ, default, has_default: false, oidx: None });
+                    args.push(Arg { name, otyp, typ, default, has_default: false, oidx: None, otyp_inferred: false });
                 }
             }
         }
@@ -89,6 +89,7 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
         args,
         has_preprocessor: None,
         auto_kind,
+        ..Default::default()
     };
 
     Ok(CsharpMainSigMeta { is_async, returns_void, class_name, main_sig, is_public })

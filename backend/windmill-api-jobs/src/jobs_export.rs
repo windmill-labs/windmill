@@ -16,9 +16,10 @@ use uuid::Uuid;
 use windmill_common::{
     db::UserDB,
     error,
-    jobs::{JobKind, JobStatus, JobTriggerKind},
+    jobs::{is_safe_log_file_path, JobKind, JobStatus, JobTriggerKind},
     scripts::ScriptLang,
     utils::{paginate, paginate_without_limits, require_admin, Pagination},
+    worker::CLOUD_HOSTED,
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -328,6 +329,20 @@ pub async fn import_completed_jobs(
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // log_file_index is read back by the log endpoints as paths under the windmill
+    // log directory; an attacker-supplied traversal here would become an arbitrary
+    // file read. Reject anything that could escape the log directory at ingestion.
+    for job in &jobs {
+        if let Some(file_index) = &job.log_file_index {
+            if file_index.iter().any(|p| !is_safe_log_file_path(p)) {
+                return Err(error::Error::BadRequest(format!(
+                    "Invalid log_file_index for job {}: entries must be relative paths without '..'",
+                    job.id
+                )));
+            }
+        }
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     for job in jobs {
@@ -420,6 +435,15 @@ pub async fn import_queued_jobs(
     Json(jobs): Json<Vec<ExportableQueuedJob>>,
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Self-hosted migration/restore tool. It writes queue rows straight to the DB, bypassing the
+    // push path and every admission check that lives there, so it has no place on multi-tenant
+    // cloud where those checks are what keep one workspace from swamping the shared pool.
+    if *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "Importing queued jobs is not available on the cloud".to_string(),
+        ));
+    }
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -645,8 +669,45 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
+    // job_ids are request-supplied, so scope every side-table delete to the workspace exactly
+    // like the v2_job delete below — otherwise a workspace admin could erase another
+    // workspace's side rows by passing foreign job ids. zombie_job_counter and
+    // flow_conversation_message have no workspace_id, so scope them via v2_job / their conversation.
+    // (Side-table list kept in sync with windmill_common::jobs::delete_jobs.)
     let zombie_deleted = sqlx::query!(
-        "DELETE FROM zombie_job_counter WHERE job_id = ANY($1)",
+        "DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2))",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    let dispatch_event_deleted = sqlx::query!(
+        "DELETE FROM dispatch_event WHERE workspace_id = $1 AND producer_job_id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    let conversation_message_deleted = sqlx::query!(
+        "DELETE FROM flow_conversation_message m
+         USING flow_conversation c
+         WHERE m.conversation_id = c.id AND c.workspace_id = $1 AND m.job_id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    // Resolutions are not exported, so a delete-then-reimport of the same UUID would
+    // otherwise resurrect the old annotation on a job that never carried one.
+    let resolution_deleted = sqlx::query!(
+        "DELETE FROM job_resolution WHERE workspace_id = $1 AND job_id = ANY($2)",
+        &w_id,
         &job_ids
     )
     .execute(&mut *tx)
@@ -674,6 +735,9 @@ pub async fn delete_jobs(
         + queue_deleted
         + completed_deleted
         + zombie_deleted
+        + dispatch_event_deleted
+        + conversation_message_deleted
+        + resolution_deleted
         + jobs_deleted;
 
     tracing::info!(

@@ -1,10 +1,14 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import Required from '$lib/components/Required.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import {
 		EmailTriggerService,
 		type ErrorHandler,
@@ -14,6 +18,7 @@
 		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -29,6 +34,8 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { saveEmailTriggerFromCfg } from './utils'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
@@ -48,6 +55,8 @@
 		trigger = undefined,
 		customSaveBehavior = undefined
 	} = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	// Form data state
 	let initialPath = $state('')
@@ -88,6 +97,16 @@
 	let hasChanged = $derived(!deepEqual(getEmailTriggerConfig(), originalConfig ?? {}))
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const emailConfig = $derived.by(getEmailTriggerConfig)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_email',
+		path: () => initialPath,
+		workspace: () => wsId,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => emailConfig,
+		applyCfg: (c) => loadTriggerConfig(c as Partial<EmailTrigger>),
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
@@ -105,7 +124,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Partial<NewEmailTrigger>
+		defaultConfig?: Partial<NewEmailTrigger>,
+		fixedScriptPath_?: string
 	) {
 		drawerLoading = true
 		let loader = setTimeout(() => {
@@ -113,21 +133,32 @@
 		}, 100) // if loading takes less than 100ms, we don't show the loader
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.email.path, ePath)
 			initialPath = ePath
 			path = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
 			dirtyLocalPart = false
-			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			// Form holds DEPLOYED here. Capture `originalConfig` as the
+			// deployed baseline so `hasChanged` (= current != originalConfig)
+			// fires whenever a draft exists, not only after the user edits.
+			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig())) as NewEmailTrigger
+			if (draftOverlay) loadTriggerConfig(draftOverlay as Partial<EmailTrigger>)
+			if (!defaultConfig) {
+				// If the email trigger is loaded from the backend, we to set the initial config
+				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig())) as NewEmailTrigger
+			}
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load email trigger: ${err}`, true)
 		} finally {
-			if (!defaultConfig) {
-				// If the email trigger is loaded from the backend, we to set the initial config
-				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
-			}
 			clearTimeout(loader)
 			drawerLoading = false
 			showLoader = false
@@ -163,6 +194,9 @@
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = defaultValues?.mode ?? 'enabled'
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
@@ -186,21 +220,35 @@
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		mode = cfg?.mode ?? 'enabled'
 		permissionedAs = cfg?.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg?.permissioned_as
+		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft
+	 * overlay (if any) so the caller can capture the deployed-only form
+	 * state as `originalConfig` BEFORE applying the draft. See
+	 * `NatsTriggerEditorInner` for the rationale.
+	 */
+	async function loadTrigger(
+		defaultConfig?: Partial<EmailTrigger>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return
-		} else {
-			const s = await EmailTriggerService.getEmailTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-
-			loadTriggerConfig(s)
+			return { overlay: undefined, noDeployed: false }
+		}
+		const s = await EmailTriggerService.getEmailTrigger({
+			workspace: wsId!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		loadTriggerConfig(deployedTrigger)
+		return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		}
 	}
 
@@ -210,16 +258,18 @@
 			drawer?.closeDrawer()
 		} else {
 			deploymentLoading = true
+			const previousPath = initialPath
 			const saveCfg = emailConfig
 			const isSaved = await saveEmailTriggerFromCfg(
 				initialPath,
 				saveCfg,
 				edit,
-				$workspaceStore!,
+				wsId!,
 				!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 				usedTriggerKinds
 			)
 			if (isSaved) {
+				draftSync.discard(previousPath, getEmailTriggerConfig())
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 				initialPath = saveCfg.path
@@ -254,9 +304,11 @@
 	async function handleToggleMode(newMode: TriggerMode) {
 		mode = newMode
 		if (!trigger?.draftConfig) {
+			// Email addresses are always workspace-prefixed (clone filter
+			// excludes workspaced_local_part=false) — no fork-conflict warning.
 			await EmailTriggerService.setEmailTriggerMode({
 				path: initialPath,
-				workspace: $workspaceStore ?? '',
+				workspace: wsId ?? '',
 				requestBody: { mode: newMode }
 			})
 			sendUserToast(`${capitalize(newMode)} email trigger ${initialPath}`)
@@ -313,23 +365,23 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-12">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
 			{/if}
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-2">
 					<Label label="Path">
 						<Path
+							workspaceOverride={wsId}
 							bind:dirty={dirtyPath}
 							bind:error={pathError}
 							bind:path
@@ -346,23 +398,17 @@
 
 			{#if !hideTarget}
 				<Section label="Target">
-					<p class="text-xs mt-3 mb-1 text-primary">
-						Pick a script or flow to be triggered<Required required={true} />
-					</p>
-					<div class="flex flex-col gap-2">
-						<div class="flex flex-row mb-2">
-							<ScriptPicker
-								disabled={fixedScriptPath != '' || !can_write}
-								initialPath={fixedScriptPath || initialScriptPath}
-								kinds={['script']}
-								allowFlow={true}
-								bind:itemKind
-								bind:scriptPath={script_path}
-								allowRefresh={can_write}
-								allowEdit={!$userStore?.operator}
-								clearable
-							/>
-
+					<TriggerRunnablePicker
+						workspace={wsId}
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						isOperator={!!$userStore?.operator}
+						promptClass="text-xs mt-3 mb-1 text-primary"
+					>
+						{#snippet createButton()}
 							{#if emptyString(script_path)}
 								<Button
 									btnClasses="ml-4"
@@ -372,8 +418,8 @@
 									target="_blank">Create from template</Button
 								>
 							{/if}
-						</div>
-					</div>
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 
@@ -400,6 +446,7 @@
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler
+								workspace={wsId}
 								{optionTabSelected}
 								{itemKind}
 								{can_write}
@@ -420,6 +467,8 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="email"
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
@@ -438,8 +487,13 @@
 {/snippet}
 
 {#if useDrawer}
-	<Drawer size="700px" bind:this={drawer}>
+	<Drawer
+		size="700px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.email.path)}
+	>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit email trigger ${initialPath}`
@@ -449,6 +503,16 @@
 		>
 			{#snippet actions()}
 				{@render saveButton()}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>

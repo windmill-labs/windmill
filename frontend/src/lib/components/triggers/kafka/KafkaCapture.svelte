@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition'
+	import { Url } from '$lib/components/common'
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
 
@@ -9,7 +10,7 @@
 		hasPreprocessor?: boolean
 		isFlow?: boolean
 		captureLoading?: boolean
-		triggerDeployed?: boolean
+		groupId?: string
 	}
 
 	let {
@@ -18,8 +19,10 @@
 		hasPreprocessor = false,
 		isFlow = false,
 		captureLoading = false,
-		triggerDeployed = false
+		groupId = undefined
 	}: Props = $props()
+
+	let captureGroupId = $derived(groupId ? `${groupId}_wm_capture` : undefined)
 </script>
 
 {#if captureInfo}
@@ -35,7 +38,6 @@
 		on:testWithArgs
 		{hasPreprocessor}
 		{isFlow}
-		displayAlert={triggerDeployed}
 	>
 		{#snippet description()}
 			{#if captureInfo.active}
@@ -54,5 +56,8 @@
 				</p>
 			{/if}
 		{/snippet}
+		{#if captureGroupId}
+			<Url label="Test group ID" url={captureGroupId} />
+		{/if}
 	</CaptureSection>
 {/if}

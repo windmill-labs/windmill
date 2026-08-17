@@ -9,6 +9,7 @@ export type DbInput =
 	| {
 			type: 'ducklake'
 			ducklake: string
+			specificSchema?: string
 			specificTable?: string
 	  }
 

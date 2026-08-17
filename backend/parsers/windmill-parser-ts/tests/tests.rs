@@ -2,7 +2,9 @@
 mod tests {
     use serde_json::json;
     use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
-    use windmill_parser_ts::{parse_deno_signature, parse_expr_for_imports, parse_relative_imports};
+    use windmill_parser_ts::{
+        parse_deno_signature, parse_expr_for_imports, parse_relative_imports,
+    };
 
     #[test]
     fn test_imports_basic() {
@@ -47,6 +49,7 @@ mod tests {
                 args: vec![],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -77,6 +80,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "num_param".to_string(),
@@ -85,6 +89,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "bool_param".to_string(),
@@ -93,6 +98,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "any_param".to_string(),
@@ -101,10 +107,12 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -134,6 +142,7 @@ mod tests {
                         default: Some(json!("World")),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "count".to_string(),
@@ -142,6 +151,7 @@ mod tests {
                         default: Some(json!(42)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "enabled".to_string(),
@@ -150,10 +160,12 @@ mod tests {
                         default: Some(json!(true)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -183,6 +195,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "numbers".to_string(),
@@ -191,6 +204,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "items".to_string(),
@@ -199,10 +213,12 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -231,9 +247,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -262,9 +280,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -302,9 +322,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -340,9 +362,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -398,9 +422,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -431,6 +457,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "base64_param".to_string(),
@@ -439,6 +466,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "email_param".to_string(),
@@ -447,6 +475,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "sql_param".to_string(),
@@ -455,10 +484,12 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -488,6 +519,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "optional".to_string(),
@@ -496,6 +528,7 @@ mod tests {
                         default: None,
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "with_default".to_string(),
@@ -504,10 +537,12 @@ mod tests {
                         default: Some(json!(false)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -557,6 +592,7 @@ mod tests {
                 args: vec![],
                 auto_kind: Some("lib".to_string()),
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -581,9 +617,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -610,9 +648,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -639,9 +679,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -671,6 +713,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "numbers".to_string(),
@@ -679,6 +722,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "plain".to_string(),
@@ -687,10 +731,12 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -728,9 +774,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(true),
+                ..Default::default()
             }
         );
     }
@@ -758,9 +806,11 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(true),
+                ..Default::default()
             }
         );
     }
@@ -885,5 +935,28 @@ mod tests {
         "#;
         let result = parse_relative_imports(code, "f/one/two/three/script").unwrap();
         assert_eq!(result, vec!["f/b", "f/one/a"]);
+    }
+
+    #[test]
+    fn test_relative_imports_includes_re_exports() {
+        // Barrel re-exports must be captured as relative imports — without
+        // them, importers reaching helpers via a barrel file lose the edge in
+        // the dependency tree and the dep job 404s on the sibling fetches.
+        let code = r#"
+        export * from "./types.ts";
+        export { WorkflowError } from "./WorkflowError.ts";
+        export * as factory from "./errorFactory.ts";
+        export type { ErrorKind } from "./types-only.ts";
+        "#;
+        let result = parse_relative_imports(code, "f/lib/errors/index").unwrap();
+        assert_eq!(
+            result,
+            vec![
+                "f/lib/errors/WorkflowError",
+                "f/lib/errors/errorFactory",
+                "f/lib/errors/types",
+                "f/lib/errors/types-only",
+            ]
+        );
     }
 }

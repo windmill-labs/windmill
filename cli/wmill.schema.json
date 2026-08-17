@@ -222,45 +222,45 @@
         "additionalProperties": false
       }
     },
-    "gitBranches": {
+    "workspaces": {
       "type": "object",
-      "description": "Map git branches to workspaces and per-branch sync overrides",
+      "description": "Map workspace names to Windmill instances and per-workspace sync overrides",
       "properties": {
         "commonSpecificItems": {
           "type": "object",
-          "description": "Sync only specific items",
+          "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
           "properties": {
             "variables": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "Specific variable paths to sync"
+              "description": "Variable path patterns to sync per-workspace"
             },
             "resources": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "Specific resource paths to sync"
+              "description": "Resource path patterns to sync per-workspace"
             },
             "triggers": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "Specific trigger paths to sync"
+              "description": "Trigger path patterns to sync per-workspace"
             },
             "folders": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "Specific folder paths to sync"
+              "description": "Folder path patterns to sync per-workspace"
             },
             "settings": {
               "type": "boolean",
-              "description": "Whether to sync settings"
+              "description": "Whether to sync settings per-workspace"
             }
           },
           "additionalProperties": false
@@ -269,17 +269,21 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "baseUrl": {
+          "gitBranch": {
             "type": "string",
-            "description": "Windmill instance URL for this branch"
+            "description": "Git branch name (defaults to the workspace name/key)"
           },
           "workspaceId": {
             "type": "string",
-            "description": "Workspace ID to sync with for this branch"
+            "description": "Workspace ID to sync with (defaults to the workspace name/key)"
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Windmill instance URL for this workspace"
           },
           "overrides": {
             "type": "object",
-            "description": "Override any top-level sync option for this branch"
+            "description": "Override any top-level sync option for this workspace"
           },
           "promotionOverrides": {
             "type": "object",
@@ -287,39 +291,149 @@
           },
           "specificItems": {
             "type": "object",
-            "description": "Sync only specific items",
+            "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
             "properties": {
               "variables": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Specific variable paths to sync"
+                "description": "Variable path patterns to sync per-workspace"
               },
               "resources": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Specific resource paths to sync"
+                "description": "Resource path patterns to sync per-workspace"
               },
               "triggers": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Specific trigger paths to sync"
+                "description": "Trigger path patterns to sync per-workspace"
               },
               "folders": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Specific folder paths to sync"
+                "description": "Folder path patterns to sync per-workspace"
               },
               "settings": {
                 "type": "boolean",
-                "description": "Whether to sync settings"
+                "description": "Whether to sync settings per-workspace"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "gitBranches": {
+      "type": "object",
+      "description": "[Deprecated] Use 'workspaces' instead. Map git branches to workspaces.",
+      "properties": {
+        "commonSpecificItems": {
+          "type": "object",
+          "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
+          "properties": {
+            "variables": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Variable path patterns to sync per-workspace"
+            },
+            "resources": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Resource path patterns to sync per-workspace"
+            },
+            "triggers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Trigger path patterns to sync per-workspace"
+            },
+            "folders": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Folder path patterns to sync per-workspace"
+            },
+            "settings": {
+              "type": "boolean",
+              "description": "Whether to sync settings per-workspace"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "gitBranch": {
+            "type": "string",
+            "description": "Git branch name (defaults to the workspace name/key)"
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "Workspace ID to sync with (defaults to the workspace name/key)"
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Windmill instance URL for this workspace"
+          },
+          "overrides": {
+            "type": "object",
+            "description": "Override any top-level sync option for this workspace"
+          },
+          "promotionOverrides": {
+            "type": "object",
+            "description": "Overrides applied when using --promotion flag"
+          },
+          "specificItems": {
+            "type": "object",
+            "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
+            "properties": {
+              "variables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Variable path patterns to sync per-workspace"
+              },
+              "resources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Resource path patterns to sync per-workspace"
+              },
+              "triggers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Trigger path patterns to sync per-workspace"
+              },
+              "folders": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Folder path patterns to sync per-workspace"
+              },
+              "settings": {
+                "type": "boolean",
+                "description": "Whether to sync settings per-workspace"
               }
             },
             "additionalProperties": false
@@ -330,43 +444,43 @@
     },
     "environments": {
       "type": "object",
-      "description": "Alias for gitBranches — use if you prefer environment-based terminology",
+      "description": "[Deprecated] Use 'workspaces' instead.",
       "properties": {
         "commonSpecificItems": {
           "type": "object",
-          "description": "Sync only specific items",
+          "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
           "properties": {
             "variables": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "Specific variable paths to sync"
+              "description": "Variable path patterns to sync per-workspace"
             },
             "resources": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "Specific resource paths to sync"
+              "description": "Resource path patterns to sync per-workspace"
             },
             "triggers": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "Specific trigger paths to sync"
+              "description": "Trigger path patterns to sync per-workspace"
             },
             "folders": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "Specific folder paths to sync"
+              "description": "Folder path patterns to sync per-workspace"
             },
             "settings": {
               "type": "boolean",
-              "description": "Whether to sync settings"
+              "description": "Whether to sync settings per-workspace"
             }
           },
           "additionalProperties": false
@@ -375,17 +489,21 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "baseUrl": {
+          "gitBranch": {
             "type": "string",
-            "description": "Windmill instance URL for this branch"
+            "description": "Git branch name (defaults to the workspace name/key)"
           },
           "workspaceId": {
             "type": "string",
-            "description": "Workspace ID to sync with for this branch"
+            "description": "Workspace ID to sync with (defaults to the workspace name/key)"
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Windmill instance URL for this workspace"
           },
           "overrides": {
             "type": "object",
-            "description": "Override any top-level sync option for this branch"
+            "description": "Override any top-level sync option for this workspace"
           },
           "promotionOverrides": {
             "type": "object",
@@ -393,39 +511,39 @@
           },
           "specificItems": {
             "type": "object",
-            "description": "Sync only specific items",
+            "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
             "properties": {
               "variables": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Specific variable paths to sync"
+                "description": "Variable path patterns to sync per-workspace"
               },
               "resources": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Specific resource paths to sync"
+                "description": "Resource path patterns to sync per-workspace"
               },
               "triggers": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Specific trigger paths to sync"
+                "description": "Trigger path patterns to sync per-workspace"
               },
               "folders": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Specific folder paths to sync"
+                "description": "Folder path patterns to sync per-workspace"
               },
               "settings": {
                 "type": "boolean",
-                "description": "Whether to sync settings"
+                "description": "Whether to sync settings per-workspace"
               }
             },
             "additionalProperties": false

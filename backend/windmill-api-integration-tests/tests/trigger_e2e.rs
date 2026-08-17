@@ -370,6 +370,175 @@ async fn test_postgres_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Regression test for the replication-slot LSN freeze bug.
+///
+/// Before the fix the Postgres trigger consumer only sent a standby status
+/// update in response to a `PrimaryKeepAlive` with `reply=true` — never on a
+/// timer and never after processing `XLogData`. The bound jobs ran fine but
+/// the slot's `confirmed_flush_lsn`/`restart_lsn` never advanced, so retained
+/// WAL grew unbounded until it exceeded `max_slot_wal_keep_size`.
+///
+/// This asserts the slot's `confirmed_flush_lsn` advances to at least the WAL
+/// position recorded *before* the change events, proving feedback is sent.
+/// Against the pre-fix code this loop times out (LSN frozen at slot creation);
+/// with the fix the periodic status update advances it within ~10s.
+///
+/// Requires PostgreSQL with `wal_level=logical` (see `test_postgres_e2e`).
+///
+/// Run:
+/// ```bash
+/// cargo test --test trigger_e2e test_postgres_slot_lsn_advances \
+///     --features postgres_trigger -- --ignored --nocapture
+/// ```
+#[ignore = "requires PostgreSQL with wal_level=logical"]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_postgres_slot_lsn_advances(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let script_path = "f/test/pg_lsn_handler";
+    insert_test_script(&db, script_path).await?;
+
+    // Replication slots are server-wide so use a random suffix.
+    let suffix: u32 = rand::random();
+    let slot_name = format!("test_lsn_slot_{suffix}");
+    let pub_name = format!("test_lsn_pub_{suffix}");
+
+    sqlx::query("CREATE TABLE lsn_trigger_table (id serial PRIMARY KEY, data text)")
+        .execute(&db)
+        .await?;
+    sqlx::query(&format!(
+        "CREATE PUBLICATION {pub_name} FOR TABLE lsn_trigger_table"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::query(&format!(
+        "SELECT pg_create_logical_replication_slot('{slot_name}', 'pgoutput')"
+    ))
+    .execute(&db)
+    .await?;
+
+    let test_db_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&db)
+        .await?;
+
+    insert_resource(
+        &db,
+        "u/test-user/pg_lsn_res",
+        "postgresql",
+        json!({
+            "user": "postgres",
+            "password": "changeme",
+            "host": "localhost",
+            "port": 5432,
+            "dbname": test_db_name,
+            "sslmode": "disable"
+        }),
+    )
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO postgres_trigger (
+            path, script_path, is_flow, workspace_id, edited_by, permissioned_as,
+            postgres_resource_path, replication_slot_name, publication_name
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind("f/test/pg_lsn_trigger")
+    .bind(script_path)
+    .bind(false)
+    .bind("test-workspace")
+    .bind("test-user")
+    .bind("u/test-user")
+    .bind("u/test-user/pg_lsn_res")
+    .bind(&slot_name)
+    .bind(&pub_name)
+    .execute(&db)
+    .await?;
+
+    let _server = ApiServer::start_with_listeners(db.clone()).await?;
+    // Give the listener time to open the replication stream.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // WAL position before any change events. A correctly behaving consumer
+    // must report a flushed LSN at or beyond this once it has processed the
+    // change traffic below.
+    let before_lsn: String = sqlx::query_scalar("SELECT pg_current_wal_lsn()::text")
+        .fetch_one(&db)
+        .await?;
+
+    // Sustained change traffic — this is what makes the bug bite in
+    // production. While data keeps flowing, Postgres does not volunteer a
+    // reply-requested keepalive until it is about to hit `wal_sender_timeout`
+    // (default 60s, so ~30s of silence). The pre-fix consumer only ever
+    // replied to those keepalives, so under continuous load the slot stayed
+    // frozen. The fix sends a standby status update every 10s regardless of
+    // traffic, so the slot advances well before the keepalive path would.
+    let inserter_db = db.clone();
+    let inserter = tokio::spawn(async move {
+        let mut i = 0;
+        loop {
+            let _ = sqlx::query("INSERT INTO lsn_trigger_table (data) VALUES ($1)")
+                .bind(format!("row {i}"))
+                .execute(&inserter_db)
+                .await;
+            i += 1;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    });
+
+    // Sanity: the bound job still runs (this passed even with the bug).
+    let job = poll_for_trigger_job(&db, script_path, "postgres", Duration::from_secs(30)).await?;
+    assert!(job.args.is_some(), "job should have args");
+
+    // Post-fix advances within ~10s (the status-update interval). Pre-fix
+    // cannot advance before the first forced reply-keepalive (~30s with the
+    // default 60s wal_sender_timeout), so a 20s deadline cleanly separates the
+    // two while leaving generous margin on both sides.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let advanced = loop {
+        let advanced: Option<bool> = sqlx::query_scalar(
+            r#"
+            SELECT confirmed_flush_lsn >= $1::pg_lsn
+            FROM pg_replication_slots
+            WHERE slot_name = $2
+            "#,
+        )
+        .bind(&before_lsn)
+        .bind(&slot_name)
+        .fetch_one(&db)
+        .await?;
+
+        if advanced == Some(true) {
+            break true;
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            break false;
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    };
+
+    inserter.abort();
+
+    if !advanced {
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name = $1",
+        )
+        .bind(&slot_name)
+        .fetch_one(&db)
+        .await?;
+        panic!(
+            "replication slot {slot_name} confirmed_flush_lsn did not advance within 20s: \
+             before={before_lsn}, current={current:?} — WAL retention would grow unbounded"
+        );
+    }
+
+    Ok(())
+}
+
 // ============================================================================
 // Kafka Trigger E2E (Enterprise)
 // ============================================================================

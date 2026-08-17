@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.668.2
+  version: 1.790.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -37,7 +37,10 @@ components:
           description: JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')
         on_behalf_of_email:
           type: string
-          description: The flow will be run with the permissions of the user with this email.
+          description: Address of the account the flow runs on behalf of. Derived from on_behalf_of on read; accepted on write, where it is resolved to the account it names.
+        on_behalf_of:
+          type: string
+          description: 'The flow runs with the permissions of this identity: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it. Omit it when writing and it is resolved from that address instead.'
       required:
         - summary
         - value
@@ -60,6 +63,9 @@ components:
         same_worker:
           type: boolean
           description: If true, all steps run on the same worker for better performance
+        preserve_step_tags:
+          type: boolean
+          description: If true and the flow runs on a custom worker tag, steps that declare their own non-empty tag run on it instead of inheriting the flow tag. Steps without their own tag still inherit the flow tag.
         concurrent_limit:
           type: number
           description: Maximum number of concurrent executions of this flow
@@ -94,6 +100,9 @@ components:
           description: Cache duration in seconds for flow results
         cache_ignore_s3_path:
           type: boolean
+        delete_after_secs:
+          type: integer
+          description: If set, delete the flow job's args, result and logs after this many seconds following job completion
         flow_env:
           type: object
           description: "Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource)."
@@ -265,6 +274,9 @@ components:
           type: string
           nullable: true
           description: Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised.
+        error_include_result:
+          type: boolean
+          description: "When stopping with an error (error_message set), embed the stopping step's own result inside the raised error object (as error.result) instead of discarding it. The top-level result stays { error }. Defaults to false."
       required:
         - expr
 
@@ -303,9 +315,9 @@ components:
         timeout:
           description: Maximum execution time in seconds (static value or expression)
           $ref: '#/components/schemas/InputTransform'
-        delete_after_use:
-          type: boolean
-          description: If true, this step's result is deleted after use to save memory
+        delete_after_secs:
+          type: integer
+          description: If set, delete the step's args, result and logs after this many seconds following job completion
         summary:
           type: string
           description: Short description of what this step does
@@ -412,7 +424,7 @@ components:
 
     JavascriptTransform:
       type: object
-      description: JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value
+      description: JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside for loops, use 'flow_input.iter.value' for the current iteration value (in while loops it equals 'flow_input.iter.index')
       properties:
         expr:
           type: string
@@ -443,6 +455,7 @@ components:
       enum:
         - openai
         - azure_openai
+        - azure_foundry
         - anthropic
         - mistral
         - deepseek
@@ -465,6 +478,9 @@ components:
         model:
           type: string
           description: Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')
+        reasoning_effort:
+          type: string
+          description: Provider-native reasoning effort token (e.g. 'low', 'high', 'none') for models that support extended thinking. Optional; unset leaves the provider default.
       required:
         - kind
         - resource
@@ -642,6 +658,7 @@ components:
           enum:
             - deno
             - bun
+            - bunnative
             - python3
             - go
             - bash
@@ -661,7 +678,12 @@ components:
             - nu
             - java
             - ruby
+            - rlang
             - duckdb
+            # NOT dbt: a dbt script runs the project carried as its module
+            # bundle, which an inline snippet has none of, and the worker rejects
+            # inline execution — advertising it here would let such a flow
+            # validate and then always fail at runtime.
             # for related places search: ADD_NEW_LANG
         path:
           type: string
@@ -709,6 +731,7 @@ components:
                   - ducklake
                   - datatable
                   - volume
+                  - dbt
               access_type:
                 type: string
                 nullable: true
@@ -811,11 +834,11 @@ components:
 
     WhileloopFlow:
       type: object
-      description: Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination
+      description: Executes nested modules repeatedly until stopped. The implicit iterator is the iteration counter, so 'flow_input.iter.value' equals 'flow_input.iter.index' (0, 1, 2, ...) and never carries state. To carry state across iterations, a step reads its own previous-iteration result via 'results.<its_own_id>' with a first-iteration fallback - the loop's stop_after_if must then be on that inner step (a plain single-step body with stop_after_if on the loop module does not resolve 'results' across iterations and never terminates); plain counters can instead be derived from 'flow_input.iter.index', which works in every configuration. stop_after_if is evaluated after each iteration - on the loop module 'result' is the last iteration's result
       properties:
         modules:
           type: array
-          description: Steps to execute in each iteration. Use stop_after_if to control when the loop ends
+          description: Steps to execute in each iteration
           items:
             $ref: '#/components/schemas/FlowModule'
         skip_failures:
@@ -920,6 +943,9 @@ components:
         summary:
           type: string
           description: Short description of what this tool does (shown to the AI)
+        description:
+          type: string
+          description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.
         value:
           $ref: '#/components/schemas/ToolValue'
       required:
@@ -1017,7 +1043,7 @@ components:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
                 Boolean. If true, stream the AI response incrementally.
-                Streaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
+                Streaming events include: token_delta, reasoning_token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
             memory:
               $ref: '#/components/schemas/MemoryTransform'
             output_schema:
@@ -1049,10 +1075,16 @@ components:
                 - 0.0 = deterministic, focused responses
                 - 0.7 = balanced (common default)
                 - 1.0+ = more creative/random
+            max_iterations:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Number. Limits how many times the agent can loop through reasoning and tool use.
+                Range: 1-1000.
+          # Only the flow-local inputs are always present: a step linked to an `ai_agent` resource
+          # (see `agent`) keeps just those and takes provider/output_type from the resource.
           required:
-            - provider
             - user_message
-            - output_type
         tools:
           type: array
           description: Array of tools the agent can use. The agent decides which tools to call based on the task
@@ -1062,11 +1094,36 @@ components:
           type: string
           enum:
             - aiagent
+        tag:
+          type: string
+          description: Worker group tag for execution routing. If not set, the AI agent step runs on the flow's tag (default `flow`)
+        omit_output_from_conversation:
+          type: boolean
+          default: false
+          description: If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled.
+        agent:
+          type: string
+          description: |
+            Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
+            config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
+            that resource; the module's input_transforms then only carry the flow-local inputs
+            (user_message/user_attachments).
+        tool_inputs:
+          type: object
+          description: |
+            Host-local wiring for an agent's tool inputs, keyed by tool id then input key. Binds the
+            referenced agent's tools to this flow's context (flow_input/results) without mutating the
+            shared resource; overlaid onto the tools' input_transforms at runtime — including when
+            `agent` is unset, since a step forked for editing keeps these overrides until it is saved
+            back or unlinked.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              $ref: '#/components/schemas/InputTransform'
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
       required:
-        - tools
         - type
         - input_transforms
 

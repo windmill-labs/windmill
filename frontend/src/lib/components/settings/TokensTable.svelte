@@ -5,10 +5,11 @@
 	import { UserService, type TruncatedToken } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
+	import EditTokenScopesModal from './EditTokenScopesModal.svelte'
 	import Button from '../common/button/Button.svelte'
 	import Badge from '../common/badge/Badge.svelte'
 	import Alert from '../common/alert/Alert.svelte'
-	import { Trash } from 'lucide-svelte'
+	import { Pen, Trash } from 'lucide-svelte'
 
 	// --- Props ---
 	interface Props {
@@ -33,14 +34,24 @@
 	let tokens = $state<TruncatedToken[]>([])
 	let tokenPage = $state(1)
 	let newTokenLabel = $state<string | undefined>(untrack(() => defaultNewTokenLabel))
+	let editingToken = $state<
+		| {
+				prefix: string
+				label: string | undefined
+				scopes: string[] | undefined
+				workspaceId: string | undefined
+		  }
+		| undefined
+	>(undefined)
+	let editModalOpen = $state(false)
 
 	$effect(() => {
 		listTokens()
 	})
 
-	// When updating this filter, also update:
-	// - `is_user_token` in backend/src/monitor.rs
-	// - `register_token_expiry_notification` in backend/windmill-api-auth/src/lib.rs
+	// Mirror of the canonical `is_user_token` in backend/windmill-common/src/auth.rs.
+	// When updating this filter, also update that function and the SQL `WHERE`
+	// mirror in `update_token_label` (backend/windmill-api-users/src/users.rs).
 	function isUserToken(label: string | undefined): boolean {
 		if (!label) return true
 		return (
@@ -97,6 +108,21 @@
 		listTokens()
 	}
 
+	function handleEditClick(
+		tokenPrefix: string,
+		tokenLabel: string | undefined,
+		tokenScopes: string[] | undefined,
+		tokenWorkspaceId: string | undefined
+	) {
+		editingToken = {
+			prefix: tokenPrefix,
+			label: tokenLabel,
+			scopes: tokenScopes,
+			workspaceId: tokenWorkspaceId
+		}
+		editModalOpen = true
+	}
+
 	async function listTokens(): Promise<void> {
 		tokens = await UserService.listTokens({
 			excludeEphemeral: true,
@@ -123,7 +149,11 @@
 	</div>
 	{#if expiringSoonCount > 0}
 		<div class="mb-2">
-			<Alert type="warning" title="{expiringSoonCount} token{expiringSoonCount > 1 ? 's' : ''} expiring within 7 days" size="xs" />
+			<Alert
+				type="warning"
+				title="{expiringSoonCount} token{expiringSoonCount > 1 ? 's' : ''} expiring within 7 days"
+				size="xs"
+			/>
 		</div>
 	{/if}
 	<CreateToken
@@ -136,20 +166,19 @@
 	/>
 	<div class="overflow-auto grow min-h-64 max-h-2/3">
 		<TableCustom>
-
 			{#snippet headerRow()}
-						<tr >
+				<tr>
 					<th>Prefix</th>
 					<th>Label</th>
 					<th>Expiration</th>
 					<th>Scopes</th>
 					<th></th>
 				</tr>
-					{/snippet}
+			{/snippet}
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}
-						{#each tokens as { token_prefix, expiration, label, scopes } (token_prefix)}
+						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id, read_only } (token_prefix)}
 							{@const badge = expirationBadge(expiration, label)}
 							<tr>
 								<td class="w-32 text-xs text-primary">{token_prefix}****</td>
@@ -164,17 +193,40 @@
 								</td>
 								<td
 									class="min-w-0 max-w-48 truncate text-xs text-secondary"
-									title={scopes?.join(', ') ?? ''}>{scopes?.join(', ') ?? ''}</td
+									title={scopes?.join(', ') ?? ''}
 								>
-								<td class="w-16 text-center">
-									<Button
-										variant="subtle"
-										destructive
-										on:click={() => handleDeleteClick(token_prefix)}
-										size="xs"
-										startIcon={{ icon: Trash }}
-										iconOnly
-									/>
+									<div class="flex items-center gap-1.5 truncate">
+										{#if read_only}
+											<Badge color="blue" small>Read-only</Badge>
+										{/if}
+										<span class="truncate">{scopes?.join(', ') ?? ''}</span>
+									</div>
+								</td>
+								<td class="w-24 text-center">
+									<div class="flex items-center justify-center gap-1">
+										<Button
+											variant="subtle"
+											title="Edit token"
+											on:click={() =>
+												handleEditClick(
+													token_prefix,
+													label ?? undefined,
+													scopes ?? undefined,
+													workspace_id ?? undefined
+												)}
+											size="xs"
+											startIcon={{ icon: Pen }}
+											iconOnly
+										/>
+										<Button
+											variant="subtle"
+											destructive
+											on:click={() => handleDeleteClick(token_prefix)}
+											size="xs"
+											startIcon={{ icon: Trash }}
+											iconOnly
+										/>
+									</div>
 								</td>
 							</tr>
 						{/each}
@@ -198,3 +250,13 @@
 		</div>
 	</div>
 </div>
+
+<EditTokenScopesModal
+	bind:open={editModalOpen}
+	tokenPrefix={editingToken?.prefix}
+	initialLabel={editingToken?.label}
+	labelEditable={isUserToken(editingToken?.label)}
+	initialScopes={editingToken?.scopes}
+	tokenWorkspaceId={editingToken?.workspaceId}
+	onSaved={listTokens}
+/>

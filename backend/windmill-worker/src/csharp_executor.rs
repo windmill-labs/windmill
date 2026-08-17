@@ -27,8 +27,8 @@ use windmill_queue::CanceledBy;
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, resolve_nsjail_timeout, start_child_process,
-        DEV_CONF_NSJAIL,
+        get_reserved_variables, read_result, resolve_nsjail_timeout,
+        resolve_nsjail_tmp_mount_block, start_child_process, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -57,17 +57,31 @@ const DOTNET_ROOT_DEFAULT: &str = "C:\\Program Files\\dotnet";
 const DOTNET_ROOT_DEFAULT: &str = "/usr/share/dotnet";
 
 #[cfg(feature = "csharp")]
+const DOTNET_TARGET_FRAMEWORK_DEFAULT: &str = "net9.0";
+
+#[cfg(feature = "csharp")]
 lazy_static::lazy_static! {
     static ref DOTNET_ROOT: String = std::env::var("DOTNET_ROOT").unwrap_or_else(|_| DOTNET_ROOT_DEFAULT.to_string());
+    static ref DOTNET_TARGET_FRAMEWORK: String = std::env::var("DOTNET_TARGET_FRAMEWORK").unwrap_or_else(|_| DOTNET_TARGET_FRAMEWORK_DEFAULT.to_string());
 }
 
 #[cfg(feature = "csharp")]
-const CSHARP_OBJECT_STORE_PREFIX: &str = const_format::concatcp!(
-    std::env::consts::OS,
-    "_",
-    std::env::consts::ARCH,
-    "_csharpbin/"
-);
+const CSHARP_OBJECT_STORE_PREFIX: &str =
+    const_format::concatcp!(crate::global_cache::TARGET, "_csharpbin/");
+
+/// Cache key of a C# build. The run path and the deploy-time prebuild must derive it the
+/// same way or the prebuilt binary is never found and gets rebuilt on first run.
+#[cfg(feature = "csharp")]
+async fn csharp_cache_key(code: &str, requirements_o: Option<&str>, w_id: &str) -> String {
+    let mut hash = calculate_hash(&format!(
+        "{}{}{}",
+        code,
+        requirements_o.unwrap_or(""),
+        DOTNET_TARGET_FRAMEWORK.as_str()
+    ));
+    hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
+    hash
+}
 
 #[cfg(feature = "csharp")]
 pub async fn generate_nuget_lockfile(
@@ -216,6 +230,7 @@ fn gen_cs_proj(
         )
     };
 
+    let target_framework = DOTNET_TARGET_FRAMEWORK.as_str();
     write_file(
         job_dir,
         "Main.csproj",
@@ -223,7 +238,7 @@ fn gen_cs_proj(
             r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>{target_framework}</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <StartupObject>WindmillScriptCSharpInternal.Wrapper</StartupObject>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
@@ -458,6 +473,50 @@ async fn build_cs_proj(
     }
 }
 
+/// Build a deployed C# script ahead of its first run and push the binary to the shared
+/// cache.
+#[cfg(feature = "csharp")]
+pub async fn prebuild_csharp_binary(
+    job: &MiniPulledJob,
+    code: &str,
+    lock: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    base_internal_url: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> error::Result<Option<String>> {
+    check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
+
+    let hash = csharp_cache_key(code, Some(lock), &job.workspace_id).await;
+    let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
+    if crate::global_cache::exists_in_object_store(&remote_path).await {
+        return Ok(None);
+    }
+
+    let (reqs, lines_to_remove) = parse_csharp_reqs(code);
+    gen_cs_proj(code, job_dir, reqs, lines_to_remove)?;
+    write_file(job_dir, "packages.lock.json", lock)?;
+
+    let logs = build_cs_proj(
+        &job.id,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        conn,
+        worker_name,
+        &job.workspace_id,
+        base_internal_url,
+        &hash,
+        occupancy_metrics,
+    )
+    .await?;
+    crate::global_cache::ensure_pushed_to_object_store(&remote_path).await?;
+    Ok(Some(logs))
+}
+
 #[cfg(feature = "csharp")]
 fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> String {
     let mut result = Vec::new();
@@ -512,13 +571,12 @@ pub async fn handle_csharp_job(
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
-    let mut hash = calculate_hash(&format!(
-        "{}{}",
+    let hash = csharp_cache_key(
         inner_content,
-        requirements_o.unwrap_or(&String::new())
-    ));
-    hash.push_str(&ws_suffix);
+        requirements_o.map(|x| x.as_str()),
+        &job.workspace_id,
+    )
+    .await;
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 
@@ -607,6 +665,10 @@ pub async fn handle_csharp_job(
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -616,8 +678,14 @@ pub async fn handle_csharp_job(
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::CSharp, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::CSharp,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
@@ -652,8 +720,14 @@ pub async fn handle_csharp_job(
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::CSharp, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::CSharp,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())

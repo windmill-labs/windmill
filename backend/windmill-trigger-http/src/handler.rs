@@ -7,13 +7,12 @@ use axum::{extract::Path, routing::post, Extension, Json, Router};
 use http::StatusCode;
 use sqlx::PgConnection;
 use std::collections::HashSet;
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    utils::require_admin,
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -63,7 +62,8 @@ pub async fn route_path_key_exists(
         .await?
         .unwrap_or(false)
     } else {
-        let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+        let http_route_workspaced =
+            HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
         let effective_workspaced = workspaced_route.unwrap_or(false) || http_route_workspaced;
         let route_path_key = if effective_workspaced {
             std::borrow::Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/')))
@@ -71,6 +71,10 @@ pub async fn route_path_key_exists(
             std::borrow::Cow::Borrowed(route_path_key)
         };
 
+        // Self-exclusion is by `(workspace_id, path)` not just `path`: workspace
+        // forks clone trigger rows verbatim, so the same trigger path can exist
+        // in multiple workspaces. Excluding by path alone would silently mask a
+        // real collision against the parent's row.
         sqlx::query_scalar!(
             r#"
             SELECT EXISTS(
@@ -80,12 +84,13 @@ pub async fn route_path_key_exists(
                     ((workspaced_route IS TRUE AND workspace_id || '/' || route_path_key = $1)
                     OR (workspaced_route IS FALSE AND route_path_key = $1))
                     AND http_method = $2
-                    AND ($3::TEXT IS NULL OR path != $3)
+                    AND ($3::TEXT IS NULL OR NOT (workspace_id = $4 AND path = $3))
             )
             "#,
             &route_path_key,
             http_method as &HttpMethod,
-            trigger_path
+            trigger_path,
+            w_id
         )
         .fetch_one(db)
         .await?
@@ -139,6 +144,24 @@ fn check_no_duplicates(
     Ok(())
 }
 
+/// Checks that non-admin users are only creating/editing workspaced HTTP triggers.
+/// Returns the effective workspaced value (combining per-trigger flag and global setting).
+/// Admins can create both workspaced and instance-wide routes.
+async fn require_admin_for_instance_wide_route(
+    is_admin: bool,
+    workspaced_route: Option<bool>,
+) -> Result<bool> {
+    let http_route_workspaced =
+        HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+    let effective_workspaced = workspaced_route.unwrap_or(false) || http_route_workspaced;
+    if !is_admin && !effective_workspaced {
+        return Err(Error::NotAuthorized(
+            "Non-admin users can only create workspaced HTTP triggers. Enable the workspace prefix for this route.".to_string(),
+        ));
+    }
+    Ok(effective_workspaced)
+}
+
 pub async fn insert_new_trigger_into_db(
     authed: &ApiAuthed,
     _db: &DB,
@@ -147,11 +170,9 @@ pub async fn insert_new_trigger_into_db(
     trigger: &TriggerData<HttpConfigRequest>,
     route_path_key: &str,
 ) -> Result<()> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
     let effective_workspaced =
-        trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
+        require_admin_for_instance_wide_route(authed.is_admin, trigger.config.workspaced_route)
+            .await?;
 
     let request_type = trigger.config.request_type;
     let resolved_edited_by = trigger.base.resolve_edited_by(authed);
@@ -225,7 +246,7 @@ pub async fn create_many_http_triggers(
     Path(w_id): Path<String>,
     Json(new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
 ) -> Result<(StatusCode, String)> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Admin check for instance-wide routes is done per-trigger in insert_new_trigger_into_db
 
     let handler = HttpTrigger;
 
@@ -241,6 +262,12 @@ pub async fn create_many_http_triggers(
     let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
 
     for new_http_trigger in new_http_triggers.iter() {
+        // Per-item write scope, matching the single-create handler. The bulk
+        // endpoint must not let a path-scoped token create triggers outside it.
+        check_scopes(&authed, || {
+            format!("http_triggers:write:{}", &new_http_trigger.base.path)
+        })?;
+
         handler
             .validate_new(&db, &w_id, &new_http_trigger.config)
             .await
@@ -264,6 +291,49 @@ pub async fn create_many_http_triggers(
             &w_id,
             new_http_trigger,
             route_path_key,
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+
+        if let Some(labels) = &new_http_trigger.base.labels {
+            sqlx::query!(
+                "UPDATE http_trigger SET labels = $1 WHERE workspace_id = $2 AND path = $3",
+                labels as &[String],
+                &w_id,
+                &new_http_trigger.base.path
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
+        }
+
+        // Bulk create is still authoring, so it records like the single-create
+        // route rather than being the one way to make a trigger appear with no
+        // history behind it.
+        let created = windmill_common::trigger_history::snapshot_row(
+            &mut *tx,
+            "http_trigger",
+            &w_id,
+            &new_http_trigger.base.path,
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+        windmill_common::trigger_history::record(
+            &mut *tx,
+            windmill_common::trigger_history::TriggerHistoryEvent {
+                workspace_id: &w_id,
+                trigger_kind: HttpTrigger::TRIGGER_TYPE,
+                path: &new_http_trigger.base.path,
+                operation: windmill_common::trigger_history::TriggerOperation::Create,
+                source: windmill_common::trigger_history::TriggerSource::of_request(
+                    authed.is_session_token,
+                ),
+                username: Some(&authed.username),
+                changes: windmill_common::trigger_history::summarize_changes(
+                    None,
+                    created.as_ref(),
+                ),
+            },
         )
         .await
         .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
@@ -340,11 +410,17 @@ impl TriggerCrud for HttpTrigger {
 
     const TABLE_NAME: &'static str = "http_trigger";
     const TRIGGER_TYPE: &'static str = "http";
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind =
+        windmill_common::user_drafts::UserDraftItemKind::TriggerHttp;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/http_triggers";
     const DEPLOYMENT_NAME: &'static str = "HTTP trigger";
     const IS_ALLOWED_ON_CLOUD: bool = true;
+    // Cloned HTTP triggers are always workspaced (the clone filter excludes
+    // workspaced_route=false rows), so fork and parent live at distinct URLs
+    // and never collide.
+    const FORK_CONFLICT_ON_ENABLE: bool = false;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
         "route_path",
         "route_path_key",
@@ -439,7 +515,12 @@ impl TriggerCrud for HttpTrigger {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
 
-        if authed.is_admin {
+        let http_route_workspaced =
+            HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+        let effective_workspaced =
+            trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
+
+        if authed.is_admin || effective_workspaced {
             if trigger.config.route_path.is_empty() {
                 return Err(Error::BadRequest("route_path is required".to_string()));
             };
@@ -451,10 +532,6 @@ impl TriggerCrud for HttpTrigger {
 
             let route_path_key =
                 check_if_route_exist(db, &trigger.config, workspace_id, Some(path)).await?;
-
-            let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
-            let effective_workspaced =
-                trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
 
             let request_type = trigger.config.request_type;
 
@@ -590,6 +667,7 @@ impl TriggerCrud for HttpTrigger {
         workspace_id: &str,
         path: &str,
     ) -> Result<bool> {
+        // SAFETY: Self::TABLE_NAME is a compile-time constant, not user input.
         let deleted = sqlx::query(&format!(
             "DELETE FROM {} WHERE workspace_id = $1 AND path = $2",
             Self::TABLE_NAME

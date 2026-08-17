@@ -5,10 +5,8 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import { Markdown, type Plugin } from 'svelte-exmarkdown'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import rehypeRaw from 'rehype-raw'
-	import { rehypeGithubAlerts } from 'rehype-github-alerts'
+	import { Markdown } from 'svelte-exmarkdown'
+	import { markdownPlugins as plugins } from '$lib/components/markdownPlugins'
 	import { classNames } from '$lib/utils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -31,11 +29,6 @@
 		configuration
 	}: Props = $props()
 
-	const plugins: Plugin[] = [
-		gfmPlugin(),
-		{ rehypePlugin: [rehypeRaw] },
-		{ rehypePlugin: [rehypeGithubAlerts] }
-	]
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = $state(

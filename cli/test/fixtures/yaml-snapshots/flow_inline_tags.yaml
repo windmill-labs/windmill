@@ -1,0 +1,19 @@
+summary: Inline tag string-prefix form
+description: Inline scripts and locks expressed as '!inline path' strings
+value:
+  modules:
+    - id: step1
+      value:
+        type: rawscript
+        content: '!inline step1/script.bun.ts'
+        input_transforms:
+          x:
+            type: static
+            value: 1
+        lock: '!inline step1/script.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

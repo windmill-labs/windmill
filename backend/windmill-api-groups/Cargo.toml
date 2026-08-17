@@ -22,6 +22,7 @@ windmill-git-sync.workspace = true
 
 axum.workspace = true
 chrono.workspace = true
+globset.workspace = true
 lazy_static.workspace = true
 regex.workspace = true
 serde.workspace = true

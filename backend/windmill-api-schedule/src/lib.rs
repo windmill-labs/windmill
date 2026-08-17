@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
-use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed};
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed,
+};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -25,6 +27,13 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
+    trigger_history::{
+        self, TriggerHistoryEvent, TriggerOperation, TriggerSource, SCHEDULE_TRIGGER_KIND,
+    },
+    user_drafts::{
+        delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
+        UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
     },
@@ -48,8 +57,69 @@ fn resolve_permissioned_as(
     windmill_common::users::username_to_permissioned_as(&authed.username)
 }
 
+/// Create-time variant: applies the folder's `default_permissioned_as` rule when no
+/// explicit preserved value is provided and the caller can preserve (admin / wm_deployers).
+async fn resolve_permissioned_as_for_create(
+    permissioned_as: Option<&String>,
+    preserve_permissioned_as: Option<bool>,
+    path: &str,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> Result<String> {
+    if let Some(pa) = permissioned_as {
+        if preserve_permissioned_as.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+            return Ok(pa.clone());
+        }
+    }
+    if can_preserve_on_behalf_of(authed) {
+        if let Some(default) =
+            windmill_common::folders::resolve_folder_default_permissioned_as(db, w_id, path).await?
+        {
+            return Ok(default);
+        }
+    }
+    Ok(windmill_common::users::username_to_permissioned_as(
+        &authed.username,
+    ))
+}
+
 fn resolve_edited_by(authed: &ApiAuthed) -> String {
     authed.username.clone()
+}
+
+/// Append this mutation to `trigger_history`, diffing the row against `before`.
+///
+/// Call it on the transaction that made the change, after the change: the
+/// snapshot it takes is the "after" side of the diff, and the two commit or roll
+/// back together.
+async fn record_schedule_history(
+    tx: &mut sqlx::PgConnection,
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+    operation: TriggerOperation,
+    before: Option<serde_json::Value>,
+) -> Result<()> {
+    let after = trigger_history::snapshot_row(&mut *tx, "schedule", w_id, path).await?;
+    // Nothing to describe when the row is not there after the write: the same
+    // guard the trigger side needs, kept here so the two read alike.
+    if after.is_none() {
+        return Ok(());
+    }
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id: w_id,
+            trigger_kind: SCHEDULE_TRIGGER_KIND,
+            path,
+            operation,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: trigger_history::summarize_changes(before.as_ref(), after.as_ref()),
+        },
+    )
+    .await
 }
 
 pub fn workspaced_service() -> Router {
@@ -99,6 +169,8 @@ pub struct NewSchedule {
     pub dynamic_skip: Option<String>,
     pub permissioned_as: Option<String>,
     pub preserve_permissioned_as: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -149,6 +221,19 @@ fn to_json_raw_opt(
     value.map(|v| sqlx::types::Json(to_raw_value(&v)))
 }
 
+/// Managed ducklake-maintenance schedules live under a reserved path prefix;
+/// their lifecycle is owned by the workspace ducklake settings, so the
+/// schedule API refuses to create/edit/delete/toggle them.
+fn reject_reserved_schedule_path(path: &str) -> Result<()> {
+    if path.starts_with(windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX) {
+        return Err(Error::BadRequest(format!(
+            "Schedules under {} are managed by the workspace ducklake settings",
+            windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
+        )));
+    }
+    Ok(())
+}
+
 /// Validate that a dynamic skip handler (script or flow) exists
 async fn validate_dynamic_skip<'c>(
     tx: &mut Transaction<'c, Postgres>,
@@ -186,6 +271,7 @@ async fn create_schedule(
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
     check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
+    reject_reserved_schedule_path(&ns.path)?;
 
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
@@ -211,10 +297,49 @@ async fn create_schedule(
         ));
     }
 
-    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
-
-    // Check schedule for error
+    // Check schedule for error (validate before opening the tx).
     ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref(), true)?;
+
+    // These reads deliberately use the non-RLS `db` pool (fork-ness and
+    // permissioned_as resolution must be complete regardless of the caller's
+    // folder perms). Run them BEFORE opening the RLS transaction below: acquiring
+    // a second pooled connection while the tx is held self-deadlocks on a
+    // single-connection pool, and they don't depend on the tx.
+    //
+    // A git-sync/merge/create write into a fork never sets operational state:
+    // force `enabled = false` so a cloned / synced / merged / UI-created schedule
+    // can't fire alongside the parent's. The fork owner re-enables locally via
+    // `setenabled`. Schedule analog of the trigger rule in
+    // `windmill-trigger::handler::workspace_is_fork`; the read half (parent-value
+    // substitution on fork export) lives in `workspaces_export.rs`.
+    let target_is_fork: bool = sqlx::query_scalar!(
+        "SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+
+    let resolved_edited_by = resolve_edited_by(&authed);
+    let resolved_permissioned_as = resolve_permissioned_as_for_create(
+        ns.permissioned_as.as_ref(),
+        ns.preserve_permissioned_as,
+        &ns.path,
+        &authed,
+        &db,
+        &w_id,
+    )
+    .await?;
+    // email is still written for backwards compat with old workers that don't know about permissioned_as
+    let resolved_email = windmill_common::users::get_email_from_permissioned_as(
+        &resolved_permissioned_as,
+        &w_id,
+        &db,
+    )
+    .await?;
+
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     check_path_conflict(&mut tx, &w_id, &ns.path).await?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
@@ -223,20 +348,6 @@ async fn create_schedule(
     if let Some(handler_path) = &ns.dynamic_skip {
         validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
     }
-
-    let resolved_edited_by = resolve_edited_by(&authed);
-    let resolved_permissioned_as = resolve_permissioned_as(
-        ns.permissioned_as.as_ref(),
-        ns.preserve_permissioned_as,
-        &authed,
-    );
-    // email is still written for backwards compat with old workers that don't know about permissioned_as
-    let resolved_email = windmill_common::users::get_email_from_permissioned_as(
-        &resolved_permissioned_as,
-        &w_id,
-        &db,
-    )
-    .await?;
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -248,7 +359,7 @@ async fn create_schedule(
             on_recovery, on_recovery_times, on_recovery_extra_args,
             on_success, on_success_extra_args,
             ws_error_handler_muted, retry, summary, no_flow_overlap,
-            tag, paused_until, cron_version, description, dynamic_skip
+            tag, paused_until, cron_version, description, dynamic_skip, labels
         ) VALUES (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
@@ -256,7 +367,7 @@ async fn create_schedule(
             $16, $17, $18,
             $19, $20,
             $21, $22, $23, $24,
-            $25, $26, $27, $28, $29
+            $25, $26, $27, $28, $29, $30
         )
         RETURNING
             workspace_id,
@@ -290,7 +401,8 @@ async fn create_schedule(
             tag,
             paused_until,
             cron_version,
-            dynamic_skip
+            dynamic_skip,
+            labels
         "#,
         w_id,
         ns.path,
@@ -301,7 +413,18 @@ async fn create_schedule(
         ns.is_flow,
         to_json_raw_opt(ns.args.as_ref())
             as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
-        ns.enabled.unwrap_or(false),
+        // Default-on matches the enqueue check below (line ~410) and the trigger
+        // create path (`BaseTriggerData::mode()` defaults to `Enabled`). Every
+        // production caller passes `enabled` explicitly except the fork→parent
+        // flows (CLI merge, UI merge, `wmill push` of a fork tarball) — which
+        // either send the source's actual flag (create case) or omit `enabled`
+        // entirely (update case, where `EditSchedule` lacks the field).
+        // A write into a fork always lands disabled regardless of the request.
+        if target_is_fork {
+            false
+        } else {
+            ns.enabled.unwrap_or(true)
+        },
         resolved_email,
         resolved_permissioned_as,
         ns.on_failure,
@@ -324,11 +447,22 @@ async fn create_schedule(
         ns.paused_until,
         ns.cron_version.clone().unwrap_or_else(|| "v2".to_string()),
         ns.description,
-        ns.dynamic_skip
+        ns.dynamic_skip,
+        ns.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("inserting schedule in {w_id}: {e:#}")))?;
+
+    record_schedule_history(
+        &mut *tx,
+        &authed,
+        &w_id,
+        &ns.path,
+        TriggerOperation::Create,
+        None,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -372,7 +506,7 @@ async fn create_schedule(
         .await?;
     }
 
-    if ns.enabled.unwrap_or(true) {
+    if !target_is_fork && ns.enabled.unwrap_or(true) {
         tx = push_scheduled_job(&db, tx, &schedule, Some(&authed.clone().into()), None).await?
     }
     tx.commit().await?;
@@ -401,6 +535,7 @@ async fn edit_schedule(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    reject_reserved_schedule_path(path)?;
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
     let mut tx = user_db.begin(&authed).await?;
@@ -412,8 +547,6 @@ async fn edit_schedule(
     if let Some(handler_path) = &es.dynamic_skip {
         validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
     }
-
-    clear_schedule(&mut tx, path, &w_id).await?;
 
     let resolved_edited_by = resolve_edited_by(&authed);
 
@@ -437,6 +570,8 @@ async fn edit_schedule(
     } else {
         authed.email.clone()
     };
+
+    let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -467,7 +602,8 @@ async fn edit_schedule(
             dynamic_skip            = $23,
             email                   = $24,
             edited_by               = $25,
-            permissioned_as         = $26
+            permissioned_as         = $26,
+            labels                  = COALESCE($27, labels)
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -501,7 +637,8 @@ async fn edit_schedule(
             tag,
             paused_until,
             cron_version,
-            dynamic_skip
+            dynamic_skip,
+            labels
         "#,
         es.schedule,
         es.timezone,
@@ -532,11 +669,27 @@ async fn edit_schedule(
         es.dynamic_skip,
         resolved_email,
         resolved_edited_by,
-        resolved_permissioned_as
+        resolved_permissioned_as,
+        es.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
+
+    // clear_schedule must come AFTER UPDATE schedule to maintain consistent lock ordering
+    // (schedule row first, then v2_job_queue) and avoid deadlocks with concurrent operations
+    // like set_enabled, flow updates, and worker job completions.
+    clear_schedule(&mut tx, path, &w_id).await?;
+
+    record_schedule_history(
+        &mut *tx,
+        &authed,
+        &w_id,
+        path,
+        TriggerOperation::Update,
+        before,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -608,6 +761,10 @@ pub struct ListScheduleQuery {
     // filter on summary (pattern match)
     pub summary: Option<String>,
     pub broad_filter: Option<String>,
+    pub label: Option<String>,
+    /// When true, append per-user draft-only rows; picker callers leave it off
+    /// to stay deployed-only. See list synthesis in scripts.rs.
+    pub include_draft_only: Option<bool>,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
@@ -623,10 +780,26 @@ pub struct ScheduleLight {
     pub is_flow: bool,
     pub summary: Option<String>,
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// `Some(true)` only on synthesized draft-only rows; `None` on deployed rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path (drives the
+    /// `*` suffix on the schedules page).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 async fn list_schedule(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(lsq): Query<ListScheduleQuery>,
 ) -> JsonResult<Vec<ScheduleLight>> {
@@ -645,20 +818,42 @@ async fn list_schedule(
             "is_flow",
             "summary",
             "extra_perms",
+            "labels",
+            "folder_labels(workspace_id, path) as inherited_labels",
         ])
+        // Scalar EXISTS flags the authed user's per-user draft; see resources.rs.
+        .field(
+            &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = schedule.workspace_id \
+              AND draft.path = schedule.path AND draft.typ = 'trigger_schedule' \
+              AND draft.email = ?) as is_draft"
+                .bind(&authed.email),
+        )
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
+        // managed ducklake-maintenance schedules are edited from the
+        // workspace ducklake settings, not the schedules UI/CLI.
+        // starts_with, not LIKE: the prefix contains `_` which LIKE treats as
+        // a wildcard, and a user folder like `ducklake-maintenance` must not
+        // be swept up.
+        .and_where(
+            "NOT starts_with(path, ?)"
+                .bind(&windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX),
+        )
         .offset(offset)
         .limit(per_page)
         .clone();
-    if let Some(path) = lsq.path {
-        sqlb.and_where_eq("script_path", "?".bind(&path));
+    if let Some(path) = lsq.path.as_ref() {
+        sqlb.and_where_eq("script_path", "?".bind(path));
     }
     if let Some(is_flow) = lsq.is_flow {
         sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
     }
     if let Some(args) = &lsq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);
@@ -681,11 +876,109 @@ async fn list_schedule(
                 .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
         );
     }
+    if let Some(label) = &lsq.label {
+        for l in label.split(',') {
+            sqlb.and_where(
+                "(labels @> ARRAY[?] OR folder_labels(workspace_id, path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
+        }
+    }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-    let rows = sqlx::query_as::<_, ScheduleLight>(&sql)
+    let mut rows = sqlx::query_as::<_, ScheduleLight>(&sql)
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
+
+    // Append the authed user's draft-only schedules; see scripts.rs.
+    if lsq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lsq.path.is_none()
+        && lsq.is_flow.is_none()
+        && lsq.args.is_none()
+        && lsq.path_start.is_none()
+        && lsq.schedule_path.is_none()
+        && lsq.description.is_none()
+        && lsq.summary.is_none()
+        && lsq.broad_filter.is_none()
+        && lsq.label.is_none()
+    {
+        let draft_only_rows = fetch_draft_only_list_rows(
+            &db,
+            &w_id,
+            &authed.email,
+            UserDraftItemKind::TriggerSchedule,
+        )
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // Schedule editor's draft mirrors NewSchedule: { path, schedule, timezone, script_path, is_flow, enabled?, summary?, labels? }
+            let path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            if path.is_empty() {
+                continue;
+            }
+            let schedule = v
+                .get("schedule")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let timezone = v
+                .get("timezone")
+                .and_then(|x| x.as_str())
+                .unwrap_or("UTC")
+                .to_string();
+            let script_path = v
+                .get("script_path")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let is_flow = v.get("is_flow").and_then(|x| x.as_bool()).unwrap_or(false);
+            let enabled = v.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+            let summary = v
+                .get("summary")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let labels = v.get("labels").and_then(|x| {
+                x.as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+            });
+
+            rows.push(ScheduleLight {
+                workspace_id: w_id.clone(),
+                path,
+                edited_by: String::new(),
+                edited_at: row.created_at,
+                schedule,
+                timezone,
+                enabled,
+                script_path,
+                is_flow,
+                summary,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                labels,
+                // No deployed row to inherit folder labels from.
+                inherited_labels: None,
+                draft_only: Some(true),
+                // Synthesized rows are the authed user's draft.
+                is_draft: Some(true),
+            });
+        }
+    }
+
+    let allowed = build_scope_path_predicate(&authed, "schedules", "read");
+    rows.retain(|r| allowed(&r.path));
+
     Ok(Json(rows))
 }
 
@@ -722,17 +1015,21 @@ async fn list_schedule_with_jobs(
                 ORDER BY completed_at DESC
                 LIMIT 20
             ) AS jobs) t
-        WHERE workspace_id = $1
+        WHERE workspace_id = $1 AND NOT starts_with(schedule.path, $4)
         ORDER BY edited_at DESC
         LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
-        offset as i64
+        offset as i64,
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
     )
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(rows))
+    let allowed = build_scope_path_predicate(&authed, "schedules", "read");
+    Ok(Json(
+        rows.into_iter().filter(|r| allowed(&r.path)).collect(),
+    ))
 }
 
 // SELECT id, title AS item_title, t.tag_array
@@ -748,16 +1045,28 @@ async fn list_schedule_with_jobs(
 async fn get_schedule(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Schedule> {
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
-    let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
     tx.commit().await?;
-    Ok(Json(schedule))
+    let overlay = overlay_or_draft_only(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::TriggerSchedule,
+        path,
+        q.get_draft,
+        schedule_o,
+        || Error::NotFound(format!("Schedule not found at path {path}")),
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn exists_schedule(
@@ -801,6 +1110,41 @@ pub async fn set_enabled(
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    reject_reserved_schedule_path(path)?;
+
+    // Block enabling a schedule in a fork when the parent has the same path
+    // (regardless of parent's enabled flag), unless force=true. Two enabled
+    // crons fire in lockstep; even when the parent is currently disabled the
+    // user is likely to re-enable it later, at which point both fire — better
+    // to surface that risk at every fork-side enable. There's no namespacing
+    // fix for schedules (Phase 3 doesn't help cron); the user has to confirm
+    // or point the script at fork-only side effects.
+    if payload.enabled && !payload.force {
+        let parent_id: Option<String> = sqlx::query_scalar!(
+            "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+            &w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+        if let Some(parent_id) = parent_id {
+            let exists: Option<bool> = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM schedule WHERE workspace_id = $1 AND path = $2)",
+                &parent_id,
+                path,
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if exists == Some(true) {
+                return Err(Error::BadRequest(format!(
+                    "fork-conflict:schedule:{}",
+                    parent_id
+                )));
+            }
+        }
+    }
+    let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
+
     // email is still written for backwards compat with old workers that don't know about permissioned_as
     let schedule_o = sqlx::query_as!(
         Schedule,
@@ -841,7 +1185,8 @@ pub async fn set_enabled(
             tag,
             paused_until,
             cron_version,
-            dynamic_skip
+            dynamic_skip,
+            labels
         "#,
         payload.enabled,
         authed.email,
@@ -854,6 +1199,20 @@ pub async fn set_enabled(
     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
+
+    record_schedule_history(
+        &mut *tx,
+        &authed,
+        &w_id,
+        path,
+        if payload.enabled {
+            TriggerOperation::Enable
+        } else {
+            TriggerOperation::Disable
+        },
+        before,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -944,6 +1303,7 @@ async fn delete_schedule(
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    reject_reserved_schedule_path(path)?;
     let mut tx = user_db.begin(&authed).await?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
@@ -1000,6 +1360,22 @@ async fn delete_schedule(
         .await?;
     }
 
+    // No diff: the row is gone, and the trashbin above already keeps its full
+    // contents for a restore.
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id: &w_id,
+            trigger_kind: SCHEDULE_TRIGGER_KIND,
+            path,
+            operation: TriggerOperation::Delete,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: None,
+        },
+    )
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1012,6 +1388,9 @@ async fn delete_schedule(
     .await?;
 
     tx.commit().await?;
+
+    // Schedule gone for everyone: wipe ALL users' drafts at this path; see scripts.rs.
+    delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::TriggerSchedule, path).await?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -1085,6 +1464,11 @@ async fn set_default_error_handler(
     }
 
     if payload.override_existing {
+        // The rewrite and its history rows go in one transaction: on separate
+        // connections a concurrent edit could interleave, leaving the
+        // id-ordered drawer showing the wrong latest change, and a failed
+        // insert would leave the schedules rewritten with nothing recording it.
+        let mut tx = db.begin().await?;
         let updated_schedules: Vec<String>;
         match payload.handler_type {
             HandlerType::Error => {
@@ -1098,14 +1482,14 @@ async fn set_default_error_handler(
                         payload.number_of_occurence_exact,
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET ws_error_handler_muted = false, on_failure = NULL, on_failure_extra_args = NULL, on_failure_times = NULL, on_failure_exact = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 }
             }
@@ -1118,14 +1502,14 @@ async fn set_default_error_handler(
                         payload.number_of_occurence,
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET on_recovery = NULL, on_recovery_extra_args = NULL, on_recovery_times = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 }
             }
@@ -1137,19 +1521,79 @@ async fn set_default_error_handler(
                         payload.extra_args,
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 } else {
                     updated_schedules = sqlx::query_scalar!(
                         "UPDATE schedule SET on_success = NULL, on_success_extra_args = NULL WHERE workspace_id = $1 RETURNING path",
                         w_id,
                     )
-                    .fetch_all(&db)
+                    .fetch_all(&mut *tx)
                     .await?;
                 }
             }
         }
+        // One row per schedule the workspace-wide override rewrote, so a handler
+        // that appeared on a schedule nobody edited is traceable. Every column
+        // the UPDATE above wrote, not just the handler path: the mute flag and
+        // the occurrence thresholds are what someone auditing a surprise
+        // notification change most needs. No `old` side and no
+        // already-had-this-value filter — the UPDATE rewrites the whole
+        // workspace unconditionally, so these rows record the write rather than
+        // a delta.
+        // Built from the same values the branch that ran actually bound: a reset
+        // (`payload.path` absent) hardcodes NULL / false in SQL while the request
+        // still carries the form's other fields, so reading them here would name
+        // values the write never produced.
+        let cleared = payload.path.is_none();
+        let handler_path = payload.path.clone();
+        let extra_args = (!cleared).then(|| payload.extra_args.clone()).flatten();
+        let times = (!cleared).then_some(payload.number_of_occurence).flatten();
+        let handler_fields = match payload.handler_type {
+            HandlerType::Error => serde_json::json!({
+                "on_failure": { "new": handler_path },
+                "on_failure_extra_args": { "new": extra_args },
+                "on_failure_times": { "new": times },
+                "on_failure_exact": {
+                    "new": (!cleared).then_some(payload.number_of_occurence_exact).flatten()
+                },
+                "ws_error_handler_muted": {
+                    "new": !cleared && payload.workspace_handler_muted.unwrap_or(false)
+                },
+            }),
+            HandlerType::Recovery => serde_json::json!({
+                "on_recovery": { "new": handler_path },
+                "on_recovery_extra_args": { "new": extra_args },
+                "on_recovery_times": { "new": times },
+            }),
+            HandlerType::Success => serde_json::json!({
+                "on_success": { "new": handler_path },
+                "on_success_extra_args": { "new": extra_args },
+            }),
+        };
+        trigger_history::record_bulk(
+            &mut tx,
+            &w_id,
+            SCHEDULE_TRIGGER_KIND,
+            &updated_schedules,
+            TriggerOperation::Update,
+            TriggerSource::of_request(authed.is_session_token),
+            Some(&authed.username),
+            Some(handler_fields),
+        )
+        .await?;
+
+        tx.commit().await?;
+
         for updated_schedule_path in updated_schedules {
+            // managed ducklake-maintenance rows get the handler update (their
+            // failures should reach workspace handlers) but must not be
+            // pushed into git-sync as deployed schedules
+            if updated_schedule_path
+                .starts_with(windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX)
+            {
+                continue;
+            }
             handle_deployment_metadata(
                 &authed.email,
                 &authed.username,
@@ -1217,6 +1661,8 @@ pub struct EditSchedule {
     pub dynamic_skip: Option<String>,
     pub permissioned_as: Option<String>,
     pub preserve_permissioned_as: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 pub use windmill_queue::schedule::clear_schedule;
@@ -1224,6 +1670,11 @@ pub use windmill_queue::schedule::clear_schedule;
 #[derive(Deserialize)]
 pub struct SetEnabled {
     pub enabled: bool,
+    /// Bypass the parent-state warning when enabling a schedule in a fork
+    /// whose parent has the same path enabled. The frontend sets this after
+    /// the user confirms the duplicate-firing dialog.
+    #[serde(default)]
+    pub force: bool,
 }
 
 // #[derive(Deserialize)]

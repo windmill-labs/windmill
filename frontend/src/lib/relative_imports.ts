@@ -11,13 +11,7 @@ export function parseTypescriptDeps(code: string): string[] {
 }
 
 export function isTypescriptRelativePath(d: string) {
-	return (
-		d.startsWith('./') ||
-		d.startsWith('../') ||
-		d.startsWith('/') ||
-		d.startsWith('.../') ||
-		d.startsWith('/')
-	)
+	return d.startsWith('./') || d.startsWith('../') || d.startsWith('/') || d.startsWith('.../')
 }
 
 export function approximateFindPythonRelativePath(code: string) {

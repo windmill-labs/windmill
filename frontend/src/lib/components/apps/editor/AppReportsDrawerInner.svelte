@@ -73,7 +73,7 @@
 
 	let isSlackConnectedWorkspace = $state(false)
 	async function getWorspaceSlackSetting() {
-		const settings = await WorkspaceService.getSettings({
+		const settings = await WorkspaceService.getPublicSettings({
 			workspace: $workspaceStore!
 		})
 		if (settings.slack_name) {

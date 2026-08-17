@@ -2,20 +2,19 @@
 	import { BROWSER } from 'esm-env'
 
 	import { editor as meditor, KeyMod, KeyCode } from 'monaco-editor'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 
 	import { onDestroy, onMount } from 'svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
 	let editor: meditor.IStandaloneCodeEditor
 
-
 	interface Props {
-		code?: string;
-		class?: string;
+		code?: string
+		class?: string
 	}
 
-	let { code = '', class: className = '' }: Props = $props();
-	
+	let { code = '', class: className = '' }: Props = $props()
 
 	async function loadMonaco() {
 		editor = meditor.create(divEl as HTMLDivElement, {
@@ -25,6 +24,7 @@
 			automaticLayout: true,
 			scrollBeyondLastLine: false,
 			lineNumbers: 'off',
+			fontSize: editorFontSize.regular,
 			minimap: { enabled: false }
 		})
 
@@ -40,6 +40,13 @@
 	onMount(async () => {
 		if (BROWSER) {
 			await loadMonaco()
+		}
+	})
+
+	$effect(() => {
+		const fontSize = editorFontSize.regular
+		if (editor) {
+			editor.updateOptions({ fontSize })
 		}
 	})
 

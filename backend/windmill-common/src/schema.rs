@@ -1,7 +1,9 @@
 use anyhow::anyhow;
 use itertools::Itertools;
+use quick_cache::sync::Cache;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use serde_json::{value::RawValue, Value};
 
@@ -343,6 +345,137 @@ fn find_annotation(comm_lit: &str, annotation: &str, code: &str) -> bool {
     false
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CiTestedItem {
+    pub path: String,
+    pub kind: String,
+}
+
+/// Parse a CI test annotation from the top of a script.
+///
+/// Multi-line format:
+/// ```
+/// // test:
+/// // script/u/admin/my_script
+/// // flow/u/admin/my_flow
+/// // resource/u/admin/my_resource
+/// ```
+///
+/// One-line format:
+/// ```
+/// // test: script/u/admin/my_script
+/// ```
+pub fn parse_ci_test_annotation(code: &str, comment_prefix: &str) -> Option<Vec<CiTestedItem>> {
+    let test_marker = format!("{comment_prefix} test:");
+    let mut lines = code.lines();
+
+    let first = lines.next()?;
+    let first_trimmed = first.trim_end();
+    if !first_trimmed.starts_with(&test_marker) {
+        return None;
+    }
+
+    let mut items = Vec::new();
+
+    // Check for one-line format: "// test: script/path"
+    let inline = first_trimmed[test_marker.len()..].trim();
+    if !inline.is_empty() {
+        if let Some(item) = parse_ci_test_item(inline) {
+            items.push(item);
+        }
+    }
+
+    for line in lines {
+        let Some(after_prefix) = line.strip_prefix(comment_prefix) else {
+            break;
+        };
+        let stripped = after_prefix.trim();
+        if stripped.is_empty() {
+            continue;
+        }
+
+        if let Some(item) = parse_ci_test_item(stripped) {
+            items.push(item);
+        } else {
+            break;
+        }
+    }
+
+    if items.is_empty() {
+        None
+    } else {
+        Some(items)
+    }
+}
+
+fn parse_ci_test_item(s: &str) -> Option<CiTestedItem> {
+    if let Some(path) = s.strip_prefix("script/") {
+        Some(CiTestedItem { path: path.trim().to_string(), kind: "script".to_string() })
+    } else if let Some(path) = s.strip_prefix("flow/") {
+        Some(CiTestedItem { path: path.trim().to_string(), kind: "flow".to_string() })
+    } else if let Some(path) = s.strip_prefix("resource/") {
+        Some(CiTestedItem { path: path.trim().to_string(), kind: "resource".to_string() })
+    } else {
+        None
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref CI_TEST_PATTERN_CACHE: Cache<String, Arc<Regex>> = Cache::new(256);
+}
+
+/// Does `path` match an annotation pattern?
+/// - `**` matches any characters including `/`
+/// - `*` matches any characters within a single path segment (no `/`)
+/// - All other regex metacharacters are treated literally
+pub fn ci_test_path_matches(path: &str, pattern: &str) -> bool {
+    // Fast path: literal pattern with no wildcard.
+    if !pattern.contains('*') {
+        return path == pattern;
+    }
+
+    let regex = if let Some(cached) = CI_TEST_PATTERN_CACHE.get(pattern) {
+        cached
+    } else {
+        let mut re = String::with_capacity(pattern.len() + 4);
+        re.push('^');
+        let mut chars = pattern.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '*' {
+                if chars.peek() == Some(&'*') {
+                    chars.next();
+                    re.push_str(".*");
+                } else {
+                    re.push_str("[^/]*");
+                }
+            } else {
+                // regex::escape would reallocate per char; inline the ASCII metachar set.
+                if matches!(
+                    c,
+                    '.' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '^' | '$' | '\\'
+                ) {
+                    re.push('\\');
+                }
+                re.push(c);
+            }
+        }
+        re.push('$');
+        match Regex::new(&re) {
+            Ok(r) => {
+                let arc = Arc::new(r);
+                CI_TEST_PATTERN_CACHE.insert(pattern.to_string(), arc.clone());
+                arc
+            }
+            Err(e) => {
+                tracing::warn!(%e, pattern, "invalid ci test pattern, skipping");
+                return false;
+            }
+        }
+    };
+
+    regex.is_match(path)
+}
+
 pub fn should_validate_schema(code: &str, lang: &ScriptLang) -> bool {
     let annotation = "schema_validation";
     find_annotation(&lang.as_comment_lit(), annotation, code)
@@ -629,5 +762,57 @@ mod tests {
         validator
             .validate(&value_to_rawvalue_map(args).unwrap())
             .expect("Validation should work for this");
+    }
+
+    #[test]
+    fn ci_test_path_matches_literal() {
+        assert!(ci_test_path_matches("u/user/foo", "u/user/foo"));
+        assert!(!ci_test_path_matches("u/user/foo", "u/user/bar"));
+        assert!(!ci_test_path_matches("u/user/foo/deep", "u/user/foo"));
+    }
+
+    #[test]
+    fn ci_test_path_matches_single_star_stays_in_segment() {
+        assert!(ci_test_path_matches("u/user/foo", "u/user/*"));
+        assert!(ci_test_path_matches("u/user/bar", "u/user/*"));
+        assert!(!ci_test_path_matches("u/user/foo/deep", "u/user/*"));
+        assert!(!ci_test_path_matches("u/user", "u/user/*"));
+    }
+
+    #[test]
+    fn ci_test_path_matches_double_star_crosses_slashes() {
+        assert!(ci_test_path_matches("u/user/foo", "u/user/**"));
+        assert!(ci_test_path_matches("u/user/foo/deep", "u/user/**"));
+        assert!(ci_test_path_matches("u/user/a/b/c", "u/user/**"));
+        assert!(!ci_test_path_matches("u/other/foo", "u/user/**"));
+    }
+
+    #[test]
+    fn ci_test_path_matches_escapes_regex_metachars() {
+        // `.` is a regex metachar; must be matched literally.
+        assert!(ci_test_path_matches("u/user/file.txt", "u/user/file.txt"));
+        assert!(!ci_test_path_matches("u/user/fileXtxt", "u/user/file.txt"));
+        // `+` / `?` / parens must also match literally.
+        assert!(ci_test_path_matches("u/user/a+b", "u/user/a+b"));
+        assert!(ci_test_path_matches("u/user/a(b)", "u/user/a(b)"));
+    }
+
+    #[test]
+    fn ci_test_path_matches_star_at_boundaries() {
+        assert!(ci_test_path_matches("u/user/foo", "*/user/foo"));
+        assert!(ci_test_path_matches("u/user/foo", "u/*/foo"));
+        assert!(ci_test_path_matches("prefix_suffix", "prefix_*"));
+        assert!(ci_test_path_matches("", ""));
+        assert!(!ci_test_path_matches("u/user/a/b", "u/user/a"));
+    }
+
+    #[test]
+    fn ci_test_path_matches_underscore_is_literal() {
+        // Underscore is a SQL LIKE metachar but plain text for regex; must match literally.
+        assert!(ci_test_path_matches("u/user/my_script", "u/user/my_script"));
+        assert!(!ci_test_path_matches(
+            "u/user/myXscript",
+            "u/user/my_script"
+        ));
     }
 }

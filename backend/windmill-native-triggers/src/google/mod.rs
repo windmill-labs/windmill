@@ -25,9 +25,16 @@ pub mod routes;
 
 pub use external::should_renew_channel;
 
-/// Extracts `(google_resource_id, stop_url)` from a native trigger's service_config JSON.
-/// Used by the `delete` method and tested independently.
-pub fn parse_stop_channel_params(config: &serde_json::Value) -> (String, String) {
+/// Extracts `(google_channel_id, google_resource_id, stop_url)` from a native trigger's
+/// service_config JSON. `google_channel_id` falls back to `None` for triggers created
+/// before the field was introduced — callers should use `external_id` in that case.
+/// Used by the `delete`/renewal paths and tested independently.
+pub fn parse_stop_channel_params(config: &serde_json::Value) -> (Option<String>, String, String) {
+    let google_channel_id = config
+        .get("googleChannelId")
+        .and_then(|r| r.as_str())
+        .map(String::from);
+
     let google_resource_id = config
         .get("googleResourceId")
         .and_then(|r| r.as_str())
@@ -44,7 +51,7 @@ pub fn parse_stop_channel_params(config: &serde_json::Value) -> (String, String)
         _ => format!("{}/channels/stop", endpoints::DRIVE_API_BASE),
     };
 
-    (google_resource_id, stop_url)
+    (google_channel_id, google_resource_id, stop_url)
 }
 
 /// Handler struct for Google triggers (stateless, used for routing)
@@ -96,6 +103,12 @@ pub struct GoogleServiceConfig {
     /// The resource ID assigned by Google for the watch channel
     #[serde(skip_serializing_if = "Option::is_none")]
     pub google_resource_id: Option<String>,
+    /// The channel ID currently registered with Google. Regenerated on every
+    /// create/update/renew because Google rejects reused channel IDs with
+    /// `channelIdNotUnique`. Absent on triggers created before this field existed —
+    /// fall back to `external_id` in that case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_channel_id: Option<String>,
     /// Channel expiration time (Unix timestamp in milliseconds, as string)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expiration: Option<String>,

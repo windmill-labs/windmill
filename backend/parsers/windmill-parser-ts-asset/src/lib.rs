@@ -1,18 +1,18 @@
 use std::collections::HashMap;
 
 use swc_common::{sync::Lrc, FileName, SourceMap, Spanned};
-use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, Str};
+use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, ObjectLit, Prop, PropName, Str};
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
 use windmill_parser::asset_parser::{
-    asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsOutput, ParseAssetsResult, SqlQueryDetails,
+    asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
+    AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult, SqlQueryDetails,
 };
 use AssetUsageAccessType::*;
 
 pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.to_string());
     let lexer = Lexer::new(
         // We want to parse ecmascript
         Syntax::Typescript(TsSyntax::default()),
@@ -38,10 +38,12 @@ pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
     let mut assets_finder =
         AssetsFinder { assets: vec![], sql_queries: vec![], var_identifiers: HashMap::new() };
     assets_finder.visit_module_items(&ast);
-    Ok(ParseAssetsOutput {
-        assets: merge_assets(assets_finder.assets),
-        sql_queries: assets_finder.sql_queries,
-    })
+    let pipeline = parse_pipeline_annotations(code);
+    Ok(ParseAssetsOutput::new(
+        merge_assets(assets_finder.assets),
+        assets_finder.sql_queries,
+        pipeline,
+    ))
 }
 
 type VarAssetName = String;
@@ -106,6 +108,28 @@ fn extract_wmill_datatable_call(expr: &Expr) -> Option<(AssetKind, String, Optio
     }
     None
 }
+
+/// Check if an expression is `tag.raw(...)` where `tag` matches the given tag name.
+/// Returns true for patterns like `sql.raw(x)`.
+fn is_raw_call(expr: &Expr, tag_name: &str) -> bool {
+    if let Expr::Call(call_expr) = expr {
+        if let Some(Expr::Member(member)) = call_expr.callee.as_expr().map(AsRef::as_ref) {
+            let is_tag = matches!(
+                member.obj.as_ref(),
+                Expr::Ident(ident) if ident.sym.as_str() == tag_name
+            );
+            if is_tag {
+                if let MemberProp::Ident(prop) = &member.prop {
+                    return prop.sym.as_str() == "raw";
+                }
+            }
+        }
+    }
+    false
+}
+
+const WM_SQL_RAW_PLACEHOLDER: &str = "__WM_SQL_RAW__";
+
 impl Visit for AssetsFinder {
     // visit_call_expr will not recurse if it detects an asset,
     // so this will only be called when no further context was found
@@ -230,21 +254,31 @@ impl Visit for AssetsFinder {
             return;
         };
 
-        // Extract the SQL query from the template quasis (string parts)
-        // Substitute ${} with $1, $2, etc.
-        let sql: String = node
+        // Determine which interpolations are sql.raw() calls
+        let raw_flags: Vec<bool> = node
             .tpl
-            .quasis
+            .exprs
             .iter()
-            .map(|quasi| quasi.raw.as_str())
-            .enumerate()
-            .fold(String::new(), |acc, (i, s)| {
-                if i == 0 {
-                    s.to_string()
+            .map(|expr| is_raw_call(expr.as_ref(), tag_name))
+            .collect();
+        let has_raw_interpolation = raw_flags.iter().any(|&r| r);
+
+        // Extract the SQL query from the template quasis (string parts)
+        // Substitute ${} with $N for normal args, __WM_SQL_RAW__ for raw args
+        let mut sql = String::new();
+        let mut arg_index = 0usize;
+        for (i, quasi) in node.tpl.quasis.iter().enumerate() {
+            if i > 0 {
+                let is_raw = raw_flags.get(i - 1).copied().unwrap_or(false);
+                if is_raw {
+                    sql.push_str(WM_SQL_RAW_PLACEHOLDER);
                 } else {
-                    format!("{}${}{}", acc, i, s)
+                    arg_index += 1;
+                    sql.push_str(&format!("${}", arg_index));
                 }
-            });
+            }
+            sql.push_str(quasi.raw.as_str());
+        }
 
         // Capture SQL query details before transforming for SQL parser
         let span = node.span();
@@ -256,6 +290,7 @@ impl Visit for AssetsFinder {
             source_kind: *kind,
             source_name: asset_name.clone(),
             source_schema: schema.clone(),
+            has_raw_interpolation,
         });
 
         // We use the SQL parser to detect RW, specific tables, etc.
@@ -266,10 +301,77 @@ impl Visit for AssetsFinder {
             &sql,
         );
         match sql_assets {
-            Ok(Some(sql_assets)) => self.assets.extend(sql_assets),
+            Ok(Some(sql_assets)) => self.assets.extend(
+                sql_assets
+                    .into_iter()
+                    .filter(|a| !a.path.contains(WM_SQL_RAW_PLACEHOLDER)),
+            ),
             _ => {}
         }
     }
+}
+
+/// Extract a string-literal property value from an object literal.
+/// Returns `Some(value)` for `{ name: "value" }`, ignoring computed,
+/// shorthand, spread, and non-string-literal properties.
+fn object_str_prop(obj: &ObjectLit, name: &str) -> Option<String> {
+    for prop in &obj.props {
+        let swc_ecma_ast::PropOrSpread::Prop(p) = prop else {
+            continue;
+        };
+        let Prop::KeyValue(kv) = p.as_ref() else {
+            continue;
+        };
+        let key = match &kv.key {
+            PropName::Ident(i) => i.sym.as_str(),
+            PropName::Str(s) => s.value.as_str(),
+            _ => continue,
+        };
+        if key != name {
+            continue;
+        }
+        if let Expr::Lit(Lit::Str(s)) = kv.value.as_ref() {
+            return Some(s.value.to_string());
+        }
+    }
+    None
+}
+
+/// Resolve the SDK `S3Object` argument of `loadS3File`/`loadS3FileStream`/
+/// `writeS3File` to a canonical asset path, mirroring the runtime
+/// `parseS3Object`: an object `{ s3: "<key>", storage?: "<bucket>" }` maps to
+/// the URI `s3://<bucket>/<key>` (empty bucket for default storage, i.e.
+/// `s3:///<key>`), and a `"s3://bucket/key"` URI string is passed through.
+/// String args mirror the runtime `parseS3Object` contract exactly: only a
+/// `s3://<storage>/<key>` URI with a non-empty key is valid — any other
+/// string (bare key, `s3://x`, empty key) throws at run time, so recording an
+/// edge for it would be a phantom node for a call that can only error.
+/// The resulting URI is fed through `parse_asset_syntax` so the stored path
+/// matches the `// on s3:///…` trigger form exactly.
+fn s3_object_arg_path(arg: &Expr) -> Option<String> {
+    let uri = match arg {
+        Expr::Lit(Lit::Str(s)) => {
+            let v = s.value.to_string();
+            match v
+                .strip_prefix("s3://")
+                .and_then(|rest| rest.split_once('/'))
+            {
+                Some((_, key)) if !key.is_empty() => v,
+                _ => return None,
+            }
+        }
+        Expr::Object(obj) => {
+            let key = object_str_prop(obj, "s3")?;
+            let storage = object_str_prop(obj, "storage").unwrap_or_default();
+            format!("s3://{storage}/{key}")
+        }
+        _ => return None,
+    };
+    Some(
+        parse_asset_syntax(&uri, false)
+            .map(|(_, p)| p.to_string())
+            .unwrap_or(uri),
+    )
 }
 
 impl AssetsFinder {
@@ -294,20 +396,20 @@ impl AssetsFinder {
 
         let arg_value = node.args.get(arg_pos);
 
-        match arg_value.map(|e| e.expr.as_ref()) {
-            Some(Expr::Lit(Lit::Str(Str { value, .. }))) => {
-                let path = parse_asset_syntax(&value, false)
-                    .map(|(_, p)| p)
-                    .unwrap_or(&value);
-                self.assets.push(ParseAssetsResult {
-                    kind,
-                    path: path.to_string(),
-                    access_type,
-                    columns: None,
-                });
-            }
+        // S3 helpers take an `S3Object` (`{ s3, storage? }`) or an
+        // `s3://bucket/key` string — the form every real script uses. Other
+        // helpers take a bare resource-path string literal.
+        let is_s3_helper = matches!(kind, AssetKind::S3Object);
+
+        let path = match arg_value.map(|e| e.expr.as_ref()) {
+            Some(arg) if is_s3_helper => s3_object_arg_path(arg).ok_or(())?,
+            Some(Expr::Lit(Lit::Str(Str { value, .. }))) => parse_asset_syntax(&value, false)
+                .map(|(_, p)| p.to_string())
+                .unwrap_or_else(|| value.to_string()),
             _ => return Err(()),
-        }
+        };
+        self.assets
+            .push(ParseAssetsResult { kind, path, access_type, columns: None });
         Ok(())
     }
 }
@@ -336,6 +438,197 @@ mod tests {
                 columns: None,
             },])
         );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_write_s3_object_arg() {
+        // The SDK signature is `writeS3File(s3object: S3Object, ...)` and every
+        // real script passes the object form with a bare key. It must resolve
+        // to the same canonical path as a `// on s3:///<key>` trigger.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File(
+                    { s3: "pipelines/km_real/raw_events.json" },
+                    JSON.stringify([]),
+                    undefined,
+                    "application/json"
+                )
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "/pipelines/km_real/raw_events.json".to_string(),
+                access_type: Some(W),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_write_key_matches_duckdb_read_key() {
+        // Cross-language lineage: this default-storage write records
+        // `/exports/x`, the same path a DuckDB `read_csv('s3:///exports/x')`
+        // resolves to (see windmill-parser-sql-asset
+        // `test_duckdb_read_key_matches_sdk_write_key`), so the producer and
+        // consumer connect in the pipeline graph.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File({ s3: "exports/x" }, "[]")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "/exports/x".to_string(),
+                access_type: Some(W),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_s3_object_with_storage() {
+        // `{ s3, storage }` maps to `s3://<storage>/<key>`, matching the
+        // `s3://bucket/key` string form and `parseS3Object`.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.loadS3File({ s3: "dir/in.csv", storage: "mybucket" })
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "mybucket/dir/in.csv".to_string(),
+                access_type: Some(R),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_bare_string_no_asset() {
+        // A plain (non-`s3://`) string is rejected by the runtime
+        // `parseS3Object`, so the parser must not record a phantom asset for
+        // a call that can only error.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File("pipelines/etl/out.jsonl", "[]")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(s.map(|r| r.assets).map_err(|e| e.to_string()), Ok(vec![]));
+    }
+
+    #[test]
+    fn test_ts_asset_parser_invalid_uri_no_write_edge() {
+        // `s3://x` (no key part) and `s3://bucket/` (empty key) are rejected
+        // by the runtime `parseS3Object` — same rule for the SDK-arg path:
+        // no R/W edge. The generic URI-literal scan may still record them as
+        // ambiguous (`access_type: None`) assets, like any `s3://…` string
+        // constant anywhere in a script.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File("s3://broken", "[]")
+                await wmill.writeS3File("s3://bucket/", "[]")
+            }
+        "#;
+        let assets = parse_assets(input).expect("parse").assets;
+        assert!(
+            assets.iter().all(|a| a.access_type.is_none()),
+            "invalid URIs must not produce R/W edges: {assets:?}"
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_multiple_s3_object_writes() {
+        // Mirrors the f/km/r_seed shape: several direct object-form writes in
+        // main() — all four outputs must be detected.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File({ s3: "pipelines/km_real/raw_events.json" }, "[]")
+                await wmill.writeS3File({ s3: "pipelines/km_real/enriched.json" }, "[]")
+                await wmill.writeS3File({ s3: "pipelines/km_real/summary.json" }, "[]")
+                await wmill.writeS3File({ s3: "pipelines/km_real/report.json" }, "{}")
+            }
+        "#;
+        // merge_assets returns a deterministic (path-sorted) order.
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/pipelines/km_real/enriched.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/pipelines/km_real/raw_events.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/pipelines/km_real/report.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/pipelines/km_real/summary.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_s3_object_quoted_key() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File({ "s3": "out.json" }, "{}")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "/out.json".to_string(),
+                access_type: Some(W),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_s3_object_dynamic_key_no_false_positive() {
+        // A computed key can't be resolved statically — must yield nothing
+        // rather than a bogus path.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(name: string) {
+                await wmill.writeS3File({ s3: `pipelines/${name}.json` }, "{}")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(s.map(|r| r.assets).map_err(|e| e.to_string()), Ok(vec![]));
     }
 
     #[test]
@@ -629,6 +922,7 @@ mod tests {
         assert_eq!(query_detail.source_kind, AssetKind::DataTable);
         assert_eq!(query_detail.source_name, "dt");
         assert_eq!(query_detail.source_schema, None);
+        assert_eq!(query_detail.has_raw_interpolation, false);
         // Span should be non-zero
         assert!(query_detail.span.0 > 0);
         assert!(query_detail.span.1 > query_detail.span.0);
@@ -692,5 +986,86 @@ mod tests {
         assert_eq!(query_detail.source_kind, AssetKind::Ducklake);
         assert_eq!(query_detail.source_name, "my_lake");
         assert_eq!(query_detail.source_schema, None);
+        assert_eq!(query_detail.has_raw_interpolation, false);
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_raw_basic() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(table: string) {
+                let sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM ${sql.raw(table)}`.fetch()
+            }
+        "#;
+        let result = parse_assets(input).unwrap();
+
+        // sql.raw in table position => the __WM_SQL_RAW__ asset gets filtered out,
+        // but the datatable itself is still tracked as "used" (without specific table info)
+        assert_eq!(
+            result.assets,
+            vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt".to_string(),
+                access_type: None,
+                columns: None,
+            }]
+        );
+
+        // Check SQL query details
+        assert_eq!(result.sql_queries.len(), 1);
+        let q = &result.sql_queries[0];
+        assert!(q.query_string.contains("__WM_SQL_RAW__"));
+        assert!(!q.query_string.contains("$1"));
+        assert_eq!(q.has_raw_interpolation, true);
+        assert_eq!(q.source_kind, AssetKind::DataTable);
+        assert_eq!(q.source_name, "dt");
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_raw_mixed() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(name: string, col: string, val: number) {
+                let sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM users WHERE name = ${name} AND ${sql.raw(col)} = ${val}`.fetch()
+            }
+        "#;
+        let result = parse_assets(input).unwrap();
+
+        // "users" table should still be detected
+        assert_eq!(result.assets.len(), 1);
+        assert_eq!(result.assets[0].path, "dt/users");
+        assert_eq!(result.assets[0].access_type, Some(R));
+
+        // Check SQL query details — arg numbering skips the raw interpolation
+        assert_eq!(result.sql_queries.len(), 1);
+        let q = &result.sql_queries[0];
+        assert_eq!(
+            q.query_string,
+            "SELECT * FROM users WHERE name = $1 AND __WM_SQL_RAW__ = $2"
+        );
+        assert_eq!(q.has_raw_interpolation, true);
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_raw_no_false_positive() {
+        // Ensure that a normal query (no sql.raw) still has has_raw_interpolation=false
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM friends WHERE age = ${x}`.fetch()
+            }
+        "#;
+        let result = parse_assets(input).unwrap();
+        assert_eq!(result.sql_queries.len(), 1);
+        assert_eq!(result.sql_queries[0].has_raw_interpolation, false);
+        assert_eq!(
+            result.sql_queries[0].query_string,
+            "SELECT * FROM friends WHERE age = $1"
+        );
+        assert_eq!(result.assets.len(), 1);
+        assert_eq!(result.assets[0].path, "dt/friends");
     }
 }

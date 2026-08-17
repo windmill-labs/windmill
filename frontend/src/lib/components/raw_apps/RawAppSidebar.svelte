@@ -1,5 +1,7 @@
 <script lang="ts">
-	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
+	import PanelSection, {
+		SUBTLE_PANEL_TITLE
+	} from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import type { Runnable } from '../apps/inputType'
 	import RawAppInlineScriptPanelList from './RawAppInlineScriptPanelList.svelte'
 	import FileExplorer from '../FileExplorer.svelte'
@@ -12,6 +14,7 @@
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import type { DataTableRef } from './dataTableRefUtils'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
+	import RawAppSharedUiDrawer from './RawAppSharedUiDrawer.svelte'
 
 	interface Props {
 		runnables: Record<string, Runnable>
@@ -55,6 +58,7 @@
 
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 	let selectedDataTableIndex: number | undefined = $state(undefined)
+	let sharedUiDrawer: RawAppSharedUiDrawer | undefined = $state()
 
 	function handleAddDataTable(ref: DataTableRef) {
 		onDataTableRefsChange?.([...dataTableRefs, ref])
@@ -84,7 +88,13 @@
 	}
 </script>
 
-<PanelSection size="sm" fullHeight={false} title="frontend" id="app-editor-frontend-panel">
+<PanelSection
+	size="sm"
+	fullHeight={false}
+	title="frontend"
+	titleClass={SUBTLE_PANEL_TITLE}
+	id="app-editor-frontend-panel"
+>
 	{#snippet action()}
 		<div class="flex gap-1">
 			<Button
@@ -106,6 +116,15 @@
 			>
 				<Plus size={12} />
 				<Folder size={12} />
+			</Button>
+			<Button
+				onClick={() => sharedUiDrawer?.openDrawer()}
+				title="Browse the workspace shared ui/ folder"
+				unifiedSize="xs"
+				variant="subtle"
+				btnClasses="px-1 gap-0.5 text-xs"
+			>
+				ui/
 			</Button>
 		</div>
 	{/snippet}
@@ -146,10 +165,17 @@
 	onAdd={handleAddDataTable}
 	existingRefs={dataTableRefs}
 />
+<RawAppSharedUiDrawer bind:this={sharedUiDrawer} />
 
 {#if historyManager && onHistorySelect && onManualSnapshot}
 	<div class="py-4"></div>
-	<PanelSection fullHeight={false} size="sm" title="history" id="app-editor-history-panel">
+	<PanelSection
+		fullHeight={false}
+		size="sm"
+		title="history"
+		titleClass={SUBTLE_PANEL_TITLE}
+		id="app-editor-history-panel"
+	>
 		{#snippet action()}
 			<div class="flex items-center gap-2">
 				<span class="text-2xs text-tertiary">{historyManager.allEntries.length}/50</span>

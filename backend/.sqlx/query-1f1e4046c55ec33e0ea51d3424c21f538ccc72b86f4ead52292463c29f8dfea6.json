@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_shared_ui (workspace_id, files, version, edited_at, edited_by)\n           VALUES ($1, $2, 1, now(), $3)\n           ON CONFLICT (workspace_id) DO UPDATE\n           SET files = EXCLUDED.files,\n               version = workspace_shared_ui.version + 1,\n               edited_at = now(),\n               edited_by = EXCLUDED.edited_by",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f1e4046c55ec33e0ea51d3424c21f538ccc72b86f4ead52292463c29f8dfea6"
+}

@@ -29,9 +29,10 @@
 	}: Props = $props()
 
 	let datatables = usePromise(() =>
-		WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' }).then((d) =>
+			d.map((d) => d.name)
+		)
 	)
-
 </script>
 
 <div class={className}>
@@ -46,9 +47,6 @@
 		{onClear}
 	/>
 	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'datatable', path: value })}
-		<ExploreAssetButton
-			class="mt-1 w-fit"
-			asset={{ kind: 'datatable', path: value }}
-		/>
+		<ExploreAssetButton class="mt-1 w-fit" asset={{ kind: 'datatable', path: value }} />
 	{/if}
 </div>

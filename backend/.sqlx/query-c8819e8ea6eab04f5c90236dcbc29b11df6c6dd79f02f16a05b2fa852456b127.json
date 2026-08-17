@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT permissioned_as FROM schedule WHERE path = 'u/test-user/sched_a' AND workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c8819e8ea6eab04f5c90236dcbc29b11df6c6dd79f02f16a05b2fa852456b127"
+}

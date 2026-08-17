@@ -12,7 +12,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { workspaceStore, userStore } from '$lib/stores'
-	import { Plus, FileText, Search, Code2, Edit, Eye } from 'lucide-svelte'
+	import { Plus, FileText, Search, Code2, Edit, Eye, RefreshCw } from 'lucide-svelte'
 	import { WorkspaceDependenciesService, WorkspaceService } from '$lib/gen'
 	import type { WorkspaceDependencies, ScriptLang } from '$lib/gen'
 	import { untrack } from 'svelte'
@@ -24,6 +24,7 @@
 	let workspaceDependencies: WorkspaceDependencies[] | undefined = $state()
 	let filteredItems: (WorkspaceDependencies & { marked?: string })[] | undefined = $state()
 	let workspaceDependenciesEditor: WorkspaceDependenciesEditor | undefined = $state()
+	let rebuildingDependencyMap = $state(false)
 
 	// View modal state
 	let viewDrawer: Drawer | undefined = $state()
@@ -77,6 +78,20 @@
 			})
 		}
 	})
+
+	async function rebuildDependencyMap(): Promise<void> {
+		if (!$workspaceStore) return
+		rebuildingDependencyMap = true
+		try {
+			const status = await WorkspaceService.rebuildDependencyMap({ workspace: $workspaceStore })
+			sendUserToast(status)
+		} catch (error) {
+			console.error('Error rebuilding dependency map:', error)
+			sendUserToast(`Failed to rebuild dependency map: ${error.message}`, true)
+		} finally {
+			rebuildingDependencyMap = false
+		}
+	}
 
 	async function createNewWorkspaceDependencies() {
 		await workspaceDependenciesEditor?.initNew()
@@ -270,7 +285,7 @@
 	<ListFilters bind:selectedFilter={languageFilter} filters={languages} />
 </div>
 
-<div class="relative overflow-x-auto pb-40 pr-4">
+<div class="relative overflow-x-auto pb-8 pr-4">
 	{#if !filteredItems}
 		<Skeleton layout={[0.5, [2], 1]} />
 		{#each new Array(3) as _}
@@ -410,6 +425,29 @@
 		</DataTable>
 	{/if}
 </div>
+
+{#if $userStore?.is_admin || $userStore?.is_super_admin}
+	<div class="border-t pt-8 mt-16 pb-12 pr-4 flex items-start justify-between gap-4">
+		<div class="flex flex-col gap-0.5 min-w-0">
+			<span class="text-xs font-medium text-secondary">Rebuild dependency map</span>
+			<span class="text-xs text-tertiary max-w-2xl">
+				Rebuilds the workspace dependency map from scratch. This should almost never be needed —
+				only if dependency tracking has gotten out of sync, e.g. after orphaned references are
+				reported in the logs.
+			</span>
+		</div>
+		<Button
+			size="xs"
+			variant="border"
+			color="light"
+			startIcon={{ icon: RefreshCw }}
+			disabled={rebuildingDependencyMap}
+			onClick={rebuildDependencyMap}
+		>
+			Rebuild
+		</Button>
+	</div>
+{/if}
 
 <Drawer bind:this={viewDrawer} size="900px">
 	<DrawerContent title="View Requirement - {viewPath}" on:close={viewDrawer?.closeDrawer}>

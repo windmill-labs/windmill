@@ -2,6 +2,10 @@
  * Vitest setup file to mock browser globals for testing
  */
 
+// Provides a real in-memory IndexedDB (indexedDB / IDBKeyRange / structuredClone)
+// under the node test environment so the IndexedDB-backed session list and
+// chat-history stores can be exercised in unit tests.
+import 'fake-indexeddb/auto'
 import { vi } from 'vitest'
 
 // Mock localStorage
@@ -60,6 +64,17 @@ Object.defineProperty(globalThis, 'sessionStorage', {
 	value: sessionStorageMock,
 	writable: true
 })
+
+// Some modules (e.g. svelte5Utils.useLocalStorageValue) gate browser-only
+// behavior on `typeof window`. Provide a minimal window so they don't
+// short-circuit during tests.
+if (typeof (globalThis as any).window === 'undefined') {
+	Object.defineProperty(globalThis, 'window', {
+		value: globalThis,
+		writable: true,
+		configurable: true
+	})
+}
 
 vi.mock('@codingame/monaco-vscode-standalone-typescript-language-features/worker', () => ({
 	TypeScriptWorker: class TypeScriptWorker {

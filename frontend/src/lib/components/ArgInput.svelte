@@ -46,7 +46,7 @@
 	import AIProviderPicker from './AIProviderPicker.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
-	import { randomUUID } from './flows/conversations/FlowChatManager.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Props {
 		label?: string
@@ -406,6 +406,15 @@
 		if (nullable && emptyString(v)) {
 			error = ''
 			valid && (valid = true)
+		} else if (
+			typeof v === 'string' &&
+			(v.startsWith('$var:') || v.startsWith('$res:') || v.startsWith('$jsonvar:'))
+		) {
+			// $var/$res/$jsonvar are placeholders resolved at runtime; the literal
+			// string won't match format constraints (email/ipv4/uuid/custom pattern),
+			// so format-checking it produces a false-positive "invalid format" error.
+			error = ''
+			!valid && (valid = true)
 		} else if (required && (v == undefined || v == null || v === '') && inputCat != 'object') {
 			error = 'Required'
 			valid && (valid = false)
@@ -495,6 +504,8 @@
 
 	let { debounced, clearDebounce } = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
+	let isNonStringSecret = $derived((password || extra?.['password'] == true) && type === 'object')
+
 	let displayJsonToggleHeader = $derived(
 		displayHeader &&
 			inputCat === 'list' &&
@@ -557,6 +568,12 @@
 				Linked to variable <button
 					class="text-accent underline font-normal"
 					onclick={() => variableEditor?.editVariable?.(value.slice(5))}>{value.slice(5)}</button
+				>
+			{:else if value && typeof value == 'string' && value?.startsWith('$jsonvar:')}
+				Linked to variable <button
+					class="text-accent underline font-normal"
+					onclick={() => variableEditor?.editVariable?.(value.slice('$jsonvar:'.length))}
+					>{value.slice('$jsonvar:'.length)}</button
 				>
 			{/if}
 		</div>
@@ -702,7 +719,8 @@
 							onkeydown: () => (ignoreValueUndefined = true),
 							placeholder: placeholder ?? defaultValue ?? '',
 							min: extra['min'],
-							max: extra['max']
+							max: extra['max'],
+							step: extra['step']
 						}}
 						{error}
 						bind:value
@@ -758,6 +776,8 @@
 				{appPath}
 				{computeS3ForceViewerPolicies}
 				bottom={innerBottomSnippet}
+				hideCatalogPicker={extra?.['hideCatalogPicker'] ?? false}
+				hideRawInput={extra?.['hideRawInput'] ?? false}
 			/>
 		{:else if inputCat == 'object' && format == 'json-schema'}
 			{#await import('$lib/components/EditableSchemaForm.svelte')}
@@ -1051,7 +1071,14 @@
 				{/if}
 			</div>
 		{:else if inputCat == 'dynamic'}
-			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
+			<DynamicInput
+				name={label}
+				{otherArgs}
+				{helperScript}
+				{workspace}
+				bind:value
+				format={format ?? ''}
+			/>
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 			<span class="text-2xs text-primary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
@@ -1059,6 +1086,7 @@
 			<ObjectResourceInput
 				datatableAsPgResource={label === 'database'}
 				{disabled}
+				{workspace}
 				{defaultValue}
 				selectFirst={!noDefaultOnSelectFirst && required}
 				{disablePortal}
@@ -1404,6 +1432,7 @@
 			<ResourcePicker
 				selectFirst={noDefaultOnSelectFirst}
 				{disablePortal}
+				{workspace}
 				bind:value
 				initialValue={defaultValue}
 				resourceType={format && format.split('-').length > 1
@@ -1436,12 +1465,13 @@
 							{:else}
 								<Password
 									{disabled}
+									minRows={extra?.['minRows']}
 									bind:password={value}
 									placeholder={placeholder ?? defaultValue ?? ''}
 								/>
 							{/if}
 						{:else}
-							<PasswordArgInput {disabled} bind:value />
+							<PasswordArgInput {disabled} minRows={extra?.['minRows']} bind:value />
 						{/if}
 					{:else}
 						{#key extra?.['minRows']}
@@ -1486,6 +1516,18 @@
 		{/if}
 		{@render actions?.()}
 	</div>
+
+	{#if isNonStringSecret}
+		{#if typeof value === 'string' && value.startsWith('$jsonvar:')}
+			<div class="text-2xs text-tertiary">
+				Sensitive — stored as secret: <code class="text-2xs">{value.slice('$jsonvar:'.length)}</code
+				>
+			</div>
+		{:else}
+			<div class="text-2xs text-tertiary italic">Sensitive — will be stored as secret on submit</div
+			>
+		{/if}
+	{/if}
 
 	{#if !compact || (error && error != '')}
 		<div class="text-right text-xs leading-3 text-red-600 dark:text-red-400 mb-2">

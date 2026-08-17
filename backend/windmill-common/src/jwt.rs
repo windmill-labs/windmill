@@ -3,15 +3,14 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use hmac::{Hmac, Mac};
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::Sha256;
-use std::{collections::HashSet, sync::Arc};
-use tokio::sync::RwLock;
+use std::collections::HashSet;
 
 lazy_static::lazy_static! {
-    pub static ref JWT_SECRET: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
+    pub static ref JWT_SECRET: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
 }
 
 pub async fn encode_with_internal_secret<T: Serialize>(claims: T) -> error::Result<String> {
-    let jwt_secret = JWT_SECRET.read().await;
+    let jwt_secret = JWT_SECRET.load();
 
     if jwt_secret.is_empty() {
         return Err(Error::internal_err("JWT secret is not set".to_string()));
@@ -28,7 +27,7 @@ pub async fn encode_with_internal_secret<T: Serialize>(claims: T) -> error::Resu
 }
 
 pub async fn decode_with_internal_secret<T: DeserializeOwned>(token: &str) -> error::Result<T> {
-    let jwt_secret = JWT_SECRET.read().await;
+    let jwt_secret = JWT_SECRET.load();
 
     if jwt_secret.is_empty() {
         return Err(Error::internal_err("JWT secret is not set".to_string()));
@@ -65,7 +64,7 @@ pub fn decode_without_verify<T: DeserializeOwned>(token: &str) -> anyhow::Result
 pub async fn generate_signature(header_and_payload: &str) -> anyhow::Result<String> {
     let header_and_payload = header_and_payload.trim_start_matches("jwt_ext_");
     let header_and_payload = header_and_payload.trim_start_matches("jwt_");
-    let secret = JWT_SECRET.read().await;
+    let secret = JWT_SECRET.load();
 
     // Create HMAC-SHA256
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())?;

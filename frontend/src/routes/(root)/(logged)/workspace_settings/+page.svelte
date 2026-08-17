@@ -3,17 +3,19 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, CopyButton, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
+	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
+	import ForkMemberSettings from '$lib/components/settings/ForkMemberSettings.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
@@ -30,13 +32,16 @@
 		enterpriseLicense,
 		superadmin,
 		userStore,
+		userWorkspaces,
 		usersWorkspaceStore,
 		workspaceStore,
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
-	import { Slack } from 'lucide-svelte'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { Slack, Target } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -53,17 +58,29 @@
 	import { base } from '$lib/base'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
+	import SharedUiSettings from '$lib/components/workspaceSettings/SharedUiSettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
+	import DbtSettings, {
+		convertDbtSettingsFromBackend,
+		type DbtSettingsType
+	} from '$lib/components/workspaceSettings/DbtSettings.svelte'
 	import DucklakeSettings, {
 		convertDucklakeSettingsFromBackend,
 		type DucklakeSettingsType
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import {
+		archiveSessionsForWorkspace,
+		countSessionsForWorkspace,
+		deleteSessionsForWorkspace,
+		reconcileAfterWorkspaceChange
+	} from '$lib/components/sessions/sessionState.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
 	import { validateWebhookUrl, validateEncryptionKey } from '$lib/validators/workspaceSettings'
@@ -83,6 +100,65 @@
 	let slack_team_name: string | undefined = $state()
 	let teams_team_id: string | undefined = $state()
 	let teams_team_name: string | undefined = $state()
+
+	// Workspace archive/delete cascade to the workspace's client-side AI sessions
+	// (archive → archive, delete → delete) via reconcileSessionsLifecycle. The
+	// confirmation modals warn how many sessions are affected first.
+	let archiveConfirmOpen = $state(false)
+	let deleteConfirmOpen = $state(false)
+	let affectedSessionCount = $state(0)
+
+	async function openArchiveConfirm() {
+		affectedSessionCount = await countSessionsForWorkspace($workspaceStore ?? '')
+		archiveConfirmOpen = true
+	}
+	async function openDeleteConfirm() {
+		affectedSessionCount = await countSessionsForWorkspace($workspaceStore ?? '')
+		deleteConfirmOpen = true
+	}
+	async function doArchiveWorkspace() {
+		const ws = $workspaceStore ?? ''
+		// Land on the parent workspace if this is a fork and the parent is still
+		// accessible — otherwise fall back to the workspace picker.
+		const parentId = $userWorkspaces.find((w) => w.id === ws)?.parent_workspace_id
+		const parentStillAccessible = !!(parentId && $userWorkspaces.find((w) => w.id === parentId))
+		await WorkspaceService.archiveWorkspace({ workspace: ws })
+		sendUserToast(`Archived workspace ${ws}`)
+		// Best-effort client cleanup: a local IndexedDB failure must not strand the
+		// user on the just-archived workspace. The reconcile also refreshes the
+		// workspace list (dropping the archived one) so the parent-accessible check
+		// below — captured before the archive — still routes correctly.
+		try {
+			await archiveSessionsForWorkspace(ws)
+			await reconcileAfterWorkspaceChange()
+		} catch (e) {
+			console.error('Session cleanup after workspace archive failed', e)
+		}
+		if (parentStillAccessible && parentId) {
+			switchWorkspace(parentId)
+			await goto('/')
+		} else {
+			workspaceStore.set(undefined)
+			usersWorkspaceStore.set(undefined)
+			await goto('/user/workspaces')
+		}
+	}
+	async function doDeleteWorkspace() {
+		const ws = $workspaceStore ?? ''
+		await WorkspaceService.deleteWorkspace({ workspace: ws })
+		sendUserToast(`Deleted workspace ${ws}`)
+		// Best-effort client cleanup — must not block navigation off the deleted
+		// workspace if a local IndexedDB op throws.
+		try {
+			await deleteSessionsForWorkspace(ws)
+			await reconcileAfterWorkspaceChange()
+		} catch (e) {
+			console.error('Session cleanup after workspace delete failed', e)
+		}
+		workspaceStore.set(undefined)
+		usersWorkspaceStore.set(undefined)
+		await goto('/user/workspaces')
+	}
 	let useCustomSlackApp: boolean = $state(false)
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
 
@@ -101,7 +177,6 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
-	let workspaceToDeployTo: string | undefined = $state(undefined)
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let errorHandlerScriptPath: string | undefined = $state(undefined)
 	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
@@ -121,7 +196,6 @@
 	let aiSettingsComponent: AISettings | undefined = $state(undefined)
 	let hasAiSettingsChanges = $state(false)
 	// Track initial deploy settings for unsaved changes detection
-	let initialWorkspaceToDeployTo: string | undefined = $state(undefined)
 	let initialDeployUiSettings: {
 		include_path: string[]
 		include_type: {
@@ -181,6 +255,8 @@
 	let dataTableSettings: DataTableSettingsType = $state({ dataTables: [] })
 	let dataTableSettingsComponent: DataTableSettings | undefined = $state(undefined)
 
+	let dbtSettings: DbtSettingsType = $state({ warehouses: [] })
+	let dbtSavedSettings: DbtSettingsType = $state(untrack(() => dbtSettings))
 	let ducklakeSettings: DucklakeSettingsType = $state({ ducklakes: [] })
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
@@ -224,7 +300,7 @@
 
 	// Derived state for checking unsaved changes in deployment settings
 	let hasDeploySettingsChanges = $derived.by(() => {
-		if (tab !== 'deploy_to') return false
+		if (tab !== 'dev_workspace') return false
 		const changes = getDeploySettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
 		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
@@ -268,8 +344,30 @@
 			encryptionKeyValidationError = validation.error
 		}
 	})
+	const currentWorkspace = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
+
+	// The deploy filters configure what may be promoted into the parent, so they only mean
+	// something for a fork. A root workspace deploys nowhere by lineage.
+	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
+	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
+	// The creator of a fork gets the fork members screen even when they are not an admin of it:
+	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
+	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
+	// only grants them developer memberships on the fork they created.
+	// The instance channels are not a valid destination on cloud or on a fork. Never select a tab
+	// the group does not render: saving would submit a value the API rejects, locking the whole
+	// error handler behind a 400.
+	const canUseInstanceAlerts = $derived(!isCloudHosted() && !currentWorkspace?.parent_workspace_id)
+	const isForkOwner = $derived(
+		Boolean(currentWorkspace?.parent_workspace_id) &&
+			currentWorkspace?.created_by === $userStore?.email
+	)
+
 	// All state derived from URL - no local state needed
 	let tab = $derived.by(() => {
+		if (!canAdmin) {
+			return 'users' as const
+		}
 		const selectedTab = $page.url.searchParams.get('tab') as
 			| 'users'
 			| 'slack'
@@ -278,6 +376,7 @@
 			| 'general'
 			| 'webhook'
 			| 'deploy_to'
+			| 'dev_workspace'
 			| 'error_handler'
 			| 'success_handler'
 			| 'critical_alerts'
@@ -286,12 +385,14 @@
 			| 'windmill_lfs'
 			| 'volume_storage'
 			| 'ducklake'
+			| 'dbt'
 			| 'git_sync'
 			| 'default_app'
 			| 'native_triggers'
 			| 'encryption'
 			| 'dependencies'
 			| 'rulesets'
+			| 'shared_ui'
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
 		if (selectedTab === 'teams') {
 			return 'slack'
@@ -299,6 +400,10 @@
 		// Both 'success_handler' and 'error_handler' URLs map to 'error_handler' tab
 		if (selectedTab === 'success_handler') {
 			return 'error_handler'
+		}
+		// The Deployment UI tab was folded into Dev workspace; keep its links working.
+		if (selectedTab === 'deploy_to') {
+			return 'dev_workspace'
 		}
 		return selectedTab || 'users'
 	})
@@ -498,7 +603,6 @@
 		teamsInitialPath = teamsScriptPath
 		plan = settings.plan
 		customer_id = settings.customer_id
-		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 
 		aiInitialConfig = settings.ai_config ?? {}
@@ -521,6 +625,12 @@
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
+		} else if (
+			canUseInstanceAlerts &&
+			!errorHandlerPath &&
+			settings.error_handler_fallback_to_instance_alerts
+		) {
+			errorHandlerSelected = 'instance_alerts'
 		} else {
 			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
 		}
@@ -538,6 +648,8 @@
 		)
 		s3ResourceSavedSettings = clone(s3ResourceSettings)
 		dataTableSettings = convertDataTableSettingsFromBackend(settings.datatable)
+		dbtSettings = convertDbtSettingsFromBackend(settings.dbt_warehouses)
+		dbtSavedSettings = clone(dbtSettings)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 
@@ -560,7 +672,6 @@
 		}
 
 		// Store initial deploy settings state for unsaved changes detection
-		initialWorkspaceToDeployTo = workspaceToDeployTo
 		initialDeployUiSettings = clone(deployUiSettings)
 
 		// Store initial webhook state for unsaved changes detection
@@ -689,8 +800,19 @@
 	})
 
 	$effect(() => {
+		// `canAdmin` is read as a dependency, not inside untrack: $userStore is repopulated
+		// asynchronously after a workspace switch, so the run triggered by the switch can still see
+		// the previous workspace's role. Re-running once it lands is what loads the settings for an
+		// admin who switched in from a workspace where they were not one.
+		const admin = canAdmin
 		if ($workspaceStore) {
 			untrack(() => {
+				// `getSettings` and the OAuth config are admin-only and carry integration secrets. A fork
+				// creator reaches this page for the members screen alone, which needs none of them.
+				if (!admin) {
+					loadedSettings = true
+					return
+				}
 				loadSettings()
 				loadSlackOAuthConfig()
 				loadGlobalOAuthSettings()
@@ -706,7 +828,8 @@
 					path: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					extra_args: errorHandlerExtraArgs,
 					muted_on_cancel: errorHandlerMutedOnCancel,
-					muted_on_user_path: errorHandlerMutedOnUserPath
+					muted_on_user_path: errorHandlerMutedOnUserPath,
+					fallback_to_instance_alerts: false
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -717,10 +840,17 @@
 					path: undefined,
 					extra_args: undefined,
 					muted_on_cancel: undefined,
-					muted_on_user_path: undefined
+					muted_on_user_path: undefined,
+					fallback_to_instance_alerts: errorHandlerSelected === 'instance_alerts'
 				}
 			})
-			sendUserToast(`workspace error handler removed`)
+			sendUserToast(
+				errorHandlerSelected === 'instance_alerts'
+					? `failed jobs will be reported to the instance critical alert channels`
+					: initialErrorHandlerScriptPath
+						? `workspace error handler removed`
+						: `error handler settings saved`
+			)
 		}
 
 		// Update initial values for dirty detection
@@ -816,6 +946,13 @@
 		s3ResourceSettings.volumeStorage = s3ResourceSavedSettings.volumeStorage
 	}
 
+	function getDbtSettingsInitialAndModifiedValues() {
+		return {
+			savedValue: { dbtSettings: dbtSavedSettings },
+			modifiedValue: { dbtSettings: dbtSettings }
+		}
+	}
+
 	// Function to check if there are unsaved changes in ducklake settings
 	function getDucklakeSettingsInitialAndModifiedValues() {
 		return {
@@ -831,26 +968,14 @@
 
 	// Function to check if there are unsaved changes in deploy settings
 	function getDeploySettingsInitialAndModifiedValues() {
-		// Normalize empty strings to undefined for consistent comparison
-		const normalizeWorkspaceValue = (value: string | undefined) =>
-			value === '' ? undefined : value
-
-		const savedValue = {
-			workspaceToDeployTo: normalizeWorkspaceValue(initialWorkspaceToDeployTo),
-			deployUiSettings: initialDeployUiSettings
+		return {
+			savedValue: { deployUiSettings: initialDeployUiSettings },
+			modifiedValue: { deployUiSettings: deployUiSettings }
 		}
-
-		const modifiedValue = {
-			workspaceToDeployTo: normalizeWorkspaceValue(workspaceToDeployTo),
-			deployUiSettings: deployUiSettings
-		}
-
-		return { savedValue, modifiedValue }
 	}
 
 	// Function to discard unsaved deploy settings changes
 	function discardDeploySettingsChanges() {
-		workspaceToDeployTo = initialWorkspaceToDeployTo
 		deployUiSettings = clone(initialDeployUiSettings)
 	}
 
@@ -970,7 +1095,9 @@
 				return getVolumeStorageInitialAndModifiedValues()
 			case 'ducklake':
 				return getDucklakeSettingsInitialAndModifiedValues()
-			case 'deploy_to':
+			case 'dbt':
+				return getDbtSettingsInitialAndModifiedValues()
+			case 'dev_workspace':
 				return getDeploySettingsInitialAndModifiedValues()
 			case 'webhook':
 				return getWebhookSettingsInitialAndModifiedValues()
@@ -1016,7 +1143,7 @@
 			case 'ducklake':
 				discardDucklakeSettingsChanges()
 				break
-			case 'deploy_to':
+			case 'dev_workspace':
 				discardDeploySettingsChanges()
 				break
 			case 'webhook':
@@ -1035,6 +1162,9 @@
 			case 'windmill_data_tables':
 				dataTableSettingsComponent?.discard()
 				break
+			case 'dbt':
+				dbtSettings = clone(dbtSavedSettings)
+				break
 			case 'default_app':
 				discardDefaultAppSettingsChanges()
 				break
@@ -1042,7 +1172,7 @@
 	}
 
 	// Navigation groups for sidebar
-	const navigationGroups = $derived([
+	const adminNavigationGroups = $derived([
 		{
 			items: [
 				{
@@ -1083,11 +1213,11 @@
 					isEE: true
 				},
 				{
-					id: 'deploy_to',
-					label: 'Deployment UI',
-					aiId: 'workspace-settings-deploy-to',
-					aiDescription: 'Deployment UI workspace settings',
-					isEE: true
+					id: 'dev_workspace',
+					label: 'Dev workspace',
+					aiId: 'workspace-settings-dev-workspace',
+					aiDescription:
+						'Pair this workspace with a dev workspace (same code, different environment), and choose which items its deploy UI may promote'
 				},
 				{
 					id: 'rulesets',
@@ -1113,7 +1243,7 @@
 					label: 'Webhook',
 					aiId: 'workspace-settings-webhook',
 					aiDescription: 'Webhook workspace settings',
-					showIf: WORKSPACE_SHOW_WEBHOOK_CLI_SYNC
+					showIf: WORKSPACE_SHOW_WEBHOOK_CLI_SYNC && !isCloudHosted()
 				},
 				{
 					id: 'native_triggers',
@@ -1168,6 +1298,12 @@
 					label: 'Ducklake',
 					aiId: 'workspace-settings-ducklake',
 					aiDescription: 'Ducklake workspace settings'
+				},
+				{
+					id: 'dbt',
+					label: 'dbt',
+					aiId: 'workspace-settings-dbt',
+					aiDescription: 'dbt warehouses workspace settings'
 				}
 			]
 		},
@@ -1180,6 +1316,12 @@
 					aiId: 'workspace-settings-apps',
 					aiDescription: 'Apps workspace settings',
 					isEE: true
+				},
+				{
+					id: 'shared_ui',
+					label: 'Shared UI folder',
+					aiId: 'workspace-settings-shared-ui',
+					aiDescription: 'Shared frontend folder usable by raw apps'
 				},
 				{
 					id: 'dependencies',
@@ -1202,12 +1344,36 @@
 			]
 		}
 	])
+
+	// A fork's creator manages its members through the same screen, but nothing else about the
+	// workspace is theirs to change, so they get the Members entry alone.
+	const navigationGroups = $derived(
+		canAdmin
+			? adminNavigationGroups
+			: [
+					{
+						items: [
+							{
+								id: 'users',
+								label: 'Members',
+								aiId: 'workspace-settings-users',
+								aiDescription: 'Members of the fork you created'
+							}
+						]
+					}
+				]
+	)
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
-	{#if $userStore?.is_admin || $superadmin}
-		<PageHeader title="Workspace settings: {$workspaceStore}"
-			>{#if $superadmin}
+	{#if canAdmin || isForkOwner}
+		<PageHeader title="Workspace settings: {$workspaceStore}">
+			{#snippet titleActions()}
+				{#if $workspaceStore}
+					<CopyButton value={$workspaceStore} title={`Copy id: ${$workspaceStore}`} />
+				{/if}
+			{/snippet}
+			{#if $superadmin}
 				<Button variant="default" size="sm" on:click={() => goto('#superadmin-settings')}>
 					Instance settings
 				</Button>
@@ -1235,37 +1401,66 @@
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
 						{:else if tab == 'users'}
-							<WorkspaceUserSettings />
-						{:else if tab == 'deploy_to'}
+							{#if canAdmin}
+								<WorkspaceUserSettings />
+							{:else}
+								<ForkMemberSettings />
+							{/if}
+						{:else if tab == 'dev_workspace'}
 							<SettingsPageHeader
-								title="Link this workspace to another staging / prod workspace"
-								description="Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace."
+								title="Dev workspace"
+								description="Pair this workspace with a dev workspace: the same code with a different environment. Edits are made in the dev workspace and promoted to prod."
 								link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 							/>
-							{#if $enterpriseLicense}
-								<DeployToSetting
-									bind:workspaceToDeployTo
-									bind:deployUiSettings
-									hasUnsavedChanges={hasDeploySettingsChanges}
-									onSave={() => {
-										// Update initial state after successful save
-										initialWorkspaceToDeployTo = workspaceToDeployTo
-										initialDeployUiSettings = clone(deployUiSettings)
-									}}
-									onDiscard={discardDeploySettingsChanges}
-									onWorkspaceToDeployToSave={(newWorkspaceToDeployTo) => {
-										// Update initial state after workspace to deploy to is saved
-										initialWorkspaceToDeployTo = newWorkspaceToDeployTo
-									}}
-								/>
-							{:else}
-								<div class="my-2"
-									><Alert type="warning" title="Enterprise license required"
-										>Deploy to staging/prod from the web UI is only available with an enterprise
-										license</Alert
-									></div
+							<!-- Positioned by DevWorkspaceSetting, not here — see its `deployTarget` prop. -->
+							{#snippet deployTarget()}
+								{#if showDeployToTab}
+									<!-- The deploy filters only bite on a workspace that deploys into a
+									     parent; a root workspace promotes nowhere by lineage. -->
+									{#if $enterpriseLicense}
+										<DeployToSetting
+											bind:deployUiSettings
+											hasUnsavedChanges={hasDeploySettingsChanges}
+											parentWorkspaceId={currentWorkspace?.parent_workspace_id ?? undefined}
+											isDevWorkspace={currentWorkspace?.is_dev_workspace ?? false}
+											onSave={() => {
+												initialDeployUiSettings = clone(deployUiSettings)
+											}}
+											onDiscard={discardDeploySettingsChanges}
+										/>
+									{:else}
+										<div class="my-2"
+											><Alert type="warning" title="Enterprise license required"
+												>Deploy to staging/prod from the web UI is only available with an enterprise
+												license</Alert
+											></div
+										>
+									{/if}
+								{/if}
+							{/snippet}
+							<DevWorkspaceSetting {deployTarget} />
+							<!-- Last, and below the lineage target above: the escape hatch for a
+						     destination the lineage cannot express. -->
+							<div class="flex flex-col gap-2 max-w-2xl mt-8 pt-6 border-t">
+								<span class="text-xs font-semibold text-emphasis"
+									>Deploy into another workspace</span
 								>
-							{/if}
+								<p class="text-sm text-secondary">
+									Promotion normally follows the lineage, from this workspace into its parent. For a
+									one-off migration you can instead point the merge UI at any workspace you
+									administer; it computes a full diff over both workspaces and deploys the items you
+									pick, one way.
+								</p>
+								<div>
+									<Button
+										variant="default"
+										startIcon={{ icon: Target }}
+										onclick={() => goto(`${base}/forks/compare?mode=fork`)}
+									>
+										Merge into another workspace
+									</Button>
+								</div>
+							</div>
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader
 								title="Workspace Protection Rulesets"
@@ -1273,7 +1468,16 @@
 							/>
 							<WorkspaceRulesets />
 						{:else if tab == 'premium'}
-							<PremiumInfo {customer_id} {plan} />
+							{#if currentWorkspace?.parent_workspace_id}
+								<Alert type="info" title="Billing is managed on the parent workspace">
+									This workspace is a fork of <b>{currentWorkspace.parent_workspace_id}</b>. It runs
+									on the parent's plan and its executions count toward the parent's usage and bill,
+									so there is no separate subscription here. Manage billing, seats, and quotas from
+									the parent workspace's settings.
+								</Alert>
+							{:else}
+								<PremiumInfo {customer_id} {plan} />
+							{/if}
 						{:else if tab == 'slack'}
 							<SettingsPageHeader
 								title="Workspace connections to Slack and Teams"
@@ -1491,13 +1695,26 @@
 
 							<div class="text-xs font-semibold text-emphasis mt-6 mb-1">Export workspace</div>
 							<div class="flex justify-start">
-								<Button
-									size="sm"
-									href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
-									target="_blank"
-								>
-									Export workspace as zip file
-								</Button>
+								{#if shouldDownloadViaClient()}
+									<Button
+										size="sm"
+										on:click={() =>
+											downloadViaClient(
+												`/w/${$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip`,
+												`${$workspaceStore ?? 'workspace'}.zip`
+											)}
+									>
+										Export workspace as zip file
+									</Button>
+								{:else}
+									<Button
+										size="sm"
+										href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+										target="_blank"
+									>
+										Export workspace as zip file
+									</Button>
+								{/if}
 							</div>
 
 							<div class="mt-12"></div>
@@ -1519,13 +1736,7 @@
 									disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 									unifiedSize="md"
 									btnClasses="mt-2"
-									on:click={async () => {
-										await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
-										sendUserToast(`Archived workspace ${$workspaceStore}`)
-										workspaceStore.set(undefined)
-										usersWorkspaceStore.set(undefined)
-										goto('/user/workspaces')
-									}}
+									on:click={openArchiveConfirm}
 								>
 									Archive workspace
 								</Button>
@@ -1536,18 +1747,51 @@
 										disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 										size="sm"
 										btnClasses="mt-2"
-										on:click={async () => {
-											await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
-											sendUserToast(`Deleted workspace ${$workspaceStore}`)
-											workspaceStore.set(undefined)
-											usersWorkspaceStore.set(undefined)
-											goto('/user/workspaces')
-										}}
+										on:click={openDeleteConfirm}
 									>
 										Delete workspace (superadmin)
 									</Button>
 								{/if}
 							</div>
+
+							<ConfirmationModal
+								open={archiveConfirmOpen}
+								title="Archive workspace"
+								confirmationText="Archive"
+								onConfirmed={async () => {
+									archiveConfirmOpen = false
+									await doArchiveWorkspace()
+								}}
+								onCanceled={() => (archiveConfirmOpen = false)}
+							>
+								<div class="flex flex-col gap-2">
+									<span>
+										Archiving this workspace also archives its AI sessions{affectedSessionCount > 0
+											? ` (${affectedSessionCount})`
+											: ''}. Unarchiving the workspace restores them.
+									</span>
+								</div>
+							</ConfirmationModal>
+
+							<ConfirmationModal
+								open={deleteConfirmOpen}
+								title="Delete workspace"
+								confirmationText="Delete"
+								onConfirmed={async () => {
+									deleteConfirmOpen = false
+									await doDeleteWorkspace()
+								}}
+								onCanceled={() => (deleteConfirmOpen = false)}
+							>
+								<div class="flex flex-col gap-2">
+									<span>
+										Permanently deleting this workspace also permanently deletes its AI sessions{affectedSessionCount >
+										0
+											? ` (${affectedSessionCount})`
+											: ''}. This cannot be undone.
+									</span>
+								</div>
+							</ConfirmationModal>
 						{:else if tab == 'webhook'}
 							<SettingsPageHeader
 								title="Workspace webhook"
@@ -1603,6 +1847,7 @@
 										customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
 										bind:customHandlerKind={errorHandlerItemKind}
 										bind:handlerExtraArgs={errorHandlerExtraArgs}
+										showInstanceAlerts={canUseInstanceAlerts}
 									>
 										{#snippet customTabTooltip()}
 											<Tooltip>
@@ -1632,24 +1877,26 @@
 										{/snippet}
 									</ErrorOrRecoveryHandler>
 
-									<SettingCard class="gap-2">
-										<Toggle
-											disabled={!$enterpriseLicense ||
-												((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-													!emptyString(errorHandlerScriptPath) &&
-													emptyString(errorHandlerExtraArgs['channel']))}
-											bind:checked={errorHandlerMutedOnCancel}
-											options={{ right: 'Do not run error handler for canceled jobs' }}
-										/>
-										<Toggle
-											disabled={!$enterpriseLicense ||
-												((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-													!emptyString(errorHandlerScriptPath) &&
-													emptyString(errorHandlerExtraArgs['channel']))}
-											bind:checked={errorHandlerMutedOnUserPath}
-											options={{ right: 'Do not run error handler for u/ scripts and flows' }}
-										/>
-									</SettingCard>
+									{#if errorHandlerSelected !== 'instance_alerts'}
+										<SettingCard class="gap-2">
+											<Toggle
+												disabled={!$enterpriseLicense ||
+													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+														!emptyString(errorHandlerScriptPath) &&
+														emptyString(errorHandlerExtraArgs['channel']))}
+												bind:checked={errorHandlerMutedOnCancel}
+												options={{ right: 'Do not run error handler for canceled jobs' }}
+											/>
+											<Toggle
+												disabled={!$enterpriseLicense ||
+													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+														!emptyString(errorHandlerScriptPath) &&
+														emptyString(errorHandlerExtraArgs['channel']))}
+												bind:checked={errorHandlerMutedOnUserPath}
+												options={{ right: 'Do not run error handler for u/ scripts and flows' }}
+											/>
+										</SettingCard>
+									{/if}
 								</div>
 
 								<SettingsFooter
@@ -1788,7 +2035,8 @@ export async function main(
 								{hasInstanceAiConfig}
 								{usesInstanceAiConfig}
 								{instanceAiSummary}
-								onSave={(copilotSettingsState) => {
+								onSave={(savedConfig, copilotSettingsState) => {
+									aiInitialConfig = savedConfig
 									if (!copilotSettingsState) {
 										return
 									}
@@ -1819,6 +2067,14 @@ export async function main(
 								}}
 								onDiscard={() => {
 									s3ResourceSettings = clone(s3ResourceSavedSettings)
+								}}
+							/>
+						{:else if tab == 'dbt'}
+							<DbtSettings
+								bind:dbtSettings
+								bind:dbtSavedSettings
+								onDiscard={() => {
+									dbtSettings = clone(dbtSavedSettings)
 								}}
 							/>
 						{:else if tab == 'ducklake'}
@@ -1932,6 +2188,8 @@ export async function main(
 								saveLabel="Save & Re-encrypt workspace"
 								disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
 							/>
+						{:else if tab == 'shared_ui'}
+							<SharedUiSettings />
 						{:else if tab == 'trashbin'}
 							<SettingsPageHeader
 								title="Trashbin"

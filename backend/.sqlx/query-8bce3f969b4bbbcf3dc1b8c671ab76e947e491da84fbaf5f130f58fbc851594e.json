@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM script_trigger\n           WHERE workspace_id = $1 AND runnable_kind = $2 AND runnable_path = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "asset_usage_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "job"
+              ]
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8bce3f969b4bbbcf3dc1b8c671ab76e947e491da84fbaf5f130f58fbc851594e"
+}

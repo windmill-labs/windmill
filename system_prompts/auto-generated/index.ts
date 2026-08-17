@@ -10,6 +10,12 @@ const TS_SDK_LANGUAGES = ['bun', 'deno', 'nativets', 'bunnative'];
 // Languages that use the Python SDK
 const PY_SDK_LANGUAGES = ['python3'];
 
+// Languages that use the TypeScript Workflow-as-Code SDK
+const WAC_TS_SDK_LANGUAGES = ['bun'];
+
+// Languages that use the Python Workflow-as-Code SDK
+const WAC_PY_SDK_LANGUAGES = PY_SDK_LANGUAGES;
+
 // Helper to combine prompts for scripts
 export function getScriptPrompt(language: string): string {
   const langKey = `LANG_${language.toUpperCase()}` as keyof typeof prompts;
@@ -38,10 +44,62 @@ export function getFlowPrompt(): string {
   ].filter(Boolean).join('\n\n');
 }
 
-// Helper to get datatable SDK reference for app mode
-export function getDatatableSdkReference(): string {
+// Helper for resource & variable authoring
+export function getResourcePrompt(): string {
+  return prompts.RESOURCES_BASE;
+}
+
+// Helper for raw app authoring (chat consumers)
+export function getRawAppPrompt(): string {
+  return prompts.RAW_APP_BASE;
+}
+
+// Helper for data pipeline authoring (chat consumers)
+export function getPipelinePrompt(): string {
+  return prompts.PIPELINE_BASE;
+}
+
+// Helper to get the datatable SQL SDK reference (wmill.datatable()).
+// Pass a language to get only that SDK; omit it to get both.
+export function getDatatableSdkReference(language?: string): string {
+  if (language == null) {
+    return [
+      prompts.DATATABLE_SDK_TYPESCRIPT,
+      prompts.DATATABLE_SDK_PYTHON
+    ].filter(Boolean).join('\n\n');
+  }
+  if (TS_SDK_LANGUAGES.includes(language)) {
+    return prompts.DATATABLE_SDK_TYPESCRIPT;
+  }
+  if (PY_SDK_LANGUAGES.includes(language)) {
+    return prompts.DATATABLE_SDK_PYTHON;
+  }
+  // Unknown language: return both rather than nothing.
   return [
     prompts.DATATABLE_SDK_TYPESCRIPT,
     prompts.DATATABLE_SDK_PYTHON
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper to combine prompts for Workflow-as-Code scripts
+export function getWorkflowAsCodePrompt(language?: string): string {
+  let sdkPrompt = '';
+
+  if (language == null) {
+    sdkPrompt = [
+      prompts.WAC_SDK_TYPESCRIPT,
+      prompts.WAC_SDK_PYTHON
+    ].filter(Boolean).join('\n\n');
+  } else if (WAC_TS_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.WAC_SDK_TYPESCRIPT;
+  } else if (WAC_PY_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.WAC_SDK_PYTHON;
+  } else {
+    return '';
+  }
+
+  return [
+    prompts.WORKFLOW_AS_CODE_BASE,
+    sdkPrompt
   ].filter(Boolean).join('\n\n');
 }

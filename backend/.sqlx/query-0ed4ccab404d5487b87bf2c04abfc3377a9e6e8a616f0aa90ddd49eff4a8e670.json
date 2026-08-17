@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT EXISTS(\n                    SELECT 1 FROM workspace_diff\n                    WHERE source_workspace_id = $1\n                      AND fork_workspace_id = $2\n                      AND kind = $3\n                      AND path = $4\n                ) as \"exists!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0ed4ccab404d5487b87bf2c04abfc3377a9e6e8a616f0aa90ddd49eff4a8e670"
+}

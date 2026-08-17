@@ -1,58 +1,57 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
-	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
-	import CreateActionsScript from '$lib/components/scripts/CreateActionsScript.svelte'
+	import CreateActionsMenu from '$lib/components/home/CreateActionsMenu.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import HomeConnectDrawer from '$lib/components/home/HomeConnectDrawer.svelte'
 	import {
-		Building,
 		ExternalLink,
 		GitFork,
 		Globe2,
 		Loader2,
 		Code,
-		LayoutDashboard
+		LayoutDashboard,
+		PlugZap
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
-	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
-	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
+	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
+	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
 	import { onMount, setContext } from 'svelte'
 	import { tutorialsToDo } from '$lib/stores'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
+	import { z } from 'zod'
 
 	type Tab = 'hub' | 'workspace'
 
-	let tab: Tab = $state(
-		window.location.hash == '#workspace' || window.location.hash == '#hub'
-			? (window.location.hash?.replace('#', '') as Tab)
-			: 'workspace'
-	)
+	let tab = $state<Tab>('workspace')
 
 	let subtab: 'flow' | 'script' | 'app' = $state('script')
 
-	let filter: string = $state('')
+	const searchParams = useSearchParams(z.object({ search: z.string().nullable() }))
+	const getFilter = () => searchParams.search ?? ''
+	const setFilter = (v: string) => (searchParams.search = v === '' ? null : v)
 
 	let flowViewer: Drawer | undefined = $state(undefined)
 	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined = $state(undefined)
@@ -98,6 +97,7 @@
 	}
 
 	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
+	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
 	// Provide workspaceTutorials to child components via a reactive wrapper
 	let workspaceTutorialsContext = $derived(workspaceTutorials)
@@ -117,7 +117,8 @@
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding')
 			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') { // Small delay to ensure page is fully loaded
+		} else if (tutorialParam === 'workspace-onboarding-operator') {
+			// Small delay to ensure page is fully loaded
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
 			}, 500)
@@ -270,6 +271,7 @@
 	style="scrollbar-gutter: stable both-edges;"
 >
 	<ForkWorkspaceBanner />
+	<WorkspaceDraftsBanner />
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4"></div>
@@ -279,32 +281,45 @@
 				Windmill instance, such as keeping resource types up to date.
 			</Alert>
 		{/if}
-		<PageHeader
-			title="Home"
-			childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
-		>
-			{#if !$userStore?.operator && showCreateButtons}
-				<span class="text-xs font-normal text-primary">Create a</span>
-				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
-				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
-				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
-			{/if}
-		</PageHeader>
+		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
+			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
+				Home
+			</h1>
+			<div class="ml-auto flex flex-row gap-2 items-center">
+				{#if !$userStore?.operator && HOME_SHOW_HUB}
+					<Button
+						variant="default"
+						unifiedSize="md"
+						startIcon={{ icon: Globe2 }}
+						endIcon={{ icon: ExternalLink }}
+						href={$hubBaseUrlStore}
+						target="_blank"
+						btnClasses="whitespace-nowrap"
+					>
+						Hub
+					</Button>
+				{/if}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: PlugZap }}
+					btnClasses="whitespace-nowrap"
+					onClick={() => homeConnectDrawer?.openDrawer?.()}
+				>
+					CLI / MCP
+				</Button>
+				{#if !$userStore?.operator && showCreateButtons}
+					<div class="ml-2">
+						<CreateActionsMenu />
+					</div>
+				{/if}
+			</div>
+		</div>
 
 		<TutorialBanner />
 
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v}/>
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
-		{#if !$userStore?.operator}
-			<div class="w-full overflow-auto scrollbar-hidden pb-2">
-				<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
-					<Tab value="workspace" label="Workspace" icon={Building} />
-					{#if HOME_SHOW_HUB}
-						<Tab value="hub" label="Hub" icon={Globe2} />
-					{/if}
-				</Tabs>
-			</div>
-		{/if}
 		{#if tab == 'hub'}
 			<div class="flex flex-col gap-y-16">
 				<div class="flex flex-col pb-8">
@@ -312,7 +327,7 @@
 						<ToggleButtonGroup
 							bind:selected={subtab}
 							onSelected={(v) => {
-								setQuery(page.url, 'kind', v, window.location.hash)
+								setQuery('kind', v, window.location.hash)
 							}}
 							noWFull
 						>
@@ -345,19 +360,31 @@
 					{/snippet}
 
 					{#if subtab == 'script'}
-						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
+						<PickHubScript
+							syncQuery
+							bind:filter={getFilter, setFilter}
+							on:pick={(e) => viewCode(e.detail)}
+						>
 							{#snippet children()}
 								{@render toggleKinds?.()}
 							{/snippet}
 						</PickHubScript>
 					{:else if subtab == 'flow'}
-						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
+						<PickHubFlow
+							syncQuery
+							bind:filter={getFilter, setFilter}
+							on:pick={(e) => viewFlow(e.detail)}
+						>
 							{#snippet children()}
 								{@render toggleKinds?.()}
 							{/snippet}
 						</PickHubFlow>
 					{:else if subtab == 'app'}
-						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
+						<PickHubApp
+							syncQuery
+							bind:filter={getFilter, setFilter}
+							on:pick={(e) => viewApp(e.detail)}
+						>
 							{#snippet children()}
 								{@render toggleKinds?.()}
 							{/snippet}
@@ -369,8 +396,9 @@
 	</div>
 
 	{#if tab == 'workspace'}
-		<ItemsList bind:filter bind:subtab showEditButtons={showCreateButtons} />
+		<ItemsList bind:filter={getFilter, setFilter} bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
 
 <WorkspaceTutorials bind:this={workspaceTutorials} />
+<HomeConnectDrawer bind:this={homeConnectDrawer} />

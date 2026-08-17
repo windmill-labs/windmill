@@ -1,6 +1,6 @@
 # TypeScript (Bun)
 
-Bun runtime with full npm ecosystem and fastest execution.
+Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
 
 ## Structure
 
@@ -38,6 +38,10 @@ import Stripe from "stripe";
 import { someFunction } from "some-package";
 ```
 
+## Prefer `//native` when the runtime allows it
+
+If a script only needs `fetch` and the JavaScript standard library — including when it uses `windmill-client` — prefer making it a **native** script: add `//native` as the first line and write it with the `write-script-bunnative` skill. Native scripts run on a lightweight V8 isolate, start faster, and parallelize heavily. `windmill-client` works on the native worker (its calls go over `fetch`), so needing the Windmill client is **not** a reason to avoid `//native`. Use the regular `bun` language only when the code (or a dependency) needs Node/Bun runtime APIs — `node:*` modules, the filesystem, child processes, or native addons.
+
 ## Windmill Client
 
 Import the windmill client for platform interactions:
@@ -46,7 +50,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 ```
 
-See the SDK documentation for available methods.
+**Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 
@@ -80,19 +86,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The `wmill.S3Object` type covers both the `s3://storage/key` URI form (`s3:///key` for the workspace default storage) and the `{ s3, storage? }` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 ```typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 ```
 
-## TypeScript Operations
+### S3 operations
 
 ```typescript
 import * as wmill from "windmill-client";
@@ -104,7 +111,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use

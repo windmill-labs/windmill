@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.workspace_id, ws.git_sync\n           FROM workspace_settings ws\n           JOIN workspace w ON w.id = ws.workspace_id\n           WHERE NOT w.deleted\n             AND ws.git_sync IS NOT NULL\n             AND ws.git_sync->'repositories' @> '[{\"auto_pull\": {\"enabled\": true}}]'::jsonb",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "git_sync",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "bfbc368c751c8532792ae0a77ed570a14d22ed2a776efa111ad53aa9e77eadf1"
+}

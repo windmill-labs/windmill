@@ -3,12 +3,33 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      `include_draft_only=true` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a `*` to the displayed name.
+
+      '
   url:
     type: string
     description: The WebSocket URL to connect to (can be a static URL or computed
@@ -16,17 +37,91 @@ properties:
   filters:
     type: array
     items:
-      type: object
-      properties:
-        key:
-          type: string
-        value: {}
-    description: Array of key-value filters to match incoming messages (only matching
-      messages trigger the script)
+      oneOf:
+      - type: object
+        properties:
+          key:
+            type: string
+          value: {}
+        required:
+        - key
+        - value
+      - type: object
+        properties:
+          path:
+            type: string
+            description: Dotted path into nested objects, e.g. `a.b.c`. Does not traverse
+              arrays.
+          value: {}
+        required:
+        - path
+        - value
+      - type: object
+        properties:
+          any_of:
+            type: array
+            items:
+              type: object
+        required:
+        - any_of
+      - type: object
+        properties:
+          all_of:
+            type: array
+            items:
+              type: object
+        required:
+        - all_of
+      - type: object
+        properties:
+          none_of:
+            type: array
+            items:
+              type: object
+        required:
+        - none_of
+    description: 'Filters to match incoming messages (only matching messages trigger
+      the script). Each entry is either a leaf `{key, value}` (top-level field) or
+      `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}`
+      / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the
+      top level are combined with `filter_logic`.'
+  filter_logic:
+    type: string
+    enum:
+    - and
+    - or
+    description: Logic to apply when evaluating the top-level filters. 'and' requires
+      all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of`
+      groups carry their own logic.
   initial_messages:
     type: array
     items:
-      type: object
+      oneOf:
+      - type: object
+        properties:
+          raw_message:
+            type: string
+        required:
+        - raw_message
+      - type: object
+        properties:
+          runnable_result:
+            type: object
+            properties:
+              path:
+                type: string
+              args:
+                type: object
+                description: The arguments to pass to the script or flow
+                additionalProperties: true
+              is_flow:
+                type: boolean
+            required:
+            - path
+            - args
+            - is_flow
+        required:
+        - runnable_result
     description: Messages to send immediately after connecting (can be raw strings
       or computed by runnables)
   url_runnable_args:
@@ -39,6 +134,21 @@ properties:
   can_return_error_result:
     type: boolean
     description: If true, error results are sent back through the WebSocket
+  heartbeat:
+    type: object
+    properties:
+      interval_secs:
+        type: integer
+        minimum: 1
+        description: Interval in seconds between heartbeat messages
+      message:
+        type: string
+        description: Message to send as heartbeat. Use {{state}} as a placeholder
+          for a value extracted from incoming messages (see state_field).
+      state_field:
+        type: string
+        description: Optional. Top-level JSON field to extract from incoming messages.
+          The extracted value replaces {{state}} in the heartbeat message.
   error_handler_path:
     type: string
     description: Path to a script or flow to run when the triggered job fails
@@ -82,7 +192,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - url
 - filters

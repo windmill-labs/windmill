@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE azure_trigger SET\n                azure_resource_path = $1,\n                azure_mode = $2,\n                scope_resource_id = $3,\n                topic_name = $4,\n                subscription_name = $5,\n                event_type_filters = $6,\n                push_auth_config = $7,\n                is_flow = $8,\n                edited_by = $9,\n                permissioned_as = $10,\n                script_path = $11,\n                path = $12,\n                mode = $13,\n                edited_at = now(),\n                error = NULL,\n                server_id = NULL,\n                error_handler_path = $14,\n                error_handler_args = $15,\n                retry = $16\n            WHERE workspace_id = $17 AND path = $18\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        {
+          "Custom": {
+            "name": "azure_trigger_mode",
+            "kind": {
+              "Enum": [
+                "basic_push",
+                "namespace_push",
+                "namespace_pull"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d9ef1def7044e58722c5c69c31e9b9f6877de8bc7d4714915bbd572946d9270a"
+}

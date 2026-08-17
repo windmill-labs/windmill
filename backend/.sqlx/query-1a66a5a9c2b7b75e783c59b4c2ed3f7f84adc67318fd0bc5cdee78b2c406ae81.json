@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO email_trigger (\n            path, local_part, workspaced_local_part, script_path, is_flow,\n            workspace_id, edited_by, edited_at, extra_perms, error_handler_path,\n            error_handler_args, retry, mode, permissioned_as, labels\n        )\n        SELECT\n            path, local_part, workspaced_local_part, script_path, is_flow,\n            $1, edited_by, edited_at, extra_perms, error_handler_path,\n            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels\n        FROM email_trigger\n        WHERE workspace_id = $2\n            AND (workspaced_local_part IS TRUE OR $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1a66a5a9c2b7b75e783c59b4c2ed3f7f84adc67318fd0bc5cdee78b2c406ae81"
+}

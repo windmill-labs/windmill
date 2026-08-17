@@ -20,6 +20,7 @@
 	import Login from '$lib/components/Login.svelte'
 	import { onMount } from 'svelte'
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 
 	const email = page.url.searchParams.get('email') ?? ''
 	const password = page.url.searchParams.get('password') ?? ''
@@ -28,7 +29,13 @@
 	if (rdFromStorage) {
 		localStorage.removeItem('rd')
 	}
-	const rd = page.url.searchParams.get('rd') ?? rdFromStorage
+	const rawRd = page.url.searchParams.get('rd') ?? rdFromStorage
+	// Reduce same-origin full URLs (e.g. the page URL persisted from
+	// PublicApp.svelte's /a/[...path]) to relative paths so the post-login
+	// redirect can honor them. Without this, rd falls into the
+	// `startsWith('http')` branch and gets bounced to '/' (or worse, hung).
+	const sameOriginRd = toSameOriginRelativePath(rawRd)
+	const rd = sameOriginRd ?? rawRd
 
 	let showPassword = false
 	let firstTime = $state(false)
@@ -55,7 +62,11 @@
 
 	async function redirectUser() {
 		if (rd?.startsWith('http')) {
-			window.location.href = rd
+			if (isValidLogoutRedirect(rd)) {
+				window.location.href = rd
+				return
+			}
+			goto('/')
 			return
 		}
 
@@ -147,6 +158,6 @@
 		<div class="flex justify-end">
 			<DarkModeToggle forcedDarkMode={false} />
 		</div>
-		<Login {firstTime} {rd} {error} {password} {email} />
+		<Login {firstTime} {rd} {error} {password} {email} autoRedirect={false} />
 	</div>
 </div>

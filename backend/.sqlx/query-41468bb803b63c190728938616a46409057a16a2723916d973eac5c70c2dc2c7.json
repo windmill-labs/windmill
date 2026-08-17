@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM job_resolution r\n            USING v2_job_completed c\n            JOIN v2_job j ON j.id = c.id\n            WHERE r.job_id = c.id\n                AND c.id = ANY($1)\n                AND c.workspace_id = $2\n                AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))\n            RETURNING r.job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "41468bb803b63c190728938616a46409057a16a2723916d973eac5c70c2dc2c7"
+}

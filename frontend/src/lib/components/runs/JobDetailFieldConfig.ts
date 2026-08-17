@@ -1,6 +1,7 @@
 import type { Job } from '$lib/gen'
-import { triggerIconMap } from '$lib/components/triggers/utils'
+import { triggerDisplayNamesMap, triggerIconMap } from '$lib/components/triggers/utils'
 import { formatMemory } from '$lib/utils'
+import { flowPathToHref } from '$lib/scripts'
 import { Calendar, Bot } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -95,6 +96,22 @@ export function getJobCategory(job: Job): JobCategory {
 	}
 }
 
+// For flow/app-shaped jobs `script_hash` is a flow_version/app_version id
+// (i64) serialized as zero-padded 16-char hex.
+export function isFlowVersionHash(job: Job): boolean {
+	switch (job.job_kind) {
+		case 'flow':
+		case 'flowpreview':
+		case 'singlestepflow':
+		case 'flownode':
+		case 'flowdependencies':
+		case 'appdependencies':
+			return true
+		default:
+			return false
+	}
+}
+
 /**
  * Gets trigger information from a job
  */
@@ -108,14 +125,13 @@ export function getTriggerInfo(job: Job): { type: string; icon: any; detail?: st
 	}
 
 	// Check for trigger type from job trigger_kind if available
-	if ('trigger_kind' in job) {
-		const triggerKind = (job as any).trigger_kind
-		if (triggerKind && triggerIconMap[triggerKind]) {
-			return {
-				type: getTriggerDisplayName(triggerKind),
-				icon: triggerIconMap[triggerKind],
-				detail: triggerKind
-			}
+	const triggerKind = job.trigger_kind
+	if (triggerKind && triggerKind in triggerIconMap) {
+		// No detail: unlike the schedule branch above, the kind carries no path to add,
+		// and repeating it would render as "Webhook: webhook".
+		return {
+			type: triggerDisplayNamesMap[triggerKind],
+			icon: triggerIconMap[triggerKind]
 		}
 	}
 
@@ -135,28 +151,6 @@ export function getTriggerInfo(job: Job): { type: string; icon: any; detail?: st
 	}
 
 	return null
-}
-
-/**
- * Gets human-readable display name for trigger kinds
- */
-function getTriggerDisplayName(triggerKind: string): string {
-	const displayNames: Record<string, string> = {
-		webhook: 'Webhook',
-		http: 'HTTP',
-		websocket: 'WebSocket',
-		postgres: 'PostgreSQL',
-		kafka: 'Kafka',
-		nats: 'NATS',
-		mqtt: 'MQTT',
-		sqs: 'SQS',
-		gcp: 'GCP Pub/Sub',
-		email: 'Email',
-		schedule: 'Schedule',
-		app: 'App',
-		ui: 'UI'
-	}
-	return displayNames[triggerKind] || triggerKind.toUpperCase()
 }
 
 /**
@@ -229,22 +223,51 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 	script_hash: {
 		field: 'script_hash',
 		label: 'Hash',
-		getValue: (job) => job.script_hash?.toString() || null,
-		getHref: (job, workspaceId) =>
-			job.script_hash && job.job_kind === 'script'
-				? `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
-				: null
+		getValue: (job) => {
+			if (!job.script_hash) return null
+			// Decode hex → decimal for flow/app version ids.
+			if (isFlowVersionHash(job)) {
+				try {
+					return BigInt('0x' + job.script_hash).toString()
+				} catch {
+					return job.script_hash.toString()
+				}
+			}
+			return job.script_hash.toString()
+		},
+		getHref: (job, workspaceId) => {
+			if (!job.script_hash) return null
+			if (job.job_kind === 'script' || job.job_kind === 'dependencies') {
+				return `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
+			}
+			// Only flow-shaped jobs have a pinned-version viewer; app dep stays unlinked.
+			const isFlowKind =
+				job.job_kind === 'flow' ||
+				job.job_kind === 'flowpreview' ||
+				job.job_kind === 'singlestepflow' ||
+				job.job_kind === 'flownode' ||
+				job.job_kind === 'flowdependencies'
+			if (isFlowKind && job.script_path) {
+				let version: string
+				try {
+					version = BigInt('0x' + job.script_hash).toString()
+				} catch {
+					return null
+				}
+				return `/flows/get/${job.script_path}?workspace=${workspaceId}&version=${version}`
+			}
+			return null
+		}
 	},
 
 	script_path: {
 		field: 'script_path',
 		label: 'Path',
 		getValue: (job) => job.script_path || null,
-		getHref: (job, workspaceId) => {
+		getHref: (job, _workspaceId) => {
 			if (!job.script_path) return null
-			const stem = job.job_kind === 'script' ? 'scripts' : 'flows'
 			const isScript = job.job_kind === 'script'
-			return `/${stem}/get/${isScript ? job.script_hash : job.script_path}`
+			return isScript ? `/scripts/get/${job.script_hash}` : flowPathToHref(job.script_path)
 		}
 	},
 
@@ -343,6 +366,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 		worker: true,
 		run_id: true,
 		script_path: true,
+		script_hash: true,
 		flow_status: false,
 		duration: false,
 		// Optional fields
@@ -350,7 +374,6 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 		trigger_info: false,
 		parent_job: false,
 		schedule_path: false,
-		script_hash: false,
 		language: false,
 		step_info: false,
 		priority: false,
@@ -363,14 +386,14 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 		worker: true,
 		run_id: true,
 		started_at: true,
+		script_hash: true,
+		script_path: true,
 		duration: false,
 		// Optional fields
 		memory_peak: false,
 		trigger_info: false,
 		parent_job: false,
 		schedule_path: false,
-		script_hash: false,
-		script_path: false,
 		language: false,
 		step_info: false,
 		flow_status: false,
@@ -509,6 +532,12 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 			if (fieldName === 'schedule_path') {
 				// Always show schedule_path when it exists, regardless of category configuration
 				return job.schedule_path !== null && job.schedule_path !== undefined
+			}
+			if (fieldName === 'trigger_info' && job.trigger_kind) {
+				// A stamped trigger kind is how the run was started, whatever the category — but
+				// only one `getTriggerInfo` can name, or the row renders empty. A schedule is
+				// left out because its own field already says the same thing.
+				return !job.schedule_path && job.trigger_kind in triggerIconMap
 			}
 			return fieldsPresence[fieldName]
 		})

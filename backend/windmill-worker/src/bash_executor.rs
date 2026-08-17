@@ -40,9 +40,9 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 
 use crate::{
     common::{
-        build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, resolve_nsjail_timeout, start_child_process, OccupancyMetrics,
-        DEV_CONF_NSJAIL,
+        build_args_map, build_command_with_isolation, get_reserved_variables, raw_to_string,
+        read_file, read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -55,14 +55,6 @@ use windmill_common::scripts::ScriptLang;
 lazy_static::lazy_static! {
 
     pub static ref ANSI_ESCAPE_RE: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
-}
-
-fn raw_to_string(x: &str) -> String {
-    match serde_json::from_str::<serde_json::Value>(x) {
-        Ok(serde_json::Value::String(x)) => x,
-        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
-        _ => String::new(),
-    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -82,7 +74,61 @@ pub async fn handle_bash_job(
     occupancy_metrics: &mut OccupancyMetrics,
     _killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
+    // Normalize carriage returns to LF: bash reads a trailing `\r` as part of the
+    // command and fails with `$'\r': command not found`. Content can arrive with
+    // CRLF (Windows editor, browser paste, git sync) or a bare CR, so strip every
+    // `\r` rather than trusting the source. Only allocate when one is present.
+    let content_owned;
+    let content = if content.contains('\r') {
+        content_owned = content.replace("\r\n", "\n").replace('\r', "\n");
+        content_owned.as_str()
+    } else {
+        content
+    };
+
     let annotation = windmill_common::worker::BashAnnotations::parse(&content);
+
+    // `# sandbox <image>` selects the daemonless, nsjail-sandboxed container runtime
+    // (extract the image's rootfs + run it inside the job's sandbox). A bare
+    // `# sandbox` keeps the plain nsjail-bash modifier; `# docker` keeps v1 (dind).
+    if let Some(image) = windmill_common::worker::BashAnnotations::sandbox_image(content) {
+        return crate::docker_v2::handle_docker_v2_job(
+            &image,
+            mem_peak,
+            canceled_by,
+            job,
+            conn,
+            client,
+            parent_runnable_path,
+            content,
+            job_dir,
+            shared_mount,
+            base_internal_url,
+            worker_name,
+            occupancy_metrics,
+        )
+        .await;
+    }
+
+    // `#ssh <resource_path>` reroutes execution to a remote host over SSH
+    // (enterprise feature). The script runs on the host described by the
+    // `ssh_target` resource instead of on this worker. The OSS build returns a
+    // clear "enterprise feature" error from the stub.
+    if let Some(ssh_path) = windmill_common::worker::BashAnnotations::ssh_target(content) {
+        return crate::ssh_executor_oss::handle_ssh_bash_job(
+            &ssh_path,
+            mem_peak,
+            canceled_by,
+            job,
+            conn,
+            client,
+            content,
+            job_dir,
+            worker_name,
+            occupancy_metrics,
+        )
+        .await;
+    }
 
     // Check if sandbox annotation is used but nsjail is not available
     if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
@@ -215,6 +261,10 @@ exit $exit_status
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut cmd_args = vec![
@@ -231,8 +281,14 @@ exit $exit_status
             .env_clear()
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Bash, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Bash,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -261,8 +317,14 @@ exit $exit_status
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Bash, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Bash,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

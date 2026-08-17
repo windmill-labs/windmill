@@ -20,6 +20,8 @@
 		disabled?: boolean
 		datatableAsPgResource?: boolean
 		onClear?: () => void
+		/** Workspace the resource picker lists from; defaults to the nav workspace. */
+		workspace?: string
 	}
 
 	let {
@@ -32,7 +34,8 @@
 		editor = $bindable(undefined),
 		disabled = false,
 		datatableAsPgResource = false,
-		onClear = undefined
+		onClear = undefined,
+		workspace = undefined
 	}: Props = $props()
 
 	function isResource() {
@@ -55,7 +58,7 @@
 <!-- {JSON.stringify({ value })} -->
 <div class="flex flex-row w-full flex-wrap gap-x-2 gap-y-0.5">
 	{#if format === 'resource-s3_object'}
-		<S3ObjectPicker bind:value />
+		<S3ObjectPicker bind:value {workspace} />
 	{:else if value == undefined || typeof value === 'string'}
 		<ResourcePicker
 			{datatableAsPgResource}
@@ -63,6 +66,7 @@
 			{selectFirst}
 			{disablePortal}
 			{onClear}
+			{workspace}
 			bind:value={
 				() => valueToPath(),
 				(v) => {

@@ -1,4 +1,8 @@
+#!/usr/bin/env bash
+# Abort if the package build fails — otherwise npm publish ships the stale
+# package/ directory left over from the last successful build.
+set -euo pipefail
+cd "$(dirname "$0")"
+
 npm run package
-sed -i -e 's/windmill/windmill-components/g' package.json
 npm publish
-sed -i -e 's/windmill-components/windmill/g' package.json

@@ -19,6 +19,20 @@
 	let codeChallenge = page.url.searchParams.get('code_challenge') || ''
 	let codeChallengeMethod = page.url.searchParams.get('code_challenge_method') || ''
 
+	// Defense-in-depth (GHSA-q9xg-f2v2-695g): the backend validates redirect_uris at
+	// registration, but this page navigates the browser to `redirectUri`, so reject
+	// browser-executable schemes here too — this also neutralizes any client rows
+	// registered before the backend fix.
+	const DISALLOWED_REDIRECT_SCHEMES = ['javascript:', 'data:', 'vbscript:', 'blob:', 'file:']
+	function isSafeRedirectUri(uri: string): boolean {
+		try {
+			return !DISALLOWED_REDIRECT_SCHEMES.includes(new URL(uri).protocol.toLowerCase())
+		} catch {
+			return false
+		}
+	}
+	let redirectUriValid = isSafeRedirectUri(redirectUri)
+
 	let loading = $state(false)
 	let success = $state(false)
 	let successRedirectUrl = $state('')
@@ -51,6 +65,7 @@
 	}
 
 	function onDeny() {
+		if (!redirectUriValid) return
 		// Redirect to client with error
 		const params = new URLSearchParams({
 			error: 'access_denied',
@@ -63,6 +78,7 @@
 	}
 
 	async function onApprove() {
+		if (!redirectUriValid) return
 		if (!workspaceId) {
 			sendUserToast('Please select a workspace', true)
 			return
@@ -121,7 +137,9 @@
 	}
 </script>
 
-{#if !isGateway && !workspaceId}
+{#if !redirectUriValid}
+	<p class="text-center text-sm text-primary mb-6"> Error: invalid or unsafe redirect_uri </p>
+{:else if !isGateway && !workspaceId}
 	<p class="text-center text-sm text-primary mb-6">Error: missing workspace_id</p>
 {:else}
 	<CenteredModal title={success ? 'Authorization Approved' : 'Authorization Request'}>

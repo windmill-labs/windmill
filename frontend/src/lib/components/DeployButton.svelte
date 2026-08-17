@@ -6,16 +6,16 @@
 	const {
 		loading = false,
 		loadingSave = false,
-		newFlow = false,
-		dropdownItems = []
+		dropdownItems = [],
+		unifiedSize = 'md'
 	}: {
 		loading?: boolean
 		loadingSave?: boolean
-		newFlow?: boolean
 		dropdownItems?: Array<{
 			label: string
 			onClick: () => void
 		}>
+		unifiedSize?: 'sm' | 'md' | 'lg'
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -30,10 +30,10 @@
 	disabled={loading}
 	loading={loadingSave}
 	variant="accent"
-	unifiedSize="md"
+	{unifiedSize}
 	startIcon={{ icon: Save }}
 	on:click={() => dispatch('save')}
-	dropdownItems={!newFlow ? dropdownItems : undefined}
+	{dropdownItems}
 	tooltipPopover={{
 		placement: 'bottom-end',
 		openDelay: dropdownOpen ? 200 : 0,

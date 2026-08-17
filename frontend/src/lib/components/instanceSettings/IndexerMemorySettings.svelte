@@ -9,6 +9,7 @@
 	import IntegerInput from '../IntegerInput.svelte'
 	import InputError from '../InputError.svelte'
 	import Label from '../Label.svelte'
+	import Toggle from '../Toggle.svelte'
 	import { Loader2, RefreshCw } from 'lucide-svelte'
 	import type { Writable } from 'svelte/store'
 
@@ -19,6 +20,20 @@
 	}
 
 	let { values, disabled = false, errors = {} }: Props = $props()
+
+	let isTimeWindowCapped = $derived($values['indexer_settings'].max_index_time_window_secs !== 0)
+
+	function setTimeWindowCapped(checked: boolean) {
+		if (checked) {
+			const { max_index_time_window_secs: _, ...rest } = $values['indexer_settings']
+			$values['indexer_settings'] = rest
+		} else {
+			$values['indexer_settings'] = {
+				...$values['indexer_settings'],
+				max_index_time_window_secs: 0
+			}
+		}
+	}
 
 	let clearJobsIndexModalOpen = $state(false)
 	let clearServiceLogsIndexModalOpen = $state(false)
@@ -36,6 +51,43 @@
 		if (diffMins < 60) return `${diffMins}m ago`
 		const diffHours = Math.floor(diffMins / 60)
 		return `${diffHours}h ago`
+	}
+
+	type IndexerEntry = GetIndexerStatusResponse['job_indexer']
+
+	function statusDescriptor(entry: IndexerEntry): {
+		label: string
+		dot: string
+		text: string
+		hint?: string
+	} {
+		// Backends that predate the `state` field only report `is_alive`: keep the
+		// prior Running / Stopped signal instead of falling through to "Unknown".
+		if (entry?.state == null) {
+			return entry?.is_alive
+				? { label: 'Running', dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400' }
+				: { label: 'Stopped', dot: 'bg-red-500', text: 'text-red-600 dark:text-red-400' }
+		}
+		switch (entry.state) {
+			case 'running':
+				return { label: 'Running', dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400' }
+			case 'stale':
+				return {
+					label: 'Stale',
+					dot: 'bg-yellow-500',
+					text: 'text-yellow-600 dark:text-yellow-400',
+					hint: 'The indexer acquired its lock before but has not refreshed it recently. It may have crashed, be blocked, or be handing over during a deployment. Check the indexer container logs.'
+				}
+			case 'never_started':
+				return {
+					label: 'Not started',
+					dot: 'bg-red-500',
+					text: 'text-red-600 dark:text-red-400',
+					hint: 'No instance has ever run this indexer. Make sure an instance is running in "indexer" mode (or a server with the indexer addon enabled) and that you are on Enterprise.'
+				}
+			default:
+				return { label: 'Unknown', dot: 'bg-gray-400', text: 'text-tertiary' }
+		}
 	}
 
 	async function loadStatus() {
@@ -91,36 +143,49 @@
 		/>
 		<InputError error={errors.writer_memory_budget ?? ''} />
 	</div>
-	<div class="flex flex-col gap-1">
-		<label for="max_index_time_window_secs" class="block text-xs font-semibold text-emphasis">
-			Index time window (days)
-			<Tooltip>
-				Maximum age of items to include in the index. Jobs and logs older than this window will not
-				be indexed and will be cleaned up from the index. Set to 0 to disable (index everything
-				within the retention period).
-			</Tooltip>
-		</label>
-		<IntegerInput
-			placeholder="7"
-			id="max_index_time_window_secs"
-			{disabled}
-			error={errors.max_index_time_window_secs ?? ''}
-			value={$values['indexer_settings'].max_index_time_window_secs != null
-				? Math.round($values['indexer_settings'].max_index_time_window_secs / 86400)
-				: undefined}
-			oninput={(v) => {
-				if (v == null) {
-					const { max_index_time_window_secs: _, ...rest } = $values['indexer_settings']
-					$values['indexer_settings'] = rest
-				} else {
-					$values['indexer_settings'] = {
-						...$values['indexer_settings'],
-						max_index_time_window_secs: v * 86400
+	<div class="flex flex-col gap-2">
+		<div class="flex flex-row items-center gap-2">
+			<span class="block text-xs font-semibold text-emphasis">
+				Index time window
+				<Tooltip>
+					Cap the age of items the indexer keeps. Jobs and logs older than this window are not
+					indexed and are cleaned up from the index. Disable the cap to index everything within the
+					retention period.
+				</Tooltip>
+			</span>
+			<div class="ml-auto">
+				<Toggle
+					{disabled}
+					checked={isTimeWindowCapped}
+					on:change={(e) => setTimeWindowCapped(e.detail)}
+					options={{ right: 'Cap by time window' }}
+				/>
+			</div>
+		</div>
+		{#if isTimeWindowCapped}
+			<IntegerInput
+				placeholder="7"
+				id="max_index_time_window_secs"
+				{disabled}
+				error={errors.max_index_time_window_secs ?? ''}
+				value={$values['indexer_settings'].max_index_time_window_secs != null
+					? Math.round($values['indexer_settings'].max_index_time_window_secs / 86400)
+					: undefined}
+				oninput={(v) => {
+					if (v == null) {
+						const { max_index_time_window_secs: _, ...rest } = $values['indexer_settings']
+						$values['indexer_settings'] = rest
+					} else {
+						$values['indexer_settings'] = {
+							...$values['indexer_settings'],
+							max_index_time_window_secs: v * 86400
+						}
 					}
-				}
-			}}
-		/>
-		<InputError error={errors.max_index_time_window_secs ?? ''} />
+				}}
+			/>
+			<span class="text-2xs text-tertiary">days (leave blank to use the default of 7 days)</span>
+			<InputError error={errors.max_index_time_window_secs ?? ''} />
+		{/if}
 	</div>
 	<Label label="Indexer status">
 		{#snippet action()}
@@ -139,20 +204,16 @@
 		{#if status}
 			<div class="flex flex-col gap-2">
 				{#each [{ label: 'Job indexer', entry: status.job_indexer }, { label: 'Service log indexer', entry: status.log_indexer }] as { label, entry } (label)}
+					{@const d = statusDescriptor(entry)}
 					<div class="flex flex-row items-center gap-2 text-xs">
-						<span
-							class="inline-block w-2 h-2 rounded-full {entry?.is_alive
-								? 'bg-green-500'
-								: 'bg-red-500'}"
-						></span>
+						<span class="inline-block w-2 h-2 rounded-full {d.dot}"></span>
 						<span class="text-primary font-medium">{label}:</span>
-						<span
-							class="font-semibold {entry?.is_alive
-								? 'text-green-600 dark:text-green-400'
-								: 'text-red-600 dark:text-red-400'}"
-						>
-							{entry?.is_alive ? 'Running' : 'Stopped'}
+						<span class="font-semibold {d.text}">
+							{d.label}
 						</span>
+						{#if d.hint}
+							<Tooltip>{d.hint}</Tooltip>
+						{/if}
 						{#if entry?.last_locked_at}
 							<span class="text-tertiary text-2xs">
 								Last active: {formatTimeAgo(entry.last_locked_at)}

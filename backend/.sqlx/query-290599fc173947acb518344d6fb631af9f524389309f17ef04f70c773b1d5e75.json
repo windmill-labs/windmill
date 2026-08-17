@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT s.item_kind, s.path\n        FROM ws_specific s\n        WHERE s.workspace_id = $1\n          AND (\n              (s.item_kind = 'resource' AND EXISTS (\n                  SELECT 1 FROM resource r\n                  WHERE r.workspace_id = s.workspace_id AND r.path = s.path\n              ))\n              OR (s.item_kind = 'variable' AND EXISTS (\n                  SELECT 1 FROM variable v\n                  WHERE v.workspace_id = s.workspace_id AND v.path = s.path\n              ))\n          )\n        ORDER BY s.item_kind, s.path\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "290599fc173947acb518344d6fb631af9f524389309f17ef04f70c773b1d5e75"
+}

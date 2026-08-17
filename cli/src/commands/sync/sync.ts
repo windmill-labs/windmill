@@ -1,13 +1,28 @@
 import { requireLogin } from "../../core/auth.ts";
+import { markRequestsAsSyncOrigin } from "../../core/client.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
-import { readFile, writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
+import {
+  writeFile,
+  readdir,
+  stat,
+  rm,
+  copyFile,
+  mkdir,
+} from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
 import * as path from "node:path";
 import { sep as SEP } from "node:path";
-import { stringify as yamlStringify, type DocumentOptions, type SchemaOptions, type CreateNodeOptions, type ToStringOptions } from "yaml";
+import {
+  stringify as yamlStringify,
+  type DocumentOptions,
+  type SchemaOptions,
+  type CreateNodeOptions,
+  type ToStringOptions,
+} from "yaml";
 import JSZip from "jszip";
 import { minimatch } from "minimatch";
 import { yamlParseContent } from "../../utils/yaml.ts";
@@ -18,48 +33,82 @@ import {
   GlobalOptions,
   parseFromPath,
   pushObj,
+  removeType,
   showConflict,
   showDiff,
   extractNativeTriggerInfo,
+  redactEncryptionKey,
+  isDatatableMigrationPath,
+  parseDatatableMigrationPath,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
+import { diffSharedUi, pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import {
+  pushMigrationFromDisk,
+  offerToRunNewMigrations,
+  validateLocalMigrations,
+} from "../datatable_migrations.ts";
 
 import {
   exts,
   findContentFile,
   findResourceFile,
+  isModuleEntryMetadata,
   handleScriptMetadata,
+  UnresolvableScriptContentFileError,
   removeExtensionToPath,
   filePathExtensionFromContentType,
+  hasScriptExt,
 } from "../script/script.ts";
 
-import { handleFile } from "../script/script.ts";
+import { DbtPathCollisionError, handleFile } from "../script/script.ts";
 import {
   deepEqual,
   fetchRemoteVersion,
+  getHeaders,
   isFileResource,
   isFilesetResource,
   isRawAppFile,
   isWorkspaceDependencies,
+  readTextFile,
+  removeResourceSuffix,
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
+  getWorkspaceNames,
   mergeConfigWithConfigFile,
+  parseSyncBehavior,
   SyncOptions,
   validateBranchConfiguration,
+  findWorkspaceByGitBranch,
+  WorkspaceEntryConfig,
 } from "../../core/conf.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { preCheckPermissionedAs } from "../../core/permissioned_as.ts";
 import {
-  fromBranchSpecificPath,
-  getBranchSpecificPath,
+  fromWorkspaceSpecificPath,
+  toWorkspaceSpecificPath,
+  getWorkspaceSpecificPath,
   getSpecificItemsForCurrentBranch,
-  isBranchSpecificFile,
-  isCurrentBranchFile,
+  isWorkspaceSpecificFile,
+  isCurrentWorkspaceFile,
   isItemTypeConfigured,
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
-import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
+import {
+  getCurrentGitBranch,
+  isGitRepository,
+  computeGitSyncDeployBranch,
+  checkoutGitSyncDeployBranch,
+  gitSyncDeployPush,
+  deriveGitSyncDeployIncludes,
+  isForkWorkspace,
+  gitRecordedDatatableMigrationPaths,
+  type GitSyncDeployItem,
+  type RecordedMigrationPaths,
+} from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -67,21 +116,35 @@ import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
+  UnknownLockVersionError,
+  MalformedLockfileError,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
-import { OpenFlow, NativeServiceName, ScriptModule } from "../../../gen/types.gen.ts";
-import { pushResource } from "../resource/resource.ts";
+import {
+  DoubleLinkedDependencyTree,
+  uploadScripts,
+} from "../../utils/dependency_tree.ts";
+import {
+  OpenFlow,
+  NativeServiceName,
+  ScriptModule,
+} from "../../../gen/types.gen.ts";
+import { pushResource, validateFilesetPointer } from "../resource/resource.ts";
 import {
   newPathAssigner,
   newRawAppPathAssigner,
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import {
+  extractInlineScripts as extractInlineScriptsForFlows,
+  extractCurrentMapping,
+} from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/app.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
+  RECORDINGS_FOLDER,
 } from "../app/app_metadata.ts";
 import {
   isFlowPath,
@@ -101,10 +164,243 @@ import {
   getFolderSuffixWithSep,
   getNonDottedPaths,
   isScriptModulePath,
+  oversizedDbtFileError,
   getModuleFolderSuffix,
+  isDbtModulePath,
+  isDbtGeneratedPath,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
+  hasWrongFormatSuffix,
+  DBT_DESCRIPTOR_NAME,
+  isDbtDescriptorPath,
 } from "../../utils/resource_folders.ts";
+
+let branchDeprecationWarned = false;
+
+// Map a ws_specific `item_kind` returned by the backend to its corresponding
+// SpecificItemsConfig array. The backend currently only emits `resource` and
+// `variable`, but the mapping rule (kind → its plural — `_trigger` kinds all
+// fold into `triggers`) is generic so a future kind doesn't require a change
+// here. Returns null for kinds we have no place to store (e.g. `settings`,
+// which is a single boolean, not a list).
+function configKeyForItemKind(
+  kind: string,
+): keyof Omit<SpecificItemsConfig, "settings"> | null {
+  switch (kind) {
+    case "resource":
+      return "resources";
+    case "variable":
+      return "variables";
+    // case "schedule":
+    //   return "schedules";
+    // default:
+    //   return kind.endsWith("_trigger") ? "triggers" : null;
+  }
+  return null;
+}
+
+// Fetch ws_specific items from the server and merge their paths into specificItems.
+// Each ws_specific entry (item_kind + path) is appended as an exact file-path pattern
+// to the corresponding array in the config, so the existing pattern-matching logic picks them up.
+// Returns the merged config plus the raw server list (or null if the server list could
+// not be fetched) — callers performing push-side reconciliation need to know which
+// (kind, path) pairs are *not yet* ws_specific on the server.
+async function mergeWsSpecificFromServer(
+  workspaceId: string,
+  specificItems: SpecificItemsConfig | undefined,
+): Promise<{
+  merged: SpecificItemsConfig | undefined;
+  serverItems: Array<{ item_kind: string; path: string }> | null;
+}> {
+  let wsSpecificItems: Array<{ item_kind: string; path: string }>;
+  try {
+    wsSpecificItems = await wmill.listWsSpecific({ workspace: workspaceId });
+  } catch (err) {
+    // 404 = endpoint not present on an older server: expected, log at debug.
+    // Anything else (401/403/network) is a real failure that produces an
+    // incomplete sync — surface it so the user notices.
+    const isApiError =
+      err &&
+      typeof err === "object" &&
+      "name" in err &&
+      (err as { name: unknown }).name === "ApiError";
+    const status = isApiError ? (err as { status?: number }).status : undefined;
+    if (status === 404) {
+      log.debug("listWsSpecific endpoint not available on server, skipping");
+    } else {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `Could not fetch ws_specific items from server (${status ?? "no status"}): ${msg}. ` +
+          `Sync will proceed without server-side ws_specific items.`,
+      );
+    }
+    return { merged: specificItems, serverItems: null };
+  }
+
+  if (wsSpecificItems.length === 0) {
+    return { merged: specificItems, serverItems: wsSpecificItems };
+  }
+
+  const merged: SpecificItemsConfig = specificItems ? { ...specificItems } : {};
+
+  for (const item of wsSpecificItems) {
+    const configKey = configKeyForItemKind(item.item_kind);
+    if (!configKey) continue;
+    if (!merged[configKey]) {
+      merged[configKey] = [];
+    }
+    // Patterns are .yaml regardless of opts.json — isSpecificItem normalizes
+    // .json file paths to .yaml before matching, so a single .yaml pattern
+    // covers both extensions for the same item.
+    merged[configKey]!.push(`${item.path}.${item.item_kind}.yaml`);
+  }
+
+  return { merged, serverItems: wsSpecificItems };
+}
+
+// Compute (kind, serverPath) pairs that are flagged ws_specific by the local
+// config (specificItems) but are *not* marked ws_specific on the server. These
+// represent flag-only changes that the file-content diff misses (because the
+// flag isn't part of the YAML body), so push needs to handle them explicitly.
+//
+// Generic over item kind (uses getTypeStrFromPath + removeType so .yaml/.json
+// work the same), gated by configKeyForItemKind so only kinds the backend can
+// mark ws_specific make it through. As of writing the backend only emits
+// `resource` and `variable`, but the gating handles future kinds without
+// touching this function.
+export function computeWsSpecificFlagOnlyPushes(
+  localMap: Record<string, string>,
+  localSpecificItems: SpecificItemsConfig | undefined,
+  serverItems: Array<{ item_kind: string; path: string }> | null,
+): Array<{ kind: string; serverPath: string; filePath: string }> {
+  if (!localSpecificItems || serverItems === null) return [];
+
+  const serverSet = new Set(serverItems.map((i) => `${i.item_kind}:${i.path}`));
+
+  const out: Array<{ kind: string; serverPath: string; filePath: string }> = [];
+  for (const filePath of Object.keys(localMap)) {
+    let kind: string;
+    try {
+      kind = getTypeStrFromPath(filePath);
+    } catch {
+      continue;
+    }
+    if (configKeyForItemKind(kind) === null) continue;
+
+    if (!isSpecificItem(filePath, localSpecificItems)) continue;
+
+    const serverPath = removeType(filePath, kind);
+    if (serverSet.has(`${kind}:${serverPath}`)) continue;
+
+    out.push({ kind, serverPath, filePath });
+  }
+  return out;
+}
+
+// Resolve workspace name from a --branch override (git branch → workspace name).
+// Falls back to using the branch value as-is (backward compat: old key = branch name).
+function resolveWsNameFromBranch(
+  opts: SyncOptions,
+  branchName: string,
+): string {
+  const match = findWorkspaceByGitBranch(opts.workspaces, branchName);
+  return match ? match[0] : branchName;
+}
+
+// Resolve wsNameForConfig from CLI flags. Prefers --branch → matching config key,
+// then --workspace → matching config key (incl. when --base-url is set). Returns
+// undefined when no flag-based resolution applies; callers then fall back to
+// inferWsNameFromProfile on the resolved workspace profile.
+export function resolveWsNameForConfigFromFlags(
+  opts: SyncOptions & { branch?: string; workspace?: string },
+): string | undefined {
+  if (opts.branch) {
+    return resolveWsNameFromBranch(opts, opts.branch);
+  }
+  if (opts.workspace) {
+    // Use getWorkspaceNames so reserved keys (e.g. commonSpecificItems) are filtered out,
+    // matching the behavior of findWorkspaceByGitBranch / inferWsNameFromProfile.
+    const validKeys = getWorkspaceNames(opts.workspaces);
+    if (validKeys.includes(opts.workspace)) {
+      return opts.workspace;
+    }
+  }
+  return undefined;
+}
+
+// Warn if --workspace overrides auto-detected branch or if workspace not in config.
+function warnWorkspaceOverride(
+  opts: SyncOptions,
+  wsNameForConfig: string | undefined,
+): void {
+  if (!wsNameForConfig || !opts.workspaces) return;
+
+  // Check if workspace exists in config
+  const wsEntry = (opts.workspaces as any)?.[wsNameForConfig] as
+    WorkspaceEntryConfig | undefined;
+  if (!wsEntry) {
+    const wsNames = Object.keys(opts.workspaces).filter(
+      (k) => k !== "commonSpecificItems",
+    );
+    if (wsNames.length > 0) {
+      log.warn(
+        `⚠️  Workspace '${wsNameForConfig}' is not defined in the 'workspaces' section of wmill.yaml.\n` +
+          `   No workspace-specific overrides will be applied. Available workspaces: ${wsNames.join(", ")}`,
+      );
+    }
+    return;
+  }
+
+  // Check if current git branch maps to a different workspace
+  if (isGitRepository()) {
+    const currentBranch = getCurrentGitBranch();
+    if (currentBranch) {
+      const autoMatch = findWorkspaceByGitBranch(
+        opts.workspaces,
+        currentBranch,
+      );
+      if (autoMatch && autoMatch[0] !== wsNameForConfig) {
+        log.info(
+          `Current git branch '${currentBranch}' maps to workspace '${autoMatch[0]}', ` +
+            `but --workspace overrides to '${wsNameForConfig}'.`,
+        );
+      }
+    }
+  }
+}
+
+// The workspace name is used as the file suffix for workspace-specific files.
+// This is a pass-through — the workspace name (config key) IS the suffix.
+function resolveWsNameForFiles(_opts: SyncOptions, wsName: string): string {
+  return wsName;
+}
+
+// After resolveWorkspace, infer the workspace config name from the resolved profile
+// by matching baseUrl + workspaceId against the workspaces config entries.
+function inferWsNameFromProfile(
+  opts: SyncOptions,
+  profile: { remote: string; workspaceId: string },
+): string | undefined {
+  if (!opts.workspaces) return undefined;
+  const wsNames = Object.keys(opts.workspaces).filter(
+    (k) => k !== "commonSpecificItems",
+  );
+  for (const name of wsNames) {
+    const entry = (opts.workspaces as any)[name] as WorkspaceEntryConfig;
+    if (!entry?.baseUrl) continue;
+    try {
+      const entryUrl = new URL(entry.baseUrl).toString();
+      const profileUrl = new URL(profile.remote).toString();
+      const entryWsId = entry.workspaceId ?? name;
+      if (entryUrl === profileUrl && entryWsId === profile.workspaceId) {
+        return name;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
@@ -114,14 +410,20 @@ function mergeCliWithEffectiveOptions<
   return Object.assign({}, effectiveOpts, cliOpts) as T;
 }
 
-// Resolve effective sync options using branch-based configuration
+// Resolve effective sync options using workspace-based configuration
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   localConfig: SyncOptions,
   promotion?: string,
-  branchOverride?: string,
+  workspaceNameOverride?: string,
 ): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
+  return await getEffectiveSettings(
+    localConfig,
+    promotion,
+    false,
+    false,
+    workspaceNameOverride,
+  );
 }
 
 type DynFSElement = {
@@ -221,6 +523,27 @@ async function addCodebaseDigestIfRelevant(
   return content;
 }
 
+/**
+ * Whether a script's modules ARE a dbt project.
+ *
+ * Keyed on `dbt_project.yml` rather than on the descriptor: the descriptor is
+ * optional, so its absence says nothing, while a dbt project without
+ * `dbt_project.yml` is one dbt itself refuses to run.
+ *
+ * Its LANGUAGE decides, not its name. A dbt bundle is read verbatim and every
+ * file in it is stored as `dbt`; an ordinary modular script that happens to
+ * vendor a dbt project stores that same file as whatever its extension infers,
+ * and calling it dbt would lay the bundle out as `__dbt` and drop it on the
+ * next push.
+ */
+function isDbtModules(modules: unknown): boolean {
+  if (typeof modules !== "object" || modules === null) return false;
+  const marker = (modules as Record<string, { language?: string }>)[
+    "dbt_project.yml"
+  ];
+  return marker?.language === "dbt";
+}
+
 export async function FSFSElement(
   p: string,
   codebases: SyncCodebase[],
@@ -250,8 +573,14 @@ export async function FSFSElement(
         }
       },
       async getContentText(): Promise<string> {
-        const content = await readFile(localP, "utf-8");
         const itemPath = localP.substring(p.length + 1);
+        // BEFORE the read: an oversized dbt project file stays visible to the
+        // diff on purpose (so the push reports it rather than silently shipping
+        // an incomplete project), and buffering a multi-gigabyte seed to reach
+        // that error is what this refusal exists to avoid.
+        const oversized = oversizedDbtFileError(localP, itemPath);
+        if (oversized) throw oversized;
+        const content = await readTextFile(localP);
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
           content,
@@ -284,13 +613,42 @@ function prioritizeName(name: string): string {
   return name;
 }
 
-export const yamlOptions: DocumentOptions & SchemaOptions & CreateNodeOptions & ToStringOptions = {
+export const yamlOptions: DocumentOptions &
+  SchemaOptions &
+  CreateNodeOptions &
+  ToStringOptions = {
   sortMapEntries: (a, b) => {
-    return prioritizeName(String(a.key)).localeCompare(prioritizeName(String(b.key)));
+    return prioritizeName(String(a.key)).localeCompare(
+      prioritizeName(String(b.key)),
+    );
   },
   aliasDuplicateObjects: false,
   singleQuote: true,
 };
+
+/**
+ * Iterate object/array entries in the same order they will appear in the
+ * YAML output. Arrays preserve their index order; plain objects are sorted
+ * by the same comparator as `yamlOptions.sortMapEntries`.
+ *
+ * Use this whenever traversal order influences a side effect that the YAML
+ * representation also expresses (e.g. auto-numbered inline-script paths in
+ * `extractInlineScriptsForApps`). Without it, the path-assigner walks the
+ * in-memory key order returned by `JSON.parse` (server insertion order),
+ * but the YAML serializer reorders keys alphabetically — so identically
+ * named scripts get numbers that don't line up with their position on disk
+ * and shuffle between pulls when the server returns keys in a different order.
+ */
+export function yamlSortedEntries(rec: any): [string, any][] {
+  const entries = Object.entries(rec);
+  if (Array.isArray(rec)) {
+    return entries;
+  }
+  entries.sort(([a], [b]) =>
+    prioritizeName(a).localeCompare(prioritizeName(b)),
+  );
+  return entries;
+}
 
 export interface InlineScript {
   path: string;
@@ -326,11 +684,15 @@ export function extractFieldsForRawApps(runnables: Record<string, any>) {
  * References the raw-app skill for complete documentation and includes instance-specific
  * data configuration (datatable, schema, whitelisted tables).
  */
-export function generateAgentsDocumentation(data: {
-  tables?: string[];
-  datatable?: string;
-  schema?: string;
-} | undefined): string {
+export function generateAgentsDocumentation(
+  data:
+    | {
+        tables?: string[];
+        datatable?: string;
+        schema?: string;
+      }
+    | undefined,
+): string {
   const tables = data?.tables ?? [];
   const defaultDatatable = data?.datatable;
   const defaultSchema = data?.schema;
@@ -345,15 +707,19 @@ This file contains **app-specific configuration** for this raw app instance.
 
 ## Data Configuration
 
-${defaultDatatable
-  ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ''}`
-  : '**No default datatable configured.** Set \`data.datatable\` in \`raw_app.yaml\` to enable database access.'}
+${
+  defaultDatatable
+    ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ""}`
+    : "**No default datatable configured.** Set \`data.datatable\` in \`raw_app.yaml\` to enable database access."
+}
 
 ### Whitelisted Tables
 
-${tables.length > 0
-  ? `These tables are accessible to this app:\n\n${tables.map(t => `- \`${t}\``).join('\n')}`
-  : `**No tables whitelisted.** Add tables to \`data.tables\` in \`raw_app.yaml\`.`}
+${
+  tables.length > 0
+    ? `These tables are accessible to this app:\n\n${tables.map((t) => `- \`${t}\``).join("\n")}`
+    : `**No tables whitelisted.** Add tables to \`data.tables\` in \`raw_app.yaml\`.`
+}
 
 ### Adding a Table
 
@@ -361,10 +727,10 @@ Edit \`raw_app.yaml\`:
 
 \`\`\`yaml
 data:
-  datatable: ${defaultDatatable || 'main'}
-  ${defaultSchema ? `schema: ${defaultSchema}\n  ` : ''}tables:
-${tables.length > 0 ? tables.map(t => `    - ${t}`).join('\n') : '    # Add tables here'}
-    - ${defaultDatatable || 'main'}/${defaultSchema ? defaultSchema + ':' : ''}new_table  # ← Add like this
+  datatable: ${defaultDatatable || "main"}
+  ${defaultSchema ? `schema: ${defaultSchema}\n  ` : ""}tables:
+${tables.length > 0 ? tables.map((t) => `    - ${t}`).join("\n") : "    # Add tables here"}
+    - ${defaultDatatable || "main"}/${defaultSchema ? defaultSchema + ":" : ""}new_table  # ← Add like this
 \`\`\`
 
 **Table reference formats:**
@@ -375,7 +741,7 @@ ${tables.length > 0 ? tables.map(t => `    - ${t}`).join('\n') : '    # Add tabl
 
 ## Quick Reference
 
-**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill app generate-locks\`
+**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill generate-metadata\`
 
 **Call from frontend:**
 \`\`\`typescript
@@ -400,11 +766,15 @@ const rows = await sql\`SELECT * FROM table WHERE id = \${id}\`.fetch();
  * Generates a simple DATATABLES.md with just the current configuration summary.
  * The detailed schema information is generated by generate_datatables.ts command.
  */
-export function generateDatatablesDocumentation(data: {
-  tables?: string[];
-  datatable?: string;
-  schema?: string;
-} | undefined): string {
+export function generateDatatablesDocumentation(
+  data:
+    | {
+        tables?: string[];
+        datatable?: string;
+        schema?: string;
+      }
+    | undefined,
+): string {
   const tables = data?.tables ?? [];
   const defaultDatatable = data?.datatable;
   const defaultSchema = data?.schema;
@@ -418,15 +788,19 @@ Run \`wmill app generate-agents\` to refresh with current workspace schemas.
 
 ## Current Configuration
 
-${defaultDatatable
-  ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ''}`
-  : '**No default datatable configured.**'}
+${
+  defaultDatatable
+    ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ""}`
+    : "**No default datatable configured.**"
+}
 
 ## Whitelisted Tables
 
-${tables.length > 0
-  ? `${tables.map(t => `- \`${t}\``).join('\n')}`
-  : `*No tables whitelisted. Add tables to \`data.tables\` in \`raw_app.yaml\`.*`}
+${
+  tables.length > 0
+    ? `${tables.map((t) => `- \`${t}\``).join("\n")}`
+    : `*No tables whitelisted. Add tables to \`data.tables\` in \`raw_app.yaml\`.*`
+}
 
 ---
 
@@ -450,8 +824,12 @@ export function extractInlineScriptsForApps(
     return [];
   }
   if (typeof rec == "object") {
-    return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "inlineScript" && typeof v == "object") {
+    // Iterate in YAML output order so that auto-numbered names assigned by
+    // the path-assigner line up with the position they will appear in the
+    // serialized YAML — and stay stable across pulls regardless of the key
+    // order the server returns. See yamlSortedEntries above.
+    return yamlSortedEntries(rec).flatMap(([k, v]) => {
+      if (k == "inlineScript" && v != null && typeof v == "object") {
         rec["type"] = undefined;
         const o: Record<string, any> = v as any;
         const name = toId(key ?? "", rec);
@@ -492,11 +870,17 @@ export function extractInlineScriptsForApps(
   return [];
 }
 
-type FileResourceTypeInfo = { format_extension: string | null; is_fileset: boolean };
+type FileResourceTypeInfo = {
+  format_extension: string | null;
+  is_fileset: boolean;
+};
 
 function parseFileResourceTypeMap(
   raw: Record<string, string | FileResourceTypeInfo>,
-): { formatExtMap: Record<string, string>; filesetMap: Record<string, boolean> } {
+): {
+  formatExtMap: Record<string, string>;
+  filesetMap: Record<string, boolean>;
+} {
   const formatExtMap: Record<string, string> = {};
   const filesetMap: Record<string, boolean> = {};
   for (const [k, v] of Object.entries(raw)) {
@@ -513,7 +897,10 @@ function parseFileResourceTypeMap(
   return { formatExtMap, filesetMap };
 }
 
-async function findFilesetResourceFile(changePath: string): Promise<string> {
+export async function findFilesetResourceFile(
+  changePath: string,
+  wsName?: string | null,
+): Promise<string> {
   // Extract the base path before .fileset/
   const filesetIdx = changePath.indexOf(".fileset" + SEP);
   if (filesetIdx === -1) {
@@ -521,6 +908,16 @@ async function findFilesetResourceFile(changePath: string): Promise<string> {
   }
   const basePath = changePath.substring(0, filesetIdx);
   const candidates = [basePath + ".resource.json", basePath + ".resource.yaml"];
+  // A workspace-specific resource keeps its children at the server-canonical
+  // `<base>.fileset/` while its metadata file carries the workspace suffix.
+  // The suffixed file is this workspace's authoritative metadata, so it must
+  // win over a base file that coexists with it.
+  if (wsName) {
+    candidates.unshift(
+      toWorkspaceSpecificPath(basePath + ".resource.json", wsName),
+      toWorkspaceSpecificPath(basePath + ".resource.yaml", wsName),
+    );
+  }
 
   for (const candidate of candidates) {
     try {
@@ -530,7 +927,58 @@ async function findFilesetResourceFile(changePath: string): Promise<string> {
       // not found, try next
     }
   }
-  throw new Error(`No resource metadata file found for fileset resource: ${changePath}`);
+  throw new Error(
+    `No resource metadata file found for fileset resource: ${changePath}`,
+  );
+}
+
+type FilesetPushResult =
+  | { status: "pushed"; resourceFilePath: string }
+  | { status: "already-synced"; resourceFilePath: string }
+  | { status: "parent-missing" };
+
+async function pushFilesetParentResource(
+  childPath: string,
+  workspaceId: string,
+  alreadySynced: string[],
+  cachedWsName: string | null,
+  specificItems?: SpecificItemsConfig,
+): Promise<FilesetPushResult> {
+  let resourceFilePath: string;
+  try {
+    resourceFilePath = await findFilesetResourceFile(childPath, cachedWsName);
+  } catch {
+    return { status: "parent-missing" };
+  }
+  if (alreadySynced.includes(resourceFilePath)) {
+    return { status: "already-synced", resourceFilePath };
+  }
+  alreadySynced.push(resourceFilePath);
+
+  const newObj = parseFromPath(
+    resourceFilePath,
+    await readTextFile(resourceFilePath),
+  );
+
+  let serverPath = resourceFilePath;
+  let wsSpecific = false;
+  if (cachedWsName && isWorkspaceSpecificFile(resourceFilePath)) {
+    serverPath = fromWorkspaceSpecificPath(resourceFilePath, cachedWsName);
+    wsSpecific = true;
+  } else if (specificItems && isSpecificItem(childPath, specificItems)) {
+    wsSpecific = true;
+  }
+
+  await pushResource(
+    workspaceId,
+    serverPath,
+    undefined,
+    newObj,
+    resourceFilePath,
+    wsSpecific ? true : undefined,
+    true,
+  );
+  return { status: "pushed", resourceFilePath };
 }
 
 function ZipFSElement(
@@ -540,6 +988,7 @@ function ZipFSElement(
   resourceTypeToFormatExtension: Record<string, string>,
   resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
+  stripOnBehalfOf: boolean,
 ): DynFSElement {
   // Pre-scan: find zip base paths of scripts that have modules.
   // These scripts use the folder layout: {basePath}__mod/script.{ext}
@@ -553,9 +1002,13 @@ function ZipFSElement(
             const content = await zip.files[filename].async("text");
             const parsed = JSON.parse(content);
             if (parsed.modules && Object.keys(parsed.modules).length > 0) {
-              _moduleScriptPaths.add(
-                filename.slice(0, -".script.json".length)
-              );
+              const base = filename.slice(0, -".script.json".length);
+              // A dbt script's modules ARE its dbt project, so it keeps the flat
+              // layout: only the project goes in the folder, which is what
+              // `--project-dir` expects and what makes the import a plain copy.
+              if (!isDbtModules(parsed.modules)) {
+                _moduleScriptPaths.add(base);
+              }
             }
           } catch {}
         }
@@ -608,7 +1061,7 @@ function ZipFSElement(
     let finalPath = transformPath();
 
     // Redirect content files for scripts with modules into __mod/ folder
-    if (kind == "other" && exts.some((ext) => p.endsWith(ext))) {
+    if (kind == "other" && hasScriptExt(p)) {
       const normalizedP = p.replace(/^\.[\\/]/, "");
       const moduleScripts = await getModuleScriptPaths();
       for (const basePath of moduleScripts) {
@@ -616,7 +1069,11 @@ function ZipFSElement(
           const ext = normalizedP.slice(basePath.length); // e.g., ".ts", ".py"
           const dir = path.dirname(finalPath);
           const base = path.basename(basePath);
-          finalPath = path.join(dir, base + getModuleFolderSuffix(), "script" + ext);
+          finalPath = path.join(
+            dir,
+            base + getModuleFolderSuffix(),
+            "script" + ext,
+          );
           break;
         }
       }
@@ -637,34 +1094,56 @@ function ZipFSElement(
             }
             let inlineScripts;
             try {
-              const assigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
-              inlineScripts = extractInlineScriptsForFlows(
+              const assigner = newPathAssigner(defaultTs, {
+                skipInlineScriptSuffix: getNonDottedPaths(),
+              });
+              // Preserve original !inline filenames from the flow to avoid phantom renames
+              const inlineMapping = extractCurrentMapping(
                 flow.value.modules as any,
                 {},
+                flow.value.failure_module,
+                flow.value.preprocessor_module,
+              );
+              inlineScripts = extractInlineScriptsForFlows(
+                flow.value.modules as any,
+                inlineMapping,
                 SEP,
                 defaultTs,
                 assigner,
-                { skipInlineScriptSuffix: getNonDottedPaths() },
+                {
+                  skipInlineScriptSuffix: getNonDottedPaths(),
+                  failOnInlineDirective: true,
+                },
               );
               if (flow.value.failure_module) {
-                inlineScripts.push(...extractInlineScriptsForFlows(
-                  [flow.value.failure_module],
-                  {},
-                  SEP,
-                  defaultTs,
-                  assigner,
-                  { skipInlineScriptSuffix: getNonDottedPaths() },
-                ));
+                inlineScripts.push(
+                  ...extractInlineScriptsForFlows(
+                    [flow.value.failure_module],
+                    inlineMapping,
+                    SEP,
+                    defaultTs,
+                    assigner,
+                    {
+                      skipInlineScriptSuffix: getNonDottedPaths(),
+                      failOnInlineDirective: true,
+                    },
+                  ),
+                );
               }
               if (flow.value.preprocessor_module) {
-                inlineScripts.push(...extractInlineScriptsForFlows(
-                  [flow.value.preprocessor_module],
-                  {},
-                  SEP,
-                  defaultTs,
-                  assigner,
-                  { skipInlineScriptSuffix: getNonDottedPaths() },
-                ));
+                inlineScripts.push(
+                  ...extractInlineScriptsForFlows(
+                    [flow.value.preprocessor_module],
+                    inlineMapping,
+                    SEP,
+                    defaultTs,
+                    assigner,
+                    {
+                      skipInlineScriptSuffix: getNonDottedPaths(),
+                      failOnInlineDirective: true,
+                    },
+                  ),
+                );
               }
             } catch (error) {
               log.error(
@@ -681,6 +1160,15 @@ function ZipFSElement(
                   return s.content;
                 },
               };
+            }
+
+            if (stripOnBehalfOf) {
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless flow.
+              if ((flow as any).on_behalf_of_email) {
+                (flow as any).has_on_behalf_of = true;
+              }
+              delete (flow as any).on_behalf_of_email;
             }
 
             yield {
@@ -704,7 +1192,9 @@ function ZipFSElement(
               inlineScripts = extractInlineScriptsForApps(
                 undefined,
                 app?.["value"],
-                newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() }),
+                newPathAssigner(defaultTs, {
+                  skipInlineScriptSuffix: getNonDottedPaths(),
+                }),
                 (_, val) => val["name"],
                 false,
               );
@@ -790,7 +1280,7 @@ function ZipFSElement(
                   isDirectory: false,
                   path: path.join(finalPath, filePath.substring(1)),
                   async *getChildren() {},
-                    async getContentText() {
+                  async getContentText() {
                     if (typeof content !== "string") {
                       throw new Error(
                         `Content of raw app file ${filePath} is not a string`,
@@ -879,7 +1369,9 @@ function ZipFSElement(
 
               // Simplify fields for cleaner YAML output
               if (simplifiedRunnable.fields) {
-                simplifiedRunnable.fields = simplifyFields(simplifiedRunnable.fields);
+                simplifiedRunnable.fields = simplifyFields(
+                  simplifiedRunnable.fields,
+                );
               }
 
               yield {
@@ -938,17 +1430,28 @@ function ZipFSElement(
               log.error(`Failed to parse script.yaml at path: ${p}`);
               throw error;
             }
-            const hasModules = parsed["modules"] && Object.keys(parsed["modules"]).length > 0;
+            const hasModules =
+              parsed["modules"] && Object.keys(parsed["modules"]).length > 0;
+            // A dbt script's module folder holds its dbt project and dbt's own
+            // files, so its lock stays outside like a plain script's — only the
+            // descriptor lives in there.
+            const isDbtScript = isDbtModules(parsed["modules"]);
             if (
               parsed["lock"] &&
               parsed["lock"] != "" &&
               parsed["codebase"] == undefined
             ) {
-              if (hasModules) {
+              if (hasModules && !isDbtScript) {
                 // Lock lives inside __mod/ folder as script.lock
-                const scriptBase = removeSuffix(removeSuffix(p.replaceAll(SEP, "/"), ".json"), ".script");
+                const scriptBase = removeSuffix(
+                  removeSuffix(p.replaceAll(SEP, "/"), ".json"),
+                  ".script",
+                );
                 parsed["lock"] =
-                  "!inline " + scriptBase + getModuleFolderSuffix() + "/script.lock";
+                  "!inline " +
+                  scriptBase +
+                  getModuleFolderSuffix() +
+                  "/script.lock";
               } else {
                 parsed["lock"] =
                   "!inline " +
@@ -962,6 +1465,14 @@ function ZipFSElement(
             }
             if (ignoreCodebaseChanges && parsed["codebase"]) {
               parsed["codebase"] = undefined;
+            }
+            if (stripOnBehalfOf) {
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless script.
+              if (parsed["on_behalf_of_email"]) {
+                parsed["has_on_behalf_of"] = true;
+              }
+              delete parsed["on_behalf_of_email"];
             }
             // Modules are stored as files in __mod/ folder, not in metadata
             delete parsed["modules"];
@@ -980,8 +1491,7 @@ function ZipFSElement(
               throw error;
             }
             const resourceType = parsed["resource_type"];
-            const formatExtension =
-              resourceTypeToFormatExtension[resourceType];
+            const formatExtension = resourceTypeToFormatExtension[resourceType];
             const isFileset = resourceTypeToIsFileset[resourceType] ?? false;
 
             if (isFileset) {
@@ -1001,16 +1511,38 @@ function ZipFSElement(
               : JSON.stringify(parsed, null, 2);
           }
 
-          return useYaml && isJson && kind != "dependencies"
-            ? (() => {
-                try {
-                  return yamlStringify(JSON.parse(content), yamlOptions);
-                } catch (error) {
-                  log.error(`Failed to parse JSON content at path: ${p}`);
-                  throw error;
+          if (isJson && kind != "dependencies") {
+            try {
+              const parsed = JSON.parse(content);
+              if (stripOnBehalfOf) {
+                const isSchedule = p.endsWith(".schedule.json");
+                const isTrigger = p.endsWith("_trigger.json");
+                // Only emit the flag when set; a `false` here is the default and
+                // would produce a spurious diff for every ownerless schedule/trigger.
+                if (isSchedule) {
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
+                  delete parsed["permissioned_as"];
+                  delete parsed["email"];
+                  delete parsed["edited_by"];
+                } else if (isTrigger) {
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
+                  delete parsed["permissioned_as"];
+                  delete parsed["edited_by"];
                 }
-              })()
-            : content;
+              }
+              return useYaml
+                ? yamlStringify(parsed, yamlOptions)
+                : JSON.stringify(parsed, null, 2);
+            } catch (error) {
+              log.error(`Failed to parse JSON content at path: ${p}`);
+              throw error;
+            }
+          }
+          return content;
         },
       },
     ];
@@ -1024,18 +1556,24 @@ function ZipFSElement(
         throw error;
       }
       const lock = parsed["lock"];
-      const scriptModules: Record<string, ScriptModule> | undefined = parsed["modules"];
+      const scriptModules: Record<string, ScriptModule> | undefined =
+        parsed["modules"];
       const hasModules = scriptModules && Object.keys(scriptModules).length > 0;
+      // A dbt script's module folder is its dbt project, so the metadata and
+      // lock stay beside it — the descriptor is the one Windmill file that goes
+      // in, because it is the script's content.
+      const isDbt = isDbtModules(scriptModules);
 
       // Compute base path and module folder
       const metaExt = useYaml ? ".yaml" : ".json";
       const scriptBasePath = removeSuffix(
         removeSuffix(finalPath, metaExt),
-        ".script"
+        ".script",
       );
-      const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+      const moduleFolderPath =
+        scriptBasePath + getModuleFolderSuffix(isDbt ? "dbt" : undefined);
 
-      if (hasModules) {
+      if (hasModules && !isDbt) {
         // Redirect metadata into __mod/script.yaml
         r[0].path = path.join(moduleFolderPath, "script" + metaExt);
       }
@@ -1043,9 +1581,10 @@ function ZipFSElement(
       if (lock && lock != "") {
         r.push({
           isDirectory: false,
-          path: hasModules
-            ? path.join(moduleFolderPath, "script.lock")
-            : removeSuffix(finalPath, metaExt) + ".lock",
+          path:
+            hasModules && !isDbt
+              ? path.join(moduleFolderPath, "script.lock")
+              : removeSuffix(finalPath, metaExt) + ".lock",
           async *getChildren() {},
           async getContentText() {
             return lock;
@@ -1072,7 +1611,7 @@ function ZipFSElement(
 
               // Yield the module lock file if present
               if (mod.lock) {
-                const baseName = relPath.replace(/\.[^.]+$/, '');
+                const baseName = relPath.replace(/\.[^.]+$/, "");
                 yield {
                   isDirectory: false,
                   path: path.join(moduleFolderPath, baseName + ".lock"),
@@ -1100,11 +1639,14 @@ function ZipFSElement(
         throw error;
       }
       const resourceType = parsed["resource_type"];
-      const formatExtension =
-        resourceTypeToFormatExtension[resourceType];
+      const formatExtension = resourceTypeToFormatExtension[resourceType];
       const isFileset = resourceTypeToIsFileset[resourceType] ?? false;
 
-      if (isFileset && typeof parsed["value"] === "object" && parsed["value"] !== null) {
+      if (
+        isFileset &&
+        typeof parsed["value"] === "object" &&
+        parsed["value"] !== null
+      ) {
         const filesetBasePath =
           removeSuffix(finalPath, ".resource.json") + ".fileset";
         // Push directory entry for the fileset
@@ -1112,7 +1654,9 @@ function ZipFSElement(
           isDirectory: true,
           path: filesetBasePath,
           async *getChildren() {
-            for (const [relPath, fileContent] of Object.entries(parsed["value"])) {
+            for (const [relPath, fileContent] of Object.entries(
+              parsed["value"],
+            )) {
               if (typeof fileContent === "string") {
                 yield {
                   isDirectory: false,
@@ -1242,8 +1786,20 @@ type Edit = {
   after: string;
   codebase?: string;
 };
+// Flag-only change: the file content matches the server but the local
+// specificItems config flags the item as ws_specific while the server
+// does not (or vice-versa). Emitted only by computeWsSpecificFlagOnlyPushes
+// and routed through its own apply branch — do NOT model this as
+// Edit{before === after}, because any future "skip identical edits"
+// optimization would silently drop these.
+type WsSpecificFlag = {
+  name: "ws_specific_flag";
+  path: string;
+  kind: string;
+  wsSpecific: boolean;
+};
 
-type Change = Added | Deleted | Edit;
+type Change = Added | Deleted | Edit | WsSpecificFlag;
 
 export async function elementsToMap(
   els: DynFSElement,
@@ -1256,18 +1812,35 @@ export async function elementsToMap(
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
+  const wrongFormatPaths: string[] = [];
   // Cache git branch at the start to avoid repeated execSync calls per file
-  const cachedBranch = branchOverride ?? getCurrentGitBranch() ?? undefined;
+  const cachedWsName = branchOverride ?? getCurrentGitBranch() ?? undefined;
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
-    if (entry.isDirectory || entry.ignored) {
+    if (entry.isDirectory) {
+      // Check for folder suffix format mismatch (only for local paths)
+      if (!isRemote) {
+        const dirName = entry.path.split(SEP).pop() ?? "";
+        if (hasWrongFormatSuffix(dirName)) {
+          wrongFormatPaths.push(entry.path);
+        }
+      }
+      continue;
+    }
+    if (entry.ignored) {
       continue;
     }
     const path = entry.path;
     // Include module files in the map so they're compared for changes,
-    // but they're pushed as part of their parent script via handleFile
+    // but they're pushed as part of their parent script via handleFile.
+    // `--skip-scripts` therefore covers them, and has to be applied here: the
+    // filters below are past this shortcut, so a changed module would push the
+    // parent script the flag asked to leave alone — every file of a dbt project
+    // is one of these.
     if (isScriptModulePath(path)) {
-      map[path] = await entry.getContentText();
+      if (!skips.skipScripts) {
+        map[path] = await entry.getContentText();
+      }
       continue;
     }
     if (
@@ -1276,6 +1849,10 @@ export async function elementsToMap(
       !isRawAppFile(path) &&
       !isWorkspaceDependencies(path)
     ) {
+      // The metadata format decides which of the two metadata twins is read,
+      // and drops the other. A dbt descriptor is not metadata and is not
+      // reached here: it lives inside the project folder, so the module branch
+      // above already took it, in both modes.
       if (json && path.endsWith(".yaml")) continue;
       if (!json && path.endsWith(".json")) continue;
 
@@ -1299,6 +1876,7 @@ export async function elementsToMap(
           "nu",
           "java",
           "rb",
+          "r",
           // for related places search: ADD_NEW_LANG
         ].includes(path.split(".").pop() ?? "")
       ) {
@@ -1307,9 +1885,16 @@ export async function elementsToMap(
     }
 
     if (isRawAppFile(path)) {
-      const suffix = path.split(getFolderSuffix("raw_app") + SEP).pop();
+      // FSFSElement builds paths with the platform separator, while the checks
+      // below are written with "/": without normalizing, none of them match on
+      // Windows and the push collector's own exclusions become perpetual diffs.
+      const suffix = path
+        .split(getFolderSuffix("raw_app") + SEP)
+        .pop()
+        ?.replaceAll(SEP, "/");
       if (
         suffix?.startsWith("dist/") ||
+        suffix?.startsWith(RECORDINGS_FOLDER + "/") ||
         suffix == "wmill.d.ts" ||
         suffix == "package-lock.json" ||
         suffix == "DATATABLES.md"
@@ -1318,7 +1903,11 @@ export async function elementsToMap(
       }
     }
 
-    if (skips.skipResources && (isFileResource(path) || isFilesetResource(path))) continue;
+    if (
+      skips.skipResources &&
+      (isFileResource(path) || isFilesetResource(path))
+    )
+      continue;
 
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
@@ -1330,8 +1919,10 @@ export async function elementsToMap(
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
+        path.endsWith(".amqp_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
+        path.endsWith(".azure_trigger" + ext) ||
         path.endsWith(".email_trigger" + ext) ||
         path.endsWith("_native_trigger" + ext))
     ) {
@@ -1359,14 +1950,16 @@ export async function elementsToMap(
         fileType === "workspace_dependencies"
       )
         continue;
+      if (skips.skipDatatableMigrations && fileType === "datatable_migration")
+        continue;
     } catch {
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
 
-    // Handle branch-specific files - skip files for other branches
-    if (specificItems && isBranchSpecificFile(path)) {
-      if (!isCurrentBranchFile(path, cachedBranch)) {
-        // Skip branch-specific files for other branches
+    // Handle workspace-specific files - skip files for other branches
+    if (specificItems && isWorkspaceSpecificFile(path)) {
+      if (!isCurrentWorkspaceFile(path, cachedWsName)) {
+        // Skip workspace-specific files for other branches
         continue;
       }
     }
@@ -1399,13 +1992,13 @@ export async function elementsToMap(
       }
     }
 
-    // Handle branch-specific path mapping after all filtering
-    if (cachedBranch && isCurrentBranchFile(path, cachedBranch)) {
-      // This is a branch-specific file for current branch
-      const currentBranch = cachedBranch;
-      const basePath = fromBranchSpecificPath(path, currentBranch);
+    // Handle workspace-specific path mapping after all filtering
+    if (cachedWsName && isCurrentWorkspaceFile(path, cachedWsName)) {
+      // This is a workspace-specific file for current branch
+      const currentBranch = cachedWsName;
+      const basePath = fromWorkspaceSpecificPath(path, currentBranch);
 
-      // Only use branch-specific files if the item type IS configured as branch-specific
+      // Only use workspace-specific files if the item type IS configured as branch-specific
       // AND matches the pattern. Otherwise, skip and use base file instead.
       if (!isItemTypeConfigured(basePath, specificItems)) {
         // Type not configured as branch-specific - skip, use base file instead
@@ -1419,10 +2012,10 @@ export async function elementsToMap(
       // Type configured AND matches - map to base path
       map[basePath] = content;
       processedBasePaths.add(basePath);
-    } else if (!isBranchSpecificFile(path)) {
+    } else if (!isWorkspaceSpecificFile(path)) {
       // This is a regular base file
       if (processedBasePaths.has(path)) {
-        // Skip base file, we already processed branch-specific version
+        // Skip base file, we already processed workspace-specific version
         continue;
       }
       // Skip base file if it's configured as branch-specific (expect branch version)
@@ -1432,8 +2025,43 @@ export async function elementsToMap(
       }
       map[path] = content;
     }
-    // Note: branch-specific files for other branches are already filtered out earlier
+    // Note: workspace-specific files for other branches are already filtered out earlier
   }
+
+  if (wrongFormatPaths.length > 0) {
+    const isNonDotted = getNonDottedPaths();
+    const foundFormat = isNonDotted
+      ? ".flow/.app/.raw_app"
+      : "__flow/__app/__raw_app";
+    const expectedFormat = isNonDotted
+      ? "__flow/__app/__raw_app"
+      : ".flow/.app/.raw_app";
+    const configHint = isNonDotted
+      ? "Either remove 'nonDottedPaths: true' from wmill.yaml, or rename these directories to use __flow/__app/__raw_app format."
+      : "Either add 'nonDottedPaths: true' to wmill.yaml, or rename these directories to use .flow/.app/.raw_app format.";
+    const pathList = wrongFormatPaths.map((p) => `  ${p}`).join("\n");
+    throw new Error(
+      `Found ${wrongFormatPaths.length} directory(ies) using ${foundFormat} format, but wmill.yaml expects ${expectedFormat}:\n${pathList}\n${configHint}`,
+    );
+  }
+
+  // A dbt project's descriptor is optional, and the two sides spell "absent"
+  // differently: nothing on disk, and nothing in the export (which omits an
+  // empty one so a project that never named a descriptor never grows one).
+  // Left alone that reads as an addition on every push and a deletion on every
+  // pull, forever. Both sides are given the empty descriptor the absence means,
+  // so a descriptor-less project reaches a clean sync state.
+  for (const key of Object.keys(map)) {
+    // Normalized first: the local map's keys are built with `path.join`, so on
+    // Windows this reads `__dbt\\dbt_project.yml` and an unnormalized match
+    // would synthesize nothing — leaving exactly the perpetual push/pull diff
+    // above unguarded, on that platform only.
+    if (!key.replaceAll("\\", "/").endsWith("__dbt/dbt_project.yml")) continue;
+    const descriptor =
+      key.slice(0, -"dbt_project.yml".length) + DBT_DESCRIPTOR_NAME;
+    if (!(descriptor in map)) map[descriptor] = "";
+  }
+
   return map;
 }
 
@@ -1447,6 +2075,7 @@ export interface Skips {
   skipApps?: boolean | undefined;
   skipFolders?: boolean | undefined;
   skipWorkspaceDependencies?: boolean | undefined;
+  skipDatatableMigrations?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
   includeTriggers?: boolean | undefined;
@@ -1454,6 +2083,325 @@ export interface Skips {
   includeGroups?: boolean | undefined;
   includeSettings?: boolean | undefined;
   includeKey?: boolean | undefined;
+}
+
+// Detect paths (and their parent directories) within a single set that differ
+// only by letter case — e.g. a remote workspace that genuinely holds both
+// f/Caps/a and f/caps/b. On a case-insensitive filesystem (Windows, default
+// macOS) these cannot be represented as two distinct files/directories at all,
+// so we can only warn. Returns one group per collision, each listing the
+// distinct casings sorted for stable output.
+//
+// Only the shallowest clash is reported: when two case-variant folders also
+// contain same-named files (f/Caps/main.ts + f/caps/main.ts), the folder clash
+// is the root cause, so the nested per-file group is suppressed rather than
+// inflating the count with one entry per duplicated leaf.
+export function findCaseInsensitiveCollisions(
+  paths: Iterable<string>,
+): string[][] {
+  // lowercased prefix -> set of distinct original casings observed
+  const byLower = new Map<string, Set<string>>();
+  for (const full of paths) {
+    // Compare on normalized forward-slash prefixes so a Windows-style "\" map
+    // key and a remote "/" key collapse to the same prefix.
+    const segs = full.split(/[\\/]/).filter((s) => s.length > 0);
+    let acc = "";
+    for (let i = 0; i < segs.length; i++) {
+      // Accumulate every directory prefix as well as the full file path, so a
+      // "f/Caps" vs "f/caps" folder clash is caught even when the leaf files
+      // (e.g. a.ts vs b.ts) don't themselves collide.
+      acc = i === 0 ? segs[i] : `${acc}/${segs[i]}`;
+      const lower = acc.toLowerCase();
+      let set = byLower.get(lower);
+      if (!set) {
+        set = new Set();
+        byLower.set(lower, set);
+      }
+      set.add(acc);
+    }
+  }
+  const collidingLowers = new Set<string>();
+  for (const [lower, set] of byLower) {
+    if (set.size > 1) collidingLowers.add(lower);
+  }
+  const collisions: string[][] = [];
+  for (const lower of collidingLowers) {
+    // Drop this group if any ancestor prefix is itself a collision — the
+    // shallower folder clash already names the root cause.
+    const parts = lower.split("/");
+    let hasCollidingAncestor = false;
+    for (let i = 1; i < parts.length; i++) {
+      if (collidingLowers.has(parts.slice(0, i).join("/"))) {
+        hasCollidingAncestor = true;
+        break;
+      }
+    }
+    if (!hasCollidingAncestor) {
+      collisions.push([...byLower.get(lower)!].sort());
+    }
+  }
+  return collisions;
+}
+
+type CaseTrieNode = {
+  // lowercased segment -> child, recording the canonical (server) casing and
+  // whether the server holds more than one casing of that segment (ambiguous).
+  children: Map<
+    string,
+    { canonical: string; ambiguous: boolean; node: CaseTrieNode }
+  >;
+};
+
+// Rewrite `localMap` keys to the canonical casing recorded on the server
+// (`remoteMap`) when they differ only by letter case. This is the core
+// WIN-2020 fix: on a case-insensitive filesystem a folder such as `f/Caps`
+// can have its on-disk casing silently drift (e.g. to `f/caps`) — Windows
+// stores whatever case the directory was first created with and reports that
+// from readdir, regardless of the server's path. Without this, the diff sees
+// the drifted local path as an entirely different item and emits a destructive
+// "delete f/Caps + add f/caps" pair, so a single capitalized folder appears to
+// vanish and a lowercase clone shows up out of nowhere. Adopting the server
+// casing collapses that phantom and leaves the canonical path on the server
+// untouched.
+//
+// Canonicalization is segment-by-segment against a trie of remote paths, so it
+// also applies the server's folder casing to brand-new local files that have no
+// exact remote match (e.g. adding f/caps/New.ts under a drifted f/Caps folder
+// becomes f/Caps/New.ts) — otherwise the push would recreate the case-only
+// collision the fix is meant to prevent. A segment is only adopted when the
+// server casing is unambiguous; at the first ambiguous or unknown segment the
+// remainder of the path keeps its local casing.
+//
+// Returns the rewritten map, the per-key rewrites, and any genuinely ambiguous
+// server-side groups (two distinct remote paths differing only by case) — those
+// can't be canonicalized to a single target and are left for the caller to warn
+// about.
+export function canonicalizeCaseInsensitiveKeys(
+  localMap: Record<string, string>,
+  remoteMap: Record<string, string>,
+): {
+  map: Record<string, string>;
+  ambiguous: string[][];
+  rewritten: { from: string; to: string }[];
+} {
+  const root: CaseTrieNode = { children: new Map() };
+  for (const k of Object.keys(remoteMap)) {
+    let node = root;
+    for (const seg of k.split(/[\\/]/)) {
+      if (seg.length === 0) continue;
+      const lk = seg.toLowerCase();
+      let entry = node.children.get(lk);
+      if (!entry) {
+        entry = {
+          canonical: seg,
+          ambiguous: false,
+          node: { children: new Map() },
+        };
+        node.children.set(lk, entry);
+      } else if (entry.canonical !== seg) {
+        entry.ambiguous = true;
+      }
+      node = entry.node;
+    }
+  }
+
+  const out: Record<string, string> = {};
+  const rewritten: { from: string; to: string }[] = [];
+  for (const [k, v] of Object.entries(localMap)) {
+    // Preserve the key's own separator style so the rewritten key still matches
+    // the rest of the map (and round-trips through push) on every platform.
+    const sep = k.includes("\\") ? "\\" : "/";
+    const segs = k.split(/[\\/]/);
+    const canonSegs: string[] = [];
+    let node: CaseTrieNode | undefined = root;
+    let changed = false;
+    for (const seg of segs) {
+      if (seg.length === 0) {
+        canonSegs.push(seg);
+        continue;
+      }
+      const entry = node?.children.get(seg.toLowerCase());
+      if (entry && !entry.ambiguous) {
+        if (entry.canonical !== seg) changed = true;
+        canonSegs.push(entry.canonical);
+        node = entry.node;
+      } else {
+        // No unambiguous server guidance for this segment: keep the local
+        // casing here and below (deeper server structure is unknown).
+        canonSegs.push(seg);
+        node = undefined;
+      }
+    }
+    const canonKey = canonSegs.join(sep);
+    if (changed && canonKey !== k) {
+      out[canonKey] = v;
+      rewritten.push({ from: k, to: canonKey });
+    } else {
+      out[k] = v;
+    }
+  }
+
+  return {
+    map: out,
+    ambiguous: findCaseInsensitiveCollisions(Object.keys(remoteMap)),
+    rewritten,
+  };
+}
+
+// Summarize case-only key rewrites by their differing path prefix (typically a
+// folder such as f/caps -> f/Caps) so a folder whose casing drifted is reported
+// once instead of once per contained file.
+export function summarizeCaseRewrites(
+  rewritten: { from: string; to: string }[],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const { from, to } of rewritten) {
+    const fromSegs = from.split(/[\\/]/);
+    const toSegs = to.split(/[\\/]/);
+    // Find the shortest prefix at which the two casings first differ; that is
+    // the folder (or file) whose casing actually changed.
+    let i = 0;
+    while (
+      i < fromSegs.length &&
+      i < toSegs.length &&
+      fromSegs[i] === toSegs[i]
+    ) {
+      i++;
+    }
+    const fromPrefix = fromSegs.slice(0, i + 1).join("/");
+    const toPrefix = toSegs.slice(0, i + 1).join("/");
+    const key = `${fromPrefix} -> ${toPrefix}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(key);
+    }
+  }
+  return out;
+}
+
+// Emit a single grouped warning for case-only collisions that cannot be
+// represented on a case-insensitive filesystem (two distinct server paths
+// differing only by case). Unlike the drift handled by
+// canonicalizeCaseInsensitiveKeys, these require the user to rename one side.
+function warnUnrepresentableCaseCollisions(collisions: string[][]): void {
+  if (collisions.length === 0) return;
+  const groups = collisions.map((g) => `  - ${g.join("  <->  ")}`).join("\n");
+  log.warn(
+    `Found ${collisions.length} path(s) that differ only by letter case:\n` +
+      `${groups}\n` +
+      `On case-insensitive filesystems (Windows, default macOS) these collapse ` +
+      `into a single file/directory and cannot both be synced. Rename one side ` +
+      `to a distinct path to make the tree sync reliably across platforms.`,
+  );
+}
+
+// Probe (and cache) whether `dir` lives on a case-insensitive filesystem.
+// Auto-detected by round-tripping a probe file under two casings, with an
+// explicit WMILL_CASE_INSENSITIVE_FS=true/false override so Windows behaviour
+// can be forced (or emulated for cross-platform repos / tests) on any host.
+let _caseInsensitiveFsCache: boolean | undefined;
+export async function isCaseInsensitiveFilesystem(
+  dir: string,
+): Promise<boolean> {
+  const override = (process.env.WMILL_CASE_INSENSITIVE_FS ?? "")
+    .trim()
+    .toLowerCase();
+  if (override === "true" || override === "1") return true;
+  if (override === "false" || override === "0") return false;
+  if (_caseInsensitiveFsCache !== undefined) return _caseInsensitiveFsCache;
+  let result = false;
+  try {
+    const upper = path.join(dir, `.wmill-CASEPROBE-${process.pid}.tmp`);
+    const lower = path.join(dir, `.wmill-caseprobe-${process.pid}.tmp`);
+    await writeFile(upper, "", "utf-8");
+    try {
+      await stat(lower);
+      result = true; // lowercase name resolves to the file we wrote uppercase
+    } catch {
+      result = false;
+    }
+    await rm(upper).catch(() => {});
+    await rm(lower).catch(() => {});
+  } catch {
+    result = false;
+  }
+  _caseInsensitiveFsCache = result;
+  return result;
+}
+
+// A script's `lock` is NULL on the remote only while the server is still
+// (re)generating it — e.g. an importer relock is in flight after a dependent
+// relative-import module changed, or the script's own first lock job has not
+// settled yet. NULL means "lock pending", NOT "this script has no lock": a
+// genuinely lock-free script (no dependencies, or a codebase script) serializes
+// `lock: ''` (empty string), which keeps its metadata key. The git-sync deploy
+// mirror reads the workspace inside that window and would otherwise mirror the
+// transient NULL as a deletion of the committed `.script.lock` (and strip the
+// `lock: '!inline …'` line from the metadata), corrupting the mirror until the
+// relock writes the identical lock back seconds later (issue #9588).
+//
+// When pulling (remote -> local), if the remote reports a pending (NULL) lock
+// for a script whose committed lock still exists locally, carry the local lock
+// onto the remote map so the diff is a no-op for both the lock file and the
+// metadata `lock` line. An empty-string lock ('') is left untouched, so a real
+// "dependencies removed" transition still deletes the obsolete lock.
+export function preservePendingScriptLocks(
+  remote: Record<string, string>,
+  local: Record<string, string>,
+): void {
+  // A multi-module script keeps its metadata in the folder layout
+  // `…__mod/script.{yaml,json}` instead of `….script.{yaml,json}`.
+  // Map keys are always forward-slash normalized, on every platform.
+  const modMeta = getModuleFolderSuffix() + "/script";
+  for (const metaKey of Object.keys(remote)) {
+    const isYaml =
+      metaKey.endsWith(".script.yaml") || metaKey.endsWith(modMeta + ".yaml");
+    const isJson =
+      metaKey.endsWith(".script.json") || metaKey.endsWith(modMeta + ".json");
+    if (!isYaml && !isJson) continue;
+
+    const localMeta = local[metaKey];
+    if (localMeta === undefined) continue; // script not committed locally
+
+    let remoteParsed: any;
+    let localParsed: any;
+    try {
+      remoteParsed = isYaml
+        ? yamlParseContent(metaKey, remote[metaKey])
+        : JSON.parse(remote[metaKey]);
+      localParsed = isYaml
+        ? yamlParseContent(metaKey, localMeta)
+        : JSON.parse(localMeta);
+    } catch {
+      continue;
+    }
+    if (typeof remoteParsed !== "object" || remoteParsed === null) continue;
+    if (typeof localParsed !== "object" || localParsed === null) continue;
+
+    // Only a NULL/absent remote lock is "pending". An empty-string lock ('') is
+    // a real "no dependencies" state and must still propagate as a deletion.
+    const remoteLock = remoteParsed["lock"];
+    if (remoteLock !== undefined && remoteLock !== null) continue;
+
+    // The local side must reference an inline lock backed by a committed file.
+    const localLock = localParsed["lock"];
+    if (typeof localLock !== "string" || !localLock.startsWith("!inline "))
+      continue;
+
+    // Derive the lock-file key from the `!inline` reference itself, not from the
+    // metadata path: a multi-module script keeps its lock at `…__mod/script.lock`,
+    // which a `.script.yaml -> .script.lock` rewrite would miss. The reference and
+    // the map keys are both forward-slash, so no separator rewrite is needed.
+    const lockKey = localLock.slice("!inline ".length);
+    if (local[lockKey] === undefined) continue; // committed lock already gone
+
+    remoteParsed["lock"] = localLock;
+    remote[metaKey] = isYaml
+      ? yamlStringify(remoteParsed, yamlOptions)
+      : JSON.stringify(remoteParsed, null, 2);
+    remote[lockKey] = local[lockKey];
+  }
 }
 
 async function compareDynFSElement(
@@ -1468,13 +2416,87 @@ async function compareDynFSElement(
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
   isEls1Remote?: boolean,
-): Promise<Change[]> {
-  const [m1, m2] = els2
+  caseInsensitiveFs?: boolean,
+): Promise<{ changes: Change[]; localMap: Record<string, string> }> {
+  let [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote),
-        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote),
+        elementsToMap(
+          els1,
+          ignore,
+          json,
+          skips,
+          specificItems,
+          branchOverride,
+          isEls1Remote,
+        ),
+        elementsToMap(
+          els2,
+          ignore,
+          json,
+          skips,
+          specificItems,
+          branchOverride,
+          !isEls1Remote,
+        ),
       ])
-    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote), {}];
+    : [
+        await elementsToMap(
+          els1,
+          ignore,
+          json,
+          skips,
+          specificItems,
+          branchOverride,
+          isEls1Remote,
+        ),
+        {},
+      ];
+
+  // Reconcile letter-case differences between the local tree and the
+  // authoritative server casing. Only meaningful for an actual two-sided diff
+  // (els2 defined) where we know which side is the remote.
+  if (els2 && isEls1Remote !== undefined) {
+    const remoteMap = isEls1Remote ? m1 : m2;
+
+    // Always warn about server paths that differ only by case (e.g. f/Caps and
+    // f/caps as two distinct items). These cannot coexist on a case-insensitive
+    // filesystem, so flag them on every platform — a Linux author needs to know
+    // their tree won't round-trip for a Windows/macOS teammate.
+    warnUnrepresentableCaseCollisions(
+      findCaseInsensitiveCollisions(Object.keys(remoteMap)),
+    );
+
+    // On a case-insensitive filesystem, the local on-disk casing of a folder
+    // can drift from the server's (Windows reports the case the directory was
+    // first created with). Rewrite those drifted local keys to the server
+    // casing so the diff treats them as the same item instead of a destructive
+    // delete+add pair. This is the WIN-2020 fix.
+    if (caseInsensitiveFs) {
+      const { map, rewritten } = canonicalizeCaseInsensitiveKeys(
+        isEls1Remote ? m2 : m1,
+        remoteMap,
+      );
+      if (isEls1Remote) {
+        m2 = map;
+      } else {
+        m1 = map;
+      }
+      const summary = summarizeCaseRewrites(rewritten);
+      if (summary.length > 0) {
+        log.info(
+          `Reconciled ${summary.length} local path(s) to the server's casing ` +
+            `(case-insensitive filesystem):\n` +
+            summary.map((s) => `  ${s}`).join("\n"),
+        );
+      }
+    }
+  }
+
+  // Pull only (remote is els1): keep a committed `.script.lock` when the remote
+  // lock is transiently NULL (a relock is mid-flight). See #9588.
+  if (isEls1Remote === true) {
+    preservePendingScriptLocks(m1, m2);
+  }
 
   const changes: Change[] = [];
 
@@ -1493,6 +2515,16 @@ async function compareDynFSElement(
         }
         if (o["is_template"] != undefined) {
           delete o["is_template"];
+        }
+        // no_main_func is a legacy field — replaced by auto_kind and
+        // auto-detected from script content at deploy time. auto_kind is
+        // intentionally never serialized to disk. Strip both so pre-migration
+        // local metadata does not produce phantom diffs.
+        if (o["no_main_func"] != undefined) {
+          delete o["no_main_func"];
+        }
+        if (o["auto_kind"] != undefined) {
+          delete o["auto_kind"];
         }
       }
       return o;
@@ -1518,6 +2550,10 @@ async function compareDynFSElement(
         continue;
       }
       if (k.startsWith("dependencies/")) {
+        if (!workspaceDependenciesPathToLanguageAndFilename(k)) {
+          log.warn(`Skipping unrecognized workspace dependencies file: ${k}`);
+          continue;
+        }
         log.info(`Adding workspace dependencies file: ${k}`);
       }
       changes.push({ name: "added", path: k, content: v });
@@ -1649,7 +2685,12 @@ async function compareDynFSElement(
     return a.path.localeCompare(b.path);
   });
 
-  return changes;
+  // Expose the local-side map so callers (e.g. sync pull's auto-fill) can
+  // reuse it instead of re-walking the filesystem. Which map is local depends
+  // on which side `els1` was — pull passes remote as els1 (isEls1Remote=true),
+  // push passes local as els1 (isEls1Remote=false).
+  const localMap = isEls1Remote ? m2 : m1;
+  return { changes, localMap };
 }
 
 function getOrderFromPath(p: string) {
@@ -1690,8 +2731,10 @@ function getOrderFromPath(p: string) {
     typ == "nats_trigger" ||
     typ == "postgres_trigger" ||
     typ == "mqtt_trigger" ||
+    typ == "amqp_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
+    typ == "azure_trigger" ||
     typ == "email_trigger" ||
     typ == "native_trigger"
   ) {
@@ -1705,6 +2748,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
   if (p.endsWith(SEP)) {
     return false;
   }
+  // The `ui/` folder is workspace-shared frontend components for raw apps.
+  // It's pushed/pulled separately from the diff machinery (see pushSharedUi/pullSharedUi).
+  if (p.startsWith("ui" + SEP)) {
+    return true;
+  }
   if (isDirectory) {
     return (
       !p.startsWith("u" + SEP) &&
@@ -1712,17 +2760,25 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("g" + SEP) &&
       !p.startsWith("users" + SEP) &&
       !p.startsWith("groups" + SEP) &&
-      !p.startsWith("dependencies" + SEP)
+      !p.startsWith("dependencies" + SEP) &&
+      !p.startsWith("migrations" + SEP)
     );
   }
 
-  // Files inside __mod/ folders are script module files — always valid wmill files
+  // Files inside a module folder belong to their parent script, so they are
+  // always valid wmill files — except the ones dbt generates, which are not
+  // part of the bundle and must not surface as items of their own.
   if (isScriptModulePath(p)) {
-    return false;
+    return isDbtGeneratedPath(p);
   }
 
   try {
     const typ = getTypeStrFromPath(p);
+    // Datatable migrations live under migrations/datatable/<datatable>/, outside
+    // the u/f/g namespaces, but are valid wmill files.
+    if (typ == "datatable_migration") {
+      return false;
+    }
     if (
       typ == "resource-type" ||
       typ == "settings" ||
@@ -1751,9 +2807,11 @@ export const isWhitelisted = (p: string) => {
     p == "u" ||
     p == "f" ||
     p == "g" ||
+    p == "ui" ||
     p == "users" ||
     p == "groups" ||
-    p == "dependencies"
+    p == "dependencies" ||
+    p == "migrations"
   );
 };
 
@@ -1763,6 +2821,7 @@ export async function ignoreF(wmillconf: {
   extraIncludes?: string[];
   skipResourceTypes?: boolean;
   skipWorkspaceDependencies?: boolean;
+  skipDatatableMigrations?: boolean;
   json?: boolean;
   includeUsers?: boolean;
   includeGroups?: boolean;
@@ -1827,6 +2886,14 @@ export async function ignoreF(wmillconf: {
         ) {
           return false; // Don't ignore workspace dependencies (they are always included unless explicitly skipped)
         }
+        // `migrations/datatable/**` is outside the u/f/g namespaces the path
+        // filters are written against, so the skip flag is its only control.
+        if (
+          !wmillconf.skipDatatableMigrations &&
+          fileType === "datatable_migration"
+        ) {
+          return false;
+        }
       } catch {
         // If getTypeStrFromPath can't determine the type, fall through to normal logic
       }
@@ -1840,6 +2907,46 @@ export async function ignoreF(wmillconf: {
   };
 }
 
+/**
+ * How many migration *records* a set of changed files covers. One migration is two
+ * files (`.up.sql` + optional `.down.sql`) for a single `(datatable, timestamp)`,
+ * so counting paths would overstate what a prompt is about to delete.
+ */
+export function countDatatableMigrationRecords(
+  changes: { path: string }[],
+): number {
+  const records = new Set<string>();
+  for (const c of changes) {
+    const parsed = parseDatatableMigrationPath(c.path);
+    if (parsed) records.add(`${parsed.datatable}\0${parsed.timestamp}`);
+  }
+  return records.size;
+}
+
+/**
+ * The `deleted` changes for data table migrations that a push cannot safely trust.
+ *
+ * Migrations bypass the repo's path filters (they live outside `f/`/`u/`), so a clone
+ * made before they were synced sees every server-side migration as remote-only — and
+ * `pushMigrationFromDisk` reads a locally absent `.up.sql` as an instruction to delete
+ * it. `recorded` is what this repository's own history says (see
+ * `gitRecordedDatatableMigrationPaths`): a recorded path was genuinely tracked, so its
+ * absence now is a real deletion; a path missing from a `known` set is one this branch
+ * has never had, and deleting it is a guess. `unknown` history is not evidence of
+ * anything, so nothing is trusted. The caller confirms whatever comes back explicitly
+ * and never deletes it unattended.
+ */
+export function untrackedDatatableMigrationDeletions<
+  T extends { name: string; path: string },
+>(changes: T[], recorded: RecordedMigrationPaths): T[] {
+  return changes.filter(
+    (c) =>
+      c.name === "deleted" &&
+      isDatatableMigrationPath(c.path) &&
+      !(recorded.kind === "known" && recorded.paths.has(c.path)),
+  );
+}
+
 interface ChangeTracker {
   scripts: string[];
   flows: string[];
@@ -1847,8 +2954,78 @@ interface ChangeTracker {
   rawApps: string[];
 }
 
+/// The script a module file belongs to, added to the tracker so its top hash is
+/// refreshed. Derived with `getScriptBasePathFromModulePath`, which normalizes
+/// separators: searching the raw path for `__dbt/` found nothing on Windows,
+/// where the folder is spelled `__dbt\`, so every model edit there was skipped.
+async function addModuleParentToChanged(p: string, tracker: ChangeTracker) {
+  // A folder layout's METADATA — `<base>__mod/script.yaml` — is an entry-point
+  // path too, and it is not a content file: pushed as one, the metadata pass
+  // asks `inferContentTypeFromFilePath` for the language of `.yaml` and aborts
+  // the whole command. It resolves to its content file like any other metadata.
+  if (isModuleEntryMetadata(p)) {
+    try {
+      const contentPath = await findContentFile(p);
+      if (contentPath && !tracker.scripts.includes(contentPath)) {
+        tracker.scripts.push(contentPath);
+      }
+    } catch {
+      // ignore — content file not found
+    }
+    return;
+  }
+  if (isModuleEntryPoint(p)) {
+    // Entry point (e.g. __mod/script.ts) IS the parent script content file.
+    if (!tracker.scripts.includes(p)) {
+      tracker.scripts.push(p);
+    }
+    return;
+  }
+  const scriptBasePath = getScriptBasePathFromModulePath(p);
+  if (scriptBasePath === undefined) {
+    return;
+  }
+  const push = async (candidate: string): Promise<boolean> => {
+    try {
+      const contentPath = await findContentFile(candidate);
+      if (contentPath && !tracker.scripts.includes(contentPath)) {
+        tracker.scripts.push(contentPath);
+      }
+      return contentPath != undefined;
+    } catch {
+      return false;
+    }
+  };
+  // A dbt script's metadata sits beside its folder; the descriptor is inside.
+  if (isDbtModulePath(p)) {
+    await push(scriptBasePath + ".script.yaml");
+    return;
+  }
+  // Folder layout first (`__mod/script.{ext}`), then flat.
+  if (!(await push(scriptBasePath + getModuleFolderSuffix() + "/script.yaml"))) {
+    await push(scriptBasePath + ".script.yaml");
+  }
+}
+
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
-  const isScript = exts.some((e) => p.endsWith(e));
+  // Datatable migration .sql files are not scripts; they're synced via the
+  // dedicated datatable_migration handler in the push loop.
+  if (isDatatableMigrationPath(p)) {
+    return;
+  }
+  // Module files first, and whatever their extension: a dbt project authors
+  // `dbt_project.yml`, `packages.yml`, schema YAML and seed CSVs, none of which
+  // are Windmill script extensions — gated behind that test they never reached
+  // the tracker, so the top hash in `wmill-lock.yaml` (which covers the modules)
+  // stayed stale for exactly the files a dbt project is mostly made of.
+  if (isScriptModulePath(p)) {
+    await addModuleParentToChanged(p, tracker);
+    return;
+  }
+  const isScript =
+    hasScriptExt(p) &&
+    !isFileResource(p) &&
+    !isFilesetResource(p);
   if (isScript) {
     if (isFlowPath(p)) {
       const folder = extractFolderPath(p, "flow")!;
@@ -1864,37 +3041,6 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
       const folder = extractFolderPath(p, "raw_app")!;
       if (!tracker.rawApps.includes(folder)) {
         tracker.rawApps.push(folder);
-      }
-    } else if (isScriptModulePath(p)) {
-      if (isModuleEntryPoint(p)) {
-        // Entry point (e.g. __mod/script.ts) IS the parent script content file
-        if (!tracker.scripts.includes(p)) {
-          tracker.scripts.push(p);
-        }
-      } else {
-        // Module file changed — find the parent script content file
-        const moduleSuffix = getModuleFolderSuffix() + "/";
-        const idx = p.indexOf(moduleSuffix);
-        if (idx !== -1) {
-          const scriptBasePath = p.substring(0, idx);
-          // Try folder layout first: __mod/script.{ext}
-          try {
-            const contentPath = await findContentFile(scriptBasePath + getModuleFolderSuffix() + "/script.yaml");
-            if (contentPath && !tracker.scripts.includes(contentPath)) {
-              tracker.scripts.push(contentPath);
-            }
-          } catch {
-            // Fall back to flat layout: scriptBasePath.script.yaml
-            try {
-              const contentPath = await findContentFile(scriptBasePath + ".script.yaml");
-              if (contentPath && !tracker.scripts.includes(contentPath)) {
-                tracker.scripts.push(contentPath);
-              }
-            } catch {
-              // ignore — content file not found
-            }
-          }
-        }
       }
     } else {
       if (!tracker.scripts.includes(p)) {
@@ -1913,7 +3059,7 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   }
 }
 
-async function buildTracker(changes: Change[]) {
+export async function buildTracker(changes: Change[]) {
   const tracker: ChangeTracker = {
     scripts: [],
     flows: [],
@@ -1932,7 +3078,7 @@ async function buildTracker(changes: Change[]) {
  * When a module file changes, find and push the parent script.
  * The parent script's handleFile will read the __mod/ folder and include all modules.
  */
-async function pushParentScriptForModule(
+export async function pushParentScriptForModule(
   modulePath: string,
   workspace: Workspace,
   alreadySynced: string[],
@@ -1941,11 +3087,82 @@ async function pushParentScriptForModule(
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
 ): Promise<void> {
-  const moduleSuffix = getModuleFolderSuffix() + "/";
-  const idx = modulePath.indexOf(moduleSuffix);
-  if (idx === -1) return;
-  const scriptBasePath = modulePath.substring(0, idx);
-  const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+  const isDbt = isDbtModulePath(modulePath);
+  // Via the shared helper, which normalizes separators: a Windows path spells
+  // the folder `__dbt\\`, and searching the raw path for `__dbt/` would find
+  // nothing and silently return without deploying the parent — while the caller
+  // still records the file as synced.
+  const scriptBasePath = getScriptBasePathFromModulePath(modulePath);
+  if (scriptBasePath === undefined) return;
+  const moduleFolderPath =
+    scriptBasePath + getModuleFolderSuffix(isDbt ? "dbt" : undefined);
+
+  // A dbt project's descriptor sits INSIDE its folder (`__dbt/wm_dbt.yaml`) and
+  // is optional, so the project itself is what identifies the script.
+  if (isDbt) {
+    // Only the LOOKUP is tolerated: a module under no script's project is a
+    // stray file, not an error. Deploying it is not — swallowing that would let
+    // a module-only push report success while the remote project is unchanged.
+    // BEFORE the lookup, because the lookup succeeds whenever a descriptor is
+    // there: `dbt_project.yml` is what makes the bundle a project, and pushing
+    // without it replaces a healthy deployment with one whose dependency job
+    // fails for having no project at all.
+    const hasMetadata =
+      existsSync(scriptBasePath + ".script.yaml") ||
+      existsSync(scriptBasePath + ".script.json");
+    if (!existsSync(moduleFolderPath + "/dbt_project.yml")) {
+      if (hasMetadata) {
+        throw new Error(
+          `${moduleFolderPath} has no dbt_project.yml but ${scriptBasePath}.script.yaml ` +
+            `remains, so there is no dbt project left to push. Delete the metadata too to ` +
+            `archive the script, or restore the project.`
+        );
+      }
+      // Nothing local claims this script any more — neither project nor
+      // metadata — so it is archived like any other locally deleted item. The
+      // deletions arrive one file at a time, hence `alreadySynced`.
+      const remote = scriptBasePath.replaceAll(SEP, "/");
+      if (!alreadySynced.includes(remote)) {
+        alreadySynced.push(remote);
+        log.info(`Archiving script ${remote}`);
+        await wmill
+          .archiveScriptByPath({ workspace: workspace.workspaceId, path: remote })
+          .catch((e: any) => {
+            // Only "already gone" is the state we wanted. An auth, network or
+            // server failure must fail the push: swallowing it reports success
+            // while the project stays deployed, which is the thing this branch
+            // exists to prevent.
+            if (e?.status !== 404) throw e;
+            log.debug(`${remote} was already gone remotely`);
+          });
+      }
+      return;
+    }
+    let contentPath: string | undefined;
+    try {
+      contentPath = await findContentFile(scriptBasePath + ".script.yaml");
+    } catch (e) {
+      // A path claimed by two scripts is not a parent that cannot be found:
+      // swallowed here, `wmill sync push` reports success on a model edit that
+      // deployed nothing, and the collision stays invisible until the ordinary
+      // script overwrites the project.
+      if (e instanceof DbtPathCollisionError) throw e;
+      log.debug(`Could not find parent script for dbt module: ${modulePath}`);
+      return;
+    }
+    if (contentPath) {
+      await handleFile(
+        contentPath,
+        workspace,
+        alreadySynced,
+        message,
+        opts,
+        rawWorkspaceDependencies,
+        codebases,
+      );
+    }
+    return;
+  }
 
   // Try folder layout first: look for script.{ext} inside __mod/
   try {
@@ -1985,7 +3202,20 @@ async function pushParentScriptForModule(
 
 export async function pull(
   opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string; branch?: string },
+    SyncOptions & {
+      repository?: string;
+      promotion?: string;
+      branch?: string;
+      useIndividualBranch?: boolean;
+      groupByFolder?: boolean;
+      gitDeployItems?: string;
+      onlyCreateBranch?: boolean;
+      parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
+      gitCommitterEmail?: string;
+      gitCommitterName?: string;
+    },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
@@ -1996,9 +3226,31 @@ export async function pull(
     opts.skipSecrets = false;
   }
 
-  // Validate branch configuration early (skipped when --branch is used)
+  // Resolve workspace name for config lookups.
+  // --branch resolves git branch → workspace name (deprecated but still supported).
+  // --workspace selects a workspace config entry by name when it matches one,
+  // regardless of --base-url. If it doesn't match any entry it's treated as a
+  // profile/credential selector only.
+  const hasExplicitCredentials = !!opts.baseUrl;
+  let wsNameForConfig: string | undefined;
+
+  if (opts.branch && !hasExplicitCredentials && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
+  }
+
+  wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+
+  if (!opts.branch && opts.workspace && !hasExplicitCredentials) {
+    // Warn if override doesn't match a config key, or mismatches the auto-detected branch
+    warnWorkspaceOverride(opts, opts.workspace);
+  }
+
+  // Validate workspace configuration early. Skip when ANY explicit flag is set
+  // (even a --workspace value that doesn't match a config key — the user opted
+  // out of branch-based auto-detection).
   try {
-    await validateBranchConfiguration(opts, opts.branch);
+    await validateBranchConfiguration(opts, wsNameForConfig ?? opts.workspace);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2011,19 +3263,127 @@ export async function pull(
     await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
   }
 
-  const workspace = await resolveWorkspace(opts, opts.branch);
+  const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
-  // Resolve effective sync options with branch awareness
+  // Git-sync deployment-callback mode: when invoked from the git-sync hub
+  // script with --git-deploy-items, the CWD is an existing clone of the repo.
+  // Switch to the dedicated wm_deploy/fork branch (when applicable) BEFORE any
+  // files are written so the deploy lands on the right branch instead of the
+  // protected base branch.
+  if (opts.gitDeployItems !== undefined) {
+    let deployItems: GitSyncDeployItem[];
+    try {
+      deployItems = JSON.parse(opts.gitDeployItems);
+    } catch (e) {
+      log.error(`Invalid --git-deploy-items JSON: ${e}`);
+      process.exit(1);
+    }
+    const clonedBranchName = getCurrentGitBranch() ?? "main";
+
+    // Throwaway forks force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()). A dev workspace is the exception: it
+    // honors promotion mode and gets per-item wm_deploy/** branches. Dev
+    // workspaces have a prefix-less id, so detect them via the environment label
+    // the backend passes with the deploy.
+    const targetIsFork = isForkWorkspace(
+      workspace.workspaceId,
+      opts.parentWorkspaceId,
+    );
+    const forceOffPromotion = targetIsFork && !opts.devWorkspaceLabel;
+    const useIndividualBranch = forceOffPromotion
+      ? false
+      : !!opts.useIndividualBranch;
+    const groupByFolder = forceOffPromotion ? false : !!opts.groupByFolder;
+
+    // Fork-of-a-fork: when the parent workspace is itself a fork, root the new
+    // branch on the parent's fork branch (the content this fork diverged from).
+    // A dev-workspace parent has a prefix-less id the prefix check can't see, so
+    // the backend passes its environment label; its branch is the label verbatim.
+    const parentBranch = opts.parentDevWorkspaceLabel
+      ? opts.parentDevWorkspaceLabel
+      : opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)
+        ? computeGitSyncDeployBranch({
+            workspaceId: opts.parentWorkspaceId,
+            items: deployItems,
+            useIndividualBranch,
+            groupByFolder,
+            clonedBranchName,
+          })
+        : null;
+    if (parentBranch && parentBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(parentBranch);
+    }
+
+    const deployBranch = computeGitSyncDeployBranch({
+      workspaceId: workspace.workspaceId,
+      parentWorkspaceId: opts.parentWorkspaceId,
+      devWorkspaceLabel: opts.devWorkspaceLabel,
+      items: deployItems,
+      useIndividualBranch,
+      groupByFolder,
+      clonedBranchName,
+    });
+    // A dev workspace whose environment-label branch equals the repository's
+    // tracked branch would silently commit the fork's content straight to the
+    // tracked branch. Refuse instead of deploying in place.
+    if (targetIsFork && deployBranch && deployBranch === clonedBranchName) {
+      log.error(
+        `Fork branch '${deployBranch}' equals the checked-out branch '${clonedBranchName}'; refusing to deploy a fork directly to the tracked branch. Use a different dev workspace label or tracked branch.`,
+      );
+      process.exit(1);
+    }
+    if (deployBranch && deployBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(deployBranch);
+    }
+
+    if (opts.onlyCreateBranch) {
+      // Branch-only publish: there is no commit here, so the GPG-cache-warmth
+      // invariant that motivated moving commit+push to the hub script (WIN-1974,
+      // #9284) does not apply — a bare `git push` of the (empty) branch ref needs
+      // no signing. The hub script only runs its in-process commit+push for the
+      // non-onlyCreateBranch path (`if (!only_create_branch) git_push(...)`), so
+      // the CLI MUST publish the fork branch here or it is never pushed at all.
+      gitSyncDeployPush({
+        items: deployItems,
+        authorName: process.env["WM_USERNAME"] || "windmill",
+        authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
+        committerName: opts.gitCommitterName,
+        committerEmail: opts.gitCommitterEmail,
+        onlyCreateBranch: true,
+      });
+      return;
+    }
+  }
+
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  if (!wsNameForConfig) {
+    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+  }
+
+  // Resolve effective sync options with workspace awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
     opts.promotion,
-    opts.branch,
+    wsNameForConfig,
   );
 
-  // Extract specific items configuration before merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
+  // Extract specific items configuration
+  let specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+
+  // Compute the workspace name for file naming (default to workspaceId)
+  let wsNameForFiles = wsNameForConfig
+    ? resolveWsNameForFiles(opts, wsNameForConfig)
+    : workspace.workspaceId;
+
+  // Augment specificItems with server-side ws_specific entries
+  const localSpecificItems = specificItems;
+  const wsSpecificMerge = await mergeWsSpecificFromServer(
+    workspace.workspaceId,
+    specificItems,
+  );
+  specificItems = wsSpecificMerge.merged;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2063,7 +3423,9 @@ export async function pull(
     opts.includeSettings,
     opts.includeKey,
     opts.skipWorkspaceDependencies,
+    opts.skipDatatableMigrations,
     opts.defaultTs,
+    opts.syncBehavior,
   );
 
   const remote = ZipFSElement(
@@ -2073,13 +3435,14 @@ export async function pull(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     true,
+    parseSyncBehavior(opts.syncBehavior) >= 1,
   );
 
   const local = !opts.stateful
     ? await FSFSElement(process.cwd(), codebases, true)
     : await FSFSElement(path.join(process.cwd(), ".wmill"), [], true);
 
-  const changes = await compareDynFSElement(
+  const { changes, localMap } = await compareDynFSElement(
     remote,
     local,
     await ignoreF(opts),
@@ -2089,13 +3452,35 @@ export async function pull(
     codebases,
     true,
     specificItems,
-    opts.branch,
+    wsNameForFiles,
     true, // els1 (remote) is the remote source
+    await isCaseInsensitiveFilesystem(process.cwd()),
   );
 
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`,
   );
+
+  // Warn about items the server marks ws_specific that aren't covered by
+  // wmill.yaml's specificItems patterns — but only for items affected by
+  // this pull (changes list), so unrelated server-flagged items don't
+  // spam the log. The merge above already ensures correctness for the
+  // pull itself; this is a heads-up that the user's config drifts from
+  // the remote and a future push from another machine without that config
+  // would push the item as non-ws_specific.
+  if (wsSpecificMerge.serverItems && wsSpecificMerge.serverItems.length > 0) {
+    const changedPaths = new Set(changes.map((c) => c.path));
+    for (const item of wsSpecificMerge.serverItems) {
+      const filePath = `${item.path}.${item.item_kind}.yaml`;
+      if (!changedPaths.has(filePath)) continue;
+      if (!isSpecificItem(filePath, localSpecificItems)) {
+        log.warn(
+          `${item.item_kind} ${item.path} is workspace-specific on the remote ` +
+            `but not flagged in wmill.yaml's specificItems — consider adding it.`,
+        );
+      }
+    }
+  }
 
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
@@ -2109,11 +3494,11 @@ export async function pull(
           : {}),
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
-              branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(
+              workspace_specific: true,
+              workspace_specific_path: getWorkspaceSpecificPath(
                 change.path,
                 specificItems,
-                opts.branch,
+                wsNameForFiles,
               ),
             }
           : {}),
@@ -2126,7 +3511,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, opts.branch);
+      prettyChanges(changes, specificItems, wsNameForFiles);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2145,26 +3530,49 @@ export async function pull(
     const conflicts = [];
 
     log.info(colors.gray(`Applying changes to files ...`));
-    for await (const change of changes) {
-      // Determine if this file should be written to a branch-specific path
+    for await (const rawChange of changes) {
+      const change: Change = rawChange;
+      // Determine if this file should be written to a workspace-specific path
       let targetPath = change.path;
       if (specificItems && isSpecificItem(change.path, specificItems)) {
-        const branchSpecificPath = getBranchSpecificPath(
+        const workspaceSpecificPath = getWorkspaceSpecificPath(
           change.path,
           specificItems,
-          opts.branch,
+          wsNameForFiles,
         );
-        if (branchSpecificPath) {
-          targetPath = branchSpecificPath;
+        if (workspaceSpecificPath) {
+          targetPath = workspaceSpecificPath;
         }
       }
 
       const target = path.join(process.cwd(), targetPath);
       const stateTarget = path.join(process.cwd(), ".wmill", targetPath);
+      // An empty dbt descriptor is not a file: the remote spells "this project
+      // named no descriptor" as empty content, and writing that would put a
+      // Windmill file inside a project that has none. ABSENCE is the state to
+      // reach, so both copies are removed if present and their being missing —
+      // a project pulled for the first time — is the goal, not an error. The
+      // `.wmill` copy goes too, or the same change is reported on every pull.
+      //
+      // `force` covers the missing file and NOTHING else: a permission or
+      // read-only-filesystem failure has to surface, or the pull reports
+      // success while the old descriptor — its warehouse, its command, its
+      // arguments — is still what runs locally.
+      if (
+        isDbtDescriptorPath(change.path) &&
+        ((change.name === "added" && change.content === "") ||
+          (change.name === "edited" && change.after === ""))
+      ) {
+        await rm(target, { force: true });
+        if (opts.stateful) {
+          await rm(stateTarget, { force: true });
+        }
+        continue;
+      }
       if (change.name === "edited") {
         if (opts.stateful) {
           try {
-            const currentLocal = await readFile(target, "utf-8");
+            const currentLocal = await readTextFile(target);
             if (
               currentLocal !== change.before &&
               currentLocal !== change.after
@@ -2202,11 +3610,13 @@ export async function pull(
             // ignore
           }
         }
-        if (exts.some((e) => change.path.endsWith(e))) {
+        if (hasScriptExt(change.path)) {
           log.info(
             `Editing script content of ${targetPath}${
               targetPath !== change.path
-                ? colors.gray(` (branch-specific override for ${change.path})`)
+                ? colors.gray(
+                    ` (workspace-specific override for ${change.path})`,
+                  )
                 : ""
             }`,
           );
@@ -2215,9 +3625,11 @@ export async function pull(
           change.path.endsWith(".json")
         ) {
           log.info(
-            `Editing ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Editing ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
-                ? colors.gray(` (branch-specific override for ${change.path})`)
+                ? colors.gray(
+                    ` (workspace-specific override for ${change.path})`,
+                  )
                 : ""
             }`,
           );
@@ -2233,18 +3645,20 @@ export async function pull(
         if (opts.stateful) {
           await mkdir(path.dirname(stateTarget), { recursive: true });
           log.info(
-            `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Adding ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
-                ? colors.gray(` (branch-specific override for ${change.path})`)
+                ? colors.gray(
+                    ` (workspace-specific override for ${change.path})`,
+                  )
                 : ""
             }`,
           );
         }
         await writeFile(target, change.content, "utf-8");
         log.info(
-          `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
+          `Writing ${changeTypeLabel(change.path)}${targetPath}${
             targetPath !== change.path
-              ? colors.gray(` (branch-specific override for ${change.path})`)
+              ? colors.gray(` (workspace-specific override for ${change.path})`)
               : ""
           }`,
         );
@@ -2252,18 +3666,15 @@ export async function pull(
           await copyFile(target, stateTarget);
         }
       } else if (change.name === "deleted") {
-        try {
-          log.info(
-            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
-          );
-          await rm(target);
-          if (opts.stateful) {
-            await rm(stateTarget);
-          }
-        } catch {
-          if (opts.stateful) {
-            await rm(stateTarget);
-          }
+        log.info(`Deleting ${changeTypeLabel(change.path)}${change.path}`);
+        // `force` on both: the goal is that neither copy exists, and a file
+        // already absent — a dbt project's optional descriptor is never written
+        // — is that goal, not an error. Anything else (permissions, a read-only
+        // mount) surfaces rather than leaving a file the sync believes is gone.
+        // The state copy goes too, or the same deletion replays on every sync.
+        await rm(target, { force: true });
+        if (opts.stateful) {
+          await rm(stateTarget, { force: true });
         }
       }
     }
@@ -2313,6 +3724,7 @@ export async function pull(
         false,
       );
     }
+
     if (tracker.apps.length > 0) {
       log.info(
         colors.gray(
@@ -2327,7 +3739,7 @@ export async function pull(
       await generateAppLocksInternal(
         change,
         true,
-        true,
+        false,
         workspace,
         opts,
         true,
@@ -2346,6 +3758,7 @@ export async function pull(
         true,
       );
     }
+
     if (opts.jsonOutput) {
       const result = {
         success: true,
@@ -2358,11 +3771,11 @@ export async function pull(
             : {}),
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
-                branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(
+                workspace_specific: true,
+                workspace_specific_path: getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  wsNameForFiles,
                 ),
               }
             : {}),
@@ -2386,53 +3799,223 @@ export async function pull(
       ),
     );
   }
+
+  // Auto-fill missing lockfile entries for items that exist on disk but have
+  // no entry yet (e.g. flows/apps that predate lockfile maintenance). Runs
+  // regardless of whether the pull had changes from the backend so a no-op
+  // pull still bootstraps the lockfile. Silent on a complete lockfile (just
+  // dict lookups, no hashing). Skipped under --dry-run since auto-fill writes
+  // to wmill-lock.yaml.
+  if (!opts.jsonOutput && !opts.dryRun) {
+    try {
+      // Dynamic import to avoid a circular dep between sync.ts and
+      // generate-metadata.ts. Don't "clean up" to a static import.
+      const { rehashOnly } =
+        await import("../generate-metadata/generate-metadata.ts");
+      // Reuse the local-side file list from the change-tracker so we don't
+      // re-walk the filesystem. Apply the just-applied changes to derive the
+      // post-pull state: localMap is pre-pull, but auto-fill needs to see
+      // additions and skip deletions.
+      const postPullPaths = new Set<string>(Object.keys(localMap));
+      for (const change of changes) {
+        if (change.name === "added") postPullPaths.add(change.path);
+        else if (change.name === "deleted") postPullPaths.delete(change.path);
+      }
+      const filled = await rehashOnly(opts as any, undefined, {
+        missingOnly: true,
+        localFiles: postPullPaths,
+      });
+      const total = filled.scripts + filled.flows + filled.apps;
+      if (total > 0) {
+        log.info(
+          colors.gray(
+            `Auto-filled ${total} missing lockfile entr${total === 1 ? "y" : "ies"} ` +
+              `(${filled.scripts} script, ${filled.flows} flow, ${filled.apps} app) from disk.`,
+          ),
+        );
+      }
+    } catch (e) {
+      // Re-throw fail-fast lockfile errors (unknown version, malformed yaml)
+      // so the user sees them; only swallow soft failures from the auto-fill
+      // walk itself.
+      if (
+        e instanceof UnknownLockVersionError ||
+        e instanceof MalformedLockfileError
+      ) {
+        throw e;
+      }
+      log.warn(
+        colors.yellow(
+          `Could not auto-fill missing lockfile entries: ${e instanceof Error ? e.message : e}`,
+        ),
+      );
+    }
+  }
+
+  try {
+    await pullSharedUi(workspace.workspaceId);
+  } catch (e) {
+    log.warn(`Failed to pull shared UI folder: ${e}`);
+  }
+
+  // Datatable migrations are part of the workspace export now, so they flow
+  // through the normal diff/apply above as `datatable_migration` items.
+
+  // Git-sync deployment-callback mode stops here: branch checkout + pull have
+  // happened, but commit + push are the caller's job. The hub script does
+  // them in-process with `set_gpg_signing_secret` so the agent's pre-warmed
+  // passphrase cache is still warm at sign time (WIN-1974). `gitSyncDeployPush`
+  // stays exported for callers that want the same commit/push behavior.
 }
 
-function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, branchOverride?: string) {
+// Internal git-sync deployment-callback entrypoint. Invoked only by the
+// git-sync hub script (not user-facing — see the hidden `git-deploy`
+// subcommand). Runs inside an existing clone of the repo: switches to the
+// wm_deploy/fork branch when applicable, pulls the workspace content, then
+// commits and pushes. Delegates to `pull` with deploy options set;
+// non-interactive and branch-validation-free since there is no TTY.
+export async function gitDeploy(
+  opts: GlobalOptions &
+    SyncOptions & {
+      repository?: string;
+      gitDeployItems?: string;
+      useIndividualBranch?: boolean;
+      groupByFolder?: boolean;
+      onlyCreateBranch?: boolean;
+      parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
+      skipSecrets?: boolean;
+      gitCommitterEmail?: string;
+      gitCommitterName?: string;
+    },
+) {
+  let items: GitSyncDeployItem[] = [];
+  if (opts.gitDeployItems !== undefined) {
+    try {
+      items = JSON.parse(opts.gitDeployItems);
+    } catch (e) {
+      log.error(`Invalid --git-deploy-items JSON: ${e}`);
+      process.exit(1);
+    }
+  }
+
+  // Throwaway forks force-disable use_individual_branch / group_by_folder (1:1
+  // with the hub script's inner()): they always sync to their own
+  // wm-fork/<branch>/<id> branch, and — critically — that disabling also flips
+  // the include/promotion derivation below. A dev workspace is the exception: it
+  // honors promotion mode, detected via the environment label the backend passes.
+  const isFork = isForkWorkspace(opts.workspace ?? "", opts.parentWorkspaceId);
+  const useIndividualBranch =
+    isFork && !opts.devWorkspaceLabel ? false : !!opts.useIndividualBranch;
+
+  // Derive the include filters from the deployed items (replaces the hub
+  // script's regexFromPath + per-kind --include-* construction).
+  const includes = deriveGitSyncDeployIncludes(items, useIndividualBranch);
+
+  // Promotion: in individual-branch mode, apply promotionOverrides from the
+  // base branch the repo was cloned on (read now, before `pull` checks out
+  // the wm_deploy branch). Mirrors the hub script's `--promotion <branch>`.
+  const promotion =
+    useIndividualBranch && !opts.promotion
+      ? (getCurrentGitBranch() ?? undefined)
+      : opts.promotion;
+
+  await pull({
+    ...opts,
+    yes: true,
+    skipBranchValidation: true,
+    extraIncludes: [...(opts.extraIncludes ?? []), ...includes.extraIncludes],
+    // Workspace-wide mode force-includes the deployed default-excluded kinds
+    // (full mirror). Individual-branch/promotion mode forces nothing — these
+    // keys stay ABSENT so pull resolves them from the promotion target's
+    // effective wmill.yaml filters. Spreading (not setting `false`) is what
+    // makes the deferral work: an explicit `false` would clobber the effective
+    // config in pull's Object.assign-based option merge.
+    ...includes.forcedIncludes,
+    promotion,
+  } as any);
+}
+
+// Display label for a change's type, with a trailing space. Datatable migrations
+// are self-describing via their `migrations/datatable/...` path, so they get no
+// label prefix.
+function changeTypeLabel(p: string): string {
+  // Shared UI files (ui/…) are not wmill items — getTypeStrFromPath throws on
+  // them (e.g. ui/config.json). Label them directly.
+  if (p === "ui" || p.startsWith("ui/")) return "shared UI ";
+  const t = getTypeStrFromPath(p);
+  return t === "datatable_migration" ? "" : `${t} `;
+}
+
+function prettyChanges(
+  changes: Change[],
+  specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
+  folderDefaultAnnotations?: Map<string, string>,
+) {
   for (const change of changes) {
     let displayPath = change.path;
-    let branchNote = "";
+    let wsNote = "";
 
-    // Check if this will be written as a branch-specific file
+    // Check if this will be written as a workspace-specific file
     if (specificItems && isSpecificItem(change.path, specificItems)) {
-      const branchSpecificPath = getBranchSpecificPath(
+      const workspaceSpecificPath = getWorkspaceSpecificPath(
         change.path,
         specificItems,
         branchOverride,
       );
-      if (branchSpecificPath) {
-        displayPath = branchSpecificPath;
-        branchNote = " (branch-specific)";
+      if (workspaceSpecificPath) {
+        displayPath = workspaceSpecificPath;
+        wsNote = " (workspace-specific)";
       }
     }
+
+    const folderNote = folderDefaultAnnotations?.get(change.path);
+    const extraNote = folderNote
+      ? colors.cyan(
+          ` (will be permissioned as ${folderNote} via folder default)`,
+        )
+      : "";
 
     if (change.name === "added") {
       log.info(
         colors.green(
-          `+ ${getTypeStrFromPath(change.path)} ` +
+          `+ ${changeTypeLabel(change.path)}` +
             displayPath +
-            colors.gray(branchNote),
-        ),
+            colors.gray(wsNote),
+        ) + extraNote,
       );
     } else if (change.name === "deleted") {
       log.info(
         colors.red(
-          `- ${getTypeStrFromPath(change.path)} ` +
+          `- ${changeTypeLabel(change.path)}` +
             displayPath +
-            colors.gray(branchNote),
+            colors.gray(wsNote),
         ),
       );
     } else if (change.name === "edited") {
       log.info(
         colors.yellow(
-          `~ ${getTypeStrFromPath(change.path)} ` +
+          `~ ${changeTypeLabel(change.path)}` +
             displayPath +
-            colors.gray(branchNote) +
+            colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
         ),
       );
       if (change.before != change.after) {
-        if (change.path.endsWith(".yaml")) {
+        // Shared UI files (ui/…) aren't wmill items; getTypeStrFromPath throws
+        // on them, so fall back to a plain diff.
+        const changeType =
+          change.path === "ui" || change.path.startsWith("ui/")
+            ? "shared_ui"
+            : getTypeStrFromPath(change.path);
+        if (changeType === "encryption_key") {
+          showDiff(
+            redactEncryptionKey(change.before),
+            redactEncryptionKey(change.after),
+          );
+        } else if (change.path.endsWith(".yaml")) {
           try {
             showDiff(
               yamlStringify(
@@ -2451,6 +4034,15 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, b
           showDiff(change.before, change.after);
         }
       }
+    } else if (change.name === "ws_specific_flag") {
+      log.info(
+        colors.cyan(
+          `~ ${change.kind} ${displayPath} ` +
+            (change.wsSpecific
+              ? "(mark as workspace-specific)"
+              : "(unmark as workspace-specific)"),
+        ),
+      );
     }
   }
 }
@@ -2481,10 +4073,77 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
+// Shown after a `wmill sync push --dry-run` preview that has changes. `sync push`
+// deploys to the remote workspace and is destructive (it overwrites and prunes
+// remote items that differ from or are absent locally), so the preview reminds
+// the caller — especially an AI agent that ran the dry-run to inspect changes —
+// to get explicit user confirmation before applying it for real.
+const SYNC_PUSH_DESTRUCTIVE_WARNING =
+  "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites or deletes remote items that differ from or are absent locally — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation.";
+
+// A script pushed without a local lock queues a server-side dependency job; if
+// that job fails the script deploys broken (no lock/assets) with no CLI signal.
+// One-shot (no polling): report this push's already-failed + still-running
+// dependency jobs.
+async function checkServerLockJobs(
+  workspaceId: string,
+  sinceIso: string,
+  changedPaths: string[],
+): Promise<{ pending: number; failed: { path: string; error?: string }[] }> {
+  // A dependency job's script_path has no file extension; changed paths do.
+  const belongsToPush = (scriptPath?: string) =>
+    !!scriptPath &&
+    changedPaths.some(
+      (p) => p === scriptPath || p.startsWith(scriptPath + "."),
+    );
+  // Raw fetch: the checked-in generated client predates the `created_after` /
+  // `success` filters on the job list routes (see the `apiGet` note in
+  // pipeline.ts).
+  const listJobs = async (path: string): Promise<unknown[]> => {
+    const { OpenAPI } = await import("../../../gen/index.ts");
+    const resp = await fetch(`${OpenAPI.BASE}${path}`, {
+      headers: { ...getHeaders(), Authorization: `Bearer ${OpenAPI.TOKEN}` },
+    });
+    if (!resp.ok) throw new Error(`GET ${path} -> ${resp.status}`);
+    return (await resp.json()) as unknown[];
+  };
+  try {
+    const since = encodeURIComponent(sinceIso);
+    const [queued, completed] = await Promise.all([
+      listJobs(
+        `/w/${workspaceId}/jobs/queue/list?job_kinds=dependencies&created_after=${since}`,
+      ),
+      listJobs(
+        `/w/${workspaceId}/jobs/completed/list?job_kinds=dependencies&created_after=${since}&success=false`,
+      ),
+    ]);
+    const pending = (queued as { script_path?: string }[]).filter((j) =>
+      belongsToPush(j.script_path),
+    ).length;
+    const failed = (completed as { script_path?: string; result?: unknown }[])
+      .filter((j) => belongsToPush(j.script_path))
+      .map((j) => ({
+        path: j.script_path!,
+        error: (j.result as { error?: { message?: string } } | undefined)?.error
+          ?.message,
+      }));
+    return { pending, failed };
+  } catch {
+    // Advisory only: a failed check must not fail an otherwise-complete push.
+    return { pending: 0, failed: [] };
+  }
+}
+
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
+  opts: GlobalOptions &
+    SyncOptions & {
+      repository?: string;
+      branch?: string;
+      acceptOverridingPermissionedAsWithSelf?: boolean;
+    },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
+  markRequestsAsSyncOrigin();
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
 
@@ -2496,9 +4155,27 @@ export async function push(
     opts.skipSecrets = false;
   }
 
-  // Validate branch configuration early (skipped when --branch is used)
+  // Resolve workspace name for config lookups (same logic as pull)
+  const hasExplicitCredentials = !!opts.baseUrl;
+  let wsNameForConfig: string | undefined;
+
+  if (opts.branch && !hasExplicitCredentials && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
+  }
+
+  wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+
+  if (!opts.branch && opts.workspace && !hasExplicitCredentials) {
+    // Warn if override doesn't match a config key, or mismatches the auto-detected branch
+    warnWorkspaceOverride(opts, opts.workspace);
+  }
+
+  // Validate workspace configuration early. Skip when ANY explicit flag is set
+  // (even a --workspace value that doesn't match a config key — the user opted
+  // out of branch-based auto-detection).
   try {
-    await validateBranchConfiguration(opts, opts.branch);
+    await validateBranchConfiguration(opts, wsNameForConfig ?? opts.workspace);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2507,19 +4184,42 @@ export async function push(
     throw error;
   }
 
-  const workspace = await resolveWorkspace(opts, opts.branch);
+  const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
-  // Resolve effective sync options with branch awareness
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  if (!wsNameForConfig) {
+    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+  }
+
+  // Resolve effective sync options with workspace awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
     opts.promotion,
-    opts.branch,
+    wsNameForConfig,
   );
 
-  // Extract specific items configuration BEFORE merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
+  // Extract specific items configuration
+  let specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+
+  // Compute the workspace name for file naming (default to workspaceId)
+  let wsNameForFiles = wsNameForConfig
+    ? resolveWsNameForFiles(opts, wsNameForConfig)
+    : workspace.workspaceId;
+
+  // Keep the pre-merge specificItems so we can detect entries that are
+  // flagged locally but not yet ws_specific on the server (post-merge would
+  // include both, making the comparison impossible).
+  const localSpecificItems = specificItems;
+
+  // Augment specificItems with server-side ws_specific entries
+  const wsSpecificMerge = await mergeWsSpecificFromServer(
+    workspace.workspaceId,
+    specificItems,
+  );
+  specificItems = wsSpecificMerge.merged;
+  const serverWsSpecificItems = wsSpecificMerge.serverItems;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2601,17 +4301,24 @@ export async function push(
       opts.includeSettings,
       opts.includeKey,
       opts.skipWorkspaceDependencies,
+      opts.skipDatatableMigrations,
       opts.defaultTs,
+      opts.syncBehavior,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     false,
+    parseSyncBehavior(opts.syncBehavior) >= 1,
   );
 
-  const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
-  const changes = await compareDynFSElement(
+  const local = await FSFSElement(
+    path.join(process.cwd(), ""),
+    codebases,
+    false,
+  );
+  const { changes, localMap } = await compareDynFSElement(
     local,
     remote,
     await ignoreF(opts),
@@ -2621,9 +4328,33 @@ export async function push(
     codebases,
     false,
     specificItems,
-    opts.branch,
+    wsNameForFiles,
     false, // els1 (local) is not the remote source
+    await isCaseInsensitiveFilesystem(process.cwd()),
   );
+
+  // Detect resources/variables that the local config flags as ws_specific
+  // but that aren't ws_specific on the server. The file-content diff misses
+  // these because ws_specific isn't part of the YAML body — emit a dedicated
+  // "ws_specific_flag" change so the apply loop can call updateResource /
+  // updateVariable with just the metadata flag (no content payload). When the
+  // file *also* has a content change, the existing "edited" change handles
+  // both (push{Resource,Variable} forwards the wsSpecific arg), so we skip
+  // injection in that case to avoid pushing twice.
+  const wsSpecificFlagOnly = computeWsSpecificFlagOnlyPushes(
+    localMap,
+    localSpecificItems,
+    serverWsSpecificItems,
+  );
+  for (const item of wsSpecificFlagOnly) {
+    if (changes.some((c) => c.path === item.filePath)) continue;
+    changes.push({
+      name: "ws_specific_flag",
+      path: item.filePath,
+      kind: item.kind,
+      wsSpecific: true,
+    });
+  }
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
 
@@ -2634,19 +4365,157 @@ export async function push(
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
 
+  // Auto-regenerate uses a DoubleLinkedDependencyTree so the dep job can
+  // resolve cross-folder relative imports against not-yet-deployed scripts via
+  // raw_script_temp + temp_script_refs. Without this the importer's lockgen
+  // 404s on its sibling/parent imports because nothing has been pushed yet.
+  const tree = autoRegenerate ? new DoubleLinkedDependencyTree() : undefined;
+  if (tree) tree.setWorkspaceDeps(rawWorkspaceDependencies);
+
+  // Pass 1: populate the tree (autoRegenerate) or run the legacy stale-check
+  // (no autoRegenerate, just collect warnings).
   for (const change of tracker.scripts) {
     const stale = await generateScriptMetadataInternal(
       change,
       workspace,
       opts,
-      !autoRegenerate, // dryRun=false when --auto is set
+      true, // dryRun: pass 1 only populates the tree / detects staleness
       true,
       rawWorkspaceDependencies,
       codebases,
       false,
+      tree,
     );
-    if (stale) {
+    if (!autoRegenerate && stale) {
       staleScripts.push(stale);
+    }
+  }
+  for (const change of tracker.flows) {
+    const stale = await generateFlowLockInternal(
+      change,
+      true,
+      workspace,
+      opts,
+      false,
+      true,
+      tree,
+    );
+    if (!autoRegenerate && stale) {
+      staleFlows.push(stale as string);
+    }
+  }
+  for (const change of tracker.apps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      false,
+      true,
+      workspace,
+      opts,
+      true,
+      true,
+      tree,
+    );
+    if (!autoRegenerate && stale) {
+      staleApps.push(stale as string);
+    }
+  }
+  for (const change of tracker.rawApps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      true,
+      true,
+      workspace,
+      opts,
+      true,
+      true,
+      tree,
+    );
+    if (!autoRegenerate && stale) {
+      staleApps.push(stale as string);
+    }
+  }
+
+  if (autoRegenerate && tree) {
+    // Propagate staleness through imports + upload script content to
+    // raw_script_temp so the dep job can resolve cross-folder relative imports
+    // via temp_script_refs (instead of hitting 404s for not-yet-deployed
+    // scripts and recording lock_error_logs).
+    tree.propagateStaleness();
+    try {
+      await uploadScripts(tree, workspace);
+    } catch (e) {
+      log.warn(
+        colors.yellow(
+          `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+            `Locks will be generated using deployed script versions only — locally modified ` +
+            `relative imports may not be reflected.`,
+        ),
+      );
+    }
+
+    // Pass 2: actually generate metadata/locks. Threading `tree` makes
+    // generateScriptMetadataInternal include temp_script_refs in the
+    // dependencies_async request so the dep job resolves relative imports
+    // against raw_script_temp.
+    for (const change of tracker.scripts) {
+      const generated = await generateScriptMetadataInternal(
+        change,
+        workspace,
+        opts,
+        false,
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+      if (generated) {
+        staleScripts.push(generated);
+      }
+    }
+    for (const change of tracker.flows) {
+      const generated = await generateFlowLockInternal(
+        change,
+        false,
+        workspace,
+        opts,
+        false,
+        true,
+        tree,
+      );
+      if (generated) {
+        staleFlows.push(generated as string);
+      }
+    }
+    for (const change of tracker.apps) {
+      const generated = await generateAppLocksInternal(
+        change,
+        false,
+        false,
+        workspace,
+        opts,
+        true,
+        true,
+        tree,
+      );
+      if (generated) {
+        staleApps.push(generated as string);
+      }
+    }
+    for (const change of tracker.rawApps) {
+      const generated = await generateAppLocksInternal(
+        change,
+        true,
+        false,
+        workspace,
+        opts,
+        true,
+        true,
+        tree,
+      );
+      if (generated) {
+        staleApps.push(generated as string);
+      }
     }
   }
 
@@ -2656,7 +4525,7 @@ export async function push(
       log.info("Auto-regenerated metadata for stale scripts:");
     } else {
       log.warn(
-        "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
+        "Stale scripts metadata found, you may want to update them using 'wmill generate-metadata' before pushing:",
       );
     }
     for (const stale of staleScripts) {
@@ -2670,26 +4539,12 @@ export async function push(
     log.info("");
   }
 
-  for (const change of tracker.flows) {
-    const stale = await generateFlowLockInternal(
-      change,
-      !autoRegenerate, // dryRun=false when --auto is set
-      workspace,
-      opts,
-      false,
-      true,
-    );
-    if (stale) {
-      staleFlows.push(stale as string);
-    }
-  }
-
   if (staleFlows.length > 0) {
     if (autoRegenerate) {
       log.info("Auto-regenerated locks for stale flows:");
     } else {
       log.warn(
-        "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
+        "Stale flows locks found, you may want to update them using 'wmill generate-metadata' before pushing:",
       );
     }
     for (const stale of staleFlows) {
@@ -2702,42 +4557,12 @@ export async function push(
     log.info("");
   }
 
-  for (const change of tracker.apps) {
-    const stale = await generateAppLocksInternal(
-      change,
-      false,
-      !autoRegenerate,
-      workspace,
-      opts,
-      true,
-      true,
-    );
-    if (stale) {
-      staleApps.push(stale as string);
-    }
-  }
-
-  for (const change of tracker.rawApps) {
-    const stale = await generateAppLocksInternal(
-      change,
-      true,
-      !autoRegenerate,
-      workspace,
-      opts,
-      true,
-      true,
-    );
-    if (stale) {
-      staleApps.push(stale as string);
-    }
-  }
-
   if (staleApps.length > 0) {
     if (autoRegenerate) {
       log.info("Auto-regenerated locks for stale apps:");
     } else {
       log.warn(
-        "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:",
+        "Stale apps locks found, you may want to update them using 'wmill generate-metadata' before pushing:",
       );
     }
     for (const stale of staleApps) {
@@ -2758,14 +4583,20 @@ export async function push(
     let triggerCount = 0;
     for await (const entry of readDirRecursiveWithIgnore(() => false, local)) {
       if (entry.isDirectory) continue;
-      if (!opts.includeSchedules && entry.path.endsWith(".schedule.yaml")) scheduleCount++;
-      if (!opts.includeTriggers && entry.path.endsWith("_trigger.yaml")) triggerCount++;
+      if (!opts.includeSchedules && entry.path.endsWith(".schedule.yaml"))
+        scheduleCount++;
+      if (!opts.includeTriggers && entry.path.endsWith("_trigger.yaml"))
+        triggerCount++;
     }
     if (scheduleCount > 0) {
-      skippedWarnings.push(`Skipping ${scheduleCount} schedule file(s). Use --include-schedules or set includeSchedules: true in wmill.yaml`);
+      skippedWarnings.push(
+        `Skipping ${scheduleCount} schedule file(s). Use --include-schedules or set includeSchedules: true in wmill.yaml`,
+      );
     }
     if (triggerCount > 0) {
-      skippedWarnings.push(`Skipping ${triggerCount} trigger file(s). Use --include-triggers or set includeTriggers: true in wmill.yaml`);
+      skippedWarnings.push(
+        `Skipping ${triggerCount} trigger file(s). Use --include-triggers or set includeTriggers: true in wmill.yaml`,
+      );
     }
     for (const warning of skippedWarnings) {
       log.warn(warning);
@@ -2774,6 +4605,71 @@ export async function push(
   }
 
   await fetchRemoteVersion(workspace);
+
+  const recordedMigrationPaths: RecordedMigrationPaths = changes.some(
+    (c) => c.name === "deleted" && isDatatableMigrationPath(c.path),
+  )
+    ? gitRecordedDatatableMigrationPaths()
+    : { kind: "known", paths: new Set() };
+  const ambiguousMigrationDeletions = untrackedDatatableMigrationDeletions(
+    changes,
+    recordedMigrationPaths,
+  );
+  const keepAmbiguousMigrationsOnRemote = () => {
+    log.info(
+      colors.yellow(
+        `Keeping ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} data table migration(s) on the remote: ` +
+          (recordedMigrationPaths.kind === "known"
+            ? `this branch has never tracked them. Run 'wmill sync pull' to track them in git, or delete them from the workspace.`
+            : `${recordedMigrationPaths.reason}, so whether it ever tracked them cannot be established. ` +
+              `${recordedMigrationPaths.remedy} so a real deletion can be told apart, or delete them from the workspace.`),
+      ),
+    );
+    const kept = changes.filter(
+      (c) => !ambiguousMigrationDeletions.includes(c),
+    );
+    changes.length = 0;
+    changes.push(...kept);
+  };
+  // An unattended run never resolves this ambiguity destructively, and a dry-run
+  // preview has to show what a push would really do — settle both before the
+  // change list is printed or serialized. A TTY push asks instead, after the
+  // user has seen the list.
+  let ambiguousMigrationsResolved = false;
+  if (
+    ambiguousMigrationDeletions.length > 0 &&
+    (opts.dryRun || opts.yes || !process.stdin.isTTY)
+  ) {
+    keepAmbiguousMigrationsOnRemote();
+    ambiguousMigrationsResolved = true;
+  }
+
+  // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
+  // and is excluded from the file diff (isNotWmillFile), so surface its diff in
+  // the dry-run preview. Without this the "Pull from repo" preview reads "no
+  // changes" even when the apply will overwrite the shared-UI store. Folded in
+  // only for dry-run (before the count/summary below) so the apply path is
+  // unchanged (pushSharedUi still runs) and the summary count includes ui/.
+  if (opts.dryRun) {
+    try {
+      for (const c of await diffSharedUi(workspace.workspaceId)) {
+        if (c.type === "added") {
+          changes.push({ name: "added", path: c.path, content: "" });
+        } else if (c.type === "deleted") {
+          changes.push({ name: "deleted", path: c.path });
+        } else {
+          changes.push({
+            name: "edited",
+            path: c.path,
+            before: c.before,
+            after: c.after,
+          });
+        }
+      }
+    } catch (e) {
+      log.warn(`Failed to compute shared UI diff for dry-run preview: ${e}`);
+    }
+  }
 
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
@@ -2789,9 +4685,32 @@ export async function push(
       }
     }
     for (const folderName of folderNames) {
-      try {
-        await stat(path.join("f", folderName, "folder.meta.yaml"));
-      } catch {
+      const basePath = path.join("f", folderName, "folder.meta.yaml");
+      const branchPath = getWorkspaceSpecificPath(
+        `f/${folderName}/folder.meta.yaml`,
+        specificItems,
+        wsNameForFiles,
+      );
+      let found = false;
+      // Check branch-specific variant first (e.g. folder.dev.meta.yaml)
+      if (branchPath) {
+        try {
+          await stat(branchPath);
+          found = true;
+        } catch {
+          // fall through to base path check
+        }
+      }
+      // Then check base path
+      if (!found) {
+        try {
+          await stat(basePath);
+          found = true;
+        } catch {
+          // not found
+        }
+      }
+      if (!found) {
         missingFolders.push(folderName);
       }
     }
@@ -2806,7 +4725,18 @@ export async function push(
       `Run 'wmill folder add-missing' to create them locally, then push again.`;
     if (!userIsAdmin) {
       if (opts.jsonOutput) {
-        console.log(JSON.stringify({ success: false, error: "missing_folders", missing_folders: missingFolders, message: msg }, null, 2));
+        console.log(
+          JSON.stringify(
+            {
+              success: false,
+              error: "missing_folders",
+              missing_folders: missingFolders,
+              message: msg,
+            },
+            null,
+            2,
+          ),
+        );
       } else {
         log.error(msg);
       }
@@ -2814,6 +4744,61 @@ export async function push(
     }
     if (!opts.jsonOutput) {
       log.warn(msg);
+    }
+  }
+
+  // Non-canonical fileset pointers abort here — before the dry-run output and
+  // before any change is applied (deletes run first in the apply loop, so a
+  // mid-apply rejection would leave a partial deploy). All violations are
+  // reported at once.
+  {
+    const wsNameForPointerCheck =
+      wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
+    const pointerErrors: string[] = [];
+    for (const change of changes) {
+      if (change.name !== "added" && change.name !== "edited") {
+        continue;
+      }
+      const normalizedPath = change.path.replaceAll(SEP, "/");
+      if (
+        !normalizedPath.endsWith(".resource.yaml") &&
+        !normalizedPath.endsWith(".resource.json")
+      ) {
+        continue;
+      }
+      // Fileset content is arbitrary: a child may itself be named
+      // `*.resource.yaml`, and its body is not this resource's metadata.
+      if (isFilesetResource(change.path)) {
+        continue;
+      }
+      const content = change.name === "added" ? change.content : change.after;
+      let parsed: any;
+      try {
+        parsed = parseFromPath(change.path, content);
+      } catch {
+        // Malformed files surface their own error in the apply loop.
+        continue;
+      }
+      if (
+        typeof parsed?.value === "string" &&
+        parsed.value.startsWith("!inline_fileset ")
+      ) {
+        const serverPath =
+          wsNameForPointerCheck && isWorkspaceSpecificFile(change.path)
+            ? fromWorkspaceSpecificPath(change.path, wsNameForPointerCheck)
+            : change.path;
+        try {
+          validateFilesetPointer(
+            parsed.value.split(" ")[1],
+            removeType(serverPath, "resource"),
+          );
+        } catch (e) {
+          pointerErrors.push(e instanceof Error ? e.message : String(e));
+        }
+      }
+    }
+    if (pointerErrors.length > 0) {
+      throw new Error(pointerErrors.join("\n"));
     }
   }
 
@@ -2829,30 +4814,135 @@ export async function push(
           : {}),
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
-              branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(
+              workspace_specific: true,
+              workspace_specific_path: getWorkspaceSpecificPath(
                 change.path,
                 specificItems,
-                opts.branch,
+                wsNameForFiles,
               ),
             }
           : {}),
       })),
       total: changes.length,
+      ...(changes.length > 0 ? { warning: SYNC_PUSH_DESTRUCTIVE_WARNING } : {}),
     };
     console.log(JSON.stringify(result, null, 2));
     return;
   }
 
   if (changes.length > 0) {
+    // Compute folder-default annotations for added items (shown in prettyChanges + dry-run)
+    let folderDefaultAnnotations: Map<string, string> | undefined;
+    if (parseSyncBehavior(opts.syncBehavior) >= 1) {
+      folderDefaultAnnotations = new Map();
+      const folderRulesCache = new Map<
+        string,
+        Array<{ path_glob: string; permissioned_as: string }>
+      >();
+      for (const change of changes) {
+        if (change.name !== "added") continue;
+        const match = change.path.match(/^f\/([^/]+)\//);
+        if (!match) continue;
+        const folderName = match[1];
+        if (!folderRulesCache.has(folderName)) {
+          try {
+            const folder = await wmill.getFolder({
+              workspace: workspace.workspaceId,
+              name: folderName,
+            });
+            folderRulesCache.set(
+              folderName,
+              (folder as any).default_permissioned_as ?? [],
+            );
+          } catch {
+            folderRulesCache.set(folderName, []);
+          }
+        }
+        const rules = folderRulesCache.get(folderName)!;
+        const remotePath = change.path
+          .replace(
+            /\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|amqp_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/,
+            "",
+          )
+          .replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "")
+          .replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const relative = remotePath.slice(`f/${folderName}/`.length);
+        if (!relative) continue;
+        for (const rule of rules) {
+          if (minimatch(relative, rule.path_glob)) {
+            folderDefaultAnnotations.set(change.path, rule.permissioned_as);
+            break;
+          }
+        }
+      }
+    }
+
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, opts.branch);
+      prettyChanges(
+        changes,
+        specificItems,
+        wsNameForFiles,
+        folderDefaultAnnotations,
+      );
     }
 
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
+      log.warn(colors.yellow(`\n⚠ ${SYNC_PUSH_DESTRUCTIVE_WARNING}`));
       return;
     }
+
+    let permissionedAsContext: PermissionedAsContext | undefined = undefined;
+    if (parseSyncBehavior(opts.syncBehavior) >= 1) {
+      const user = await wmill.whoami({ workspace: workspace.workspaceId });
+      const userIsAdminOrDeployer =
+        user.is_admin || (user.groups ?? []).includes("wm_deployers");
+      log.debug(
+        `permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`,
+      );
+      permissionedAsContext = {
+        userCache: new Map(),
+        userIsAdminOrDeployer,
+        userEmail: user.email,
+      };
+
+      // ws_specific_flag changes have no content payload, so they don't
+      // affect permissioned_as resolution — filter them out before the
+      // pre-check (which expects only added/edited/deleted).
+      await preCheckPermissionedAs(
+        changes.filter((c) => c.name !== "ws_specific_flag"),
+        user.email,
+        userIsAdminOrDeployer,
+        opts.acceptOverridingPermissionedAsWithSelf ?? false,
+        !!process.stdin.isTTY,
+      );
+    } else if (folderDefaultAnnotations && folderDefaultAnnotations.size > 0) {
+      log.warn(
+        colors.yellow(
+          `This workspace has folder default_permissioned_as rules that affect ${folderDefaultAnnotations.size} item(s) being pushed, ` +
+            `but syncBehavior is not set in wmill.yaml. Add 'syncBehavior: v1' to enable ownership preservation on update and on_behalf_of stripping on pull.`,
+        ),
+      );
+    }
+
+    // Reject malformed datatable migrations (duplicate timestamps, orphan downs)
+    // before touching the remote, scanning only the data tables in this push.
+    const migrationDatatables = new Set(
+      changes
+        .map((c) => parseDatatableMigrationPath(c.path)?.datatable)
+        .filter((d): d is string => !!d),
+    );
+    if (migrationDatatables.size > 0) {
+      const migrationErrors = validateLocalMigrations(migrationDatatables);
+      if (migrationErrors.length > 0) {
+        log.error(
+          "Invalid datatable migrations, aborting push:\n" +
+            migrationErrors.map((e) => `  - ${e}`).join("\n"),
+        );
+        process.exit(1);
+      }
+    }
+
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -2863,7 +4953,20 @@ export async function push(
       return;
     }
 
+    if (ambiguousMigrationDeletions.length > 0 && !ambiguousMigrationsResolved) {
+      const deleteThem = await Confirm.prompt({
+        message:
+          `Nothing in this repository's history accounts for ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} migration definition(s), so it may simply never have synced them. ` +
+          `Delete them from the workspace anyway?`,
+        default: false,
+      });
+      if (!deleteThem) {
+        keepAmbiguousMigrationsOnRemote();
+      }
+    }
+
     const start = performance.now();
+    const pushStartedAt = new Date().toISOString();
     log.info(colors.gray(`Applying changes to files ...`));
 
     let stateful = opts.stateful;
@@ -2878,7 +4981,14 @@ export async function push(
     // Group changes by base path (before first dot)
     const groupedChanges = new Map<string, typeof changes>();
     for (const change of changes) {
-      const basePath = change.path.split(".")[0];
+      // A module file is pushed by pushing its parent script, so it belongs in
+      // that script's group. Left in a group of its own it gets its own
+      // `alreadySynced`, and a push touching several files of one bundle then
+      // deploys the script once per file: several versions in a row, of which
+      // only the last is the one the asset graph ends up describing.
+      const basePath =
+        getScriptBasePathFromModulePath(change.path) ??
+        change.path.split(".")[0];
       if (!groupedChanges.has(basePath)) {
         groupedChanges.set(basePath, []);
       }
@@ -2889,11 +4999,21 @@ export async function push(
     if (parallelizationFactor <= 0) {
       parallelizationFactor = 1;
     }
-    const groupedChangesArray = Array.from(groupedChanges.entries());
+    // Partition changes: folder.meta.yaml changes must be applied BEFORE any
+    // item changes under those folders, so a push that updates a folder's
+    // default_permissioned_as rules AND creates new items under it in the same
+    // changeset has the rules in place when the backend resolves defaults for
+    // the new items. Folder changes run sequentially first; everything else
+    // runs through the parallel pool afterwards.
+    const allGrouped = Array.from(groupedChanges.entries());
+    const isFolderMetaGroup = ([basePath]: [string, typeof changes]) =>
+      basePath.endsWith(`${SEP}folder`) || basePath === "folder";
+    const folderMetaGroups = allGrouped.filter(isFolderMetaGroup);
+    const groupedChangesArray = allGrouped.filter((g) => !isFolderMetaGroup(g));
     log.info(
       `found changes for ${
-        groupedChangesArray.length
-      } items with a total of ${groupedChangesArray.reduce(
+        allGrouped.length
+      } items with a total of ${allGrouped.reduce(
         (acc, [_, changes]) => acc + changes.length,
         0,
       )} files to process`,
@@ -2902,16 +5022,47 @@ export async function push(
       log.info(`Parallelizing ${parallelizationFactor} changes at a time`);
     }
 
+    // Changes that could not be applied but do not invalidate the rest of the
+    // push. Reported at the end, and the push exits non-zero for them.
+    const failedChanges: { path: string; error: string }[] = [];
+
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
-    const queue = [...groupedChangesArray];
+    // Process folder.meta groups first (sequentially), then items in parallel.
+    // This ensures a newly-added default_permissioned_as rule is applied before
+    // any item created under that folder in the same push.
+    const queue = [...folderMetaGroups, ...groupedChangesArray];
+    let folderPhaseRemaining = folderMetaGroups.length;
+    const effectiveParallelism = () =>
+      folderPhaseRemaining > 0 ? 1 : parallelizationFactor;
     // Cache git branch at the start to avoid repeated execSync calls per change
-    const cachedBranchForPush = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
+    const cachedWsNameForPush =
+      wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
+
+    // Datatable migrations are two files (.up.sql/.down.sql) for one record, so
+    // dedupe upsert/delete by (datatable, version) across the whole push.
+    const pushedMigrationKeys = new Set<string>();
+    // Migrations newly added by this push (an added .up.sql) — offered to run once
+    // the push has completed.
+    const newDatatableMigrations = changes
+      .filter((c) => c.name === "added")
+      .map((c) => parseDatatableMigrationPath(c.path))
+      .filter((p) => !!p && p.kind === "up")
+      .map((p) => ({
+        datatable: p!.datatable,
+        timestamp: p!.timestamp,
+        name: p!.name,
+      }));
 
     while (queue.length > 0 || pool.size > 0) {
-      // Fill the pool until we reach parallelizationFactor
-      while (pool.size < parallelizationFactor && queue.length > 0) {
-        let [_basePath, changes] = queue.shift()!;
+      // Fill the pool until we reach the effective parallelism limit.
+      // During the folder-meta phase this is 1 (sequential) so no item change
+      // starts before all folder.meta updates have been applied to the backend.
+      while (pool.size < effectiveParallelism() && queue.length > 0) {
+        const [groupBasePath, initialChanges] = queue.shift()!;
+        let changes = initialChanges;
+        const isFolderGroup =
+          groupBasePath.endsWith(`${SEP}folder`) || groupBasePath === "folder";
         const promise = (async () => {
           const alreadySynced: string[] = [];
           const deletedVarsResPaths: string[] = [];
@@ -2925,11 +5076,29 @@ export async function push(
             if (deleteRawApp) {
               changes = [deleteRawApp];
             } else {
+              // The app is one bundle, so a single change re-pushes all of it.
+              // That leaves the loop exactly one change: any skip it takes for
+              // a raw-app path drops the whole app from the push, and nothing
+              // downstream records that as a failure.
               changes.splice(1, changes.length - 1);
             }
           }
 
           for await (const change of changes) {
+            // A datatable migration is one record across two files; upsert/delete
+            // it from disk once (deduped), regardless of which file changed.
+            if (isDatatableMigrationPath(change.path)) {
+              const parsed = parseDatatableMigrationPath(change.path);
+              if (parsed) {
+                const key = `${parsed.datatable}\0${parsed.timestamp}`;
+                if (!pushedMigrationKeys.has(key)) {
+                  pushedMigrationKeys.add(key);
+                  await pushMigrationFromDisk(workspace.workspaceId, parsed);
+                }
+              }
+              continue;
+            }
+
             let stateTarget = undefined;
             if (stateful) {
               try {
@@ -2941,6 +5110,93 @@ export async function push(
             }
 
             if (change.name === "edited") {
+              // A file/fileset resource's content file can carry a script
+              // extension (.sql, .ts, …), so it must be routed to its parent
+              // resource before the script handlers get a chance to treat it
+              // as a standalone script.
+              if (
+                isFileResource(change.path) ||
+                isFilesetResource(change.path)
+              ) {
+                if (stateTarget) {
+                  await mkdir(path.dirname(stateTarget), { recursive: true });
+                  log.info(
+                    `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
+                  );
+                }
+              }
+              // Fileset routing must precede the single-file check (as it does
+              // in the added/deleted branches): a fileset accepts arbitrary
+              // child names, so a child like `<res>.fileset/q.resource.file.sql`
+              // matches both predicates and belongs to its fileset parent.
+              if (isFilesetResource(change.path)) {
+                const result = await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                  specificItems,
+                );
+                if (result.status === "parent-missing") {
+                  throw new Error(
+                    `No resource metadata file found for fileset resource: ${change.path}`,
+                  );
+                }
+                // Pushed or already-synced: the parent resource carries the
+                // whole fileset, so this child's content is on the remote.
+                if (stateTarget) {
+                  await writeFile(stateTarget, change.after, "utf-8");
+                }
+                continue;
+              }
+              if (isFileResource(change.path)) {
+                const resourceFilePath = await findResourceFile(change.path);
+                if (!alreadySynced.includes(resourceFilePath)) {
+                  alreadySynced.push(resourceFilePath);
+
+                  const newObj = parseFromPath(
+                    resourceFilePath,
+                    await readTextFile(resourceFilePath),
+                  );
+
+                  // For branch-specific resources, push to the base path on the workspace server
+                  // This ensures workspace-specific files are stored with their base names in the workspace
+                  let serverPath = resourceFilePath;
+                  const currentBranch = cachedWsNameForPush;
+                  let isFileResWsSpecific = false;
+
+                  if (
+                    currentBranch &&
+                    isWorkspaceSpecificFile(resourceFilePath)
+                  ) {
+                    serverPath = fromWorkspaceSpecificPath(
+                      resourceFilePath,
+                      currentBranch,
+                    );
+                    isFileResWsSpecific = true;
+                  } else if (
+                    specificItems &&
+                    isSpecificItem(change.path, specificItems)
+                  ) {
+                    isFileResWsSpecific = true;
+                  }
+
+                  await pushResource(
+                    workspace.workspaceId,
+                    serverPath,
+                    undefined,
+                    newObj,
+                    resourceFilePath,
+                    isFileResWsSpecific ? true : undefined,
+                    true,
+                  );
+                }
+                // Already-synced parents got the full content this run.
+                if (stateTarget) {
+                  await writeFile(stateTarget, change.after, "utf-8");
+                }
+                continue;
+              }
               if (
                 await handleScriptMetadata(
                   change.path,
@@ -2950,6 +5206,7 @@ export async function push(
                   rawWorkspaceDependencies,
                   codebases,
                   opts,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -2965,6 +5222,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -2993,85 +5251,18 @@ export async function push(
                   `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
               }
-
-              if (isFileResource(change.path)) {
-                const resourceFilePath = await findResourceFile(change.path);
-                if (!alreadySynced.includes(resourceFilePath)) {
-                  alreadySynced.push(resourceFilePath);
-
-                  const newObj = parseFromPath(
-                    resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
-                  );
-
-                  // For branch-specific resources, push to the base path on the workspace server
-                  // This ensures branch-specific files are stored with their base names in the workspace
-                  let serverPath = resourceFilePath;
-                  const currentBranch = cachedBranchForPush;
-
-                  if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
-                    serverPath = fromBranchSpecificPath(
-                      resourceFilePath,
-                      currentBranch,
-                    );
-                  }
-
-                  await pushResource(
-                    workspace.workspaceId,
-                    serverPath,
-                    undefined,
-                    newObj,
-                    resourceFilePath,
-                  );
-                  if (stateTarget) {
-                    await writeFile(stateTarget, change.after, "utf-8");
-                  }
-                  continue;
-                }
-              }
-              if (isFilesetResource(change.path)) {
-                const resourceFilePath = await findFilesetResourceFile(change.path);
-                if (!alreadySynced.includes(resourceFilePath)) {
-                  alreadySynced.push(resourceFilePath);
-
-                  const newObj = parseFromPath(
-                    resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
-                  );
-
-                  let serverPath = resourceFilePath;
-                  const currentBranch = cachedBranchForPush;
-
-                  if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
-                    serverPath = fromBranchSpecificPath(
-                      resourceFilePath,
-                      currentBranch,
-                    );
-                  }
-
-                  await pushResource(
-                    workspace.workspaceId,
-                    serverPath,
-                    undefined,
-                    newObj,
-                    resourceFilePath,
-                  );
-                  if (stateTarget) {
-                    await writeFile(stateTarget, change.after, "utf-8");
-                  }
-                  continue;
-                }
-              }
               const oldObj = parseFromPath(change.path, change.before);
               const newObj = parseFromPath(change.path, change.after);
 
-              // Check if this is a branch-specific item and get the original branch-specific path
-              let originalBranchSpecificPath: string | undefined;
-              if (specificItems && isSpecificItem(change.path, specificItems)) {
-                originalBranchSpecificPath = getBranchSpecificPath(
+              // Check if this is a branch-specific item and get the original workspace-specific path
+              let originalWorkspaceSpecificPath: string | undefined;
+              const isWsSpecific =
+                specificItems && isSpecificItem(change.path, specificItems);
+              if (isWsSpecific) {
+                originalWorkspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  wsNameForFiles,
                 );
               }
 
@@ -3082,20 +5273,83 @@ export async function push(
                 newObj,
                 opts.plainSecrets ?? false,
                 alreadySynced,
-                opts.message,
-                originalBranchSpecificPath,
+                {
+                  message: opts.message,
+                  originalLocalPath: originalWorkspaceSpecificPath,
+                  permissionedAsContext,
+                  wsSpecific: isWsSpecific ? true : undefined,
+                  keyPushOpts: {
+                    noninteractive:
+                      (opts.yes ?? false) || !process.stdin.isTTY,
+                    skipReencrypt: opts.skipReencryptOnKeyChange,
+                  },
+                  defaultTs: opts.defaultTs,
+                },
               );
 
               if (stateTarget) {
                 await writeFile(stateTarget, change.after, "utf-8");
               }
             } else if (change.name === "added") {
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource (guarded by alreadySynced).
+                // Parent-missing means the parent itself is also being added and
+                // its own change will push the full fileset — safe to skip.
+                await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                  specificItems,
+                );
+                continue;
+              }
+              // A script deploys through its content file, which is normally in
+              // the same group — but not always (excludes can filter it out).
+              // Resolving it from disk keeps the deploy idempotent (via
+              // alreadySynced) and stops an unaccompanied metadata file from
+              // being counted as a change that reached the remote.
+              if (!isRawAppFile(change.path)) {
+                let handled = false;
+                try {
+                  handled = await handleScriptMetadata(
+                    change.path,
+                    workspace,
+                    alreadySynced,
+                    opts.message,
+                    rawWorkspaceDependencies,
+                    codebases,
+                    opts,
+                    permissionedAsContext,
+                  );
+                } catch (e) {
+                  if (!(e instanceof UnresolvableScriptContentFileError)) {
+                    throw e;
+                  }
+                  // Nothing deployable here, but the rest of the changeset is
+                  // unaffected — record it so the push reports a failure at the
+                  // end instead of aborting midway with a partial deploy.
+                  failedChanges.push({
+                    path: change.path,
+                    error: e.message,
+                  });
+                  log.error(e.message);
+                  continue;
+                }
+                if (handled) {
+                  continue;
+                }
+              }
               if (
-                change.path.endsWith(".script.json") ||
-                change.path.endsWith(".script.yaml") ||
-                change.path.endsWith(".lock") ||
-                isFileResource(change.path) ||
-                isFilesetResource(change.path)
+                !isRawAppFile(change.path) &&
+                (change.path.endsWith(".script.json") ||
+                  change.path.endsWith(".script.yaml") ||
+                  // A `.lock` is the script's generated lockfile — except inside
+                  // a dbt bundle, where the project may author one (`uv.lock`).
+                  // Skipping it there would report the add on every push and
+                  // never apply it, because no state file is written either.
+                  (change.path.endsWith(".lock") && !isDbtModulePath(change.path)) ||
+                  isFileResource(change.path))
               ) {
                 continue;
               } else if (
@@ -3107,6 +5361,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 continue;
@@ -3131,16 +5386,18 @@ export async function push(
               const obj = parseFromPath(change.path, change.content);
 
               // Determine the actual local file path for this change
-              // For branch-specific items, we read from branch-specific files but push to base server paths
+              // For branch-specific items, we read from workspace-specific files but push to base server paths
               let localFilePath = change.path;
-              if (specificItems && isSpecificItem(change.path, specificItems)) {
-                const branchSpecificPath = getBranchSpecificPath(
+              const isAddedWsSpecific =
+                specificItems && isSpecificItem(change.path, specificItems);
+              if (isAddedWsSpecific) {
+                const workspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  wsNameForFiles,
                 );
-                if (branchSpecificPath) {
-                  localFilePath = branchSpecificPath;
+                if (workspaceSpecificPath) {
+                  localFilePath = workspaceSpecificPath;
                 }
               }
 
@@ -3151,15 +5408,33 @@ export async function push(
                 obj,
                 opts.plainSecrets ?? false,
                 [],
-                opts.message,
-                localFilePath, // Pass the actual local file path
+                {
+                  message: opts.message,
+                  originalLocalPath: localFilePath,
+                  permissionedAsContext,
+                  wsSpecific: isAddedWsSpecific ? true : undefined,
+                  keyPushOpts: {
+                    noninteractive:
+                      (opts.yes ?? false) || !process.stdin.isTTY,
+                    skipReencrypt: opts.skipReencryptOnKeyChange,
+                  },
+                  defaultTs: opts.defaultTs,
+                },
               );
 
               if (stateTarget) {
                 await writeFile(stateTarget, change.content, "utf-8");
               }
             } else if (change.name === "deleted") {
-              if (change.path.endsWith(".lock")) {
+              // Same as the added branch: a dbt project's own `.lock` is one of
+              // its files, so deleting it has to reach the parent script. A raw
+              // app's `.lock` is part of its bundle, and a raw-app group is
+              // collapsed to one change, so skipping it drops the whole app.
+              if (
+                !isRawAppFile(change.path) &&
+                change.path.endsWith(".lock") &&
+                !isDbtModulePath(change.path)
+              ) {
                 continue;
               }
               if (isScriptModulePath(change.path)) {
@@ -3172,6 +5447,19 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                );
+                continue;
+              }
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource (guarded by alreadySynced).
+                // Parent-missing means the parent itself is also being deleted
+                // and its own "deleted" change removes the whole resource.
+                await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                  specificItems,
                 );
                 continue;
               }
@@ -3199,15 +5487,20 @@ export async function push(
                   });
                   break;
                 case "resource": {
-                  const resourcePath = removeSuffix(target, ".resource.json");
+                  const resourcePath = removeResourceSuffix(target);
                   try {
                     await wmill.deleteResource({
                       workspace: workspaceId,
                       path: resourcePath,
                     });
                   } catch (e: any) {
-                    if (e?.status === 404 && deletedVarsResPaths.includes(resourcePath)) {
-                      log.debug(`Resource ${resourcePath} already deleted by linked variable`);
+                    if (
+                      e?.status === 404 &&
+                      deletedVarsResPaths.includes(resourcePath)
+                    ) {
+                      log.debug(
+                        `Resource ${resourcePath} already deleted by linked variable`,
+                      );
                     } else {
                       throw e;
                     }
@@ -3226,7 +5519,10 @@ export async function push(
                     // Metadata file deleted — delete the entire flow
                     await wmill.deleteFlowByPath({
                       workspace: workspaceId,
-                      path: removeSuffix(target, getDeleteSuffix("flow", "json")),
+                      path: removeSuffix(
+                        target,
+                        getDeleteSuffix("flow", "json"),
+                      ),
                     });
                   } else {
                     // Inline script file deleted within flow folder
@@ -3249,7 +5545,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        opts.message,
+                        { message: opts.message },
                       );
                     } else {
                       // Flow folder doesn't exist locally — delete on server
@@ -3268,7 +5564,10 @@ export async function push(
                     // Metadata file deleted — delete the entire app
                     await wmill.deleteApp({
                       workspace: workspaceId,
-                      path: removeSuffix(target, getDeleteSuffix("app", "json")),
+                      path: removeSuffix(
+                        target,
+                        getDeleteSuffix("app", "json"),
+                      ),
                     });
                   } else {
                     // Inline script file deleted within app folder
@@ -3291,7 +5590,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        opts.message,
+                        { message: opts.message },
                       );
                     } else {
                       // App folder doesn't exist locally — delete on server
@@ -3310,7 +5609,10 @@ export async function push(
                     // Delete the entire raw app
                     await wmill.deleteApp({
                       workspace: workspaceId,
-                      path: removeSuffix(target, getDeleteSuffix("raw_app", "json")),
+                      path: removeSuffix(
+                        target,
+                        getDeleteSuffix("raw_app", "json"),
+                      ),
                     });
                   } else {
                     const rawAppFolder = extractFolderPath(target, "raw_app");
@@ -3334,7 +5636,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        opts.message,
+                        { message: opts.message, defaultTs: opts.defaultTs },
                       );
                     } else {
                       // The entire raw app folder was deleted locally,
@@ -3391,6 +5693,12 @@ export async function push(
                     path: removeSuffix(target, ".mqtt_trigger.json"),
                   });
                   break;
+                case "amqp_trigger":
+                  await wmill.deleteAmqpTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".amqp_trigger.json"),
+                  });
+                  break;
                 case "sqs_trigger":
                   await wmill.deleteSqsTrigger({
                     workspace: workspaceId,
@@ -3403,6 +5711,12 @@ export async function push(
                     path: removeSuffix(target, ".gcp_trigger.json"),
                   });
                   break;
+                case "azure_trigger":
+                  await wmill.deleteAzureTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".azure_trigger.json"),
+                  });
+                  break;
                 case "email_trigger":
                   await wmill.deleteEmailTrigger({
                     workspace: workspaceId,
@@ -3413,7 +5727,7 @@ export async function push(
                   const triggerInfo = extractNativeTriggerInfo(change.path);
                   if (!triggerInfo) {
                     throw new Error(
-                      `Invalid native trigger path: ${change.path}`
+                      `Invalid native trigger path: ${change.path}`,
                     );
                   }
                   await wmill.deleteNativeTrigger({
@@ -3431,8 +5745,13 @@ export async function push(
                       path: variablePath,
                     });
                   } catch (e: any) {
-                    if (e?.status === 404 && deletedVarsResPaths.includes(variablePath)) {
-                      log.debug(`Variable ${variablePath} already deleted by linked resource`);
+                    if (
+                      e?.status === 404 &&
+                      deletedVarsResPaths.includes(variablePath)
+                    ) {
+                      log.debug(
+                        `Variable ${variablePath} already deleted by linked resource`,
+                      );
                     } else {
                       throw e;
                     }
@@ -3501,13 +5820,35 @@ export async function push(
                   // state target may not exist already
                 }
               }
+            } else if (change.name === "ws_specific_flag") {
+              const target = change.path.replaceAll(SEP, "/");
+              if (change.kind === "resource") {
+                await wmill.updateResource({
+                  workspace: workspace.workspaceId,
+                  path: removeType(target, "resource"),
+                  requestBody: { ws_specific: change.wsSpecific },
+                });
+              } else if (change.kind === "variable") {
+                await wmill.updateVariable({
+                  workspace: workspace.workspaceId,
+                  path: removeType(target, "variable"),
+                  requestBody: { ws_specific: change.wsSpecific },
+                });
+              } else {
+                log.warn(
+                  `ws_specific_flag change for unsupported kind '${change.kind}' at ${change.path} — skipping`,
+                );
+              }
             }
           }
         })();
 
         pool.add(promise);
         // Remove from pool when complete
-        promise.then(() => pool.delete(promise));
+        promise.then(() => {
+          pool.delete(promise);
+          if (isFolderGroup) folderPhaseRemaining--;
+        });
       }
 
       // Wait for at least one task to complete before continuing
@@ -3515,10 +5856,55 @@ export async function push(
         await Promise.race(pool);
       }
     }
+    try {
+      await pushSharedUi(workspace.workspaceId);
+    } catch (e) {
+      log.warn(`Failed to push shared UI folder: ${e}`);
+    }
+    try {
+      await offerToRunNewMigrations(
+        workspace.workspaceId,
+        newDatatableMigrations,
+        {
+          yes: opts.yes,
+          jsonOutput: opts.jsonOutput,
+        },
+      );
+    } catch (e: any) {
+      log.warn(
+        `Failed to run new datatable migrations: ${e?.body ?? e?.message ?? e}`,
+      );
+    }
+    const lockJobs = await checkServerLockJobs(
+      workspace.workspaceId,
+      pushStartedAt,
+      changes.map((c) => c.path.replaceAll(SEP, "/")),
+    );
+    if (!opts.jsonOutput) {
+      for (const f of lockJobs.failed) {
+        log.warn(
+          `⚠ server-side lock generation FAILED for ${f.path} — the deployed script is broken until it locks.` +
+            (f.error ? `\n  ${f.error.split("\n")[0]}` : ""),
+        );
+      }
+      if (lockJobs.pending > 0) {
+        log.info(
+          colors.gray(
+            `${lockJobs.pending} server-side lock job(s) still running — locks (and inferred assets) land when they finish; check the Runs page if a script stays broken.`,
+          ),
+        );
+      }
+    }
+    const pushedCount = changes.length - failedChanges.length;
     if (opts.jsonOutput) {
       const result = {
-        success: true,
-        message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
+        success: failedChanges.length === 0,
+        lock_jobs: lockJobs,
+        ...(failedChanges.length > 0 ? { failed: failedChanges } : {}),
+        message:
+          failedChanges.length > 0
+            ? `${pushedCount} of ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}; ${failedChanges.length} failed`
+            : `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
         changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
@@ -3527,11 +5913,11 @@ export async function push(
             : {}),
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
-                branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(
+                workspace_specific: true,
+                workspace_specific_path: getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  wsNameForFiles,
                 ),
               }
             : {}),
@@ -3540,6 +5926,15 @@ export async function push(
         duration_ms: Math.round(performance.now() - start),
       };
       console.log(JSON.stringify(result, null, 2));
+    } else if (failedChanges.length > 0) {
+      log.error(
+        colors.bold.red.underline(
+          `\n${pushedCount} of ${changes.length} changes pushed to the remote workspace ${
+            workspace.workspaceId
+          } named ${workspace.name}; ${failedChanges.length} failed:\n` +
+            failedChanges.map((f) => `  - ${f.path}`).join("\n"),
+        ),
+      );
     } else {
       log.info(
         colors.bold.green.underline(
@@ -3553,14 +5948,40 @@ export async function push(
         ),
       );
     }
-  } else if (opts.jsonOutput) {
-    console.log(
-      JSON.stringify(
-        { success: true, message: "No changes to push", total: 0 },
-        null,
-        2,
-      ),
-    );
+    if (failedChanges.length > 0) {
+      // Not process.exit: under Node a piped stdout write is async, so exiting
+      // here would truncate the JSON result mid-object for CI consumers.
+      process.exitCode = 1;
+    }
+  } else {
+    // Dry-run with no changes reaches here (a ui/ diff would have made changes
+    // non-empty and returned above); never mutate the remote in that case.
+    let sharedUiPushed = false;
+    if (!opts.dryRun) {
+      try {
+        sharedUiPushed = await pushSharedUi(workspace.workspaceId);
+      } catch (e) {
+        log.warn(`Failed to push shared UI folder: ${e}`);
+      }
+    }
+    // No changes pushed, so no new datatable migrations to run.
+    if (opts.jsonOutput) {
+      // Shared UI is out-of-band from the file diff (total counts diffed
+      // files), but don't claim "No changes" when the ui/ store was written.
+      console.log(
+        JSON.stringify(
+          {
+            success: true,
+            message: sharedUiPushed
+              ? "Pushed shared UI changes"
+              : "No changes to push",
+            total: 0,
+          },
+          null,
+          2,
+        ),
+      );
+    }
   }
 }
 
@@ -3582,7 +6003,10 @@ const command = new Command()
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
-  .option("--include-secrets", "Include secrets in sync (overrides skipSecrets in wmill.yaml)")
+  .option(
+    "--include-secrets",
+    "Include secrets in sync (overrides skipSecrets in wmill.yaml)",
+  )
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
   .option("--skip-scripts", "Skip syncing scripts")
@@ -3624,7 +6048,7 @@ const command = new Command()
   )
   .option(
     "--branch, --env <branch:string>",
-    "Override the current git branch/environment (works even outside a git repository)",
+    "[Deprecated: use --workspace] Override the current git branch/environment",
   )
   .action(pull as any)
   .command("push")
@@ -3638,7 +6062,10 @@ const command = new Command()
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
-  .option("--include-secrets", "Include secrets in sync (overrides skipSecrets in wmill.yaml)")
+  .option(
+    "--include-secrets",
+    "Include secrets in sync (overrides skipSecrets in wmill.yaml)",
+  )
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
   .option("--skip-scripts", "Skip syncing scripts")
@@ -3656,6 +6083,10 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option(
+    "--skip-reencrypt-on-key-change",
+    "When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.",
+  )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
@@ -3681,14 +6112,70 @@ const command = new Command()
   )
   .option(
     "--branch, --env <branch:string>",
-    "Override the current git branch/environment (works even outside a git repository)",
+    "[Deprecated: use --workspace] Override the current git branch/environment",
   )
   .option("--lint", "Run lint validation before pushing")
   .option(
     "--locks-required",
     "Fail if scripts or flow inline scripts that need locks have no locks",
   )
-  .option("--auto-metadata", "Automatically regenerate stale metadata (locks and schemas) before pushing")
-  .action(push as any);
+  .option(
+    "--auto-metadata",
+    "Automatically regenerate stale metadata (locks and schemas) before pushing",
+  )
+  .option(
+    "--accept-overriding-permissioned-as-with-self",
+    "Accept that items with a different permissioned_as will be updated with your own user",
+  )
+  .action(push as any)
+  // Internal: invoked only by the git-sync hub script. Hidden from help and
+  // the generated agent system prompts (see system_prompts/generate.py).
+  .command("git-deploy")
+  .hidden()
+  .description(
+    "Internal git-sync deployment-callback step (used by the git-sync hub script). Runs inside an existing clone: switches to the wm_deploy/fork branch when applicable, pulls workspace content, then commits and pushes.",
+  )
+  .option(
+    "--repository <repo:string>",
+    "Repository resource path (e.g. u/user/repo)",
+  )
+  .option(
+    "--git-deploy-items <json:string>",
+    "JSON array of {path_type,path,parent_path,commit_msg} being deployed",
+  )
+  .option(
+    "--use-individual-branch",
+    "Push each deployed object to its own wm_deploy/<workspace>/<...> branch",
+  )
+  .option(
+    "--group-by-folder",
+    "With --use-individual-branch, group deployed objects per folder branch",
+  )
+  .option(
+    "--only-create-branch",
+    "Only create/push the deploy branch, skip pulling and committing files",
+  )
+  .option(
+    "--parent-workspace-id <id:string>",
+    "Parent workspace id, used to root a fork-of-a-fork branch",
+  )
+  .option(
+    "--dev-workspace-label <label:string>",
+    "Environment label of a dev workspace (dev, staging, uat, ...); its deploys go to that branch",
+  )
+  .option(
+    "--parent-dev-workspace-label <label:string>",
+    "Environment label of the parent dev workspace; roots a fork-of-dev branch on it",
+  )
+  .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option(
+    "--git-committer-email <email:string>",
+    "Committer email for the deploy commit (GPG-signed repos pass the GPG key email; defaults to WM_EMAIL)",
+  )
+  .option(
+    "--git-committer-name <name:string>",
+    "Committer name for the deploy commit (defaults to WM_USERNAME)",
+  )
+  .action(gitDeploy as any);
 
 export default command;

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE mcp_oauth_server_code SET user_email = $1 WHERE user_email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "273e18a8fe284da79b0929678f2e07d2db3240c1501d99e6b3d2fccfd7405d06"
+}

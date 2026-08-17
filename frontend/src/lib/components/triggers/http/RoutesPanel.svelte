@@ -49,7 +49,7 @@
 			>
 
 			{#if !$userStore?.is_admin && !$userStore?.is_super_admin && selectedTrigger.isDraft}
-				<Alert title="Only workspace admins can create routes" type="info" size="xs" />
+				<Alert title="Non-admin users are limited to workspaced routes" type="info" size="xs" />
 			{/if}
 		</div>
 	{/snippet}

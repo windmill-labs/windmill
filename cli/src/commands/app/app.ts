@@ -4,7 +4,7 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { sep as SEP, isAbsolute, resolve as pathResolve, relative as pathRelative, basename } from "node:path";
 import { stat } from "node:fs/promises";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { yamlParseFile } from "../../utils/yaml.ts";
@@ -12,18 +12,27 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
+import { getWmillYamlPath, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
+import bundleCommand from "./bundle_command.ts";
 import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 
 export interface AppFile {
   value: any;
   public?: boolean;
   summary: string;
   policy: Policy;
+  // Mirrors granular ACLs on the app path. Omitted from app.yaml when no
+  // perms are set. The CLI applies diffs through /acls/add and /acls/remove
+  // (see applyExtraPermsDiff) — never through update_app — so a perm-only
+  // change never bumps the app version.
+  extra_perms?: Record<string, boolean>;
 }
 
 const alreadySynced: string[] = [];
@@ -105,7 +114,8 @@ export async function pushApp(
   workspace: string,
   remotePath: string,
   localPath: string,
-  message?: string
+  message?: string,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -122,6 +132,14 @@ export async function pushApp(
   } catch {
     //ignore
   }
+
+  let remoteOnBehalfOf: string | undefined;
+  let remoteOnBehalfOfEmail: string | undefined;
+  if (app?.policy) {
+    remoteOnBehalfOf = app.policy.on_behalf_of;
+    remoteOnBehalfOfEmail = app.policy.on_behalf_of_email;
+  }
+
   if (isExecutionModeAnonymous(app)) {
     app.public = true;
   }
@@ -143,20 +161,43 @@ export async function pushApp(
     localApp?.["public"] ??
       localApp?.["policy"]?.["execution_mode"] == "anonymous"
   );
-  if (app) {
-    if (isSuperset(localApp, app)) {
-      log.info(colors.green(`App ${remotePath} is up to date`));
-      return;
+
+  const preserveFields: { preserve_on_behalf_of?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (app) {
+      if (localApp.policy && remoteOnBehalfOf) {
+        (localApp.policy as any).on_behalf_of = remoteOnBehalfOf;
+        (localApp.policy as any).on_behalf_of_email = remoteOnBehalfOfEmail;
+        preserveFields.preserve_on_behalf_of = true;
+        log.info(`Preserving ${remoteOnBehalfOfEmail ?? remoteOnBehalfOf} as permissioned_as for app ${remotePath}`);
+      }
     }
-    log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
-    await wmill.updateApp({
-      workspace,
-      path: remotePath,
-      requestBody: {
-        deployment_message: message,
-        ...localApp,
-      },
-    });
+    // On create: backend applies folder defaults
+  }
+
+  // extra_perms goes through /acls/* — strip from the body so a perms-only
+  // edit never bumps the app version (see applyExtraPermsDiff for details).
+  const { extra_perms: localPerms, ...localAppBody } = localApp as AppFile & {
+    extra_perms?: Record<string, boolean>;
+  };
+
+  if (app) {
+    if (isSuperset(localAppBody, app)) {
+      log.info(colors.green(`App ${remotePath} is up to date`));
+    } else {
+      log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
+      await wmill.updateApp({
+        workspace,
+        path: remotePath,
+        requestBody: {
+          deployment_message: message,
+          ...localAppBody,
+          ...preserveFields,
+          // Preserve any user draft at this path (see backend skip_draft_deletion).
+          skip_draft_deletion: true,
+        },
+      });
+    }
   } else {
     log.info(colors.yellow.bold("Creating new app..."));
 
@@ -165,10 +206,25 @@ export async function pushApp(
       requestBody: {
         path: remotePath,
         deployment_message: message,
-        ...localApp,
+        ...localAppBody,
+        ...preserveFields,
+        // Preserve any user draft at this path (see backend skip_draft_deletion).
+        skip_draft_deletion: true,
       },
     });
   }
+
+  // Independent perms sync via /acls/* — self-contained log + non-fatal errors.
+  // No refetch: extra_perms is item-specific and folder perms are never merged
+  // onto item.extra_perms, and the body sent to update_app / create_app omits
+  // the field — so the value we already have from getAppByPath is authoritative.
+  await applyExtraPermsDiff(
+    workspace,
+    "app",
+    remotePath,
+    localPerms,
+    (app as any)?.extra_perms,
+  );
 }
 
 export async function generatingPolicy(
@@ -235,31 +291,129 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
   }
 }
 
-async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
-  if (!validatePath(remotePath)) {
-    return;
-  }
+const APP_FOLDER_SUFFIXES = ["__raw_app", ".raw_app", "__app", ".app"] as const;
+
+async function push(
+  opts: GlobalOptions,
+  filePath?: string,
+  remotePath?: string
+) {
+  // Capture original CWD before resolveWorkspace, which may chdir to the
+  // wmill.yaml root. We need it to resolve relative inputs and to derive
+  // the remote path from the user's location when auto-inferring.
+  const originalCwd = process.cwd();
+
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // Detect raw apps by checking for raw_app.yaml or __raw_app/.raw_app suffix
-  const normalizedPath = filePath.endsWith(SEP) ? filePath.slice(0, -1) : filePath;
-  const isRawApp = normalizedPath.endsWith("__raw_app") || normalizedPath.endsWith(".raw_app");
+  // Auto-infer file path from CWD when omitted
+  if (!filePath) {
+    filePath = originalCwd;
+  }
+  const absoluteFilePath = isAbsolute(filePath)
+    ? filePath
+    : pathResolve(originalCwd, filePath);
+
+  // Detect app folder type (regular vs raw)
+  const normalizedPath = absoluteFilePath.endsWith(SEP)
+    ? absoluteFilePath.slice(0, -1)
+    : absoluteFilePath;
+  const dirName = basename(normalizedPath);
+  const isRawAppByName =
+    dirName.endsWith("__raw_app") || dirName.endsWith(".raw_app");
+  const isAppByName = dirName.endsWith("__app") || dirName.endsWith(".app");
+
   let hasRawAppYaml = false;
-  if (!isRawApp) {
+  let hasAppYaml = false;
+  try {
+    await stat(normalizedPath + SEP + "raw_app.yaml");
+    hasRawAppYaml = true;
+  } catch { /* not a raw app */ }
+  if (!hasRawAppYaml) {
     try {
-      const rawAppPath = (filePath.endsWith(SEP) ? filePath : filePath + SEP) + "raw_app.yaml";
-      await stat(rawAppPath);
-      hasRawAppYaml = true;
-    } catch { /* not a raw app */ }
+      await stat(normalizedPath + SEP + "app.yaml");
+      hasAppYaml = true;
+    } catch { /* not an app */ }
   }
 
-  if (isRawApp || hasRawAppYaml) {
+  if (!isRawAppByName && !isAppByName && !hasRawAppYaml && !hasAppYaml) {
+    log.error(
+      colors.red(
+        `'${filePath}' is not an app folder (no app.yaml or raw_app.yaml, and not a *.app/*.raw_app folder).`
+      )
+    );
+    return;
+  }
+
+  // Auto-infer remote path from the folder location relative to wmill.yaml root
+  if (!remotePath) {
+    const wmillYamlPath = getWmillYamlPath();
+    if (!wmillYamlPath) {
+      log.error(
+        colors.red(
+          "Could not infer remote path: no wmill.yaml found. Run 'wmill init' or pass <remote_path> explicitly."
+        )
+      );
+      return;
+    }
+    // After resolveWorkspace, process.cwd() is the wmill.yaml dir
+    const wmillRoot = process.cwd();
+    let inferred = pathRelative(wmillRoot, normalizedPath).replaceAll(SEP, "/");
+    if (inferred.startsWith("..") || isAbsolute(inferred)) {
+      log.error(
+        colors.red(
+          `Could not infer remote path: '${filePath}' is outside the wmill.yaml root (${wmillRoot}). Move the folder under the root or pass <remote_path> explicitly.`
+        )
+      );
+      return;
+    }
+    for (const suffix of APP_FOLDER_SUFFIXES) {
+      if (inferred.endsWith(suffix)) {
+        inferred = inferred.slice(0, -suffix.length);
+        break;
+      }
+    }
+    if (!inferred) {
+      log.error(
+        colors.red(
+          "Could not infer remote path: app folder is at the wmill.yaml root. Pass <remote_path> explicitly."
+        )
+      );
+      return;
+    }
+    if (
+      !inferred.startsWith("u/") &&
+      !inferred.startsWith("g/") &&
+      !inferred.startsWith("f/")
+    ) {
+      log.error(
+        colors.red(
+          `Could not infer remote path: '${inferred}' is not under u/, g/, or f/. Move the app under one of these prefixes or pass <remote_path> explicitly.`
+        )
+      );
+      return;
+    }
+    remotePath = inferred;
+    log.info(colors.gray(`Inferred remote path: ${remotePath}`));
+  }
+
+  if (!validatePath(remotePath)) {
+    return;
+  }
+
+  if (isRawAppByName || hasRawAppYaml) {
     const { pushRawApp } = await import("./raw_apps.ts");
-    await pushRawApp(workspace.workspaceId, remotePath, filePath);
+    const merged = await mergeConfigWithConfigFile(opts);
+    await pushRawApp(
+      workspace.workspaceId,
+      remotePath,
+      absoluteFilePath,
+      undefined,
+      merged.defaultTs,
+    );
     log.info(colors.bold.underline.green("Raw app pushed"));
   } else {
-    await pushApp(workspace.workspaceId, remotePath, filePath);
+    await pushApp(workspace.workspaceId, remotePath, absoluteFilePath);
     log.info(colors.bold.underline.green("App pushed"));
   }
 }
@@ -275,17 +429,24 @@ const command = new Command()
   .arguments("<path:string>")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(get as any)
-  .command("push", "push a local app ")
-  .arguments("<file_path:string> <remote_path:string>")
+  .command(
+    "push",
+    "push a local app. With no args, infers the app from the current directory and the remote path from its location relative to wmill.yaml."
+  )
+  .arguments("[file_path:string] [remote_path:string]")
   .action(push as any)
   .command("dev", devCommand)
   .command("lint", lintCommand)
+  .command("bundle", bundleCommand)
   .command("new", newCommand)
   .command("generate-agents", generateAgentsCommand)
   .command(
     "generate-locks",
-    "re-generate the lockfiles for app runnables inline scripts that have changed"
+    'DEPRECATED: re-generate app lockfiles. Use "wmill generate-metadata" instead.'
   )
+  // Deprecated compatibility command. Keep it working for older repos, but
+  // exclude it from generated system prompt docs.
+  // @deprecated use `wmill generate-metadata`
   .arguments("[app_folder:string]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Perform a dry run without making changes")
@@ -299,6 +460,44 @@ const command = new Command()
     );
     const { generateLocksCommand } = await import("./app_metadata.ts");
     await generateLocksCommand(opts, appFolder);
-  });
+  })
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for an app (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action((async (opts: any, appPath: string, email: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    const { lookupUsernameByEmail } = await import("../../core/permissioned_as.ts");
+    const cache = new Map<string, { username: string; email: string }>();
+    const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
+
+    const remote = await wmill.getAppByPath({
+      workspace: workspace.workspaceId,
+      path: appPath,
+    });
+    if (!remote) throw new Error(`App ${appPath} not found`);
+
+    // Only spread remote.policy — spreading the full remote object would include
+    // `value` and trigger a new app version on every call. EditApp has all-Option
+    // fields, so a minimal body only updates the policy column.
+    await wmill.updateApp({
+      workspace: workspace.workspaceId,
+      path: appPath,
+      requestBody: {
+        policy: {
+          ...(remote.policy as any),
+          on_behalf_of: `u/${username}`,
+          on_behalf_of_email: email,
+        } as any,
+        preserve_on_behalf_of: true,
+        // Preserve any user draft at this path (see backend skip_draft_deletion).
+        skip_draft_deletion: true,
+      },
+    });
+    log.info(colors.green(`Updated permissioned_as for app ${appPath} to ${email}`));
+  }) as any);
 
 export default command;

@@ -56,6 +56,8 @@ async function list(
     jobKinds?: string;
     label?: string;
     all?: boolean;
+    parent?: string;
+    isFlowStep?: boolean;
   }
 ) {
   if (opts.json) log.setSilent(true);
@@ -67,17 +69,28 @@ async function list(
   let successFilter = opts.success;
   if (opts.failed) successFilter = false;
 
-  const jobs = await wmill.listJobs({
+  // When --all or --parent is used, include flow sub-job kinds too
+  const showSubJobs = opts.all || opts.parent;
+  const defaultJobKinds = showSubJobs
+    ? "script,flow,singlestepflow,flowscript,flowdependencies"
+    : "script,flow,singlestepflow";
+
+  const limit = Math.min(opts.limit ?? 30, 100);
+  const allJobs = await wmill.listJobs({
     workspace: workspace.workspaceId,
     scriptPathExact: opts.scriptPath,
     createdBy: opts.createdBy,
     running: opts.running,
     success: successFilter,
-    perPage: Math.min(opts.limit ?? 30, 100),
-    jobKinds: opts.jobKinds ?? "script,flow,singlestepflow",
+    perPage: limit,
+    jobKinds: opts.jobKinds ?? defaultJobKinds,
     label: opts.label,
-    hasNullParent: opts.all ? undefined : true,
+    hasNullParent: showSubJobs ? undefined : true,
+    parentJob: opts.parent,
+    isFlowStep: opts.isFlowStep,
   });
+  // API may return more than perPage — enforce limit client-side
+  const jobs = allJobs.slice(0, limit);
 
   if (opts.json) {
     console.log(JSON.stringify(jobs));
@@ -102,6 +115,92 @@ async function list(
       )
       .render();
     log.info(`\nShowing ${jobs.length} job(s). Use --limit to show more.`);
+  }
+}
+
+function getModuleStatusIcon(type: string, success?: boolean): string {
+  switch (type) {
+    case "Success": return colors.green("✓");
+    case "Failure": return colors.red("✗");
+    case "InProgress": return colors.blue("▶");
+    case "WaitingForPriorSteps": return colors.dim("○");
+    case "WaitingForEvents": return colors.yellow("⏳");
+    default: return colors.dim("·");
+  }
+}
+
+function formatFlowSteps(
+  flowStatus: any,
+  rawFlow: any,
+) {
+  const modules = flowStatus?.modules ?? [];
+  const rawModules = rawFlow?.modules ?? [];
+
+  // Build summary map from raw_flow
+  const summaryMap = new Map<string, string>();
+  for (const mod of rawModules) {
+    if (mod.id && mod.summary) {
+      summaryMap.set(mod.id, mod.summary);
+    }
+  }
+
+  console.log(colors.bold("\nSteps:"));
+  for (const mod of modules) {
+    const icon = getModuleStatusIcon(mod.type);
+    const summary = summaryMap.get(mod.id) ?? "";
+    const label = summary ? `${mod.id}: ${summary}` : mod.id;
+    const jobId = mod.job ? colors.dim(mod.job) : "";
+    const flowJobsDuration = mod.flow_jobs_duration;
+
+    // For-loop modules: show parent line + iteration sub-lines
+    const flowJobs = mod.flow_jobs as string[] | undefined;
+    if (flowJobs && flowJobs.length > 0) {
+      // Compute actual wall-clock duration for the group from started_at + duration_ms
+      const startedAtArr = (flowJobsDuration?.started_at ?? []) as (string | null)[];
+      const durationMsArr = (flowJobsDuration?.duration_ms ?? []) as (number | null)[];
+      let totalMs: number | undefined;
+      {
+        let minStart = Infinity;
+        let maxEnd = -Infinity;
+        for (let i = 0; i < startedAtArr.length; i++) {
+          const sa = startedAtArr[i];
+          const dm = durationMsArr[i];
+          if (sa != null && dm != null) {
+            const startMs = new Date(sa).getTime();
+            minStart = Math.min(minStart, startMs);
+            maxEnd = Math.max(maxEnd, startMs + dm);
+          }
+        }
+        if (minStart < Infinity && maxEnd > -Infinity) {
+          totalMs = maxEnd - minStart;
+        }
+      }
+      const durationStr = totalMs != null ? colors.dim(formatDuration(totalMs)) : "";
+      console.log(`  ${icon} ${label}  ${durationStr}`);
+
+      const flowJobsSuccess = (mod.flow_jobs_success ?? []) as boolean[];
+      for (let iter = 0; iter < flowJobs.length; iter++) {
+        const iterSuccess = flowJobsSuccess[iter];
+        const iterIcon = iterSuccess === true ? colors.green("✓")
+          : iterSuccess === false ? colors.red("✗")
+          : colors.dim("·");
+        const iterDur = durationMsArr[iter] != null ? colors.dim(formatDuration(durationMsArr[iter]!)) : "";
+        const iterJobId = colors.dim(flowJobs[iter]);
+        console.log(`    ${iterIcon} iteration ${iter}  ${iterJobId}  ${iterDur}`);
+      }
+    } else {
+      // Regular step
+      const durationStr = mod.duration_ms != null
+        ? colors.dim(formatDuration(mod.duration_ms))
+        : "";
+      console.log(`  ${icon} ${label}  ${jobId}  ${durationStr}`);
+    }
+  }
+
+  // Show hint for diving into step logs
+  const hasJobs = modules.some((m: any) => m.job);
+  if (hasJobs) {
+    console.log(colors.dim("\nUse 'wmill job logs <job-id>' for step logs"));
   }
 }
 
@@ -138,8 +237,15 @@ async function get(
     if (j.schedule_path) {
       console.log(colors.bold("Schedule:") + " " + j.schedule_path);
     }
+
+    // Flow: show hierarchical step status
+    const isFlow = j.job_kind === "flow" || j.job_kind === "flowpreview";
+    if (isFlow && j.flow_status) {
+      formatFlowSteps(j.flow_status, j.raw_flow);
+    }
+
     if (j.result !== undefined) {
-      console.log(colors.bold("Result:"));
+      console.log(colors.bold("\nResult:"));
       console.log(JSON.stringify(j.result, null, 2));
     }
   }
@@ -170,18 +276,66 @@ async function logs(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  // Check if this is a flow job (flows don't have top-level logs)
+  // Check if this is a flow job — if so, aggregate all step logs
   try {
     const job = await wmill.getJob({
       workspace: workspace.workspaceId,
       id,
     });
-    const jobKind = (job as any).job_kind; // job_kind not in generated types yet
-    if (jobKind === "flow" || jobKind === "flowpreview") {
-      log.info(colors.yellow(
-        "Flow jobs don't have direct logs. Each step runs as a separate job.\n" +
-        "Use 'wmill job list --all' to see sub-jobs, then 'wmill job logs <sub-job-id>' for individual step logs."
-      ));
+    const j = job as any;
+    const jobKind = j.job_kind;
+    if ((jobKind === "flow" || jobKind === "flowpreview") && j.flow_status?.modules) {
+      const modules = j.flow_status.modules;
+      const rawModules = j.raw_flow?.modules ?? [];
+      const summaryMap = new Map<string, string>();
+      for (const mod of rawModules) {
+        if (mod.id && mod.summary) summaryMap.set(mod.id, mod.summary);
+      }
+
+      // Strip the "to remove ansi colors" hint that appears in each step's logs
+      const stripHint = (text: string) =>
+        text.replace(/^to remove ansi colors.*\n?/gm, "");
+
+      let hasLogs = false;
+      for (const mod of modules) {
+        const summary = summaryMap.get(mod.id) ?? "";
+        const label = summary ? `${mod.id}: ${summary}` : mod.id;
+
+        // For-loop modules: get logs for each iteration
+        const flowJobs = mod.flow_jobs as string[] | undefined;
+        if (flowJobs && flowJobs.length > 0) {
+          for (let iter = 0; iter < flowJobs.length; iter++) {
+            try {
+              const stepLogs = await wmill.getJobLogs({
+                workspace: workspace.workspaceId,
+                id: flowJobs[iter],
+              });
+              if (stepLogs) {
+                console.log(colors.bold.cyan(`\n====== ${label} (iteration ${iter}) ======`));
+                console.log(stripHint(stepLogs));
+                hasLogs = true;
+              }
+            } catch { /* step may not exist yet */ }
+          }
+        } else if (mod.job) {
+          // Regular step
+          try {
+            const stepLogs = await wmill.getJobLogs({
+              workspace: workspace.workspaceId,
+              id: mod.job,
+            });
+            if (stepLogs) {
+              console.log(colors.bold.cyan(`\n====== ${label} ======`));
+              console.log(stripHint(stepLogs));
+              hasLogs = true;
+            }
+          } catch { /* step may not exist yet */ }
+        }
+      }
+
+      if (!hasLogs) {
+        log.info("No logs available for this flow's steps.");
+      }
       return;
     }
   } catch {
@@ -196,8 +350,10 @@ async function logs(
   if (jobLogs == null || jobLogs === "") {
     log.info("No logs available for this job.");
   } else {
+    // Strip the hint if the API already includes it, then print it once to stderr
+    const stripped = jobLogs.replace(/^to remove ansi colors.*\n?/gm, "");
     console.error("to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{1,\\}[A-Za-z]//g'");
-    console.log(jobLogs);
+    console.log(stripped);
   }
 }
 
@@ -220,6 +376,63 @@ async function cancel(
   log.info(colors.green(`Job ${id} canceled.`));
 }
 
+async function rerun(
+  opts: GlobalOptions,
+  id: string
+) {
+  log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const response = await wmill.batchReRunJobs({
+    workspace: workspace.workspaceId,
+    requestBody: {
+      job_ids: [id],
+      script_options_by_path: {},
+      flow_options_by_path: {},
+    },
+  });
+
+  const newIds: string[] = [];
+  const errorLines: string[] = [];
+  for (const line of String(response).split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("Error:")) errorLines.push(trimmed);
+    else newIds.push(trimmed);
+  }
+
+  for (const err of errorLines) log.error(err);
+
+  if (newIds.length === 0) {
+    throw new Error(`Failed to re-run job ${id}.`);
+  }
+
+  console.log(newIds[0]);
+}
+
+async function restart(
+  opts: GlobalOptions & { step: string; iteration?: number },
+  id: string
+) {
+  log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const newId = await wmill.restartFlowAtStep({
+    workspace: workspace.workspaceId,
+    id,
+    requestBody: {
+      step_id: opts.step,
+      branch_or_iteration_n: opts.iteration,
+    },
+  });
+
+  console.log(newId);
+}
+
 // Shared list options to avoid repetition between default action and list subcommand
 const listOptions = (cmd: Command) =>
   cmd
@@ -232,26 +445,42 @@ const listOptions = (cmd: Command) =>
     .option("--limit <limit:number>", "Number of jobs to return (default 30, max 100)")
     .option("--job-kinds <jobKinds:string>", "Filter by job kinds (default: script,flow,singlestepflow)")
     .option("--label <label:string>", "Filter by job label")
-    .option("--all", "Include sub-jobs (flow steps). By default only top-level jobs are shown");
+    .option("--all", "Include sub-jobs (flow steps). By default only top-level jobs are shown")
+    .option("--parent <parent:string>", "Filter by parent job ID (show sub-jobs of a specific flow)")
+    .option("--is-flow-step", "Show only flow step jobs");
 
 const command = listOptions(new Command()
   .description("Manage jobs (list, inspect, cancel)"))
   .action(list as any)
   .command("list", listOptions(new Command().description("List recent jobs")))
   .action(list as any)
-  .command("get", "Get job details and result")
+  .command("get", "Get job details. For flows: shows step tree with sub-job IDs")
   .arguments("<id:string>")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(get as any)
   .command("result", "Get the result of a completed job (machine-friendly)")
   .arguments("<id:string>")
   .action(result as any)
-  .command("logs", "Get job logs")
+  .command("logs", "Get job logs. For flows: aggregates all step logs")
   .arguments("<id:string>")
   .action(logs as any)
   .command("cancel", "Cancel a running or queued job")
   .arguments("<id:string>")
   .option("--reason <reason:string>", "Reason for cancellation")
-  .action(cancel as any);
+  .action(cancel as any)
+  .command(
+    "rerun",
+    "Re-run a completed job with the same args. Prints the new job UUID on stdout."
+  )
+  .arguments("<id:string>")
+  .action(rerun as any)
+  .command(
+    "restart",
+    "Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout."
+  )
+  .arguments("<id:string>")
+  .option("--step <stepId:string>", "Top-level step id to restart the flow from", { required: true })
+  .option("--iteration <n:number>", "For a top-level branchall or for-loop step, the iteration to restart at")
+  .action(restart as any);
 
 export default command;

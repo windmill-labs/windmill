@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE folder SET default_permissioned_as = (\n            SELECT jsonb_agg(\n                CASE WHEN rule->>'permissioned_as' = $2\n                     THEN jsonb_set(rule, ARRAY['permissioned_as'], to_jsonb($1::text))\n                     ELSE rule END\n                ORDER BY ord)\n            FROM jsonb_array_elements(default_permissioned_as) WITH ORDINALITY AS t(rule, ord))\n        WHERE default_permissioned_as @> jsonb_build_array(jsonb_build_object('permissioned_as', $2::text))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "de902e3eded6c244ea4b4594c30e32b9e86b1902bfa504d60f0b3bef8f1e8ea6"
+}

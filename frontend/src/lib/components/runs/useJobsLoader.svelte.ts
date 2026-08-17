@@ -30,17 +30,12 @@ export function computeJobKinds(jobKindsCat: string | null): string {
 	} else if (jobKindsCat == 'deploymentcallbacks') {
 		let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
 		return kinds.join(',')
-	} else if (jobKindsCat == 'runs') {
-		let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
-		return kinds.join(',')
 	} else {
-		let kinds: CompletedJob['job_kind'][] = [
-			'script',
-			'flow',
-			'flowscript',
-			'flownode',
-			'appscript'
-		]
+		// Default mirrors the explicit 'runs' category — top-level scripts, flows,
+		// and single-step flows. flowscript/flownode/appscript are intermediate
+		// flow children with non-null parent_job, and the loader pairs this with
+		// hasNullParent: true, so they would never match here anyway.
+		let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
 		return kinds.join(',')
 	}
 }
@@ -58,6 +53,7 @@ export interface UseJobLoaderArgs {
 	skip?: boolean
 	lookback?: number
 	perPage?: number
+	excludesEntrypointOverride?: boolean
 }
 
 export function useJobsLoader(args: () => UseJobLoaderArgs) {
@@ -74,11 +70,13 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let lookback = $derived(_args.lookback ?? 0)
 	let timeframe = $derived(_args?.timeframe)
 	let perPage = $derived(_args?.perPage ?? 1000)
+	let excludesEntrypointOverride = $derived(_args.excludesEntrypointOverride ?? false)
 
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
 	let success = $derived(filters?.status ?? null)
 	let showSkipped = $derived(filters?.show_skipped ?? false)
+	let resolutionFilter = $derived(filters?.resolved ?? 'all')
 	let showSchedules = $derived(!filters?.job_trigger_kind?.includes('!schedule'))
 	let showFutureJobs = $derived(filters?.show_future_jobs ?? true)
 	let resultFilter = $derived(filters?.result)
@@ -233,7 +231,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
 		let scriptPathExact = path == null || path === '' ? undefined : path
 		let isQueueOnly = success == 'running' || success == 'suspended' || success == 'waiting'
-		let isCompletedOnly = success == 'success' || success == 'failure'
+		let isCompletedOnly = success == 'success' || success == 'failure' || success == 'canceled'
 		let promise = JobService.listJobs({
 			workspace: currentWorkspace,
 			createdBefore: createdBefore ?? undefined,
@@ -250,7 +248,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			createdBy: user == null || user === '' ? undefined : user,
 			scriptPathStart: scriptPathStart,
 			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
-			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			success: success == 'success' ? true : undefined,
+			status: success == 'failure' || success == 'canceled' ? success : undefined,
 			running:
 				success == 'running' || success == 'suspended'
 					? true
@@ -258,6 +257,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						? false
 						: undefined,
 			isSkipped: showSkipped ? undefined : false,
+			resolved:
+				resolutionFilter === 'resolved'
+					? true
+					: resolutionFilter === 'unresolved'
+						? false
+						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent: jobKindsCat != 'all' ? true : undefined,
 			label: label == null || label === '' ? undefined : label,
@@ -279,7 +284,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage: perPageOverride ?? perPage,
 			allowWildcards: allowWildcards ? true : undefined,
-			broadFilter
+			broadFilter,
+			excludesEntrypointOverride: excludesEntrypointOverride ? true : undefined
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
@@ -315,9 +321,16 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			createdBy: user == null || user === '' ? undefined : user,
 			scriptPathStart: folder == null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
-			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			success: success == 'success' ? true : undefined,
+			status: success == 'failure' || success == 'canceled' ? success : undefined,
 			running: success == 'running' ? true : undefined,
 			isSkipped: showSkipped ? undefined : false,
+			resolved:
+				resolutionFilter === 'resolved'
+					? true
+					: resolutionFilter === 'unresolved'
+						? false
+						: undefined,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			label: label == null || label === '' ? undefined : label,
 			tag: tag == null || tag === '' ? undefined : tag,

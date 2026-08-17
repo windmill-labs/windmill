@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, parent_id, author, author_email, body,\n                   anchor_kind, anchor_path, obsolete, created_at\n            FROM workspace_fork_deployment_request_comment\n            WHERE request_id = $1\n            ORDER BY created_at ASC, id ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "parent_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "author",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "author_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "body",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "anchor_kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "anchor_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "obsolete",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "6f01ccf15df0e73b465dd0fbe3fcb3945a2368d03644fce1cd3bb35faaa18460"
+}

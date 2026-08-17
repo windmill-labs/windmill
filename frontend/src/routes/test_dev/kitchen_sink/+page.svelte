@@ -70,9 +70,9 @@
 			action: () => console.log('Duplicate clicked')
 		},
 		{
-			displayName: 'Share',
+			displayName: 'Permissions',
 			icon: Share,
-			action: () => console.log('Share clicked')
+			action: () => console.log('Permissions clicked')
 		},
 		{
 			displayName: 'Archive',

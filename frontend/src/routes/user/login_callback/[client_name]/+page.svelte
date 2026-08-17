@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { UserService, WorkspaceService } from '$lib/gen'
@@ -8,6 +9,7 @@
 	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { logoutWithRedirect } from '$lib/logoutKit'
+	import { isValidLogoutRedirect } from '$lib/logoutRedirect'
 	import { parseQueryParams } from '$lib/utils'
 	import { page } from '$app/state'
 	import { isCloudHosted } from '$lib/cloud'
@@ -20,14 +22,13 @@
 	let state = page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
-		// const closeCookie = getAndDeleteCookie('close')
-		// console.log('closeCookie', closeCookie)
-		const rd = localStorage.getItem('rd')
-		if (rd) {
+		const rawRd = localStorage.getItem('rd')
+		if (rawRd) {
 			localStorage.removeItem('rd')
 		}
-		const cookieCloseUponLogin = getCookie('close') == 'true'
-		const closeUponLogin = cookieCloseUponLogin ?? localStorage.getItem('closeUponLogin') == 'true'
+		const rd = rawRd?.startsWith('http') && !isValidLogoutRedirect(rawRd) ? null : rawRd
+		const closeUponLogin =
+			getCookie('close') == 'true' || localStorage.getItem('closeUponLogin') == 'true'
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
 			if (closeUponLogin) {
@@ -132,6 +133,8 @@
 	} else {
 		document.documentElement.classList.remove('dark')
 	}
+	// This route bypasses the (root) layout, so restore the variant class too.
+	applyDarkModeVariant()
 
 	function closeUponLoginSuccess() {
 		const message = { type: 'success' }

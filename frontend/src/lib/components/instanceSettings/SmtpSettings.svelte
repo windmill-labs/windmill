@@ -5,10 +5,6 @@
 			smtpSettings.smtp_host &&
 			smtpSettings.smtp_host.trim() !== '' &&
 			smtpSettings.smtp_port &&
-			smtpSettings.smtp_username &&
-			smtpSettings.smtp_username.trim() !== '' &&
-			smtpSettings.smtp_password &&
-			smtpSettings.smtp_password.trim() !== '' &&
 			smtpSettings.smtp_from &&
 			smtpSettings.smtp_from.trim() !== ''
 		)
@@ -16,7 +12,7 @@
 </script>
 
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Password from '../Password.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { SettingService } from '$lib/gen'
@@ -33,8 +29,19 @@
 	let { values, disabled = false }: Props = $props()
 
 	let testEmail = $state('')
+	let testing = $state(false)
+	let lastFailure = $state<{ settings: string; message: string } | undefined>(undefined)
+
+	// The failure describes one exact set of settings, so editing any of them retires it. The
+	// settings object is mutated in place, hence comparing content rather than identity.
+	let smtpSettingsKey = $derived(JSON.stringify($values['smtp_settings'] ?? {}))
+	let testError = $derived(
+		lastFailure?.settings === smtpSettingsKey ? lastFailure.message : undefined
+	)
 
 	async function testSmtpSettings() {
+		testing = true
+		lastFailure = undefined
 		try {
 			await SettingService.testSmtp({
 				requestBody: {
@@ -52,7 +59,15 @@
 			})
 			sendUserToast('Test email sent successfully')
 		} catch (error) {
-			sendUserToast('Failed to send test email: ' + error.message, true)
+			// The backend spells out which SMTP step failed and which setting to change, so it goes
+			// in a persistent alert rather than a toast that scrolls away while it is read.
+			lastFailure = {
+				settings: smtpSettingsKey,
+				message: error.body || error.message || 'Unknown error'
+			}
+			sendUserToast('Failed to send test email', true)
+		} finally {
+			testing = false
 		}
 	}
 </script>
@@ -145,6 +160,14 @@
 				}}
 				options={{ right: 'Disable TLS' }}
 			/>
+
+			<Toggle
+				id="smtp_clicktracking_off"
+				{disabled}
+				bind:checked={$values['smtp_settings'].smtp_clicktracking_off}
+				size="xs"
+				options={{ right: 'Disable click tracking on links' }}
+			/>
 		</div>
 
 		<!-- Test Email -->
@@ -167,6 +190,7 @@
 					unifiedSize="md"
 					variant="accent"
 					onclick={testSmtpSettings}
+					loading={testing}
 					disabled={!testEmail || !isSmtpSettingsValid($values['smtp_settings']) || disabled}
 					btnClasses="text-xs"
 					startIcon={{ icon: Mail }}
@@ -174,6 +198,11 @@
 					Send test email
 				</Button>
 			</div>
+			{#if testError}
+				<Alert type="error" title="Test email failed" size="xs" class="mt-1">
+					<span class="whitespace-pre-wrap break-words">{testError}</span>
+				</Alert>
+			{/if}
 		</div>
 	</div>
 </div>

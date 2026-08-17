@@ -21,6 +21,7 @@ pub fn parse_graphql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
@@ -63,6 +64,7 @@ fn parse_graphql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ.unwrap()),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -106,7 +108,8 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         typ: Typ::Int,
                         default: None,
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("[String]".to_string()),
@@ -114,7 +117,8 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("String".to_string()),
@@ -122,11 +126,13 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         typ: Typ::Str(None),
                         default: Some(json!("wahoo")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: None
+                has_preprocessor: None,
+                ..Default::default()
             }
         );
 

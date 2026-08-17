@@ -1,0 +1,8 @@
+{
+  "path": "f/evals/greet_user.ts",
+  "lang": "bun",
+  "args": {
+    "name": "Alice"
+  },
+  "code": "export async function main(name: string) {\n\treturn `Hello, ${name}!`\n}\n"
+}

@@ -1,15 +1,5 @@
 # Windmill Flow Building Guide
 
-## CLI Commands
-
-Create a folder ending with `__flow` and add a `flow.yaml` file with the flow definition.
-For rawscript modules, use `!inline path/to/script.ts` for the content key. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
-After writing, tell the user they can run:
-- `wmill flow generate-locks <path_to_flow_folder> --yes` - Generate lock files for the specific flow you modified (e.g. `wmill flow generate-locks f/my_folder/my_flow__flow --yes`)
-- `wmill sync push` - Deploy to Windmill
-
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
-
 ## OpenFlow Schema
 
 The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow structure. Refer to OPENFLOW_SCHEMA for the complete type definitions.
@@ -19,6 +9,53 @@ The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow stru
 - `failure` - Reserved for failure handler module
 - `preprocessor` - Reserved for preprocessor module
 - `Input` - Reserved for flow input reference
+
+## Hard Structural Rules
+
+These are strict Windmill schema rules. Follow them exactly.
+
+- `value.modules` is only for normal sequential steps
+- `value.preprocessor_module` and `value.failure_module` are special top-level fields inside `value`, not entries in `value.modules`
+- If a flow needs a preprocessor, create `value.preprocessor_module` with `id: preprocessor`
+- If a flow needs a failure handler, create `value.failure_module` with `id: failure`
+- Do NOT create regular modules inside `value.modules` named `preprocessor` or `failure`
+- `preprocessor_module` and `failure_module` only support `script` or `rawscript`
+- `preprocessor_module` runs before normal modules and cannot reference `results.*`
+- `failure_module` can use the `error` object with `error.message`, `error.step_id`, `error.name`, and `error.stack`
+
+Correct shape:
+
+```yaml
+value:
+  preprocessor_module:
+    id: preprocessor
+    value:
+      type: rawscript
+      ...
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      ...
+  modules:
+    - id: process_event
+      value:
+        type: rawscript
+        ...
+```
+
+Incorrect shape:
+
+```yaml
+value:
+  modules:
+    - id: preprocessor
+      ...
+    - id: process_event
+      ...
+    - id: failure
+      ...
+```
 
 ## Module ID Rules
 
@@ -35,10 +72,196 @@ The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow stru
 ## Data Flow Between Steps
 
 - `flow_input.property` - Access flow input parameters
-- `results.step_id` - Access output from a previous step
-- `results.step_id.property` - Access specific property from previous step output
-- `flow_input.iter.value` - Current item when inside a for-loop
-- `flow_input.iter.index` - Current index when inside a for-loop
+- `results.step_id` - Access output from a previous step only when that step result is in scope
+- `results.step_id.property` - Access specific property from a previous step output only when that step result is in scope
+- `flow_input.iter.value` - Current iteration value inside a `forloopflow`; in a `whileloopflow` it is just the iteration index (a plain number, same as `flow_input.iter.index`)
+- `flow_input.iter.index` - Current loop index when inside a loop (`forloopflow` or `whileloopflow`)
+
+## Loop Structure Rules
+
+- For `whileloopflow`, break the loop with a module-level `stop_after_if`: on the loop module itself, or on an inner step (required when that step carries state via its own `results` — see below)
+- `stop_after_if` is always a sibling of `id` and `value` on a flow module — never a direct key of the loop's `value` object
+- `stop_after_all_iters_if` is for checks after the whole loop finishes, not the normal per-iteration break condition
+- `flow_input.iter.value` in a `whileloopflow` is just the iteration index (same number as `flow_input.iter.index`) — it never carries state, so `flow_input.iter.value.<field>` is always undefined and a loop whose stop condition depends on it never terminates
+- To carry state across iterations, a step reads its own previous-iteration result via `results.<its_own_id>` with a first-iteration fallback (e.g. `results.b ?? flow_input.start`) — but then the loop's `stop_after_if` MUST sit on that inner step, not on the loop module: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where `results.<step_id>` is null on every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own `stop_after_if`, retry or similar, resolve `results` across iterations regardless of stop placement)
+- For state that is just a counter, derive it from the index instead (e.g. `flow_input.iter.index + 1`) — that works in every configuration, including with `stop_after_if` on the loop module
+- If the user asks for a final scalar/object after a loop, add a normal step after the loop that extracts the final value from the loop result instead of returning the whole loop result array
+
+Correct `whileloopflow` shape:
+
+```yaml
+- id: loop_until_done
+  stop_after_if:
+    expr: result.done === true
+    skip_if_stopped: false
+  value:
+    type: whileloopflow
+    skip_failures: false
+    modules:
+      - id: advance_state
+        value:
+          type: rawscript
+          input_transforms:
+            count:
+              type: javascript
+              expr: flow_input.iter.index + 1
+- id: return_final_state
+  value:
+    type: rawscript
+    input_transforms:
+      final_state:
+        type: javascript
+        expr: results.loop_until_done[results.loop_until_done.length - 1]
+```
+
+Correct `whileloopflow` shape carrying state via `results` (stop condition on the inner step):
+
+```yaml
+- id: loop_until_done
+  value:
+    type: whileloopflow
+    skip_failures: false
+    modules:
+      - id: advance_state
+        stop_after_if:
+          expr: result.done === true
+          skip_if_stopped: false
+        value:
+          type: rawscript
+          input_transforms:
+            state:
+              type: javascript
+              expr: results.advance_state ?? flow_input.initial_state
+```
+
+Incorrect `whileloopflow` patterns:
+
+```yaml
+- id: loop_until_done
+  value:
+    type: whileloopflow
+    stop_after_if:
+      expr: result.done === true
+```
+
+```yaml
+input_transforms:
+  state:
+    type: javascript
+    # iter.value is a number (the iteration index); there is no previous-iteration state
+    expr: flow_input.iter.value.count
+```
+
+```yaml
+input_transforms:
+  final_state:
+    type: javascript
+    expr: results.loop_until_done
+```
+
+## Approval / Suspend Structure
+
+An approval step is a normal **script** step (`type: rawscript` or `type: script`) that is turned into an approval by adding a module-level `suspend`. Its script calls `wmill.getResumeUrls(approver)` to generate the secret resume/cancel URLs and returns them so they can be sent to the approver(s) (Slack, email, etc.) or approved from the run page.
+
+- `suspend` belongs on the flow module object itself, as a sibling of `id` and `value`
+- Never put `suspend` inside `value`
+- Do NOT use `type: identity` for an approval step. An identity step suspends but never produces the resume URLs, so approvers have no link to act on — it is not a functional approval.
+
+Correct shape:
+
+```yaml
+- id: request_approval
+  suspend:
+    required_events: 1
+    resume_form:
+      schema:
+        type: object
+        properties:
+          comment:
+            type: string
+        required: [comment]
+  value:
+    type: rawscript
+    language: bun
+    input_transforms:
+      approver:
+        type: static
+        value: ''
+    content: |
+      import * as wmill from "windmill-client"
+
+      export async function main(approver?: string) {
+        const urls = await wmill.getResumeUrls(approver)
+        // send urls.resume / urls.cancel to the approver(s), e.g. via Slack or email
+        return urls
+      }
+```
+
+Incorrect shape (suspend misplaced inside `value`):
+
+```yaml
+- id: request_approval
+  value:
+    type: rawscript
+    suspend:
+      required_events: 1
+```
+
+Incorrect shape (identity has no resume URLs — not a real approval):
+
+```yaml
+- id: request_approval
+  suspend:
+    required_events: 1
+  value:
+    type: identity
+```
+
+## Branch Result Scope Rules
+
+- Inside a branch, you may reference earlier outer steps and earlier steps in the same branch
+- Outside a `branchone`, do NOT reference ids of steps that only exist inside its branches or default branch. Use `results.<branchone_module_id>` instead
+- Outside a `branchall`, do NOT reference ids of steps inside its branches. Use `results.<branchall_module_id>` instead
+- If downstream steps need a stable shape after a branch, make each branch return the same fields
+- When needed, add a normalization step immediately after the branch and consume `results.<branch_module_id>` there
+
+Correct after `branchone`:
+
+```yaml
+- id: route_order
+  value:
+    type: branchone
+    ...
+- id: send_confirmation
+  value:
+    input_transforms:
+      routed:
+        type: javascript
+        expr: results.route_order
+```
+
+Incorrect after `branchone`:
+
+```yaml
+expr: results.create_shipment
+expr: results.create_backorder
+```
+
+Correct after `branchall`:
+
+```yaml
+- id: enrich_parallel
+  value:
+    type: branchall
+    parallel: true
+    ...
+- id: combine_data
+  value:
+    input_transforms:
+      enrichments:
+        type: javascript
+        expr: results.enrich_parallel
+```
 
 ## Input Transforms
 
@@ -55,14 +278,14 @@ JavaScript transform (dynamic expression):
 - For flow inputs: Use type `"object"` with format `"resource-{type}"` (e.g., `"resource-postgresql"`)
 - For step inputs: Use static value `"$res:path/to/resource"`
 
-## Failure Handler
+## Final Structural Self-Check
 
-Executes when any step fails. Has access to error details:
+Before finalizing a flow, verify:
 
-- `error.message` - Error message
-- `error.step_id` - ID of failed step
-- `error.name` - Error name
-- `error.stack` - Stack trace
+- any preprocessor is in `value.preprocessor_module`
+- any failure handler is in `value.failure_module`
+- any approval step has module-level `suspend`
+- no downstream step references inner branch step ids from outside the branch
 
 ## S3 Object Operations
 

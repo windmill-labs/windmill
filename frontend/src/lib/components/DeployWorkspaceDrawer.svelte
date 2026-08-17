@@ -24,7 +24,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="900px">
+<Drawer bind:this={drawer} size="1200px">
 	<DrawerContent title="Deploy {initialPath}" on:close={drawer.closeDrawer}>
 		{#if (kind != 'trigger' && kind != undefined && initialPath != undefined) || (kind === 'trigger' && initialPath != undefined && additionalInformation?.triggers != undefined)}
 			<DeployWorkspace

@@ -152,6 +152,7 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
             has_default: default.is_some() || optional,
             default: default.or_else(|| if optional { Some(json!(null)) } else { None }),
             oidx: None,
+        otyp_inferred: false,
         });
     }
 

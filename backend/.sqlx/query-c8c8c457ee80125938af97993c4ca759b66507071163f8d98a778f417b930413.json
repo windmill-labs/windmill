@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO mqtt_trigger (\n            mqtt_resource_path, subscribe_topics, client_version, v5_config, v3_config,\n            client_id, path, script_path, is_flow, workspace_id, edited_by, edited_at,\n            extra_perms, server_id, last_server_ping, error, error_handler_path,\n            error_handler_args, retry, mode, permissioned_as, labels\n        )\n        SELECT\n            mqtt_resource_path, subscribe_topics, client_version, v5_config, v3_config,\n            client_id, path, script_path, is_flow, $1, edited_by, edited_at,\n            extra_perms, NULL, NULL, NULL, error_handler_path,\n            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels\n        FROM mqtt_trigger WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c8c8c457ee80125938af97993c4ca759b66507071163f8d98a778f417b930413"
+}

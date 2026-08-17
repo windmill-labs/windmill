@@ -1,77 +1,51 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
 	import Section from '$lib/components/Section.svelte'
-	import { Plus, X } from 'lucide-svelte'
-	import { fade } from 'svelte/transition'
-	import JsonEditor from '$lib/components/JsonEditor.svelte'
+	import TriggerFilterList from './TriggerFilterList.svelte'
+	import type { FilterLogic, FilterNode, GroupOp } from './filters'
 
 	interface Props {
-		filters: { key: string; value: any }[]
+		filters: FilterNode[]
+		filterLogic: FilterLogic
 		disabled?: boolean
+		// Set when the runnable receives the payload base64-encoded (e.g. Kafka).
+		// Filters always run on the message parsed as JSON, so we clarify the distinction.
+		payloadBase64Encoded?: boolean
 	}
 
-	let { filters = $bindable([]), disabled = false }: Props = $props()
+	let {
+		filters = $bindable(),
+		filterLogic = $bindable(),
+		disabled = false,
+		payloadBase64Encoded = false
+	}: Props = $props()
+
+	// Only groups can negate, so the list never hands the root a 'none' back.
+	function setRootLogic(op: GroupOp) {
+		if (op !== 'none') filterLogic = op
+	}
+
+	let description = $derived(
+		filterLogic === 'or'
+			? 'Filters will limit the execution of the trigger to only messages that match any criterion.'
+			: 'Filters will limit the execution of the trigger to only messages that match all criteria.'
+	)
+
+	let filterHelp = $derived(
+		'Each criterion checks that the field is equal to, or a superset of, the filter value. ' +
+			'A Key names a top-level field of the message (parsed as JSON); a Path reaches a nested one, e.g. data.status. Paths do not traverse arrays — match those with an array value instead. ' +
+			'Add a group to nest criteria under their own logic, e.g. an OR of two fields inside an AND, or a NONE group to exclude messages that match it.' +
+			(payloadBase64Encoded
+				? ' The runnable still receives the payload base64-encoded; filters run on the message before that encoding.'
+				: '')
+	)
 </script>
 
 <Section label="Filters">
 	<p class="text-xs mb-1 text-primary">
-		Filters will limit the execution of the trigger to only messages that match all criteria.<br />
-		The JSON filter checks if the value at the key is equal or a superset of the filter value.
+		{description}<br />
+		{filterHelp}
 	</p>
-	<div class="flex flex-col gap-4 mt-1">
-		{#each filters as v, i (i)}
-			<div class="flex w-full gap-2 items-center">
-				<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
-					<label class="flex flex-col w-full">
-						<div class="text-secondary text-sm mb-2">Key</div>
-						<input type="text" bind:value={v.key} {disabled} />
-					</label>
-					<div class="flex flex-col w-full">
-						<div class="text-secondary text-sm mb-2">Value</div>
-						<JsonEditor bind:value={v.value} code={JSON.stringify(v.value)} {disabled} />
-					</div>
-					{#if v.key}
-						{@const isObject = v.value !== null && typeof v.value === 'object'}
-						<div class="text-xs text-tertiary font-mono mt-2 p-2 bg-surface-secondary rounded">
-							payload.{v.key}
-							{isObject ? '⊇' : '=='}
-							{JSON.stringify(v.value)}
-						</div>
-					{/if}
-				</div>
-				<button
-					transition:fade|local={{ duration: 100 }}
-					class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-					aria-label="Clear"
-					onclick={() => {
-						filters = filters.filter((_, index) => index !== i)
-					}}
-					{disabled}
-				>
-					<X size={14} />
-				</button>
-			</div>
-		{/each}
-
-		<div class="flex items-baseline">
-			<Button
-				variant="default"
-				size="xs"
-				btnClasses="mt-1"
-				onclick={() => {
-					if (filters == undefined || !Array.isArray(filters)) {
-						filters = []
-					}
-					filters = filters.concat({
-						key: '',
-						value: ''
-					})
-				}}
-				{disabled}
-				startIcon={{ icon: Plus }}
-			>
-				Add filter
-			</Button>
-		</div>
+	<div class="mt-1">
+		<TriggerFilterList bind:filters bind:logic={() => filterLogic, setRootLogic} {disabled} />
 	</div>
 </Section>

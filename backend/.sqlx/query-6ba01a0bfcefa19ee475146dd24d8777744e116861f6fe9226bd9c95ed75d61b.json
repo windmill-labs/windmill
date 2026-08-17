@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ci_test_reference (workspace_id, test_script_path, test_script_hash, tested_item_path, tested_item_kind)\n         SELECT $2, test_script_path, test_script_hash, tested_item_path, tested_item_kind\n         FROM ci_test_reference WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6ba01a0bfcefa19ee475146dd24d8777744e116861f6fe9226bd9c95ed75d61b"
+}

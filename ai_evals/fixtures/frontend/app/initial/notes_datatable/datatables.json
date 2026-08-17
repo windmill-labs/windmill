@@ -1,0 +1,15 @@
+[
+  {
+    "datatable_name": "main",
+    "schemas": {
+      "public": {
+        "notes": {
+          "id": "int4",
+          "title": "text",
+          "body": "text?",
+          "created_at": "timestamp=now()"
+        }
+      }
+    }
+  }
+]

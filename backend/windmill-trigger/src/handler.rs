@@ -6,16 +6,21 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::types::{StandardTriggerQuery, TriggerData, TriggerMode};
+use crate::types::{HasPath, StandardTriggerQuery, TriggerData, TriggerMode};
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
 use std::fmt::Debug;
-use windmill_api_auth::{check_scopes, ApiAuthed};
+use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    trigger_history::{self, TriggerHistoryEvent, TriggerOperation, TriggerSource},
+    user_drafts::{
+        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
+        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     DB,
@@ -32,6 +37,27 @@ use std::sync::Arc;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_git_sync::handle_deployment_metadata;
 
+/// True when the workspace is a fork (`parent_workspace_id IS NOT NULL`).
+///
+/// Operational state (`mode`) belongs to the parent workspace: a git-sync /
+/// merge / clone / UI-create write into a fork must never set it. On create we
+/// force `disabled` so a fork trigger can't compete with the parent's listener;
+/// on update we preserve the fork's existing value. `setmode` is the intended
+/// explicit mutator of a fork's mode (and carries its own conflict warning) —
+/// runtime error handling may still auto-disable an errored trigger, which is
+/// orthogonal to this rule. This is the write half whose read half lives in
+/// `workspaces_export.rs` (parent-value substitution on fork export), and it is
+/// the single authority shared by both the git-sync round-trip and the in-app
+/// compare-workspaces merge.
+async fn workspace_is_fork(db: &DB, workspace_id: &str) -> Result<bool> {
+    let is_fork: Option<bool> =
+        sqlx::query_scalar("SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_optional(db)
+            .await?;
+    Ok(is_fork.unwrap_or(false))
+}
+
 #[async_trait]
 pub trait TriggerCrud: Send + Sync + 'static {
     type Trigger: Serialize
@@ -39,7 +65,12 @@ pub trait TriggerCrud: Send + Sync + 'static {
         + for<'r> FromRow<'r, sqlx::postgres::PgRow>
         + Send
         + Sync
-        + Unpin;
+        + Unpin
+        // Path accessor so `list_triggers` can apply scoped-token filtering.
+        + HasPath
+        // `'static` so the deployed trigger can be boxed into
+        // `WithDraftOverlay`'s erased-serde inner (it's an owned row).
+        + 'static;
 
     type TriggerConfig: Debug
         + DeserializeOwned
@@ -52,14 +83,28 @@ pub trait TriggerCrud: Send + Sync + 'static {
     type TriggerConfigRequest: Debug + DeserializeOwned + Serialize + Send + Sync;
     type TestConnectionConfig: Debug + DeserializeOwned + Serialize + Send + Sync;
 
+    /// Table name used in dynamic SQL queries via `format!()`. This is a compile-time
+    /// constant set by each trigger impl — it is never user-controllable.
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
+    /// `UserDraftItemKind` for this trigger's per-user `draft` rows. Required (no
+    /// default) so a trigger that forgets it is a compile error, not a runtime panic.
+    const DRAFT_KIND: UserDraftItemKind;
     const SUPPORTS_SERVER_STATE: bool;
     const SUPPORTS_TEST_CONNECTION: bool;
     const ROUTE_PREFIX: &'static str;
     const DEPLOYMENT_NAME: &'static str;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[];
     const IS_ALLOWED_ON_CLOUD: bool;
+    /// Whether enabling this trigger in a fork while the parent has the same
+    /// path enabled is a real conflict (shared upstream resource). True for
+    /// listener-based kinds where two consumers compete (Kafka group, PG slot,
+    /// SQS queue, etc.) and for Websocket where both subscribers fire on every
+    /// broadcast. False for kinds whose upstream identifier is implicitly
+    /// workspace-scoped at runtime (HTTP routes, Email local_part — clones for
+    /// the non-workspaced sub-case are filtered out, so any cloned row is
+    /// already collision-free vs. the parent).
+    const FORK_CONFLICT_ON_ENABLE: bool = true;
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject;
 
@@ -93,6 +138,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     fn scope_domain_name() -> &'static str {
         &Self::ROUTE_PREFIX[1..]
+    }
+
+    /// Accessor for `DRAFT_KIND` used at the draft-lookup call sites.
+    fn user_draft_item_kind() -> UserDraftItemKind {
+        Self::DRAFT_KIND
     }
 
     async fn create_trigger(
@@ -148,6 +198,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "edited_at",
             "extra_perms",
             "mode",
+            "labels",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
@@ -179,6 +230,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
     }
 
     async fn exists(&self, db: &DB, workspace_id: &str, path: &str) -> Result<bool> {
+        // SAFETY: Self::TABLE_NAME is a compile-time constant, not user input.
         let exists = sqlx::query_scalar(&format!(
             "SELECT EXISTS(SELECT 1 FROM {} WHERE workspace_id = $1 AND path = $2)",
             Self::TABLE_NAME
@@ -197,6 +249,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         workspace_id: &str,
         path: &str,
     ) -> Result<bool> {
+        // SAFETY: Self::TABLE_NAME is a compile-time constant, not user input.
         let deleted = sqlx::query(&format!(
             "DELETE FROM {} WHERE workspace_id = $1 AND path = $2",
             Self::TABLE_NAME
@@ -224,6 +277,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
     ) -> Result<bool> {
         let permissioned_as = windmill_common::users::username_to_permissioned_as(&authed.username);
         let updated = if Self::SUPPORTS_SERVER_STATE {
+            // SAFETY: Self::TABLE_NAME is a compile-time constant.
             sqlx::query(&format!(
                 r#"
                 UPDATE
@@ -250,6 +304,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             .await?
             .rows_affected()
         } else {
+            // SAFETY: Self::TABLE_NAME is a compile-time constant.
             sqlx::query(&format!(
                 r#"
                 UPDATE
@@ -288,6 +343,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         is_flow: bool,
         script_path: &str,
     ) -> i64 {
+        // SAFETY: Self::TABLE_NAME is a compile-time constant.
         let count = sqlx::query_scalar(&format!(
             r#"
                 SELECT
@@ -306,16 +362,29 @@ pub trait TriggerCrud: Send + Sync + 'static {
         .bind(script_path)
         .fetch_one(&mut *tx)
         .await
-        .unwrap_or(0);
+        // Falling back to 0 keeps one unreadable table from failing the whole count
+        // endpoint, but the cause must still reach the logs: a silent 0 is
+        // indistinguishable from "no triggers" in the UI.
+        .unwrap_or_else(|err| {
+            tracing::error!(
+                "failed to count {} triggers of {} {script_path} in {workspace_id}: {err:#}",
+                Self::TABLE_NAME,
+                if is_flow { "flow" } else { "script" }
+            );
+            0
+        });
 
         count
     }
 
+    /// `authed_email = Some` adds the per-user `is_draft` flag (scalar EXISTS);
+    /// `None` (e.g. workspace export) leaves it omitted.
     async fn list_triggers(
         &self,
         tx: &mut PgConnection,
         workspace_id: &str,
         query: Option<&StandardTriggerQuery>,
+        authed_email: Option<&str>,
     ) -> Result<Vec<Self::Trigger>> {
         let mut fields = vec![
             "workspace_id",
@@ -327,6 +396,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "edited_at",
             "extra_perms",
             "mode",
+            "labels",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
@@ -341,6 +411,19 @@ pub trait TriggerCrud: Send + Sync + 'static {
         sqlb.fields(&fields)
             .order_by("edited_at", true)
             .and_where("workspace_id = ?".bind(&workspace_id));
+
+        if let Some(email) = authed_email {
+            // SAFETY: interpolated TABLE_NAME and draft kind are compile-time constants; email is bound.
+            sqlb.field(
+                &format!(
+                    "EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = {t}.workspace_id \
+                     AND draft.path = {t}.path AND draft.typ = '{k}' AND draft.email = ?) as is_draft",
+                    t = Self::TABLE_NAME,
+                    k = Self::user_draft_item_kind().as_str(),
+                )
+                .bind(&email),
+            );
+        }
 
         if let Some(query) = query {
             let (per_page, offset) =
@@ -357,6 +440,12 @@ pub trait TriggerCrud: Send + Sync + 'static {
                 sqlb.and_where_like_left("path", path_start);
             }
 
+            if let Some(label) = &query.label {
+                for l in label.split(',') {
+                    sqlb.and_where("labels @> ARRAY[?]".bind(&l.trim()));
+                }
+            }
+
             sqlb.offset(offset).limit(per_page);
         }
 
@@ -368,6 +457,45 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
         Ok(triggers)
     }
+}
+
+/// Append this mutation to `trigger_history`, diffing the row at `path` against
+/// `before`.
+///
+/// Call it on the transaction that made the change, after the change: the
+/// snapshot it takes is the "after" side of the diff, and the two commit or roll
+/// back together.
+///
+/// Records nothing when the snapshots say no row was written. `TriggerCrud::update_trigger`
+/// returns `Result<()>` and several impls do not check `rows_affected`, so an
+/// update aimed at a path that does not exist — or that RLS hides from the
+/// caller — reaches here having changed nothing; without this the caller could
+/// forge history rows at any path, since the insert policy is `WITH CHECK (true)`.
+async fn record_trigger_history<T: TriggerCrud>(
+    tx: &mut PgConnection,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    path: &str,
+    operation: TriggerOperation,
+    before: Option<serde_json::Value>,
+) -> Result<()> {
+    let after = trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, workspace_id, path).await?;
+    if after.is_none() || (operation == TriggerOperation::Update && before.is_none()) {
+        return Ok(());
+    }
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id,
+            trigger_kind: T::TRIGGER_TYPE,
+            path,
+            operation,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: trigger_history::summarize_changes(before.as_ref(), after.as_ref()),
+        },
+    )
+    .await
 }
 
 pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
@@ -393,7 +521,7 @@ async fn create_trigger<T: TriggerCrud>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
-    Json(new_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
+    Json(mut new_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || {
         format!(
@@ -416,7 +544,34 @@ async fn create_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Writing into a fork never sets operational state: force `disabled` so a
+    // cloned / synced / merged / UI-created trigger can't compete with the
+    // parent's listener. The fork owner re-enables locally via `setmode`.
+    if workspace_is_fork(&db, &workspace_id).await? {
+        new_trigger.base.set_mode(TriggerMode::Disabled);
+    }
+
     let new_path = new_trigger.base.path.clone();
+    let labels = new_trigger.base.labels.clone();
+
+    // If the caller did not preserve a value but the user can preserve, fall back
+    // to the folder's default_permissioned_as rule (create-time only).
+    let explicit_preserve = new_trigger.base.permissioned_as.is_some()
+        && new_trigger.base.preserve_permissioned_as.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed);
+    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+        if let Some(default) = windmill_common::folders::resolve_folder_default_permissioned_as(
+            &db,
+            &workspace_id,
+            &new_trigger.base.path,
+        )
+        .await?
+        {
+            new_trigger.base.permissioned_as = Some(default);
+            new_trigger.base.preserve_permissioned_as = Some(true);
+        }
+    }
+
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         new_trigger.base.permissioned_as.as_deref(),
         new_trigger.base.preserve_permissioned_as.unwrap_or(false),
@@ -427,6 +582,29 @@ async fn create_trigger<T: TriggerCrud>(
     handler
         .create_trigger(&db, &mut *tx, &authed, &workspace_id, new_trigger)
         .await?;
+
+    if let Some(ref labels) = labels {
+        // SAFETY: T::TABLE_NAME is a compile-time constant.
+        sqlx::query(&format!(
+            "UPDATE {} SET labels = $1 WHERE workspace_id = $2 AND path = $3",
+            T::TABLE_NAME
+        ))
+        .bind(labels)
+        .bind(&workspace_id)
+        .bind(&new_path)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        &new_path,
+        TriggerOperation::Create,
+        None,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -478,14 +656,76 @@ async fn list_triggers<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
     Query(query): Query<StandardTriggerQuery>,
 ) -> JsonResult<Vec<T::Trigger>> {
     let mut tx = user_db.begin(&authed).await?;
-    let triggers = handler
-        .list_triggers(&mut *tx, &workspace_id, Some(&query))
+    let mut triggers = handler
+        .list_triggers(&mut *tx, &workspace_id, Some(&query), Some(&authed.email))
         .await?;
     tx.commit().await?;
+
+    // Append the authed user's draft-only triggers of this kind; see scripts.rs.
+    // Best-effort: the editor's TriggerData shape overlaps T::Trigger but a per-kind
+    // config can deviate, so drop a row on deserialize failure rather than fail the list.
+    if query.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && query.page.unwrap_or(0) == 0
+        && query.path.is_none()
+        && query.is_flow.is_none()
+        && query.path_start.is_none()
+        && query.label.is_none()
+    {
+        let draft_only_rows = fetch_draft_only_list_rows(
+            &db,
+            &workspace_id,
+            &authed.email,
+            T::user_draft_item_kind(),
+        )
+        .await?;
+
+        for row in draft_only_rows {
+            let created_at = row.created_at;
+            let v: serde_json::Value = match serde_json::from_str(row.value.0.get()) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let serde_json::Value::Object(mut map) = v else {
+                continue;
+            };
+            // Fill operational fields the editor draft omits so the merged JSON matches
+            // `Trigger<T::TriggerConfig>`'s flattened shape (mode derived from `enabled`).
+            map.insert(
+                "workspace_id".into(),
+                serde_json::Value::String(workspace_id.clone()),
+            );
+            map.insert("edited_by".into(), serde_json::Value::String(String::new()));
+            if let Ok(at) = serde_json::to_value(&created_at) {
+                map.insert("edited_at".into(), at);
+            }
+            map.entry("permissioned_as")
+                .or_insert(serde_json::Value::String(String::new()));
+            map.entry("extra_perms").or_insert(serde_json::Value::Null);
+            if !map.contains_key("mode") {
+                let enabled = map.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+                map.insert(
+                    "mode".into(),
+                    serde_json::Value::String(if enabled { "enabled" } else { "disabled" }.into()),
+                );
+            }
+            map.insert("draft_only".into(), serde_json::Value::Bool(true));
+            // Synthesized rows are the authed user's draft.
+            map.insert("is_draft".into(), serde_json::Value::Bool(true));
+            match serde_json::from_value::<T::Trigger>(serde_json::Value::Object(map)) {
+                Ok(t) => triggers.push(t),
+                Err(_) => continue,
+            }
+        }
+    }
+
+    let allowed = build_scope_path_predicate(&authed, T::scope_domain_name(), "read");
+    triggers.retain(|t| allowed(t.trigger_path()));
 
     Ok(Json(triggers))
 }
@@ -494,21 +734,41 @@ async fn get_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<T::Trigger> {
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || {
         format!("{}:read:{}", T::scope_domain_name(), &path)
     })?;
 
     let mut tx = user_db.begin(&authed).await?;
-    let trigger = handler
+    let trigger_res = handler
         .get_trigger_by_path(&mut *tx, &workspace_id, path)
-        .await?;
-
+        .await;
     tx.commit().await?;
 
-    Ok(Json(trigger))
+    // Map "no deployed trigger" to `None` and let the shared choreography
+    // handle the draft overlay / draft-only fallback / 404.
+    let deployed = match trigger_res {
+        Ok(t) => Some(t),
+        Err(Error::NotFound(_)) => None,
+        Err(e) => return Err(e),
+    };
+
+    let overlay = overlay_or_draft_only(
+        &db,
+        &workspace_id,
+        &authed.email,
+        T::user_draft_item_kind(),
+        path,
+        q.get_draft,
+        deployed,
+        || Error::NotFound(format!("Trigger not found at path: {}", path)),
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn update_trigger<T: TriggerCrud>(
@@ -517,9 +777,15 @@ async fn update_trigger<T: TriggerCrud>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
-    Json(edit_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
+    Json(mut edit_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<String> {
     let path = path.to_path();
+    // A scoped token must be allowed on both the existing path (URL) and the
+    // new path (body); checking only the latter would let it move a trigger it
+    // can't touch into its scope.
+    check_scopes(&authed, || {
+        format!("{}:write:{}", T::scope_domain_name(), &path)
+    })?;
     check_scopes(&authed, || {
         format!(
             "{}:write:{}",
@@ -534,7 +800,31 @@ async fn update_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Preserve the existing DB `mode` instead of writing the incoming value
+    // when either:
+    //   * the target is a fork — a fork's operational state is fork-local and
+    //     is never set through a git-sync/merge write (only via `setmode`); or
+    //   * the request omits `mode`/`enabled` (legacy clients / YAML round-trip),
+    //     where falling back to the BaseTriggerData default (Enabled) would flip
+    //     the parent on a fork→parent merge.
+    // Read half of the rule: parent-value substitution on fork export in
+    // workspaces_export.rs.
+    if workspace_is_fork(&db, &workspace_id).await? || edit_trigger.base.is_mode_unspecified() {
+        let existing_mode: Option<TriggerMode> = sqlx::query_scalar(&format!(
+            "SELECT mode FROM {} WHERE workspace_id = $1 AND path = $2",
+            T::TABLE_NAME
+        ))
+        .bind(&workspace_id)
+        .bind(path)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(m) = existing_mode {
+            edit_trigger.base.set_mode(m);
+        }
+    }
+
     let new_path = edit_trigger.base.path.to_string();
+    let labels = edit_trigger.base.labels.clone();
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         edit_trigger.base.permissioned_as.as_deref(),
         edit_trigger.base.preserve_permissioned_as.unwrap_or(false),
@@ -542,9 +832,37 @@ async fn update_trigger<T: TriggerCrud>(
         &authed.username,
     );
 
+    let before =
+        trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
+
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
+
+    if let Some(ref labels) = labels {
+        // SAFETY: T::TABLE_NAME is a compile-time constant.
+        sqlx::query(&format!(
+            "UPDATE {} SET labels = $1 WHERE workspace_id = $2 AND path = $3",
+            T::TABLE_NAME
+        ))
+        .bind(labels)
+        .bind(&workspace_id)
+        .bind(&new_path)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Recorded at the new path, so a rename reads as one event there with
+    // `path` among the changed fields rather than a delete plus a create.
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        &new_path,
+        TriggerOperation::Update,
+        before,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -595,6 +913,19 @@ async fn update_trigger<T: TriggerCrud>(
 
     tx.commit().await?;
 
+    // On rename the old-path draft orphans (no SQL FK); clear the deployer's own
+    // (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). See scripts.rs.
+    if path != new_path {
+        delete_own_draft_for_path(
+            &db,
+            &workspace_id,
+            T::user_draft_item_kind(),
+            path,
+            &authed.email,
+        )
+        .await?;
+    }
+
     Ok(format!("Trigger '{}' updated", path))
 }
 
@@ -602,6 +933,7 @@ async fn delete_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -612,6 +944,7 @@ async fn delete_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     // Capture trigger data for trashbin before deleting
+    // SAFETY: T::TABLE_NAME is a compile-time constant.
     let trash_data: Option<serde_json::Value> = sqlx::query_scalar(&format!(
         "SELECT jsonb_build_object('row', to_jsonb(t), 'table_name', '{table}') FROM {table} t WHERE path = $1 AND workspace_id = $2",
         table = T::TABLE_NAME
@@ -645,6 +978,22 @@ async fn delete_trigger<T: TriggerCrud>(
         .await?;
     }
 
+    // No diff: the row is gone, and the trashbin above already keeps its full
+    // contents for a restore.
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id: &workspace_id,
+            trigger_kind: T::TRIGGER_TYPE,
+            path,
+            operation: TriggerOperation::Delete,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: None,
+        },
+    )
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -657,6 +1006,29 @@ async fn delete_trigger<T: TriggerCrud>(
     .await?;
 
     tx.commit().await?;
+
+    // Reset the fork/parent workspace_diff tally for this path, exactly as
+    // create/update and every other kind's delete does. Without this a deleted
+    // trigger leaves its cached `has_changes=true` diff row behind: the compare
+    // trusts it (triggers aren't re-validated like scripts/flows), then drops it
+    // as it no longer exists in the table — a phantom "ahead" item that reads as
+    // "changes not visible to your user" and hides the deploy button, even for
+    // superadmins. Re-tallying sets has_changes=NULL so the next compare
+    // re-evaluates and corrects/removes the row.
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &workspace_id,
+        T::get_deployed_object(path.to_string(), None),
+        Some(format!("{} '{}' deleted", T::DEPLOYMENT_NAME, path)),
+        true,
+        None,
+    )
+    .await?;
+
+    // Trigger gone for everyone: wipe ALL users' drafts at this path; see scripts.rs.
+    delete_all_drafts_for_path(&db, &workspace_id, T::user_draft_item_kind(), path).await?;
 
     Ok(format!("Trigger '{}' deleted", path))
 }
@@ -679,6 +1051,52 @@ async fn exists_trigger<T: TriggerCrud>(
 #[derive(serde::Deserialize)]
 struct SetTriggerModePayload {
     mode: TriggerMode,
+    /// When true, bypass the parent-state warning that would otherwise reject
+    /// enabling a trigger that's already enabled in the parent workspace.
+    /// The frontend sets this after the user confirms the duplicate-execution
+    /// dialog. See windmill-trigger/src/handler.rs::set_trigger_mode for the
+    /// full check.
+    #[serde(default)]
+    force: bool,
+}
+
+/// Returns the parent workspace id when this workspace is a fork *and* the
+/// parent has a row at the same trigger path. Used to gate enabling a trigger
+/// in a fork behind an explicit `force=true` confirmation: the fork's row was
+/// cloned from the parent, so its upstream identifier (Kafka group, PG slot,
+/// SQS queue URL, etc.) is shared by construction. The risk is independent of
+/// the parent's current `mode`: if the parent is enabled, the two listeners
+/// compete; if it's disabled, the fork can destructively take over shared
+/// state (e.g. advance the PG WAL, claim an MQTT client_id) before the parent
+/// re-enables. Either way, the user should be asked to confirm.
+async fn parent_has_trigger(
+    tx: &mut PgConnection,
+    table_name: &str,
+    workspace_id: &str,
+    path: &str,
+) -> Result<Option<String>> {
+    let parent: Option<String> =
+        sqlx::query_scalar("SELECT parent_workspace_id FROM workspace WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+    let Some(parent_id) = parent else {
+        return Ok(None);
+    };
+    let exists: Option<bool> = sqlx::query_scalar(&format!(
+        "SELECT EXISTS(SELECT 1 FROM {} WHERE workspace_id = $1 AND path = $2)",
+        table_name
+    ))
+    .bind(&parent_id)
+    .bind(path)
+    .fetch_one(&mut *tx)
+    .await?;
+    Ok(if exists == Some(true) {
+        Some(parent_id)
+    } else {
+        None
+    })
 }
 
 async fn set_trigger_mode<T: TriggerCrud>(
@@ -693,6 +1111,31 @@ async fn set_trigger_mode<T: TriggerCrud>(
     check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Block transitioning a trigger in a fork to any mode that attaches a
+    // listener (Enabled or Suspended) when the parent has the same path,
+    // unless the caller passes force=true. Suspended still keeps the
+    // listener attached — it just stops auto-running queued jobs — so a
+    // suspended fork would still split Kafka events / share a PG slot
+    // with the parent. The cloned upstream identifier is shared by
+    // construction; the risk is independent of the parent's current mode.
+    // Skipped for kinds where the upstream identifier is already
+    // workspace-scoped at runtime (HTTP, Email).
+    if T::FORK_CONFLICT_ON_ENABLE && payload.mode != TriggerMode::Disabled && !payload.force {
+        if let Some(parent_id) =
+            parent_has_trigger(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?
+        {
+            return Err(Error::BadRequest(format!(
+                "fork-conflict:{}:{}",
+                T::TRIGGER_TYPE,
+                parent_id
+            )));
+        }
+    }
+
+    let before =
+        trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
+
     let updated = handler
         .set_trigger_mode(&authed, &mut *tx, &workspace_id, path, &payload.mode)
         .await?;
@@ -703,6 +1146,20 @@ async fn set_trigger_mode<T: TriggerCrud>(
             path
         )));
     }
+
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        path,
+        match payload.mode {
+            TriggerMode::Enabled => TriggerOperation::Enable,
+            TriggerMode::Disabled => TriggerOperation::Disable,
+            TriggerMode::Suspended => TriggerOperation::Suspend,
+        },
+        before,
+    )
+    .await?;
 
     tx.commit().await?;
 
@@ -739,6 +1196,10 @@ async fn test_connection<T: TriggerCrud>(
     Path(workspace_id): Path<String>,
     Json(config): Json<T::TestConnectionConfig>,
 ) -> Result<()> {
+    // Test connection opens an outbound connection to a caller-supplied target,
+    // so gate it behind write access like the other mutating trigger routes.
+    check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
+
     let connect_f = async move {
         handler
             .test_connection(&db, &authed, &user_db, &workspace_id, config)

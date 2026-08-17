@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { scimSamlSetting, settings, settingsKeys } from './instanceSettings'
+	import { scimSamlSetting, settings, settingsKeys, instanceSettingsSaved } from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
 	import type { TeamsChannel } from '$lib/gen/types.gen'
@@ -13,6 +13,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import AuthSettings from './AuthSettings.svelte'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
@@ -54,7 +55,9 @@
 
 	let initialValues: Record<string, any> = $state({})
 	let baseUrlIsFallback = $state(false)
-	let snowflakeAccountIdentifier = $state('')
+	// Per-instance OAuth providers (Snowflake, ServiceNow, …): instance name
+	// keyed by provider, used to build their per-instance connect_config URLs.
+	let instanceInputs: Record<string, string> = $state({})
 	let version: string = $state('')
 	let loading = $state(true)
 
@@ -68,6 +71,16 @@
 
 	loadSettings()
 	loadVersion()
+
+	// When the user enables object storage for the first time, default
+	// `monitor_logs_on_s3` to true so S3 log files get cleaned up with their
+	// jobs. Backend still defaults to false for backwards compat with
+	// operators who never touched the setting.
+	$effect(() => {
+		if ($values['object_store_cache_config'] && $values['monitor_logs_on_s3'] === undefined) {
+			values.update((v) => ({ ...v, monitor_logs_on_s3: true }))
+		}
+	})
 
 	const dispatch = createEventDispatcher()
 
@@ -137,12 +150,8 @@
 		$values = nvalues
 		loading = false
 
-		// populate snowflake account identifier from db
-		const account_identifier =
-			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
-		if (account_identifier) {
-			snowflakeAccountIdentifier = account_identifier
-		}
+		// populate per-instance OAuth provider inputs (snowflake, servicenow, …) from db
+		loadInstanceInputs(oauths)
 	}
 
 	export async function saveSettings() {
@@ -152,13 +161,7 @@
 			}
 		}
 
-		if (
-			oauths?.snowflake_oauth &&
-			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
-				snowflakeAccountIdentifier
-		) {
-			setupSnowflakeUrls()
-		}
+		setupTemplatedOauthUrls()
 
 		// Remove empty or invalid entries for critical error channels
 		$values.critical_error_channels = $values.critical_error_channels.filter((entry: any) => {
@@ -177,13 +180,14 @@
 		})
 
 		let shouldReloadPage = false
+		let willRestart = false
 		if ($values) {
 			// Trim license key before saving
 			if ($values['license_key'] && typeof $values['license_key'] === 'string') {
 				$values['license_key'] = $values['license_key'].trim()
 			}
 
-			// Check which settings require a page reload
+			// Check which settings require a page reload or server restart
 			const allSettings = [...Object.values(settings), scimSamlSetting].flat()
 			let licenseKeySet = false
 			for (const s of allSettings) {
@@ -194,11 +198,37 @@
 					if (s.requiresReloadOnChange) {
 						shouldReloadPage = true
 					}
+					if (s.triggersRestart) {
+						willRestart = true
+					}
 				}
 			}
 
 			// Build the full global_settings object for the bulk PUT
 			const globalSettings: Record<string, any> = { ...$values }
+
+			// Send explicit null for keys that were set on load but are now
+			// missing/cleared, so the Merge-mode bulk endpoint deletes them
+			// instead of silently preserving the old DB value. Covers both:
+			//   - YAML mode: user removed a line / set it to null / set it to {}.
+			//   - Form mode: user toggled a setting off (e.g.
+			//     object_store_cache_config), making the value undefined.
+			const isClearedValue = (v: any) => {
+				if (v === undefined || v === null) return true
+				if (typeof v === 'object') {
+					return Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0
+				}
+				return false
+			}
+			for (const key of Object.keys(initialValues ?? {})) {
+				if (excludedKeys.has(key)) continue
+				if (key === 'oauths' || key === 'require_preexisting_user_for_oauth') continue
+				if (!isClearedValue(globalSettings[key])) continue
+				// Only flag for deletion if it was non-empty before — otherwise
+				// every save would delete-then-recreate harmless `{}`/`[]` defaults.
+				if (isClearedValue(initialValues[key])) continue
+				globalSettings[key] = null
+			}
 
 			// Include oauths and require_preexisting_user_for_oauth
 			if (!deepEqual(initialOauths, oauths)) {
@@ -214,6 +244,7 @@
 
 			initialValues = JSON.parse(JSON.stringify($values))
 			initialOauths = JSON.parse(JSON.stringify(oauths))
+			instanceSettingsSaved.update((n) => n + 1)
 			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 			baseUrlIsFallback = false
 
@@ -231,25 +262,77 @@
 			sendUserToast('Settings updated, reloading page...')
 			await sleep(1000)
 			window.location.reload()
+		} else if (willRestart) {
+			sendUserToast(
+				'Settings updated. Servers are restarting and changes may take up to a minute to fully propagate.',
+				false,
+				[],
+				undefined,
+				8000
+			)
+			dispatch('saved')
 		} else {
 			sendUserToast('Settings updated')
 			dispatch('saved')
 		}
 	}
 
-	function setupSnowflakeUrls() {
-		// strip all whitespaces from account identifier
-		snowflakeAccountIdentifier = snowflakeAccountIdentifier.replace(/\s/g, '')
+	// Per-instance OAuth providers (Snowflake, ServiceNow, …) keyed by name ->
+	// their registry connect_config_template. Adding a new one needs only a
+	// registry entry — no code here.
+	// Every per-instance templated provider is configurable here: authorization-code
+	// ones (ServiceNow, Snowflake) provide an `auth_url`, client-credentials-only
+	// ones (Coupa) provide only a `token_url`. Both need the admin to enter their
+	// instance host so the shared credentials point at the right endpoint.
+	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
+		Object.entries(oauthConnectRegistry)
+			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
+	)
 
-		const connect_config = {
-			scopes: [],
-			auth_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/authorize`,
-			token_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/token-request`,
-			req_body_auth: false,
-			extra_params: { account_identifier: snowflakeAccountIdentifier },
-			extra_params_callback: {}
+	function normalizeInstanceInput(tmpl: any, raw: string): string {
+		let v = (raw ?? '').replace(/\s/g, '')
+		if (tmpl.strip_suffix) {
+			// accept a full host/URL or a bare name -> reduce to the bare instance
+			v = v.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+			if (v.endsWith(tmpl.strip_suffix)) {
+				v = v.slice(0, -tmpl.strip_suffix.length)
+			}
 		}
-		oauths['snowflake_oauth'].connect_config = connect_config
+		return v
+	}
+
+	// Build each per-instance provider's connect_config from the admin-entered
+	// instance name + its registry template (substituting {instance} into the
+	// URLs). Replaces the old per-provider setup functions.
+	function setupTemplatedOauthUrls() {
+		for (const [name, tmpl] of Object.entries(connectConfigTemplates)) {
+			if (!oauths?.[name]) continue
+			const key = tmpl.extra_params_key ?? 'instance'
+			const v = normalizeInstanceInput(tmpl, instanceInputs[name] ?? '')
+			instanceInputs[name] = v
+			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
+			oauths[name].connect_config = {
+				scopes: tmpl.scopes ?? [],
+				// CC-only templated providers have no auth_url; store an empty string
+				// (not omitted) so the instance-config parser still types the entry.
+				// The backend treats an empty auth_url as the unused placeholder for
+				// the client-credentials grant.
+				auth_url: tmpl.auth_url ? tmpl.auth_url.replaceAll('{instance}', v) : '',
+				token_url: tmpl.token_url.replaceAll('{instance}', v),
+				req_body_auth: tmpl.req_body_auth ?? false,
+				extra_params: { [key]: v },
+				extra_params_callback: {}
+			}
+		}
+	}
+
+	// Recover the instance-name inputs from a saved oauths config (for load/discard).
+	function loadInstanceInputs(savedOauths: Record<string, any>) {
+		for (const [name, tmpl] of Object.entries(connectConfigTemplates)) {
+			const key = tmpl.extra_params_key ?? 'instance'
+			instanceInputs[name] = savedOauths?.[name]?.connect_config?.extra_params?.[key] ?? ''
+		}
 	}
 
 	let sendingStats = $state(false)
@@ -325,7 +408,7 @@
 
 	function getSettingsForCategory(category: string) {
 		if (category === 'Auth/OAuth/SAML') {
-			return scimSamlSetting
+			return [...(settings[category] ?? []), ...scimSamlSetting]
 		}
 		const base = settings[category] ?? []
 		// In quick setup, reorder Core: base settings (without license_key), then extras from Jobs
@@ -456,27 +539,18 @@
 	}
 
 	export function discardCategory(category: string) {
+		const categorySettings = getSettingsForCategory(category)
+		for (const s of categorySettings) {
+			const v = initialValues[s.key]
+			$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		}
 		if (category === 'Auth/OAuth/SAML') {
-			for (const s of scimSamlSetting) {
-				const v = initialValues[s.key]
-				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
-			}
 			oauths = JSON.parse(JSON.stringify(initialOauths))
 			requirePreexistingUserForOauth = initialRequirePreexistingUserForOauth
-			const account_identifier =
-				initialOauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
-			snowflakeAccountIdentifier = account_identifier ?? ''
-		} else {
-			const categorySettings = getSettingsForCategory(category)
-			for (const s of categorySettings) {
-				const v = initialValues[s.key]
-				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
-			}
-			if (category === 'Registries') {
-				const v = initialValues['workspace_registries']
-				$values['workspace_registries'] =
-					v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
-			}
+			loadInstanceInputs(initialOauths)
+		} else if (category === 'Registries') {
+			const v = initialValues['workspace_registries']
+			$values['workspace_registries'] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 	}
 
@@ -485,9 +559,7 @@
 		$values = JSON.parse(JSON.stringify(initialValues))
 		oauths = JSON.parse(JSON.stringify(initialOauths))
 		requirePreexistingUserForOauth = initialRequirePreexistingUserForOauth
-		const account_identifier =
-			initialOauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
-		snowflakeAccountIdentifier = account_identifier ?? ''
+		loadInstanceInputs(initialOauths)
 		if (yamlMode) {
 			syncFormToYaml()
 		}
@@ -496,13 +568,7 @@
 	export async function saveCategorySettings(category: string) {
 		// Category-specific pre-processing
 		if (category === 'Auth/OAuth/SAML') {
-			if (
-				oauths?.snowflake_oauth &&
-				oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
-					snowflakeAccountIdentifier
-			) {
-				setupSnowflakeUrls()
-			}
+			setupTemplatedOauthUrls()
 		}
 
 		if (category === 'Alerts' && $values?.critical_error_channels) {
@@ -525,6 +591,7 @@
 		}
 
 		let shouldReloadPage = false
+		let willRestart = false
 		const categorySettings = getSettingsForCategory(category)
 
 		let licenseKeySet = false
@@ -542,6 +609,7 @@
 				.map(async (x) => {
 					if (x.key === 'license_key') licenseKeySet = true
 					if (x.requiresReloadOnChange) shouldReloadPage = true
+					if (x.triggersRestart) willRestart = true
 					let value = $values?.[x.key]
 					if (x.fieldType === 'codearea' && typeof value === 'string' && value.trim() === '') {
 						value = undefined
@@ -558,6 +626,7 @@
 			const v = $values[s.key]
 			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
+		instanceSettingsSaved.update((n) => n + 1)
 		if (categorySettings.some((s) => s.key === 'base_url')) {
 			baseUrlIsFallback = false
 		}
@@ -599,6 +668,15 @@
 			sendUserToast('Settings updated, reloading page...')
 			await sleep(1000)
 			window.location.reload()
+		} else if (willRestart) {
+			sendUserToast(
+				'Settings updated. Servers are restarting and changes may take up to a minute to fully propagate.',
+				false,
+				[],
+				undefined,
+				8000
+			)
+			dispatch('saved')
 		} else {
 			sendUserToast('Settings updated')
 			dispatch('saved')
@@ -623,8 +701,12 @@
 		'workspace_registries'
 	])
 
-	// Settings that should never appear in YAML export/import
-	const excludedKeys: Set<string> = new Set([])
+	// Settings that should never appear in YAML export/import.
+	// `worker_configs` is a legacy ghost key: worker configs live in the `config`
+	// table (managed from /workers), not in `global_settings`. Older DBs may
+	// still carry a stale `global_settings.worker_configs` row; filter it here
+	// so it never round-trips through this editor.
+	const excludedKeys: Set<string> = new Set(['worker_configs'])
 
 	// Nested fields inside object-valued settings that contain secrets.
 	// Each entry maps a top-level key to its sensitive sub-field names.
@@ -981,7 +1063,20 @@
 						<li>job usage (language, total duration, count)</li>
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
-							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+							>feature usage (counts of which product features are used, including AI provider and
+							model identifiers and the names of public hub scripts used, last 30 days)</li
+						>
+						<li
+							>feature adoption (counts of which flow, script, trigger and worker features your
+							deployed items use)</li
+						>
+						<li
+							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
+							apps, raw apps)</li
+						>
+						<li
+							>infrastructure info (container runtime, managed database provider, database version,
+							size and cluster size, max and active connections, object storage backend)</li
 						>
 					</ul>
 					<br />For air-gapped instances, you can download the telemetry data and send it manually.
@@ -1019,7 +1114,16 @@
 						<li>user usage (author count, operator count)</li>
 						<li>development instance status</li>
 						<li
-							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+							>feature usage (counts of which product features are used, including AI provider and
+							model identifiers and the names of public hub scripts used, last 30 days)</li
+						>
+						<li
+							>feature adoption (counts of which flow, script, trigger and worker features your
+							deployed items use)</li
+						>
+						<li
+							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
+							apps, raw apps)</li
 						>
 					</ul>
 				</div>
@@ -1048,10 +1152,11 @@
 				description="Configure where secrets (secret variables) are stored."
 				link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
 			/>
-		{:else if category == 'GitHub Enterprise App'}
+		{:else if category == 'GitHub App'}
 			<SettingsPageHeader
-				title="GitHub Enterprise App"
-				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
+				title="GitHub App"
+				description="Configure a self-managed GitHub App for git sync on GitHub.com, GHE Cloud or GitHub Enterprise Server."
+				link="https://www.windmill.dev/docs/integrations/git_repository#self-managed-github-app"
 			/>
 		{:else if category == 'DB Health'}
 			<SettingsPageHeader
@@ -1062,7 +1167,7 @@
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths
-				bind:snowflakeAccountIdentifier
+				bind:instanceInputs
 				bind:requirePreexistingUserForOauth
 				baseUrl={$values?.base_url}
 				bind:tab={authSubTab}

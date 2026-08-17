@@ -14,3 +14,6 @@ pub mod resources;
 pub mod secret_backend_ext;
 pub mod var_resource_cache;
 pub mod variables;
+
+#[cfg(all(test, feature = "oauth2", feature = "private", feature = "enterprise"))]
+mod oauth_refresh_secret_backend_tests;

@@ -385,7 +385,145 @@ lock: ""
   });
 
 // =============================================================================
-// Test 4: Apps - Create app via API and test filterWorkspaceDependenciesForApp
+// Test 4: Hash consistency - generate-metadata (tree) then deprecated check (legacy)
+// =============================================================================
+
+test("Workspace deps: hash consistency between tree-based and legacy staleness checks", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "workspace_deps_hash_consistency_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      // Setup workspace deps
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
+      const bunDep = `{"dependencies": {"lodash": "4.17.21"}}`;
+      await writeFile(`${tempDir}/dependencies/package.json`, bunDep, "utf-8");
+
+      // Setup script
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
+      const scriptContent = `export async function main() {
+  return "uses default deps";
+}
+`;
+      const scriptMetadata = `summary: "test"
+schema:
+  type: object
+  properties: {}
+lock: ""
+`;
+      await writeFile(`${tempDir}/f/test/my_script.ts`, scriptContent, "utf-8");
+      await writeFile(`${tempDir}/f/test/my_script.script.yaml`, scriptMetadata, "utf-8");
+
+      // Step 1: Run the NEW generate-metadata command (tree-based, stores hash with {} for deps)
+      const genResult = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--schema-only"],
+        tempDir,
+        "workspace_deps_hash_consistency_test"
+      );
+      expect(genResult.code).toEqual(0);
+      expect(genResult.stdout).toContain("Done. Updated");
+
+      // Step 2: Run the DEPRECATED script generate-metadata --dry-run (legacy, checks hash with deps)
+      // This simulates what sync push does internally — the legacy check path.
+      // If hashes are inconsistent, this would falsely report the script as stale.
+      const legacyResult = await backend.runCLICommand(
+        ["script", "generate-metadata", "-i", "f/test/my_script*", "--yes", "--dry-run"],
+        tempDir,
+        "workspace_deps_hash_consistency_test"
+      );
+      expect(legacyResult.code).toEqual(0);
+      // The legacy check should NOT find it stale — generate-metadata persisted
+      // the dep hashes, so getRawWorkspaceDependencies(true) returns {} for the
+      // legacy path, making the hash formula equivalent.
+      expect(legacyResult.stdout).toContain("No metadata to update");
+    });
+  });
+
+// =============================================================================
+// Test 5: Dep change after generate-metadata — legacy check detects staleness
+// =============================================================================
+
+test("Workspace deps: dep change after generate-metadata is detected by legacy check", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "workspace_deps_dep_change_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      // Setup workspace deps
+      await mkdir(`${tempDir}/dependencies`, { recursive: true });
+      const bunDep = `{"dependencies": {"lodash": "4.17.21"}}`;
+      await writeFile(`${tempDir}/dependencies/package.json`, bunDep, "utf-8");
+
+      // Setup script (no annotation = uses default dep)
+      await mkdir(`${tempDir}/f/test`, { recursive: true });
+      const scriptContent = `export async function main() {
+  return "uses default deps";
+}
+`;
+      const scriptMetadata = `summary: "test"
+schema:
+  type: object
+  properties: {}
+lock: ""
+`;
+      await writeFile(`${tempDir}/f/test/my_script.ts`, scriptContent, "utf-8");
+      await writeFile(`${tempDir}/f/test/my_script.script.yaml`, scriptMetadata, "utf-8");
+
+      // Step 1: Run generate-metadata to establish baseline hashes
+      const genResult = await backend.runCLICommand(
+        ["generate-metadata", "--yes", "--schema-only"],
+        tempDir,
+        "workspace_deps_dep_change_test"
+      );
+      expect(genResult.code).toEqual(0);
+
+      // Step 2: Verify baseline is up-to-date via legacy check
+      const checkResult = await backend.runCLICommand(
+        ["script", "generate-metadata", "-i", "f/test/my_script*", "--yes", "--dry-run"],
+        tempDir,
+        "workspace_deps_dep_change_test"
+      );
+      expect(checkResult.code).toEqual(0);
+      expect(checkResult.stdout).toContain("No metadata to update");
+
+      // Step 3: Change the workspace dep
+      const newBunDep = `{"dependencies": {"lodash": "4.17.22"}}`;
+      await writeFile(`${tempDir}/dependencies/package.json`, newBunDep, "utf-8");
+
+      // Step 4: Legacy check should detect the dep change as stale
+      // This works because getRawWorkspaceDependencies(true) returns the changed dep
+      // (its content hash no longer matches the lockfile), and the legacy path
+      // includes deps in the hash formula.
+      const afterDepChangeResult = await backend.runCLICommand(
+        ["script", "generate-metadata", "-i", "f/test/my_script*", "--yes", "--dry-run"],
+        tempDir,
+        "workspace_deps_dep_change_test"
+      );
+      expect(afterDepChangeResult.code).toEqual(0);
+      expect(afterDepChangeResult.stdout).toContain("my_script");
+    });
+  });
+
+// =============================================================================
+// Test 6: Apps - Create app via API and test filterWorkspaceDependenciesForApp
 // =============================================================================
 
 test("Workspace deps: Apps - filterWorkspaceDependenciesForApp with real app via API", async () => {

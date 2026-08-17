@@ -3,11 +3,9 @@
 
 	const bubble = createBubbler()
 	import {
-		DraftService,
-		type NewScript,
 		ScriptService,
-		type NewScriptWithDraft,
 		type Script,
+		type NewScript,
 		type TriggersCount,
 		PostgresTriggerService,
 		CaptureService,
@@ -28,14 +26,13 @@
 		enterpriseLicense,
 		usedTriggerKinds,
 		userStore,
+		userWorkspaces,
 		workerTags,
 		workspaceStore
 	} from '$lib/stores'
 	import {
-		cleanValueProperties,
 		emptySchema,
 		emptyString,
-		encodeState,
 		generateRandomString,
 		orderedJsonStringify,
 		readFieldsRecursively,
@@ -43,8 +40,12 @@
 		type Value
 	} from '$lib/utils'
 	import Path from './Path.svelte'
+	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
+	import { notifyContractWarnings } from './assets/AssetGraph/schemaContracts'
 	import ScriptEditor from './ScriptEditor.svelte'
-	import { Alert, Badge, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
+	import DbtEditor from './dbt/DbtEditor.svelte'
+	import { findModulePathClash } from './scriptModulePath'
+	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage, Schema } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -54,17 +55,23 @@
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import {
 		Bug,
-		Calendar,
 		CheckCircle,
 		Code,
-		Pen,
+		DiffIcon,
+		EllipsisVertical,
+		Network,
 		Plus,
 		Rocket,
-		Save,
 		Settings,
 		Shuffle,
+		Tag,
 		X
 	} from 'lucide-svelte'
+	import { base } from '$lib/base'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
+	import DropdownV2 from './DropdownV2.svelte'
+	import { getLocalSetting, storeLocalSetting, type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -80,8 +87,13 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { onMount, setContext, untrack } from 'svelte'
-	import Summary from './Summary.svelte'
+	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
+	import EditorHeader from './EditorHeader.svelte'
+	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
+	import Badge from './common/badge/Badge.svelte'
+	import Modal from './common/modal/Modal.svelte'
+	import AutosaveIndicator from './AutosaveIndicator.svelte'
+	import LabelsInput from './LabelsInput.svelte'
 
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
@@ -89,48 +101,26 @@
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
-	import {
-		type NewScriptWithDraftAndDraftTriggers,
-		type Trigger,
-		deployTriggers,
-		filterDraftTriggers,
-		handleSelectTriggerFromKind
-	} from './triggers/utils'
+	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
-	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
-	import { inputSizeClasses } from './text_input/TextInput.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
-	import Modal from './common/modal/Modal.svelte'
-
-	const WAC_ALPHA_ACK_KEY = 'windmill_wac_alpha_ack'
-	let wacAlphaModalOpen = $state(false)
-
-	function showWacAlphaModalIfNeeded() {
-		if (
-			typeof sessionStorage !== 'undefined' &&
-			sessionStorage.getItem(WAC_ALPHA_ACK_KEY) !== 'true'
-		) {
-			wacAlphaModalOpen = true
-		}
-	}
-
-	function acknowledgeWacAlpha() {
-		sessionStorage.setItem(WAC_ALPHA_ACK_KEY, 'true')
-		wacAlphaModalOpen = false
-	}
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	let {
 		script = $bindable(),
 		fullyLoaded = true,
 		initialPath = $bindable(''),
+		userDraftPath = '',
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		template = $bindable('script'),
 		initialArgs = {},
 		lockedLanguage = false,
@@ -140,19 +130,28 @@
 		savedScript = $bindable(undefined),
 		searchParams = new URLSearchParams(),
 		disableHistoryChange = false,
-		replaceStateFn = (url) => window.history.replaceState(null, '', url),
 		customUi = {},
 		savedPrimarySchedule = undefined,
 		functionExports = undefined,
 		children,
 		onDeploy,
 		onDeployError,
-		onSaveInitial,
 		onSeeDetails,
-		onSaveDraftError,
-		onSaveDraft,
-		disableAi
+		onNavigate,
+		onTestJob,
+		disableAi,
+		testPanelCollapsed = false,
+		initialPathChosen = false,
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts,
+		condensedHeader = false
 	}: ScriptBuilderProps = $props()
+
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -176,9 +175,50 @@
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
+
+	// Top-bar responsive collapse — container width, not viewport. Collapse the
+	// right group (hide the ~200px tag select, icon-only Diff/Settings) before the
+	// full group crowds the path into heavy truncation; ~900 is where the path
+	// keeps a usable width given the right group's natural ~440px.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 900)
+
+	// The workspace this editor operates on: deploy, save-draft, trigger loading
+	// and the AutosaveIndicator all target it. Falls back to the full-page
+	// editor's global store; the sessions preview overrides it to the session's
+	// (forked) workspace, so an embedded editor acts on the session's fork rather
+	// than the navigation workspace ($workspaceStore, which stays put). indicatorPath
+	// is the matching draft path (URL path full-page, session target in preview).
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? userDraftPath)
+
+	// The shared `workerTags` store caches tags for the navigation workspace. A
+	// session editor deploys to `opWorkspace` (a fork), so it keeps a local list to
+	// gate/populate the tag picker without reading or clobbering the shared cache.
+	const usesLocalTags = $derived(opWorkspace != undefined && opWorkspace !== $workspaceStore)
+	let localWorkerTags = $state<string[] | undefined>(undefined)
+	const scriptWorkerTags = $derived(usesLocalTags ? localWorkerTags : $workerTags)
+
+	function getCompactMenuItems(): Item[] {
+		const hasTags = (scriptWorkerTags?.length ?? 0) > 0
+		return [
+			...(customUi?.topBar?.tagEdit != false && hasTags
+				? [
+						{
+							displayName: 'Worker tag',
+							icon: Tag,
+							action: () => {
+								selectedTab = 'runtime'
+								metadataOpen = true
+							}
+						}
+					]
+				: [])
+		]
+	}
 	let open: boolean = $state(false) // Is confirmation modal open
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
-	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
+	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
 	let hasPreprocessor = $state(false)
 	let preserveOnBehalfOf = $state(false)
 
@@ -186,8 +226,10 @@
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
+	let originalOnBehalfOfPermissionedAs = $derived(savedScript?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
+	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -199,7 +241,33 @@
 	)
 
 	let editor: Editor | undefined = $state(undefined)
-	let scriptEditor: ScriptEditor | undefined = $state(undefined)
+	// A dbt script gets its own editor: the artifact is a project bundle — a file
+	// tree, a descriptor, run arguments and a model graph — not a body of code.
+	// Both answer to the same handful of calls below, so everything around them
+	// is unchanged.
+	let scriptEditor: ScriptEditor | DbtEditor | undefined = $state(undefined)
+	let isDbt = $derived(script.language === 'dbt')
+	// dbt hides Generated UI, but the initialiser picks a tab before the language is
+	// known, so `ui` can be selected. Fall back only to an ENABLED tab — the other
+	// TabContents are not gated on their disable flags — and otherwise stay on `ui`,
+	// whose content IS gated for dbt, so nothing renders rather than something hidden.
+	$effect(() => {
+		if (isDbt && selectedTab === 'ui') {
+			const first = (
+				[
+					['metadata', customUi?.settingsPanel?.disableMetadata],
+					['runtime', customUi?.settingsPanel?.disableRuntime],
+					['triggers', customUi?.settingsPanel?.disableTriggers]
+				] as const
+			).find(([, disabled]) => disabled !== true)?.[0]
+			if (first) selectedTab = first
+		}
+	})
+	// The version whose stored graph the dbt editor draws until a refresh replaces
+	// it. A script never deployed has none, and `NewScript` carries no hash.
+	let deployedScriptHash = $derived(
+		savedScript && 'hash' in savedScript ? (savedScript.hash as string) : undefined
+	)
 	let captureTable: CaptureTable | undefined = $state(undefined)
 	let wacExportDrawer: WacExportDrawer | undefined = $state(undefined)
 
@@ -264,38 +332,27 @@
 			return
 		}
 		$triggersCount = await ScriptService.getTriggersCountOfScript({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath
 		})
 
 		await triggersState.fetchTriggers(
 			triggersCount,
-			$workspaceStore,
+			opWorkspace,
 			initialPath,
 			false,
 			$primaryScheduleStore,
 			$userStore
 		)
-
-		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
-			savedScript = filterDraftTriggers(
-				savedScript,
-				triggersState
-			) as NewScriptWithDraftAndDraftTriggers
-		}
 	}
 
 	// Add triggers context store
 	const triggersState = $state(
-		new Triggers(
-			[
-				{ type: 'webhook', path: '', isDraft: false },
-				{ type: 'default_email', path: '', isDraft: false },
-				...(script.draft_triggers ?? [])
-			],
-			undefined,
-			saveSessionDraft
-		)
+		new Triggers([
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'default_email', path: '', isDraft: false },
+			...(script.draft_triggers ?? [])
+		])
 	)
 
 	const captureOn = writable<boolean | undefined>(undefined)
@@ -307,7 +364,22 @@
 		triggersState
 	})
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
+	const enterpriseLangs = ['mssql', 'oracledb']
+
+	// Languages the pipeline editor treats as warehouse/dataset transforms —
+	// the ones where a `-- pipeline` annotation is a natural next step.
+	const pipelineHintLangs = ['duckdb', 'postgresql', 'bigquery', 'snowflake', 'mysql', 'mssql']
+	const pipelineHintDismissed = useLocalStorageValue(
+		'pipelineScriptHintDismissed',
+		false,
+		'boolean'
+	)
+	let showPipelineHint = $derived(
+		!pipelineHintDismissed.val &&
+			(script.kind === 'script' || script.kind === undefined) &&
+			pipelineHintLangs.includes(script.language ?? '') &&
+			!parsePipelineAnnotations(script.content ?? '').inPipeline
+	)
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -357,31 +429,49 @@
 
 	let pathError = $state('')
 	let loadingSave = $state(false)
-	let loadingDraft = $state(false)
 
-	let timeout2: number | undefined = undefined
-	function encodeScriptState(script: NewScript) {
-		untrack(() => timeout2 && clearTimeout(timeout2))
-		timeout2 = setTimeout(() => {
-			replaceStateFn(
-				'#' +
-					encodeState({
-						...script,
-						draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
-					})
-			)
-		}, 500)
-	}
-
-	let timeout: number | undefined = undefined
-	function saveSessionDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			encodeScriptState(script)
-		}, 500)
+	// Lifts the route's `?new_draft=true` `stopSync` suspension, but only after the
+	// stores-gated bind:path cascade (and, for an empty seed, `initContent` via
+	// `markContentReady`) settles — resuming earlier posts the seed/auto-generated
+	// path as the user's first "edit". `restarted` keeps re-entry idempotent.
+	function scheduleRestartSync(
+		path: string,
+		opts?: { waitForContent?: boolean }
+	): { markContentReady: () => void } {
+		let contentReady = !opts?.waitForContent
+		let storesReady = !!($userStore && $workspaceStore)
+		let restarted = false
+		async function tryRestart() {
+			if (restarted || !contentReady || !storesReady) return
+			// 500ms covers the bind:path cascade even on cold reload; two ticks
+			// weren't enough (bind:path fired ~100ms after restart, posting an edit).
+			await new Promise((r) => setTimeout(r, 500))
+			if (restarted) return
+			restarted = true
+			UserDraft.restartSync('script', path)
+		}
+		if (!storesReady) {
+			$effect(() => {
+				if ($userStore && $workspaceStore) {
+					storesReady = true
+					untrack(() => void tryRestart())
+				}
+			})
+		}
+		void tryRestart()
+		return {
+			markContentReady() {
+				contentReady = true
+				void tryRestart()
+			}
+		}
 	}
 
 	if (script.content == '') {
+		// Suspend autosave around the bootstrap mutations: seeding the template
+		// content is a programmatic write, not the user's first edit. The handle
+		// keys on `userDraftPath` (URL path), not the editor-displayed `initialPath`.
+		UserDraft.stopSync('script', userDraftPath)
 		if (template === 'wac_python') {
 			script.modules = {
 				'helper.py': {
@@ -389,7 +479,6 @@
 					language: 'python3'
 				}
 			}
-			showWacAlphaModalIfNeeded()
 		} else if (template === 'wac_typescript') {
 			script.modules = {
 				'helper.ts': {
@@ -397,9 +486,16 @@
 					language: 'bun'
 				}
 			}
-			showWacAlphaModalIfNeeded()
+		} else if (script.language === 'dbt') {
+			seedDbtProject()
 		}
-		initContent(script.language, script.kind, template)
+		const restarter = scheduleRestartSync(userDraftPath, { waitForContent: true })
+		initContent(script.language, script.kind, template).finally(() => restarter.markContentReady())
+	} else if (userDraftPath && untrack(() => searchParams).get('new_draft') == 'true') {
+		// Pre-filled new-draft seed (fork "Copy of X", hub fork, URL/YAML import): no
+		// template to seed, but the route still suspended autosave — lift it or the
+		// draft never persists (autosave stays dead for the session).
+		scheduleRestartSync(userDraftPath)
 	}
 
 	async function isTemplateScript() {
@@ -410,7 +506,7 @@
 		}
 		try {
 			const templateScript = await PostgresTriggerService.getTemplateScript({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				id: templateId
 			})
 			return templateScript
@@ -435,10 +531,17 @@
 			| 'claudesandbox'
 			| 'wac_python'
 			| 'wac_typescript'
+			| 'ci_test_bun'
+			| 'ci_test_python'
 	) {
 		scriptEditor?.disableCollaboration()
+		// Seed synchronously so a Deploy before the async template fetch resolves
+		// doesn't run `inferArgs` on empty content and toast "Could not parse code".
+		script.content = initialCode(language, kind, template, false)
 		const templateScript = await isTemplateScript()
-		script.content = initialCode(language, kind, template, templateScript != undefined)
+		if (templateScript) {
+			script.content = initialCode(language, kind, template, true)
+		}
 		if (templateScript) {
 			script.content += '\r\n' + templateScript
 		}
@@ -457,7 +560,7 @@
 			if (initialPath && initialPath != '') {
 				actual_parent_hash = (
 					await ScriptService.getScriptLatestVersion({
-						workspace: $workspaceStore!,
+						workspace: opWorkspace!,
 						path: initialPath
 					})
 				)?.script_hash
@@ -504,7 +607,7 @@
 
 	async function syncWithDeployed() {
 		const latestScript = await ScriptService.getScriptByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath,
 			withStarredInfo: true
 		})
@@ -543,12 +646,12 @@
 
 		loadingSave = true
 		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
+			// Legacy drafts can carry `schema: {}` (no `properties`), which trips
+			// `inferArgs` on `JSON.stringify(schema.properties)` and toasts "Could
+			// not parse code". Backfill an empty schema so it parses.
+			if (!script.schema || !(script.schema as any).properties) {
+				script.schema = emptySchema()
 			}
-			script.schema = script.schema ?? emptySchema()
 			try {
 				const result = await inferArgs(
 					script.language,
@@ -568,7 +671,7 @@
 			}
 
 			const newHash = await ScriptService.createScript({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				requestBody: {
 					path: script.path,
 					summary: script.summary,
@@ -597,7 +700,6 @@
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
-					delete_after_use: script.delete_after_use,
 					timeout: script.timeout,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
 					visible_to_runner_only: script.visible_to_runner_only,
@@ -605,15 +707,26 @@
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
+					on_behalf_of: script.on_behalf_of,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
-					modules: script.modules
+					modules: script.modules,
+					labels: script.labels
 				}
 			})
 
+			// New/updated path now exists server-side — drop the autocomplete
+			// cache so it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths(opWorkspace!)
+
+			// Authoritative save-time schema-contract check (pipelines gap #2b):
+			// warn-only, post-commit so a self-produced target resolves to the
+			// content just deployed. Fire-and-forget — must never gate the deploy.
+			notifyContractWarnings(opWorkspace!, script.language, script.content)
+
 			if (!initialPath) {
 				await CaptureService.moveCapturesAndConfigs({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: fakeInitialPath,
 					requestBody: {
 						new_path: script.path
@@ -625,7 +738,7 @@
 			if (triggersToDeploy) {
 				await deployTriggers(
 					triggersToDeploy,
-					$workspaceStore,
+					opWorkspace,
 					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 					usedTriggerKinds,
 					script.path,
@@ -634,23 +747,29 @@
 			}
 
 			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
-			savedScript = structuredClone($state.snapshot(newScript)) as NewScriptWithDraft
+			savedScript = structuredClone($state.snapshot(newScript))
 			setDraftTriggers([])
 
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (
+			// "Stay" deploys (explicit "Deploy & Stay here" or lib scripts) keep the
+			// editor in place rather than navigating to the deployed item.
+			const stayHere =
 				stay ||
 				(script.auto_kind === 'lib' &&
 					script.kind !== 'preprocessor' &&
 					!isWorkflowAsCode(script.content, script.language))
-			) {
+			if (stayHere) {
+				// Re-pin parent_hash so the next deploy's conflict check is against
+				// the version we just wrote.
 				script.parent_hash = newHash
-				sendUserToast('Deployed')
-			} else {
-				onDeploy?.({ path: script.path, hash: newHash })
 			}
+			// Always notify on a successful deploy; the consumer decides whether to
+			// navigate (route) or stay + sync the preview (session). Previously the
+			// stay/lib branch skipped onDeploy, so session previews didn't sync after
+			// a "Deploy & Stay here" or lib-script deploy.
+			onDeploy?.({ path: script.path, hash: newHash, stay: stayHere })
 		} catch (error) {
 			onDeployError?.({ path: script.path, error })
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
@@ -658,220 +777,106 @@
 		loadingSave = false
 	}
 
-	async function saveDraft(forceSave = false): Promise<void> {
-		scriptEditor?.flushModuleState()
-		if (initialPath != '' && !savedScript) {
+	// Ctrl/Cmd+S forces an immediate flush of the pending autosave. Flush Monaco
+	// + `tick()` first so the last keystrokes reach the bindable before the
+	// syncer flushes. No toast — the AutosaveIndicator narrates the result, and
+	// `flush` never rejects (postSave routes errors to the failures map).
+	async function saveDraft(): Promise<void> {
+		if (!opWorkspace || !userDraftPath) return
+		editor?.flushPendingChanges()
+		await tick()
+		await UserDraftDbSyncer.flush({
+			workspace: opWorkspace,
+			itemKind: 'script',
+			path: userDraftPath
+		})
+	}
+
+	// Materialize a brand-new script's draft before the session preview loads it by
+	// path — an untouched new script never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		await saveDraft()
+		if (opWorkspace && userDraftPath && savedScript?.no_deployed === true) {
+			await UserDraft.forcePersist('script', userDraftPath, { workspace: opWorkspace })
+		}
+	}
+
+	// Inside an AI session pane (which injects an aiChatManager via context) the
+	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
+	// fork, Exit & See details, Export — don't make sense: the session always
+	// stays put and is already scoped to a fork. Diff is exposed as a standalone
+	// top-bar button (rendered independently of the session pane), not here.
+	const inSessionPane = !!getContext('aiChatManager')
+
+	async function openDiffDrawer() {
+		if (!savedScript) {
 			return
 		}
+		await syncWithDeployed()
 
-		if (savedScript) {
-			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
-			const currentTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-			const current = cleanValueProperties({ ...script, draft_triggers: currentTriggers })
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				sendUserToast('No changes detected, ignoring', false, [
-					{
-						label: 'Save anyway',
-						callback: () => {
-							saveDraft(true)
-						}
-					}
-				])
-				return
-			}
+		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+
+		const deployed = deployedValue ?? savedScript
+		// `script` comes from the full DB row (since #9351), so it carries `lock`/`extra_perms`
+		// while the deployed side is trimmed in `syncWithDeployed` — null them here to match
+		// that strip. They stay in the shared `cleanValueProperties` so version-to-version and
+		// folder workspace/fork diffs still surface lockfile / sharing-permission changes.
+		const current = {
+			...script,
+			lock: undefined,
+			extra_perms: undefined,
+			draft_triggers: currentDraftTriggers
 		}
+		if (current.assets && !current.assets.length) delete current.assets
 
-		loadingDraft = true
-		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
-			script.schema = script.schema ?? emptySchema()
-			try {
-				const result = await inferArgs(
-					script.language,
-					script.content,
-					script.schema as any,
-					script.kind === 'preprocessor' ? 'preprocessor' : undefined
-				)
-				if (script.kind === 'preprocessor') {
-					script.auto_kind = undefined
-					script.has_preprocessor = undefined
-				} else {
-					script.auto_kind = result?.auto_kind || undefined
-					script.has_preprocessor = result?.has_preprocessor || undefined
-				}
-			} catch (error) {
-				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
-			}
-			let newHash = ''
-			if (initialPath == '' || savedScript?.draft_only) {
-				if (savedScript?.draft_only) {
-					await ScriptService.deleteScriptByPath({
-						workspace: $workspaceStore!,
-						path: initialPath,
-						keepCaptures: true
-					})
-					script.parent_hash = undefined
-				}
-				if (!initialPath || script.path != initialPath) {
-					await CaptureService.moveCapturesAndConfigs({
-						workspace: $workspaceStore!,
-						path: initialPath || fakeInitialPath,
-						requestBody: {
-							new_path: script.path
-						},
-						runnableKind: 'script'
-					})
-				}
-				newHash = await ScriptService.createScript({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: script.path,
-						summary: script.summary,
-						description: script.description ?? '',
-						content: script.content,
-						schema: script.schema,
-						is_template: script.is_template,
-						language: script.language,
-						kind: script.kind,
-						tag: script.tag,
-						draft_only: true,
-						envs: script.envs,
-						concurrent_limit: script.concurrent_limit,
-						concurrency_time_window_s: script.concurrency_time_window_s,
-						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
-						debounce_delay_s: script.debounce_delay_s,
-						debounce_args_to_accumulate:
-							script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
-								? script.debounce_args_to_accumulate
-								: undefined,
-						max_total_debouncing_time: script.max_total_debouncing_time,
-						max_total_debounces_amount: script.max_total_debounces_amount,
-						cache_ttl: script.cache_ttl,
-						cache_ignore_s3_path: script.cache_ignore_s3_path,
-						ws_error_handler_muted: script.ws_error_handler_muted,
-						priority: script.priority,
-						restart_unless_cancelled: script.restart_unless_cancelled,
-						delete_after_use: script.delete_after_use,
-						timeout: script.timeout,
-						concurrency_key: emptyString(script.concurrency_key)
-							? undefined
-							: script.concurrency_key,
-						visible_to_runner_only: script.visible_to_runner_only,
-						auto_kind: script.auto_kind,
-						has_preprocessor: script.has_preprocessor,
-						on_behalf_of_email: script.on_behalf_of_email,
-						assets: script.assets,
-						modules: script.modules
-					}
-				})
-			}
-			const draftTriggers = triggersState.getDraftTriggersSnapshot()
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
-					typ: 'script',
-					value: {
-						...script,
-						draft_triggers: draftTriggers
-					}
-				}
-			})
-
-			const clonedScript = structuredClone($state.snapshot(script))
-			savedScript = {
-				...(initialPath == '' || savedScript?.draft_only
-					? { ...clonedScript, draft_only: true }
-					: savedScript),
-				draft: {
-					...clonedScript,
-					draft_triggers: draftTriggers
-				}
-			} as NewScriptWithDraftAndDraftTriggers
-
-			let savedAtNewPath = false
-			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
-				savedAtNewPath = true
-				initialPath = script.path
-				onSaveInitial?.({ path: script.path, hash: newHash })
-			}
-			onSaveDraft?.({ path: script.path, savedAtNewPath, script })
-
-			sendUserToast('Saved as draft')
-		} catch (error) {
-			sendUserToast(
-				`Error while saving the script as a draft: ${error.body || error.message}`,
-				true
-			)
-			onSaveDraftError?.({ path: script.path, error })
-		}
-		loadingDraft = false
+		diffDrawer?.openDrawer()
+		diffDrawer?.setDiff({
+			mode: 'normal',
+			deployed,
+			draft: savedScript['draft'],
+			current
+		})
 	}
 
 	function computeDropdownItems(
 		initialPath: string,
-		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
-		diffDrawer: DiffDrawerI | undefined
+		savedScript: ((Script | NewScript) & { no_deployed?: boolean }) | undefined
 	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
-						{
-							label: 'Deploy & Stay here',
-							onClick: () => {
-								handleEditScript(true)
-							}
-						},
-						{
-							label: 'Fork',
-							onClick: () => {
-								window.open(`/scripts/add?template=${initialPath}`)
-							}
-						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+						...(!inSessionPane
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: 'Deploy & Stay here',
 										onClick: () => {
-											window.open(buildForkEditUrl('script', initialPath))
+											handleEditScript(true)
 										}
-									}
-								]
-							: []),
-						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
-							? [
+									},
 									{
-										label: 'Show diff',
-										onClick: async () => {
-											if (!savedScript) {
-												return
-											}
-											await syncWithDeployed()
-
-											const currentDraftTriggers = structuredClone(
-												triggersState.getDraftTriggersSnapshot()
-											)
-
-											const deployed = deployedValue ?? savedScript
-											const current = { ...script, draft_triggers: currentDraftTriggers }
-											if (current.assets && !current.assets.length) delete current.assets
-
-											diffDrawer?.openDrawer()
-											diffDrawer?.setDiff({
-												mode: 'normal',
-												deployed,
-												draft: savedScript['draft'],
-												current
-											})
+										label: 'Fork',
+										onClick: () => {
+											window.open(`/scripts/add?template=${initialPath}`)
 										}
-									}
+									},
+									...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
+										? [
+												{
+													label: editInForkLabel(opWorkspace, $userWorkspaces),
+													onClick: () => {
+														openEditInFork('script', initialPath, opWorkspace)
+													}
+												}
+											]
+										: [])
 								]
 							: []),
-						...(!script.draft_only && script.kind === 'script' && !script.auto_kind
+						...(!inSessionPane &&
+						savedScript?.no_deployed !== true &&
+						script.kind === 'script' &&
+						!script.auto_kind
 							? [
 									{
 										label: 'Exit & See details',
@@ -881,7 +886,7 @@
 									}
 								]
 							: []),
-						...(isWorkflowAsCode(script.content, script.language)
+						...(!inSessionPane && isWorkflowAsCode(script.content, script.language)
 							? [
 									{
 										label: 'Export as YAML/JSON',
@@ -894,7 +899,11 @@
 					]
 				: []
 
-		if (dropdownItems.length === 0 && isWorkflowAsCode(script.content, script.language)) {
+		if (
+			!inSessionPane &&
+			dropdownItems.length === 0 &&
+			isWorkflowAsCode(script.content, script.language)
+		) {
 			dropdownItems = [
 				{
 					label: 'Export as YAML/JSON',
@@ -909,9 +918,11 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		switch (event.key) {
+		// Lowercased so Caps Lock (which yields `S`) still saves. Shift excluded:
+		// Ctrl+Shift+S must reach the browser/OS.
+		switch (event.key.length === 1 ? event.key.toLowerCase() : event.key) {
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
 					saveDraft()
 					event.preventDefault()
 				}
@@ -919,8 +930,20 @@
 		}
 	}
 
+	// Monaco swallows the keydown, so a code editor with focus never reaches the
+	// window handler above; Editor/SimpleEditor/TemplateEditor re-broadcast it
+	// (untyped event, hence the manual listener).
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+	})
+
 	let path: Path | undefined = $state(undefined)
-	let dirtyPath = $state(false)
+	// Seed "path is already chosen" so the summary→path auto-slug (which only
+	// runs for new scripts with initialPath == '') doesn't clobber a path the
+	// caller pre-assigned. The session preview opens AI-created scripts as new
+	// (empty initialPath) but with a path the AI already picked.
+	let dirtyPath = $state(initialPathChosen)
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = $state(
 		(() => {
@@ -991,35 +1014,51 @@
 		}
 	}
 
-	function handleDeployTrigger(trigger: Trigger) {
-		const { id, path, type } = trigger
-		//Update the saved script to remove the draft trigger that is deployed
-		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
-			const newSavedDraftTrigers = savedScript.draft.draft_triggers.filter(
-				(t) => t.id !== id || t.path !== path || t.type !== type
-			)
-			savedScript.draft.draft_triggers =
-				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
+	function handleDeployTrigger(_trigger: Trigger) {}
+
+	// A dbt script's modules ARE its dbt project, and the runtime refuses one
+	// without a `dbt_project.yml`. Seeded from BOTH entry points — the empty-script
+	// bootstrap and the language picker — because reaching dbt by switching an
+	// existing draft otherwise produces a script that cannot deploy or run.
+	// Existing modules are left alone: switching away and back must not discard a
+	// project the user has already grown.
+	function seedDbtProject() {
+		// Keyed on the project file rather than on "has any modules at all": a
+		// draft that grew modules under another language carries none of what dbt
+		// needs, and the worker refuses a bundle with no `dbt_project.yml` — so
+		// that draft reached dbt in a state it could neither deploy nor run.
+		// Matched on the canonical path: a bundle pushed with `./dbt_project.yml`
+		// already has the project file, and seeding a second spelling of it is the
+		// two-keys-one-file collision the editor's add-file checks refuse.
+		if (findModulePathClash(script.modules, 'dbt_project.yml')) return
+		script.modules = {
+			'dbt_project.yml': {
+				content:
+					'name: my_dbt_project\nversion: "1.0"\nprofile: my_dbt_project\nmodels:\n  my_dbt_project:\n    +materialized: view\n',
+				language: 'dbt'
+			},
+			'models/example.sql': {
+				content: 'select 1 as id\n',
+				language: 'dbt'
+			},
+			// Last, so anything already written wins: the previous language's
+			// helper files are inert to dbt and are the user's to remove.
+			...(script.modules ?? {})
 		}
 	}
 
+	/// Shown once, the first time dbt is chosen: the moment of choosing is when
+	/// "this is alpha and its details will move" is worth knowing, rather than
+	/// after a project has been built on it.
+	const DBT_ALPHA_SEEN = 'dbt_alpha_ack'
+	let dbtAlphaOpen = $state(false)
+
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
+		if (lang === 'dbt' && getLocalSetting(DBT_ALPHA_SEEN) !== 'true') {
+			dbtAlphaOpen = true
+			storeLocalSetting(DBT_ALPHA_SEEN, 'true')
+		}
 		if (lang == 'docker') {
-			if (isCloudHosted()) {
-				sendUserToast(
-					'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-					true,
-					[
-						{
-							label: 'Learn more',
-							callback: () => {
-								window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-							}
-						}
-					]
-				)
-				return
-			}
 			template = 'docker'
 		} else if (lang == 'bunnative') {
 			template = 'bunnative'
@@ -1027,9 +1066,19 @@
 			template = 'script'
 		}
 		let language = langToLanguage(lang)
+		if (language === 'dbt') {
+			// A project bundle only ever runs as an action, and the selector that
+			// would set this back is hidden for dbt — so a script arriving here as a
+			// trigger or approval would keep a kind it cannot fill and drop out of
+			// the action pickers, with nothing on screen to repair it.
+			script.kind = 'script'
+		}
 		//
 		initContent(language, script.kind, template)
 		script.language = language
+		if (language === 'dbt') {
+			seedDbtProject()
+		}
 	}
 
 	function onSummaryChange(value: string) {
@@ -1064,15 +1113,25 @@
 			}
 		})
 	})
+
+	// Mirror the draft triggers (held in a separate `triggersState` $state)
+	// back into `script.draft_triggers` so the UserDraft autosave — which
+	// deep-tracks `script` — picks them up. Pre-PR ScriptBuilder ran its own
+	// localStorage autosave that explicitly snapshotted triggersState; the
+	// switch to a unified UserDraft handle dropped that bridge.
 	$effect(() => {
-		readFieldsRecursively(script)
-		!disableHistoryChange && encodeScriptState(script)
+		readFieldsRecursively(triggersState.triggers)
+		script.draft_triggers = triggersState.getDraftTriggersSnapshot()
 	})
 
 	loadWorkerTags()
 	async function loadWorkerTags() {
-		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
+		if (usesLocalTags) {
+			if (!localWorkerTags) {
+				localWorkerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: opWorkspace! })
+			}
+		} else if (!$workerTags) {
+			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: opWorkspace! })
 		}
 	}
 </script>
@@ -1130,7 +1189,10 @@
 							label="Runtime"
 						/>
 					{/if}
-					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
+					<!-- Not for dbt: its run form is derived from the descriptor server-side
+					     (`dbt_arg_schema`), so anything refined here is overwritten by the
+					     next deploy. -->
+					{#if customUi?.settingsPanel?.disableGeneratedUi !== true && !isDbt}
 						<Tab
 							value="ui"
 							aiId="script-builder-ui"
@@ -1195,6 +1257,7 @@
 													}}
 												/>
 											</Label>
+											<LabelsInput bind:labels={script.labels} class="-mt-4" />
 											<Label label="Path">
 												{#snippet header()}
 													<Tooltip
@@ -1213,7 +1276,16 @@
 													autofocus={false}
 													namePlaceholder="script"
 													kind="script"
+													workspaceOverride={opWorkspace}
 												/>
+												{#if initialPath && script.path && script.path !== initialPath}
+													<Alert
+														type="info"
+														size="xs"
+														title="Deploy the script to make the path change effective."
+														class="mt-2"
+													/>
+												{/if}
 											</Label>
 											<Label label="Description">
 												<MetadataGen
@@ -1268,8 +1340,8 @@
 															} as ButtonType.Icon}
 														>
 															<span class="truncate">{label}</span>
-															{#if lang === 'ruby'}
-																<span class="text-primary !text-xs"> BETA </span>
+															{#if lang === 'dbt'}
+																<Badge color="orange" verySmall baseClass="ml-1">alpha</Badge>
 															{/if}
 														</Button>
 														{#snippet text()}
@@ -1318,7 +1390,6 @@
 														}
 													}
 													initContent('bun', script.kind, template)
-													showWacAlphaModalIfNeeded()
 												}}
 											>
 												WAC TypeScript
@@ -1343,14 +1414,48 @@
 														}
 													}
 													initContent('python3', script.kind, template)
-													showWacAlphaModalIfNeeded()
 												}}
 											>
 												WAC Python
 											</Button>
 										</span>
+										<Button
+											size="xs2"
+											variant="border"
+											color="light"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'bun', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											on:click={() => {
+												template = 'ci_test_bun'
+												script.language = 'bun'
+												initContent('bun', script.kind, template)
+											}}
+										>
+											CI Test TypeScript
+										</Button>
+										<Button
+											size="xs2"
+											variant="border"
+											color="light"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'python3', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											on:click={() => {
+												template = 'ci_test_python'
+												script.language = 'python3'
+												initContent('python3', script.kind, template)
+											}}
+										>
+											CI Test Python
+										</Button>
 									</div>
-									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
+									<!-- Not for dbt: each kind tags a script for a role in a flow that a project
+										     bundle cannot fill (approval, trigger, preprocessor), and the runtime only
+										     ever runs it as an action. -->
+									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true && !isDbt}
 										<Section label="Script kind">
 											{#snippet header()}
 												<Tooltip
@@ -1534,7 +1639,7 @@
 													if (script.timeout && script.timeout != undefined) {
 														script.timeout = undefined
 													} else {
-														script.timeout = 300
+														script.timeout = customUi?.defaultTimeout ?? 300
 													}
 												}}
 												options={{
@@ -1640,7 +1745,7 @@
 											>
 										{/snippet}
 									</Section>
-									<Section label="Delete after use">
+									<Section label="Delete after completion">
 										{#snippet header()}
 											<Tooltip
 												documentationLink="https://www.windmill.dev/docs/script_editor/settings#delete-after-use"
@@ -1651,7 +1756,8 @@
 												<br />
 												<br />
 												The logs, arguments and results of the job will be completely deleted from Windmill
-												once it is complete and the result has been returned.
+												after the specified delay once it is complete and the result has been returned.
+												Set to 0 for immediate deletion.
 												<br />
 												<br />
 												The deletion is irreversible.
@@ -1666,18 +1772,24 @@
 											<Toggle
 												disabled={!$enterpriseLicense}
 												size="sm"
-												checked={Boolean(script.delete_after_use)}
+												checked={script.delete_after_secs != null}
 												on:change={() => {
-													if (script.delete_after_use) {
-														script.delete_after_use = undefined
+													if (script.delete_after_secs != null) {
+														script.delete_after_secs = undefined
 													} else {
-														script.delete_after_use = true
+														script.delete_after_secs = 0
 													}
 												}}
 												options={{
-													right: 'Delete logs, arguments and results after use'
+													right: 'Delete logs, arguments and results after completion'
 												}}
 											/>
+											{#if script.delete_after_secs != null}
+												<SecondsInput
+													bind:seconds={script.delete_after_secs}
+													disabled={!$enterpriseLicense}
+												/>
+											{/if}
 										</div>
 									</Section>
 									{#if !isCloudHosted()}
@@ -1755,11 +1867,15 @@
 											/>
 										</div>
 									</Section>
-									<Section label="On behalf of last editor">
+									<Section
+										label={canPreserve
+											? 'Run on behalf of a specified user'
+											: 'On behalf of last editor'}
+									>
 										{#snippet header()}
 											<Tooltip>
 												When this option is enabled, the script will be run with the permissions of
-												the last editor.
+												{canPreserve ? 'the specified user' : 'the last editor'}.
 											</Tooltip>
 										{/snippet}
 										<div class="flex gap-2 shrink flex-col">
@@ -1770,10 +1886,12 @@
 													on:change={() => {
 														if (script.on_behalf_of_email) {
 															script.on_behalf_of_email = undefined
+															script.on_behalf_of = undefined
 															preserveOnBehalfOf = false
 															onBehalfOfChoice = undefined
 														} else {
 															script.on_behalf_of_email = $userStore?.email
+															script.on_behalf_of = myPermissionedAs
 														}
 													}}
 													options={{
@@ -1782,21 +1900,26 @@
 												/>
 												{#if script.on_behalf_of_email && canPreserve}
 													&rarr; <OnBehalfOfSelector
-														targetWorkspace={$workspaceStore ?? ''}
+														targetWorkspace={opWorkspace ?? ''}
 														targetValue={originalOnBehalfOfEmail}
 														selected={onBehalfOfChoice}
 														onSelect={(choice, details) => {
 															onBehalfOfChoice = choice
 															if (choice === 'me') {
 																script.on_behalf_of_email = $userStore?.email
+																script.on_behalf_of = myPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = false
 															} else if (choice === 'target') {
+																// Keep the saved pair. A script that has no recorded principal yet
+																// sends the email alone and the backend derives one from it.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
+																script.on_behalf_of = originalOnBehalfOfPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = true
 															} else if (choice === 'custom' && details) {
 																script.on_behalf_of_email = details.email
+																script.on_behalf_of = details.permissionedAs
 																customOnBehalfOfEmail = details.email
 																preserveOnBehalfOf = true
 															}
@@ -1881,12 +2004,14 @@
 									{/if}
 								</div>
 							</TabContent>
-							<TabContent value="ui" class="h-full p-4">
-								<ScriptSchema
-									bind:schema={script.schema}
-									customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
-								/>
-							</TabContent>
+							{#if !isDbt}
+								<TabContent value="ui" class="h-full p-4">
+									<ScriptSchema
+										bind:schema={script.schema}
+										customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
+									/>
+								</TabContent>
+							{/if}
 							<TabContent value="triggers" class="h-full">
 								<TriggersEditor
 									on:applyArgs={applyArgs}
@@ -1903,7 +2028,7 @@
 									{hasPreprocessor}
 									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
-									isDeployed={savedScript && !savedScript?.draft_only}
+									isDeployed={savedScript && savedScript?.no_deployed !== true}
 									schema={script.schema}
 									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
@@ -1918,195 +2043,297 @@
 		</DrawerContent>
 	</Drawer>
 
-	<div class="flex flex-col h-screen">
-		<div class="flex h-12 items-center px-4">
+	<div class="flex flex-col h-full">
+		<div
+			bind:clientWidth={topbarWidth}
+			class="flex items-center px-4 {condensedHeader ? 'h-9' : 'h-12'}"
+		>
 			<div class="flex gap-2 lg:gap-2 w-full items-center">
-				<div class="flex flex-row gap-2 grow max-w-md">
-					<div class="center-center">
-						<button
-							disabled={customUi?.topBar?.settings == false}
-							onclick={async () => {
-								metadataOpen = true
-							}}
-						>
-							<LanguageIcon lang={script.language} size={24} />
-						</button>
-					</div>
-					<Summary
-						disabled={customUi?.topBar?.editableSummary == false}
-						bind:value={script.summary}
-					/>
+				<div class="flex flex-row items-center gap-2 min-w-0 shrink">
+					<button
+						disabled={customUi?.topBar?.settings == false}
+						class="shrink-0"
+						onclick={async () => {
+							metadataOpen = true
+						}}
+					>
+						<LanguageIcon lang={script.language} size={condensedHeader ? 18 : 24} />
+					</button>
+					{#if customUi?.topBar?.path != false}
+						<div class="min-w-0 overflow-hidden">
+							<EditorHeader
+								bind:summary={script.summary}
+								bind:path={script.path}
+								savedPath={initialPath}
+								kind="script"
+								summaryEditable={customUi?.topBar?.editableSummary != false}
+								pathEditable={customUi?.topBar?.editablePath != false}
+								hidePath={condensedHeader}
+								workspaceId={autosaveWorkspace}
+								onNavigate={(item) => onNavigate?.(item)}
+							/>
+						</div>
+					{/if}
+					{#if opWorkspace}
+						<AutosaveIndicator
+							workspace={opWorkspace}
+							itemKind="script"
+							path={indicatorPath}
+							draftOnly={savedScript?.no_deployed === true}
+							{onResetToDeployed}
+							{loadedFromDraft}
+							{othersDraftsCount}
+							{onOpenOthersDrafts}
+						/>
+					{/if}
+					{#if !condensedHeader}
+						{@const canOpenRuntime =
+							customUi?.topBar?.settings != false &&
+							customUi?.settingsPanel?.disableRuntime !== true}
+						<ScriptSettingsBadges
+							settings={script}
+							onclick={canOpenRuntime
+								? () => {
+										selectedTab = 'runtime'
+										metadataOpen = true
+									}
+								: undefined}
+						/>
+					{/if}
 				</div>
 
 				<!-- Separator -->
 				<div class="flex-1"></div>
 
-				<div class="gap-4 flex whitespace-nowrap">
-					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
-						{@const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)}
-						{@const schedule = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
-
-						<Button
-							btnClasses="hidden lg:inline-flex"
-							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={async () => {
-								metadataOpen = true
-								selectedTab = 'triggers'
-								triggersState.selectedTriggerIndex = primarySchedule ?? schedule
-							}}
-						>
-							{triggersState.triggers[primarySchedule]?.draftConfig?.schedule ??
-								triggersState.triggers[primarySchedule]?.lightConfig?.schedule ??
-								''}
-						</Button>
-					{/if}
-					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full items-center">
-							{#if customUi?.topBar?.editablePath != false}
-								<button
-									onclick={async () => {
-										metadataOpen = true
-									}}
-								>
-									<Badge
-										color="gray"
-										class="center-center !bg-surface-secondary !text-primary {inputSizeClasses.md}  !w-[70px] rounded-r-none hover:!bg-surface-hover transition-all border border-r-0"
-									>
-										<Pen size={12} class="mr-2 shrink-0" /> Path
-									</Badge>
-								</button>
-							{/if}
-							<input
-								type="text"
-								readonly
-								value={script.path}
-								size={script.path?.length || 50}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full {inputSizeClasses.md} !my-0 !py-0 !rounded-l-none border border-l-0 !shadow-none"
-								onfocus={({ currentTarget }) => {
-									currentTarget.select()
-								}}
-							/>
-						</div>
-					{/if}
-				</div>
-
-				{#if $enterpriseLicense && initialPath != ''}
+				{#if $enterpriseLicense && initialPath != '' && !inSessionPane}
 					<Awareness />
 				{/if}
 
 				<!-- Separator -->
 				<div class="flex-1"></div>
 
-				{#if customUi?.topBar?.tagEdit != false}
-					{#if $workerTags}
-						{#if $workerTags?.length ?? 0 > 0}
-							<div class="max-w-[200px]">
-								<WorkerTagSelect
-									nullTag={script.language}
-									placeholder={customUi?.tagSelectPlaceholder}
-									bind:tag={script.tag}
-								/>
-							</div>
+				{#snippet settingsButton()}
+					{#if customUi?.topBar?.settings != false}
+						<Button
+							aiId="script-builder-settings"
+							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
+							variant="default"
+							unifiedSize={headerBtnSize}
+							on:click={() => (metadataOpen = true)}
+							startIcon={{ icon: Settings }}
+							iconOnly={compactTopbar}
+							title="Settings"
+						>
+							<span> Settings </span>
+						</Button>
+					{/if}
+				{/snippet}
+				{#snippet diffButton()}
+					{#if customUi?.topBar?.diff != false}
+						{@const isDraftOnly = savedScript?.no_deployed === true}
+						{@const diffDisabled = !savedScript || !diffDrawer || isDraftOnly}
+						{@const diffTitle = isDraftOnly
+							? 'Deploy this script once to compare against the deployed version'
+							: 'Diff'}
+						<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+						     never shows on hover. pointer-events-none on the button lets the hover
+						     reach this titled wrapper instead. -->
+						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+							<Button
+								variant="default"
+								unifiedSize={headerBtnSize}
+								on:click={() => openDiffDrawer()}
+								disabled={diffDisabled}
+								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+								iconOnly={compactTopbar}
+								title={diffTitle}
+								startIcon={{ icon: DiffIcon }}
+							>
+								Diff
+							</Button>
+						</div>
+					{/if}
+				{/snippet}
+				{#if compactTopbar}
+					<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
+						{#snippet buttonReplacement()}
+							<Button
+								nonCaptureEvent
+								unifiedSize={headerBtnSize}
+								variant="subtle"
+								startIcon={{ icon: EllipsisVertical }}
+								iconOnly
+								title="More"
+							/>
+						{/snippet}
+					</DropdownV2>
+					{@render diffButton()}
+					{@render settingsButton()}
+				{:else}
+					{@render diffButton()}
+					{#if customUi?.topBar?.tagEdit != false}
+						{#if scriptWorkerTags}
+							{#if scriptWorkerTags?.length ?? 0 > 0}
+								<div class="max-w-[200px]">
+									<WorkerTagSelect
+										nullTag={script.language}
+										placeholder={customUi?.tagSelectPlaceholder}
+										bind:tag={script.tag}
+										size={headerBtnSize}
+										workspaceId={opWorkspace}
+									/>
+								</div>
+							{/if}
 						{/if}
 					{/if}
+					{@render settingsButton()}
 				{/if}
-				{#if customUi?.topBar?.settings != false}
-					<Button
-						aiId="script-builder-settings"
-						aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
-						variant="default"
-						unifiedSize="md"
-						on:click={() => (metadataOpen = true)}
-						startIcon={{ icon: Settings }}
-					>
-						<span class="hidden lg:flex"> Settings </span>
-					</Button>
-				{/if}
-				<Button
-					loading={loadingDraft}
-					unifiedSize="md"
-					variant="accent"
-					startIcon={{ icon: Save }}
-					on:click={() => saveDraft()}
-					disabled={initialPath != '' && !savedScript}
-					shortCut={{ key: 'S' }}
-				>
-					<span class="hidden lg:flex"> Draft </span>
-				</Button>
 
 				<DeployButton
 					loading={!fullyLoaded}
 					{loadingSave}
-					newFlow={false}
-					dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
+					unifiedSize={headerBtnSize}
+					dropdownItems={computeDropdownItems(initialPath, savedScript)}
 					on:save={({ detail }) => handleEditScript(false, detail)}
 				/>
 			</div>
 		</div>
 
-		<ScriptEditor
-			{disableAi}
-			bind:selectedTab={selectedInputTab}
-			{customUi}
-			collabMode
-			edit={initialPath != ''}
-			on:format={() => {
-				saveDraft()
-			}}
-			on:saveDraft={() => {
-				saveDraft()
-			}}
-			on:openTriggers={openTriggers}
-			on:applyArgs={applyArgs}
-			on:addPreprocessor={addPreprocessor}
-			bind:editor
-			bind:this={scriptEditor}
-			bind:schema={script.schema}
-			path={script.path}
-			stablePathForCaptures={initialPath || fakeInitialPath}
-			bind:code={script.content}
-			lang={script.language}
-			kind={script.kind}
-			{template}
-			tag={script.tag}
-			lastSavedCode={savedScript?.draft?.content}
-			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
-			bind:args
-			bind:hasPreprocessor
-			bind:captureTable
-			bind:assets={script.assets}
-			bind:modules={script.modules}
-			enablePreprocessorSnippet
-		/>
+		{#if showPipelineHint}
+			<div
+				class="flex items-center gap-2 px-4 py-1 border-y bg-surface-secondary text-xs text-secondary"
+			>
+				<Network size={14} class="shrink-0 text-tertiary" />
+				<span class="truncate">
+					This script can become a data pipeline step: annotate it with
+					<code class="font-mono text-2xs bg-surface px-1 py-0.5 rounded border">-- pipeline</code>
+					and
+					<code class="font-mono text-2xs bg-surface px-1 py-0.5 rounded border">
+						-- materialize
+					</code>
+					to materialize its result, or build it in the
+					<a href="{base}/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
+					<a
+						href="https://www.windmill.dev/docs/pipelines"
+						target="_blank"
+						rel="noreferrer"
+						class="text-blue-500 hover:underline"
+					>
+						Learn more
+					</a>
+				</span>
+				<div class="ml-auto shrink-0">
+					<Button
+						iconOnly
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: X }}
+						title="Dismiss pipelines hint"
+						onclick={() => (pipelineHintDismissed.val = true)}
+					/>
+				</div>
+			</div>
+		{/if}
+
+		{#if isDbt}
+			<DbtEditor
+				workspaceOverride={opWorkspace}
+				{customUi}
+				{onTestJob}
+				on:format={() => saveDraft()}
+				on:saveDraft={() => saveDraft()}
+				bind:editor
+				bind:this={scriptEditor}
+				bind:schema={script.schema}
+				path={script.path}
+				bind:code={script.content}
+				timeout={script.timeout}
+				tag={script.tag}
+				deployedHash={deployedScriptHash}
+				bind:args
+				bind:modules={script.modules}
+			/>
+		{:else}
+			<ScriptEditor
+				{disableAi}
+				workspaceOverride={opWorkspace}
+				sessionOpen={userDraftPath
+					? {
+							// URL draft path the editor loads/saves by, not the friendly
+							// `script.path` (a new script's has no row → "not found").
+							target: { kind: 'script', path: userDraftPath },
+							workspaceId: opWorkspace ?? undefined,
+							beforeOpen: persistDraftForSession
+						}
+					: undefined}
+				bind:selectedTab={selectedInputTab}
+				{customUi}
+				{onTestJob}
+				collabMode
+				edit={initialPath != ''}
+				on:format={() => {
+					saveDraft()
+				}}
+				on:saveDraft={() => {
+					saveDraft()
+				}}
+				on:openTriggers={openTriggers}
+				on:applyArgs={applyArgs}
+				on:addPreprocessor={addPreprocessor}
+				bind:editor
+				bind:this={scriptEditor}
+				bind:schema={script.schema}
+				path={script.path}
+				stablePathForCaptures={initialPath || fakeInitialPath}
+				bind:code={script.content}
+				lang={script.language}
+				timeout={script.timeout}
+				kind={script.kind}
+				autoKind={script.auto_kind}
+				{template}
+				tag={script.tag}
+				lastSavedCode={savedScript?.content}
+				lastDeployedCode={savedScript?.content}
+				bind:args
+				bind:hasPreprocessor
+				bind:captureTable
+				bind:assets={script.assets}
+				bind:modules={script.modules}
+				enablePreprocessorSnippet
+				{testPanelCollapsed}
+			/>
+		{/if}
 	</div>
 {:else}
 	Script Builder not available to operators
 {/if}
 
-<WacExportDrawer bind:this={wacExportDrawer} />
-
-<Modal bind:open={wacAlphaModalOpen} title="Workflow-as-Code (Alpha)" kind="X">
-	<div class="flex flex-col gap-4 pr-4">
-		<p class="text-sm text-secondary">
-			Workflow-as-Code is in <strong>alpha</strong> — use in production at your own risk. It is an
-			alternative to the Flow editor for advanced users. Feedback welcome on
-			<a
-				href="https://github.com/windmill-labs/windmill/issues"
-				target="_blank"
-				class="text-blue-600 dark:text-blue-400 hover:underline">GitHub</a
-			>
-			or
-			<a
-				href="https://discord.com/invite/V7PM2YHsPB"
-				target="_blank"
-				class="text-blue-600 dark:text-blue-400 hover:underline">Discord</a
-			>.
+<Modal title="dbt on Windmill is in alpha" bind:open={dbtAlphaOpen} cancelText="Got it">
+	<div class="flex flex-col gap-3 text-sm text-secondary">
+		<p>
+			A dbt script is a whole dbt project: the files are the script's module bundle, the content is
+			a <span class="font-mono text-xs">wm_dbt.yaml</span> descriptor, and the models become
+			<span class="font-mono text-xs">dbt://</span> assets in the graph.
 		</p>
-		<div class="flex justify-end">
-			<Button size="sm" on:click={acknowledgeWacAlpha}>Acknowledge</Button>
-		</div>
+		<p>
+			Expect rough edges, and expect details to move: the descriptor's fields, what a run returns,
+			and how the graph is stored are all still settling.
+		</p>
+		<p>
+			Deploying and running work today, and an existing project needs no changes —
+			<span class="font-mono text-xs">cp -r</span> it into the script's folder and push. Nothing here
+			is load-bearing for other languages.
+		</p>
+		<p class="text-xs">
+			<a
+				href="https://www.windmill.dev/docs/getting_started/scripts_quickstart"
+				target="_blank"
+				rel="noreferrer"
+				class="text-blue-500 hover:underline">Docs</a
+			>
+			· report anything surprising, it is the most useful thing at this stage.
+		</p>
 	</div>
 </Modal>
+
+<WacExportDrawer bind:this={wacExportDrawer} />

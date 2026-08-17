@@ -164,6 +164,14 @@ pub fn parse_ansible(code: &str) -> String {
     wrap_sig(windmill_parser_yaml::parse_ansible_sig(code))
 }
 
+/// Shares the ansible parser's feature: both live in windmill-parser-yaml, and
+/// a dbt descriptor is YAML too.
+#[cfg(feature = "ansible-parser")]
+#[wasm_bindgen]
+pub fn parse_dbt(code: &str) -> String {
+    wrap_sig(windmill_parser_yaml::parse_dbt_sig(code))
+}
+
 #[cfg(feature = "ansible-parser")]
 #[wasm_bindgen]
 pub fn parse_ansible_delegate(code: &str) -> String {
@@ -196,6 +204,12 @@ pub fn parse_java(code: &str) -> String {
 #[wasm_bindgen]
 pub fn parse_ruby(code: &str) -> String {
     wrap_sig(windmill_parser_ruby::parse_ruby_signature(code))
+}
+
+#[cfg(feature = "r-parser")]
+#[wasm_bindgen]
+pub fn parse_r(code: &str) -> String {
+    wrap_sig(windmill_parser_r::parse_r_signature(code))
 }
 
 #[cfg(feature = "asset-parser")]

@@ -14,7 +14,7 @@
 	import { ConfigService } from '$lib/gen'
 	import Select from './select/Select.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'
-	import Badge from './common/badge/Badge.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		config: AutoscalingConfig | undefined
@@ -65,9 +65,6 @@
 	description="Autoscaling automatically adjusts the number of workers based on your workload demands."
 	{eeOnly}
 >
-	{#snippet labelExtra()}
-		<Badge color="gray">Beta</Badge>
-	{/snippet}
 	{#snippet header()}
 		<div class="ml-2">
 			<Toggle
@@ -218,13 +215,13 @@
 								id="custom_tag_select"
 								disabled={!config || !config.integration || disabled}
 								bind:value={
-									() => config?.integration?.['tags'] ?? undefined,
+									() => config?.integration?.['tag'] ?? undefined,
 									(v) => {
 										if (!config || !config.integration) return
 										if (!v || v === '') {
-											delete config.integration['tags']
+											delete config.integration['tag']
 										} else {
-											config.integration['tags'] = v
+											config.integration['tag'] = v
 										}
 									}
 								}
@@ -232,7 +229,20 @@
 							/>
 
 							<div class="flex flex-row gap-2 justify-end mt-4">
-								<Button variant="default" unifiedSize="md">Test scaling</Button>
+								<Button
+									variant="default"
+									unifiedSize="md"
+									onclick={() => {
+										if (!config?.integration?.['path']) {
+											sendUserToast('Please select a script before testing scaling', true)
+											return
+										}
+										if (!config?.integration?.['tag']) {
+											sendUserToast('Please select a custom tag before testing scaling', true)
+											return
+										}
+									}}>Test scaling</Button
+								>
 								<div class="flex text-xs flex-row gap-2 items-center">
 									<input class="!w-16" type="number" bind:value={test_input} />
 									workers

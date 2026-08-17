@@ -1,0 +1,39 @@
+{
+  "workspace": {
+    "datatables": [
+      {
+        "datatable_name": "main",
+        "schemas": {
+          "public": {
+            "orders": {
+              "columns": {
+                "id": "int4",
+                "customer_id": "int4",
+                "total": "numeric",
+                "status": "text",
+                "created_at": "timestamptz"
+              },
+              "rows": [
+                { "id": 1, "customer_id": 1, "total": 42.5, "status": "shipped", "created_at": "2026-05-01T10:00:00Z" },
+                { "id": 2, "customer_id": 2, "total": 19.99, "status": "pending", "created_at": "2026-05-02T11:30:00Z" },
+                { "id": 3, "customer_id": 1, "total": 88, "status": "shipped", "created_at": "2026-05-03T09:15:00Z" }
+              ]
+            },
+            "customers": {
+              "columns": {
+                "id": "int4",
+                "name": "text",
+                "email": "text",
+                "tier": "text"
+              },
+              "rows": [
+                { "id": 1, "name": "Alice", "email": "alice@example.com", "tier": "gold" },
+                { "id": 2, "name": "Bob", "email": "bob@example.com", "tier": "silver" }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

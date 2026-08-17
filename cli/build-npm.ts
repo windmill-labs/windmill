@@ -4,16 +4,18 @@ import { join } from "node:path";
 
 const outDir = "./npm";
 
-// Parser npm packages — used as externals and added to generated package.json
-const parserPackages = [
-  "windmill-parser-wasm-py", "windmill-parser-wasm-ts",
-  "windmill-parser-wasm-regex", "windmill-parser-wasm-go",
-  "windmill-parser-wasm-php", "windmill-parser-wasm-rust",
-  "windmill-parser-wasm-yaml", "windmill-parser-wasm-csharp",
-  "windmill-parser-wasm-nu", "windmill-parser-wasm-java",
-  "windmill-parser-wasm-ruby",
-  "windmill-parser-wasm-py-imports",
-];
+// Forward parser specs from the dev package.json so the published CLI pins
+// to the same versions devs install/test against.
+const cliDeps: Record<string, string> =
+  JSON.parse(readFileSync("./package.json", "utf-8")).dependencies ?? {};
+
+// Parser packages: bundle externals + published dependencies. Derived from
+// package.json (not hand-listed) — a parser missing from this set ships a CLI
+// whose loadParser() silently falls back. package.json itself is kept in sync
+// with loadParser() call sites by test/parser_packages_unit.test.ts.
+const parserPackages = Object.keys(cliDeps).filter((p) =>
+  p.startsWith("windmill-parser-wasm")
+);
 const parserExternals = parserPackages.flatMap(p => ["--external", p]);
 
 // Clean output directory
@@ -22,6 +24,9 @@ rmSync(outDir, { recursive: true, force: true });
 // Build with bun — bundle everything except esbuild (platform-specific binary),
 // svelte (optional, only needed for `wmill app bundle/dev`), and parser packages
 // (loaded at runtime via init() with readFileSync for the .wasm binary).
+// esbuild-wasm is not a dependency at all: the host/binary-mismatch fallback in
+// esbuild_loader.ts downloads and caches the whole esbuild-wasm package at
+// runtime, so it stays out of the bundle and the published dependencies.
 console.log("Bundling with bun build...");
 const buildResult = Bun.spawnSync([
   "bun", "build", "src/main.ts",
@@ -67,8 +72,8 @@ const packageJson = {
     url: "https://github.com/windmill-labs/windmill/issues",
   },
   dependencies: {
-    esbuild: "^0.24.2",
-    ...Object.fromEntries(parserPackages.map(p => [p, "*"])),
+    esbuild: "0.28.0",
+    ...Object.fromEntries(parserPackages.map(p => [p, cliDeps[p] ?? "*"])),
   },
   optionalDependencies: {
     svelte: "^5.0.0",

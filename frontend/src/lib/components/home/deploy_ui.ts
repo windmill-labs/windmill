@@ -18,6 +18,6 @@ async function getDeployUiSettingsInner(): Promise<WorkspaceDeployUISettings> {
 	if (!get(enterpriseLicense)) {
 		return ALL_DEPLOYABLE
 	}
-	let settings = await WorkspaceService.getSettings({ workspace: get(workspaceStore)! })
+	let settings = await WorkspaceService.getPublicSettings({ workspace: get(workspaceStore)! })
 	return settings.deploy_ui ?? ALL_DEPLOYABLE
 }

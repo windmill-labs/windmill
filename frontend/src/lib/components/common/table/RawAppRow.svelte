@@ -7,7 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import Row from './Row.svelte'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { Globe, Share } from 'lucide-svelte'
+	import { Globe, Shield } from 'lucide-svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
@@ -18,6 +18,7 @@
 		deploymentDrawer: DeployWorkspaceDrawer
 		depth?: number
 		menuOpen?: boolean
+		keyboardSelected?: boolean
 	}
 
 	let {
@@ -26,12 +27,13 @@
 		shareModal,
 		deploymentDrawer,
 		depth = 0,
-		menuOpen = $bindable(false)
+		menuOpen = $bindable(false),
+		keyboardSelected = false
 	}: Props = $props()
 </script>
 
 <Row
-	href="{base}/apps/get_raw/{app.version}/{app.path}"
+	href="{base}/apps_raw/get/{app.path}"
 	kind="raw_app"
 	{marked}
 	path={app.path}
@@ -39,6 +41,7 @@
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={true}
 	{depth}
+	{keyboardSelected}
 >
 	{#snippet badges()}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
@@ -46,7 +49,7 @@
 	{#snippet actions()}
 		<Dropdown
 			items={async () => {
-				let { path, canWrite } = app
+				let { path } = app
 
 				return [
 					...(isDeployable('app', path, await getDeployUiSettings())
@@ -61,8 +64,8 @@
 							]
 						: []),
 					{
-						displayName: canWrite ? 'Share' : 'See Permissions',
-						icon: Share,
+						displayName: 'Permissions',
+						icon: Shield,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'raw_app')
 						}

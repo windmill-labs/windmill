@@ -1,3 +1,4 @@
+use futures::StreamExt;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 use uuid::Uuid;
@@ -35,6 +36,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -72,6 +74,7 @@ export function main(name: string, count: number) {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -115,6 +118,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -148,6 +152,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -182,6 +187,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -223,6 +229,7 @@ export async function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -263,6 +270,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -296,6 +304,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -339,6 +348,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
@@ -380,6 +390,7 @@ export function notMain() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
@@ -421,11 +432,66 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
 
     assert!(!completed.success);
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_job_syntax_error_unclosed_bracket(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Reproduces the "Unexpected end of file at main.ts:0" error reported
+    // when a TS file has a missing closing bracket — Bun's bundler gives no
+    // useful location info.
+    let content = r#"
+export async function main() {
+    if (true) {
+        return "hello";
+    // missing closing bracket for the function
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+
+    assert!(!completed.success);
+    let result = completed
+        .result
+        .as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        result.contains("Unexpected end of file"),
+        "should contain bun parser error, got: {result}"
+    );
+    assert!(
+        result.contains("syntax error"),
+        "should contain helpful hint about syntax errors, got: {result}"
+    );
     Ok(())
 }
 
@@ -461,6 +527,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -499,6 +566,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -507,6 +575,63 @@ export function main() {
         .unwrap();
 
     assert_eq!(result, serde_json::json!("nobundling works"));
+    Ok(())
+}
+
+/// Regression test: a `//nobundling` script that pulls a package whose CJS
+/// internals do bare-specifier `require()` of a sibling dependency.
+///
+/// Before the `--preserve-symlinks` fix, Bun 1.2/1.3+ would follow the
+/// directory symlink in `node_modules/@langchain/core` to its global cache
+/// entry, walk parent dirs from the cache realpath, and fail to find
+/// `node_modules/zod` — producing:
+///   ENOENT while resolving package 'zod/v3' from
+///   '.../cache_nomount/bun/@langchain/core@<ver>@@@1/dist/runnables/base.js'
+///
+/// The fix passes `--preserve-symlinks` so Bun resolves from the
+/// symlink path under `<job_dir>/node_modules/`, where `zod` is a sibling.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_nobundling_transitive_require(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"//nobundling
+import { ChatPromptTemplate } from "@langchain/core/prompts";
+
+export async function main() {
+    const tpl = ChatPromptTemplate.fromMessages([
+        ["system", "you are a {role}"],
+        ["human", "{input}"],
+    ]);
+    const out = await tpl.formatMessages({ role: "tester", input: "ping" });
+    return out.length;
+}
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!(2));
     Ok(())
 }
 
@@ -542,6 +667,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -641,6 +767,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -677,6 +804,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -688,6 +816,126 @@ export function main() {
         assert_eq!(result, serde_json::json!("level1 -> level2 -> level3"));
     }
 
+    Ok(())
+}
+
+// ============================================================================
+// Bundle cache invalidation on transitive relative-import change
+// ============================================================================
+
+async fn insert_deployed_bun_script(db: &Pool<Postgres>, path: &str, hash: i64, content: &str) {
+    // What gen_bun_lockfile stores for a script with no npm dependencies; a
+    // bare '' lock fails split_lockfile when the script is run directly.
+    const EMPTY_BUN_LOCK: &str = "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>";
+    // Runtime query to avoid touching the sqlx offline cache.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock)
+         VALUES ('test-workspace', 'test-user', $1, '{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{},\"required\":[],\"type\":\"object\"}', '', '', $2, $3, 'bun', $4)",
+    )
+    .bind(content)
+    .bind(path)
+    .bind(hash)
+    .bind(EMPTY_BUN_LOCK)
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+fn run_main_script_job(hash: i64) -> RunJob {
+    RunJob::from(JobPayload::ScriptHash {
+        path: "f/stale_bundle/main_script".to_string(),
+        hash: windmill_common::scripts::ScriptHash(hash),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        language: ScriptLang::Bun,
+        priority: None,
+        apply_preprocessor: false,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        labels: None,
+    })
+}
+
+/// Editing a script that a runnable imports only TRANSITIVELY (main -> mid ->
+/// leaf) must invalidate the runnable's cached bundle: the leaf's code is
+/// inlined in the bundle, so the cache key has to cover the whole closure, not
+/// just direct imports.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_transitive_import_change_rebundles(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Hashes/paths unique across this test binary: the script/hash caches are
+    // process-global while parallel tests each run in their own DB.
+    const LEAF_V1: i64 = 41230001;
+    const MID: i64 = 41230002;
+    const MAIN: i64 = 41230003;
+    const LEAF_V2: i64 = 41230004;
+
+    insert_deployed_bun_script(
+        &db,
+        "f/stale_bundle/leaf",
+        LEAF_V1,
+        r#"export function leafValue() { return "V1_FROM_LEAF"; }"#,
+    )
+    .await;
+    insert_deployed_bun_script(
+        &db,
+        "f/stale_bundle/mid",
+        MID,
+        r#"import { leafValue } from "./leaf";
+export function midValue() { return `M(${leafValue()})`; }"#,
+    )
+    .await;
+    insert_deployed_bun_script(
+        &db,
+        "f/stale_bundle/main_script",
+        MAIN,
+        r#"import { midValue } from "./mid";
+export function main() { return midValue(); }"#,
+    )
+    .await;
+
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let db2 = db.clone();
+    in_test_worker(
+        &db,
+        async move {
+            let job = run_main_script_job(MAIN).push(&db2).await;
+            completed.next().await;
+            let result = completed_job(job, &db2).await.json_result().unwrap();
+            assert_eq!(result, serde_json::json!("M(V1_FROM_LEAF)"));
+
+            // Deploy a new version of ONLY the leaf; main_script and mid keep
+            // their hash, content, and lock byte-identical.
+            insert_deployed_bun_script(
+                &db2,
+                "f/stale_bundle/leaf",
+                LEAF_V2,
+                r#"export function leafValue() { return "V2_FROM_LEAF"; }"#,
+            )
+            .await;
+
+            // Tests don't run the notify_event poll loop, so replay what its
+            // `notify_runnable_version_change` handler (main.rs) does on deploy:
+            // evict the leaf's latest-hash cache entries.
+            windmill_common::IMPORTED_SCRIPT_HASH_CACHE.remove(&(
+                "test-workspace".to_string(),
+                "f/stale_bundle/leaf".to_string(),
+            ));
+            windmill_api_scripts::scripts::RAW_SCRIPT_LATEST_HASH_CACHE
+                .remove(&format!("test-workspace:f/stale_bundle/leaf"));
+
+            let job = run_main_script_job(MAIN).push(&db2).await;
+            completed.next().await;
+            let result = completed_job(job, &db2).await.json_result().unwrap();
+            assert_eq!(result, serde_json::json!("M(V2_FROM_LEAF)"));
+        },
+        port,
+    )
+    .await;
     Ok(())
 }
 
@@ -724,6 +972,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -773,6 +1022,7 @@ export function main(x: number) {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     // x=5, main adds 10 = 15
@@ -824,6 +1074,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -870,6 +1121,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -883,9 +1135,225 @@ export function main() {
 }
 
 // ============================================================================
+// Bundle Wrapper Safety Tests
+// ============================================================================
+
+/// Regression test for the "TS source ends up in the bun bundle cache" bug.
+///
+/// The wrapper-side hardening: `node_builder.ts` discarded `Bun.build`'s
+/// return value, so any silent-failure mode (`success: false` without
+/// throwing — `throw: false`, or a future Bun where defaults change) made
+/// the wrapper exit 0 even though no `main.js` was written. Pair that with
+/// a pre-existing `main.js` containing raw TypeScript and `save_cache`
+/// happily copied that TS into the bundle cache; the worker later choked
+/// on `type GpgKey = {`.
+///
+/// This test patches `node_builder.ts` to force the silent-failure shape
+/// and asserts that our wrapper now refuses to silently succeed — bun must
+/// exit non-zero so prebundling fails loudly instead of writing TypeScript
+/// into the bundle cache.
+#[test]
+fn test_bun_bundle_wrapper_catches_silent_failure() {
+    use std::process::Command;
+    use windmill_worker::{build_loader, LoaderMode, BUN_PATH};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let dir_str = dir.to_str().unwrap();
+
+    // Script imports a package that won't exist in node_modules.
+    std::fs::write(
+        dir.join("main.ts"),
+        r#"
+import x from "definitely-not-a-real-pkg-windmill-test";
+export function main() { return x; }
+"#,
+    )
+    .unwrap();
+
+    // Generate the real node_builder.ts via the production code path.
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(build_loader(
+            dir_str,
+            "http://localhost:8000",
+            "test_token",
+            "test-workspace",
+            "f/test/script",
+            LoaderMode::BunBundle,
+            &None,
+        ))
+        .expect("build_loader failed");
+
+    // Force the silent-failure shape by injecting `throw: false`. The
+    // wrapper's pre-fix `try/catch` would have swallowed this; the fixed
+    // wrapper inspects `result.success` and `result.outputs` and exits 1.
+    let path = dir.join("node_builder.ts");
+    let original = std::fs::read_to_string(&path).unwrap();
+    let patched = original.replace(
+        "external: [\"electron\"],",
+        "external: [\"electron\"], throw: false,",
+    );
+    assert_ne!(
+        original, patched,
+        "expected to find Bun.build options block to patch; node_builder.ts template changed?"
+    );
+    std::fs::write(&path, patched).unwrap();
+
+    // Pre-seed main.js with raw TypeScript (mimics the historical
+    // pre-write that originally seeded the bug).
+    std::fs::write(
+        dir.join("main.js"),
+        "type GpgKey = { email: string };\nexport const main = (): GpgKey => ({ email: \"\" });\n",
+    )
+    .unwrap();
+
+    let output = Command::new(BUN_PATH.as_str())
+        .args(["run", path.to_str().unwrap()])
+        .current_dir(dir)
+        .output()
+        .expect("Failed to run bun");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "node_builder.ts must exit non-zero when Bun.build silently fails to write a bundle.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Failed to build node bundle"),
+        "expected diagnostic in stdout, got:\n{stdout}"
+    );
+}
+
+/// Regression test for the actual root cause of the "TS source in bundle
+/// cache" bug: `generate_bun_bundle` was awaiting `child_process.wait()`
+/// without checking the exit code on the no-DB path (used by Docker-build
+/// `windmill cache hubPaths.json`). bun would exit 1 after Bun.build threw,
+/// `wait().await?` propagated only IO errors, and `generate_bun_bundle`
+/// returned `Ok(())`. `save_cache` then copied a stale `main.js` (raw TS
+/// source) straight into the bundle cache.
+///
+/// This test runs `generate_bun_bundle` with `db: None` against a `node_builder.ts`
+/// that calls `process.exit(1)`, and asserts the function now returns an error.
+#[test]
+fn test_generate_bun_bundle_propagates_exit_status() {
+    use windmill_worker::{generate_bun_bundle, get_common_bun_proc_envs};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let dir_str = dir.to_str().unwrap();
+
+    // node_builder.ts that exits 1, mimicking what bun does when Bun.build throws.
+    std::fs::write(
+        dir.join("node_builder.ts"),
+        "console.log('simulated bun build failure');\nprocess.exit(1);\n",
+    )
+    .unwrap();
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let envs = runtime.block_on(get_common_bun_proc_envs(None));
+
+    let result = runtime.block_on(generate_bun_bundle(
+        dir_str,
+        "test-workspace",
+        &uuid::Uuid::new_v4(),
+        "test-worker",
+        None, // db: None — this is the cache_hub_scripts path that had the bug
+        None,
+        &mut 0,
+        &mut None,
+        &envs,
+        &mut None,
+    ));
+
+    assert!(
+        result.is_err(),
+        "generate_bun_bundle must surface bun's non-zero exit on the no-DB path. \
+         If it returns Ok(()) when bun exited 1, save_cache will silently cache stale main.js content."
+    );
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_msg.contains("non-zero status"),
+        "expected exit-status error, got: {err_msg}"
+    );
+}
+
+/// Regression test for the install_bun_lockfile no-DB path: same code shape as
+/// `generate_bun_bundle` (site 3 of the original bug) — `wait().await?` ignored
+/// non-zero bun exits. A `bun install` failure (e.g. malformed package.json)
+/// must now surface as an error so callers don't proceed with a half-installed
+/// node_modules.
+#[test]
+fn test_install_bun_lockfile_propagates_exit_status() {
+    use windmill_worker::{get_common_bun_proc_envs, install_bun_lockfile};
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let dir_str = dir.to_str().unwrap();
+    // Malformed package.json -> bun install fails with exit 1.
+    std::fs::write(dir.join("package.json"), "this is not valid json").unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let envs = runtime.block_on(get_common_bun_proc_envs(None));
+    let result = runtime.block_on(install_bun_lockfile(
+        &mut 0,
+        &mut None,
+        &uuid::Uuid::new_v4(),
+        "test-workspace",
+        None, // db: None — no-DB path that had the bug
+        dir_str,
+        "test-worker",
+        envs,
+        false, // npm_mode
+        &mut None,
+        true, // quiet
+    ));
+    assert!(
+        result.is_err(),
+        "install_bun_lockfile must surface bun's non-zero exit on the no-DB path"
+    );
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_msg.contains("non-zero status"),
+        "expected exit-status error, got: {err_msg}"
+    );
+}
+
+/// Regression test for the post-bundle existence check in `prebundle_bun_script`
+/// and `handle_bun_job`. Both call sites guard against the case where
+/// `generate_bun_bundle` returns `Ok(())` but `main.js` was never written —
+/// the upstream wait-status fix is the primary defense, this is the catch-all
+/// for any other silent-failure mode (Bun output-naming change, custom plugin
+/// swallowing the build, etc.). Without this check, `save_cache` would
+/// happily copy whatever's at the bundle path (often raw TypeScript that some
+/// other code path left there).
+#[test]
+fn test_ensure_bundle_output_exists_rejects_missing_file() {
+    use windmill_worker::ensure_bundle_output_exists;
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let missing = dir.join("main.js").to_str().unwrap().to_string();
+
+    let result = ensure_bundle_output_exists(&missing);
+    assert!(
+        result.is_err(),
+        "ensure_bundle_output_exists must reject when the bundle file is missing"
+    );
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_msg.contains("bun bundle output missing"),
+        "expected 'bun bundle output missing' in error, got: {err_msg}"
+    );
+
+    // Sanity: when the file does exist, it returns Ok.
+    std::fs::write(&missing, "// @bun\n").unwrap();
+    assert!(ensure_bundle_output_exists(&missing).is_ok());
+}
+
+// ============================================================================
 // Dedicated Worker Protocol Tests
 // ============================================================================
 
+#[cfg(feature = "private")]
 mod dedicated_worker_protocol {
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
@@ -1013,8 +1481,8 @@ mod dedicated_worker_protocol {
         let mut results = Vec::new();
 
         for job_args in jobs {
-            // Protocol: exec:<script_path>:<json_args>
-            writeln!(stdin, "exec:{}:{}", TEST_SCRIPT_PATH, job_args.to_string()).unwrap();
+            // Protocol: execd:<json_args> (single-script, no path needed)
+            writeln!(stdin, "execd:{}", job_args.to_string()).unwrap();
             stdin.flush().unwrap();
 
             let mut response = String::new();
@@ -1594,13 +2062,12 @@ export function main(x?: number): string {
 // Deno Dedicated Worker Protocol Tests
 // ============================================================================
 
+#[cfg(feature = "private")]
 mod dedicated_worker_protocol_deno {
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
     use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
     use windmill_worker::{generate_deno_dedicated_worker_wrapper, DENO_PATH};
-
-    const TEST_SCRIPT_PATH: &str = "f/test/script";
 
     fn run_deno_worker_test(
         script: &str,
@@ -1651,7 +2118,7 @@ mod dedicated_worker_protocol_deno {
 
         let mut results = Vec::new();
         for job_args in jobs {
-            writeln!(stdin, "exec:{}:{}", TEST_SCRIPT_PATH, job_args.to_string()).unwrap();
+            writeln!(stdin, "execd:{}", job_args.to_string()).unwrap();
             stdin.flush().unwrap();
 
             loop {
@@ -1772,7 +2239,13 @@ export function main(msg: string): never {
         let mut results = Vec::new();
 
         for (cmd, args) in &commands {
-            writeln!(stdin, "{}:{}:{}", cmd, TEST_SCRIPT_PATH, args).unwrap();
+            // Single-script Deno wrapper uses execd:/execd_preprocess: (no path)
+            let direct_cmd = if *cmd == "exec_preprocess" {
+                "execd_preprocess"
+            } else {
+                "execd"
+            };
+            writeln!(stdin, "{}:{}", direct_cmd, args).unwrap();
             stdin.flush().unwrap();
 
             let expected_lines = if *cmd == "exec_preprocess" { 2 } else { 1 };
@@ -1906,6 +2379,7 @@ export function main(name: string) {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -1970,6 +2444,7 @@ export function main(name: string) {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -2247,6 +2722,7 @@ module.exports.main = function() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -2289,6 +2765,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -2340,6 +2817,7 @@ module.exports.main = function() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     use std::sync::atomic::Ordering;
@@ -2401,6 +2879,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     use std::sync::atomic::Ordering;

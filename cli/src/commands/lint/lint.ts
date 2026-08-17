@@ -14,11 +14,14 @@ import {
   ignoreF,
   readDirRecursiveWithIgnore,
 } from "../sync/sync.ts";
+// Imported from source rather than the published windmill-yaml-validator package: the
+// package bakes in a copy of openflow.openapi.yaml at publish time, so lint would
+// validate against whatever schema the last npm release happened to carry.
 import {
   getValidationTargetFromFilename,
   type ValidationTarget,
   WindmillYamlValidator,
-} from "windmill-yaml-validator";
+} from "../../../../windmill-yaml-validator/src/index.ts";
 import {
   inferContentTypeFromFilePath,
   languageNeedsLock,
@@ -334,7 +337,7 @@ async function checkRawAppRunnables(
         path: rawAppYamlPath,
         target: "raw_app_inline_script",
         errors: [
-          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill app generate-locks' to generate locks.`,
+          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill generate-metadata' to generate locks.`,
         ],
       });
     }
@@ -388,7 +391,7 @@ async function checkRawAppRunnables(
         path: rawAppYamlPath,
         target: "raw_app_inline_script",
         errors: [
-          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill app generate-locks' to generate locks.`,
+          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill generate-metadata' to generate locks.`,
         ],
       });
     }
@@ -509,7 +512,7 @@ export async function checkMissingLocks(
             path: yamlPath,
             target: "script",
             errors: [
-              `Missing lock for ${language} script. Run 'wmill script generate-metadata' to generate locks.`,
+              `Missing lock for ${language} script. Run 'wmill generate-metadata' to generate locks.`,
             ],
           });
         }
@@ -540,7 +543,7 @@ export async function checkMissingLocks(
             path: flowYamlPath,
             target: "flow_inline_script",
             errors: [
-              `Missing lock for ${script.language} inline script '${script.id}'. Run 'wmill flow generate-locks' to generate locks.`,
+              `Missing lock for ${script.language} inline script '${script.id}'. Run 'wmill generate-metadata' to generate locks.`,
             ],
           });
         }
@@ -568,7 +571,7 @@ export async function checkMissingLocks(
             path: appYamlPath,
             target: "app_inline_script",
             errors: [
-              `Missing lock for ${script.language} inline script at '${script.path}'. Run 'wmill app generate-locks' to generate locks.`,
+              `Missing lock for ${script.language} inline script at '${script.path}'. Run 'wmill generate-metadata' to generate locks.`,
             ],
           });
         }
@@ -625,7 +628,13 @@ export async function runLint(
     throw new Error(`Path is not a directory: ${targetDirectory}`);
   }
 
-  const ignore = await ignoreF(mergedOpts);
+  // When the user specifies a subdirectory (that doesn't contain wmill.yaml),
+  // skip include/exclude filters since they're relative to the project root.
+  const isSubdirectory = explicitTargetDirectory &&
+    !(await stat(path.join(targetDirectory, "wmill.yaml")).catch(() => null));
+  const ignore = isSubdirectory
+    ? (_p: string, _isDir: boolean) => false
+    : await ignoreF(mergedOpts);
   const root = await FSFSElement(targetDirectory, [], false);
   const validator = new WindmillYamlValidator();
 
@@ -640,9 +649,10 @@ export async function runLint(
     if (entry.isDirectory || entry.ignored) {
       continue;
     }
-    scannedFiles += 1;
 
     const normalizedPath = normalizePath(entry.path);
+
+    scannedFiles += 1;
     if (!YAML_FILE_REGEX.test(normalizedPath)) {
       continue;
     }
@@ -742,7 +752,11 @@ export function printReport(report: LintReport, jsonOutput: boolean) {
   }
 }
 
-async function lint(opts: LintOptions, directory?: string) {
+async function lint(opts: LintOptions & { watch?: boolean }, directory?: string) {
+  if (opts.watch) {
+    await lintWatch(opts, directory);
+    return;
+  }
   try {
     const report = await runLint(opts, directory);
     printReport(report, !!opts.json);
@@ -770,6 +784,37 @@ async function lint(opts: LintOptions, directory?: string) {
   }
 }
 
+async function lintWatch(opts: LintOptions, directory?: string) {
+  const { watch } = await import("node:fs");
+  const targetDir = directory ? path.resolve(process.cwd(), directory) : process.cwd();
+
+  log.info(colors.blue(`Watching ${targetDir} for changes... (Ctrl+C to stop)`));
+
+  async function runAndReport() {
+    try {
+      const report = await runLint(opts, directory);
+      // Clear screen for readability
+      process.stdout.write("\x1Bc");
+      log.info(colors.gray(`[${new Date().toLocaleTimeString()}] Lint results:\n`));
+      printReport(report, false);
+    } catch (error) {
+      log.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  await runAndReport();
+
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  watch(targetDir, { recursive: true }, (_event, filename) => {
+    if (!filename || !filename.toString().endsWith(".yaml") && !filename.toString().endsWith(".yml")) return;
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(runAndReport, 300);
+  });
+
+  // Keep the process alive
+  await new Promise(() => {});
+}
+
 const command = new Command()
   .description(
     "Validate Windmill flow, schedule, and trigger YAML files in a directory",
@@ -781,6 +826,7 @@ const command = new Command()
     "--locks-required",
     "Fail if scripts or flow inline scripts that need locks have no locks",
   )
+  .option("-w, --watch", "Watch for file changes and re-lint automatically")
   .action(lint as any);
 
 export default command;

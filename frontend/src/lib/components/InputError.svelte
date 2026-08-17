@@ -2,7 +2,7 @@
 	import { slide } from 'svelte/transition'
 
 	interface Props {
-		error: string
+		error?: string | undefined
 	}
 
 	let { error }: Props = $props()

@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import ContextualVariableEditor from '$lib/components/ContextualVariableEditor.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -13,6 +15,8 @@
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildVariablesFilterSchema } from '$lib/components/variables/variablesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -22,7 +26,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
-	import { FolderService, OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
@@ -33,14 +36,14 @@
 		Link,
 		Pen,
 		RefreshCw,
-		Share,
+		Shield,
 		Trash,
 		Building,
 		DollarSign,
 		EyeOff,
 		Circle
 	} from 'lucide-svelte'
-	import { onMount, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { page } from '$app/stores'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
@@ -51,7 +54,7 @@
 	// Collect unique values for filter autocomplete
 	let allPaths: string[] = $state([])
 	let allOwners: string[] = $state([])
-	let folders: string[] = $state([])
+	let allLabels: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -65,14 +68,27 @@
 		buildVariablesFilterSchema({
 			paths: allPaths,
 			owners: allOwners,
+			labels: allLabels,
 			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
+	let itemFolders = $derived(
+		Array.from(
+			new Set(
+				(variables ?? [])
+					.map((x) => x.path.split('/').slice(0, 2).join('/'))
+					.filter((x) => x.startsWith('f/'))
+			)
+		)
+			.sort()
+			.map((f) => f.replace(/^f\//, ''))
+	)
 	let folderPresets = $derived([
-		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...itemFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
 		...(variablesFilterSchema.user_folders_only
 			? [
 					{
@@ -91,6 +107,7 @@
 	})
 
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let deleteIsLinked = $state(false)
 	let open = $derived(Boolean(deleteConfirmedCallback))
 
 	// Filter variables client-side for user folder filtering (admin feature)
@@ -111,9 +128,14 @@
 	async function loadVariables(): Promise<void> {
 		const currentFilters = filters.val
 
-		// Build API parameters from filters
+		// Build API parameters from filters.
+		// `includeDraftOnly` surfaces per-user drafts at paths that have
+		// no deployed variable — appended server-side when no narrowing
+		// filter is set, so the user sees AI-agent-created drafts on
+		// the home page.
 		const apiParams: any = {
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			includeDraftOnly: true
 		}
 
 		if (currentFilters.path) {
@@ -134,6 +156,9 @@
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_
 		}
+		if (currentFilters.label) {
+			apiParams.label = currentFilters.label
+		}
 
 		const result = (await VariableService.listVariable(apiParams)).map((x) => {
 			return {
@@ -146,6 +171,9 @@
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
 		allOwners = Array.from(
 			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
+		).sort()
+		allLabels = Array.from(
+			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
 		).sort()
 
 		variables = result
@@ -166,7 +194,7 @@
 			deployUiSettings = ALL_DEPLOYABLE
 			return
 		}
-		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
@@ -187,16 +215,11 @@
 		sendUserToast(`Variable ${path} was deleted`)
 	}
 
-	async function loadFolders() {
-		folders = await FolderService.listFolderNames({ workspace: $workspaceStore! })
-	}
-
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadVariables()
 				loadContextualVariables()
-				loadFolders()
 			})
 		}
 	})
@@ -221,12 +244,22 @@
 		}, 5000)
 	}
 
-	onMount(() => {
-		let hash = $page.url.hash
-		if (hash.length > 1) {
-			let path = hash.slice(1)
-			variableEditor?.editVariable(path)
+	// Deep link: #<path> opens that variable's edit drawer. Reactive rather than
+	// onMount so a hash change on the already-mounted page (e.g. the AI session
+	// preview re-pointing its tab) opens the drawer too. Row links pre-set
+	// handledHash: their onclick already opens the drawer.
+	let handledHash = ''
+	$effect(() => {
+		const hash = $page.url.hash
+		if (hash.length <= 1) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same item later would be skipped as already handled.
+			handledHash = ''
+			return
 		}
+		if (hash === handledHash || !variableEditor) return
+		handledHash = hash
+		variableEditor.editVariable(hash.slice(1))
 	})
 </script>
 
@@ -329,28 +362,57 @@
 								<Cell head>Value</Cell>
 								<Cell head>Description</Cell>
 								<Cell head />
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</tr>
 						</Head>
 						<tbody class="divide-y">
-							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked }}
+							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+								{@const hasDraft = getLocalDraftHint($workspaceStore, 'variable', path) ?? is_draft}
 								<Row>
 									<Cell class="!px-0 text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
 									</Cell>
 									<Cell>
-										<a
-											class="break-all"
-											id="edit-{path}"
-											onclick={() => variableEditor?.editVariable(path)}
-											href="#{path}"
-										>
-											{path}
-										</a>
+										<div class="flex items-center gap-2">
+											<a
+												class="break-all"
+												id="edit-{path}"
+												onclick={() => {
+													handledHash = `#${path}`
+													variableEditor?.editVariable(path)
+												}}
+												href="#{path}"
+											>
+												{path}{hasDraft ? '*' : ''}
+											</a>
+											<DraftBadge {draft_only} is_draft={hasDraft} />
+											{#if labels?.length}
+												{#each labels as label}
+													<Badge
+														color="blue"
+														small
+														class="px-1"
+														title="Label: {label}"
+														clickable
+														onclick={() => {
+															const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+															const idx = arr.indexOf(label)
+															if (idx >= 0) arr.splice(idx, 1)
+															else arr.push(label)
+															const newFilters = { ...filters.val }
+															if (arr.length) newFilters.label = arr.join(',')
+															else delete newFilters.label
+															filters.val = newFilters
+														}}>{label}</Badge
+													>
+												{/each}
+											{/if}
+											<InheritedLabels labels={inherited_labels} />
+										</div>
 									</Cell>
 									<Cell>
 										<span class="inline-flex flex-row items-center gap-2">
-											<div class="text-sm break-words">
+											<div class="text-xs break-words">
 												{#if value}
 													{truncate(value, 20)}
 												{:else}
@@ -400,7 +462,11 @@
 												<div class="">
 													{#if refresh_error}
 														<Popover notClickable>
-															<div class="relative inline-flex justify-center items-center w-4 h-4">
+															<!-- isolate: confine the ping indicator's z-50 to a local stacking context
+											     so it can't paint over a sticky-pinned actions column scrolling past it -->
+															<div
+																class="relative inline-flex justify-center items-center w-4 h-4 isolate"
+															>
 																<Circle
 																	class="text-red-600 animate-ping absolute z-50 w-4 h-4 fill-current"
 																	size={12}
@@ -449,7 +515,7 @@
 											{/if}
 										</div>
 									</Cell>
-									<Cell last shouldStopPropagation>
+									<Cell last stickyEnd shouldStopPropagation>
 										<Dropdown
 											items={() => {
 												let owner = isOwner(path, $userStore, $workspaceStore)
@@ -468,6 +534,7 @@
 															if (event['shiftKey']) {
 																deleteVariable(path, account)
 															} else {
+																deleteIsLinked = is_linked ?? false
 																deleteConfirmedCallback = () => {
 																	deleteVariable(path, account)
 																}
@@ -475,11 +542,8 @@
 														},
 														disabled: !owner || !showCreateButtons
 													},
-													...(isDeployable(
-														is_secret ? 'secret' : 'variable',
-														path,
-														deployUiSettings
-													)
+													...(!ws_specific &&
+													isDeployable(is_secret ? 'secret' : 'variable', path, deployUiSettings)
 														? [
 																{
 																	displayName: 'Deploy to prod/staging',
@@ -491,11 +555,11 @@
 															]
 														: []),
 													{
-														displayName: owner ? 'Share' : 'See Permissions',
+														displayName: 'Permissions',
 														action: () => {
 															shareModal?.openDrawer(path, 'variable')
 														},
-														icon: Share
+														icon: Shield
 													},
 													...(account != undefined
 														? [
@@ -594,6 +658,12 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to remove this variable?</span>
+		{#if deleteIsLinked}
+			<Alert type="warning" title="Linked resource">
+				This variable is linked with a resource of the same path. The linked resource will also be
+				deleted.
+			</Alert>
+		{/if}
 		<Alert type="info" title="Bypass confirmation">
 			<div>
 				You can press

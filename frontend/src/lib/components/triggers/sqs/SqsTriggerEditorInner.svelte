@@ -1,10 +1,17 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import {
@@ -16,8 +23,7 @@
 	} from '$lib/gen'
 	import SqsTriggerEditorConfigSection from './SqsTriggerEditorConfigSection.svelte'
 	import Section from '$lib/components/Section.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import Required from '$lib/components/Required.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -30,6 +36,8 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -66,6 +74,8 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -101,6 +111,16 @@
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const sqsConfig = $derived.by(getSaveCfg)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_sqs',
+		path: () => initialPath,
+		workspace: () => wsId,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => sqsConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(getCaptureConfig)
 	const hasChanged = $derived(!deepEqual(sqsConfig, originalConfig ?? {}))
 	const saveDisabled = $derived(
@@ -113,7 +133,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Record<string, any>
+		defaultConfig?: Record<string, any>,
+		fixedScriptPath_?: string
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -121,18 +142,30 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.sqs.path, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			await loadTrigger(defaultConfig)
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			// Snapshot the *deployed* config as the baseline before
+			// overlaying the saved draft, so hasChanged compares
+			// draft-vs-deployed and the banner fires whenever a draft
+			// exists.
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-		} catch (err) {
-			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
-		} finally {
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			await draftSync.maybeRestore()
+		} catch (err) {
+			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -168,6 +201,9 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
@@ -194,27 +230,38 @@
 			retry = cfg?.retry
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = cfg?.permissioned_as
-			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
+			selectedPermissionedAs = cfg?.permissioned_as
+			preservePermissionedAs = !!cfg?.permissioned_as
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger config: ${error.body}`, true)
 		}
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		try {
 			if (defaultConfig) {
 				loadTriggerConfig(defaultConfig)
-				return
-			} else {
-				const s = await SqsTriggerService.getSqsTrigger({
-					workspace: $workspaceStore!,
-					path: initialPath
-				})
-				loadTriggerConfig(s)
+				return { overlay: undefined, noDeployed: false }
+			}
+			const s = await SqsTriggerService.getSqsTrigger({
+				workspace: wsId!,
+				path: initialPath,
+				getDraft: true
+			})
+			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+			loadTriggerConfig(deployedTrigger)
+			return {
+				noDeployed: !!(s as any)?.no_deployed,
+				overlay: draftFromBackend
+					? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+					: undefined
 			}
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger: ${error.body}`, true)
+			return { overlay: undefined, noDeployed: false }
 		}
 	}
 
@@ -237,15 +284,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await SqsTriggerService.setSqsTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			const ok = await withForkConflictRetry(
+				(force) =>
+					SqsTriggerService.setSqsTriggerMode({
+						path: initialPath,
+						workspace: wsId ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'SQS trigger'
+			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} SQS trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {
@@ -255,15 +310,11 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = getSaveCfg()
-		const isSaved = await saveSqsTriggerFromCfg(
-			initialPath,
-			cfg,
-			edit,
-			$workspaceStore!,
-			usedTriggerKinds
-		)
+		const isSaved = await saveSqsTriggerFromCfg(initialPath, cfg, edit, wsId!, usedTriggerKinds)
 		if (isSaved) {
+			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -295,6 +346,11 @@
 			handleConfigChange(sqsConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
 	})
+
+	// Persist edits to UserDraft so an accidental drawer close doesn't lose
+	// in-progress work. Skipped while the drawer is loading (the freshly
+	// loaded backend value isn't a user edit) and for new triggers without
+	// a path (no localStorage write would happen anyway).
 </script>
 
 {#if mode === 'suspended'}
@@ -315,8 +371,13 @@
 {/if}
 
 {#if useDrawer}
-	<Drawer size="800px" bind:this={drawer}>
+	<Drawer
+		size="800px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.sqs.path)}
+	>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit SQS trigger ${initialPath}`
@@ -326,6 +387,16 @@
 		>
 			{#snippet actions()}
 				{@render actionsSnippet()}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>
@@ -347,6 +418,8 @@
 {#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="sqs"
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
@@ -371,15 +444,14 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
@@ -401,6 +473,7 @@
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
+						workspaceOverride={wsId}
 						bind:dirty={dirtyPath}
 						bind:error={pathError}
 						bind:path
@@ -416,34 +489,31 @@
 
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs mb-1 text-primary">
-						Pick a script or flow to be triggered <Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-							clearable
-						/>
-						{#if emptyString(script_path)}
-							<Button
-								btnClasses="ml-4"
-								variant="accent"
-								size="xs"
-								disabled={!can_write}
-								href={itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F19657'}
-								target="_blank"
-							>
-								Create from template
-							</Button>
-						{/if}
-					</div>
+					<TriggerRunnablePicker
+						workspace={wsId}
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						isOperator={!!$userStore?.operator}
+						promptText="Pick a script or flow to be triggered "
+					>
+						{#snippet createButton()}
+							{#if emptyString(script_path)}
+								<Button
+									btnClasses="ml-4"
+									variant="accent"
+									size="xs"
+									disabled={!can_write}
+									href={itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F19657'}
+									target="_blank"
+								>
+									Create from template
+								</Button>
+							{/if}
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 
@@ -470,6 +540,7 @@
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler
+								workspace={wsId}
 								{optionTabSelected}
 								{itemKind}
 								{can_write}

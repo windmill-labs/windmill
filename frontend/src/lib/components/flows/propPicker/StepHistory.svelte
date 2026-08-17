@@ -39,7 +39,9 @@
 		noHistory = undefined
 	}: Props = $props()
 
-	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext') ?? {}
+	const { pathStore, flowStateStore, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext') ?? {}
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 	const dispatch = createEventDispatcher()
 
 	let infiniteList: InfiniteList | undefined = $state(undefined)
@@ -51,7 +53,7 @@
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			if (staticInputs) return staticInputs
 			const previousJobs = await JobService.listCompletedJobs({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				scriptPathExact: path === '' ? $pathStore + '/' + moduleId : path,
 				jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
 				page,
@@ -77,7 +79,7 @@
 	async function getJobResultAndLogs(jobId: string, noLogs: boolean) {
 		try {
 			const job = await JobService.getJob({
-				workspace: $workspaceStore ?? '',
+				workspace: opWs ?? '',
 				id: jobId ?? '',
 				noLogs
 			})
@@ -90,6 +92,15 @@
 
 	$effect(() => {
 		infiniteList && !noHistory && untrack(() => initLoadInputs())
+	})
+
+	let lastSeenJobId: string | undefined = $state(undefined)
+	$effect(() => {
+		const jobId = flowStateStore?.val[moduleId]?.previewJobId
+		if (jobId && jobId !== lastSeenJobId) {
+			lastSeenJobId = jobId
+			untrack(() => infiniteList?.loadData('forceRefresh'))
+		}
 	})
 
 	function handleSelect(e: CustomEvent) {

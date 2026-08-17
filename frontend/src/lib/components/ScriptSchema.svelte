@@ -12,4 +12,4 @@
 	let { schema = $bindable(), customUi = undefined }: Props = $props()
 </script>
 
-<EditableSchemaForm bind:schema uiOnly {customUi} editTab="inputEditor" />
+<EditableSchemaForm bind:schema uiOnly {customUi} editTab="inputEditor" showSensitiveToggle />

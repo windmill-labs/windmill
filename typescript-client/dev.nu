@@ -37,6 +37,7 @@ def main [
 
 	if ($do_all or $compile) {
 		print "Compiling Typescript..."
+		npx tsdown --format esm --format cjs --no-dts
 		tsc
 	}
 

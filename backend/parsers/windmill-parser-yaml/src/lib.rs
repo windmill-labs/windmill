@@ -9,6 +9,13 @@ use yaml_rust::{Yaml, YamlEmitter, YamlLoader};
 pub mod asset_parser;
 pub use asset_parser::parse_assets;
 
+pub mod dbt;
+pub use dbt::{
+    dbt_arg_schema, default_command as default_dbt_command, parse_dbt_descriptor, parse_dbt_sig,
+    DbtDescriptor, DbtEngine, DbtTestBehavior, DBT_COMMANDS, DBT_COMMAND_ARG, DBT_COMMAND_LABEL,
+    DBT_DEFAULT_WAREHOUSE,
+};
+
 pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
     let docs = YamlLoader::load_from_str(inner_content)
         .map_err(|e| anyhow!("Failed to parse yaml: {}", e))?;
@@ -27,6 +34,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
             args: vec![],
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         });
     }
 
@@ -49,6 +57,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                                         has_default: default.is_some(),
                                         default,
                                         oidx: None,
+                                        otyp_inferred: false,
                                     })
                                 }
                             }
@@ -67,6 +76,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                             has_default: inv.default.is_some(),
                             default: inv.default.map(|v| json!(format!("$res:{}", v))),
                             oidx: None,
+                            otyp_inferred: false,
                         });
                     }
                 }
@@ -80,6 +90,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                                 has_default: false,
                                 default: None,
                                 oidx: None,
+                                otyp_inferred: false,
                             });
                         }
                     }
@@ -94,6 +105,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
         args,
         auto_kind: None,
         has_preprocessor: None,
+        ..Default::default()
     })
 }
 
@@ -213,6 +225,7 @@ pub struct AnsiblePlaybookOptions {
     pub timeout: Option<i64>,
     pub flush_cache: Option<()>,
     pub force_handlers: Option<()>,
+    pub limit: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -263,6 +276,14 @@ pub struct DelegateToGitRepoDetails {
     pub commit: Option<String>,
     pub inventories_location: Option<String>,
     pub vars_location: Option<String>,
+    /// Path (relative to the cloned repo root) of an `ansible.cfg` to use as the
+    /// effective config for the run. When set, Windmill points `ANSIBLE_CONFIG` at
+    /// it so the repo's own settings (roles paths, inventory plugins, callbacks…)
+    /// apply, and only injects the settings that depend on runtime state it alone
+    /// controls (temp/home dirs, vault password) on top.
+    pub ansible_cfg: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub install_requirements: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -298,6 +319,7 @@ impl Default for AnsibleRequirements {
                 timeout: None,
                 flush_cache: None,
                 force_handlers: None,
+                limit: None,
             },
             vault_password: None,
             vault_id: vec![],
@@ -426,6 +448,25 @@ pub fn parse_delegate_to_git_repo(inner_content: &str) -> anyhow::Result<Delegat
     Ok(DelegateWithSSHAuth { delegate_to_git_repo_details: None, git_ssh_identity })
 }
 
+/// Each `vault_id` entry is interpolated verbatim into the generated `ansible.cfg`
+/// (`vault_identity_list = <a>,<b>,...`). A newline or other config-meaningful
+/// character would let a script inject arbitrary `[defaults]` directives (e.g.
+/// `library`, `action_plugins`) and execute attacker-controlled code on the worker,
+/// and a `,` would smuggle in an extra entry. Restrict entries to the `label@source`
+/// charset so neither is possible.
+pub fn validate_vault_id(value: &str) -> anyhow::Result<()> {
+    let is_valid = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '@'));
+    if !is_valid {
+        return Err(anyhow!(
+            "Invalid vault_id `{value}`: expected `label@filename` using only letters, digits and the characters `.`, `_`, `-`, `/`, `@`"
+        ));
+    }
+    Ok(())
+}
+
 pub fn parse_ansible_reqs(
     inner_content: &str,
 ) -> anyhow::Result<(String, Option<AnsibleRequirements>, String)> {
@@ -519,6 +560,7 @@ pub fn parse_ansible_reqs(
                         let Yaml::String(filename) = f else {
                             return Err(anyhow!("The elements of the vault_id field should be strings in the format: `label@filename`"));
                         };
+                        validate_vault_id(filename)?;
                         ret.vault_id.push(filename.to_string());
                     }
                 }
@@ -600,6 +642,14 @@ fn extract_delegate_to_git_repo_details(value: &Yaml) -> Option<DelegateToGitRep
                 .get(&Yaml::String("vars_location".to_string()))
                 .and_then(|s| s.as_str())
                 .map(|s| s.to_string());
+            let ansible_cfg = v
+                .get(&Yaml::String("ansible_cfg".to_string()))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
+            let install_requirements = v
+                .get(&Yaml::String("install_requirements".to_string()))
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false);
 
             return Some(DelegateToGitRepoDetails {
                 resource,
@@ -607,6 +657,8 @@ fn extract_delegate_to_git_repo_details(value: &Yaml) -> Option<DelegateToGitRep
                 commit,
                 inventories_location,
                 vars_location,
+                ansible_cfg,
+                install_requirements,
             });
         }
     }
@@ -652,6 +704,7 @@ fn parse_ansible_options(opts: &Vec<Yaml>) -> AnsiblePlaybookOptions {
         timeout: None,
         flush_cache: None,
         force_handlers: None,
+        limit: None,
     };
     for opt in opts {
         if let Yaml::String(o) = opt {
@@ -686,6 +739,13 @@ fn parse_ansible_options(opts: &Vec<Yaml>) -> AnsiblePlaybookOptions {
                             let c = count_consecutive_vs(verbosity);
                             if c > 0 && c <= 6 {
                                 ret.verbosity = Some("v".repeat(c.min(6)));
+                            }
+                        }
+                    }
+                    "limit" => {
+                        if let Yaml::String(limit) = value {
+                            if !limit.is_empty() {
+                                ret.limit = Some(limit.clone());
                             }
                         }
                     }
@@ -969,5 +1029,148 @@ dependencies:
 
         let a = parse_delegate_to_git_repo(p).unwrap();
         println!("The resulting delegate_to_kit_repo is: {:#?}", a);
+    }
+
+    #[test]
+    fn test_parse_options_limit() {
+        let p = r#"
+---
+options:
+  - vv
+  - limit: webservers:!db1.example.com
+  - forks: 5
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        let opts = reqs.unwrap().options;
+        assert_eq!(opts.limit.as_deref(), Some("webservers:!db1.example.com"));
+        assert_eq!(opts.verbosity.as_deref(), Some("vv"));
+        assert_eq!(opts.forks, Some(5));
+    }
+
+    #[test]
+    fn test_parse_install_requirements_default_false() {
+        let p = r#"
+---
+delegate_to_git_repo:
+  resource: u/admin/repo
+  playbook: site.yml
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        let d = reqs.unwrap().delegate_to_git_repo.unwrap();
+        assert!(!d.install_requirements);
+        assert_eq!(d.playbook.as_deref(), Some("site.yml"));
+    }
+
+    #[test]
+    fn test_parse_delegate_ansible_cfg() {
+        let p = r#"
+---
+delegate_to_git_repo:
+  resource: u/admin/repo
+  playbook: site.yml
+  ansible_cfg: config/ansible.cfg
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        let d = reqs.unwrap().delegate_to_git_repo.unwrap();
+        assert_eq!(d.ansible_cfg.as_deref(), Some("config/ansible.cfg"));
+    }
+
+    #[test]
+    fn test_parse_delegate_ansible_cfg_absent() {
+        let p = r#"
+---
+delegate_to_git_repo:
+  resource: u/admin/repo
+  playbook: site.yml
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        let d = reqs.unwrap().delegate_to_git_repo.unwrap();
+        assert_eq!(d.ansible_cfg, None);
+    }
+
+    #[test]
+    fn test_parse_install_requirements_true() {
+        let p = r#"
+---
+delegate_to_git_repo:
+  resource: u/admin/repo
+  playbook: "{{ playbook_name }}"
+  inventories_location: "inventories/{{ env }}"
+  install_requirements: true
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        let d = reqs.unwrap().delegate_to_git_repo.unwrap();
+        assert!(d.install_requirements);
+        assert_eq!(d.playbook.as_deref(), Some("{{ playbook_name }}"));
+        assert_eq!(
+            d.inventories_location.as_deref(),
+            Some("inventories/{{ env }}")
+        );
+    }
+
+    #[test]
+    fn test_parse_vault_id_valid() {
+        let p = r#"
+---
+vault_id:
+  - dev@vault_pass_dev.txt
+  - prod@./secrets/prod-pass
+---
+- name: Test
+  hosts: all
+"#;
+        let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
+        assert_eq!(
+            reqs.unwrap().vault_id,
+            vec![
+                "dev@vault_pass_dev.txt".to_string(),
+                "prod@./secrets/prod-pass".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_vault_id_rejects_newline_injection() {
+        let p = "---\nvault_id:\n  - \"default@/tmp/wm/x\\nlibrary = /tmp/wm/evil_modules\"\n---\n- name: Test\n  hosts: all\n";
+        assert!(parse_ansible_reqs(p).is_err());
+    }
+
+    #[test]
+    fn test_parse_vault_id_rejects_comma() {
+        let p = r#"
+---
+vault_id:
+  - "a@b,c@d"
+---
+- name: Test
+  hosts: all
+"#;
+        assert!(parse_ansible_reqs(p).is_err());
+    }
+
+    #[test]
+    fn test_validate_vault_id() {
+        assert!(validate_vault_id("default@/tmp/wm/pass").is_ok());
+        assert!(validate_vault_id("dev@pass.txt").is_ok());
+        assert!(validate_vault_id("").is_err());
+        assert!(validate_vault_id("a@b\nlibrary = /evil").is_err());
+        assert!(validate_vault_id("a@b,c@d").is_err());
+        assert!(validate_vault_id("a@b c").is_err());
+        assert!(validate_vault_id("a@b=c").is_err());
     }
 }

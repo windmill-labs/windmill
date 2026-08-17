@@ -11,7 +11,8 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 use crate::{
-    generate_webhook_service_url, rotate_webhook_token,
+    generate_webhook_service_url,
+    lock::TriggerLock,
     sync::{SyncAction, SyncError, TriggerSyncInfo},
     update_native_trigger_error, update_native_trigger_service_config, External, NativeTrigger,
     NativeTriggerData, ServiceName,
@@ -47,8 +48,10 @@ impl External for Google {
         db: &DB,
         _tx: &mut PgConnection,
     ) -> Result<Self::CreateResponse> {
+        // At creation time, channel_id also becomes the trigger's external_id
+        // (see external_id_and_metadata_from_response).
         let channel_id = uuid::Uuid::new_v4().to_string();
-        self.create_watch_channel(w_id, &channel_id, webhook_token, data, db)
+        self.create_watch_channel(w_id, &channel_id, &channel_id, webhook_token, data, db)
             .await
     }
 
@@ -65,9 +68,11 @@ impl External for Google {
         // Google doesn't support updating watch channels — delete old, create new.
         let _ = self.delete(w_id, oauth_data, external_id, db, tx).await;
 
-        // Reuse the same channel ID so external_id stays permanent
+        // Google rejects reused channel IDs, so we must mint a fresh one.
+        // external_id stays the stable routing key used in the webhook URL.
+        let channel_id = uuid::Uuid::new_v4().to_string();
         let resp = self
-            .create_watch_channel(w_id, external_id, webhook_token, data, db)
+            .create_watch_channel(w_id, external_id, &channel_id, webhook_token, data, db)
             .await?;
 
         self.service_config_from_create_response(data, &resp)
@@ -106,11 +111,14 @@ impl External for Google {
         }
         let config = config.unwrap();
 
-        let (google_resource_id, url) = super::parse_stop_channel_params(&config);
+        let (google_channel_id, google_resource_id, url) =
+            super::parse_stop_channel_params(&config);
+        // Fall back to external_id for triggers created before googleChannelId was tracked.
+        let channel_id = google_channel_id.unwrap_or_else(|| external_id.to_string());
 
         if !google_resource_id.is_empty() {
             let stop_request =
-                StopChannelRequest { id: external_id.to_string(), resource_id: google_resource_id };
+                StopChannelRequest { id: channel_id.clone(), resource_id: google_resource_id };
 
             // Stop the channel (ignore errors - channel may have already expired)
             let result: std::result::Result<serde_json::Value, _> = self
@@ -118,7 +126,7 @@ impl External for Google {
                 .await;
 
             if let Err(e) = result {
-                tracing::warn!("Failed to stop Google channel {}: {}", external_id, e);
+                tracing::warn!("Failed to stop Google channel {}: {}", channel_id, e);
             }
         }
 
@@ -169,6 +177,7 @@ impl External for Google {
         resp: &Self::CreateResponse,
     ) -> (String, Option<serde_json::Value>) {
         let metadata = serde_json::json!({
+            "googleChannelId": resp.id,
             "googleResourceId": resp.resource_id,
             "expiration": resp.expiration,
         });
@@ -181,6 +190,7 @@ impl External for Google {
         resp: &Self::CreateResponse,
     ) -> Option<serde_json::Value> {
         let mut config = data.service_config.clone();
+        config.google_channel_id = Some(resp.id.clone());
         config.google_resource_id = Some(resp.resource_id.clone());
         config.expiration = Some(resp.expiration.clone());
         serde_json::to_value(&config).ok()
@@ -189,35 +199,60 @@ impl External for Google {
     fn additional_routes(&self) -> axum::Router {
         routes::google_routes(self.clone())
     }
+
+    fn error_hint(&self, status: http::StatusCode) -> Option<&'static str> {
+        match status {
+            http::StatusCode::UNAUTHORIZED => {
+                Some("reconnect the Google integration from Workspace settings > Integrations.")
+            }
+            http::StatusCode::FORBIDDEN => Some(
+                "the connected Google account is missing access to this resource or the scope the \
+                 integration was granted does not cover it.",
+            ),
+            _ => None,
+        }
+    }
+
+    /// Google answers 403 to a quota being spent as well as to a permission failure. Every
+    /// throttling reason it defines sits in the `usageLimits` domain, so matching the domain
+    /// covers the group without an allowlist to extend each time one is added.
+    fn is_transient_response(&self, status: http::StatusCode, body: &str) -> bool {
+        status == http::StatusCode::FORBIDDEN && body.contains("usageLimits")
+    }
 }
 
 // Helper methods for creating trigger type-specific watches
 impl Google {
     /// Build a webhook URL and watch request, then register the channel with Google.
-    /// Used by both `create()` (new UUID) and `update()` (reuse existing external_id).
+    /// `external_id` is the trigger's stable routing key (used in the webhook URL).
+    /// `channel_id` is the identifier sent to Google — it must be globally unique
+    /// across the trigger's lifetime, so callers should mint a fresh UUID per call
+    /// on update/renew.
     async fn create_watch_channel(
         &self,
         w_id: &str,
+        external_id: &str,
         channel_id: &str,
         webhook_token: &str,
         data: &NativeTriggerData<GoogleServiceConfig>,
         db: &DB,
     ) -> Result<CreateWatchResponse> {
-        let base_url = &*BASE_URL.read().await;
+        let base_url = &**BASE_URL.load();
         let webhook_url = generate_webhook_service_url(
             base_url,
             w_id,
             &data.script_path,
             data.is_flow,
-            Some(channel_id),
+            Some(external_id),
             ServiceName::Google,
             webhook_token,
         );
 
         tracing::info!(
-            "Creating Google {} watch channel '{}' with webhook URL: {}",
+            "Creating Google {} watch channel '{}' (external_id={}) with webhook URL: {}",
             data.service_config.trigger_type,
             channel_id,
+            external_id,
             webhook_url
         );
 
@@ -309,8 +344,10 @@ impl Google {
     }
 
     /// Renew an expiring Google watch channel.
-    /// Rotates the webhook token (creating a new one with the same label),
-    /// stops the old channel and creates a new one with the same channel ID.
+    /// Rotates the webhook token (mints a fresh `ephemeral-webhook-google-{rd5}` label
+    /// and a 14-day expiration via `rotate_webhook_token`), stops the old channel and
+    /// creates a new one with a fresh channel ID (Google rejects reused channel IDs
+    /// with `channelIdNotUnique`).
     /// Returns (new_service_config, new_plaintext_token, old_token_hash).
     /// Callers should delete old_token_hash after successfully updating the trigger.
     pub async fn renew_channel(
@@ -326,7 +363,14 @@ impl Google {
             .transpose()?
             .ok_or_else(|| Error::InternalErr("Missing service config".to_string()))?;
 
-        let rotated = match rotate_webhook_token(db, &trigger.webhook_token_hash).await? {
+        let rotated = match crate::rotate_webhook_token(
+            db,
+            &trigger.webhook_token_hash,
+            ServiceName::Google,
+            crate::webhook_token_scopes(&trigger.script_path, trigger.is_flow),
+        )
+        .await?
+        {
             Some(r) => r,
             None => {
                 return Err(Error::InternalErr(format!(
@@ -335,43 +379,47 @@ impl Google {
                 )));
             }
         };
-        let base_url = &*BASE_URL.read().await;
-        // Reuse the same channel ID so external_id stays permanent
-        let channel_id = trigger.external_id.clone();
+        let base_url = &**BASE_URL.load();
+        // external_id is our stable routing key; channel_id must be fresh so Google
+        // doesn't reject the new channel with `channelIdNotUnique`.
+        let new_channel_id = uuid::Uuid::new_v4().to_string();
+        // Old channel_id comes from service_config; fall back to external_id for
+        // triggers created before googleChannelId was tracked.
+        let old_channel_id = config
+            .google_channel_id
+            .clone()
+            .unwrap_or_else(|| trigger.external_id.clone());
         let webhook_url = generate_webhook_service_url(
             base_url,
             w_id,
             &trigger.script_path,
             trigger.is_flow,
-            Some(&channel_id),
+            Some(&trigger.external_id),
             ServiceName::Google,
             &rotated.new_token,
         );
 
         tracing::info!(
-            "Renewing Google {} watch channel '{}' with webhook URL: {}",
+            "Renewing Google {} watch channel for '{}': old channel_id={}, new channel_id={}, webhook URL: {}",
             config.trigger_type,
-            channel_id,
+            trigger.external_id,
+            old_channel_id,
+            new_channel_id,
             webhook_url
         );
 
         let expiration_ms = chrono::Utc::now().timestamp_millis()
             + (config.max_expiration_hours() as i64 * 3600 * 1000);
-        let mut watch_request = WatchRequest::new(channel_id.clone(), webhook_url);
+        let mut watch_request = WatchRequest::new(new_channel_id.clone(), webhook_url);
         watch_request.expiration = Some(expiration_ms);
 
         // Best-effort stop old channel before creating a new one
-        let old_google_resource_id = trigger
-            .service_config
-            .as_ref()
-            .and_then(|c| c.get("googleResourceId"))
-            .and_then(|r| r.as_str())
-            .unwrap_or_default();
+        let old_google_resource_id = config.google_resource_id.clone().unwrap_or_default();
 
         if !old_google_resource_id.is_empty() {
             let stop_request = StopChannelRequest {
-                id: channel_id.clone(),
-                resource_id: old_google_resource_id.to_string(),
+                id: old_channel_id.clone(),
+                resource_id: old_google_resource_id,
             };
             let url = match config.trigger_type {
                 GoogleTriggerType::Calendar => {
@@ -387,13 +435,13 @@ impl Google {
             if let Err(e) = result {
                 tracing::warn!(
                     "Failed to stop old Google channel {} during renewal: {}",
-                    channel_id,
+                    old_channel_id,
                     e
                 );
             }
         }
 
-        // Create new watch channel with the same channel ID
+        // Create new watch channel with a fresh channel ID
         let resp = match config.trigger_type {
             GoogleTriggerType::Drive => {
                 self.create_drive_watch(w_id, &config, &watch_request, db)
@@ -405,8 +453,9 @@ impl Google {
             }
         };
 
-        // Build the updated service_config with new expiration
+        // Build the updated service_config with new channel_id, resource_id, expiration
         let mut new_config = config;
+        new_config.google_channel_id = Some(resp.id);
         new_config.google_resource_id = Some(resp.resource_id);
         new_config.expiration = Some(resp.expiration);
 
@@ -444,6 +493,132 @@ pub fn should_renew_channel(service_config: &serde_json::Value) -> bool {
     remaining_ms < renewal_window_ms
 }
 
+enum RenewOutcome {
+    Renewed,
+    /// Another replica holds the lock, or the row was already renewed.
+    Skipped,
+}
+
+/// Renew one Google watch channel under `TriggerLock`.
+/// `sync_all_triggers` runs on every replica with no leader election — without
+/// the lock, parallel renewals orphan the losers' new tokens and Google channels.
+async fn try_renew_channel_locked(
+    handler: &Google,
+    db: &DB,
+    workspace_id: &str,
+    trigger: &NativeTrigger,
+) -> Result<RenewOutcome> {
+    // Renewal stops the live channel and creates a replacement, exactly like a re-registration
+    // does — so the two must not overlap, or each stops the channel the other just made and one
+    // is left orphaned, delivering a second copy of every event. Skipping is fine: the sweep runs
+    // again. Excluding them through this lock rather than by holding the row itself is what keeps
+    // a rename's `UPDATE native_trigger` from having to wait on a third party's API.
+    let Some(lock) =
+        TriggerLock::try_acquire(db, workspace_id, ServiceName::Google, &trigger.external_id)
+            .await?
+    else {
+        return Ok(RenewOutcome::Skipped);
+    };
+
+    let row = sqlx::query!(
+        r#"
+        SELECT service_config, webhook_token_hash, script_path, is_flow
+        FROM native_trigger
+        WHERE workspace_id = $1
+          AND service_name = $2
+          AND external_id = $3
+        "#,
+        workspace_id,
+        ServiceName::Google as ServiceName,
+        trigger.external_id,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let Some(row) = row else {
+        return Ok(RenewOutcome::Skipped);
+    };
+
+    let Some(service_config) = row.service_config else {
+        // Anomalous: a Google trigger row should always carry a service_config.
+        tracing::warn!(
+            "Google trigger '{}' has NULL service_config — skipping renewal",
+            trigger.external_id
+        );
+        return Ok(RenewOutcome::Skipped);
+    };
+
+    // Re-check after the lock — a contending replica may have just renewed.
+    if !should_renew_channel(&service_config) {
+        return Ok(RenewOutcome::Skipped);
+    }
+
+    // Use freshly-read fields — the listing this came from predates the lock, so a rename may
+    // have moved the runnable since. Renewing against the listed path would build the channel's
+    // callback URL from a path that no longer resolves.
+    let fresh_trigger = NativeTrigger {
+        service_config: Some(service_config),
+        webhook_token_hash: row.webhook_token_hash,
+        script_path: row.script_path,
+        is_flow: row.is_flow,
+        ..trigger.clone()
+    };
+
+    let (new_config, new_token, old_token_hash) = handler
+        .renew_channel(workspace_id, &fresh_trigger, db)
+        .await?;
+
+    let mut tx = db.begin().await?;
+
+    // Past this point a new Google channel exists. Any failure leaks it.
+    if let Err(e) = update_native_trigger_service_config(
+        &mut *tx,
+        workspace_id,
+        ServiceName::Google,
+        &trigger.external_id,
+        &new_config,
+        Some(&new_token),
+    )
+    .await
+    {
+        tracing::error!(
+            "DB update failed after creating new Google channel for '{}' — channel orphaned in Google: {}",
+            trigger.external_id,
+            e
+        );
+        return Err(e);
+    }
+
+    if let Err(e) = tx.commit().await {
+        tracing::error!(
+            "Commit failed after creating new Google channel for '{}' — channel orphaned in Google: {}",
+            trigger.external_id,
+            e
+        );
+        return Err(e.into());
+    }
+
+    // With the lock + rotation in place, the old token row must exist here.
+    // Ok(false) means a concurrent path deleted it (or the expiry sweep collected it).
+    match crate::delete_token_by_hash(db, &old_token_hash).await {
+        Ok(true) => {}
+        Ok(false) => tracing::warn!(
+            "Old webhook token already gone after renewal for '{}' (hash {})",
+            trigger.external_id,
+            old_token_hash
+        ),
+        Err(e) => tracing::warn!(
+            "Failed to delete old webhook token after channel renewal for '{}': {}",
+            trigger.external_id,
+            e
+        ),
+    }
+
+    lock.release().await?;
+
+    Ok(RenewOutcome::Renewed)
+}
+
 async fn renew_expiring_channels(
     handler: &Google,
     db: &DB,
@@ -468,53 +643,25 @@ async fn renew_expiring_channels(
             workspace_id
         );
 
-        match handler.renew_channel(workspace_id, trigger, db).await {
-            Ok((new_config, new_token, old_token_hash)) => {
-                match update_native_trigger_service_config(
-                    db,
-                    workspace_id,
-                    ServiceName::Google,
-                    &trigger.external_id,
-                    &new_config,
-                    Some(&new_token),
-                )
-                .await
-                {
-                    Ok(()) => {
-                        // Trigger updated — clean up old token (best-effort)
-                        if let Err(e) = crate::delete_token_by_hash(db, &old_token_hash).await {
-                            tracing::warn!(
-                                "Failed to delete old webhook token after channel renewal for {}: {}",
-                                trigger.external_id, e
-                            );
-                        }
-                        tracing::info!(
-                            "Renewed Google channel {} for '{}'",
-                            trigger.external_id,
-                            trigger.script_path
-                        );
-                        synced.push(TriggerSyncInfo {
-                            external_id: trigger.external_id.clone(),
-                            script_path: trigger.script_path.clone(),
-                            action: SyncAction::ConfigUpdated,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to update DB after renewing Google channel {}: {}",
-                            trigger.external_id,
-                            e
-                        );
-                        errors.push(SyncError {
-                            resource_path: format!("workspace:{}", workspace_id),
-                            error_message: format!(
-                                "Failed to update DB after channel renewal for {}: {}",
-                                trigger.external_id, e
-                            ),
-                            error_type: "channel_renewal_error".to_string(),
-                        });
-                    }
-                }
+        match try_renew_channel_locked(handler, db, workspace_id, trigger).await {
+            Ok(RenewOutcome::Renewed) => {
+                tracing::info!(
+                    "Renewed Google channel {} for '{}'",
+                    trigger.external_id,
+                    trigger.script_path
+                );
+                synced.push(TriggerSyncInfo {
+                    external_id: trigger.external_id.clone(),
+                    script_path: trigger.script_path.clone(),
+                    action: SyncAction::ConfigUpdated,
+                });
+            }
+            Ok(RenewOutcome::Skipped) => {
+                // Expected outcome under SKIP LOCKED: contending replica or already-renewed row.
+                tracing::debug!(
+                    "Skipped Google channel renewal for '{}': another replica is renewing or the row was already renewed",
+                    trigger.external_id
+                );
             }
             Err(e) => {
                 tracing::error!(
@@ -529,7 +676,10 @@ async fn renew_expiring_channels(
                     workspace_id,
                     ServiceName::Google,
                     &trigger.external_id,
-                    Some(&format!("Channel renewal failed: {}", e)),
+                    Some(&format!(
+                        "Channel renewal failed: {}",
+                        crate::external_error_message(&e)
+                    )),
                 )
                 .await;
 

@@ -1,0 +1,326 @@
+- id: app-test1-counter-create
+  prompt: |-
+    Create a simple counter app with increment and decrement buttons.
+  judgeChecklist:
+    - shows the current count in the UI
+    - includes an increment button
+    - includes a decrement button
+    - clicking the buttons updates the count correctly
+
+- id: app-test2-counter-reset
+  prompt: |-
+    Add a reset button that sets the counter back to 0
+  initial: ai_evals/fixtures/frontend/app/initial/test1_counter_app
+  judgeChecklist:
+    - adds a reset control to the existing counter app
+    - clicking reset sets the count back to 0
+    - keeps the existing increment and decrement behavior working
+
+- id: app-test3-shopping-cart-quantity
+  prompt: |-
+    Add a quantity selector (+ and - buttons) to each cart item so users can adjust quantities without removing and re-adding items
+  initial: ai_evals/fixtures/frontend/app/initial/shopping_cart
+  judgeChecklist:
+    - each cart item has visible plus and minus quantity controls
+    - users can increase quantity without re-adding the product
+    - users can decrease quantity from the cart UI
+    - cart totals stay in sync with quantity changes
+
+- id: app-test4-shopping-cart-discount
+  prompt: |-
+    Add a discount code input field in the cart.
+    When the code "SAVE10" is entered, apply a 10% discount to the total
+  initial: ai_evals/fixtures/frontend/app/initial/shopping_cart
+  judgeChecklist:
+    - adds a discount code input to the cart
+    - recognizes the code SAVE10
+    - applies a 10 percent discount to the displayed total
+    - keeps the rest of the cart behavior intact
+
+- id: app-test5-file-manager-search
+  prompt: |-
+    Add a search bar in the toolbar that filters files and folders by name as the user types
+  initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  judgeChecklist:
+    - adds a search input in the toolbar
+    - filters files and folders by name as the user types
+    - updates the visible file list from the search query
+    - keeps the rest of the file manager usable
+
+- id: app-test6-file-manager-rename-save-cancel
+  prompt: |-
+    Improve the existing inline rename flow for files and folders.
+    When renaming, show explicit Save and Cancel buttons next to the name input.
+    Pressing Enter should save, pressing Escape should cancel, and Cancel should restore the original name without calling rename.
+    Keep the existing backend rename behavior for successful saves.
+  initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+      - /components/FileItem.tsx
+    requiredFrontendFileContent:
+      - path: /components/FileItem.tsx
+        includes:
+          - Save
+          - Cancel
+          - Escape
+    forbiddenAppContent:
+      - onBlur={handleRename}
+  judgeChecklist:
+    - keeps the existing visible rename action in the file list
+    - shows explicit Save and Cancel controls while editing a name
+    - pressing Enter saves the new name through the existing rename behavior
+    - pressing Escape or Cancel exits rename mode and restores the original name without saving
+
+- id: app-test7-file-manager-select-all
+  prompt: |-
+    Add a "Select All" checkbox in the file list header and individual checkboxes for each file.
+    Add a "Delete Selected" button that appears when items are selected
+  initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  judgeChecklist:
+    - adds a select-all control in the file list header
+    - adds per-item selection controls
+    - shows a delete-selected action only when there is a selection
+    - deleting selected items updates the visible list
+
+- id: app-test8-inventory-tracker-search-delete
+  prompt: |-
+    Update this inventory tracker app so users can search items by name or sku and delete existing items.
+    Keep the existing add-item flow and datatable-backed persistence working.
+  initial: ai_evals/fixtures/frontend/app/initial/inventory_tracker
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - listInventory
+      - addInventory
+      - deleteInventory
+    requiredBackendRunnableTypes:
+      - key: listInventory
+        type: inline
+      - key: addInventory
+        type: inline
+      - key: deleteInventory
+        type: inline
+    requiredDatatables:
+      - datatableName: main
+        schema: public
+        table: inventory_items
+  judgeChecklist:
+    - keeps the existing add-item form working
+    - adds a search input that filters inventory by name or sku
+    - adds a delete action for existing inventory items
+    - deleting an inventory item updates the visible list
+    - keeps inventory persistence working through the existing datatable-backed app setup
+
+- id: app-test9-recipe-book-search-delete
+  prompt: |-
+    Update this recipe book app so users can search recipes by name and delete existing recipes.
+    Keep the existing add-recipe flow and datatable-backed persistence working.
+  initial: ai_evals/fixtures/frontend/app/initial/recipe_book
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - listRecipes
+      - addRecipe
+      - deleteRecipe
+    requiredBackendRunnableTypes:
+      - key: listRecipes
+        type: inline
+      - key: addRecipe
+        type: inline
+      - key: deleteRecipe
+        type: inline
+    requiredDatatables:
+      - datatableName: main
+        schema: public
+        table: recipes
+  judgeChecklist:
+    - keeps the existing add-recipe form working
+    - adds a search input that filters recipes by name
+    - adds a delete action for existing recipes
+    - deleting a recipe updates the visible list
+    - keeps recipe persistence working through the existing datatable-backed app setup
+
+- id: app-datatable-persistent-notes
+  prompt: |-
+    Build a notes app that persists notes in the existing datatable table.
+    Inspect the existing datatable and table schema before writing code.
+    Use the existing main/public.notes table, and do not create any new tables.
+    Create backend runnables named exactly listNotes, addNote, and deleteNote.
+    The UI should list notes, add a note with title/body, and delete notes.
+    Do not use localStorage, sessionStorage, IndexedDB, or in-memory-only persistence.
+  initial: ai_evals/fixtures/frontend/app/initial/notes_datatable
+  runtime:
+    maxTurns: 10
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredFrontendFileContent:
+      - path: /index.tsx
+        includes:
+          - backend.listNotes
+          - backend.addNote
+          - backend.deleteNote
+    requiredBackendRunnableKeys:
+      - listNotes
+      - addNote
+      - deleteNote
+    requiredBackendRunnableTypes:
+      - key: listNotes
+        type: inline
+      - key: addNote
+        type: inline
+      - key: deleteNote
+        type: inline
+    requiredBackendRunnableContent:
+      - key: listNotes
+        includes:
+          - wmill.datatable
+          - select
+          - notes
+      - key: addNote
+        includes:
+          - wmill.datatable
+          - insert
+          - notes
+      - key: deleteNote
+        includes:
+          - wmill.datatable
+          - delete
+          - notes
+    datatableTableCountExactly: 1
+    requiredDatatables:
+      - datatableName: main
+        schema: public
+        table: notes
+    requiredToolsUsed:
+      - list_datatables
+      - get_datatable_table_schema
+    forbiddenAppContent:
+      - localStorage
+      - sessionStorage
+      - indexedDB
+  judgeChecklist:
+    - creates a notes UI that lists notes from the backend
+    - adds notes through backend datatable persistence
+    - deletes notes through backend datatable persistence
+    - reuses the existing main/public.notes table without creating new tables
+    - does not use browser storage or in-memory-only persistence as the source of truth
+
+- id: app-test10-session-id-no-crypto
+  prompt: |-
+    Update `generateSessionId` so it no longer uses `crypto.randomUUID()`.
+    Make it return a handmade string id built from the current time and random characters.
+    Keep the existing sessionStorage-based chat session behavior unchanged.
+  initial: ai_evals/fixtures/frontend/app/initial/session_id_chat
+  runtime:
+    maxTurns: 4
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - a
+    requiredBackendRunnableTypes:
+      - key: a
+        type: inline
+  judgeChecklist:
+    - generateSessionId no longer calls crypto.randomUUID
+    - generateSessionId returns a handmade string id without using crypto
+    - getSessionId still stores and reuses chat_session_id in sessionStorage
+    - the existing new chat and send message session behavior remains wired up
+
+- id: app-token-baseline-large-app-small-edit
+  prompt: |-
+    Change the main heading from "Analytics Console" to "Operations Console".
+    Keep the existing filtering, summary loading, and backend calls unchanged.
+  initial: ai_evals/fixtures/frontend/app/initial/token_heavy_context
+  runtime:
+    maxTurns: 8
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - loadAnalytics
+      - refreshSummary
+  judgeChecklist:
+    - changes the visible main heading to Operations Console
+    - keeps the existing summary loading behavior wired to loadAnalytics
+    - keeps the existing filter input and metric list behavior intact
+
+- id: app-token-many-datatable-context
+  prompt: |-
+    Add a short note under the dashboard heading that says "Using existing analytics tables".
+    Do not create any new tables.
+  initial: ai_evals/fixtures/frontend/app/initial/token_heavy_datatables
+  runtime:
+    maxTurns: 8
+    appContext:
+      additional:
+        - type: datatable
+          datatableName: main
+          schema: analytics
+          table: event_log_01
+        - type: datatable
+          datatableName: main
+          schema: analytics
+          table: event_log_02
+        - type: datatable
+          datatableName: main
+          schema: analytics
+          table: event_log_03
+        - type: datatable
+          datatableName: main
+          schema: analytics
+          table: event_log_04
+        - type: datatable
+          datatableName: main
+          schema: analytics
+          table: event_log_05
+        - type: datatable
+          datatableName: main
+          schema: analytics
+          table: event_log_06
+        - type: datatable
+          datatableName: main
+          schema: analytics
+          table: event_log_07
+        - type: datatable
+          datatableName: main
+          schema: analytics
+          table: event_log_08
+        - type: datatable
+          datatableName: main
+          schema: operations
+          table: ops_record_13
+        - type: datatable
+          datatableName: main
+          schema: operations
+          table: ops_record_14
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    datatableCountAtLeast: 1
+    datatableTableCountAtLeast: 18
+  judgeChecklist:
+    - adds the note Using existing analytics tables under or near the heading
+    - does not create new datatable tables
+    - keeps the configured datatable references available in the app artifact
+
+- id: app-token-large-datatable-discovery
+  prompt: |-
+    Build a read-only dashboard page that reuses the existing analytics datatable tables.
+    Show a simple summary of which existing tables are available, and do not create any new tables.
+  initial: ai_evals/fixtures/frontend/app/initial/token_heavy_datatables
+  runtime:
+    maxTurns: 8
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    datatableCountAtLeast: 1
+    datatableTableCountAtLeast: 18
+  judgeChecklist:
+    - reuses the existing datatable configuration rather than creating new tables
+    - presents a read-only dashboard or summary of available analytics data
+    - keeps the configured datatable references available in the app artifact

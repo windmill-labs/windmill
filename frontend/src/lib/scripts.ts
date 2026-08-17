@@ -2,7 +2,8 @@ import { get } from 'svelte/store'
 import { base } from '$lib/base'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
-import { workspaceStore } from './stores'
+import { hubBaseUrlStore, workspaceStore } from './stores'
+import { getHubFlowIdFromPath } from './utils'
 
 export function scriptLangToEditorLang(
 	lang:
@@ -60,6 +61,12 @@ export function scriptLangToEditorLang(
 		return 'nu'
 	} else if (lang == 'java') {
 		return 'java'
+	} else if (lang == 'rlang') {
+		return 'r'
+	} else if (lang == 'dbt') {
+		// the script content is the YAML descriptor; the project's own files ride
+		// with it as its module bundle
+		return 'yaml'
 		// for related places search: ADD_NEW_LANG
 	} else if (lang == undefined) {
 		return 'typescript'
@@ -113,9 +120,13 @@ export async function loadScriptSchedule(
 	}
 }
 
-export async function loadSchemaFlow(path: string): Promise<Schema> {
+export async function loadSchemaFlow(
+	path: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<Schema> {
 	const flow = await FlowService.getFlowByPath({
-		workspace: get(workspaceStore)!,
+		workspace: workspace ?? get(workspaceStore)!,
 		path: path ?? ''
 	})
 	return flow.schema as any
@@ -127,6 +138,15 @@ export function scriptPathToHref(path: string, hubBaseUrl: string): string {
 	} else {
 		return `${base}/scripts/get/${path}?workspace=${get(workspaceStore)}`
 	}
+}
+
+export function flowPathToHref(path: string, hubBaseUrl: string = get(hubBaseUrlStore)): string {
+	if (path.startsWith('hub/flows/')) {
+		const hubFlowId = getHubFlowIdFromPath(path)
+		return hubFlowId ? `${hubBaseUrl}/flows/${hubFlowId}` : hubBaseUrl
+	}
+
+	return `${base}/flows/get/${path}?workspace=${get(workspaceStore)}`
 }
 
 const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string][] = [
@@ -153,9 +173,27 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['nu', 'Nu'],
 	['java', 'Java'],
 	['duckdb', 'DuckDB'],
-	['ruby', 'Ruby']
+	['ruby', 'Ruby'],
+	['rlang', 'R'],
+	['dbt', 'dbt']
 	// for related places search: ADD_NEW_LANG
 ]
+/**
+ * Languages a MODULE-LESS script cannot be written in.
+ *
+ * A dbt script IS its module bundle — `dbt_project.yml` and the models — and a
+ * flow step's or an app's inline script is a raw body with nowhere to carry
+ * one, so choosing it there produces a job that fails when the worker looks for
+ * the project. A flow reaches dbt the same way it reaches any other script: by
+ * path, to a deployed one.
+ */
+const LANGS_NEEDING_MODULES = ['dbt']
+
+/** `processLangs` for a surface whose scripts have no module bundle. */
+export function processInlineLangs(selected: string | undefined, langs: string[]): string[] {
+	return processLangs(selected, langs).filter((l) => !LANGS_NEEDING_MODULES.includes(l))
+}
+
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
 	if (selected === 'nativets') {
 		return langs
@@ -163,7 +201,18 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby']
+		let nl = [
+			'bunnative',
+			'rust',
+			'ansible',
+			'csharp',
+			'nu',
+			'java',
+			'duckdb',
+			'ruby',
+			'rlang',
+			'dbt'
+		]
 		// for related places search: ADD_NEW_LANG
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {
@@ -176,7 +225,12 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 
 export const defaultScriptLanguages = Object.fromEntries(scriptLanguagesArray)
 
-export async function getScriptByPath(path: string): Promise<{
+export async function getScriptByPath(
+	path: string,
+	// The acting workspace when called from a session live editor; defaults to
+	// the navigation workspace for full-page callers.
+	workspace?: string
+): Promise<{
 	content: string
 	language: SupportedLanguage
 	schema: any
@@ -203,7 +257,7 @@ export async function getScriptByPath(path: string): Promise<{
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			path: path ?? ''
 		})
 		return {
@@ -221,9 +275,9 @@ export async function getScriptByPath(path: string): Promise<{
 	}
 }
 
-export async function getLatestHashForScript(path: string): Promise<string> {
+export async function getLatestHashForScript(path: string, workspace?: string): Promise<string> {
 	const script = await ScriptService.getScriptByPath({
-		workspace: get(workspaceStore)!,
+		workspace: workspace ?? get(workspaceStore)!,
 		path: path ?? ''
 	})
 	return script.hash

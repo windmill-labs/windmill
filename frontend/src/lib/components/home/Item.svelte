@@ -10,6 +10,9 @@
 	import ShareModal from '../ShareModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { ArrowBigUp } from 'lucide-svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { getHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import type { RowSelection } from '../common/table/rowSelection'
 
 	const dispatch = createEventDispatcher()
 
@@ -24,9 +27,45 @@
 		depth?: number
 		showCode: (path: string, summary: string) => void
 		showEditButton?: boolean
+		keyboardSelected?: boolean
 	}
 
-	let { item, depth = 0, showCode, showEditButton = true }: Props = $props()
+	let {
+		item,
+		depth = 0,
+		showCode,
+		showEditButton = true,
+		keyboardSelected = false
+	}: Props = $props()
+
+	// Read from context rather than threaded down: the tree renders items through
+	// several nested levels that have no other reason to know about selection.
+	const homeSelection = getHomeSelection()
+	// A raw app the listing returns is an `app` row carrying `raw_app`, and is
+	// selectable like any other app. The separate `raw_app` type is the legacy
+	// listing shape, which renders through RawAppRow — no selection control there,
+	// so it must not enter the selection either.
+	let bulkItem = $derived(
+		homeSelection?.available && item.type !== 'raw_app'
+			? toBulkItem(item, $userStore, $workspaceStore)
+			: undefined
+	)
+	$effect(() => {
+		const b = bulkItem
+		if (!b || !homeSelection) return
+		homeSelection.register(b)
+		return () => homeSelection.unregister(b.key)
+	})
+	let rowSelection: RowSelection | undefined = $derived(
+		bulkItem && homeSelection
+			? {
+					key: bulkItem.key,
+					selected: homeSelection.has(bulkItem.key),
+					active: homeSelection.active,
+					onToggle: (e) => bulkItem && homeSelection.toggle(bulkItem, 'shiftKey' in e && e.shiftKey)
+				}
+			: undefined
+	)
 </script>
 
 {#if item.type == 'script'}
@@ -46,6 +85,8 @@
 		bind:menuOpen
 		{showCode}
 		{showEditButton}
+		{keyboardSelected}
+		{rowSelection}
 	/>
 {:else if item.type == 'flow'}
 	<FlowRow
@@ -63,6 +104,8 @@
 		{depth}
 		bind:menuOpen
 		{showEditButton}
+		{keyboardSelected}
+		{rowSelection}
 	/>
 {:else if item.type == 'app'}
 	<AppRow
@@ -76,6 +119,8 @@
 		{depth}
 		bind:menuOpen
 		{showEditButton}
+		{keyboardSelected}
+		{rowSelection}
 	/>
 {:else if item.type == 'raw_app'}
 	<RawAppRow
@@ -85,6 +130,7 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{keyboardSelected}
 	/>
 {/if}
 

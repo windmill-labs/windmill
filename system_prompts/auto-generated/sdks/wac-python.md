@@ -1,0 +1,159 @@
+## Python Workflow-as-Code API (wmill)
+
+Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, get_resume_urls, parallel, TaskError`
+
+```python
+# Raised when a WAC ``task`` or ``step`` failed.
+#
+# Attributes:
+#     step_key: The checkpoint key of the failed step.
+#     child_job_id: The UUID of the failed child job, or ``None`` for a
+#         ``step()``, which runs in the workflow job and has no child job.
+#     result: ``{"error": {"name", "message", "stack"?, "extra"?}}`` — the
+#         same shape whether a task or a step failed. ``name`` and ``message``
+#         are always present; ``stack`` only when the failure had a traceback,
+#         and ``extra`` only when it carried custom fields of its own, dropped
+#         with ``extra_omitted: True`` beside it when too large to checkpoint.
+class TaskError(Exception):
+    def __init__(self, message: str, *, step_key: str = '', child_job_id: Optional[str] = None, result = None)
+
+# Get URLs needed for resuming a flow after suspension.
+#
+# Args:
+#     approver: Optional approver name
+#     flow_level: If True, generate resume URLs for the parent flow instead of the
+#         specific step. This allows pre-approvals that can be consumed by any later
+#         suspend step in the same flow.
+#
+# Returns:
+#     Dictionary with approvalPage, resume, and cancel URLs
+def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
+
+# Decorator that marks a function as a workflow task.
+#
+# Works in both WAC v1 (sync, HTTP-based dispatch) and WAC v2
+# (async, checkpoint/replay) modes:
+#
+# - **v2 (inside @workflow)**: dispatches as a checkpoint step.
+# - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
+# - **Standalone**: executes the function body directly.
+#
+# A task runs as its own job, so its result is always encoded as JSON and
+# decoded back before the caller sees it: a ``datetime`` comes back as a
+# string, a tuple as a list.
+#
+# Usage::
+#
+#     @task
+#     async def extract_data(url: str): ...
+#
+#     @task(path="f/external_script", timeout=600, tag="gpu")
+#     async def run_external(x: int): ...
+def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+
+# Create a task that dispatches to a separate Windmill script.
+#
+# Usage::
+#
+#     extract = task_script("f/data/extract", timeout=600)
+#
+#     @workflow
+#     async def main():
+#         data = await extract(url="https://...")
+def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+
+# Create a task that dispatches to a separate Windmill flow.
+#
+# Usage::
+#
+#     pipeline = task_flow("f/etl/pipeline", priority=10)
+#
+#     @workflow
+#     async def main():
+#         result = await pipeline(input=data)
+def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+
+# Decorator marking an async function as a workflow-as-code entry point.
+#
+# The function must be **deterministic**: given the same inputs it must call
+# tasks in the same order on every replay. Branching on task results is fine
+# (results are replayed from checkpoint), but branching on external state
+# (current time, random values, external API calls) must use ``step()`` to
+# checkpoint the value so replays see the same result.
+def workflow(func)
+
+# Execute ``fn`` inline and checkpoint the result.
+#
+# On replay the cached value is returned without re-executing ``fn``.
+# Use for lightweight deterministic operations (timestamps, random IDs,
+# config reads) that should not incur the overhead of a child job.
+#
+# ``fn``'s result is encoded as JSON and decoded back before it is returned,
+# so the round that runs the body sees the same types every replay sees:
+# a ``datetime`` comes back as a string, a tuple as a list.
+async def step(name: str, fn)
+
+# Server-side sleep — suspend the workflow for the given duration without holding a worker.
+#
+# Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
+# Outside a workflow, falls back to ``asyncio.sleep``.
+async def sleep(seconds: int)
+
+# Suspend the workflow and wait for an external approval.
+#
+# Pass ``key`` to name the step, then ``get_approval_urls(key)`` yields the URLs
+# that resume exactly this approval — route them through your own channel.
+# Without a key the steps are named ``approval``, ``approval_2``, ...
+#
+# Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
+#
+# Args:
+#     timeout: Approval timeout in seconds (default 1800).
+#     form: Optional form schema for the approval page.
+#     self_approval: Whether the user who triggered the flow can approve it (default True).
+#     key: Optional checkpoint key naming this approval step.
+#
+# Example::
+#
+#     urls = await step("urls", lambda: get_approval_urls("manager"))
+#     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+#     result = await wait_for_approval(key="manager", timeout=3600)
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
+
+# Get the resume/cancel/approval-page URLs bound to one ``wait_for_approval`` step.
+#
+# Unlike :func:`get_resume_urls`, which signs a random nonce, these address the
+# very ``resume_job`` record the step's built-in approval buttons use, so they
+# are stable across replays and safe to embed in a custom notification.
+#
+# Args:
+#     step_key: Checkpoint key of the approval step, as passed to
+#         ``wait_for_approval(key=...)``. Keys must be unique within a workflow;
+#         reusing one raises rather than silently renaming it. The URL only
+#         resumes while that step is awaiting approval; used at any other moment
+#         it is rejected rather than banking a row a different approval would
+#         consume. Send it ahead of time — approvers just cannot act before the
+#         workflow reaches the step.
+#         ``resume`` and ``cancel`` are step-bound; ``approvalPage`` is not — it
+#         opens the job's approval page, which acts on whichever approval is
+#         pending when it is used.
+#     approver: Optional approver name
+#
+# Returns:
+#     Dictionary with approvalPage, resume, and cancel URLs
+def get_approval_urls(step_key: str = 'approval', approver: str = None) -> dict
+
+# Process items in parallel with optional concurrency control.
+#
+# Each item is processed by calling ``fn(item)``, which should be a @task.
+# Items are dispatched in batches of ``concurrency`` (default: all at once).
+#
+# Example::
+#
+#     @task
+#     async def process(item: str):
+#         ...
+#
+#     results = await parallel(items, process, concurrency=5)
+async def parallel(items, fn, *, concurrency: Optional[int] = None)
+```

@@ -71,8 +71,15 @@ export type SqlStatement<T> = {
   ): Promise<void>;
 };
 
+export declare class RawSql {
+  readonly __brand: "RawSql";
+  readonly value: string;
+  constructor(value: string);
+}
+
 export interface SqlTemplateFunction {
   <T = any>(strings: TemplateStringsArray, ...values: any[]): SqlStatement<T>;
+  raw(value: string): RawSql;
 }
 export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
   query<T = any>(sql: string, ...params: any[]): SqlStatement<T>;
@@ -80,3 +87,18 @@ export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
 
 export declare function datatable(name: string): DatatableSqlTemplateFunction;
 export declare function ducklake(name: string): SqlTemplateFunction;
+
+export interface DucklakeMaterializeOptions {
+  ducklake?: string;
+  table: string;
+  selectSql: string;
+  partition?: string;
+  uniqueKey?: string;
+  partitionCol?: string;
+}
+export declare function upsertPartition(
+  opts: DucklakeMaterializeOptions,
+): SqlStatement<any>;
+export declare function appendPartition(
+  opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,
+): SqlStatement<any>;

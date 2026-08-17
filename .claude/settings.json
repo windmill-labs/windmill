@@ -44,7 +44,15 @@
       "Bash(git merge:*)",
       "Bash(git rebase:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Read(/tmp/**)",
+      "Write(/tmp/**)",
+      "Edit(/tmp/**)",
+      "mcp__claude_ai_Gmail__search_threads",
+      "mcp__claude_ai_Gmail__get_thread",
+      "mcp__claude_ai_Gmail__get_message",
+      "mcp__claude_ai_Gmail__list_labels",
+      "mcp__claude_ai_Gmail__list_drafts"
     ],
     "deny": [
       "Read(.env)",
@@ -55,21 +63,35 @@
       "Read(**/*.pem)",
       "Read(**/*.key)",
       "Read(**/credentials.json)",
-      "Read(**/*secret*)",
+      "Read(**/.secret*)",
+      "Read(**/.secrets*)",
+      "Read(**/*.secret)",
+      "Read(**/*.secrets)",
       "Edit(.env)",
       "Edit(.env.*)",
       "Edit(**/.env)",
       "Edit(**/.env.*)"
     ],
     "ask": [
-      "Bash(rm:*)",
       "Bash(rmdir:*)",
-      "Bash(mv:*)",
-      "Bash(chmod:*)",
       "Bash(chown:*)",
       "Bash(truncate:*)",
       "Bash(shred:*)",
-      "Bash(unlink:*)"
+      "Bash(unlink:*)",
+      "mcp__claude_ai_Stripe",
+      "mcp__claude_ai_Gmail__create_draft",
+      "mcp__claude_ai_Gmail__update_draft",
+      "mcp__claude_ai_Gmail__create_label",
+      "mcp__claude_ai_Gmail__label_message",
+      "mcp__claude_ai_Gmail__label_thread",
+      "mcp__claude_ai_Gmail__unlabel_message",
+      "mcp__claude_ai_Gmail__unlabel_thread",
+      "mcp__claude_ai_Gmail__apply_sensitive_message_label",
+      "mcp__claude_ai_Gmail__apply_sensitive_thread_label",
+      "mcp__claude_ai_Google_Calendar",
+      "mcp__claude_ai_Google_Drive",
+      "mcp__claude_ai_Slack",
+      "mcp__claude_ai_Linear"
     ]
   },
   "enableAllProjectMcpServers": true,
@@ -81,6 +103,16 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-main-branch.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-rm-outside-tmp.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/allow-fileops-in-tmp.sh",
             "timeout": 5
           }
         ]

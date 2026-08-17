@@ -6,8 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::db::{Authable, UserDB};
 use crate::error::{self, Error};
 use crate::scripts::ScriptHash;
+use crate::secret_backend::{get_secret_value, is_external_stored_value};
 use crate::utils::WarnAfterExt;
 use crate::worker::Connection;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
@@ -18,6 +20,106 @@ use serde::{Deserialize, Serialize};
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
+    static ref RESERVED_WM_VAR_NAME: regex::Regex = regex::Regex::new(r"^WM_[A-Z_]+$").unwrap();
+}
+
+/// Escape a string so it can be safely embedded inside a single-quoted JS
+/// string literal in a generated NativeTS/Bun prologue.
+pub fn escape_js_single_quoted(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+/// True when `name` is a plain ASCII JS identifier and can therefore sit in a
+/// single-quoted string literal or identifier context of a generated prologue
+/// without smuggling statement terminators, quotes, or comments. Custom
+/// workspace env-var names are attacker-controllable (any workspace admin sets
+/// them), so a non-identifier name must never reach an identifier position in
+/// generated JS.
+pub fn is_valid_js_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c == '_' || c == '$' || c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c == '_' || c == '$' || c.is_ascii_alphanumeric())
+}
+
+/// Names that cannot be used as a binding — `const {word} = ...` is a
+/// SyntaxError. The generated prologue runs as an ES module (always strict), so
+/// this includes the strict-mode reserved words and the two names that strict
+/// mode additionally forbids as bindings: `eval` and `arguments`.
+fn is_js_reserved_word(name: &str) -> bool {
+    matches!(
+        name,
+        "arguments"
+            | "eval"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "debugger"
+            | "default"
+            | "delete"
+            | "do"
+            | "else"
+            | "enum"
+            | "export"
+            | "extends"
+            | "false"
+            | "finally"
+            | "for"
+            | "function"
+            | "if"
+            | "import"
+            | "in"
+            | "instanceof"
+            | "new"
+            | "null"
+            | "return"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "true"
+            | "try"
+            | "typeof"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+            | "yield"
+            | "let"
+            | "static"
+            | "await"
+            | "implements"
+            | "interface"
+            | "package"
+            | "private"
+            | "protected"
+            | "public"
+    )
+}
+
+/// Identifiers the generated prologue already binds; a second `const {name}`
+/// for them would be a redeclaration SyntaxError. Keep in sync with the prologue
+/// head emitted in worker.rs and bun_executor.rs (`build_nativets_env_code`).
+const PROLOGUE_RESERVED_BINDINGS: &[&str] = &["process", "BASE_URL", "BASE_INTERNAL_URL"];
+
+/// True when `name` can be emitted as a `const {name}` binding in the NativeTS/
+/// Bun prologue: a valid identifier that is neither a JS reserved word nor a
+/// name the prologue already binds. Names failing this are still exposed via
+/// `process.env['{name}']` (with the name escaped), so nothing is lost — a
+/// `const` for such a name would only ever be a SyntaxError that breaks every
+/// NativeTS run in the workspace.
+pub fn can_bind_as_prologue_const(name: &str) -> bool {
+    is_valid_js_identifier(name)
+        && !is_js_reserved_word(name)
+        && !PROLOGUE_RESERVED_BINDINGS.contains(&name)
 }
 
 #[derive(Serialize, Clone)]
@@ -45,6 +147,31 @@ pub struct ListableVariable {
     pub refresh_error: Option<String>,
     pub is_linked: Option<bool>,
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_specific: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_by: Option<String>,
+    /// True when this row is a per-user draft with no deployed variable
+    /// at the same path. Surfaced by `include_draft_only` so the frontend
+    /// can render a "Draft" badge and the editor can open from the draft
+    /// alone. `None`/omitted on rows fetched from the `variable` table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// layered over a deployed variable or a synthesized draft-only row.
+    /// Drives the `*` suffix on the variables page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -61,6 +188,8 @@ pub struct ExportableListableVariable {
     pub is_oauth: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 fn is_none_or_false(b: &Option<bool>) -> bool {
@@ -76,6 +205,10 @@ pub struct CreateVariable {
     pub account: Option<i32>,
     pub is_oauth: Option<bool>,
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub ws_specific: Option<bool>,
 }
 
 pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt256> {
@@ -158,6 +291,37 @@ pub async fn generate_approval_token(
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
+/// Domain separator of the member-audience view token (see [`generate_view_token`]).
+pub const VIEW_TOKEN_DOMAIN: &[u8] = b"view_token";
+
+/// Domain separator of the public-audience view token (see [`generate_view_token`]).
+/// Distinct from [`VIEW_TOKEN_DOMAIN`] so that already-shared member links keep granting
+/// only what they were minted for: going public is always an explicit new mint.
+pub const PUBLIC_VIEW_TOKEN_DOMAIN: &[u8] = b"public_view_token";
+
+/// Stateless read-share signature for a job: `HMAC(workspace_key, job_id || domain)`.
+/// Mirrors [`generate_approval_token`] but in a distinct domain so an approval token can
+/// never be used as a view token (or vice-versa). Used to build a "share read link" that
+/// grants read access to a job (and its flow subtree) to someone who otherwise lacks ACL
+/// on it: an authenticated workspace member under [`VIEW_TOKEN_DOMAIN`], anyone holding
+/// the link (logged in or not) under [`PUBLIC_VIEW_TOKEN_DOMAIN`]. No expiry/revocation
+/// (stateless), like the approval token.
+pub async fn generate_view_token(
+    w_id: &str,
+    job_id: uuid::Uuid,
+    domain: &[u8],
+    db: &DB,
+) -> crate::error::Result<String> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let key = get_workspace_key(w_id, db).await?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
+        .map_err(|e| crate::Error::internal_err(format!("HMAC key error: {e}")))?;
+    mac.update(job_id.as_bytes());
+    mac.update(domain);
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
 pub async fn get_secret_value_as_admin(
     db: &DB,
     w_id: &str,
@@ -181,13 +345,17 @@ pub async fn get_secret_value_as_admin(
     let r = if variable.is_secret {
         let value = variable.value;
         if !value.is_empty() {
-            let mc = build_crypt(db, w_id).await?;
-            decrypt(&mc, value).map_err(|e| {
-                crate::error::Error::internal_err(format!(
-                    "Error decrypting variable {}: {}",
-                    variable.path, e
-                ))
-            })?
+            if is_external_stored_value(&value) {
+                get_secret_value(db, w_id, &variable.path, &value).await?
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                decrypt(&mc, value).map_err(|e| {
+                    crate::error::Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?
+            }
         } else {
             "".to_string()
         }
@@ -238,6 +406,7 @@ pub async fn get_reserved_variables(
     scheduled_for: Option<chrono::DateTime<Utc>>,
     runnable_id: Option<ScriptHash>,
     end_user_email: Option<String>,
+    tested_runnable: Option<String>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
         let trigger = if schedule_path.is_some() {
@@ -315,7 +484,7 @@ pub async fn get_reserved_variables(
     },
     ContextualVariable {
         name: "WM_BASE_URL".to_string(),
-        value: BASE_URL.read().await.clone(),
+        value: (**BASE_URL.load()).clone(),
         description: "base url of this instance".to_string(),
         is_custom: false,
     },
@@ -411,7 +580,13 @@ pub async fn get_reserved_variables(
     ContextualVariable {
         name: "WM_END_USER_EMAIL".to_string(),
         value: end_user_email.unwrap_or_else(|| "".to_string()),
-        description: "Email of the end user that executed the current script. Only available when triggered from an app.".to_string(),
+        description: "Email of the end user that executed the current script, propagated to flow steps. Only set when the run was triggered from an app (empty otherwise).".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_TESTED_RUNNABLE".to_string(),
+        value: tested_runnable.unwrap_or_else(|| "".to_string()),
+        description: "Qualified path ({kind}/{path}) of the runnable that triggered this CI test. Empty string unless the job was triggered by a CI test annotation.".to_string(),
         is_custom: false,
     },
 ].into_iter().chain(custom_envs.into_iter().map(|(name, value)| ContextualVariable {
@@ -434,7 +609,7 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
     let custom_envs = if let Some(cached_envs) = cached_envs_o {
         cached_envs
     } else {
-        let custom_envs = match conn {
+        let raw_envs = match conn {
             Connection::Sql(db) => sqlx::query_as::<_, (String, String)>(
                 "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
             )
@@ -447,6 +622,13 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
                 .await
                 .unwrap_or_default(),
         };
+        // Applied here (not in the SQL branch alone) so agent workers going
+        // through `Connection::Http` are covered too — drop any name that
+        // would shadow a built-in `%%WM_*%%` contextual var.
+        let custom_envs: Vec<(String, String)> = raw_envs
+            .into_iter()
+            .filter(|(name, _)| !RESERVED_WM_VAR_NAME.is_match(name))
+            .collect();
         CUSTOM_ENVS_CACHE.insert(
             w_id.to_string(),
             (chrono::Utc::now().timestamp(), custom_envs.clone()),
@@ -467,8 +649,8 @@ pub async fn get_variable_or_self(
     let path = path.strip_prefix("$var:").unwrap().to_string();
 
     let record = sqlx::query!(
-        "SELECT value, is_secret 
-         FROM variable 
+        "SELECT value, is_secret
+         FROM variable
          WHERE path = $1 AND workspace_id = $2",
         &path,
         &w_id
@@ -479,10 +661,14 @@ pub async fn get_variable_or_self(
     if let Some(record) = record {
         let mut value = record.value;
         if record.is_secret {
-            let mc = build_crypt(db, w_id).await?;
-            value = decrypt(&mc, value).map_err(|e| {
-                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
-            })?;
+            if is_external_stored_value(&value) {
+                value = get_secret_value(db, w_id, &path, &value).await?;
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                value = decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+                })?;
+            }
         }
 
         Ok(value)
@@ -491,5 +677,125 @@ pub async fn get_variable_or_self(
             "Variable not found when resolving `$var:{}`",
             path
         )))
+    }
+}
+
+/// Like `get_variable_or_self`, but uses an RLS-scoped connection to enforce
+/// that the caller has read access to the referenced variable.
+pub async fn get_variable_or_self_as<T: Authable + Sync>(
+    path: String,
+    db: &DB,
+    user_db: &UserDB,
+    authed: &T,
+    w_id: &str,
+) -> crate::error::Result<String> {
+    if !path.starts_with("$var:") {
+        return Ok(path);
+    }
+    let var_path = path.strip_prefix("$var:").unwrap().to_string();
+
+    // Use an RLS-scoped transaction so the query respects row-level security
+    let mut tx = user_db.clone().begin(authed).await?;
+    let record = sqlx::query!(
+        "SELECT value, is_secret
+         FROM variable
+         WHERE path = $1 AND workspace_id = $2",
+        &var_path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    if let Some(record) = record {
+        let mut value = record.value;
+        if record.is_secret {
+            if is_external_stored_value(&value) {
+                value = get_secret_value(db, w_id, &var_path, &value).await?;
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                value = decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!("Error decrypting variable {}: {}", var_path, e))
+                })?;
+            }
+        }
+
+        Ok(value)
+    } else {
+        Err(Error::NotFound(format!(
+            "Variable not found when resolving `$var:{}`",
+            var_path
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{can_bind_as_prologue_const, escape_js_single_quoted, is_valid_js_identifier};
+
+    #[test]
+    fn is_valid_js_identifier_gates_prologue_injection() {
+        for ok in ["FOO", "_bar", "$x", "a1_2", "WM_CUSTOM"] {
+            assert!(
+                is_valid_js_identifier(ok),
+                "{ok} should be a valid identifier"
+            );
+        }
+        // Custom workspace env-var names are attacker-controllable; none of these
+        // may reach `const {name}` position in the NativeTS/Bun prologue.
+        for bad in [
+            "",
+            "1BAD",
+            "has space",
+            "dotted.name",
+            "kebab-case",
+            "_x=1;globalThis.PWNED=1//",
+            "x'];globalThis.PWNED=1;process.env['y",
+        ] {
+            assert!(
+                !is_valid_js_identifier(bad),
+                "{bad:?} must not be a valid identifier"
+            );
+        }
+    }
+
+    #[test]
+    fn can_bind_as_prologue_const_excludes_reserved_and_owned_names() {
+        // `async` is a contextual keyword, not reserved — `const async` is valid.
+        for ok in ["FOO", "_bar", "$x", "myVar", "async"] {
+            assert!(can_bind_as_prologue_const(ok), "{ok} should be bindable");
+        }
+        // Valid identifiers that would still break `const {name}`: reserved words
+        // (SyntaxError), the two names strict mode forbids as bindings (`eval`,
+        // `arguments`), and names the prologue already binds (redeclaration).
+        for bad in [
+            "class",
+            "const",
+            "await",
+            "return",
+            "eval",
+            "arguments",
+            "process",
+            "BASE_URL",
+            "BASE_INTERNAL_URL",
+        ] {
+            assert!(is_valid_js_identifier(bad), "{bad} is a valid identifier");
+            assert!(
+                !can_bind_as_prologue_const(bad),
+                "{bad} must not bind as a prologue const"
+            );
+        }
+    }
+
+    #[test]
+    fn escape_js_single_quoted_neutralizes_string_breakout() {
+        assert_eq!(escape_js_single_quoted("a'b"), "a\\'b");
+        assert_eq!(escape_js_single_quoted("a\\b"), "a\\\\b");
+        assert_eq!(escape_js_single_quoted("a\nb\rc"), "a\\nb\\rc");
+        // A key crafted to break out of process.env['...'] is fully contained.
+        assert_eq!(
+            escape_js_single_quoted("x'];danger();['y"),
+            "x\\'];danger();[\\'y"
+        );
     }
 }

@@ -1,18 +1,17 @@
 <script lang="ts">
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import Section from '$lib/components/Section.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Label from '$lib/components/Label.svelte'
 
 	import type { FlowModule } from '$lib/gen'
-	import { Alert, SecondsInput } from '../../common'
+	import { Alert } from '../../common'
 	import { emptySchema } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { getStepPropPicker } from '../previousResults'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		flowModule: FlowModule
@@ -23,6 +22,8 @@
 
 	const { flowStore, flowStateStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	const customUi = getContext<FlowBuilderWhitelabelCustomUi | undefined>('customUi')
 
 	let schema = $state(emptySchema())
 	schema.properties['timeout'] = {
@@ -53,15 +54,10 @@
 	let istimeoutEnabled = $derived(Boolean(flowModule.timeout))
 </script>
 
-<Section label="Timeout">
-	{#snippet header()}
-		<Tooltip>
-			If defined, the custom timeout will be used instead of the instance timeout for the step. The
-			step's timeout cannot be greater than the instance timeout.
-		</Tooltip>
-	{/snippet}
-
+<div class="flex flex-col gap-2">
 	<Toggle
+		size="xs"
+		textClass="text-xs font-normal text-primary"
 		checked={istimeoutEnabled}
 		on:change={() => {
 			if (istimeoutEnabled && flowModule.timeout != undefined) {
@@ -69,45 +65,48 @@
 			} else {
 				flowModule.timeout = {
 					type: 'static',
-					value: 300
+					value: customUi?.defaultTimeout ?? 300
 				}
 			}
 		}}
 		options={{
-			right: 'Add a custom timeout for this step'
+			right: 'Custom timeout',
+			rightTooltip:
+				"The custom timeout is used instead of the instance timeout for the step. The step's timeout cannot be greater than the instance timeout."
 		}}
 	/>
-	<Label label="Timeout duration" class="mt-2">
-		{#if flowModule.timeout && schema.properties['timeout']}
-			<div class="border">
-				<PropPickerWrapper
-					flow_input={stepPropPicker.pickableProperties.flow_input}
-					notSelectable
-					pickableProperties={stepPropPicker.pickableProperties}
-					on:select={({ detail }) => {
-						editor?.insertAtCursor(detail)
-						editor?.focus()
-					}}
-				>
-					<InputTransformForm
-						bind:arg={flowModule.timeout}
-						argName="timeout"
-						{schema}
-						{previousModuleId}
-						argExtra={{ seconds: true }}
-						bind:editor
-					/>
-				</PropPickerWrapper>
-			</div>
-		{:else}
-			<SecondsInput disabled />
-			<div class="text-secondary text-sm">OR use a dynamic expression</div>
-		{/if}
-	</Label>
+	{#if flowModule.timeout && schema.properties['timeout']}
+		<div class="pl-9" transition:slideDynamic>
+			<PropPickerWrapper
+				sidePane
+				flow_input={stepPropPicker.pickableProperties.flow_input}
+				notSelectable
+				pickableProperties={stepPropPicker.pickableProperties}
+				on:select={({ detail }) => {
+					editor?.insertAtCursor(detail)
+					editor?.focus()
+				}}
+			>
+				<InputTransformForm
+					bind:arg={flowModule.timeout}
+					argName="timeout"
+					{schema}
+					{previousModuleId}
+					argExtra={{ seconds: true }}
+					bind:editor
+				/>
+			</PropPickerWrapper>
+		</div>
+	{/if}
 
-	<div class="mt-4">
-		<Alert title="Only used when testing the full flow" type="info">
-			<p class="text-xs"> The timeout will be ignored when running "Test this step" </p>
-		</Alert>
-	</div>
-</Section>
+	{#if flowModule.timeout && flowModule.timeout.type !== 'static'}
+		<div class="mt-4 pl-9" transition:slideDynamic>
+			<Alert title="Dynamic timeout only used when testing the full flow" type="info">
+				<p class="text-xs">
+					A dynamic timeout expression is evaluated when running the full flow. It is ignored when
+					running "Test this step" — only a static timeout value applies there.
+				</p>
+			</Alert>
+		</div>
+	{/if}
+</div>

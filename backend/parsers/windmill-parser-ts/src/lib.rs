@@ -77,32 +77,36 @@ impl Visit for ImportsFinder {
     }
 
     fn visit_export_all(&mut self, node: &swc_ecma_ast::ExportAll) {
-        if !self.skip_type_only || node.type_only {
+        if self.skip_type_only && node.type_only {
             return;
         }
 
         self.process_raw(node.src.raw.as_ref().map(|x| x.to_string()));
     }
     fn visit_named_export(&mut self, node: &swc_ecma_ast::NamedExport) {
-        if node.src.is_none() || !self.skip_type_only || node.type_only {
+        if node.src.is_none() {
             return;
         }
-        if node.specifiers.len() > 0 {
-            let mut is_type_only = true;
-            for specifier in node.specifiers.iter() {
-                match specifier {
-                    swc_ecma_ast::ExportSpecifier::Named(swc_ecma_ast::ExportNamedSpecifier {
-                        is_type_only,
-                        ..
-                    }) if *is_type_only => (),
-                    _ => {
-                        is_type_only = false;
-                        break;
+        if self.skip_type_only {
+            if node.type_only {
+                return;
+            }
+            if node.specifiers.len() > 0 {
+                let mut is_type_only = true;
+                for specifier in node.specifiers.iter() {
+                    match specifier {
+                        swc_ecma_ast::ExportSpecifier::Named(
+                            swc_ecma_ast::ExportNamedSpecifier { is_type_only, .. },
+                        ) if *is_type_only => (),
+                        _ => {
+                            is_type_only = false;
+                            break;
+                        }
                     }
                 }
-            }
-            if is_type_only {
-                return;
+                if is_type_only {
+                    return;
+                }
             }
         }
 
@@ -125,7 +129,10 @@ impl Visit for ImportsFinder {
 /// See also: [`parse_relative_imports`] for resolved absolute paths.
 pub fn parse_expr_for_imports(code: &str, skip_type_only: bool) -> anyhow::Result<Vec<String>> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()).into(), code.into());
+    let fm = cm.new_source_file(
+        FileName::Custom("main.d.ts".into()).into(),
+        code.to_string(),
+    );
     let mut tss = TsSyntax::default();
     tss.disallow_ambiguous_jsx_like;
     tss.tsx = true;
@@ -208,9 +215,7 @@ pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<Stri
 
 /// Check if an import path is a relative import (starts with `./`, `../`, or `/`)
 fn is_relative_import(import_path: &str) -> bool {
-    import_path.starts_with("./")
-        || import_path.starts_with("../")
-        || import_path.starts_with("/")
+    import_path.starts_with("./") || import_path.starts_with("../") || import_path.starts_with("/")
 }
 
 /// Normalize a path by resolving `.` and `..` components
@@ -261,7 +266,7 @@ impl Visit for OutputFinder {
 
 pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.to_string());
     let lexer = Lexer::new(
         // We want to parse ecmascript
         Syntax::Es(EsSyntax { jsx: false, ..Default::default() }),
@@ -303,7 +308,7 @@ pub fn parse_deno_signature(
     entrypoint_override: Option<String>,
 ) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.to_string());
     let lexer = Lexer::new(
         // We want to parse ecmascript
         Syntax::Typescript(TsSyntax::default()),
@@ -462,6 +467,7 @@ pub fn parse_deno_signature(
         },
         auto_kind,
         has_preprocessor: Some(has_preprocessor),
+        ..Default::default()
     };
     Ok(r)
 }
@@ -541,6 +547,7 @@ fn parse_param(
                 default: None,
                 has_default: ident.id.optional || nullable,
                 oidx: None,
+                otyp_inferred: false,
             })
         }
         // Pat::Object(ObjectPat { ... }) = todo!()
@@ -595,13 +602,29 @@ fn parse_param(
             if typ == Typ::Unknown && dflt.is_some() {
                 typ = json_to_typ(dflt.as_ref().unwrap(), false);
             }
-            Ok(Arg { otyp, name, typ, default: dflt, has_default: true, oidx: None })
+            Ok(Arg {
+                otyp,
+                name,
+                typ,
+                default: dflt,
+                has_default: true,
+                oidx: None,
+                otyp_inferred: false,
+            })
         }
         Pat::Object(ObjectPat { type_ann, .. }) => {
             let (typ, nullable) = eval_type_ann(symbol_table, type_resolver, &type_ann);
             *counter += 1;
             let name = format!("anon{}", counter);
-            Ok(Arg { otyp: None, name, typ, default: None, has_default: nullable, oidx: None })
+            Ok(Arg {
+                otyp: None,
+                name,
+                typ,
+                default: None,
+                has_default: nullable,
+                oidx: None,
+                otyp_inferred: false,
+            })
         }
         _ => Err(anyhow::anyhow!(
             "parameter syntax unsupported: `{}`: {:#?}",

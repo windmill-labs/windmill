@@ -17,7 +17,7 @@
 		schedules: true,
 		resources: true,
 		variables: true,
-		assets: false,
+		assets: true,
 		triggers: true,
 		audit_logs: true,
 		groups: true,

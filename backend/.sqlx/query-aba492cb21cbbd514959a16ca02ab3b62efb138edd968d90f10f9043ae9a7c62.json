@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH normalized AS (\n                SELECT\n                    jb.id,\n                    jb.workspace_id,\n                    jb.runnable_path,\n                    CASE\n                        WHEN jb.kind IN ('flow', 'script') THEN jb.kind::text\n                        WHEN jb.kind = 'singlestepflow' THEN\n                            COALESCE(\n                                (SELECT m->'value'->>'type'\n                                    FROM jsonb_array_elements(jb.raw_flow->'modules') m\n                                    WHERE m->>'id' IN ('a', 'main')\n                                    LIMIT 1),\n                                'script'\n                            )\n                        ELSE NULL\n                    END AS norm_kind,\n                    COALESCE(\n                        jb.runnable_id,\n                        CASE WHEN jb.kind = 'singlestepflow' THEN\n                            (SELECT ('x' || lpad(m->'value'->>'hash', 16, '0'))::bit(64)::bigint\n                                FROM jsonb_array_elements(jb.raw_flow->'modules') m\n                                WHERE m->>'id' IN ('a', 'main')\n                                  AND m->'value'->>'hash' IS NOT NULL\n                                LIMIT 1)\n                        END\n                    ) AS effective_hash\n                FROM v2_job jb\n                WHERE jb.kind IN ('flow', 'script', 'singlestepflow')\n                    AND jb.workspace_id = $1 AND jb.id = ANY($2)\n            )\n            SELECT jsonb_build_object(\n                'kind', n.norm_kind,\n                'script_path', n.runnable_path,\n                'latest_schema', COALESCE(\n                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.workspace_id = $1 AND s.path = n.runnable_path AND n.norm_kind = 'script' ORDER BY s.path, s.created_at DESC),\n                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = n.runnable_path AND n.norm_kind = 'flow')\n                ),\n                'schemas', ARRAY(\n                    SELECT jsonb_build_object(\n                        'script_hash', CASE WHEN COALESCE(s.hash, f.id) IS NULL THEN NULL ELSE LPAD(TO_HEX(COALESCE(s.hash, f.id)), 16, '0') END,\n                        'job_ids', ARRAY_AGG(DISTINCT n2.id),\n                        'schema', COALESCE(\n                            (ARRAY_AGG(COALESCE(s.schema, f.schema)))[1],\n                            CASE WHEN n.norm_kind = 'script' THEN\n                                (SELECT DISTINCT ON (s2.path) s2.schema FROM script s2 WHERE s2.workspace_id = $1 AND s2.path = n.runnable_path ORDER BY s2.path, s2.created_at DESC)\n                            END,\n                            CASE WHEN n.norm_kind = 'flow' THEN\n                                (SELECT fv.schema FROM flow LEFT JOIN flow_version fv ON fv.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = n.runnable_path)\n                            END\n                        )\n                    ) FROM normalized n2\n                    LEFT JOIN script s ON s.hash = n2.effective_hash AND n2.norm_kind = 'script'\n                    LEFT JOIN flow_version f ON f.id = n2.effective_hash AND n2.norm_kind = 'flow'\n                    WHERE n2.id = ANY(ARRAY_AGG(n.id))\n                    GROUP BY COALESCE(s.hash, f.id)\n                )\n            ) FROM normalized n\n            WHERE n.norm_kind IS NOT NULL\n            GROUP BY n.norm_kind, n.runnable_path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "jsonb_build_object",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "aba492cb21cbbd514959a16ca02ab3b62efb138edd968d90f10f9043ae9a7c62"
+}

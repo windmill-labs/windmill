@@ -8,6 +8,7 @@
 
 //! Query builders for filtering job lists (queue and completed).
 
+use serde_json;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use windmill_common::utils::{escape_ilike_pattern, paginate_without_limits, Pagination};
@@ -200,7 +201,11 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(args) = &lq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if lq.scheduled_for_before_now.is_some_and(|x| x) {
@@ -209,6 +214,10 @@ pub fn filter_list_queue_query(
 
     if lq.is_not_schedule.unwrap_or(false) {
         sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
+    }
+
+    if lq.excludes_entrypoint_override.unwrap_or(false) {
+        sqlb.and_where_is_null("v2_job.script_entrypoint_override");
     }
 
     if let Some(tk) = &lq.trigger_kind {
@@ -290,34 +299,30 @@ pub fn filter_list_completed_query(
                     let p = v.replace("*", "%");
                     if label.negated {
                         format!(
-                            "NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE {})", quote(&p)
+                            "NOT EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl LIKE {})", quote(&p)
                         )
                     } else {
                         format!(
-                            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE {})", quote(&p)
+                            "EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl LIKE {})", quote(&p)
                         )
                     }
                 })
                 .collect();
             let sep = if label.negated { " AND " } else { " OR " };
-            if !label.negated {
-                sqlb.and_where("result ? 'wm_labels'");
-            }
             sqlb.and_where(format!("({})", clauses.join(sep)));
         } else if label.negated {
             let clauses: Vec<_> = label
                 .values
                 .iter()
-                .map(|v| format!("NOT (result->'wm_labels' ? {})", quote(v)))
+                .map(|v| format!("NOT (v2_job.labels @> ARRAY[{}])", quote(v)))
                 .collect();
             sqlb.and_where(format!("({})", clauses.join(" AND ")));
         } else {
             let clauses: Vec<_> = label
                 .values
                 .iter()
-                .map(|v| format!("result->'wm_labels' ? {}", quote(v)))
+                .map(|v| format!("v2_job.labels @> ARRAY[{}]", quote(v)))
                 .collect();
-            sqlb.and_where("result ? 'wm_labels'");
             sqlb.and_where(format!("({})", clauses.join(" OR ")));
         }
     }
@@ -425,7 +430,15 @@ pub fn filter_list_completed_query(
             sqlb.and_where_in("created_by", &quoted);
         }
     }
-    if let Some(r) = &lq.success {
+    if let Some(status) = &lq.status {
+        let status = match status {
+            windmill_common::jobs::JobStatus::Success => "success",
+            windmill_common::jobs::JobStatus::Failure => "failure",
+            windmill_common::jobs::JobStatus::Canceled => "canceled",
+            windmill_common::jobs::JobStatus::Skipped => "skipped",
+        };
+        sqlb.and_where_eq("v2_job_completed.status", quote(status));
+    } else if let Some(r) = &lq.success {
         if *r {
             sqlb.and_where_eq("status", "'success'")
                 .or_where_eq("status", "'skipped'");
@@ -477,6 +490,14 @@ pub fn filter_list_completed_query(
             sqlb.and_where_ne("status", "'skipped'");
         }
     }
+    if let Some(r) = &lq.resolved {
+        let exists = "EXISTS (SELECT 1 FROM job_resolution WHERE job_id = v2_job_completed.id)";
+        if *r {
+            sqlb.and_where(exists);
+        } else {
+            sqlb.and_where(format!("NOT {exists}"));
+        }
+    }
     if let Some(fs) = &lq.is_flow_step {
         if *fs {
             sqlb.and_where_is_not_null("flow_step_id");
@@ -499,15 +520,27 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(args) = &lq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if let Some(result) = &lq.result {
-        sqlb.and_where("result @> ?".bind(&result.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(result) {
+            sqlb.and_where("result @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
         sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
+    }
+
+    if lq.excludes_entrypoint_override.unwrap_or(false) {
+        sqlb.and_where_is_null("v2_job.script_entrypoint_override");
     }
 
     if let Some(tk) = &lq.trigger_kind {
@@ -532,7 +565,7 @@ pub fn filter_list_completed_query(
         let pat = format!("%{}%", escape_ilike_pattern(bf));
         sqlb.and_where(
             "(runnable_path ILIKE ? OR v2_job.tag ILIKE ? OR trigger ILIKE ? OR trigger_kind::text ILIKE ? \
-             OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl ILIKE ?))"
+             OR EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl ILIKE ?))"
                 .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
         );
     }
@@ -555,6 +588,11 @@ pub fn list_completed_jobs_query(
             if lq.completed_before.is_some()
                 || lq.completed_after.is_some()
                 || lq.success == Some(false)
+                || matches!(
+                    lq.status,
+                    Some(windmill_common::jobs::JobStatus::Failure)
+                        | Some(windmill_common::jobs::JobStatus::Canceled)
+                )
             {
                 "v2_job_completed.completed_at"
             } else {
@@ -615,6 +653,7 @@ mod tests {
             trigger_path: None,
             include_args: None,
             broad_filter: None,
+            excludes_entrypoint_override: None,
         }
     }
 
@@ -635,12 +674,14 @@ mod tests {
             created_after_queue: None,
             completed_after: None,
             completed_before: None,
+            status: None,
             success: None,
             running: None,
             parent_job: None,
             order_desc: None,
             job_kinds: None,
             is_skipped: None,
+            resolved: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,
@@ -659,6 +700,7 @@ mod tests {
             trigger_path: None,
             include_args: None,
             broad_filter: None,
+            excludes_entrypoint_override: None,
         }
     }
 
@@ -910,6 +952,50 @@ mod tests {
     }
 
     #[test]
+    fn test_completed_filter_resolved() {
+        // Hiding resolved failures must be an anti-join, not a positive one: getting the
+        // polarity backwards would silently show only the failures meant to be hidden.
+        for (resolved, expected) in [
+            (true, "EXISTS (SELECT 1 FROM job_resolution"),
+            (false, "NOT EXISTS (SELECT 1 FROM job_resolution"),
+        ] {
+            let lq = ListCompletedQuery { resolved: Some(resolved), ..empty_completed_query() };
+            let sqlb = filter_list_completed_query(
+                SqlBuilder::select_from("v2_job_completed").clone(),
+                &lq,
+                "ws",
+                false,
+            );
+            let sql = build_sql(sqlb);
+            assert!(sql.contains(expected), "expected {expected:?}, got: {sql}");
+            if !resolved {
+                continue;
+            }
+            assert!(
+                !sql.contains("NOT EXISTS (SELECT 1 FROM job_resolution"),
+                "resolved=true must not negate the anti-join, got: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_completed_filter_status_canceled() {
+        let lq = ListCompletedQuery {
+            status: Some(windmill_common::jobs::JobStatus::Canceled),
+            ..empty_completed_query()
+        };
+        let sqlb = filter_list_completed_query(
+            SqlBuilder::select_from("v2_job_completed").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("v2_job_completed.status"));
+        assert!(sql.contains("'canceled'"));
+    }
+
+    #[test]
     fn test_completed_order_by_completed_at() {
         let lq = ListCompletedQuery {
             completed_after: Some(chrono::Utc::now()),
@@ -918,6 +1004,25 @@ mod tests {
         let sqlb = list_completed_jobs_query("ws", Some(10), 0, &lq, &["id"], false, None);
         let sql = build_sql(sqlb);
         assert!(sql.contains("completed_at"));
+    }
+
+    #[test]
+    fn test_completed_order_by_completed_at_status_failure_canceled() {
+        // status=failure|canceled must order by v2_job_completed.completed_at so the
+        // partial index ix_v2_job_completed_failure_workspace serves both filtering
+        // and ordering in a single scan.
+        for status in [
+            windmill_common::jobs::JobStatus::Failure,
+            windmill_common::jobs::JobStatus::Canceled,
+        ] {
+            let lq = ListCompletedQuery { status: Some(status), ..empty_completed_query() };
+            let sqlb = list_completed_jobs_query("ws", Some(10), 0, &lq, &["id"], false, None);
+            let sql = build_sql(sqlb);
+            assert!(
+                sql.contains("ORDER BY v2_job_completed.completed_at"),
+                "expected order by completed_at, got: {sql}"
+            );
+        }
     }
 
     #[test]
@@ -933,7 +1038,7 @@ mod tests {
             false,
         );
         let sql = build_sql(sqlb);
-        assert!(sql.contains("wm_labels"));
+        assert!(sql.contains("v2_job.labels"));
     }
 
     #[test]

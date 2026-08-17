@@ -13,11 +13,21 @@
 //! vaults like HashiCorp Vault (Enterprise Edition).
 
 pub mod database;
+pub mod resolver;
+
+pub use resolver::*;
 
 #[cfg(feature = "private")]
 pub mod vault_ee;
 
+#[cfg(feature = "private")]
+pub mod azure_kv_ee;
+pub mod azure_kv_oss;
 pub mod vault_oss;
+
+#[cfg(feature = "private")]
+pub mod aws_sm_ee;
+pub mod aws_sm_oss;
 
 #[cfg(test)]
 mod tests;
@@ -27,6 +37,18 @@ pub use vault_ee::*;
 
 #[cfg(not(feature = "private"))]
 pub use vault_oss::*;
+
+#[cfg(feature = "private")]
+pub use azure_kv_ee::*;
+
+#[cfg(not(feature = "private"))]
+pub use azure_kv_oss::*;
+
+#[cfg(feature = "private")]
+pub use aws_sm_ee::*;
+
+#[cfg(not(feature = "private"))]
+pub use aws_sm_oss::*;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -80,6 +102,10 @@ pub enum SecretBackendConfig {
     Database,
     /// Store secrets in HashiCorp Vault (Enterprise Edition only)
     HashiCorpVault(VaultSettings),
+    /// Store secrets in Azure Key Vault (Enterprise Edition only)
+    AzureKeyVault(AzureKeyVaultSettings),
+    /// Store secrets in AWS Secrets Manager (Enterprise Edition only)
+    AwsSecretsManager(AwsSecretsManagerSettings),
 }
 
 impl Default for SecretBackendConfig {
@@ -95,10 +121,22 @@ pub struct VaultSettings {
     pub address: String,
     /// KV v2 mount path (e.g., "windmill")
     pub mount_path: String,
+    /// Optional path prefix inserted between the KV `data`/`metadata` segment
+    /// and the workspace id, e.g. "apps/windmill". When set, secrets live at
+    /// `<mount>/data/<prefix>/<workspace>/<secret>`, so a Vault policy can be
+    /// scoped to exactly `<mount>/data/<prefix>/*`. Surrounding slashes are
+    /// trimmed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kv_secret_path_prefix: Option<String>,
     /// JWT auth role name configured in Vault (used for JWT/OIDC auth)
     /// Optional - if not provided, token auth is used
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwt_role: Option<String>,
+    /// Mount path for the JWT auth method in Vault (defaults to "jwt").
+    /// Set this when the JWT auth method is mounted at a non-default path,
+    /// e.g. via `vault auth enable -path=my-mount jwt`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwt_mount_path: Option<String>,
     /// Vault Enterprise namespace (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
@@ -106,6 +144,49 @@ pub struct VaultSettings {
     /// If provided, this is used instead of JWT authentication
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Skip TLS certificate verification when connecting to Vault
+    /// Only use for self-signed certificates in development environments
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_ssl_verify: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AzureKeyVaultSettings {
+    /// Azure Key Vault URL (e.g., "https://myvault.vault.azure.net")
+    pub vault_url: String,
+    /// Azure AD tenant ID
+    pub tenant_id: String,
+    /// Azure AD application (client) ID
+    pub client_id: String,
+    /// Azure AD client secret. Optional — when omitted, the integration falls back to
+    /// Azure Workload Identity Federation: the Kubernetes-projected service-account JWT at
+    /// `AZURE_FEDERATED_TOKEN_FILE` is exchanged with Entra ID for an access token (no
+    /// long-lived secret stored on the Windmill instance).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
+    /// Static Bearer token for testing/development (optional)
+    /// If provided, this is used instead of OAuth2 client credentials authentication
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+/// Settings for AWS Secrets Manager integration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AwsSecretsManagerSettings {
+    /// AWS region (e.g., "us-east-1")
+    pub region: String,
+    /// Static AWS access key ID (optional - uses default credential chain if not provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_key_id: Option<String>,
+    /// Static AWS secret access key (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_access_key: Option<String>,
+    /// Custom endpoint URL for LocalStack/testing (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_url: Option<String>,
+    /// Prefix for secret names in AWS Secrets Manager (e.g., "windmill/")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
 }
 
 /// Result of a secret migration operation

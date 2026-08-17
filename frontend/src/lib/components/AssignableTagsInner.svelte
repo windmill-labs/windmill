@@ -37,8 +37,13 @@
 
 	const dispatch = createEventDispatcher()
 
-	const customTagRegex = /^([\w-]+)\(((?:[\w-]+\+)*[\w-]+|(?:\^[\w-]+)+)\)$/
+	// Mirrors CUSTOM_TAG_REGEX in backend/windmill-common/src/worker.rs — keep both in sync.
+	const customTagRegex = /^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$/
 	const dynamicTagRegex = /\$args\[((?:\w+\.)*\w+)\]/
+
+	function formatWorkspace(w: { id: string; includeForks: boolean }) {
+		return w.includeForks ? `${w.id} (and its forks)` : w.id
+	}
 
 	let dynamicTag = $derived.by(() => {
 		let r = newTag.trim()
@@ -51,14 +56,16 @@
 		let r = newTag.trim()
 		if (r == '') return undefined
 		let matched = r.match(customTagRegex)
-		console.log(matched)
 		let tag = matched?.[1]
 		let workspaces_raw = matched?.[2]
 		let tag_type = workspaces_raw?.includes('^') ? 'exclude' : 'include'
 		if (tag_type == 'exclude') {
 			workspaces_raw = workspaces_raw?.slice(1)
 		}
-		let workspaces = workspaces_raw?.split(tag_type == 'include' ? '+' : '^')
+		let workspaces = workspaces_raw?.split(tag_type == 'include' ? '+' : '^').map((w) => {
+			const includeForks = w.endsWith('*')
+			return { id: includeForks ? w.slice(0, -1) : w, includeForks }
+		})
 		if (!workspaces_raw || workspaces_raw?.length == 0) {
 			return undefined
 		}
@@ -75,20 +82,43 @@
 		}
 	}
 
+	async function setCustomTags(value: string[]) {
+		await SettingService.setGlobal({
+			key: CUSTOM_TAGS_SETTING,
+			requestBody: { value }
+		})
+		// Servers answer from an in-memory tag cache that replicas only refresh on the
+		// next global-settings poll, so refetching here can still return the pre-write
+		// list. The value just written is authoritative.
+		customTags = value
+		dispatch('refresh')
+	}
+
 	async function saveCustomTag(tag: string, restoreCustomTags: boolean = false) {
 		try {
-			await SettingService.setGlobal({
-				key: CUSTOM_TAGS_SETTING,
-				requestBody: { value: [...(customTags ?? []), tag.trim().replaceAll(' ', '_')] }
-			})
-			dispatch('refresh')
-			loadCustomTags()
+			await setCustomTags([...(customTags ?? []), tag.trim().replaceAll(' ', '_')])
 			sendUserToast(restoreCustomTags ? 'Tag restored' : 'Tag added')
 			if (!restoreCustomTags) {
 				newTag = ''
 			}
 		} catch (err) {
 			sendUserToast(`Could not ${restoreCustomTags ? 'restore' : 'save'} custom tag: ${err}`, true)
+		}
+	}
+
+	async function removeCustomTag(tag: string) {
+		try {
+			await setCustomTags((customTags ?? []).filter((x) => x != tag))
+			sendUserToast('Tag removed', false, [
+				{
+					label: 'Undo',
+					callback: () => {
+						saveCustomTag(tag, true)
+					}
+				}
+			])
+		} catch (err) {
+			sendUserToast(`Could not remove custom tag: ${err}`, true)
 		}
 	}
 </script>
@@ -112,24 +142,7 @@
 						<button
 							class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
 							aria-label="Remove item"
-							onclick={stopPropagation(
-								preventDefault(async () => {
-									await SettingService.setGlobal({
-										key: CUSTOM_TAGS_SETTING,
-										requestBody: { value: customTags?.filter((x) => x != customTag) }
-									})
-									dispatch('refresh')
-									loadCustomTags()
-									sendUserToast('Tag removed', false, [
-										{
-											label: 'Undo',
-											callback: () => {
-												saveCustomTag(customTag, true)
-											}
-										}
-									])
-								})
-							)}
+							onclick={stopPropagation(preventDefault(() => removeCustomTag(customTag)))}
 						>
 							<X size={12} />
 						</button>
@@ -163,14 +176,14 @@
 				<div>
 					<b>Workspaces:</b>
 					{#if extractedCustomTag.tag_type == 'include'}
-						{extractedCustomTag.workspaces?.join(', ')}
+						{extractedCustomTag.workspaces?.map(formatWorkspace).join(', ')}
 					{:else}
-						All workspaces except {extractedCustomTag.workspaces?.join(', ')}
+						All workspaces except {extractedCustomTag.workspaces?.map(formatWorkspace).join(', ')}
 					{/if}
 				</div>
 			</div>
 		{:else if newTag.trim()}
-			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || ((newTag.includes('.') || newTag.includes('$args[')) && !dynamicTag)}
+			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || newTag.includes('*') || ((newTag.includes('.') || newTag.includes('$args[')) && !dynamicTag)}
 				<div class="text-2xs text-primary p-2 bg-surface-secondary rounded border">
 					<div class="font-medium mb-1 text-red-500">Invalid tag</div>
 					<div>
@@ -218,6 +231,10 @@
 			<br />{#if variant !== 'drawer'}<br />{/if}
 			To exclude 'workspace1' and 'workspace2' from a tag, use
 			<pre class="inline text-emphasis">tag(^workspace1^workspace2)</pre>
+			<br />{#if variant !== 'drawer'}<br />{/if}
+			Forks of a workspace do not get its tags. Suffix a workspace with
+			<pre class="inline text-emphasis">*</pre>
+			to also cover its forks, e.g. <pre class="inline text-emphasis">tag(workspace1*)</pre>
 			<br />{#if variant !== 'drawer'}<br />{/if}
 			For
 			<a

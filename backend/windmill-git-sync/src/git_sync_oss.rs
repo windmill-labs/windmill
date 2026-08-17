@@ -24,6 +24,18 @@ pub async fn handle_deployment_metadata<'c>(
 }
 
 #[cfg(not(feature = "private"))]
+pub async fn tally_deployed_object_changes(
+    _w_id: &str,
+    _obj: &DeployedObject,
+    _db: &DB,
+    _renamed_from: Option<&str>,
+    _origin: Option<windmill_common::deploy_origin::DeployOrigin>,
+) -> Result<()> {
+    // Workspace forks are an enterprise feature and not part of the open-source version
+    return Ok(());
+}
+
+#[cfg(not(feature = "private"))]
 pub async fn handle_fork_branch_creation<'c>(
     _email: &str,
     _created_by: &str,
@@ -32,4 +44,16 @@ pub async fn handle_fork_branch_creation<'c>(
     _fork_workspace_id: &str,
 ) -> Result<Vec<uuid::Uuid>> {
     return Ok(vec![]);
+}
+
+#[cfg(not(feature = "private"))]
+pub async fn handle_deployment_metadata_batch<'c>(
+    _email: &str,
+    _created_by: &str,
+    _db: &DB,
+    _w_id: &str,
+    _objs: Vec<DeployedObject>,
+    _deployment_message: Option<String>,
+) -> Result<()> {
+    return Ok(());
 }

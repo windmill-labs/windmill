@@ -11,7 +11,7 @@ use windmill_test_utils::*;
 // Dedicated Worker Protocol Tests (Python)
 // ============================================================================
 
-#[cfg(feature = "python")]
+#[cfg(all(feature = "python", feature = "private"))]
 mod dedicated_worker_protocol_python {
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
@@ -227,6 +227,8 @@ mod dedicated_worker_protocol_python {
     enum ProtocolCmd {
         Exec { path: String, args: serde_json::Value },
         ExecPreprocess { path: String, args: serde_json::Value },
+        Execd { args: serde_json::Value },
+        ExecdPreprocess { args: serde_json::Value },
     }
 
     /// Run a Python worker test with raw protocol commands
@@ -265,13 +267,15 @@ mod dedicated_worker_protocol_python {
                 ProtocolCmd::ExecPreprocess { path, args } => {
                     format!("exec_preprocess:{}:{}", path, args)
                 }
+                ProtocolCmd::Execd { args } => format!("execd:{}", args),
+                ProtocolCmd::ExecdPreprocess { args } => format!("execd_preprocess:{}", args),
             };
             writeln!(stdin, "{}", line).unwrap();
             stdin.flush().unwrap();
 
             let expected_lines = match cmd {
-                ProtocolCmd::ExecPreprocess { .. } => 2,
-                ProtocolCmd::Exec { .. } => 1,
+                ProtocolCmd::ExecPreprocess { .. } | ProtocolCmd::ExecdPreprocess { .. } => 2,
+                ProtocolCmd::Exec { .. } | ProtocolCmd::Execd { .. } => 1,
             };
 
             for _ in 0..expected_lines {
@@ -359,6 +363,93 @@ def main(x: int):
         );
         // preprocess: preprocessor(5) => {"x":10}, main(10) => 110
         // exec: main(7) => 107
+        assert_eq!(results.len(), 3);
+        assert_eq!(
+            results[0],
+            DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 10}))
+        );
+        assert_eq!(
+            results[1],
+            DedicatedWorkerResult::Success(serde_json::json!(110))
+        );
+        assert_eq!(
+            results[2],
+            DedicatedWorkerResult::Success(serde_json::json!(107))
+        );
+    }
+
+    // ==================== execd / execd_preprocess Tests ====================
+
+    #[test]
+    fn test_python_execd_single_script() {
+        let results = run_py_raw_protocol_test(
+            &[(
+                "f/test/add",
+                "def main(a: int, b: int):\n    return a + b\n",
+            )],
+            vec![ProtocolCmd::Execd { args: serde_json::json!({"a": 3, "b": 4}) }],
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0],
+            DedicatedWorkerResult::Success(serde_json::json!(7))
+        );
+    }
+
+    #[test]
+    fn test_python_execd_preprocess() {
+        let script = r#"
+def preprocessor(x: int):
+    return {"x": x * 10}
+
+def main(x: int):
+    return x + 1
+"#;
+        let results = run_py_raw_protocol_test(
+            &[("f/test/pre", script)],
+            vec![ProtocolCmd::ExecdPreprocess { args: serde_json::json!({"x": 5}) }],
+        );
+        assert_eq!(results.len(), 2);
+        assert_eq!(
+            results[0],
+            DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 50}))
+        );
+        // main(50) => 51
+        assert_eq!(
+            results[1],
+            DedicatedWorkerResult::Success(serde_json::json!(51))
+        );
+    }
+
+    #[test]
+    fn test_python_execd_preprocess_missing_preprocessor() {
+        let script = "def main(x: int):\n    return x\n";
+        let results = run_py_raw_protocol_test(
+            &[("f/test/nopre", script)],
+            vec![ProtocolCmd::ExecdPreprocess { args: serde_json::json!({"x": 5}) }],
+        );
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], DedicatedWorkerResult::Error(_)));
+    }
+
+    #[test]
+    fn test_python_execd_preprocess_then_execd() {
+        let script = r#"
+def preprocessor(x: int):
+    return {"x": x * 2}
+
+def main(x: int):
+    return x + 100
+"#;
+        let results = run_py_raw_protocol_test(
+            &[("f/test/mixed", script)],
+            vec![
+                ProtocolCmd::ExecdPreprocess { args: serde_json::json!({"x": 5}) },
+                ProtocolCmd::Execd { args: serde_json::json!({"x": 7}) },
+            ],
+        );
+        // preprocess: preprocessor(5) => {"x":10}, main(10) => 110
+        // execd: main(7) => 107
         assert_eq!(results.len(), 3);
         assert_eq!(
             results[0],
@@ -657,6 +748,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -665,6 +757,112 @@ def main():
         .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_result_preserves_infinity_in_string(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+def main():
+    return {
+        "plain": "Infinity",
+        "embedded": "value=-Infinity end",
+        "nan_word": "this is NaN inside text",
+        "nested": [{"k": "Infinity"}],
+    }
+        "#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(
+        result,
+        serde_json::json!({
+            "plain": "Infinity",
+            "embedded": "value=-Infinity end",
+            "nan_word": "this is NaN inside text",
+            "nested": [{"k": "Infinity"}],
+        })
+    );
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_result_non_finite_floats_become_null(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+def main():
+    return {
+        "inf": float("inf"),
+        "neg_inf": float("-inf"),
+        "nan": float("nan"),
+        "finite": 1.5,
+        "nested": [float("inf"), {"x": float("nan")}],
+    }
+        "#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(
+        result,
+        serde_json::json!({
+            "inf": null,
+            "neg_inf": null,
+            "nan": null,
+            "finite": 1.5,
+            "nested": [null, {"x": null}],
+        })
+    );
     Ok(())
 }
 
@@ -709,6 +907,7 @@ def main():
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -746,6 +945,7 @@ def main():
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -787,6 +987,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -826,6 +1027,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -894,29 +1096,144 @@ async def main(item: str, qty: int, email: str):
 "#
     .to_string();
 
-    // WAC requires at least 2 workers (parent + task sub-jobs)
+    // WAC requires at least 2 workers (parent + task sub-jobs).
+    //
+    // Run the heavy `in_test_worker` chain on an isolated OS thread with a
+    // larger stack: the deep nested async chain (test -> in_test_worker ->
+    // run_until_complete -> windmill_queue::push -> ...) composes into one
+    // synchronous poll-stack frame that exceeds the default 2 MB test-thread
+    // stack in debug builds. `Box::pin` at the call site only moves future
+    // *state* to the heap; it can't shrink poll-time stack frames.
+    let db = db.clone();
+    run_in_isolated_thread(move || async move {
+        in_test_worker(
+            &db,
+            async {
+                let job = Box::pin(
+                    RunJob::from(JobPayload::Code(RawCode {
+                        language: ScriptLang::Python3,
+                        content,
+                        tag: None,
+                        ..RawCode::default()
+                    }))
+                    .arg("item", json!("widget"))
+                    .arg("qty", json!(5))
+                    .arg("email", json!("test@example.com"))
+                    .run_until_complete(&db, false, port),
+                )
+                .await;
+
+                let result = job.json_result().unwrap();
+                assert_eq!(result["item"], json!("widget"));
+                assert_eq!(result["qty"], json!(5));
+                assert_eq!(result["email"], json!("test@example.com"));
+                assert_eq!(result["greeting"], json!("hello widget x5"));
+            },
+            port,
+        )
+        .await;
+    })
+    .await;
+    Ok(())
+}
+
+/// Reproducer for issue #8946: WAC scripts (`auto_kind = 'wac'`) must show up
+/// in `GET /api/w/{workspace}/scripts/list?kinds=script`. The previous filter
+/// hid them by requiring `auto_kind IS NULL`, breaking trigger configuration
+/// dropdowns.
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "wac_preprocessor"))]
+async fn test_scripts_list_includes_wac(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let url = format!(
+        "http://localhost:{port}/api/w/test-workspace/scripts/list?kinds=script&without_description=true"
+    );
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "scripts/list failed: {}",
+        resp.status()
+    );
+    let scripts: Vec<serde_json::Value> = resp.json().await?;
+    let paths: Vec<&str> = scripts.iter().filter_map(|s| s["path"].as_str()).collect();
+    assert!(
+        paths.contains(&"f/system/wac_with_preprocessor"),
+        "WAC script missing from scripts/list response. Got: {:?}",
+        paths
+    );
+    Ok(())
+}
+
+/// Reproducer for issue #8947: a Python WAC script that defines a
+/// `preprocessor` function alongside the `@workflow` entrypoint must run the
+/// preprocessor on the trigger payload before invoking the workflow, persist
+/// the preprocessed args to `v2_job.args`, and dispatch inline child re-runs
+/// using the post-preprocessor args (so children of the WAC parent see the
+/// transformed shape, not the raw event).
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "wac_preprocessor"))]
+async fn test_python_wac_v2_with_preprocessor(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::scripts::ScriptHash;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
     let db = &db;
     in_test_worker(
         db,
         async move {
             let job = Box::pin(
-                RunJob::from(JobPayload::Code(RawCode {
+                RunJob::from(JobPayload::ScriptHash {
+                    hash: ScriptHash(123419),
+                    path: "f/system/wac_with_preprocessor".to_string(),
+                    cache_ttl: None,
+                    cache_ignore_s3_path: None,
+                    dedicated_worker: None,
                     language: ScriptLang::Python3,
-                    content,
-                    ..RawCode::default()
-                }))
-                .arg("item", json!("widget"))
-                .arg("qty", json!(5))
-                .arg("email", json!("test@example.com"))
+                    priority: None,
+                    apply_preprocessor: true,
+                    concurrency_settings:
+                        windmill_common::runnable_settings::ConcurrencySettings::default(),
+                    debouncing_settings:
+                        windmill_common::runnable_settings::DebouncingSettings::default(),
+                    labels: None,
+                })
+                .arg("who", json!("alice"))
+                .arg("count", json!(7))
                 .run_until_complete(db, false, port),
             )
             .await;
 
             let result = job.json_result().unwrap();
-            assert_eq!(result["item"], json!("widget"));
-            assert_eq!(result["qty"], json!(5));
-            assert_eq!(result["email"], json!("test@example.com"));
-            assert_eq!(result["greeting"], json!("hello widget x5"));
+            // Preprocessor maps {who, count} -> {name, qty}. The @task
+            // `shout` upper-cases the name; the workflow returns greeting + qty.
+            assert_eq!(result["greeting"], json!("ALICE"));
+            assert_eq!(result["qty"], json!(7));
+
+            // Args column should now hold the preprocessed shape.
+            let args: serde_json::Value =
+                sqlx::query_scalar("SELECT args FROM v2_job WHERE id = $1")
+                    .bind(job.id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert_eq!(args["name"], json!("alice"));
+            assert_eq!(args["qty"], json!(7));
+
+            let preprocessed: Option<bool> =
+                sqlx::query_scalar("SELECT preprocessed FROM v2_job WHERE id = $1")
+                    .bind(job.id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert_eq!(preprocessed, Some(true));
         },
         port,
     )
@@ -952,6 +1269,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -960,6 +1278,160 @@ def main():
         .unwrap();
 
     let result_str = result.as_str().unwrap();
-    assert!(result_str.starts_with("Hello, World! from "), "unexpected result: {result_str}");
+    assert!(
+        result_str.starts_with("Hello, World! from "),
+        "unexpected result: {result_str}"
+    );
+    Ok(())
+}
+
+/// End-to-end comparison between the legacy `step()` suspend-and-replay path
+/// and the new SDK inline-persist fast path, toggled per-job via the
+/// `WM_WAC_INLINE_FAST_PATH` env var which the Python script sets on its own
+/// `os.environ` at the top so parallel tests can't race on a global env var.
+///
+/// Runs the same 5-step WAC v2 Python workflow twice, asserts both modes
+/// produce the same final result and the same `completed_steps` map, and
+/// prints a wall-clock benchmark line so CI and manual runs can track the
+/// speedup. The fast path is expected to be faster because it avoids N-1
+/// subprocess spawns and N-1 queue round-trips for a workflow with N
+/// `step()` calls, but the exact ratio depends on the CI runner so we don't
+/// assert a hard threshold — behavioral equivalence is the important check.
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_wac_v2_step_inline_fast_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    fn workflow_content(fast_path_enabled: bool) -> String {
+        let flag = if fast_path_enabled { "1" } else { "0" };
+        // NB: the `os.environ[...] = ...` line must execute BEFORE the first
+        // `step()` call inside the workflow subprocess — setting it at module
+        // scope (before `from wmill import ...` finishes importing is still
+        // fine because the SDK reads it lazily at call time, not at import).
+        format!(
+            r#"import os
+os.environ["WM_WAC_INLINE_FAST_PATH"] = "{flag}"
+from wmill import workflow, step
+
+@workflow
+async def main(n: int):
+    a = await step("a", lambda: n)
+    b = await step("b", lambda: a + 1)
+    c = await step("c", lambda: b + 1)
+    d = await step("d", lambda: c + 1)
+    e = await step("e", lambda: d + 1)
+    return {{"a": a, "b": b, "c": c, "d": d, "e": e}}
+"#
+        )
+    }
+
+    let db_ref = &db;
+
+    async fn run_once(
+        db: &Pool<Postgres>,
+        port: u16,
+        content: String,
+    ) -> (serde_json::Value, serde_json::Value, std::time::Duration) {
+        let mut job_id_out: Option<sqlx::types::Uuid> = None;
+        let mut result_out: Option<serde_json::Value> = None;
+        let t0 = std::time::Instant::now();
+        in_test_worker(
+            db,
+            async {
+                let job = Box::pin(
+                    RunJob::from(JobPayload::Code(RawCode {
+                        language: ScriptLang::Python3,
+                        content,
+                        tag: None,
+                        ..RawCode::default()
+                    }))
+                    .arg("n", json!(1))
+                    .run_until_complete(db, false, port),
+                )
+                .await;
+                result_out = Some(job.json_result().unwrap_or_else(|| {
+                    panic!("job {} returned no result — raw job = {:?}", job.id, job)
+                }));
+                job_id_out = Some(job.id);
+            },
+            port,
+        )
+        .await;
+        let elapsed = t0.elapsed();
+
+        let job_id = job_id_out.expect("job id");
+        // Fetch the full workflow_as_code_status for diagnostics, then extract
+        // _checkpoint.completed_steps. A None here means the step() path never
+        // wrote the checkpoint, which is exactly the signal we want to surface
+        // clearly (instead of panicking with an opaque Option::unwrap() error).
+        let full_status: Option<serde_json::Value> = sqlx::query_scalar!(
+            r#"SELECT workflow_as_code_status as "v: serde_json::Value"
+               FROM v2_job_completed WHERE id = $1"#,
+            job_id
+        )
+        .fetch_one(db)
+        .await
+        .expect("v2_job_completed row fetch");
+
+        let ckpt = full_status
+            .as_ref()
+            .and_then(|s| s.get("_checkpoint"))
+            .and_then(|c| c.get("completed_steps"))
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "job {job_id} completed_steps missing — full workflow_as_code_status = {:?}, job_result = {:?}",
+                    full_status, result_out
+                )
+            });
+
+        (result_out.unwrap(), ckpt, elapsed)
+    }
+
+    // --- Legacy path: worker-side suspend & replay ---
+    let (legacy_result, legacy_ckpt, legacy_elapsed) =
+        run_once(db_ref, port, workflow_content(false)).await;
+
+    // --- Fast path: SDK persists the delta via the new API endpoint ---
+    let (fast_result, fast_ckpt, fast_elapsed) =
+        run_once(db_ref, port, workflow_content(true)).await;
+
+    // Behavioral equivalence: same final result and same completed_steps.
+    assert_eq!(
+        legacy_result, fast_result,
+        "legacy and fast path produced different workflow results"
+    );
+    assert_eq!(
+        legacy_result,
+        json!({"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}),
+        "unexpected workflow result"
+    );
+    assert_eq!(
+        legacy_ckpt, fast_ckpt,
+        "legacy and fast path stored different completed_steps in the checkpoint"
+    );
+
+    // Benchmark output. We log and print but do NOT assert a hard threshold:
+    // CI runners have variable noise floors and a "fast < legacy" check would
+    // flake. Behavioral equivalence above is the important invariant.
+    let legacy_ms = legacy_elapsed.as_millis();
+    let fast_ms = fast_elapsed.as_millis();
+    let speedup = if fast_ms > 0 {
+        legacy_ms as f64 / fast_ms as f64
+    } else {
+        f64::INFINITY
+    };
+    tracing::info!(
+        "WAC v2 step() benchmark: legacy={}ms fast={}ms speedup={:.2}x",
+        legacy_ms,
+        fast_ms,
+        speedup
+    );
+    println!(
+        "WAC v2 step() benchmark: legacy={}ms fast={}ms speedup={:.2}x",
+        legacy_ms, fast_ms, speedup
+    );
     Ok(())
 }

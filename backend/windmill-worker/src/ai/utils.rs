@@ -1,5 +1,3 @@
-pub use crate::ai::types::McpToolSource;
-use crate::ai::types::ToolDef;
 use anyhow::Context;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
@@ -8,9 +6,11 @@ use std::{
     sync::Arc,
 };
 use uuid::Uuid;
+use windmill_ai::types::*;
+#[cfg(feature = "mcp")]
+use windmill_common::client::AuthedClient;
 use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
-    ai_providers::AIProvider,
     db::DB,
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageType},
@@ -24,7 +24,7 @@ use windmill_common::{
 use windmill_mcp::{McpClient, McpResource, McpTool};
 use windmill_queue::{flow_status::get_step_of_flow_status, MiniPulledJob};
 
-use crate::{ai::types::*, parse_sig_of_lang};
+use crate::parse_sig_of_lang;
 
 pub fn parse_raw_script_schema(
     content: &str,
@@ -323,11 +323,6 @@ pub fn get_step_name_from_flow(
     )
 }
 
-/// AWS Bedrock do not handle structured output query param, so we use a tool for structured output. Same for every Claude models.
-pub fn should_use_structured_output_tool(provider: &AIProvider, model: &str) -> bool {
-    model.contains("claude") || provider == &AIProvider::AWSBedrock
-}
-
 /// Cleanup MCP clients by gracefully shutting down connections
 #[cfg(feature = "mcp")]
 pub async fn cleanup_mcp_clients(mcp_clients: HashMap<String, Arc<McpClient>>) {
@@ -515,7 +510,7 @@ async fn refresh_token_if_expired(
     );
 
     // Call the API refresh endpoint
-    let base_url = windmill_common::BASE_URL.read().await.clone();
+    let base_url = (**windmill_common::BASE_URL.load()).clone();
     let refresh_url = format!(
         "{}/api/w/{}/oauth/refresh_token/{}",
         base_url, workspace_id, account_id
@@ -553,7 +548,7 @@ pub async fn load_mcp_tools(
     db: &DB,
     workspace_id: &str,
     mcp_configs: Vec<McpResourceConfig>,
-    auth_token: &str,
+    client: &AuthedClient,
 ) -> Result<(HashMap<String, Arc<McpClient>>, Vec<Tool>), Error> {
     let mut all_mcp_tools = Vec::new();
     let mut mcp_clients = HashMap::new();
@@ -562,45 +557,64 @@ pub async fn load_mcp_tools(
         tracing::debug!("Loading MCP tools from resource: {}", config.resource_path);
 
         let path = config.resource_path.trim_start_matches("$res:");
-        let mcp_resource = {
-            // Fetch the resource from database
-            let resource= sqlx::query_scalar!(
-                "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
-                &path,
-                &workspace_id
-            )
-            .fetch_optional(db)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", config.resource_path)))?
-            .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", config.resource_path)))?;
-
-            serde_json::from_str::<McpResource>(resource.0.get())
-                .context("Failed to parse MCP resource")?
-        };
+        // Load the resource through the job's permissioned (RLS + scope) path so
+        // a flow author cannot make the agent use an MCP resource their identity
+        // is not allowed to read (resources:read:{path}). Reading through the raw
+        // db pool here would bypass the authorization enforced by the regular MCP
+        // tools API (get_mcp_tools) and act as a confused deputy.
+        let mcp_resource = client
+            .get_resource_value::<McpResource>(path)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to load MCP resource {}: {}",
+                    config.resource_path, e
+                ))
+            })?;
 
         let resource_name = mcp_resource.name.clone();
 
-        // Check if token needs refresh before creating MCP client
-        if let Some(ref token_path) = mcp_resource.token {
+        // Resolve the token through the job's permissioned (RLS + audit) path so
+        // the AI agent cannot exfiltrate a secret its identity is not allowed to
+        // read by pointing an MCP resource's token at it.
+        let token = if let Some(ref token_path) = mcp_resource.token {
             let token_var_path = token_path.trim_start_matches("$var:");
-            if let Err(e) =
-                refresh_token_if_expired(db, workspace_id, token_var_path, auth_token).await
-            {
-                tracing::warn!(
-                    "Failed to refresh token for MCP resource {}: {}. Proceeding with possibly expired token.",
-                    resource_name, e
-                );
+            if token_var_path.trim().is_empty() {
+                None
+            } else {
+                // Refresh first (best-effort) so the value we read is current.
+                if let Err(e) =
+                    refresh_token_if_expired(db, workspace_id, token_var_path, &client.token).await
+                {
+                    tracing::warn!(
+                        "Failed to refresh token for MCP resource {}: {}. Proceeding with possibly expired token.",
+                        resource_name, e
+                    );
+                }
+                Some(
+                    client
+                        .get_variable_value(token_var_path)
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to resolve token variable {} for MCP resource {}: {}",
+                                token_var_path, resource_name, e
+                            ))
+                        })?,
+                )
             }
-        }
+        } else {
+            None
+        };
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
-        let client = McpClient::from_resource(mcp_resource, db, workspace_id)
+        let mcp_conn = McpClient::from_resource(mcp_resource, token)
             .await
             .context("Failed to create MCP client")?;
 
         // Get raw MCP tools from client
-        let raw_mcp_tools = client.available_tools();
+        let raw_mcp_tools = mcp_conn.available_tools();
 
         // Convert to Windmill Tool format
         let converted_tools =
@@ -623,7 +637,7 @@ pub async fn load_mcp_tools(
         all_mcp_tools.extend(filtered_tools);
 
         // Store client for later use and cleanup
-        let mcp_client = Arc::new(client);
+        let mcp_client = Arc::new(mcp_conn);
         mcp_clients.insert(resource_name, mcp_client);
     }
 
@@ -670,7 +684,7 @@ pub async fn load_mcp_tools<T>(
     _db: &DB,
     _workspace_id: &str,
     _mcp_configs: Vec<McpResourceConfig>,
-    _auth_token: &str,
+    _client: &windmill_common::client::AuthedClient,
 ) -> Result<(HashMap<String, Arc<T>>, Vec<Tool>), Error> {
     Ok((HashMap::new(), Vec::new()))
 }
@@ -712,22 +726,4 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
         }
         false
     })
-}
-
-/// Extract text content from OpenAIContent, joining parts with space if multiple
-pub fn extract_text_content(content: &OpenAIContent) -> String {
-    match content {
-        OpenAIContent::Text(text) => text.clone(),
-        OpenAIContent::Parts(parts) => parts
-            .iter()
-            .filter_map(|p| {
-                if let ContentPart::Text { text } = p {
-                    Some(text.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(""),
-    }
 }

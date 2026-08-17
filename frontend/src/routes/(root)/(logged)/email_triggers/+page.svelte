@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -18,11 +19,13 @@
 		sendUserToast
 	} from '$lib/utils'
 	import { base } from '$app/paths'
+	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -38,7 +41,7 @@
 		Eye,
 		Pen,
 		Plus,
-		Share,
+		Shield,
 		Trash,
 		FileUp,
 		ClipboardCopy,
@@ -73,16 +76,19 @@
 			deployUiSettings = ALL_DEPLOYABLE
 			return
 		}
-		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await EmailTriggerService.listEmailTriggers({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await EmailTriggerService.listEmailTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'emails', $usedTriggerKinds)
 		emailDomain = await getEmailDomain()
 		loading = false
@@ -94,6 +100,22 @@
 		}
 	})
 	let emailTriggerEditor: EmailTriggerEditor | undefined = $state()
+
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && triggers.length > 0 && emailTriggerEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				let path = hash.slice(1)
+				let trigger = triggers.find((t) => t.path === path)
+				if (trigger) {
+					hashHandled = true
+					emailTriggerEditor?.openEdit(path, trigger.is_flow)
+				}
+			}
+		}
+	})
+
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = $state([])
 	let items: typeof filteredItems | undefined = $state([])
 	let preFilteredItems: typeof filteredItems | undefined = $state([])
@@ -182,14 +204,14 @@
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
-			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
-			selectedFilterKind
+			selectedFilterKind,
+			window.location.hash || undefined
 		).then(() => {
 			setQuery(
-				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
-				String(filterUserFolders)
+				String(filterUserFolders),
+				window.location.hash || undefined
 			)
 		})
 	}
@@ -208,6 +230,8 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
+			// Email addresses are always workspace-prefixed (clone filter
+			// excludes workspaced_local_part=false) — no fork-conflict warning.
 			await EmailTriggerService.setEmailTriggerMode({
 				path,
 				workspace: $workspaceStore!,
@@ -306,7 +330,10 @@
 				<div class="text-center text-sm text-primary mt-2"> No email triggers </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, mode, retry, error_handler_path, error_handler_args } (path)}
+					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
+						{@const hasDraft =
+							getLocalDraftHint($workspaceStore, 'trigger_email', path) ?? is_draft}
+						{@const effectiveMode = draft_only ? 'disabled' : mode}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const emailAddress = getEmailAddress(
 							local_part,
@@ -336,7 +363,7 @@
 											</span>
 										{:else}
 											{emailAddress}
-										{/if}
+										{/if}{hasDraft ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
 										{path}
@@ -348,26 +375,40 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
+									{#if labels?.length}
+										{#each labels as label}
+											<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+										{/each}
+									{/if}
 								</div>
 
-								<TriggerModeToggle
-									onToggleMode={(newMode) => onToggleMode(path, newMode)}
-									triggerMode={mode}
-									includeModalConfig={{
-										triggerPath: path,
-										triggerKind: 'email',
-										runnableConfig: {
-											path: script_path,
-											kind: is_flow ? 'flow' : 'script',
-											retry,
-											errorHandlerPath: error_handler_path,
-											errorHandlerArgs: error_handler_args
-										}
-									}}
-									{canWrite}
-									hideToggleLabels
-									hideDropdown
-								/>
+								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+									<DraftBadge {draft_only} is_draft={hasDraft} />
+									<TriggerModeToggle
+										disabled={draft_only}
+										title={draft_only
+											? 'Draft only: deploy the trigger to enable it'
+											: hasDraft
+												? 'Enables/disables the deployed trigger; the draft is not affected'
+												: undefined}
+										onToggleMode={(newMode) => onToggleMode(path, newMode)}
+										triggerMode={effectiveMode}
+										includeModalConfig={{
+											triggerPath: path,
+											triggerKind: 'email',
+											runnableConfig: {
+												path: script_path,
+												kind: is_flow ? 'flow' : 'script',
+												retry,
+												errorHandlerPath: error_handler_path,
+												errorHandlerArgs: error_handler_args
+											}
+										}}
+										{canWrite}
+										hideToggleLabels
+										hideDropdown
+									/>
+								</div>
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
@@ -399,7 +440,7 @@
 													goto(href)
 												}
 											},
-											...(canWrite && mode !== 'suspended'
+											...(canWrite && !draft_only && mode !== 'suspended'
 												? [
 														{
 															displayName: 'Suspend job execution',
@@ -438,8 +479,8 @@
 												href: `${base}/audit_logs?resource=${path}`
 											},
 											{
-												displayName: canWrite ? 'Share' : 'See Permissions',
-												icon: Share,
+												displayName: 'Permissions',
+												icon: Shield,
 												action: () => {
 													shareModal?.openDrawer(path, 'email_trigger')
 												}
@@ -471,8 +512,8 @@
 								<div
 									class="flex flex-wrap text-[0.7em] text-primary gap-1 items-center justify-end truncate pr-2"
 								>
-									<div class="truncate">edited by {edited_by}</div>
-									<div class="truncate">at {displayDate(edited_at)}</div>
+									{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}
+									<div class="truncate">{edited_by ? 'at ' : ''}{displayDate(edited_at)}</div>
 								</div>
 							</div>
 						</div>

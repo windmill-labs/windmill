@@ -15,7 +15,10 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_api_auth::{check_scopes, ApiAuthed, AuthCache, Tokened};
+use windmill_api_auth::{
+    build_scope_path_filter, build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache,
+    ScopePathFilter, Tokened,
+};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -28,7 +31,7 @@ use windmill_common::{
 use windmill_common::{
     error::Error,
     webhook::{WebhookMessage, WebhookShared},
-    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
+    workspaces::{check_deploy_rules, RuleCheckResult},
 };
 
 use serde::{Deserialize, Serialize};
@@ -60,6 +63,9 @@ pub struct Folder {
     pub summary: Option<String>,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub default_permissioned_as: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -69,6 +75,8 @@ pub struct NewFolder {
     pub display_name: Option<String>,
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
+    pub default_permissioned_as: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -77,6 +85,16 @@ pub struct UpdateFolder {
     pub display_name: Option<String>,
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
+    pub default_permissioned_as: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
+}
+
+// Folder labels are surfaced verbatim as `inherited_labels` and rendered in keyed
+// `{#each}` blocks; a repeated label is a duplicate key that crashes the list views.
+// The UI dedups on entry but API/CLI/git-sync writes do not, so normalize on write.
+fn dedup_labels(labels: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    labels.retain(|l| seen.insert(l.clone()));
 }
 
 #[derive(Deserialize)]
@@ -94,15 +112,19 @@ async fn list_folders(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "folders", "read");
     let rows = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
     )
     .fetch_all(&mut *tx)
-    .await?;
+    .await?
+    .into_iter()
+    .filter(|r| allowed(&format!("f/{}", r.name)))
+    .collect::<Vec<_>>();
     tx.commit().await?;
 
     Ok(Json(rows))
@@ -116,14 +138,43 @@ async fn list_foldernames(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
-    let rows = sqlx::query_scalar!(
-        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
-        w_id,
-        per_page as i64,
-        offset as i64
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    // Push the token's scope grant into the query so LIMIT/OFFSET page over the
+    // AUTHORIZED folders — the returned count then reflects the authorized set, so a
+    // paginating caller can rely on `< per_page` meaning exhaustion. (Filtering after the
+    // LIMIT would let a page return fewer than per_page while authorized folders remain
+    // on later DB pages, stopping such a caller early.)
+    let mut sql = String::from("SELECT name FROM folder WHERE workspace_id = $1");
+    let restricted = match build_scope_path_filter(&authed, "folders", "read") {
+        ScopePathFilter::AllowAll => None,
+        ScopePathFilter::Restricted { exact, prefix } => {
+            // A prefix grant also authorizes the folder at the prefix itself.
+            let mut eq = exact;
+            eq.append(&mut prefix.clone());
+            let like: Vec<String> = prefix
+                .iter()
+                .map(|p| {
+                    format!(
+                        "{}/%",
+                        p.replace('\\', "\\\\")
+                            .replace('%', "\\%")
+                            .replace('_', "\\_")
+                    )
+                })
+                .collect();
+            sql.push_str(" AND (('f/' || name) = ANY($4) OR ('f/' || name) LIKE ANY($5))");
+            Some((eq, like))
+        }
+    };
+    sql.push_str(" ORDER BY name asc LIMIT $2 OFFSET $3");
+
+    let mut query = sqlx::query_scalar::<_, String>(&sql)
+        .bind(&w_id)
+        .bind(per_page as i64)
+        .bind(offset as i64);
+    if let Some((eq, like)) = restricted {
+        query = query.bind(eq).bind(like);
+    }
+    let rows = query.fetch_all(&mut *tx).await?;
 
     tx.commit().await?;
 
@@ -131,13 +182,55 @@ async fn list_foldernames(
 }
 
 fn validate_owner(owner: &str) -> Result<()> {
-    if !owner
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '/' || c == '-')
-    {
+    if !owner.chars().all(|c| {
+        c.is_ascii_alphanumeric() || c == '_' || c == '/' || c == '-' || c == '.' || c == '@'
+    }) {
         return Err(error::Error::BadRequest(
-            "Invalid owner: must contain only alphanumeric characters, underscores, hyphens, or slashes".to_string(),
+            "Invalid owner: must contain only alphanumeric characters, underscores, hyphens, slashes, dots, or at-signs".to_string(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_default_permissioned_as(value: &serde_json::Value) -> Result<()> {
+    let arr = value.as_array().ok_or_else(|| {
+        error::Error::BadRequest("default_permissioned_as must be a JSON array".to_string())
+    })?;
+    for (idx, rule) in arr.iter().enumerate() {
+        let obj = rule.as_object().ok_or_else(|| {
+            error::Error::BadRequest(format!(
+                "default_permissioned_as[{idx}] must be an object with path_glob and permissioned_as"
+            ))
+        })?;
+        let path_glob = obj
+            .get("path_glob")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                error::Error::BadRequest(format!(
+                    "default_permissioned_as[{idx}].path_glob must be a string"
+                ))
+            })?;
+        let permissioned_as = obj
+            .get("permissioned_as")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                error::Error::BadRequest(format!(
+                    "default_permissioned_as[{idx}].permissioned_as must be a string"
+                ))
+            })?;
+        globset::Glob::new(path_glob).map_err(|e| {
+            error::Error::BadRequest(format!(
+                "default_permissioned_as[{idx}].path_glob is not a valid glob: {e}"
+            ))
+        })?;
+        let valid_permissioned_as = permissioned_as.starts_with("u/")
+            || permissioned_as.starts_with("g/")
+            || permissioned_as.contains('@');
+        if !valid_permissioned_as {
+            return Err(error::Error::BadRequest(format!(
+                "default_permissioned_as[{idx}].permissioned_as must be of the form u/<username>, g/<groupname>, or an email"
+            )));
+        }
     }
     Ok(())
 }
@@ -165,7 +258,7 @@ async fn check_name_conflict<'c>(
 }
 
 lazy_static! {
-    static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+    static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9-]+$"#).unwrap();
 }
 
 async fn create_folder(
@@ -176,11 +269,14 @@ async fn create_folder(
     Extension(webhook): Extension<WebhookShared>,
     Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
-    Json(ng): Json<NewFolder>,
+    Json(mut ng): Json<NewFolder>,
 ) -> Result<String> {
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    crate::check_demo_workspace_restriction(&authed, &w_id, "Folder creation")?;
+    if let Some(labels) = ng.labels.as_mut() {
+        dedup_labels(labels);
+    }
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -195,7 +291,7 @@ async fn create_folder(
 
     if !VALID_FOLDER_NAME.is_match(&ng.name) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Folder name can only contain alphanumeric characters, underscores"
+            "Folder name can only contain alphanumeric characters, underscores, and hyphens"
         )));
     }
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
@@ -227,17 +323,24 @@ async fn create_folder(
         ));
     }
 
+    let default_permissioned_as = ng
+        .default_permissioned_as
+        .unwrap_or_else(|| serde_json::Value::Array(vec![]));
+    validate_default_permissioned_as(&default_permissioned_as)?;
+
     if let Err(e) =
     sqlx::query_as!(
         Folder,
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9)",
         w_id,
         ng.name,
         ng.display_name.unwrap_or(ng.name.clone()),
         &owners,
         extra_perms,
         ng.summary,
-        authed.username
+        authed.username,
+        default_permissioned_as,
+        ng.labels.as_deref().filter(|l| !l.is_empty()) as Option<&[String]>
     )
     .execute(&mut *tx)
     .await {
@@ -332,9 +435,8 @@ async fn update_folder(
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -343,6 +445,12 @@ async fn update_folder(
     .await?
     {
         return Err(Error::PermissionDenied(msg));
+    }
+
+    // update_folder can also grant permissions (owners / extra_perms / default_permissioned_as),
+    // so it is a sharing path and must honor the demo-workspace sharing restriction.
+    if ng.owners.is_some() || ng.extra_perms.is_some() || ng.default_permissioned_as.is_some() {
+        crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     }
 
     let mut sqlb = SqlBuilder::update_table("folder");
@@ -362,6 +470,7 @@ async fn update_folder(
     // Track whether permission-related fields are being updated
     let owners_changed = ng.owners.is_some();
     let extra_perms_changed = ng.extra_perms.is_some();
+    let default_permissioned_as_changed = ng.default_permissioned_as.is_some();
 
     if !authed.is_admin {
         let prefixed_username = format!("u/{}", authed.username);
@@ -405,6 +514,34 @@ async fn update_folder(
             "extra_perms",
             "?".bind(&serde_json::to_string(&extra_perms).map_err(to_anyhow)?),
         );
+    }
+
+    if let Some(default_permissioned_as) = ng.default_permissioned_as.as_ref() {
+        validate_default_permissioned_as(default_permissioned_as)?;
+        sqlb.set(
+            "default_permissioned_as",
+            "?".bind(&serde_json::to_string(default_permissioned_as).map_err(to_anyhow)?),
+        );
+    }
+
+    if let Some(labels) = ng.labels.as_mut() {
+        dedup_labels(labels);
+        if labels.is_empty() {
+            // normalize cleared labels to NULL so the field stays out of API/tarball output
+            sqlb.set("labels", "NULL");
+        } else {
+            sqlb.set(
+                "labels",
+                "?".bind(&format!(
+                    "{{{}}}",
+                    labels
+                        .iter()
+                        .map(|x| format!("\"{}\"", x.replace('\\', "\\\\").replace('"', "\\\"")))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )),
+            );
+        }
     }
 
     sqlb.returning("*");
@@ -467,6 +604,20 @@ async fn update_folder(
         log_folder_permission_change(&mut *tx, &w_id, &name, &authed.username, "update_acl", None)
             .await?;
     }
+    if default_permissioned_as_changed {
+        let rules_json =
+            serde_json::to_string(&nfolder.default_permissioned_as).unwrap_or_default();
+        audit_log(
+            &mut *tx,
+            &authed,
+            "folder.update_default_permissioned_as",
+            ActionKind::Update,
+            &w_id,
+            Some(&name.to_string()),
+            Some([("default_permissioned_as", rules_json.as_str())].into()),
+        )
+        .await?;
+    }
 
     tx.commit().await?;
 
@@ -497,7 +648,7 @@ pub async fn get_folderopt<'c>(
 ) -> Result<Option<Folder>> {
     let folderopt = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE name = $1 AND workspace_id = $2",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE name = $1 AND workspace_id = $2",
         name,
         w_id
     )
@@ -634,9 +785,8 @@ async fn delete_folder(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -701,10 +851,12 @@ async fn delete_folder(
 async fn add_owner(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, .. }): Json<Owner>,
 ) -> Result<String> {
+    crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
     let mut tx = user_db.begin(&authed).await?;
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
@@ -754,6 +906,18 @@ async fn add_owner(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", name) },
+        Some(format!("Folder '{}' changed permissions", name)),
+        true,
+        None,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateFolder { workspace: w_id, name: name.clone() },
@@ -765,10 +929,18 @@ async fn add_owner(
 async fn remove_owner(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner, write }): Json<Owner>,
 ) -> Result<String> {
+    // remove_owner with a `write` value is a grant path: it jsonb_set's the owner's
+    // permission level into extra_perms (only write=None is a pure revoke), so the
+    // demo-workspace sharing restriction must apply when a level is being set.
+    if write.is_some() {
+        crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
@@ -841,6 +1013,18 @@ async fn remove_owner(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", name) },
+        Some(format!("Folder '{}' changed permissions", name)),
+        true,
+        None,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateFolder { workspace: w_id, name: name.clone() },
@@ -870,4 +1054,23 @@ pub async fn log_folder_permission_change<'c, E: sqlx::Executor<'c, Database = P
     .execute(db)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folder_name_allows_hyphens() {
+        // #8474: hyphens are valid in folder names, consistent with owner/path
+        // validation (which already permits them) and with folders created via
+        // the CLI / by deploying to an `f/<folder>/...` path.
+        assert!(VALID_FOLDER_NAME.is_match("folder-name"));
+        assert!(VALID_FOLDER_NAME.is_match("foo_bar"));
+        assert!(VALID_FOLDER_NAME.is_match("Foo123"));
+        // Disallowed characters are still rejected.
+        assert!(!VALID_FOLDER_NAME.is_match("foo/bar"));
+        assert!(!VALID_FOLDER_NAME.is_match("foo bar"));
+        assert!(!VALID_FOLDER_NAME.is_match(""));
+    }
 }

@@ -5,7 +5,7 @@
 <script lang="ts">
 	import { pathToMeta, type Meta } from '$lib/common'
 
-	import { localeConcatAnd, pluralize } from '$lib/utils'
+	import { copyToClipboard, localeConcatAnd, pluralize } from '$lib/utils'
 	import {
 		AppService,
 		FlowService,
@@ -20,23 +20,30 @@
 		PostgresTriggerService,
 		NatsTriggerService,
 		MqttTriggerService,
+		AmqpTriggerService,
 		SqsTriggerService,
 		GcpTriggerService,
+		AzureTriggerService,
 		EmailTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
-	import Badge from './common/badge/Badge.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Folder, Loader2, SearchCode, User } from 'lucide-svelte'
+	import { ChevronDown, Copy, SearchCode } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
-	import TextInput from './text_input/TextInput.svelte'
+	import PathNameAutocomplete from './PathNameAutocomplete.svelte'
+	import TextInput, {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from './text_input/TextInput.svelte'
+	import Select from './select/Select.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import InputError from './InputError.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -52,8 +59,10 @@
 		| 'postgres_trigger'
 		| 'nats_trigger'
 		| 'mqtt_trigger'
+		| 'amqp_trigger'
 		| 'sqs_trigger'
 		| 'gcp_trigger'
+		| 'azure_trigger'
 		| 'email_trigger'
 	let meta: Meta | undefined = $state(undefined)
 	interface Props {
@@ -69,9 +78,13 @@
 		kind: PathKind
 		hideUser?: boolean
 		disableEditing?: boolean
-		hideFullPath?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
+		/** Workspace the folder list and path-existence checks run against.
+		 *  Defaults to the navigation `$workspaceStore`; pass the session's acting
+		 *  workspace when the editor operates on a workspace other than the one the
+		 *  top nav points at (see the sessions preview / dev-workspace flows). */
+		workspaceOverride?: string
 	}
 
 	let {
@@ -87,10 +100,12 @@
 		kind,
 		hideUser = false,
 		disableEditing = false,
-		hideFullPath = false,
 		size = 'md',
-		drawerOffset = 0
+		drawerOffset = 0,
+		workspaceOverride = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspaceOverride ?? $workspaceStore)
 
 	$effect.pre(() => {
 		if (path == undefined) {
@@ -101,7 +116,7 @@
 		}
 	})
 
-	let inputP: TextInput | undefined = $state(undefined)
+	let inputP: PathNameAutocomplete | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -198,7 +213,7 @@
 		folders = initialFolders.concat(
 			(
 				await FolderService.listFolderNames({
-					workspace: $workspaceStore!
+					workspace: ws!
 				})
 			)
 				.filter((x) => !excludedFolders.includes(x))
@@ -239,69 +254,79 @@
 	async function pathExists(path: string, kind: PathKind): Promise<boolean> {
 		if (!path.length) return false
 		if (kind == 'flow') {
-			return await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path })
+			return await FlowService.existsFlowByPath({ workspace: ws!, path: path })
 		} else if (kind == 'script') {
 			return await ScriptService.existsScriptByPath({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'resource') {
 			return await ResourceService.existsResource({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'variable') {
 			return await VariableService.existsVariable({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'schedule') {
-			return await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })
+			return await ScheduleService.existsSchedule({ workspace: ws!, path: path })
 		} else if (kind == 'app') {
-			return await AppService.existsApp({ workspace: $workspaceStore!, path: path })
+			return await AppService.existsApp({ workspace: ws!, path: path })
 		} else if (kind == 'http_trigger') {
 			return await HttpTriggerService.existsHttpTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'websocket_trigger') {
 			return await WebsocketTriggerService.existsWebsocketTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'kafka_trigger') {
 			return await KafkaTriggerService.existsKafkaTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'postgres_trigger') {
 			return await PostgresTriggerService.existsPostgresTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'nats_trigger') {
 			return await NatsTriggerService.existsNatsTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'mqtt_trigger') {
 			return await MqttTriggerService.existsMqttTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
+				path: path
+			})
+		} else if (kind === 'amqp_trigger') {
+			return await AmqpTriggerService.existsAmqpTrigger({
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'sqs_trigger') {
 			return await SqsTriggerService.existsSqsTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'gcp_trigger') {
 			return await GcpTriggerService.existsGcpTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
+				path: path
+			})
+		} else if (kind === 'azure_trigger') {
+			return await AzureTriggerService.existsAzureTrigger({
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'email_trigger') {
 			return await EmailTriggerService.existsEmailTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else {
@@ -347,6 +372,19 @@
 		!dirty && (dirty = true)
 	}
 
+	$effect(() => {
+		if (
+			path !== undefined &&
+			path !== '' &&
+			initialPath &&
+			!initialPath.startsWith('tmp/') &&
+			path !== initialPath &&
+			!dirty
+		) {
+			dirty = true
+		}
+	})
+
 	const openSearchWithPrefilledText: (t?: string) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
@@ -355,8 +393,27 @@
 		;[meta?.name, meta?.owner, meta?.ownerKind]
 		meta && untrack(() => onMetaChange())
 	})
+	// Reflect an EXTERNAL `path` change back into `meta` (which drives the
+	// owner/name inputs). The effect above is one-way meta→path; without
+	// this counterpart, a parent that reassigns `path` — e.g. "Discard"
+	// reverting a draft to the deployed value — leaves the inputs showing
+	// the stale value until a remount. Guard against a meta↔path loop: skip
+	// when `path` already matches what `meta` produces (the meta→path write),
+	// and only adopt a derivation that round-trips cleanly (so a malformed
+	// path left to `initPath`/`reset` can't oscillate).
 	$effect.pre(() => {
-		if ($workspaceStore && $userStore) {
+		const p = path
+		untrack(() => {
+			if (p == undefined || p == '' || p.startsWith('tmp/') || p.startsWith('hub/')) return
+			if (!meta || metaToPath(meta) === p) return
+			const next = pathToMeta(p, hideUser)
+			if (metaToPath(next) === p) {
+				meta = next
+			}
+		})
+	})
+	$effect.pre(() => {
+		if (ws && $userStore) {
 			untrack(() => {
 				loadFolders()
 				initPath()
@@ -370,78 +427,76 @@
 	)
 	let pathUsageInFlowsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
-			$workspaceStore &&
+			ws &&
 			initialPath &&
 			FlowService.listFlowPathsFromWorkspaceRunnable({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: initialPath,
 				runnableKind: kind
 			})
 	)
 	let pathUsageInAppsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
-			$workspaceStore &&
+			ws &&
 			initialPath &&
 			AppService.listAppPathsFromWorkspaceRunnable({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: initialPath,
 				runnableKind: kind
 			})
 	)
 	let pathUsageInScriptsPromise = $derived(
 		kind == 'script' &&
-			$workspaceStore &&
+			ws &&
 			initialPath &&
 			ScriptService.listScriptPathsFromWorkspaceRunnable({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: initialPath
 			})
 	)
 </script>
 
 <div>
-	<div class="flex gap-2 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center">
+	<div
+		class={twMerge(
+			inputBaseClass,
+			inputBorderClass({ error: !!error }),
+			inputSizeClasses[size],
+			'relative flex gap-0 pb-0 mb-1 flex-wrap flex-row items-center',
+			disabled && '!bg-surface-disabled cursor-not-allowed border-none'
+		)}
+	>
 		{#if meta != undefined}
+			{@const nameDisabled = disabled || disableEditing}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
 				<div class="block">
-					<ToggleButtonGroup
-						bind:selected={meta.ownerKind}
-						on:selected={(e) => {
-							setDirty()
-							const kind = e.detail
-							if (meta) {
-								if (kind === 'folder') {
+					<Select
+						items={[
+							{ value: 'user', label: 'User' },
+							{ value: 'folder', label: 'Folder' }
+						]}
+						RightIcon={ChevronDown}
+						transformInputSelectedText={(t) => t.substring(0, 1).toLowerCase()}
+						inputClass={twMerge('border-none', disabled && '!bg-transparent')}
+						useContentEditable
+						bind:value={
+							() => meta?.ownerKind,
+							(v) => {
+								if (!meta || !v) return
+								setDirty()
+								meta.ownerKind = v
+								if (v === 'folder') {
 									meta.owner = folders?.[0]?.name ?? ''
-								} else if (kind === 'group') {
-									meta.owner = 'all'
 								} else {
+									// 'group' is unreachable here (Select only offers user/folder)
+									// but validateName still accepts it for forward-compat.
 									meta.owner = $userStore?.username?.split('@')[0] ?? ''
 								}
 							}
-						}}
-						disabled={disabled || disableEditing}
-					>
-						{#snippet children({ item })}
-							<ToggleButton
-								icon={User}
-								disabled={disabled || disableEditing}
-								value="user"
-								label="User"
-								{size}
-								{item}
-							/>
-							<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
-							<ToggleButton
-								icon={Folder}
-								disabled={disabled || disableEditing}
-								value="folder"
-								label="Folder"
-								{size}
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
+						}
+						disabled={nameDisabled}
+					/>
 				</div>
 			{/if}
 			{#if !hideUser}
@@ -449,22 +504,23 @@
 			{/if}
 			<div>
 				{#if meta.ownerKind === 'user'}
+					{@const userOwnerDisabled =
+						disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing}
 					<label class="block shrink min-w-0">
 						<TextInput
-							class="!w-36"
+							class={twMerge('!border-none', userOwnerDisabled && '!bg-transparent')}
 							{size}
+							underlyingInputEl="div"
 							bind:value={meta.owner}
 							inputProps={{
-								type: 'text',
 								placeholder: $userStore?.username ?? '',
 								onkeydown: setDirty,
-								disabled:
-									disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing
+								disabled: userOwnerDisabled
 							}}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
-					<label class="block grow w-42">
+					<label class="block grow">
 						<FolderPicker
 							bind:folderName={meta.owner}
 							{initialPath}
@@ -472,61 +528,48 @@
 							{disableEditing}
 							{size}
 							{drawerOffset}
+							selectInputClass={twMerge('!border-none', disabled && '!bg-transparent')}
 						/>
 					</label>
 				{/if}
 			</div>
 			<div class="text-sm text-secondary">/</div>
-			<label class="block grow min-w-32 max-w-md">
+			<label class="block grow mr-3">
 				<!-- svelte-ignore a11y_autofocus -->
-				<TextInput
+				<PathNameAutocomplete
 					bind:this={inputP}
 					bind:value={meta.name}
+					prefix={`${meta.ownerKind?.charAt(0) ?? ''}/${meta.owner ?? ''}/`}
+					workspace={ws}
 					{size}
 					{error}
-					inputProps={{
-						disabled: disabled || disableEditing,
-						type: 'text',
-						id: 'path',
-						autofocus,
-						autocomplete: 'off',
-						onkeyup: handleKeyUp,
-						placeholder: namePlaceholder
-					}}
+					{autofocus}
+					id="path"
+					placeholder={namePlaceholder}
+					disabled={nameDisabled}
+					onkeyup={handleKeyUp}
+					textInputClass={twMerge(
+						'border-none',
+						nameDisabled && '!bg-transparent disabled:!bg-transparent'
+					)}
 				/>
 			</label>
+			<Button
+				iconOnly
+				size="xs2"
+				variant="subtle"
+				startIcon={{ icon: Copy }}
+				title="Copy path"
+				wrapperClasses="absolute right-1 top-1/2 -translate-y-1/2"
+				on:click={() => copyToClipboard(path)}
+			/>
 		{/if}
 	</div>
 
-	{#if !hideFullPath}
-		<div class="flex flex-col w-full mt-2">
-			<div class="flex justify-start w-full">
-				<Badge
-					color="gray"
-					class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
-				>
-					Full path
-				</Badge>
-				<input
-					type="text"
-					readonly
-					value={path}
-					size={path?.length || 50}
-					class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-					onfocus={({ currentTarget }) => {
-						currentTarget.select()
-					}}
-				/>
-				<!-- <span class="font-mono text-sm break-all">{path}</span> -->
-			</div>
-			<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
-		</div>
-	{/if}
+	<InputError {error} />
 
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
-		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] )}
-			<Loader2 class="animate-spin" size={16} />
-		{:then [apps, flows, scripts]}
+		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] ) then [apps, flows, scripts]}
 			{#if (apps && apps.length) || (flows && flows.length) || (scripts && scripts.length)}
 				<p class="text-xs">
 					Used by {localeConcatAnd([
@@ -600,9 +643,3 @@
 		</Alert>
 	{/if}
 </div>
-
-<style>
-	input:disabled {
-		background: rgba(200, 200, 200, 0.267);
-	}
-</style>

@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            COUNT(*) as \"total!\",\n            COUNT(*) FILTER (WHERE state = 'active') as \"active!\",\n            COUNT(*) FILTER (WHERE state = 'idle') as \"idle!\"\n        FROM pg_stat_activity\n        WHERE backend_type = 'client backend'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "active!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "idle!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2d95191e899d60385b32f36f2e38137e4173a34c54344ee522745640d48b8813"
+}

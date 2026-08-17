@@ -15,6 +15,7 @@ use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
 
 use windmill_common::flows::Step;
+use windmill_common::global_settings::NSJAIL_TMP_BACKING_DISK;
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt};
 use windmill_common::worker::{
     to_raw_value, update_ping_for_failed_init_script_query, write_file, Connection, Ping, PingType,
@@ -47,7 +48,10 @@ use windmill_common::{variables, DB};
 use tokio::{io::AsyncWriteExt, time::Instant};
 
 use crate::agent_workers::UPDATE_PING_URL;
-use crate::{JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, PATH_ENV};
+use crate::{
+    JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, NSJAIL_TMPFS_SIZE_MB,
+    NSJAIL_TMP_BACKING, PATH_ENV,
+};
 use windmill_common::client::AuthedClient;
 
 /// Additional nsjail config for development. Currently used for nix flake.
@@ -63,6 +67,16 @@ mount {
 
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
+
+/// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
+/// becomes its inner value, anything else is re-serialized compactly.
+pub(crate) fn raw_to_string(x: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(x) {
+        Ok(serde_json::Value::String(x)) => x,
+        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
+        _ => String::new(),
+    }
+}
 
 pub async fn build_args_map<'a>(
     job: &'a MiniPulledJob,
@@ -114,6 +128,7 @@ pub async fn create_args_and_out_file(
     if let Some(args) = job.args.as_ref() {
         if let Some(mut x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
             x.remove("_MODULES");
+            x.remove("_TEMP_SCRIPT_REFS");
             write_file(
                 job_dir,
                 "args.json",
@@ -122,6 +137,7 @@ pub async fn create_args_and_out_file(
         } else {
             let mut filtered = args.0.clone();
             filtered.remove("_MODULES");
+            filtered.remove("_TEMP_SCRIPT_REFS");
             write_file(
                 job_dir,
                 "args.json",
@@ -145,7 +161,14 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res|encrypted)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
+}
+
+/// Returns true if any value in `vs` contains a `$var:`/`$jsonvar:`/`$res:`/`$encrypted:`
+/// reference that would need interpolation by `transform_json`. Cheap pre-check that
+/// callers can use to skip the DB roundtrip + clone path when nothing requires resolution.
+pub(crate) fn map_needs_resolution(vs: &HashMap<String, Box<RawValue>>) -> bool {
+    vs.values().any(|v| (*RE_RES_VAR).is_match(v.get()))
 }
 
 pub async fn transform_json<'a>(
@@ -234,6 +257,13 @@ pub fn parse_npm_config(s: &str) -> (String, Option<String>) {
     return (url, token_opt);
 }
 
+// Defense-in-depth bound on worker-side interpolation recursion. `$res:`
+// resolution is delegated to the API (which enforces its own
+// MAX_RESOURCE_INTERPOLATION_DEPTH), so this only bounds nested
+// object/array structure here, but a finite cap guards against pathological
+// inputs regardless of the API-side guard.
+const MAX_INTERPOLATION_DEPTH: u8 = 50;
+
 #[async_recursion]
 pub async fn transform_json_value(
     name: &str,
@@ -244,6 +274,11 @@ pub async fn transform_json_value(
     conn: &Connection,
     depth: u8,
 ) -> error::Result<Value> {
+    if depth >= MAX_INTERPOLATION_DEPTH {
+        return Err(Error::internal_err(format!(
+            "Maximum resource/variable interpolation depth ({MAX_INTERPOLATION_DEPTH}) exceeded for `{name}`; this usually indicates a circular `$res:` or `$var:` reference"
+        )));
+    }
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
@@ -254,6 +289,15 @@ pub async fn transform_json_value(
                 .map_err(|e| {
                     Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
                 })
+        }
+        Value::String(y) if y.starts_with("$jsonvar:") => {
+            let path = y.strip_prefix("$jsonvar:").unwrap();
+            let v = client.get_variable_value(path).await.map_err(|e| {
+                Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
+            })?;
+            serde_json::from_str::<serde_json::Value>(&v).map_err(|e| {
+                Error::internal_err(format!("Failed to parse $jsonvar value as JSON: {e}"))
+            })
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
@@ -483,6 +527,11 @@ pub async fn get_reserved_variables(
         None
     };
 
+    let tested_runnable = match (&job.trigger_kind, &job.trigger) {
+        (Some(k), Some(t)) if k.is(windmill_common::jobs::JobTriggerKind::CiTest) => Some(t.clone()),
+        _ => None,
+    };
+
     let variables = variables::get_reserved_variables(
         db,
         &job.workspace_id,
@@ -501,6 +550,7 @@ pub async fn get_reserved_variables(
         Some(job.scheduled_for.clone()),
         job.runnable_id,
         job.permissioned_as_end_user_email.clone(),
+        tested_runnable,
     )
     .await
     .to_vec();
@@ -512,7 +562,7 @@ pub async fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String,
     let mut r: HashMap<String, String> =
         context.into_iter().map(|rv| (rv.name, rv.value)).collect();
 
-    let envs = WORKER_CONFIG.read().await.clone().env_vars;
+    let envs = (**WORKER_CONFIG.load()).clone().env_vars;
     for env in envs {
         r.insert(env.0.clone(), env.1.clone());
     }
@@ -693,6 +743,182 @@ lazy_static! {
     static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
 }
 
+/// 2 GB memory limit in bytes for LIMIT_WINDOWS_TO_1CU
+#[cfg(windows)]
+const MEMORY_LIMIT_1CU: usize = 2 * 1024 * 1024 * 1024;
+
+/// Wrapper that holds a Windows Job Object handle alongside the child process.
+/// The job object carries KILL_ON_JOB_CLOSE and/or a memory limit. With
+/// KILL_ON_JOB_CLOSE, the worker process dying closes the handle and the OS reaps the
+/// whole child tree — preventing orphans when the worker is force-killed (e.g. a second
+/// CTRL_BREAK_EVENT or Nomad's kill_timeout) before a job has drained.
+#[cfg(windows)]
+struct WindowsJobChild {
+    inner: Box<dyn TokioChildWrapper>,
+    _job_handle: Win32JobHandle,
+}
+
+#[cfg(windows)]
+impl std::fmt::Debug for WindowsJobChild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WindowsJobChild").finish()
+    }
+}
+
+/// RAII wrapper for a raw Win32 HANDLE that closes it on drop.
+#[cfg(windows)]
+struct Win32JobHandle(windows::Win32::Foundation::HANDLE);
+
+// SAFETY: Win32 HANDLEs are plain pointer-sized values with no thread affinity;
+// the kernel ref-counts the underlying object, so sending/sharing the handle is safe.
+#[cfg(windows)]
+unsafe impl Send for Win32JobHandle {}
+#[cfg(windows)]
+unsafe impl Sync for Win32JobHandle {}
+
+#[cfg(windows)]
+impl Drop for Win32JobHandle {
+    fn drop(&mut self) {
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(self.0) };
+    }
+}
+
+#[cfg(windows)]
+impl process_wrap::tokio::TokioChildWrapper for WindowsJobChild {
+    fn inner(&self) -> &tokio::process::Child {
+        self.inner.inner()
+    }
+    fn inner_mut(&mut self) -> &mut tokio::process::Child {
+        self.inner.inner_mut()
+    }
+    fn into_inner(self: Box<Self>) -> tokio::process::Child {
+        // Leak the job handle: with KILL_ON_JOB_CLOSE, closing the last handle reaps
+        // the (still-running) child, so extracting the inner Child must not close it.
+        let WindowsJobChild { inner, _job_handle } = *self;
+        std::mem::forget(_job_handle);
+        inner.into_inner()
+    }
+    fn start_kill(&mut self) -> std::io::Result<()> {
+        self.inner.start_kill()
+    }
+    fn wait(
+        &mut self,
+    ) -> Box<dyn std::future::Future<Output = std::io::Result<std::process::ExitStatus>> + Send + '_>
+    {
+        self.inner.wait()
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.inner.try_wait()
+    }
+}
+
+/// Resume all threads of a process created with CREATE_SUSPENDED. We create the child
+/// suspended so it can be assigned to its job object before running any code; otherwise
+/// a child that forks a helper at startup could create it before the assignment and
+/// leave it outside the job (escaping KILL_ON_JOB_CLOSE reaping / the memory cap).
+/// (Ported from process-wrap's resume_threads.)
+#[cfg(windows)]
+fn resume_process(pid: u32) -> Result<(), std::io::Error> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    };
+    use windows::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("CreateToolhelp32Snapshot: {e}"),
+            )
+        })?;
+        let mut entry = THREADENTRY32 {
+            dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+            cntUsage: 0,
+            th32ThreadID: 0,
+            th32OwnerProcessID: 0,
+            tpBasePri: 0,
+            tpDeltaPri: 0,
+            dwFlags: 0,
+        };
+        let mut res = Thread32First(snapshot, &mut entry);
+        while res.is_ok() {
+            if entry.th32OwnerProcessID == pid {
+                if let Ok(thread) = OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) {
+                    ResumeThread(thread);
+                    let _ = windows::Win32::Foundation::CloseHandle(thread);
+                }
+            }
+            res = Thread32Next(snapshot, &mut entry);
+        }
+        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+    }
+    Ok(())
+}
+
+/// Create a Windows Job Object and assign the process to it, optionally with
+/// KILL_ON_JOB_CLOSE (so the child tree is reaped when the worker drops the handle /
+/// dies) and/or a memory limit. Assigning post-spawn (rather than via process-wrap's
+/// suspend/resume JobObject wrap) keeps the dotnet-safe behavior that csharp relies on.
+#[cfg(windows)]
+fn assign_job_object(
+    pid: u32,
+    memory_limit: Option<usize>,
+    kill_on_close: bool,
+) -> Result<Win32JobHandle, std::io::Error> {
+    use windows::Win32::System::JobObjects::*;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
+
+    unsafe {
+        let job = CreateJobObjectW(None, None).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("CreateJobObjectW: {e}"))
+        })?;
+
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        if kill_on_close {
+            info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        }
+        if let Some(memory_limit) = memory_limit {
+            info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+            info.JobMemoryLimit = memory_limit;
+        }
+
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as _,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+        .map_err(|e| {
+            let _ = windows::Win32::Foundation::CloseHandle(job);
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("SetInformationJobObject: {e}"),
+            )
+        })?;
+
+        let process_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid)
+            .map_err(|e| {
+                let _ = windows::Win32::Foundation::CloseHandle(job);
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("OpenProcess({pid}): {e}"),
+                )
+            })?;
+
+        let assign_result = AssignProcessToJobObject(job, process_handle);
+        let _ = windows::Win32::Foundation::CloseHandle(process_handle);
+        assign_result.map_err(|e| {
+            let _ = windows::Win32::Foundation::CloseHandle(job);
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("AssignProcessToJobObject: {e}"),
+            )
+        })?;
+
+        Ok(Win32JobHandle(job))
+    }
+}
+
 pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     use tokio::process::Command;
 
@@ -745,6 +971,28 @@ pub async fn start_child_process(
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
 
+    // On Windows, put the child in its own console process group so a CTRL_BREAK_EVENT
+    // sent to the worker's group (e.g. by Nomad on scale-in) is not delivered to it.
+    // Otherwise the whole child tree dies instantly with STATUS_CONTROL_C_EXIT
+    // (0xC000013A) before the worker can drain running jobs.
+    //
+    // This deliberately does NOT use process-wrap's JobObject wrap: its pre_spawn calls
+    // command.creation_flags(CREATE_SUSPENDED | get_wrap::<CreationFlags>()), but
+    // get_wrap returns None mid-spawn (process-wrap 8.2.1 takes the wrappers out of
+    // `self` before running pre_spawn), so it silently overwrites and drops
+    // CREATE_NEW_PROCESS_GROUP. Job-object grouping is done post-spawn below instead,
+    // which also matches the dotnet-safe assignment csharp already relies on.
+    #[cfg(windows)]
+    if !*DISABLE_PROCESS_GROUP {
+        use process_wrap::tokio::CreationFlags;
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_SUSPENDED};
+        // Also create the child suspended so it can be placed in its job object (below)
+        // before it runs any code; otherwise a child that forks a helper at startup could
+        // create it before the assignment and leave it outside the job. Resumed right
+        // after the job assignment.
+        cmd.wrap(CreationFlags(CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED));
+    }
+
     if !*DISABLE_PROCESS_GROUP && !disable_process_group {
         #[cfg(unix)]
         {
@@ -752,15 +1000,57 @@ pub async fn start_child_process(
 
             cmd.wrap(ProcessGroup::leader());
         }
-        #[cfg(windows)]
-        {
-            cmd.wrap(JobObject);
+    }
+
+    let child: Box<dyn TokioChildWrapper> = cmd
+        .spawn()
+        .map_err(|err| tentatively_improve_error(err.into(), executable))?;
+
+    // On Windows, assign the child to a job object. KILL_ON_JOB_CLOSE makes the OS reap
+    // the whole child tree when the worker drops the handle or dies, so jobs aren't
+    // orphaned if the worker is force-killed (second CTRL_BREAK_EVENT, or Nomad exceeding
+    // kill_timeout) before they drain; it is gated on the DISABLE_PROCESS_GROUP escape
+    // hatch alongside CREATE_NEW_PROCESS_GROUP above. The LIMIT_WINDOWS_TO_1CU memory cap
+    // is independent of that hatch (it's its own opt-in), so it's applied whenever set.
+    // Assigning post-spawn does not touch the creation flags (so it composes with
+    // CREATE_NEW_PROCESS_GROUP) and is the dotnet-safe path csharp already uses.
+    #[cfg(windows)]
+    {
+        let kill_on_close = !*DISABLE_PROCESS_GROUP;
+        let memory_limit =
+            (*windmill_common::worker::LIMIT_WINDOWS_TO_1CU).then_some(MEMORY_LIMIT_1CU);
+        if kill_on_close || memory_limit.is_some() {
+            if let Some(pid) = child.inner().id() {
+                let assigned = assign_job_object(pid, memory_limit, kill_on_close);
+                // When kill_on_close, the child was created suspended (CREATE_SUSPENDED
+                // above) so it could be placed in the job before running. Resume it now —
+                // unconditionally of assign success, so a failed assign never leaves it hung.
+                if kill_on_close {
+                    if let Err(e) = resume_process(pid) {
+                        tracing::error!("Failed to resume child process {pid}: {e}");
+                    }
+                }
+                match assigned {
+                    Ok(job_handle) => {
+                        if memory_limit.is_some() {
+                            tracing::info!(
+                                "Applied 2GB memory limit (LIMIT_WINDOWS_TO_1CU) to child process {pid}"
+                            );
+                        }
+                        return Ok(Box::new(WindowsJobChild {
+                            inner: child,
+                            _job_handle: job_handle,
+                        }));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to assign child process {pid} to job object: {e}");
+                    }
+                }
+            }
         }
     }
 
-    return cmd
-        .spawn()
-        .map_err(|err| tentatively_improve_error(err.into(), executable));
+    Ok(child)
 }
 
 pub async fn resolve_job_timeout(
@@ -791,7 +1081,9 @@ pub async fn resolve_job_timeout(
         *MAX_TIMEOUT_DURATION
     };
 
-    match custom_timeout_secs {
+    // A `custom_timeout_secs <= 0` is not a 0-second limit but "unset": fall through to the
+    // default/global-max timeout instead of killing the job immediately.
+    match windmill_common::runnable_settings::none_if_non_positive(custom_timeout_secs) {
         Some(timeout_secs)
             if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
         {
@@ -832,6 +1124,376 @@ pub async fn resolve_nsjail_timeout(
 ) -> String {
     let (duration, _, _) = resolve_job_timeout(conn, w_id, job_id, custom_timeout).await;
     (duration.as_secs() + 15).to_string()
+}
+
+/// Render the `rlimit_as` line for an nsjail run config, honoring a per-language
+/// env-var override.
+///
+/// nsjail caps a jailed job's virtual address space at `rlimit_as` MiB. JIT
+/// runtimes (Bun/JavaScriptCore, the JVM) reserve large virtual ranges up front,
+/// so a subprocess spawned from a jailed Python/Ansible job can crash against this
+/// cap even when its physical memory use is modest. Lifting it lets operators run
+/// such workloads on a dedicated worker pool (set the env var only there) without
+/// giving up the mount/PID/user-namespace isolation that provides the real
+/// security boundary. Only the address-space limit is affected; the other rlimits
+/// (cpu/fsize/nofile) in the proto are untouched.
+///
+/// `env_override` is the raw value of the language's `NSJAIL_*_RLIMIT_AS_MB` env var:
+/// - unset/empty -> historical default (`rlimit_as: {default_mb}`)
+/// - `unlimited`/`none`/`inf`/`0` -> `rlimit_as_type: INF` (address space uncapped)
+/// - a positive integer (MiB) -> `rlimit_as: {n}`
+pub fn render_nsjail_rlimit_as(env_override: Option<&str>, default_mb: u32) -> String {
+    match env_override.map(str::trim) {
+        None | Some("") => format!("rlimit_as: {default_mb}"),
+        Some(v)
+            if v.eq_ignore_ascii_case("unlimited")
+                || v.eq_ignore_ascii_case("none")
+                || v.eq_ignore_ascii_case("inf")
+                || v == "0" =>
+        {
+            "rlimit_as_type: INF".to_string()
+        }
+        Some(v) => match v.parse::<u32>() {
+            Ok(mb) => format!("rlimit_as: {mb}"),
+            Err(_) => {
+                tracing::warn!(
+                    "Invalid nsjail rlimit_as override {v:?}, using default {default_mb}MiB"
+                );
+                format!("rlimit_as: {default_mb}")
+            }
+        },
+    }
+}
+
+/// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
+/// used when the `nsjail_tmpfs_size_mb` instance setting is unset.
+pub const DEFAULT_NSJAIL_TMPFS_SIZE_BYTES: u64 = 800_000_000;
+
+/// Resolve the tmpfs `size=` value (in bytes, formatted for the nsjail proto)
+/// for the `/tmp` tmpfs mount. When the `nsjail_tmpfs_size_mb` instance setting
+/// is `None`, `Some(0)`, or negative, falls back to
+/// [`DEFAULT_NSJAIL_TMPFS_SIZE_BYTES`].
+pub async fn resolve_nsjail_tmpfs_size_bytes() -> String {
+    match *NSJAIL_TMPFS_SIZE_MB.read().await {
+        Some(mb) if mb > 0 => ((mb as u64).saturating_mul(1_000_000)).to_string(),
+        _ => DEFAULT_NSJAIL_TMPFS_SIZE_BYTES.to_string(),
+    }
+}
+
+/// Sub-directory inside each job dir used as the disk-backed `/tmp` when
+/// `nsjail_tmp_disk_backed` is enabled. Kept under `{JOB_DIR}` so existing
+/// job-dir cleanup removes it for free.
+const NSJAIL_TMP_BIND_SUBDIR: &str = "jail_tmp";
+
+fn tmpfs_mount_block(size_bytes: &str) -> String {
+    format!(
+        "mount {{\n    dst: \"/tmp\"\n    fstype: \"tmpfs\"\n    rw: true\n    options: \"size={size_bytes}\"\n}}"
+    )
+}
+
+fn bind_mount_block(jail_tmp: &str) -> String {
+    format!(
+        "mount {{\n    src: \"{jail_tmp}\"\n    dst: \"/tmp\"\n    is_bind: true\n    rw: true\n}}"
+    )
+}
+
+/// Build the nsjail `mount { ... }` block that backs `/tmp` inside the
+/// sandbox.
+///
+/// **Caller contract**: `job_dir` must be a trusted, worker-allocated job
+/// directory (typically `{worker_dir}/{job_id}`). In disk-backed mode this
+/// function creates `{job_dir}/jail_tmp` and bind-mounts it as `/tmp` with
+/// `rw: true`. Callers must not pass user-controlled paths.
+///
+/// Some executors (e.g. the bun codebase path) extract user-supplied archives
+/// into `job_dir` before this resolver runs, so the resolver actively refuses
+/// any pre-existing entry at `{job_dir}/jail_tmp` (including symlinks) to
+/// avoid bind-mounting an attacker-controlled host directory as `/tmp`.
+///
+/// When the `nsjail_tmp_backing` instance setting is `"disk"`, returns a
+/// disk-backed bind mount of `{job_dir}/jail_tmp` after creating the
+/// directory. If creation or the pre-existence check fails, logs an error and
+/// falls back to the historical tmpfs block so the job can still start. For
+/// any other value (including unset, `"tmpfs"`, or unrecognized), returns the
+/// historical RAM-backed tmpfs mount sized via `nsjail_tmpfs_size_mb`.
+pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
+    let disk_backed = NSJAIL_TMP_BACKING
+        .read()
+        .await
+        .as_deref()
+        .map(|v| v.eq_ignore_ascii_case(NSJAIL_TMP_BACKING_DISK))
+        .unwrap_or(false);
+    let size_bytes = resolve_nsjail_tmpfs_size_bytes().await;
+    if !disk_backed {
+        return tmpfs_mount_block(&size_bytes);
+    }
+    let jail_tmp = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
+
+    // SECURITY: never bind-mount a symlinked (or otherwise non-directory)
+    // entry at jail_tmp. `symlink_metadata` returns the link's own metadata
+    // without following it, so `is_dir()` is true only for a real directory.
+    // User-controlled archives extracted into job_dir could otherwise plant
+    // `jail_tmp` as a symlink to an arbitrary host directory, which nsjail
+    // would then expose as a writable /tmp.
+    //
+    // A pre-existing real directory at this path is legitimate: several
+    // executors (python_executor, ruby_executor, rust_executor) invoke nsjail
+    // more than once per job_dir (e.g. dep install, then run), and the first
+    // invocation will have created it via the `create_dir` below.
+    match tokio::fs::symlink_metadata(&jail_tmp).await {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            if let Err(e) = tokio::fs::create_dir(&jail_tmp).await {
+                tracing::error!(
+                    "Failed to create nsjail disk-backed /tmp at {jail_tmp}: {e:?}; \
+                     falling back to tmpfs for this job."
+                );
+                return tmpfs_mount_block(&size_bytes);
+            }
+        }
+        Ok(meta) if meta.is_dir() => {
+            // Real directory left over from an earlier nsjail invocation in
+            // this same job_dir — safe to reuse.
+        }
+        Ok(_) => {
+            tracing::error!(
+                "Refusing to bind-mount nsjail disk-backed /tmp: {jail_tmp} \
+                 exists but is not a regular directory (possibly a symlink \
+                 planted by a user-controlled archive). Falling back to \
+                 RAM-backed tmpfs for this job."
+            );
+            return tmpfs_mount_block(&size_bytes);
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to stat nsjail disk-backed /tmp at {jail_tmp}: {e:?}; \
+                 falling back to tmpfs for this job."
+            );
+            return tmpfs_mount_block(&size_bytes);
+        }
+    }
+    bind_mount_block(&jail_tmp)
+}
+
+#[cfg(test)]
+mod nsjail_rlimit_as_tests {
+    use super::render_nsjail_rlimit_as;
+
+    #[test]
+    fn unset_uses_default() {
+        assert_eq!(render_nsjail_rlimit_as(None, 4096), "rlimit_as: 4096");
+        assert_eq!(render_nsjail_rlimit_as(Some("  "), 4096), "rlimit_as: 4096");
+    }
+
+    #[test]
+    fn numeric_override_is_used() {
+        assert_eq!(
+            render_nsjail_rlimit_as(Some("16384"), 4096),
+            "rlimit_as: 16384"
+        );
+        assert_eq!(
+            render_nsjail_rlimit_as(Some("  8192 "), 4096),
+            "rlimit_as: 8192"
+        );
+    }
+
+    #[test]
+    fn unlimited_keywords_emit_inf() {
+        for v in ["unlimited", "UNLIMITED", "none", "inf", "0"] {
+            assert_eq!(
+                render_nsjail_rlimit_as(Some(v), 4096),
+                "rlimit_as_type: INF",
+                "value {v:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_falls_back_to_default() {
+        assert_eq!(
+            render_nsjail_rlimit_as(Some("abc"), 4096),
+            "rlimit_as: 4096"
+        );
+        assert_eq!(render_nsjail_rlimit_as(Some("-1"), 4096), "rlimit_as: 4096");
+    }
+}
+
+#[cfg(test)]
+mod nsjail_tmp_mount_tests {
+    use super::*;
+
+    #[test]
+    fn tmpfs_block_renders_size() {
+        let block = tmpfs_mount_block("800000000");
+        assert!(block.contains("dst: \"/tmp\""));
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(block.contains("options: \"size=800000000\""));
+        assert!(!block.contains("is_bind"));
+    }
+
+    #[test]
+    fn bind_block_renders_source_path() {
+        let block = bind_mount_block("/var/lib/windmill/jobs/abc/jail_tmp");
+        assert!(block.contains("src: \"/var/lib/windmill/jobs/abc/jail_tmp\""));
+        assert!(block.contains("dst: \"/tmp\""));
+        assert!(block.contains("is_bind: true"));
+        assert!(block.contains("rw: true"));
+        assert!(!block.contains("fstype"));
+    }
+
+    /// Serializes tests that mutate the process-global `NSJAIL_TMP_BACKING`
+    /// so they don't race when cargo runs them in parallel.
+    static SETTING_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    async fn with_tmp_backing<F, Fut, T>(value: Option<String>, f: F) -> T
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = T>,
+    {
+        let _serial = SETTING_GUARD.lock().await;
+        let prev = NSJAIL_TMP_BACKING.read().await.clone();
+        *NSJAIL_TMP_BACKING.write().await = value;
+        let res = f().await;
+        *NSJAIL_TMP_BACKING.write().await = prev;
+        res
+    }
+
+    #[tokio::test]
+    async fn tmpfs_mode_returns_tmpfs_block_for_any_job_dir() {
+        let block = with_tmp_backing(Some("tmpfs".to_string()), || async {
+            resolve_nsjail_tmp_mount_block("/anything").await
+        })
+        .await;
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(block.contains("options: \"size="));
+        assert!(!block.contains("is_bind"));
+    }
+
+    #[tokio::test]
+    async fn unset_defaults_to_tmpfs() {
+        let block = with_tmp_backing(None, || async {
+            resolve_nsjail_tmp_mount_block("/anything").await
+        })
+        .await;
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(!block.contains("is_bind"));
+    }
+
+    /// Disk-backed branch: the resolver must create `{job_dir}/jail_tmp` and
+    /// emit a bind block pointing at it.
+    #[tokio::test]
+    async fn disk_backed_creates_jail_tmp_and_returns_bind_block() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let job_dir = tmp.path().to_str().expect("utf8 path").to_string();
+
+        let block = with_tmp_backing(Some("disk".to_string()), || async {
+            resolve_nsjail_tmp_mount_block(&job_dir).await
+        })
+        .await;
+
+        let expected_dir = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
+        assert!(
+            std::path::Path::new(&expected_dir).is_dir(),
+            "jail_tmp dir should have been created at {expected_dir}"
+        );
+        assert!(block.contains("is_bind: true"));
+        assert!(block.contains(&format!("src: \"{expected_dir}\"")));
+    }
+
+    /// Disk-backed branch fallback: if `create_dir_all` fails, we must emit
+    /// the tmpfs block instead of returning an invalid bind config.
+    #[tokio::test]
+    async fn disk_backed_falls_back_to_tmpfs_on_mkdir_error() {
+        // /proc is a kernel filesystem that disallows directory creation,
+        // so create_dir_all on a subpath returns EPERM/EACCES.
+        let job_dir = "/proc/win1967_should_not_exist";
+
+        let block = with_tmp_backing(Some("disk".to_string()), || async {
+            resolve_nsjail_tmp_mount_block(job_dir).await
+        })
+        .await;
+
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(!block.contains("is_bind"));
+    }
+
+    /// Unknown values fall through to the tmpfs branch instead of crashing.
+    #[tokio::test]
+    async fn unknown_value_defaults_to_tmpfs() {
+        let block = with_tmp_backing(Some("bogus".to_string()), || async {
+            resolve_nsjail_tmp_mount_block("/anything").await
+        })
+        .await;
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(!block.contains("is_bind"));
+    }
+
+    /// Security regression: if a pre-existing symlink sits at the jail_tmp
+    /// path (e.g. planted by a user-controlled tarball extracted into
+    /// `job_dir` before the resolver runs), the resolver must refuse the
+    /// bind mount and fall back to tmpfs — never bind-mount the symlink
+    /// target into the sandbox as /tmp.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn disk_backed_refuses_preexisting_symlink_at_jail_tmp() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let job_dir = tmp.path().to_str().expect("utf8 path").to_string();
+
+        // Plant a symlink at {job_dir}/jail_tmp pointing at an arbitrary host
+        // path. Target doesn't have to exist — what matters is that the
+        // resolver doesn't follow it.
+        let jail_tmp_path = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
+        std::os::unix::fs::symlink("/etc", &jail_tmp_path).expect("plant symlink");
+        assert!(std::path::Path::new(&jail_tmp_path).is_symlink());
+
+        let block = with_tmp_backing(Some("disk".to_string()), || async {
+            resolve_nsjail_tmp_mount_block(&job_dir).await
+        })
+        .await;
+
+        // Fell back to tmpfs — no bind-mount of the attacker-controlled path.
+        assert!(
+            block.contains("fstype: \"tmpfs\""),
+            "expected tmpfs fallback, got: {block}"
+        );
+        assert!(
+            !block.contains("is_bind"),
+            "must not emit bind block, got: {block}"
+        );
+        assert!(
+            !block.contains("/etc"),
+            "must not leak the symlink target into the proto, got: {block}"
+        );
+    }
+
+    /// Sequential resolver calls in the same `job_dir` (e.g. Python uv install
+    /// → Python run, Ruby install → run, Rust build → run) must keep using
+    /// the bind mount instead of silently falling back to tmpfs on the
+    /// second call. The first call creates `jail_tmp`; subsequent calls see
+    /// it as a pre-existing real directory and must accept it.
+    #[tokio::test]
+    async fn disk_backed_reuses_jail_tmp_across_sequential_calls() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let job_dir = tmp.path().to_str().expect("utf8 path").to_string();
+        let expected_dir = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
+
+        let (first, second) = with_tmp_backing(Some("disk".to_string()), || async {
+            let first = resolve_nsjail_tmp_mount_block(&job_dir).await;
+            // Simulate an executor that completes its first nsjail invocation
+            // (e.g. uv install) leaving jail_tmp on disk, then invokes nsjail
+            // again for the main run.
+            assert!(std::path::Path::new(&expected_dir).is_dir());
+            let second = resolve_nsjail_tmp_mount_block(&job_dir).await;
+            (first, second)
+        })
+        .await;
+
+        assert!(first.contains("is_bind: true"), "first call: {first}");
+        assert!(
+            second.contains("is_bind: true"),
+            "second call regressed to tmpfs: {second}"
+        );
+        assert!(second.contains(&format!("src: \"{expected_dir}\"")));
+    }
 }
 
 async fn hash_args(
@@ -1152,6 +1814,14 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
     }
 }
 
+/// Extract the flow root path by stripping /branchone-N/, /branchall-N/, /forloop-N/, /loop-N/
+/// and everything after. Returns None if no nesting segments are found.
+pub fn extract_flow_root(runnable_path: &str) -> Option<&str> {
+    RE_FLOW_ROOT
+        .captures(runnable_path)
+        .and_then(|c| c.get(1).map(|m| m.as_str()))
+}
+
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
     configure_client(
         reqwest::ClientBuilder::new()
@@ -1417,6 +2087,77 @@ impl S3ModeWorkerData {
     }
 }
 
+/// Stream rows to S3 (via `convert_json_line_stream` + `s3.upload`) while appending
+/// periodic progress, ingest-done, and upload-done logs to the job output.
+///
+/// `db_name` is a human-readable prefix for the log lines (e.g. "MSSQL", "PostgreSQL").
+pub async fn s3_stream_and_upload_with_logs<S, V, E>(
+    db_name: &str,
+    rows_stream: S,
+    s3: &S3ModeWorkerData,
+    job_id: Uuid,
+    workspace_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<()>
+where
+    S: futures::TryStreamExt<Item = Result<V, E>> + Unpin,
+    V: serde::Serialize,
+    E: Into<anyhow::Error>,
+{
+    let s3_format = s3.format;
+    let (progress_tx, mut progress_rx) =
+        tokio::sync::mpsc::channel::<windmill_object_store::IngestStats>(8);
+    let progress_conn = conn.clone();
+    let progress_workspace = workspace_id.to_string();
+    let progress_db_name = db_name.to_string();
+    let progress_task = tokio::spawn(async move {
+        while let Some(stats) = progress_rx.recv().await {
+            let logs = format!(
+                "\n{} s3 stream progress: {} rows, {:.1} MB | elapsed {:.1}s (db-fetch {:.1}s, write {:.1}s)",
+                progress_db_name,
+                stats.rows,
+                stats.bytes as f64 / 1_048_576.0,
+                stats.elapsed.as_secs_f64(),
+                stats.fetch_wait.as_secs_f64(),
+                stats.write_time.as_secs_f64(),
+            );
+            windmill_queue::append_logs(&job_id, &progress_workspace, logs, &progress_conn).await;
+        }
+    });
+
+    let (stream, ingest_stats) =
+        windmill_object_store::convert_json_line_stream(rows_stream, s3_format, Some(progress_tx))
+            .await?;
+    let _ = progress_task.await;
+
+    let ingest_log = format!(
+        "\n{} s3 stream ingest done ({:?}): {} rows, {:.1} MB in {:.2}s (db-fetch {:.2}s, write {:.2}s, first row after {:.2}s)",
+        db_name,
+        s3_format,
+        ingest_stats.rows,
+        ingest_stats.bytes as f64 / 1_048_576.0,
+        ingest_stats.elapsed.as_secs_f64(),
+        ingest_stats.fetch_wait.as_secs_f64(),
+        ingest_stats.write_time.as_secs_f64(),
+        ingest_stats.first_row_latency.unwrap_or_default().as_secs_f64(),
+    );
+    windmill_queue::append_logs(&job_id, workspace_id, ingest_log, conn).await;
+
+    let upload_start = std::time::Instant::now();
+    s3.upload(stream).await?;
+    let upload_elapsed = upload_start.elapsed();
+
+    let final_log = format!(
+        "\n{} s3 stream upload+transcode done: {:.2}s | total {:.2}s",
+        db_name,
+        upload_elapsed.as_secs_f64(),
+        (ingest_stats.elapsed + upload_elapsed).as_secs_f64(),
+    );
+    windmill_queue::append_logs(&job_id, workspace_id, final_log, conn).await;
+
+    Ok(())
+}
+
 pub fn s3_mode_args_to_worker_data(
     s3: S3ModeArgs,
     client: AuthedClient,
@@ -1597,4 +2338,96 @@ mod tests {
 
         assert!(result.is_err());
     }
+}
+
+lazy_static::lazy_static! {
+    static ref TEMPLATE_RE: regex::Regex =
+        regex::Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}").unwrap();
+}
+
+/// Substitute `{{ arg_name }}` placeholders with values from `args`.
+/// Strings are used raw; numbers/bools are stringified. Other types are rejected.
+pub(crate) fn interpolate_template(
+    template: &str,
+    args: Option<&HashMap<String, Box<RawValue>>>,
+    field_name: &str,
+) -> error::Result<String> {
+    let mut last_err: Option<error::Error> = None;
+    let result = TEMPLATE_RE.replace_all(template, |caps: &regex::Captures| {
+        let name = &caps[1];
+        let raw = args.and_then(|a| a.get(name));
+        let Some(raw) = raw else {
+            last_err = Some(error::Error::BadRequest(format!(
+                "`{}` references `{{{{ {} }}}}` but no such argument was provided",
+                field_name, name
+            )));
+            return String::new();
+        };
+        let json: serde_json::Value = match serde_json::from_str(raw.get()) {
+            Ok(v) => v,
+            Err(e) => {
+                last_err = Some(error::Error::BadRequest(format!(
+                    "`{}` could not parse argument `{}` as JSON: {e}",
+                    field_name, name
+                )));
+                return String::new();
+            }
+        };
+        match json {
+            serde_json::Value::String(s) => s,
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::Bool(b) => b.to_string(),
+            serde_json::Value::Null => {
+                last_err = Some(error::Error::BadRequest(format!(
+                    "`{}` references `{{{{ {} }}}}` but the argument is null",
+                    field_name, name
+                )));
+                String::new()
+            }
+            _ => {
+                last_err = Some(error::Error::BadRequest(format!(
+                    "`{}` references `{{{{ {} }}}}` but the argument is not a primitive (string/number/bool)",
+                    field_name, name
+                )));
+                String::new()
+            }
+        }
+    });
+    if let Some(e) = last_err {
+        return Err(e);
+    }
+    Ok(result.into_owned())
+}
+
+/// Reject absolute paths and `..` segments to prevent escaping the cloned repo directory.
+pub(crate) fn validate_relative_path(path: &str, field_name: &str) -> error::Result<()> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(error::Error::BadRequest(format!(
+            "`{}` resolved to an empty path",
+            field_name
+        )));
+    }
+    let p = std::path::Path::new(trimmed);
+    for component in p.components() {
+        match component {
+            // RootDir catches leading `/` or `\`; Prefix catches Windows drive
+            // letters and UNC paths. `Path::is_absolute()` alone misses
+            // RootDir-only paths on Windows (e.g. `/etc/passwd`).
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                return Err(error::Error::BadRequest(format!(
+                    "`{}` must be a relative path inside the cloned repo, got: {}",
+                    field_name, trimmed
+                )));
+            }
+            std::path::Component::ParentDir => {
+                return Err(error::Error::BadRequest(format!(
+                    "`{}` must not contain `..` segments, got: {}",
+                    field_name, trimmed
+                )));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }

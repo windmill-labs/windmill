@@ -1,5 +1,6 @@
 ---
 name: refine
+user_invocable: true
 description: End-of-session reflection. Reviews friction encountered during the session and proposes updates to docs/ to capture lessons learned.
 ---
 
@@ -16,7 +17,6 @@ Reflect on the current session and update documentation with lessons learned.
 2. **Read current docs**: Read the docs that were relevant to this session:
    - `docs/validation.md`
    - `docs/enterprise.md`
-   - `docs/autonomous-mode.md`
    - Any skills that were invoked
 
 3. **Propose updates**: For each piece of friction, decide if it warrants a doc update:

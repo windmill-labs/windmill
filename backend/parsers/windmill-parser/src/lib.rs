@@ -13,6 +13,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 pub mod asset_parser;
+pub mod duckdb_builtins;
+pub mod duckdb_macros;
+pub mod sql_materialize;
 
 /// S3 output format for SQL queries (moved here to avoid pulling sqlx into WASM via windmill-types)
 #[derive(Clone, Copy, Debug)]
@@ -38,6 +41,10 @@ pub struct MainArgSignature {
     pub args: Vec<Arg>,
     pub auto_kind: Option<String>,
     pub has_preprocessor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_cmd_binding: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supports_should_process: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -102,6 +109,15 @@ pub struct Arg {
     pub default: Option<serde_json::Value>,
     pub has_default: bool,
     pub oidx: Option<i32>,
+    /// `true` when `otyp` is the parser's fallback default rather than a value
+    /// the user (or SDK) actually wrote down. Currently only set by the PG SQL
+    /// parser when a placeholder has no `-- $N name (TYPE)` declaration *and*
+    /// no `$N::TYPE` inline cast — the otyp is `"text"` purely as a
+    /// placeholder. Consumers that care about original intent (e.g. the PG
+    /// executor deciding whether to coerce `Number → String` for a text
+    /// target) should treat `otyp_inferred = true` as "type unknown".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub otyp_inferred: bool,
 }
 
 pub fn json_to_typ(js: &Value, precise_arrays: bool) -> Typ {

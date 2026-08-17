@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ($1, '', '', $2, ARRAY[$3]::bigint[], '{}'::jsonb, $4, 'system')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "54d3dd91f3348c03b8b39ecb59c85242186449ff592ed457daac59b37b94aa00"
+}

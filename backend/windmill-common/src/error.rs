@@ -72,7 +72,7 @@ pub enum Error {
     ExecutionRawError(Box<serde_json::value::RawValue>),
     #[error("Error: {error:#} @{location:#}")]
     Anyhow { error: anyhow::Error, location: String },
-    #[error("Error: {0:#?}")]
+    #[error("{}", format_json_err_message(.0))]
     JsonErr(serde_json::Value),
     #[error("{0}")]
     AIError(String),
@@ -247,6 +247,41 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
     From::from(e)
 }
 
+/// Render a `tokio_postgres` error for a user-facing message.
+///
+/// The pinned rust-postgres build prints only the error *kind* in its `Display`
+/// impl, so `format!("{e}")` on one of these yields the useless `db error` and
+/// drops the Postgres message. Interpolate errors from a `tokio_postgres::Client`
+/// through this instead.
+pub fn pg_error_message(e: &tokio_postgres::Error) -> String {
+    match e.as_db_error() {
+        Some(db_err) => format_db_error(db_err.message(), db_err.detail(), db_err.hint()),
+        // Non-database failures (io, tls, protocol) keep their message in the cause.
+        None => error_source_chain(e),
+    }
+}
+
+fn format_db_error(message: &str, detail: Option<&str>, hint: Option<&str>) -> String {
+    let mut msg = message.to_string();
+    if let Some(detail) = detail {
+        msg.push_str(&format!(" ({detail})"));
+    }
+    if let Some(hint) = hint {
+        msg.push_str(&format!(". Hint: {hint}"));
+    }
+    msg
+}
+
+fn error_source_chain(e: &dyn std::error::Error) -> String {
+    let mut msg = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        msg.push_str(&format!(": {cause}"));
+        source = cause.source();
+    }
+    msg
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         let status = match self {
@@ -256,6 +291,7 @@ impl IntoResponse for Error {
             Self::SqlErr { .. }
             | Self::BadRequest(_)
             | Self::AIError(_)
+            | Self::JsonErr(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             Self::BadGateway(_) => axum::http::StatusCode::BAD_GATEWAY,
             Self::Generic(status_code, _) => status_code,
@@ -278,6 +314,59 @@ impl IntoResponse for Error {
             .body(body)
             .unwrap()
     }
+}
+
+/// Render a `JsonErr` payload as a readable message suitable for direct
+/// display in a toast: surface the `error` field as the headline, append a
+/// short summary of `details` (e.g. duplicate paths) when present, and fall
+/// back to pretty JSON for unknown shapes. Avoids the Rust `Debug` output
+/// (`Object { "error": String("..."), ... }`) that previously leaked to users.
+fn format_json_err_message(v: &serde_json::Value) -> String {
+    if let Some(obj) = v.as_object() {
+        let headline = obj
+            .get("error")
+            .and_then(|e| e.as_str())
+            .map(|s| s.to_string());
+        let details_summary = obj.get("details").and_then(|d| {
+            let arr = d.as_array()?;
+            if arr.is_empty() {
+                return None;
+            }
+            let preview = arr
+                .iter()
+                .take(5)
+                .map(|item| match item {
+                    serde_json::Value::Object(o) => {
+                        let parts: Vec<String> = o
+                            .iter()
+                            .map(|(k, val)| match val {
+                                serde_json::Value::String(s) => format!("{k}={s}"),
+                                _ => format!("{k}={val}"),
+                            })
+                            .collect();
+                        format!("- {}", parts.join(", "))
+                    }
+                    serde_json::Value::String(s) => format!("- {s}"),
+                    other => format!("- {other}"),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let suffix = if arr.len() > 5 {
+                format!("\n... ({} more)", arr.len() - 5)
+            } else {
+                String::new()
+            };
+            Some(format!("{preview}{suffix}"))
+        });
+
+        match (headline, details_summary) {
+            (Some(h), Some(d)) => return format!("{h}\n{d}"),
+            (Some(h), None) => return h,
+            (None, Some(d)) => return d,
+            (None, None) => {}
+        }
+    }
+    serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
 }
 
 pub trait OrElseNotFound<T> {
@@ -314,5 +403,107 @@ where
 {
     fn from(err: E) -> Self {
         Self(err.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn json_err_message_error_and_details() {
+        let v = json!({
+            "error": "Duplicate HTTP route paths detected",
+            "details": [
+                { "route_path": "a", "workspace_id": "admins", "http_method": "post" },
+                { "route_path": "a", "workspace_id": "starter", "http_method": "post" },
+            ],
+        });
+        let rendered = Error::JsonErr(v).to_string();
+        assert_eq!(
+            rendered,
+            "Duplicate HTTP route paths detected\n\
+             - route_path=a, workspace_id=admins, http_method=post\n\
+             - route_path=a, workspace_id=starter, http_method=post"
+        );
+    }
+
+    #[test]
+    fn json_err_message_error_only() {
+        let v = json!({ "error": "Something went wrong" });
+        assert_eq!(Error::JsonErr(v).to_string(), "Something went wrong");
+    }
+
+    #[test]
+    fn json_err_message_truncates_long_details() {
+        let details: Vec<_> = (0..8).map(|i| json!({ "k": i })).collect();
+        let v = json!({ "error": "boom", "details": details });
+        let rendered = Error::JsonErr(v).to_string();
+        assert!(rendered.starts_with("boom\n- k=0\n- k=1\n- k=2\n- k=3\n- k=4"));
+        assert!(rendered.ends_with("... (3 more)"));
+        // Items beyond the cap aren't enumerated.
+        assert!(!rendered.contains("- k=5"));
+    }
+
+    #[test]
+    fn json_err_message_fallback_to_pretty_json() {
+        let v = json!([1, 2, 3]);
+        // Non-object payload falls back to pretty JSON instead of leaking
+        // Rust `Debug` syntax.
+        let rendered = Error::JsonErr(v).to_string();
+        assert_eq!(rendered, "[\n  1,\n  2,\n  3\n]");
+    }
+
+    #[test]
+    fn db_error_renders_message_with_detail_and_hint() {
+        assert_eq!(
+            super::format_db_error("permission denied for schema public", None, None),
+            "permission denied for schema public"
+        );
+        assert_eq!(
+            super::format_db_error("insert violates foreign key", Some("Key (id)=(1)"), None),
+            "insert violates foreign key (Key (id)=(1))"
+        );
+        assert_eq!(
+            super::format_db_error(
+                "column does not exist",
+                None,
+                Some("Perhaps you meant \"b\"")
+            ),
+            "column does not exist. Hint: Perhaps you meant \"b\""
+        );
+    }
+
+    #[test]
+    fn non_db_error_walks_the_source_chain() {
+        #[derive(Debug)]
+        struct Layer(&'static str, Option<Box<Layer>>);
+        impl std::fmt::Display for Layer {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.0)
+            }
+        }
+        impl std::error::Error for Layer {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                self.1
+                    .as_ref()
+                    .map(|c| c.as_ref() as &(dyn std::error::Error + 'static))
+            }
+        }
+
+        // The pinned rust-postgres build renders only the kind, so everything
+        // actionable is in the causes: they must all reach the message.
+        let err = Layer(
+            "error connecting to server",
+            Some(Box::new(Layer(
+                "tcp connect error",
+                Some(Box::new(Layer("timed out", None))),
+            ))),
+        );
+        assert_eq!(
+            super::error_source_chain(&err),
+            "error connecting to server: tcp connect error: timed out"
+        );
     }
 }

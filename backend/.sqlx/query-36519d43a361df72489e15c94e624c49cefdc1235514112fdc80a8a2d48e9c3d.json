@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                ctr.test_script_path as \"test_script_path!\",\n                ctr.tested_item_path as \"tested_item_path!\",\n                req.path as \"requested_path!\",\n                j.id as \"job_id?\",\n                COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as \"status?\",\n                j.created_at as \"started_at?\"\n            FROM ci_test_reference ctr\n            CROSS JOIN unnest($3::text[]) AS req(path)\n            LEFT JOIN LATERAL (\n                SELECT id, created_at FROM v2_job\n                WHERE workspace_id = $1\n                  AND runnable_path = ctr.test_script_path\n                  AND trigger_kind = 'ci_test'\n                  AND trigger = $2 || '/' || req.path\n                ORDER BY created_at DESC\n                LIMIT 1\n            ) j ON true\n            LEFT JOIN v2_job_completed jc ON jc.id = j.id\n            WHERE ctr.workspace_id = $1\n              AND ctr.tested_item_kind = $2\n              AND ctr.has_wildcard",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "test_script_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "tested_item_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "requested_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "job_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "status?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "started_at?",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "36519d43a361df72489e15c94e624c49cefdc1235514112fdc80a8a2d48e9c3d"
+}

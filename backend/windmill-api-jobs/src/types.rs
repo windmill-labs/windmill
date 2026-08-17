@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    jobs::{CompletedJob, JobKind, JobTriggerKind, QueuedJob},
+    jobs::{CompletedJob, JobKind, JobStatus, JobTriggerKind, QueuedJob},
     scripts::{ScriptHash, ScriptLang},
     utils::now_from_db,
     DB,
@@ -122,6 +122,7 @@ pub struct ListQueueQuery {
     pub trigger_path: Option<NegatedListFilter<String>>,
     pub include_args: Option<bool>,
     pub broad_filter: Option<String>,
+    pub excludes_entrypoint_override: Option<bool>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -141,12 +142,17 @@ pub struct ListCompletedQuery {
     pub created_after_queue: Option<chrono::DateTime<chrono::Utc>>,
     pub completed_after: Option<chrono::DateTime<chrono::Utc>>,
     pub completed_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub status: Option<JobStatus>,
     pub success: Option<bool>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<NegatedListFilter<String>>,
     pub is_skipped: Option<bool>,
+    // Whether the failure has been marked handled. Completed-jobs only: a queued job
+    // has no resolution, which is why `resolved = false` must not reach the queue side
+    // of the runs-list union.
+    pub resolved: Option<bool>,
     pub is_flow_step: Option<bool>,
     pub suspended: Option<bool>,
     pub schedule_path: Option<String>,
@@ -167,6 +173,7 @@ pub struct ListCompletedQuery {
     pub trigger_path: Option<NegatedListFilter<String>>,
     pub include_args: Option<bool>,
     pub broad_filter: Option<String>,
+    pub excludes_entrypoint_override: Option<bool>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -202,6 +209,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             trigger_path: lcq.trigger_path,
             include_args: lcq.include_args,
             broad_filter: lcq.broad_filter,
+            excludes_entrypoint_override: lcq.excludes_entrypoint_override,
         }
     }
 }
@@ -252,7 +260,7 @@ pub struct ListableCompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<serde_json::Value>,
 }
@@ -293,12 +301,14 @@ pub struct UnifiedJob {
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
     pub priority: Option<i16>,
-    pub labels: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
     pub self_wait_time_ms: Option<i64>,
     pub aggregate_wait_time_ms: Option<i64>,
     pub preprocessed: Option<bool>,
     pub worker: Option<String>,
     pub runnable_settings_handle: Option<i64>,
+    pub is_retry: Option<bool>,
+    pub resolved: Option<bool>,
 }
 
 const CJ_FIELDS: &[&str] = &[
@@ -334,12 +344,14 @@ const CJ_FIELDS: &[&str] = &[
     "null as concurrent_limit",
     "null as concurrency_time_window_s",
     "v2_job.priority",
-    "v2_job_completed.result->'wm_labels' as labels",
+    "v2_job.labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
     "v2_job_completed.worker",
     "null as runnable_settings_handle",
+    "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
+    "EXISTS(SELECT 1 FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved",
 ];
 
 const QJ_FIELDS: &[&str] = &[
@@ -375,12 +387,15 @@ const QJ_FIELDS: &[&str] = &[
     "v2_job.concurrent_limit",
     "v2_job.concurrency_time_window_s",
     "v2_job.priority",
-    "null as labels",
+    "v2_job.labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
     "v2_job_queue.worker",
     "v2_job_queue.runnable_settings_handle",
+    "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
+    // A job still in the queue has not failed, so it can never be resolved.
+    "false as resolved",
 ];
 
 impl UnifiedJob {
@@ -434,6 +449,13 @@ impl From<UnifiedJob> for Job {
                     priority: uj.priority,
                     labels: uj.labels,
                     preprocessed: uj.preprocessed,
+                    is_retry: uj.is_retry,
+                    resolved: uj.resolved,
+                    resolved_by: None,
+                    resolved_at: None,
+                    resolution_note: None,
+                    resolved_automatically: None,
+                    trigger_kind: None,
                 },
             )),
             "QueuedJob" => Job::QueuedJob(JobExtended::new(
@@ -482,6 +504,9 @@ impl From<UnifiedJob> for Job {
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
                     runnable_settings_handle: uj.runnable_settings_handle,
+                    labels: uj.labels,
+                    is_retry: uj.is_retry,
+                    trigger_kind: None,
                 },
             )),
             t => panic!("job type {} not valid", t),
@@ -676,6 +701,7 @@ mod tests {
             created_after_queue: None,
             completed_after: None,
             completed_before: None,
+            status: None,
             success: None,
             running: Some(true),
             parent_job: None,
@@ -685,6 +711,7 @@ mod tests {
                 "flow".to_string(),
             ])),
             is_skipped: None,
+            resolved: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,
@@ -703,6 +730,7 @@ mod tests {
             trigger_path: None,
             include_args: None,
             broad_filter: None,
+            excludes_entrypoint_override: None,
         };
 
         let lqq: ListQueueQuery = lcq.into();
@@ -747,12 +775,14 @@ mod tests {
             created_after_queue: Some(specific_time),
             completed_after: None,
             completed_before: None,
+            status: None,
             success: None,
             running: None,
             parent_job: None,
             order_desc: None,
             job_kinds: None,
             is_skipped: None,
+            resolved: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,
@@ -771,6 +801,7 @@ mod tests {
             trigger_path: None,
             include_args: None,
             broad_filter: None,
+            excludes_entrypoint_override: None,
         };
 
         let lqq: ListQueueQuery = lcq.into();

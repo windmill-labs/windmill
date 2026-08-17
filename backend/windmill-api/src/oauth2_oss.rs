@@ -53,6 +53,20 @@ pub fn workspaced_service() -> Router {
     Router::new()
 }
 
+#[cfg(not(feature = "private"))]
+pub async fn workspace_connect_slack() -> Result<http::status::StatusCode, error::Error> {
+    Err(error::Error::BadRequest(
+        "Slack only available on enterprise".to_string(),
+    ))
+}
+
+#[cfg(not(feature = "private"))]
+pub async fn connect_slack_instance() -> Result<http::status::StatusCode, error::Error> {
+    Err(error::Error::BadRequest(
+        "Slack only available on enterprise".to_string(),
+    ))
+}
+
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 pub use windmill_oauth::{AllClients, BasicClientsMap, ClientWithScopes};
 
@@ -92,18 +106,19 @@ pub struct TokenResponse {
 struct Logins {
     oauth: Vec<String>,
     saml: Option<String>,
+    auto_login: Option<String>,
 }
 #[cfg(not(feature = "private"))]
 async fn list_logins() -> error::JsonResult<Logins> {
     // Implementation is not open source
-    return Ok(Json(Logins { oauth: vec![], saml: None }));
+    return Ok(Json(Logins { oauth: vec![], saml: None, auto_login: None }));
 }
 
 #[allow(unused)]
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 async fn list_connects() -> error::JsonResult<Vec<String>> {
     Ok(Json(
-        (&OAUTH_CLIENTS.read().await.connects)
+        (&OAUTH_CLIENTS.load().connects)
             .keys()
             .map(|x| x.to_owned())
             .collect_vec(),
@@ -159,13 +174,24 @@ pub async fn check_nb_of_user(db: &DB) -> error::Result<()> {
 #[derive(Clone, Debug)]
 #[cfg(not(feature = "private"))]
 pub struct SlackVerifier {
-    _mac: HmacSha256,
+    mac: HmacSha256,
 }
 #[cfg(not(feature = "private"))]
 impl SlackVerifier {
     pub fn new<S: AsRef<[u8]>>(secret: S) -> anyhow::Result<SlackVerifier> {
         HmacSha256::new_from_slice(secret.as_ref())
-            .map(|mac| SlackVerifier { _mac: mac })
+            .map(|mac| SlackVerifier { mac })
             .map_err(|_| anyhow::anyhow!("invalid secret"))
+    }
+
+    pub fn verify(&self, ts: &str, body: &str, exp_sig: &str) -> anyhow::Result<()> {
+        let basestring = format!("v0:{}:{}", ts, body);
+        let mut mac = self.mac.clone();
+        mac.update(basestring.as_bytes());
+        let sig = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
+        if sig != exp_sig {
+            Err(anyhow::anyhow!("signature mismatch"))?;
+        }
+        Ok(())
     }
 }

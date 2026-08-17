@@ -1,0 +1,738 @@
+use crate::{
+    ai_providers::AIProvider,
+    ai_types::OpenAIToolCall,
+    image_handler::{prepare_messages_for_api, s3_object_to_content_part},
+    proxy::{build_openai_compatible_proxy_request, ProxyBuildArgs, ProxyRequest},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
+    sse::{OpenAIResponsesSSEParser, SSEParser},
+    types::*,
+    utils::{collect_system_prompt, extract_text_content},
+};
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+use windmill_common::{client::AuthedClient, error::Error};
+
+// Responses API structures
+#[derive(Deserialize)]
+#[allow(dead_code)]
+pub struct ResponsesMessage {
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<OpenAIContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OpenAIToolCall>>,
+}
+
+/// URL citation annotation from OpenAI API response (includes type field for deserialization)
+#[derive(Deserialize, Clone, Debug)]
+#[allow(dead_code)]
+pub struct OpenAIUrlCitation {
+    pub r#type: String,
+    pub start_index: usize,
+    pub end_index: usize,
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+impl From<OpenAIUrlCitation> for UrlCitation {
+    fn from(c: OpenAIUrlCitation) -> Self {
+        UrlCitation {
+            start_index: c.start_index,
+            end_index: c.end_index,
+            url: c.url,
+            title: c.title,
+        }
+    }
+}
+
+/// Output text content item (used in "message" type outputs)
+#[derive(Deserialize, Clone, Debug)]
+#[allow(dead_code)]
+pub struct OutputTextContent {
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub annotations: Vec<OpenAIUrlCitation>,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+pub struct ResponsesOutput {
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>, // Base64 encoded image for image_generation_call
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<ResponsesMessage>, // Message for message_call
+    // Fields for "message" type output (used with web search)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<Vec<OutputTextContent>>,
+    // Fields for "function_call" type output (direct tool call from Responses API)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ResponsesApiResponse {
+    pub output: Vec<ResponsesOutput>,
+}
+
+#[derive(Serialize)]
+#[allow(dead_code)]
+pub struct ImageGenerationTool {
+    pub r#type: String,
+    pub quality: Option<String>,
+    pub background: Option<String>,
+}
+
+// Input content for image generation and user/system messages - supports both text and images
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ImageGenerationContent {
+    #[serde(rename = "input_text")]
+    InputText { text: String },
+    #[serde(rename = "input_image")]
+    InputImage { image_url: String },
+    #[serde(rename = "input_file")]
+    InputFile { filename: String, file_data: String },
+}
+
+/// Output content for assistant messages in Responses API
+/// OpenAI requires assistant content to use "output_text" type, not "input_text"
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AssistantContent {
+    #[serde(rename = "output_text")]
+    OutputText { text: String },
+}
+
+/// Input items for OpenAI Responses API - supports messages, function calls, and function outputs
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ResponsesApiInputItem {
+    /// User/system message with input content
+    #[serde(rename = "message")]
+    InputMessage { role: String, content: Vec<ImageGenerationContent> },
+    /// Assistant message with output content (uses output_text instead of input_text)
+    #[serde(rename = "message")]
+    OutputMessage { role: String, content: Vec<AssistantContent> },
+    /// Function call from model (must echo back from previous response)
+    FunctionCall { call_id: String, name: String, arguments: String },
+    /// Tool result output linked by call_id
+    FunctionCallOutput { call_id: String, output: String },
+}
+
+#[derive(Serialize)]
+#[allow(dead_code)]
+pub struct ImageGenerationMessage {
+    pub role: String,
+    pub content: Vec<ImageGenerationContent>,
+}
+
+/// Tool definition for OpenAI Responses API (flat structure, not nested like Chat Completions)
+#[derive(Serialize, Debug)]
+pub struct ResponsesApiFunctionTool {
+    pub r#type: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub parameters: Box<RawValue>,
+}
+
+impl From<&ToolDef> for ResponsesApiFunctionTool {
+    fn from(tool: &ToolDef) -> Self {
+        ResponsesApiFunctionTool {
+            r#type: tool.r#type.clone(),
+            name: tool.function.name.clone(),
+            description: tool.function.description.clone(),
+            parameters: tool.function.parameters.clone(),
+        }
+    }
+}
+
+/// Built-in tool for OpenAI Responses API (web_search, image_generation, etc.)
+#[derive(Serialize, Debug)]
+pub struct ResponsesApiBuiltInTool {
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
+}
+
+/// Tool types for OpenAI Responses API
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub enum ResponsesApiTool {
+    Function(ResponsesApiFunctionTool),
+    BuiltIn(ResponsesApiBuiltInTool),
+}
+
+/// Text format configuration for structured output in Responses API
+#[derive(Serialize)]
+pub struct ResponsesApiTextFormatConfig {
+    pub r#type: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
+    pub schema: serde_json::Value,
+}
+
+/// Text configuration for Responses API (used for structured output)
+#[derive(Serialize)]
+pub struct ResponsesApiTextFormat {
+    pub format: ResponsesApiTextFormatConfig,
+}
+
+/// Reasoning config for the Responses API (`reasoning: { effort }`).
+/// The summary is intentionally not requested, mirroring the copilot chat: OpenAI
+/// gates reasoning summaries behind organization verification, so asking for one
+/// would fail the request for unverified orgs.
+#[derive(Serialize)]
+pub struct ResponsesApiReasoning {
+    pub effort: String,
+}
+
+#[derive(Serialize)]
+pub struct ResponsesApiRequest<'a> {
+    pub model: &'a str,
+    pub input: Vec<ResponsesApiInputItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    pub tools: Vec<ResponsesApiTool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ResponsesApiReasoning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<ResponsesApiTextFormat>,
+    /// From `gpt-5.6` on, the prefix hash alone no longer reliably matches a cached
+    /// prefix: the key is combined with it to route the request. Omitting it costs the
+    /// read discount and, since these models bill cache writes, pays to re-write the
+    /// prefix on every miss.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<&'a str>,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "lowercase")]
+#[allow(dead_code)]
+pub enum ToolChoice {
+    Auto,
+    Required,
+}
+
+pub struct OpenAIQueryBuilder {
+    provider_kind: AIProvider,
+}
+
+/// Convert OpenAIContent to ImageGenerationContent array
+fn convert_content_to_responses_format(
+    content: &Option<OpenAIContent>,
+) -> Vec<ImageGenerationContent> {
+    match content {
+        Some(OpenAIContent::Text(text)) => {
+            vec![ImageGenerationContent::InputText { text: text.clone() }]
+        }
+        Some(OpenAIContent::Parts(parts)) => {
+            parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Text { text } => {
+                        Some(ImageGenerationContent::InputText { text: text.clone() })
+                    }
+                    ContentPart::ImageUrl { image_url } => {
+                        Some(ImageGenerationContent::InputImage {
+                            image_url: image_url.url.clone(),
+                        })
+                    }
+                    ContentPart::File { file } => Some(ImageGenerationContent::InputFile {
+                        filename: file.filename.clone(),
+                        file_data: file.file_data.clone(),
+                    }),
+                    // S3 objects should have been resolved earlier, but handle gracefully
+                    ContentPart::S3Object { .. } => None,
+                })
+                .collect()
+        }
+        None => Vec::new(),
+    }
+}
+
+/// Extract text content as a string from Option<OpenAIContent>
+fn extract_text_content_opt(content: &Option<OpenAIContent>) -> String {
+    match content {
+        Some(c) => extract_text_content(c),
+        None => String::new(),
+    }
+}
+
+/// Convert OpenAIContent to AssistantContent array (uses output_text for assistant messages)
+fn convert_content_to_assistant_format(content: &Option<OpenAIContent>) -> Vec<AssistantContent> {
+    match content {
+        Some(OpenAIContent::Text(text)) => {
+            vec![AssistantContent::OutputText { text: text.clone() }]
+        }
+        Some(OpenAIContent::Parts(parts)) => parts
+            .iter()
+            .filter_map(|part| match part {
+                ContentPart::Text { text } => {
+                    Some(AssistantContent::OutputText { text: text.clone() })
+                }
+                // Images not supported in assistant output
+                _ => None,
+            })
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+/// Convert OpenAIMessage array to Responses API input items
+/// Following the same pattern as frontend openai-responses.ts:convertMessagesToResponsesInput
+fn convert_messages_to_responses_input(messages: &[OpenAIMessage]) -> Vec<ResponsesApiInputItem> {
+    let mut input = Vec::new();
+
+    for m in messages {
+        match m.role.as_str() {
+            "system" | "user" => {
+                // User/system messages use input_text content type
+                let content = convert_content_to_responses_format(&m.content);
+                if !content.is_empty() {
+                    input.push(ResponsesApiInputItem::InputMessage {
+                        role: m.role.clone(),
+                        content,
+                    });
+                }
+            }
+            "assistant" => {
+                // Assistant messages use output_text content type
+                if m.content.is_some() {
+                    let content = convert_content_to_assistant_format(&m.content);
+                    if !content.is_empty() {
+                        input.push(ResponsesApiInputItem::OutputMessage {
+                            role: "assistant".to_string(),
+                            content,
+                        });
+                    }
+                }
+                // Echo back function calls so model knows what it previously requested
+                if let Some(ref tool_calls) = m.tool_calls {
+                    for tc in tool_calls {
+                        // Skip tool calls with empty names
+                        if tc.function.name.is_empty() {
+                            continue;
+                        }
+                        input.push(ResponsesApiInputItem::FunctionCall {
+                            call_id: tc.id.clone(),
+                            name: tc.function.name.clone(),
+                            arguments: tc.function.arguments.clone(),
+                        });
+                    }
+                }
+            }
+            "tool" => {
+                // Tool result - linked by tool_call_id
+                if let Some(ref call_id) = m.tool_call_id {
+                    let output = extract_text_content_opt(&m.content);
+                    input.push(ResponsesApiInputItem::FunctionCallOutput {
+                        call_id: call_id.clone(),
+                        output,
+                    });
+                }
+            }
+            _ => {
+                // Unknown role, skip
+            }
+        }
+    }
+
+    input
+}
+
+impl OpenAIQueryBuilder {
+    pub fn new(provider_kind: AIProvider) -> Self {
+        Self { provider_kind }
+    }
+
+    async fn build_text_request(
+        &self,
+        args: &BuildRequestArgs<'_>,
+        client: &AuthedClient,
+        workspace_id: &str,
+    ) -> Result<String, Error> {
+        // First prepare messages (handles S3 object to base64 conversion)
+        let prepared_messages =
+            prepare_messages_for_api(args.messages, client, workspace_id).await?;
+
+        // Only the system prompt leading the conversation moves to `instructions`; echoing it in
+        // `input` as well would send it twice. This API accepts system messages anywhere in
+        // `input`, so any later one stays where the caller put it, position and content intact.
+        let leading_system = prepared_messages
+            .iter()
+            .take_while(|message| message.role == "system")
+            .count();
+        let instructions =
+            collect_system_prompt(&prepared_messages[..leading_system], args.system_prompt);
+
+        // Convert full message history to Responses API input format
+        // (following frontend pattern from openai-responses.ts)
+        let input_items = convert_messages_to_responses_input(&prepared_messages[leading_system..]);
+
+        // Build tools array using typed structs
+        let mut tools: Vec<ResponsesApiTool> = Vec::new();
+
+        // Add websearch tool if enabled
+        if args.has_websearch {
+            tools.push(ResponsesApiTool::BuiltIn(ResponsesApiBuiltInTool {
+                r#type: "web_search".to_string(),
+                quality: None,
+            }));
+        }
+
+        // Convert ToolDef to ResponsesApiFunctionTool (flat structure for Responses API)
+        if let Some(tool_defs) = args.tools {
+            for tool in tool_defs {
+                tools.push(ResponsesApiTool::Function(ResponsesApiFunctionTool::from(
+                    tool,
+                )));
+            }
+        }
+
+        // Build text format for structured output if output_schema is provided
+        let text = args
+            .output_schema
+            .and_then(|schema| schema.properties.as_ref())
+            .filter(|props| !props.is_empty())
+            .map(|_| {
+                let mut strict_schema = args.output_schema.unwrap().clone();
+                strict_schema.make_strict();
+                ResponsesApiTextFormat {
+                    format: ResponsesApiTextFormatConfig {
+                        r#type: "json_schema".to_string(),
+                        name: "structured_output".to_string(),
+                        strict: Some(true),
+                        schema: serde_json::to_value(&strict_schema).unwrap_or_default(),
+                    },
+                }
+            });
+
+        let request = ResponsesApiRequest {
+            model: args.model,
+            input: input_items,
+            instructions,
+            tools,
+            stream: Some(true),
+            temperature: args.temperature,
+            reasoning: args
+                .reasoning_effort
+                .map(|effort| ResponsesApiReasoning { effort: effort.to_string() }),
+            max_output_tokens: args.max_tokens,
+            text,
+            prompt_cache_key: args.prompt_cache_key,
+        };
+
+        serde_json::to_string(&request)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
+    }
+
+    async fn build_image_request(
+        &self,
+        args: &BuildRequestArgs<'_>,
+        client: &AuthedClient,
+        workspace_id: &str,
+    ) -> Result<String, Error> {
+        // Build content array with text and optional image
+        let mut content =
+            vec![ImageGenerationContent::InputText { text: args.user_message.to_string() }];
+
+        // Add attachments (images, PDFs, etc.) if provided
+        if let Some(attachments) = args.attachments {
+            for attachment in attachments.iter() {
+                if !attachment.s3.is_empty() {
+                    let part = s3_object_to_content_part(attachment, client, workspace_id).await?;
+                    match part {
+                        ContentPart::File { file } => {
+                            content.push(ImageGenerationContent::InputFile {
+                                filename: file.filename,
+                                file_data: file.file_data,
+                            });
+                        }
+                        ContentPart::ImageUrl { image_url } => {
+                            content.push(ImageGenerationContent::InputImage {
+                                image_url: image_url.url,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Build the request with image generation tool
+        let tools: Vec<ResponsesApiTool> =
+            vec![ResponsesApiTool::BuiltIn(ResponsesApiBuiltInTool {
+                r#type: "image_generation".to_string(),
+                quality: Some("low".to_string()),
+            })];
+
+        let request = ResponsesApiRequest {
+            model: args.model,
+            input: vec![ResponsesApiInputItem::InputMessage { role: "user".to_string(), content }],
+            instructions: args.system_prompt.map(str::to_string),
+            tools,
+            stream: None, // Image generation doesn't use streaming
+            temperature: args.temperature,
+            reasoning: None, // Image generation models don't take a reasoning effort
+            max_output_tokens: args.max_tokens,
+            text: None, // No structured output for image generation
+            // A one-shot image prompt has no reusable prefix to route to a cache
+            prompt_cache_key: None,
+        };
+
+        serde_json::to_string(&request)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
+    }
+}
+
+#[async_trait]
+impl QueryBuilder for OpenAIQueryBuilder {
+    fn supports_tools_with_output_type(&self, _output_type: &OutputType) -> bool {
+        // OpenAI supports tools for both text and image output
+        true
+    }
+
+    fn build_proxy_request(&self, args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest, Error> {
+        build_openai_compatible_proxy_request(args)
+    }
+
+    fn supports_chat_completions_fallback(&self, base_url: &str) -> bool {
+        self.provider_kind.is_azure(base_url)
+    }
+
+    async fn parse_streaming_response(
+        &self,
+        response: reqwest::Response,
+        stream_event_sink: Box<dyn StreamEventSink>,
+    ) -> Result<ParsedResponse, Error> {
+        let mut parser = OpenAIResponsesSSEParser::new(stream_event_sink);
+        parser.parse_events(response).await?;
+
+        // Convert OpenAI Responses usage to TokenUsage
+        let usage = parser.usage.map(|u| u.to_token_usage());
+
+        Ok(ParsedResponse::Text {
+            content: if parser.accumulated_content.is_empty() {
+                None
+            } else {
+                Some(parser.accumulated_content)
+            },
+            tool_calls: parser.accumulated_tool_calls.into_values().collect(),
+            events_str: Some(parser.events_str),
+            annotations: parser.annotations,
+            used_websearch: parser.used_websearch,
+            usage,
+        })
+    }
+
+    async fn build_request(
+        &self,
+        args: &BuildRequestArgs<'_>,
+        client: &AuthedClient,
+        workspace_id: &str,
+    ) -> Result<String, Error> {
+        match args.output_type {
+            OutputType::Text => self.build_text_request(args, client, workspace_id).await,
+            OutputType::Image => self.build_image_request(args, client, workspace_id).await,
+        }
+    }
+
+    async fn parse_image_response(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<ParsedResponse, Error> {
+        let responses_response: ResponsesApiResponse = response.json().await.map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to parse OpenAI responses API response: {}",
+                e
+            ))
+        })?;
+
+        for output in responses_response.output.iter() {
+            match output.r#type.as_str() {
+                "image_generation_call" => {
+                    if output.status.as_deref() == Some("completed") {
+                        if let Some(ref base64_image) = output.result {
+                            return Ok(ParsedResponse::Image { base64_data: base64_image.clone() });
+                        }
+                    }
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+
+        Err(Error::internal_err(
+            "No completed output received from OpenAI Responses API".to_string(),
+        ))
+    }
+
+    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
+        let base_url = base_url.trim_end_matches('/');
+        if self.provider_kind.is_azure(base_url) {
+            AIProvider::build_azure_openai_url(base_url, "responses")
+        } else {
+            format!("{}/responses", base_url)
+        }
+    }
+
+    fn get_auth_headers(
+        &self,
+        api_key: &str,
+        base_url: &str,
+        _output_type: &OutputType,
+    ) -> Vec<(&'static str, String)> {
+        if self.provider_kind.is_azure(base_url) {
+            vec![("api-key", api_key.to_string())]
+        } else {
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::query_builder::QueryBuilder;
+
+    const SYSTEM_PROMPT: &str = "You are a helpful assistant";
+    const PROMPT_CACHE_KEY: &str = "test-workspace:f/agent:step_1";
+
+    fn client() -> AuthedClient {
+        AuthedClient::new(
+            "http://localhost:8000".to_string(),
+            "test-workspace".to_string(),
+            "token".to_string(),
+            None,
+        )
+    }
+
+    fn message(role: &str, text: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(text.to_string())),
+            ..Default::default()
+        }
+    }
+
+    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+        let args = BuildRequestArgs {
+            messages,
+            tools: None,
+            model: "gpt-5",
+            temperature: None,
+            reasoning_effort: None,
+            max_tokens: None,
+            output_schema: None,
+            output_type: &OutputType::Text,
+            system_prompt,
+            user_message: "hello",
+            attachments: None,
+            has_websearch: false,
+            prompt_cache_key: Some(PROMPT_CACHE_KEY),
+        };
+
+        OpenAIQueryBuilder::new(AIProvider::OpenAI)
+            .build_request(&args, &client(), "test-workspace")
+            .await
+            .unwrap()
+    }
+
+    /// The worker prepends the system prompt as a system message *and* passes it as
+    /// `system_prompt`; the request must still carry it exactly once.
+    #[tokio::test]
+    async fn sends_system_prompt_only_in_instructions() {
+        let messages = vec![message("system", SYSTEM_PROMPT), message("user", "hi")];
+
+        let body = build_text_body(&messages, Some(SYSTEM_PROMPT)).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["instructions"], SYSTEM_PROMPT);
+        assert_eq!(body.matches(SYSTEM_PROMPT).count(), 1);
+
+        let input = request["input"].as_array().unwrap();
+        assert!(input.iter().all(|item| item["role"] != "system"));
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["role"], "user");
+    }
+
+    /// This API takes system messages anywhere in `input`, so a late steering message keeps
+    /// its position instead of being hoisted into `instructions`.
+    #[tokio::test]
+    async fn keeps_a_mid_conversation_system_message_in_place() {
+        let messages = vec![
+            message("system", SYSTEM_PROMPT),
+            message("user", "hi"),
+            message("system", "answer in one word"),
+            message("user", "and now?"),
+        ];
+
+        let body = build_text_body(&messages, Some(SYSTEM_PROMPT)).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["instructions"], SYSTEM_PROMPT);
+        assert_eq!(body.matches(SYSTEM_PROMPT).count(), 1);
+
+        let input = request["input"].as_array().unwrap();
+        assert_eq!(input.len(), 3);
+        assert_eq!(input[1]["role"], "system");
+        assert_eq!(input[1]["content"][0]["text"], "answer in one word");
+    }
+
+    /// Manual-memory conversations supply their own system messages without a
+    /// `system_prompt` arg: those must still reach the model.
+    #[tokio::test]
+    async fn lifts_manual_system_messages_into_instructions() {
+        let messages = vec![message("system", "be terse"), message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["instructions"], "be terse");
+        assert_eq!(request["input"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn omits_instructions_without_a_system_prompt() {
+        let messages = vec![message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert!(request.get("instructions").is_none());
+    }
+
+    /// `gpt-5.6` and later only match a cached prefix reliably when the request carries
+    /// the routing key, so dropping it from the body silently forfeits the cache.
+    #[tokio::test]
+    async fn sends_the_prompt_cache_key() {
+        let messages = vec![message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["prompt_cache_key"], PROMPT_CACHE_KEY);
+    }
+}

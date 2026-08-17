@@ -375,7 +375,7 @@
 		{/if}
 
 		{#if displayContext}
-			{#if $inputMatches?.some((match) => match.word === 'variable')}
+			{#if !$inputMatches?.length || $inputMatches?.some((match) => match.word === 'variable')}
 				<span class={categoryTitleClasses}>Variables</span>
 				<div class={categoryContentClasses}>
 					{#if displayVariable}
@@ -412,7 +412,7 @@
 					{/if}
 				</div>
 			{/if}
-			{#if $inputMatches?.some((match) => match.word === 'resource')}
+			{#if !$inputMatches?.length || $inputMatches?.some((match) => match.word === 'resource')}
 				<span class={categoryTitleClasses}>Resources</span>
 				<div class={categoryContentClasses}>
 					{#if displayResources}

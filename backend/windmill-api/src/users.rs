@@ -11,17 +11,17 @@ pub use windmill_api_users::users::*;
 
 use std::sync::Arc;
 
-use crate::db::ApiAuthed;
+use crate::db::{ApiAuthed, OptJobAuthed};
 use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
 use argon2::Argon2;
 use axum::{
-    extract::{Extension, Path},
-    routing::post,
+    extract::{Extension, Path, Query},
+    routing::{get, post},
     Json, Router,
 };
 use hyper::StatusCode;
 use serde::Deserialize;
-use windmill_api_auth::require_super_admin;
+use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
@@ -31,6 +31,19 @@ use windmill_common::{
     DB,
 };
 
+/// Wraps the subcrate's workspaced_service with offboarding routes.
+pub fn workspaced_service() -> Router {
+    windmill_api_users::users::workspaced_service()
+        .route(
+            "/offboard_preview/{user}",
+            get(crate::offboarding::offboard_preview),
+        )
+        .route(
+            "/offboard/{user}",
+            post(crate::offboarding::offboard_workspace_user),
+        )
+}
+
 /// Wraps the subcrate's global_service with routes that depend on windmill-api internals.
 pub fn global_service() -> Router {
     windmill_api_users::users::global_service()
@@ -39,6 +52,15 @@ pub fn global_service() -> Router {
         .route("/create", post(create_user))
         .route("/rename/{user}", post(rename_user))
         .route("/onboarding", post(submit_onboarding_data))
+        .route("/ext_jwt_tokens", get(list_ext_jwt_tokens))
+        .route(
+            "/offboard_preview/{user}",
+            get(crate::offboarding::global_offboard_preview),
+        )
+        .route(
+            "/offboard/{user}",
+            post(crate::offboarding::offboard_global_user),
+        )
 }
 
 /// Wraps the subcrate's make_unauthed_service with routes that depend on windmill-api internals.
@@ -49,11 +71,13 @@ pub fn make_unauthed_service() -> Router {
 
 async fn create_user(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<windmill_common::webhook::WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
 }
 
@@ -65,12 +89,64 @@ async fn submit_onboarding_data(
     crate::users_oss::submit_onboarding_data(authed, Extension(db), Json(data)).await
 }
 
+#[derive(serde::Serialize)]
+pub struct ExternalJwtToken {
+    pub jwt_hash: i64,
+    pub email: String,
+    pub username: String,
+    pub is_admin: bool,
+    pub is_operator: bool,
+    pub workspace_id: Option<String>,
+    pub label: Option<String>,
+    pub scopes: Option<Vec<String>>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(serde::Deserialize)]
+struct ListExtJwtTokensQuery {
+    page: Option<usize>,
+    per_page: Option<usize>,
+    #[serde(default)]
+    active_only: bool,
+}
+
+async fn list_ext_jwt_tokens(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<ListExtJwtTokensQuery>,
+) -> Result<Json<Vec<ExternalJwtToken>>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let (per_page, offset) = windmill_common::utils::paginate(windmill_common::utils::Pagination {
+        page: query.page,
+        per_page: query.per_page,
+    });
+
+    let rows = sqlx::query_as!(
+        ExternalJwtToken,
+        "SELECT jwt_hash, email, username, is_admin, is_operator, workspace_id, label, scopes, last_used_at
+         FROM unique_ext_jwt_token
+         WHERE NOT $3 OR last_used_at > NOW() - INTERVAL '30 days'
+         ORDER BY last_used_at DESC
+         LIMIT $1 OFFSET $2",
+        per_page as i64,
+        offset as i64,
+        query.active_only,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let email = authed.email.clone();
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
@@ -80,9 +156,11 @@ async fn set_password_of_user(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Path(email): Path<String>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     crate::users_oss::set_password(db, argon2, authed, &email, ep).await
 }
 
@@ -93,11 +171,13 @@ struct RenameUser {
 
 async fn rename_user(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Path(user_email): Path<String>,
     Extension(db): Extension<DB>,
     Json(ru): Json<RenameUser>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let mut tx = db.begin().await?;
 
@@ -294,13 +374,13 @@ async fn update_username_in_workpsace<'c>(
     let old_prefix = format!("u/{}/", old_username);
     let new_prefix = format!("u/{}/", new_username);
 
-    // Fetch all Vault-stored secret variables under this user's path
+    // Fetch all externally-stored secret variables under this user's path
     let vault_secrets: Vec<(String, String)> = sqlx::query!(
         r#"SELECT path, value FROM variable
            WHERE path LIKE ('u/' || $1 || '/%')
            AND workspace_id = $2
            AND is_secret = true
-           AND value LIKE '$vault:%'"#,
+           AND (value LIKE '$vault:%' OR value LIKE '$azure_kv:%')"#,
         old_username,
         w_id
     )
@@ -382,11 +462,25 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
+    // Canonicalised through `username_to_permissioned_as`, not `'u/' || name`: an
+    // email-shaped username is stored bare, so the prefixed form would miss those rows and
+    // leave them naming a user that no longer exists.
+    let old_principal = windmill_common::users::username_to_permissioned_as(old_username);
+    let new_principal = windmill_common::users::username_to_permissioned_as(new_username);
+    sqlx::query!(
+        "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        &new_principal,
+        &old_principal,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- flows ----
     sqlx::query!(
         r#"INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
-        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
+        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
             FROM flow
             WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
@@ -412,13 +506,13 @@ async fn update_username_in_workpsace<'c>(
     ).execute(&mut **tx)
     .await?;
 
-    sqlx::query!(
-        r#"UPDATE workspace_runnable_dependencies SET app_path = REGEXP_REPLACE(app_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE app_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
-        new_username,
-        old_username,
-        w_id
-    ).execute(&mut **tx)
-    .await?;
+    // NB: workspace_runnable_dependencies.app_path is intentionally NOT rewritten here.
+    // Its FK to app(path, workspace_id) is ON UPDATE CASCADE, so the `UPDATE app SET path`
+    // below propagates the new path automatically. Rewriting it manually here (before the
+    // app row is renamed) points the row at a not-yet-existing app path and violates
+    // fk_workspace_runnable_dependencies_app_path. (flow_path above DOES need the manual
+    // rewrite because flows are migrated via INSERT-new + DELETE-old, not UPDATE flow.path,
+    // so the cascade never fires for them.)
 
     sqlx::query!(
         r#"UPDATE workspace_runnable_dependencies SET runnable_path = REGEXP_REPLACE(runnable_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
@@ -463,6 +557,15 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
+    sqlx::query!(
+        "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        &new_principal,
+        &old_principal,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- draft ----
     sqlx::query!(
         r#"UPDATE draft SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
@@ -477,6 +580,18 @@ async fn update_username_in_workpsace<'c>(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['path'], to_jsonb(REGEXP_REPLACE(value->>'path','u/' || $2 || '/(.*)','u/' || $1 || '/\1')))) WHERE value->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    // A draft carries the principal in its value, so a rename must reach it there too —
+    // deploying a draft that still names the old principal would be rejected as a pair naming
+    // somebody who no longer exists. Through the same canonical form as the columns above: a
+    // legacy `group-ops` username is named `g/ops`, which `'u/' || …` would never match.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text))) WHERE value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+        &new_principal,
+        &old_principal,
         w_id
     ).execute(&mut **tx)
     .await?;
@@ -676,6 +791,14 @@ async fn reset_password(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(req): Json<ResetPassword>,
 ) -> Result<Json<PasswordResetResponse>> {
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
 
     // Find the token and verify it's not expired

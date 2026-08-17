@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -17,16 +18,19 @@
 		storeLocalSetting,
 		removeTriggerKindIfUnused
 	} from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
+	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Shield, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -57,17 +61,20 @@
 			deployUiSettings = ALL_DEPLOYABLE
 			return
 		}
-		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
 
 	async function loadTriggers(): Promise<void> {
-		triggers = (await MqttTriggerService.listMqttTriggers({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await MqttTriggerService.listMqttTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'mqtt', $usedTriggerKinds)
 		loading = false
 	}
@@ -98,22 +105,31 @@
 		clearInterval(interval)
 	})
 
-	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<boolean> {
+		let committed = false
 		try {
-			await MqttTriggerService.setMqttTriggerMode({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { mode }
-			})
-			sendUserToast(`${capitalize(mode)} MQTT trigger ${path}`)
+			const ok = await withForkConflictRetry(
+				(force) =>
+					MqttTriggerService.setMqttTriggerMode({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { mode, force }
+					}),
+				'MQTT trigger'
+			)
+			if (ok) {
+				sendUserToast(`${capitalize(mode)} MQTT trigger ${path}`)
+				loadTriggers()
+			}
+			committed = ok
 		} catch (err) {
 			sendUserToast(
 				`Cannot ${mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend'} mqtt trigger: ${err.body}`,
 				true
 			)
-		} finally {
 			loadTriggers()
 		}
+		return committed
 	}
 
 	run(() => {
@@ -122,6 +138,21 @@
 		}
 	})
 	let mqttTriggerEditor: MqttTriggerEditor | undefined = $state()
+
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && triggers.length > 0 && mqttTriggerEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				let path = hash.slice(1)
+				let trigger = triggers.find((t) => t.path === path)
+				if (trigger) {
+					hashHandled = true
+					mqttTriggerEditor?.openEdit(path, trigger.is_flow)
+				}
+			}
+		}
+	})
 
 	let filteredItems: (TriggerM & { marked?: any })[] | undefined = $state([])
 	let items: typeof filteredItems | undefined = $state([])
@@ -207,14 +238,14 @@
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
-			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
-			selectedFilterKind
+			selectedFilterKind,
+			window.location.hash || undefined
 		).then(() => {
 			setQuery(
-				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
-				String(filterUserFolders)
+				String(filterUserFolders),
+				window.location.hash || undefined
 			)
 		})
 	}
@@ -310,11 +341,13 @@
 			<div class="text-center text-sm text-primary mt-2"> No MQTT triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
+					{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_mqtt', path) ?? is_draft}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
-					{@const enabled = mode === 'enabled' || mode === 'suspended'}
+					{@const effectiveMode = draft_only ? 'disabled' : mode}
+					{@const enabled = effectiveMode === 'enabled' || effectiveMode === 'suspended'}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -329,7 +362,7 @@
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-emphasis font-semibold text-xs truncate text-left">
-									{path}
+									{path}{hasDraft ? '*' : ''}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
@@ -338,6 +371,11 @@
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
+								{#if labels?.length}
+									{#each labels as label}
+										<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+									{/each}
+								{/if}
 							</div>
 
 							<div class="w-10">
@@ -378,24 +416,33 @@
 								{/if}
 							</div>
 
-							<TriggerModeToggle
-								onToggleMode={(newMode) => onToggleMode(path, newMode)}
-								triggerMode={mode}
-								includeModalConfig={{
-									triggerPath: path,
-									triggerKind: 'mqtt',
-									runnableConfig: {
-										path: script_path,
-										kind: is_flow ? 'flow' : 'script',
-										retry,
-										errorHandlerPath: error_handler_path,
-										errorHandlerArgs: error_handler_args
-									}
-								}}
-								{canWrite}
-								hideToggleLabels
-								hideDropdown
-							/>
+							<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+								<DraftBadge {draft_only} is_draft={hasDraft} />
+								<TriggerModeToggle
+									disabled={draft_only}
+									title={draft_only
+										? 'Draft only: deploy the trigger to enable it'
+										: hasDraft
+											? 'Enables/disables the deployed trigger; the draft is not affected'
+											: undefined}
+									onToggleMode={(newMode) => onToggleMode(path, newMode)}
+									triggerMode={effectiveMode}
+									includeModalConfig={{
+										triggerPath: path,
+										triggerKind: 'mqtt',
+										runnableConfig: {
+											path: script_path,
+											kind: is_flow ? 'flow' : 'script',
+											retry,
+											errorHandlerPath: error_handler_path,
+											errorHandlerArgs: error_handler_args
+										}
+									}}
+									{canWrite}
+									hideToggleLabels
+									hideDropdown
+								/>
+							</div>
 
 							<div class="flex gap-2 items-center justify-end">
 								<Button
@@ -419,7 +466,7 @@
 												goto(href)
 											}
 										},
-										...(canWrite && mode !== 'suspended'
+										...(canWrite && !draft_only && mode !== 'suspended'
 											? [
 													{
 														displayName: 'Suspend job execution',
@@ -458,8 +505,8 @@
 											href: `${base}/audit_logs?resource=${path}`
 										},
 										{
-											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: Share,
+											displayName: 'Permissions',
+											icon: Shield,
 											action: () => {
 												shareModal?.openDrawer(path, 'mqtt_trigger')
 											}
@@ -484,8 +531,8 @@
 						<div class="w-full flex justify-between items-baseline">
 							<div
 								class="flex flex-wrap text-[0.7em] text-primary gap-1 items-center justify-end truncate pr-2"
-								><div class="truncate">edited by {edited_by}</div><div class="truncate"
-									>the {displayDate(edited_at)}</div
+								>{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}<div
+									class="truncate">{edited_by ? 'the ' : ''}{displayDate(edited_at)}</div
 								></div
 							></div
 						>

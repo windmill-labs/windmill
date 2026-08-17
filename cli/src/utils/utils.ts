@@ -11,6 +11,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { fetchVersion } from "../core/context.ts";
 import { updateGlobalVersions } from "../commands/sync/global.ts";
 import { isRawAppPath } from "./resource_folders.ts";
+import { VERSION } from "../core/constants.ts";
 
 export function deepEqual<T>(a: T, b: T): boolean {
   if (a === b) return true;
@@ -107,6 +108,7 @@ export function getHeaders(): Record<string, string> | undefined {
 export async function digestDir(path: string, conf: string) {
   const hashes: string = [];
   const entries = await readdir(path, { withFileTypes: true });
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   for (const e of entries) {
     const npath = path + "/" + e.name;
     if (e.isFile()) {
@@ -130,9 +132,53 @@ export async function generateHashFromBuffer(
   return Buffer.from(hashBuffer).toString("hex");
 }
 
+function decodeBufferAsUtf8(buf: Buffer, path: string | URL): string {
+  if (buf.length >= 2) {
+    if (buf[0] === 0xff && buf[1] === 0xfe) {
+      if (buf.length >= 4 && buf[2] === 0x00 && buf[3] === 0x00) {
+        throw new Error(
+          `File ${path} is encoded as UTF-32 LE, which is not supported. Please convert it to UTF-8.`
+        );
+      }
+      throw new Error(
+        `File ${path} is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8.`
+      );
+    }
+    if (buf[0] === 0xfe && buf[1] === 0xff) {
+      throw new Error(
+        `File ${path} is encoded as UTF-16 BE, which is not supported. Please convert it to UTF-8.`
+      );
+    }
+    if (buf.length >= 4 && buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0xfe && buf[3] === 0xff) {
+      throw new Error(
+        `File ${path} is encoded as UTF-32 BE, which is not supported. Please convert it to UTF-8.`
+      );
+    }
+  }
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    return buf.subarray(3).toString("utf-8");
+  }
+  return buf.toString("utf-8");
+}
+
+export function stripBom(content: string): string {
+  if (content.charCodeAt(0) === 0xfeff) {
+    return content.slice(1);
+  }
+  return content;
+}
+
+export async function readTextFile(path: string | URL): Promise<string> {
+  return decodeBufferAsUtf8(await readFile(path), path);
+}
+
+export function readTextFileSync(path: string | URL): string {
+  return decodeBufferAsUtf8(readFileSync(path), path);
+}
+
 export function readInlinePathSync(path: string): string {
   try {
-    return readFileSync(path.replaceAll("/", SEP), "utf-8");
+    return readTextFileSync(path.replaceAll("/", SEP));
   } catch (error) {
     log.warn(`Error reading inline path: ${path}, ${error}`);
     return "";
@@ -152,6 +198,20 @@ export function isFileResource(path: string): boolean {
     splitPath[splitPath.length - 3] == "resource" &&
     splitPath[splitPath.length - 2] == "file"
   );
+}
+
+/**
+ * Local resource path -> the resource's path on the server. The suffix is
+ * `.resource.<yaml|json>` on a metadata file but `.resource.file.<ext>` on a
+ * file resource, so its length depends on which of the two the path is.
+ */
+export function removeResourceSuffix(path: string): string {
+  if (isFileResource(path)) {
+    // isFileResource only matches a dotless extension, so the resource path is
+    // everything before the trailing `resource`, `file`, `<ext>` segments.
+    return path.split(".").slice(0, -3).join(".");
+  }
+  return path.replace(/\.resource\.(yaml|json)$/, "");
 }
 
 /** Matches children inside a .fileset/ directory, not the directory itself. */
@@ -252,7 +312,7 @@ export async function getIsWin(): Promise<boolean> {
  */
 export function writeIfChanged(path: string, content: string): boolean {
   try {
-    const existing = readFileSync(path, "utf-8");
+    const existing = readTextFileSync(path);
     if (existing === content) {
       return false; // Content unchanged, skip write
     }
@@ -275,6 +335,7 @@ export async function fetchRemoteVersion(
   if (version) {
     updateGlobalVersions(version);
   }
+  log.info(colors.gray("CLI version: " + VERSION));
   log.info(colors.gray("Remote version: " + version));
 }
 

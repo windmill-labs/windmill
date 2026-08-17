@@ -1,5 +1,6 @@
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -9,16 +10,17 @@ import { stringify as yamlStringify } from "yaml";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Policy } from "../../../gen/types.gen.ts";
 import path from "node:path";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { deepEqual } from "../../utils/utils.ts";
+import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
-import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
+import { APP_BACKEND_FOLDER, RECORDINGS_FOLDER } from "./app_metadata.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
 import { yamlOptions } from "../sync/sync.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import {
   EXTENSION_TO_LANGUAGE,
   getLanguageFromExtension,
@@ -35,6 +37,28 @@ export interface AppFile {
     datatable?: string;
     schema?: string;
   };
+  // Mirrors granular ACLs on the raw_app path. Synced via /acls/* by
+  // applyExtraPermsDiff — never through update_app_raw — so a perm-only
+  // change never bumps the app version. Stripped from the yaml when empty.
+  extra_perms?: Record<string, boolean>;
+}
+
+// Match siblings of a YAML metadata file case-insensitively. A buggy CLI
+// release lowercased content/lock filenames while keeping mixed-case YAML
+// filenames, so legacy repos can still pair correctly on the next push.
+async function readSiblingLock(
+  backendPath: string,
+  runnableId: string,
+  allFiles: string[],
+): Promise<string | undefined> {
+  const target = `${runnableId.toLowerCase()}.lock`;
+  const lockFile = allFiles.find((f) => f.toLowerCase() === target);
+  if (!lockFile) return undefined;
+  try {
+    return await readTextFile(path.join(backendPath, lockFile));
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -47,7 +71,10 @@ async function findRunnableContentFile(
   allFiles: string[],
 ): Promise<{ ext: string; content: string } | undefined> {
   // Look for files matching pattern: {runnableId}.{ext}
-  // where ext is a known language extension
+  // where ext is a known language extension. Match case-insensitively so
+  // older repos pulled by a buggy CLI (which lowercased content filenames
+  // while keeping mixed-case YAML filenames) can still pair correctly.
+  const runnableIdLower = runnableId.toLowerCase();
   for (const fileName of allFiles) {
     // Skip yaml and lock files
     if (fileName.endsWith(".yaml") || fileName.endsWith(".lock")) {
@@ -55,7 +82,7 @@ async function findRunnableContentFile(
     }
 
     // Check if file starts with runnableId followed by a dot
-    if (!fileName.startsWith(runnableId + ".")) {
+    if (!fileName.toLowerCase().startsWith(runnableIdLower + ".")) {
       continue;
     }
 
@@ -65,8 +92,8 @@ async function findRunnableContentFile(
     // Check if this is a recognized extension
     if (EXTENSION_TO_LANGUAGE[ext]) {
       try {
-        const content = await readFile(
-          path.join(backendPath, fileName), "utf-8",
+        const content = await readTextFile(
+          path.join(backendPath, fileName),
         );
         return { ext, content };
       } catch {
@@ -117,7 +144,8 @@ function getRunnableIdFromCodeFile(fileName: string): string | undefined {
  * Returns an empty object if the backend folder doesn't exist.
  *
  * @param backendPath - Path to the backend folder
- * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ * @param defaultTs - TypeScript runtime a bare `.ts` denotes. Must match what
+ *   newRawAppPathAssigner used to write the file, or the round-trip relabels it.
  */
 export async function loadRunnablesFromBackend(
   backendPath: string,
@@ -135,7 +163,10 @@ export async function loadRunnablesFromBackend(
       }
     }
 
-    // Track which runnable IDs have been processed (from YAML files)
+    // Track which runnable IDs have been processed (from YAML files).
+    // Stored lowercase so a YAML and a code file that differ only in case
+    // (e.g. legacy repos pulled by a buggy CLI that lowercased content
+    // filenames) are treated as the same runnable rather than duplicated.
     const processedIds = new Set<string>();
 
     // Process YAML files first (explicit configuration)
@@ -145,7 +176,7 @@ export async function loadRunnablesFromBackend(
       }
 
       const runnableId = fileName.replace(".yaml", "");
-      processedIds.add(runnableId);
+      processedIds.add(runnableId.toLowerCase());
 
       const filePath = path.join(backendPath, fileName);
       const runnable = (await yamlParseFile(filePath)) as Record<string, any>;
@@ -160,17 +191,7 @@ export async function loadRunnablesFromBackend(
 
         if (contentFile) {
           const language = getLanguageFromExtension(contentFile.ext, defaultTs);
-
-          // Try to load lock file
-          let lock: string | undefined;
-          try {
-            lock = await readFile(
-              path.join(backendPath, `${runnableId}.lock`),
-              "utf-8",
-            );
-          } catch {
-            // No lock file, that's fine
-          }
+          const lock = await readSiblingLock(backendPath, runnableId, allFiles);
 
           // Reconstruct inlineScript object
           runnable.inlineScript = {
@@ -207,12 +228,12 @@ export async function loadRunnablesFromBackend(
         continue; // Not a recognized code file
       }
 
-      if (processedIds.has(runnableId)) {
+      if (processedIds.has(runnableId.toLowerCase())) {
         continue; // Already processed via YAML file
       }
 
       // Found a code file without corresponding YAML - treat as inline runnable
-      processedIds.add(runnableId);
+      processedIds.add(runnableId.toLowerCase());
 
       const contentFile = await findRunnableContentFile(
         backendPath,
@@ -222,16 +243,7 @@ export async function loadRunnablesFromBackend(
 
       if (contentFile) {
         const language = getLanguageFromExtension(contentFile.ext, defaultTs);
-
-        // Try to load lock file
-        let lock: string | undefined;
-        try {
-          lock = await readFile(
-            path.join(backendPath, `${runnableId}.lock`), "utf-8",
-          );
-        } catch {
-          // No lock file, that's fine
-        }
+        const lock = await readSiblingLock(backendPath, runnableId, allFiles);
 
         // Create inline runnable with default empty fields
         runnables[runnableId] = {
@@ -307,6 +319,12 @@ async function collectAppFiles(
         ) {
           continue;
         }
+        // Session recordings, which the dev server only ever writes at the app
+        // root. Matched there alone, so an app of its own with a `recordings/`
+        // component folder still ships it.
+        if (basePath === "/" && entry.name === RECORDINGS_FOLDER) {
+          continue;
+        }
         await readDirRecursive(fullPath + SEP, relativePath + "/");
       } else if (entry.isFile()) {
         // Skip generated/metadata files that shouldn't be part of the app
@@ -319,7 +337,7 @@ async function collectAppFiles(
         ) {
           continue;
         }
-        const content = await readFile(fullPath, "utf-8");
+        const content = await readTextFile(fullPath);
         files[relativePath] = content;
       }
     }
@@ -334,6 +352,7 @@ export async function pushRawApp(
   remotePath: string,
   localPath: string,
   message?: string,
+  defaultTs: "bun" | "deno" = "bun",
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -367,7 +386,10 @@ export async function pushRawApp(
   // Load runnables from separate YAML files in the backend folder
   // Falls back to reading from raw_app.yaml if no separate files exist (backward compat)
   const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
-  const runnablesFromBackend = await loadRunnablesFromBackend(backendPath);
+  const runnablesFromBackend = await loadRunnablesFromBackend(
+    backendPath,
+    defaultTs,
+  );
 
   let runnables: Record<string, any>;
   if (Object.keys(runnablesFromBackend).length > 0) {
@@ -412,10 +434,12 @@ export async function pushRawApp(
       ? "index.ts"
       : "index.tsx";
     const entryPoint = localPath + entryFile;
+    const sharedUiDir = path.join(process.cwd(), "ui");
     return await createBundle({
       entryPoint: entryPoint,
       production: true,
       minify: true,
+      sharedUiDir,
     });
   }
   // Build the value object, including data if present
@@ -424,35 +448,47 @@ export async function pushRawApp(
     value.data = localApp.data;
   }
 
+  // extra_perms is synced independently via /acls/* — strip from the
+  // up-to-date comparison so a perm-only edit doesn't trigger a rebuild +
+  // new app_version. The kind segment is "raw_app" so git-sync writes back
+  // to `<path>.raw_app.json`, not `<path>.app.json`. The backend granular_acls
+  // handler routes "raw_app" to the `app` table (where v2 raw apps actually
+  // live) while still dispatching DeployedObject::RawApp for git-sync.
+  const { extra_perms: localPerms, ...localAppNoPerms } = localApp as AppFile & {
+    extra_perms?: Record<string, boolean>;
+  };
+
   if (app) {
     // Check both metadata/runnables AND files for changes
     // Files need separate comparison because isSuperset only checks if local keys exist in remote
-    const metadataUpToDate = isSuperset({ ...localApp, runnables }, app);
+    const metadataUpToDate = isSuperset({ ...localAppNoPerms, runnables }, app);
     const filesUpToDate = deepEqual(files, app.value?.files);
     if (metadataUpToDate && filesUpToDate) {
       log.info(colors.green(`App ${remotePath} is up to date`));
-      return;
-    }
-    const { js, css } = await createBundleRaw();
-    log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
-    await wmill.updateAppRaw({
-      workspace,
-      path: remotePath,
-      formData: {
-        app: {
-          value,
-          path: remotePath,
-          summary: localApp.summary,
-          policy: appForPolicy.policy,
-          deployment_message: message,
-          ...(localApp.custom_path
-            ? { custom_path: localApp.custom_path }
-            : {}),
+    } else {
+      const { js, css } = await createBundleRaw();
+      log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
+      await wmill.updateAppRaw({
+        workspace,
+        path: remotePath,
+        formData: {
+          app: {
+            value,
+            path: remotePath,
+            summary: localApp.summary,
+            policy: appForPolicy.policy,
+            deployment_message: message,
+            // Preserve any user draft at this path (see backend skip_draft_deletion).
+            skip_draft_deletion: true,
+            ...(localApp.custom_path
+              ? { custom_path: localApp.custom_path }
+              : {}),
+          },
+          js,
+          css,
         },
-        js,
-        css,
-      },
-    });
+      });
+    }
   } else {
     const { js, css } = await createBundleRaw();
     await wmill.createAppRaw({
@@ -464,6 +500,8 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
+          // Preserve any user draft at this path (see backend skip_draft_deletion).
+          skip_draft_deletion: true,
           ...(localApp.custom_path
             ? { custom_path: localApp.custom_path }
             : {}),
@@ -473,6 +511,16 @@ export async function pushRawApp(
       },
     });
   }
+
+  // No refetch needed: folder perms are never merged into item.extra_perms,
+  // and the body sent to update_app_raw / create_app_raw omits the field.
+  await applyExtraPermsDiff(
+    workspace,
+    "raw_app",
+    remotePath,
+    localPerms,
+    (app as any)?.extra_perms,
+  );
 }
 
 export async function generatingPolicy(
@@ -503,7 +551,14 @@ async function pushRawAppCommand(
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const merged = await mergeConfigWithConfigFile(opts);
 
-  await pushRawApp(workspace.workspaceId, remotePath, filePath);
+  await pushRawApp(
+    workspace.workspaceId,
+    remotePath,
+    filePath,
+    undefined,
+    merged.defaultTs,
+  );
   log.info(colors.bold.underline.green("Raw app pushed"));
 }

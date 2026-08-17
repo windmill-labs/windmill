@@ -16,19 +16,20 @@ use {
         error::{Error, Result},
     },
     windmill_git_sync::DeployedObject,
-    windmill_trigger::TriggerCrud,
+    windmill_trigger::{Trigger, TriggerCrud},
 };
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
 impl TriggerCrud for NatsTrigger {
-    type Trigger = ();
+    type Trigger = Trigger<Self::TriggerConfig>;
     type TriggerConfig = ();
     type TriggerConfigRequest = ();
     type TestConnectionConfig = ();
 
     const TABLE_NAME: &'static str = "";
     const TRIGGER_TYPE: &'static str = "";
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind = windmill_common::user_drafts::UserDraftItemKind::TriggerNats;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/nats_triggers";

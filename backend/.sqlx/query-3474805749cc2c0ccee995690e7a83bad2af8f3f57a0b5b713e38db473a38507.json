@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO unique_ext_jwt_token (jwt_hash, last_used_at, email, username, is_admin, is_operator, workspace_id, label, scopes)\n         VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7, $8)\n         ON CONFLICT (jwt_hash)\n         DO UPDATE SET last_used_at = NOW(), email = $2, username = $3, is_admin = $4, is_operator = $5, workspace_id = $6, label = $7, scopes = $8",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3474805749cc2c0ccee995690e7a83bad2af8f3f57a0b5b713e38db473a38507"
+}

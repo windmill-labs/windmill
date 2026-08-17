@@ -3,7 +3,7 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import { metadataCompletionEnabled } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
+	import { copilotInfo, getMetadataModel } from '$lib/aiStore'
 	import { onDestroy, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
@@ -118,6 +118,7 @@ Generate a tool name for the script below:
 		class?: string
 		onChange?: (content: string) => void
 		siblingToolNames?: string[]
+		hideError?: boolean
 	}
 
 	let {
@@ -132,7 +133,8 @@ Generate a tool name for the script below:
 		elementProps = {},
 		class: clazz = '',
 		onChange = undefined,
-		siblingToolNames = undefined
+		siblingToolNames = undefined,
+		hideError = false
 	}: Props = $props()
 
 	let toolNameError = $derived(
@@ -174,7 +176,9 @@ Generate a tool name for the script below:
 					content: config.user.replace(`{${config.placeholderName}}`, placeholderContent)
 				}
 			]
-			const response = await getCompletion(messages, abortController)
+			const response = await getCompletion(messages, abortController, undefined, {
+				forceModelProvider: getMetadataModel()
+			})
 			generatedContent = ''
 			for await (const chunk of response) {
 				generatedContent += getResponseFromEvent(chunk)
@@ -362,7 +366,7 @@ Generate a tool name for the script below:
 			onfocus={() => (focused = true)}
 			onblur={() => (focused = false)}
 		/>
-		{#if toolNameError}
+		{#if toolNameError && !hideError}
 			<p class="text-3xs text-red-400 leading-tight mt-0.5">
 				{toolNameError}
 			</p>

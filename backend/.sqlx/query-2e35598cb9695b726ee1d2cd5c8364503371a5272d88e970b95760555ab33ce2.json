@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted, extra_perms)\n         VALUES ('wm-fork-stale-super', 'f/folder2/myscript', 333333, 'echo 1', '', '', 'bash', 'test-user-2', NOW(), false, false, false, false, $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2e35598cb9695b726ee1d2cd5c8364503371a5272d88e970b95760555ab33ce2"
+}

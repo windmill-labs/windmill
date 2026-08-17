@@ -263,6 +263,7 @@
 		presets?: { name: string; value: string }[]
 		class?: string
 		placeholder?: string
+		autofocus?: boolean
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
@@ -271,7 +272,8 @@
 		value: valueInput = $bindable(),
 		presets: _presets = [],
 		class: className,
-		placeholder = 'Filter...'
+		placeholder = 'Filter...',
+		autofocus
 	}: Props<SchemaT> = $props()
 
 	let _value = new DebouncedTempValue(
@@ -531,12 +533,34 @@
 	type Preset = { name: string; value: string }
 	let presets: Preset[] = $derived(
 		_presets.filter((p) => {
-			// Only show presets that aren't already applied in asText
-			return !asText.val.includes(p.value)
+			// Only show presets that aren't already applied
+			if (asText.val.includes(p.value)) return false
+			// For allowMultiple: check if the value is already in the comma-separated list
+			const match = p.value.match(/^(\w+):\\\s+(.+)$/)
+			if (match) {
+				const [, key, val] = match
+				const existing = String(value[key] ?? '')
+				if (existing.split(',').some((v) => v.trim() === val)) return false
+			}
+			return true
 		})
 	)
 
 	function appendFilterAsText(presetValue: string) {
+		// For allowMultiple fields, append value with comma to existing filter instead of adding duplicate key
+		const match = presetValue.match(/^(\w+):\\\s+(.+)$/)
+		if (match) {
+			const [, key, newVal] = match
+			const filterDef = schema[key]
+			if (filterDef?.allowMultiple) {
+				const existing = value[key]
+				if (existing) {
+					value[key] = existing + ',' + newVal
+					asText.reparse()
+					return
+				}
+			}
+		}
 		if (!asText.val.endsWith('\u00A0') && !asText.val.endsWith(' ')) asText.val += ' '
 		asText.val += presetValue + '\u00A0'
 	}
@@ -582,6 +606,8 @@
 			inputSizeClasses.md
 		)}
 		{placeholder}
+		onKeyDown={() => (open = true)}
+		{autofocus}
 	/>
 	{#if asText.val}
 		<CloseButton small class="mr-1.5" onClick={() => (_value.current = {})} />

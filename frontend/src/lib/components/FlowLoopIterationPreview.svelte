@@ -34,12 +34,16 @@
 		properties: {
 			iter: {
 				type: 'object',
+				description: 'The loop iterator, exposed to the steps below as flow_input.iter',
 				properties: {
 					index: {
-						type: 'number'
+						type: 'integer',
+						min: 0,
+						description: "Position in the iterator's sequence. The first iteration is 0."
 					},
 					value: {
-						type: 'object'
+						type: 'object',
+						description: "The element of the iterator's sequence this iteration receives."
 					}
 				}
 			}
@@ -53,15 +57,27 @@
 		properties: {
 			iter: {
 				type: 'object',
+				description: 'The loop iterator, exposed to the steps below as flow_input.iter',
 				properties: {
 					index: {
-						type: 'number'
+						type: 'integer',
+						min: 0,
+						description:
+							'How many iterations have already run. The first iteration is 0. A while loop has no sequence, so it sets iter.value to this same number.'
 					}
 				}
 			}
 		},
 		required: [],
 		type: 'object'
+	}
+
+	// A real while loop always sets iter.value to iter.index, and counts whole iterations from
+	// 0. The preview flow holds only the loop body, so nothing else supplies that context:
+	// mirror the value and clamp to a whole, non-negative index so a preview matches a run.
+	function withWhileLoopIter(args: Record<string, any>): Record<string, any> {
+		const index = Math.max(0, Math.floor(args.iter?.index ?? 0))
+		return { ...args, iter: { ...args.iter, index, value: index } }
 	}
 
 	let selectedJobStep: string | undefined = $state(undefined)
@@ -73,7 +89,8 @@
 		runPreview(previewArgs, undefined)
 	}
 
-	const { flowStateStore, pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStateStore, flowStore, pathStore, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	export async function runPreview(
@@ -81,8 +98,18 @@
 		restartedFrom: RestartedFrom | undefined
 	) {
 		progressBar?.reset()
-		const newFlow = { value: { modules }, summary: '' }
-		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+		// The preview flow holds only the loop body, so it inherits none of the flow's settings:
+		// carry the tag over so the iteration lands on the worker group the flow runs on.
+		const newFlow = { value: { modules }, summary: '', tag: flowStore.val.tag }
+		jobId = await runFlowPreview(
+			whileLoop ? withWhileLoopIter(args) : args,
+			newFlow,
+			$pathStore,
+			restartedFrom,
+			undefined,
+			undefined,
+			opWorkspace?.()
+		)
 		isRunning = true
 	}
 
@@ -130,7 +157,7 @@
 					try {
 						jobId &&
 							(await JobService.cancelQueuedJob({
-								workspace: $workspaceStore ?? '',
+								workspace: opWorkspace?.() ?? $workspaceStore ?? '',
 								id: jobId,
 								requestBody: {}
 							}))
@@ -160,9 +187,11 @@
 		{/if}
 		<div></div>
 	</div>
-	<div class="w-full flex flex-col gap-y-1">
-		<FlowProgressBar {job} bind:this={progressBar} />
-	</div>
+	{#if jobId}
+		<div class="w-full flex flex-col gap-y-1">
+			<FlowProgressBar {job} bind:this={progressBar} />
+		</div>
+	{/if}
 	<div class="overflow-y-auto grow pr-4">
 		<div class="max-h-1/2 overflow-auto border-b">
 			<SchemaForm
@@ -177,6 +206,7 @@
 			{#if jobId}
 				<FlowStatusViewer
 					bind:flowState={flowStateStore.val}
+					workspaceId={opWorkspace?.()}
 					{jobId}
 					onJobsLoaded={({ job: newJob }) => {
 						job = newJob

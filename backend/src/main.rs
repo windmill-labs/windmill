@@ -34,39 +34,48 @@ use windmill_common::ee_oss::{
     maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID,
 };
 
+use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::{
     agent_workers::AgentConfig,
-    ai_cache::bump_instance_ai_config_revision,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
+        CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
         INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
+        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING,
+        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
-        SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
+        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
+        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
+        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+        WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
     triggers::TriggerKind,
     utils::{
-        create_default_worker_suffix, worker_name_with_suffix, Mode, GIT_VERSION, HOSTNAME,
-        MODE_AND_ADDONS,
+        checked_worker_name, resolve_worker_suffix, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
     },
     worker::{
-        is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
-        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
+        is_native_mode_from_env, reload_custom_tags_setting, validate_worker_lifecycle_env,
+        Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR,
+        WINDMILL_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, INSTANCE_NAME, METRICS_ENABLED,
 };
@@ -87,6 +96,20 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
+// Stock jemalloc only purges freed pages during alloc/free calls on app
+// threads, so a long-lived worker that goes quiet after a burst never runs the
+// purge: RSS freezes at the high-water mark and eventually OOMs under a hard
+// cgroup limit. Enabling the background thread makes the decay run on idle,
+// returning pages to the OS; the decay windows are left at jemalloc defaults
+// (dirty 10s, muzzy 0) on purpose — over a worker's months-long lifetime there
+// is no benefit to reclaiming more aggressively than that. jemalloc applies the
+// _RJEM_MALLOC_CONF env var after this symbol, so operators can still tune
+// decay or add prof:* for profiling.
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+#[allow(non_upper_case_globals)]
+#[export_name = "_rjem_malloc_conf"]
+pub static malloc_conf: &[u8] = b"background_thread:true\0";
+
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CONFIG_SETTING;
 
@@ -95,22 +118,33 @@ use windmill_worker::{
     BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
     DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, JAVA_CACHE_DIR, NU_CACHE_DIR,
     POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
-    RUBY_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
+    RUBY_CACHE_DIR, RUST_CACHE_DIR, R_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
-    initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
-    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
-    reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
-    reload_base_url_setting, reload_bunfig_install_scopes_setting,
+    initial_load, load_concurrency_key_max_queued, load_disable_password_login,
+    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir, load_metrics_debug_enabled,
+    load_preview_tags_override, load_require_preexisting_user, load_retention_period_overrides,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces,
+    load_workspace_fairness_duration_secs, load_workspace_fairness_enabled,
+    load_workspace_fairness_max_percent, load_workspace_fairness_min_total,
+    load_workspace_max_queued_jobs, monitor_db, reload_app_workspaced_route_setting,
+    reload_audit_log_retention_days_setting, reload_base_url_setting,
+    reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
     reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
     reload_hub_base_url_setting, reload_instance_events_webhook_setting,
     reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
-    reload_license_key, reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
-    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
-    reload_smtp_config, reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
+    reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
+    reload_nsjail_tmpfs_size_setting, reload_otel_tracing_proxy_setting,
+    reload_pip_index_url_setting, reload_retention_period_setting,
+    reload_sandbox_image_cache_max_setting, reload_sandbox_image_default_registry_setting,
+    reload_sandbox_image_max_size_setting, reload_sandbox_image_pull_policy_setting,
+    reload_sandbox_registry_auth_setting, reload_scim_token_setting, reload_smtp_config,
+    reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
+    reload_uv_index_strategy_setting, reload_uv_python_install_mirror_setting,
+    reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -231,6 +265,15 @@ pub fn main() -> anyhow::Result<()> {
 }
 
 async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
+    // The `cache` CLI mode never connects to the DB, so HUB_BASE_URL keeps its
+    // compiled default. Allow overriding it via env so the prebuild cache step can
+    // be pointed at a private/staging hub (e.g. a local proxy for testing).
+    if let Ok(hub_base_url) = std::env::var("HUB_BASE_URL") {
+        if !hub_base_url.is_empty() {
+            tracing::info!("Overriding hub base url from env: {hub_base_url}");
+            windmill_common::HUB_BASE_URL.store(std::sync::Arc::new(hub_base_url));
+        }
+    }
     let file_path = file_path.unwrap_or("./hubPaths.json".to_string());
     let mut file = File::open(&file_path)
         .await
@@ -247,11 +290,18 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     create_dir_all(&*HUB_CACHE_DIR)?;
     create_dir_all(&*BUN_BUNDLE_CACHE_DIR)?;
 
-    // Ensure the latest git sync script is always cached, regardless of hubPaths.json contents
+    // Ensure the backend-hardcoded git sync scripts are always cached, regardless of
+    // hubPaths.json contents. These are run by backend-driven sync (not necessarily listed
+    // in hubPaths.json), so airgapped workers would otherwise miss them on a cache lookup.
     let mut all_paths: Vec<String> = paths.into_values().collect();
-    let latest_git_sync = windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH.to_string();
-    if !all_paths.contains(&latest_git_sync) {
-        all_paths.push(latest_git_sync);
+    for git_sync_path in [
+        windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH,
+        windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH,
+    ] {
+        let git_sync_path = git_sync_path.to_string();
+        if !all_paths.contains(&git_sync_path) {
+            all_paths.push(git_sync_path);
+        }
     }
 
     for path in &all_paths {
@@ -283,42 +333,56 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             let job_dir = format!("{}/cache_init/{}", *WINDMILL_DIR, job_id);
             create_dir_all(&job_dir)?;
             if let Some(lock) = res.lockfile {
-                let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
-                let envs = windmill_worker::get_common_bun_proc_envs(None).await;
-                let _ = windmill_worker::install_bun_lockfile(
-                    &mut 0,
-                    &mut None,
-                    &job_id,
-                    "admins",
-                    None,
-                    &job_dir,
-                    "cache_init",
-                    envs.clone(),
-                    false,
-                    &mut None,
-                    false,
-                )
-                .await?;
-
-                let _ = windmill_common::worker::write_file(&job_dir, "main.js", &res.content)?;
-
-                if let Err(e) = windmill_worker::prebundle_bun_script(
-                    &res.content,
-                    &lock,
-                    &path,
-                    &job_id,
-                    "admins",
-                    None,
-                    &job_dir,
-                    "",
-                    "cache_init",
-                    "",
-                    &mut None,
-                    &None,
-                )
-                .await
-                {
-                    panic!("Error prebundling bun script: {e:#}");
+                // The hub occasionally returns a malformed `lockfile` field — e.g. the
+                // raw script source instead of the expected `<package.json>\n//bun.lockb\n<base64>`
+                // shape. A valid lockfile always starts with the package.json (`{...}`),
+                // so anything else is bogus and would make `bun install` choke trying to
+                // parse TypeScript as JSON. Skip those rather than aborting the entire cache.
+                if !lock.trim_start().starts_with('{') {
+                    tracing::warn!(
+                        "Hub script {path} returned a malformed lockfile (does not start with a package.json object), skipping prebundling"
+                    );
+                } else {
+                    let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
+                    let envs = windmill_worker::get_common_bun_proc_envs(None).await;
+                    if let Err(e) = windmill_worker::install_bun_lockfile(
+                        &mut 0,
+                        &mut None,
+                        &job_id,
+                        "admins",
+                        None,
+                        &job_dir,
+                        "cache_init",
+                        envs.clone(),
+                        false,
+                        &mut None,
+                        false,
+                    )
+                    .await
+                    {
+                        // A single broken hub script (malformed lockfile, missing dep, …)
+                        // shouldn't abort the entire cache run — log and move on.
+                        tracing::error!(
+                            "Failed to install lockfile for hub script {path}, skipping: {e:#}"
+                        );
+                    } else if let Err(e) = windmill_worker::prebundle_bun_script(
+                        &res.content,
+                        &lock,
+                        &path,
+                        &job_id,
+                        "admins",
+                        None,
+                        &job_dir,
+                        "",
+                        "cache_init",
+                        "",
+                        &mut None,
+                        &None,
+                    )
+                    .await
+                    {
+                        tracing::error!("Failed to prebundle hub script {path}, skipping: {e:#}");
+                    }
                 }
             } else {
                 tracing::warn!("No lockfile found for bun script {path}, skipping...");
@@ -522,59 +586,16 @@ fn print_help() {
     println!("  JSON_FMT = false                       Output logs in JSON instead of logfmt");
     println!("  METRICS_ADDR = None                    (EE only) Prometheus metrics addr at /metrics; set \"true\" to use :8001");
     println!("  SUPERADMIN_SECRET = None               Virtual superadmin token (server)");
+    println!("  NO_AUTH = false                        Bypass all auth; every request acts as the admin@windmill.dev superadmin (only behind a trusted gateway; ignored when CLOUD_HOSTED)");
     println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
     println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
     println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
     println!("  SYNC_CACHED_RT = false                 Sync cached resource types to admins workspace on server start");
+    println!("  HUB_BASE_URL = https://hub.windmill.dev  Hub to fetch scripts from in `cache` mode (server/worker use the DB setting instead)");
     println!();
     println!("Notes:");
     println!("- Advanced and less commonly used settings are managed via the database and are omitted here.");
     println!("- At startup, Windmill logs currently set configuration keys for visibility.");
-}
-
-async fn resync_custom_instance_user_pwd_if_needed(db: &Pool<Postgres>) {
-    use windmill_common::utils::get_custom_pg_instance_password;
-    use windmill_common::{get_database_url, PgDatabase};
-
-    let user_pwd = match get_custom_pg_instance_password(db).await {
-        Ok(pwd) => pwd,
-        Err(_) => {
-            // Setting doesn't exist yet (fresh install or pre-migration), skip check
-            return;
-        }
-    };
-
-    let mut pg_creds = match get_database_url().await {
-        Ok(url) => match PgDatabase::parse_uri(&url.as_str().await) {
-            Ok(creds) => creds,
-            Err(e) => {
-                tracing::warn!("Failed to parse database URL for custom_instance_user check: {e}");
-                return;
-            }
-        },
-        Err(e) => {
-            tracing::warn!("Failed to get database URL for custom_instance_user check: {e}");
-            return;
-        }
-    };
-
-    pg_creds.user = Some("custom_instance_user".to_string());
-    pg_creds.password = Some(user_pwd);
-
-    match pg_creds.connect().await {
-        Ok(_) => {
-            tracing::info!("custom_instance_user password is in sync");
-        }
-        Err(e) => {
-            tracing::warn!("custom_instance_user password is out of sync ({e}), refreshing...");
-            if let Err(e) = windmill_api_settings::refresh_custom_instance_user_pwd_inner(db).await
-            {
-                tracing::error!("Failed to refresh custom_instance_user password: {e}");
-            } else {
-                tracing::info!("Successfully refreshed custom_instance_user password");
-            }
-        }
-    }
 }
 
 async fn windmill_main() -> anyhow::Result<()> {
@@ -629,6 +650,15 @@ async fn windmill_main() -> anyhow::Result<()> {
         println!("Running in MCP mode");
     }
 
+    if *windmill_common::worker::NO_AUTH {
+        println!("############################################################");
+        println!("# NO_AUTH mode is ENABLED: authentication is fully         #");
+        println!("# bypassed and every request is treated as the             #");
+        println!("# admin@windmill.dev superadmin. Only run this behind a     #");
+        println!("# trusted authenticating gateway on a private network.      #");
+        println!("############################################################");
+    }
+
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     println!("jemalloc enabled");
 
@@ -640,6 +670,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             return Ok(());
         }
         "cache" => {
+            tracing_subscriber::fmt::init();
             #[cfg(feature = "embedding")]
             {
                 println!("Caching embedding model...");
@@ -695,7 +726,24 @@ async fn windmill_main() -> anyhow::Result<()> {
             tracing_subscriber::fmt::init();
             tracing::info!("Starting Windmill Kubernetes operator...");
             tracing::info!("Connecting to database...");
-            let db = crate::db_connect::initial_connection().await?;
+
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            let (operator_killpill_tx, operator_killpill_rx) =
+                tokio::sync::broadcast::channel::<()>(2);
+
+            let db = crate::db_connect::operator_connection(
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                operator_killpill_rx,
+            )
+            .await?;
+
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            tokio::spawn(async move {
+                if let Ok(()) = tokio::signal::ctrl_c().await {
+                    let _ = operator_killpill_tx.send(());
+                }
+            });
+
             tracing::info!("Database connected. Starting ConfigMap watcher...");
             windmill_operator::run(db).await?;
             return Ok(());
@@ -734,6 +782,8 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
     }
 
+    validate_worker_lifecycle_env()?;
+
     let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -765,7 +815,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             agent_config.base_internal_url
         );
-        let suffix = create_default_worker_suffix(&hostname);
+        let suffix = resolve_worker_suffix(&hostname, 1)?;
         (
             Connection::Http(agent_config.build_http_client(&suffix)),
             Some(suffix),
@@ -884,46 +934,62 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
 
         // Lower the worker's oom_score_adj so the OOM killer strongly prefers killing
-        // job subprocesses (oom_score_adj=1000) over the worker itself.
+        // job subprocesses (oom_score_adj=JOB_OOM_SCORE_ADJ) over the worker itself.
         // Kubernetes sets it high for burstable QoS (e.g. 937), leaving a tiny gap vs jobs.
         // Requires CAP_SYS_RESOURCE to lower it; if missing, we just warn.
         #[cfg(any(target_os = "linux"))]
-        match std::fs::read_to_string("/proc/self/oom_score_adj") {
-            Ok(current) => {
-                let current = current.trim().to_string();
-                let current_val = match current.parse::<i32>() {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::warn!("Could not parse oom_score_adj '{current}': {e}");
-                        0
-                    }
-                };
-                if current_val > 0 {
-                    match std::fs::write("/proc/self/oom_score_adj", "0") {
-                        Ok(_) => {
-                            tracing::info!(
-                                "Lowered worker oom_score_adj from {current} to 0 \
-                                (jobs get 1000, gap=1000)"
-                            );
+        {
+            // Badness is (memory used, in permille of host RAM) + oom_score_adj, so the gap
+            // must exceed the worker's own footprint in permille to actually steer the kill.
+            // 100 covers a worker holding up to ~10% of host RAM.
+            const MIN_OOM_SCORE_GAP: i32 = 100;
+
+            let job_adj = *windmill_common::worker::JOB_OOM_SCORE_ADJ;
+            match std::fs::read_to_string("/proc/self/oom_score_adj") {
+                Ok(current) => {
+                    let current = current.trim().to_string();
+                    match current.parse::<i32>() {
+                        Ok(mut worker_adj) => {
+                            if worker_adj > 0 {
+                                match std::fs::write("/proc/self/oom_score_adj", "0") {
+                                    Ok(_) => {
+                                        tracing::info!(
+                                            "Lowered worker oom_score_adj from {worker_adj} to 0"
+                                        );
+                                        worker_adj = 0;
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Could not lower worker oom_score_adj from {worker_adj} to 0: {e}. \
+                                            Add CAP_SYS_RESOURCE to the container to fix this"
+                                        );
+                                    }
+                                }
+                            }
+                            let gap = job_adj - worker_adj;
+                            if gap >= MIN_OOM_SCORE_GAP {
+                                tracing::info!(
+                                    "Worker oom_score_adj={worker_adj}, jobs get {job_adj} (gap={gap})"
+                                );
+                            } else {
+                                tracing::warn!(
+                                    "Worker oom_score_adj={worker_adj}, jobs get {job_adj} (gap={gap}): \
+                                    too small to reliably steer the OOM killer to the job. \
+                                    Raise JOB_OOM_SCORE_ADJ or lower the worker's own score"
+                                );
+                            }
                         }
                         Err(e) => {
                             tracing::warn!(
-                                "Could not lower worker oom_score_adj from {current} to 0: {e}. \
-                                Gap to jobs is only {} — OOM killer may target the worker instead. \
-                                Add CAP_SYS_RESOURCE to the container to fix this",
-                                1000 - current_val
+                                "Could not parse worker oom_score_adj '{current}': {e}. \
+                                Cannot tell whether jobs (oom_score_adj={job_adj}) outrank the worker"
                             );
                         }
                     }
-                } else {
-                    tracing::info!(
-                        "Worker oom_score_adj={current} (jobs get 1000, gap={})",
-                        1000 - current_val
-                    );
                 }
-            }
-            Err(e) => {
-                tracing::warn!("Could not read worker oom_score_adj: {e}");
+                Err(e) => {
+                    tracing::warn!("Could not read worker oom_score_adj: {e}");
+                }
             }
         }
     }
@@ -972,11 +1038,6 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
 
-        // Check if custom_instance_user password is in sync
-        if server_mode {
-            resync_custom_instance_user_pwd_if_needed(&db).await;
-        }
-
         Connection::Sql(db)
     };
 
@@ -1013,7 +1074,7 @@ Windmill Community Edition {GIT_VERSION}
                 std::process::exit(1);
             }
         }
-        let valid_key = *LICENSE_KEY_VALID.read().await;
+        let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
         if !valid_key && !server_mode {
             tracing::error!("Invalid license key, workers require a valid license key");
         }
@@ -1023,7 +1084,7 @@ Windmill Community Edition {GIT_VERSION}
                 let renewed_now = maybe_renew_license_key_on_start(
                     &HTTP_CLIENT,
                     &db,
-                    !valid_key && !LICENSE_KEY_ID.read().await.is_empty(),
+                    !valid_key && !LICENSE_KEY_ID.load().is_empty(),
                 )
                 .await;
                 if renewed_now {
@@ -1273,7 +1334,7 @@ Windmill Community Edition {GIT_VERSION}
                         let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
-                            create_default_worker_suffix(&hostname)
+                            resolve_worker_suffix(&hostname, i as usize + 1)?
                         };
 
                         let worker_conn = WorkerConn {
@@ -1287,11 +1348,11 @@ Windmill Community Edition {GIT_VERSION}
                                         .build_http_client(&suffix),
                                 )
                             },
-                            worker_name: worker_name_with_suffix(
+                            worker_name: checked_worker_name(
                                 mode == Mode::Agent,
                                 WORKER_GROUP.as_str(),
                                 &suffix,
-                            ),
+                            )?,
                         };
                         workers.push(worker_conn);
                     }
@@ -1421,19 +1482,45 @@ Windmill Community Edition {GIT_VERSION}
                                     } else {
                                         None
                                     };
-                                    monitor_db(
-                                        &conn,
-                                        &base_internal_url,
-                                        server_mode,
-                                        worker_mode,
-                                        false,
-                                        tx.clone(),
-                                        Some(MonitorIteration {
-                                            rd_shift,
-                                            iter: monitor_iteration,
-                                        }),
+                                    // Hard cap on a single monitor pass. monitor_db runs all its
+                                    // periodic tasks under one join!, so a single task stuck on a
+                                    // non-DB await (statement_timeout only bounds DB statements)
+                                    // would otherwise freeze the whole loop indefinitely — silently
+                                    // stopping critical maintenance like audit-partition creation.
+                                    // Larger than statement_timeout (5min) so a slow-but-progressing
+                                    // statement is never killed prematurely.
+                                    const MONITOR_DB_TIMEOUT: Duration = Duration::from_secs(600);
+                                    let monitor_timed_out = tokio::time::timeout(
+                                        MONITOR_DB_TIMEOUT,
+                                        monitor_db(
+                                            &conn,
+                                            &base_internal_url,
+                                            server_mode,
+                                            worker_mode,
+                                            false,
+                                            tx.clone(),
+                                            Some(MonitorIteration {
+                                                rd_shift,
+                                                iter: monitor_iteration,
+                                            }),
+                                        ),
                                     )
-                                    .await;
+                                    .await
+                                    .is_err();
+                                    if monitor_timed_out {
+                                        windmill_common::utils::report_critical_error(
+                                            format!(
+                                                "monitor task did not finish within {}s and was aborted; \
+                                                 a background maintenance task is likely stuck. \
+                                                 Continuing to the next iteration.",
+                                                MONITOR_DB_TIMEOUT.as_secs()
+                                            ),
+                                            db.clone(),
+                                            None,
+                                            None,
+                                        )
+                                        .await;
+                                    }
                                     monitor_iteration += 1;
                                     if let Some(handle) = warn_handle {
                                         handle.abort();
@@ -1471,8 +1558,13 @@ Windmill Community Edition {GIT_VERSION}
                                         tracing::error!("Failed to reload license key on agent: {e:#}");
                                     }
                                     #[cfg(feature = "enterprise")]
-                                    ee_oss::verify_license_key().await;
+                                    ee_oss::verify_license_key(conn.as_sql()).await;
                                 }
+
+                                // self-throttled; picks up a key fixed on the server without
+                                // waiting for the 12h reload
+                                #[cfg(feature = "enterprise")]
+                                crate::monitor::refetch_license_key_if_invalid(conn).await;
 
                                 // update min version explicitly.
                                 // for sql connection it is the part of monitor_db.
@@ -1537,6 +1629,10 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
 
+        // `workers_f` must stay ahead of `server_f`: these are polled on one task in
+        // declaration order, and `run_server` yields once after handing over the base
+        // internal url so the workers get past that oneshot before it builds its router.
+        // Ordering `server_f` first makes them wait out the whole build instead.
         if mcp_mode {
             futures::try_join!(workers_f, server_f)?;
         } else {
@@ -1596,6 +1692,13 @@ async fn process_notify_event(
                 tracing::debug!("config changed but did not target this server/worker");
             }
         }
+        "restart_worker_group" => {
+            if worker_mode && payload == *WORKER_GROUP {
+                tracing::info!("Restart requested for worker group '{payload}'");
+                spawn_graceful_killpill(tx, db, 30, "worker group restart requested", server_mode)
+                    .await;
+            }
+        }
         "notify_webhook_change" => {
             tracing::info!(
                 "Webhook change detected, invalidating webhook cache: {}",
@@ -1610,12 +1713,30 @@ async fn process_notify_event(
             );
             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
         }
+        "notify_asset_producer_change" => {
+            tracing::debug!(
+                "Asset producer change for workspace {}, invalidating producer-writes cache",
+                payload
+            );
+            windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(payload);
+        }
+        "notify_macro_registry_change" => {
+            tracing::debug!(
+                "Macro registry change for workspace {}, invalidating macro registry cache",
+                payload
+            );
+            windmill_common::assets::MACRO_REGISTRY_CACHE.remove(payload);
+        }
         "notify_workspace_key_change" => {
             tracing::info!(
                 "Workspace key change detected, invalidating workspace key cache: {}",
                 payload
             );
             windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(payload);
+        }
+        c if c == windmill_queue::tags::FORK_LINEAGE_CHANGE_CHANNEL => {
+            tracing::info!("Fork lineage change detected ({payload}), dropping tag workspace cache");
+            windmill_queue::tags::apply_fork_lineage_change(payload);
         }
         "notify_workspace_premium_change" => {
             tracing::info!(
@@ -1639,6 +1760,16 @@ async fn process_notify_event(
                     match *source_type {
                         "script" => {
                             windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                            // Bundle-cache key resolution for imported scripts; evicted
+                            // together with the content-side caches below so key and
+                            // inlined content flip to the new version in the same window.
+                            windmill_common::IMPORTED_SCRIPT_HASH_CACHE.remove(&key);
+                            // Evict the relative-import latest-hash cache so a redeployed
+                            // imported script flips the content cache to its new version
+                            // across all replicas within a poll interval (see #6769). Keyed
+                            // by the bare path, matching this event's payload.
+                            windmill_api_scripts::scripts::RAW_SCRIPT_LATEST_HASH_CACHE
+                                .remove(&format!("{workspace_id}:{path}"));
                             if *kind == "preprocessor" {
                                 match sqlx::query_scalar::<_, i64>(
                                     "SELECT fv.id
@@ -1707,6 +1838,15 @@ async fn process_notify_event(
             );
             windmill_api::auth::invalidate_token_from_cache(payload);
         }
+        "notify_app_policy_change" => {
+            // payload is `<workspace_id>:<path>`; workspace ids can't contain ':'.
+            if server_mode {
+                if let Some((workspace_id, path)) = payload.split_once(':') {
+                    tracing::info!("App policy change detected, invalidating cache: {payload}");
+                    windmill_api::invalidate_app_policy_cache(workspace_id, path);
+                }
+            }
+        }
         "notify_global_setting_change" => {
             tracing::info!("Global setting change detected: {}", payload);
             match payload {
@@ -1742,6 +1882,48 @@ async fn process_notify_event(
                         );
                     }
                 }
+                FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING => {
+                    if let Err(e) = load_fork_workspace_tag_append_fork_suffix(db).await {
+                        tracing::error!(
+                            "Error loading fork workspace tag append fork suffix: {e:#}"
+                        );
+                    }
+                }
+                PREVIEW_TAGS_OVERRIDE_SETTING => {
+                    if let Err(e) = load_preview_tags_override(db).await {
+                        tracing::error!("Error loading preview tags override: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_ENABLED_SETTING => {
+                    if let Err(e) = load_workspace_fairness_enabled(db).await {
+                        tracing::error!("Error loading workspace fairness enabled: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING => {
+                    if let Err(e) = load_workspace_fairness_max_percent(db).await {
+                        tracing::error!("Error loading workspace fairness max percent: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_DURATION_SECS_SETTING => {
+                    if let Err(e) = load_workspace_fairness_duration_secs(db).await {
+                        tracing::error!("Error loading workspace fairness duration secs: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING => {
+                    if let Err(e) = load_workspace_fairness_min_total(db).await {
+                        tracing::error!("Error loading workspace fairness min total: {e:#}");
+                    }
+                }
+                CONCURRENCY_KEY_MAX_QUEUED_SETTING => {
+                    if let Err(e) = load_concurrency_key_max_queued(db).await {
+                        tracing::error!("Error loading concurrency key max queued: {e:#}");
+                    }
+                }
+                WORKSPACE_MAX_QUEUED_JOBS_SETTING => {
+                    if let Err(e) = load_workspace_max_queued_jobs(db).await {
+                        tracing::error!("Error loading workspace max queued jobs: {e:#}");
+                    }
+                }
                 SMTP_SETTING => {
                     reload_smtp_config(db).await;
                 }
@@ -1753,14 +1935,35 @@ async fn process_notify_event(
                 }
                 TIMEOUT_WAIT_RESULT_SETTING => reload_timeout_wait_result_setting(conn).await,
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
+                RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
+                    if let Err(e) = load_retention_period_overrides(db).await {
+                        tracing::error!("Error loading per-workspace retention overrides: {e:#}");
+                    }
+                }
                 AUDIT_LOG_RETENTION_DAYS_SETTING => {
                     reload_audit_log_retention_days_setting(conn).await
                 }
                 MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
                     reload_delete_logs_periodically_setting(conn).await
                 }
+                STORE_AUDIT_LOGS_S3_SETTING => reload_store_audit_logs_s3_setting(conn).await,
                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => reload_job_default_timeout_setting(conn).await,
                 JOB_ISOLATION_SETTING => reload_job_isolation_setting(conn).await,
+                NSJAIL_TMPFS_SIZE_MB_SETTING => reload_nsjail_tmpfs_size_setting(conn).await,
+                NSJAIL_TMP_BACKING_SETTING => reload_nsjail_tmp_backing_setting(conn).await,
+                SANDBOX_IMAGE_MAX_SIZE_MB_SETTING => {
+                    reload_sandbox_image_max_size_setting(conn).await
+                }
+                SANDBOX_IMAGE_CACHE_MAX_MB_SETTING => {
+                    reload_sandbox_image_cache_max_setting(conn).await
+                }
+                SANDBOX_IMAGE_PULL_POLICY_SETTING => {
+                    reload_sandbox_image_pull_policy_setting(conn).await
+                }
+                SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING => {
+                    reload_sandbox_image_default_registry_setting(conn).await
+                }
+                SANDBOX_REGISTRY_AUTH_SETTING => reload_sandbox_registry_auth_setting(conn).await,
                 #[cfg(feature = "parquet")]
                 OBJECT_STORE_CONFIG_SETTING => {
                     if !disable_s3_store {
@@ -1771,6 +1974,13 @@ async fn process_notify_event(
                 EXTRA_PIP_INDEX_URL_SETTING => reload_extra_pip_index_url_setting(conn).await,
                 PIP_INDEX_URL_SETTING => reload_pip_index_url_setting(conn).await,
                 UV_INDEX_STRATEGY_SETTING => reload_uv_index_strategy_setting(conn).await,
+                UV_EXCLUDE_NEWER_SETTING => reload_uv_exclude_newer_setting(conn).await,
+                UV_PYTHON_INSTALL_MIRROR_SETTING => {
+                    reload_uv_python_install_mirror_setting(conn).await
+                }
+                BUN_INSTALL_MIN_RELEASE_AGE_SETTING => {
+                    reload_bun_install_min_release_age_setting(conn).await
+                }
                 INSTANCE_PYTHON_VERSION_SETTING => {
                     reload_instance_python_version_setting(conn).await
                 }
@@ -1792,21 +2002,38 @@ async fn process_notify_event(
                     reload_otel_tracing_proxy_setting(conn).await;
                     if worker_mode {
                         tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                        spawn_graceful_killpill(tx, db, 10, "OTEL tracing proxy setting change")
-                            .await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "OTEL tracing proxy setting change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
                     load_require_preexisting_user(db).await;
                 }
+                DISABLE_PASSWORD_LOGIN_SETTING => {
+                    load_disable_password_login(db).await;
+                }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 10, "metrics setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "metrics setting change", server_mode)
+                        .await;
                 }
                 EMAIL_DOMAIN_SETTING => {
                     tracing::info!("Email domain setting changed");
                     if server_mode {
-                        spawn_graceful_killpill(tx, db, 10, "email domain setting change").await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "email domain setting change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -1842,19 +2069,26 @@ async fn process_notify_event(
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 10, "OTEL setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "OTEL setting change", server_mode).await;
                 }
                 REQUEST_SIZE_LIMIT_SETTING => {
                     if server_mode {
                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                        spawn_graceful_killpill(tx, db, 10, "request size limit change").await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "request size limit change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 SAML_METADATA_SETTING => {
                     tracing::info!(
                         "SAML metadata change detected, killing server expecting to be restarted"
                     );
-                    spawn_graceful_killpill(tx, db, 10, "SAML metadata change").await;
+                    spawn_graceful_killpill(tx, db, 30, "SAML metadata change", server_mode).await;
                 }
                 HUB_BASE_URL_SETTING => {
                     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -1905,6 +2139,21 @@ async fn process_notify_event(
                 }
                 RESTART_COORDINATION_SETTING => {
                     // Internal coordination key for staggered restarts, no action needed
+                }
+                "plain_emails_telemetry" => {
+                    let enabled = sqlx::query_scalar!(
+                        "SELECT value FROM global_settings WHERE name = 'plain_emails_telemetry'"
+                    )
+                    .fetch_optional(db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                    tracing::info!(
+                        "Plain emails telemetry setting changed: enabled={}",
+                        enabled
+                    );
                 }
                 _ => {
                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", payload);
@@ -1960,12 +2209,7 @@ pub async fn run_workers(
     // #[cfg(tokio_unstable)]
     // let monitor = tokio_metrics::TaskMonitor::new();
 
-    let ip = windmill_common::external_ip::get_ip()
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = e.to_string(), "failed to get external IP");
-            "unretrievable IP".to_string()
-        });
+    windmill_common::external_ip::resolve_ip_in_background();
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
@@ -1990,6 +2234,7 @@ pub async fn run_workers(
         &*POWERSHELL_CACHE_DIR,
         &*JAVA_CACHE_DIR,
         &*RUBY_CACHE_DIR,
+        &*R_CACHE_DIR,
         &*TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
     ] {
         DirBuilder::new()
@@ -2008,7 +2253,6 @@ pub async fn run_workers(
         let conn1 = wk_conf.conn.clone();
         let worker_name = wk_conf.worker_name.clone();
         WORKERS_NAMES.write().await.push(worker_name.clone());
-        let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
@@ -2025,7 +2269,6 @@ pub async fn run_workers(
                 worker_name,
                 i as u64,
                 num_workers as u32,
-                &ip,
                 rx,
                 tx,
                 &base_internal_url,
@@ -2062,44 +2305,90 @@ pub async fn run_workers(
 /// then the sleep+kill is spawned in the background so the notification handler is not blocked.
 ///
 /// Falls back to drain-only delay if DB coordination fails.
+///
+/// Only `server_mode` processes coordinate, on the strength of the worker case: a worker
+/// group restarting costs queue latency rather than lost work, `v2_job_queue` being durable.
+/// Were workers to take part, one could claim the `is_first` slot and leave every server
+/// holding its shutdown open for a peer that serves no API traffic.
 async fn spawn_graceful_killpill(
     tx: &KillpillSender,
     db: &Pool<Postgres>,
     safety_margin_secs: u64,
     context: &str,
+    server_mode: bool,
 ) {
     // Minimum delay before any restart to let in-flight requests drain
     const DRAIN_DELAY_SECS: u64 = 3;
 
-    let delay = match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::warn!(
-                "Failed to coordinate restart for {context}: {e:#}, \
-                 falling back to drain delay of {DRAIN_DELAY_SECS}s"
-            );
-            DRAIN_DELAY_SECS
+    let (delay, is_first) = if !server_mode {
+        (DRAIN_DELAY_SECS, true)
+    } else {
+        match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to coordinate restart for {context}: {e:#}, \
+                     falling back to drain delay of {DRAIN_DELAY_SECS}s"
+                );
+                (DRAIN_DELAY_SECS, true)
+            }
         }
     };
 
-    tracing::info!("Scheduling {context} graceful shutdown in {delay}s");
+    tracing::info!(
+        "Scheduling {context} graceful shutdown in {delay}s (first_to_restart={is_first})"
+    );
     let tx = tx.clone();
+    let db = db.clone();
+    let context = context.to_string();
+    // Capture the current time so the health check only considers heartbeats
+    // written *after* this restart was initiated (not stale pre-restart ones).
+    let not_before = chrono::Utc::now();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(delay)).await;
+        if !is_first {
+            // Non-first instance: wait for another server to announce itself as
+            // started (via the coordination record) before shutting down, ensuring
+            // zero-downtime. Falls back to the computed delay as a maximum timeout.
+            let started_waiting = tokio::time::Instant::now();
+            let max_wait = Duration::from_secs(delay.max(safety_margin_secs).max(120));
+            loop {
+                if windmill_api::check_any_server_started(&db, not_before).await {
+                    tracing::info!(
+                        "{context}: healthy peer detected after {:.1}s, proceeding with shutdown",
+                        started_waiting.elapsed().as_secs_f64()
+                    );
+                    break;
+                }
+                if started_waiting.elapsed() >= max_wait {
+                    tracing::warn!(
+                        "{context}: no healthy peer detected after {:.1}s, proceeding with shutdown anyway",
+                        started_waiting.elapsed().as_secs_f64()
+                    );
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        } else {
+            tokio::time::sleep(Duration::from_secs(delay)).await;
+        }
         tx.send();
     });
 }
 
 /// Coordinate a restart delay with other instances via the DB.
 ///
-/// Returns the delay (in seconds from now) at which this instance should restart.
-/// The first server gets `drain_delay_secs` (to let in-flight requests complete).
-/// Each subsequent server is spaced `safety_margin_secs` after the latest scheduled restart.
+/// Returns `(delay_secs, is_first)`:
+/// - `delay_secs`: how long to wait before restarting
+/// - `is_first`: whether this instance is the first to schedule a restart
+///
+/// The first server restarts immediately (0 delay) to maximize its head-start.
+/// Subsequent servers use a safety margin after the latest scheduled restart as a
+/// fallback timeout, but primarily wait for a health-check (see `spawn_graceful_killpill`).
 async fn coordinate_restart_delay(
     db: &Pool<Postgres>,
     safety_margin_secs: u64,
     drain_delay_secs: u64,
-) -> anyhow::Result<u64> {
+) -> anyhow::Result<(u64, bool)> {
     const RESTART_LOCK_ID: i64 = 737_483_920;
     // Stale threshold: ignore coordination entries older than this
     const STALE_THRESHOLD_SECS: i64 = 120;
@@ -2149,16 +2438,22 @@ async fn coordinate_restart_delay(
 
     // Find the latest scheduled restart
     let latest = scheduled.iter().map(|(_, dt)| *dt).max();
+    let is_first = latest.is_none();
     let earliest_allowed = now + chrono::Duration::seconds(drain_delay_secs as i64);
 
-    // Our restart time: drain_delay from now, or safety_margin after the latest existing restart
+    // Our restart time:
+    // - First instance (no prior scheduled restarts): brief 1s delay to let in-flight
+    //   requests (like the settings save) complete, then restart quickly to maximize
+    //   head-start before subsequent instances shut down.
+    // - Subsequent instances: safety_margin after the latest scheduled restart (used as
+    //   a fallback timeout; the actual shutdown is gated by a health-check in the caller).
     let our_restart = match latest {
         Some(last) => {
             let after_last = last + chrono::Duration::seconds(safety_margin_secs as i64);
             // Use whichever is later: drain delay or staggered position
             earliest_allowed.max(after_last)
         }
-        None => earliest_allowed,
+        None => now + chrono::Duration::seconds(1),
     };
 
     // Record our restart time (deduplicate: remove any prior entry for this instance)
@@ -2187,5 +2482,5 @@ async fn coordinate_restart_delay(
     tx.commit().await.context("commit restart coordination")?;
 
     let delay = (our_restart - now).num_seconds().max(0) as u64;
-    Ok(delay)
+    Ok((delay, is_first))
 }

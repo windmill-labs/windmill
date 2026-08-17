@@ -1,58 +1,78 @@
 <script lang="ts">
-	import { Badge, Drawer, DrawerContent } from '$lib/components/common'
+	import { Drawer, DrawerContent } from '$lib/components/common'
+	import { base } from '$lib/base'
+	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import UndoRedo from '$lib/components/common/button/UndoRedo.svelte'
+	import { isMac, userPathPrefix } from '$lib/utils'
+	import { editPathFor } from '$lib/components/workspacePicker'
+	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 
-	import { AppService, DraftService, type Policy } from '$lib/gen'
-	import { rawAppToHubUrl } from '$lib/hub'
-	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
-	import YAML from 'yaml'
+	import { AppService, type Policy } from '$lib/gen'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		Bug,
 		DiffIcon,
-		Download,
 		EllipsisVertical,
 		FileJson,
-		Globe,
+		Circle,
 		History,
-		Pen,
+		PanelLeft,
+		PanelLeftClose,
+		Redo,
 		Save,
+		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
-	import {
-		cleanValueProperties,
-		orderedJsonStringify,
-		type Value,
-		replaceFalseWithUndefined,
-		defaultIfEmptyString
-	} from '../../utils'
+	import { untrack } from 'svelte'
+	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
+	import { random_adj } from '$lib/components/random_positive_adjetive'
 
 	// import {  allItems, toStatic } from '../apps/editor/settingsPanel/utils'
 	import AppExportButton from '../apps/editor/AppExportButton.svelte'
 
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from '../apps/editor/DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
-	import Summary from '$lib/components/Summary.svelte'
+	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
+	import { goto } from '$app/navigation'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
-	import type { SavedAndModifiedValue } from '../common/confirmationModal/unsavedTypes'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-	import AppEditorHeaderDeployInitialDraft from '../apps/editor/AppEditorHeaderDeployInitialDraft.svelte'
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { getContext } from 'svelte'
+
+	// Forward-looking hook for the upcoming session-pane feature: that PR will
+	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
+	// can detect it and hide its own AI button. On main today nothing sets the
+	// context, so `inSessionPane` is always false and the AI button renders
+	// normally — keep the check to avoid re-touching this file when the
+	// session-pane PR lands. Untyped getContext to avoid coupling to the
+	// AIChatManager class export (which lives on the chat-visuals PR).
+	const inSessionPane = !!getContext('aiChatManager')
+	// In a session pane the editor does NOT own the localStorage draft — the
+	// session runtime does, keyed by the session's (fork) workspace. So the
+	// `if (!inSessionPane) UserDraft.remove(...)` guards below skip the editor's
+	// own removal (it would target the wrong, main-`$workspaceStore` key). The
+	// session-side equivalent is RawAppEditorView's `onDeploy` →
+	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
+	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
+	import { stripRawAppDiffNoise } from './utils'
 	import type { RawAppData } from './dataTableRefUtils'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	// async function hash(message) {
@@ -79,18 +99,24 @@
 		savedApp?:
 			| {
 					value: any
-					draft?: any
 					path: string
 					summary: string
 					policy: any
-					draft_only?: boolean
 					custom_path?: string
+					labels?: string[]
+					/** No deployed counterpart exists (draft-only); disables Diff. */
+					no_deployed?: boolean
 			  }
 			| undefined
 		version?: number | undefined
 		newApp: boolean
 		newPath?: string
+		/** Initial labels for the app, threaded from the loaded app data. */
+		labels?: string[]
 		appPath: string
+		/** "Open in AI session" hand-off, owned by the editor (it persists the
+		 * draft the session preview loads). Undefined until the app has a path. */
+		sessionOpen?: OpenInSessionSource
 		runnables: Record<string, Runnable>
 		files: Record<string, string> | undefined
 		/** Data configuration including tables and creation policy */
@@ -105,6 +131,45 @@
 		canRedo?: boolean
 		onUndo?: () => void
 		onRedo?: () => void
+		onOpenYamlEditor?: () => void
+		sidebarCollapsed?: boolean
+		onToggleSidebar?: () => void
+		/** Condensed top bar: smaller (sm) buttons, a shorter bar, and the
+		 * EditorHeader's path/breadcrumb row dropped (summary only). Used by the
+		 * session preview to save vertical room. */
+		condensedHeader?: boolean
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
+		liveEditorDraftStoragePath?: string
+		/** Indicator-only overrides for the sessions preview: the AutosaveIndicator
+		 *  watches the session's (workspace, path) so it renders + animates on the
+		 *  key SessionEditorTarget saves under. Undefined on the full-page editor →
+		 *  falls back to `$workspaceStore`/`liveEditorDraftStoragePath`. */
+		autosaveWorkspace?: string
+		autosavePath?: string
+		// Fired after a successful deploy; lets the session preview reload.
+		onDeploy?: (e: { path: string }) => void
+		/** Surfaces the user-typed path (`newEditedPath`) up to the route
+		 *  when (and only when) it differs from the deployed/seeded
+		 *  `savedApp.path`. The route writes it into the autosaved raw-app
+		 *  draft as `draft_path` so the home-page row can render the
+		 *  friendly name instead of the URL's autogenerated draft slot. */
+		pendingDraftPath?: string | undefined
+		// Threaded to the `AutosaveIndicator` popover so its "Reset to
+		// deployed" button can do the same thing the load-time toast offers.
+		onResetToDeployed?: () => void | Promise<void>
+		// See ScriptBuilderProps — same semantics for the raw-app editor's
+		// indicator.
+		loadedFromDraft?: boolean
+		othersDraftsCount?: number
+		onOpenOthersDrafts?: () => void
+		// Restoring an older deployment from the history drawer. A callback prop
+		// (not `on:restore` forwarding): forwarding a `createEventDispatcher`
+		// event up through these runes-mode components silently drops it.
+		onRestore?: (restoredApp: any) => void
+		// Deploy created the app at a new path; the page navigates to it. Callback
+		// prop for the same reason as `onRestore` — `on:savedNewAppPath` forwarding
+		// through these runes-mode components is dropped.
+		onSavedNewAppPath?: (path: string) => void
 	}
 
 	let {
@@ -115,7 +180,9 @@
 		version = $bindable(undefined),
 		newApp,
 		newPath = '',
+		labels: initialLabels = undefined,
 		appPath,
+		sessionOpen,
 		runnables,
 		data,
 		files,
@@ -125,10 +192,73 @@
 		canUndo = false,
 		canRedo = false,
 		onUndo = undefined,
-		onRedo = undefined
+		onRedo = undefined,
+		onOpenYamlEditor = undefined,
+		sidebarCollapsed = false,
+		onToggleSidebar = undefined,
+		condensedHeader = false,
+		onNavigate = undefined,
+		liveEditorDraftStoragePath = undefined,
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
+		onDeploy = undefined,
+		pendingDraftPath = $bindable(undefined),
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts,
+		onRestore,
+		onSavedNewAppPath
 	}: Props = $props()
 
-	let newEditedPath = $state('')
+	// Set by the on-behalf-of selector when the publisher picks a user other than
+	// themselves. Forwarded as `preserve_on_behalf_of` so the backend keeps the
+	// policy's on_behalf_of instead of resetting it to the deploying user.
+	let preserveOnBehalfOf = $state(false)
+
+	// The AutosaveIndicator watches these; in the sessions preview they're the
+	// session's (workspace, path), else the full-page editor's own values.
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+
+	$effect(() => {
+		const typed = newEditedPath
+		const baseline = savedApp?.path ?? ''
+		untrack(() => {
+			pendingDraftPath = typed && typed !== baseline ? typed : undefined
+		})
+	})
+
+	// `newApp` is true both for a brand-new app AND (in the session preview) for a
+	// draft-only one that already has a real path — so prefer the real `appPath`,
+	// but NOT a `draft_{uuid}` storage placeholder (a brand-new app is parked at
+	// `u/{user}/draft_{uuid}`). A real named path is kept (else its breadcrumb shows
+	// a random name and deploy createApps under it); a placeholder still falls
+	// through to the friendly generated suggestion.
+	let newEditedPath = $state(
+		untrack(() => {
+			const realAppPath = appPath && !appPath.split('/').pop()?.startsWith('draft_') ? appPath : ''
+			return newApp
+				? newPath || realAppPath || userPathPrefix($userStore?.username) + random_adj() + '_app'
+				: newPath || appPath || ''
+		})
+	)
+
+	$effect(() => {
+		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
+		const workspace = opWorkspace
+		UserDraft.setLiveEditorDraft({
+			workspace,
+			itemKind: 'raw_app',
+			storagePath: liveEditorDraftStoragePath,
+			effectivePath: newEditedPath || appPath || savedApp?.path
+		})
+		return () =>
+			UserDraft.clearLiveEditorDraft('raw_app', {
+				workspace,
+				storagePath: liveEditorDraftStoragePath
+			})
+	})
 
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
@@ -139,57 +269,27 @@
 
 	const loading = $state({
 		publish: false,
-		save: false,
-		saveDraft: false
+		save: false
 	})
 
 	let pathError: string = $state('')
 	let appExport = $state() as AppExportButton | undefined
 
-	let draftDrawerOpen = $state(false)
 	let saveDrawerOpen = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
-	let publishToHubDrawerOpen = $state(false)
-	let publishingToHub = $state(false)
+	let recordDrawer = $state<Drawer | undefined>(undefined)
 	let deploymentMsg: string | undefined = $state(undefined)
 
-	async function publishToHub() {
-		if (!app) return
-		publishingToHub = true
-		try {
-			const { default: JSZip } = await import('jszip')
-			const { js, css } = await getBundle()
-			const zip = new JSZip()
-			zip.file('app.yaml', YAML.stringify(app))
-			zip.file('bundle.js', js)
-			zip.file('bundle.css', css)
-			const blob = await zip.generateAsync({ type: 'blob' })
+	// Top-bar responsive collapse — container width, not viewport.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
 
-			// Download the zip
-			const url = window.URL.createObjectURL(blob)
-			const a = document.createElement('a')
-			a.href = url
-			a.download = `${(appPath || 'raw-app').replaceAll('/', '__')}.zip`
-			a.click()
-			setTimeout(() => URL.revokeObjectURL(url), 100)
-
-			// Open hub page
-			const hubUrl = rawAppToHubUrl(
-				$hubBaseUrlStore,
-				summary || appPath.split('/').pop()?.replace('_', ' ') || 'my raw app'
-			)
-			window.open(hubUrl.toString(), '_blank')
-		} finally {
-			publishingToHub = false
-		}
-	}
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
-	}
-
-	function closeDraftDrawer() {
-		draftDrawerOpen = false
 	}
 
 	async function computeTriggerables() {
@@ -208,7 +308,7 @@
 		try {
 			const { js, css } = await getBundle()
 			await AppService.createAppRaw({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				formData: {
 					app: {
 						value: app,
@@ -216,29 +316,44 @@
 						summary: summary,
 						policy,
 						deployment_message: deploymentMsg,
-						custom_path: customPath
+						custom_path: customPath,
+						preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+						labels
 					},
 					js,
 					css
 				}
 			})
+			// New path now exists server-side — drop the autocomplete cache so
+			// it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths(opWorkspace!)
 			savedApp = {
 				summary: summary,
 				value: structuredClone(stateSnapshot(app)),
 				path: path,
 				policy: policy,
-				custom_path: customPath
+				custom_path: customPath,
+				labels: $state.snapshot(labels)
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			try {
-				localStorage.removeItem(`rawapp-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
+			// Canonical autosave key (the URL slot `appPath`), NOT the
+			// just-typed deploy `path` — for a draft-only app they differ
+			// (`u/{user}/draft_{uuid}` vs the chosen path), so removing at
+			// `path` orphaned the real draft row. Bracketed + flushed:
+			// RawAppEditor stays mounted through the post-deploy navigation
+			// and its mirror would otherwise displace the queued delete.
+			if (!inSessionPane && $workspaceStore) {
+				discardDraftAfterDeploy({
+					workspace: $workspaceStore,
+					itemKind: 'raw_app',
+					path: appPath
+				})
 			}
-			dispatch('savedNewAppPath', path)
+			onSavedNewAppPath?.(path)
+			onDeploy?.({ path })
 		} catch (e) {
-			sendUserToast('Error creating app', e)
+			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
 		}
 	}
 
@@ -259,15 +374,7 @@
 				savedApp &&
 				app &&
 				orderedJsonStringify(deployedValue) ===
-					orderedJsonStringify(
-						replaceFalseWithUndefined({
-							summary: summary,
-							value: app,
-							path: newEditedPath || savedApp.draft?.path || savedApp.path,
-							policy,
-							custom_path: customPath
-						})
-					)
+					orderedJsonStringify(replaceFalseWithUndefined(currentDiffValue))
 			) {
 				await updateApp(npath)
 			} else {
@@ -283,21 +390,31 @@
 
 	async function syncWithDeployed() {
 		const deployedApp = await AppService.getAppByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: appPath!,
 			withStarredInfo: true
 		})
 
 		deployedBy = deployedApp.created_by
 
-		// Strip off extra information
-		deployedValue = replaceFalseWithUndefined({
-			...deployedApp,
-			id: undefined,
-			created_at: undefined,
-			created_by: undefined,
-			versions: undefined,
-			extra_perms: undefined
+		// Normalize away post-deploy noise (see stripRawAppDiffNoise) so the
+		// diff/comparison only reflects what the editor actually changed.
+		deployedValue = replaceFalseWithUndefined(stripRawAppDiffNoise(deployedApp))
+	}
+
+	async function openDiffDrawer() {
+		if (!savedApp) {
+			return
+		}
+
+		// deployedValue should be syncronized when we open Diff
+		await syncWithDeployed()
+
+		diffDrawer?.openDrawer()
+		diffDrawer?.setDiff({
+			mode: 'normal',
+			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+			current: currentDiffValue
 		})
 	}
 
@@ -312,7 +429,7 @@
 			policy.execution_mode = 'publisher'
 		}
 		await AppService.updateAppRaw({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: appPath!,
 			formData: {
 				app: {
@@ -321,48 +438,58 @@
 					policy,
 					path: npath,
 					deployment_message: deploymentMsg,
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
-						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
+						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
+					labels
 				},
 				js,
 				css
 			}
 		})
+		invalidateWorkspacePaths(opWorkspace!)
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),
 			path: npath,
 			policy,
-			custom_path: customPath
+			custom_path: customPath,
+			labels: $state.snapshot(labels)
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: npath
 		})
 		version = appHistory[0]?.version
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
-		if (appPath !== npath) {
-			try {
-				localStorage.removeItem(`rawapp-${appPath}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
-			dispatch('savedNewAppPath', npath)
+		// Bracketed + flushed (see createApp).
+		if (!inSessionPane && $workspaceStore) {
+			discardDraftAfterDeploy({
+				workspace: $workspaceStore,
+				itemKind: 'raw_app',
+				path: appPath
+			})
 		}
+		if (appPath !== npath) {
+			onSavedNewAppPath?.(npath)
+		}
+		onDeploy?.({ path: npath })
 	}
 
-	async function setPublishState() {
+	async function setPublishState(message?: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: appPath,
 			requestBody: { policy }
 		})
-		if (policy.execution_mode == 'anonymous') {
+		if (message) {
+			sendUserToast(message)
+		} else if (policy.execution_mode == 'anonymous') {
 			sendUserToast('App require no login to be accessed')
 		} else {
 			sendUserToast('App require login and read-access')
@@ -374,175 +501,6 @@
 		return
 	}
 
-	async function saveInitialDraft() {
-		if (!app) {
-			sendUserToast(`App hasn't been loaded yet`, true)
-			return
-		}
-		await computeTriggerables()
-		try {
-			let { css, js } = await getBundle()
-			await AppService.createAppRaw({
-				workspace: $workspaceStore!,
-				formData: {
-					app: {
-						value: app,
-						path: newEditedPath,
-						summary: summary,
-						policy,
-						draft_only: true,
-						custom_path: customPath
-					},
-					js,
-					css
-				}
-			})
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: newEditedPath,
-					typ: 'app',
-					value: {
-						value: app,
-						path: newEditedPath,
-						summary: summary,
-						policy,
-						custom_path: customPath
-					}
-				}
-			})
-			savedApp = {
-				summary: summary,
-				value: structuredClone(stateSnapshot(app)),
-				path: newEditedPath,
-				policy,
-				draft_only: true,
-				draft: {
-					summary: summary,
-					value: structuredClone(stateSnapshot(app)),
-					path: newEditedPath,
-					policy,
-					custom_path: customPath
-				},
-				custom_path: customPath
-			}
-
-			draftDrawerOpen = false
-			dispatch('savedNewAppPath', newEditedPath)
-		} catch (e) {
-			sendUserToast('Error saving initial draft', e)
-		}
-		draftDrawerOpen = false
-	}
-
-	async function saveDraft(forceSave = false) {
-		if (!app) {
-			sendUserToast(`App hasn't been loaded yet`, true)
-			return
-		}
-		if (newApp) {
-			// initial draft
-			draftDrawerOpen = true
-			return
-		}
-		if (!savedApp) {
-			return
-		}
-		const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
-		const current = cleanValueProperties({
-			summary: summary,
-			value: app,
-			path: newEditedPath || savedApp.draft?.path || savedApp.path,
-			policy
-		})
-		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-			sendUserToast('No changes detected, ignoring', false, [
-				{
-					label: 'Save anyway',
-					callback: () => {
-						saveDraft(true)
-					}
-				}
-			])
-			return
-		}
-		loading.saveDraft = true
-		try {
-			await computeTriggerables()
-			let path = appPath
-			if (savedApp.draft_only) {
-				await AppService.deleteApp({
-					workspace: $workspaceStore!,
-					path: path
-				})
-				let { css, js } = await getBundle()
-
-				await AppService.createAppRaw({
-					workspace: $workspaceStore!,
-					formData: {
-						app: {
-							value: app!,
-							summary: summary,
-							policy,
-							path: newEditedPath || path,
-							draft_only: true,
-							custom_path: customPath
-						},
-						js,
-						css
-					}
-				})
-			}
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: savedApp.draft_only ? newEditedPath || path : path,
-					typ: 'app',
-					value: {
-						value: app!,
-						summary: summary,
-						policy,
-						path: newEditedPath || path
-					}
-				}
-			})
-
-			savedApp = {
-				...(savedApp?.draft_only
-					? {
-							summary: summary,
-							value: structuredClone(stateSnapshot(app)),
-							path: savedApp.draft_only ? newEditedPath || path : path,
-							policy,
-							draft_only: true,
-							custom_path: customPath
-						}
-					: savedApp),
-				draft: {
-					summary: summary,
-					value: structuredClone(stateSnapshot(app)),
-					path: newEditedPath || path,
-					policy,
-					custom_path: customPath
-				}
-			}
-
-			sendUserToast('Draft saved')
-			try {
-				localStorage.removeItem(`rawapp-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
-			loading.saveDraft = false
-			if (newApp || savedApp.draft_only) {
-				dispatch('savedNewAppPath', newEditedPath || path)
-			}
-		} catch (e) {
-			loading.saveDraft = false
-			throw e
-		}
-	}
-
 	let onLatest = $state(true)
 	async function compareVersions() {
 		if (version === undefined) {
@@ -550,7 +508,7 @@
 		}
 		try {
 			const appVersion = await AppService.getAppLatestVersion({
-				workspace: $workspaceStore!,
+				workspace: opWorkspace!,
 				path: appPath
 			})
 			onLatest = appVersion?.version === undefined || version === appVersion?.version
@@ -560,7 +518,34 @@
 		}
 	}
 
-	let moreItems = [
+	const mod = isMac() ? '⌘' : 'Ctrl+'
+
+	let moreItems = $derived([
+		...(compactTopbar
+			? [
+					{
+						displayName: `Jobs (${jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})`,
+						icon: Bug,
+						action: () => (jobsDrawerOpen = true),
+						separatorBottom: true
+					}
+				]
+			: []),
+		{
+			displayName: 'Undo',
+			icon: Undo,
+			action: () => onUndo?.(),
+			disabled: !canUndo,
+			shortcut: `${mod}Z`
+		},
+		{
+			displayName: 'Redo',
+			icon: Redo,
+			action: () => onRedo?.(),
+			disabled: !canRedo,
+			shortcut: `${mod}⇧Z`,
+			separatorBottom: true
+		},
 		{
 			displayName: 'Deployment history',
 			icon: History,
@@ -577,68 +562,45 @@
 			}
 		},
 		{
-			displayName: 'Publish to Hub',
-			icon: Globe,
-			action: () => {
-				publishToHubDrawerOpen = true
-			}
+			displayName: 'Edit in YAML',
+			icon: FileJson,
+			action: () => onOpenYamlEditor?.()
 		},
 		{
-			displayName: 'Diff',
-			icon: DiffIcon,
-			action: async () => {
-				if (!savedApp) {
-					return
-				}
-
-				// deployedValue should be syncronized when we open Diff
-				await syncWithDeployed()
-
-				diffDrawer?.openDrawer()
-				diffDrawer?.setDiff({
-					mode: 'normal',
-					deployed: deployedValue ?? savedApp,
-					draft: savedApp.draft,
-					current: {
-						summary: summary,
-						value: app,
-						path: newEditedPath || savedApp.draft?.path || savedApp.path,
-						policy,
-						custom_path: customPath
-					}
-				})
+			displayName: 'Record demo',
+			icon: Circle,
+			action: () => {
+				recordDrawer?.openDrawer()
 			},
 			disabled: !savedApp
 		}
-	]
-
-	const dispatch = createEventDispatcher()
+	])
 
 	let customPath = $state(savedApp?.custom_path)
 	let customPathError = $state('')
+	let labels = $state(untrack(() => initialLabels))
 
 	let jobsDrawerOpen = $state(false)
 
-	function getInitialAndModifiedValues(): SavedAndModifiedValue {
-		return {
-			savedValue: savedApp,
-			modifiedValue: {
-				summary: summary,
-				value: app,
-				path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-				policy,
-				custom_path: customPath
-			}
-		}
-	}
 	let app = $derived(files ? { runnables: runnables, files, data } : undefined)
+
+	// Editor-side value for diffing/comparison against the deployed app, with the
+	// same noise stripped as the deployed side (see stripRawAppDiffNoise).
+	let currentDiffValue = $derived(
+		stripRawAppDiffNoise({
+			summary: summary,
+			value: app,
+			path: newEditedPath || savedApp?.path,
+			policy,
+			custom_path: customPath,
+			labels
+		})
+	)
 
 	$effect(() => {
 		saveDrawerOpen && compareVersions()
 	})
 </script>
-
-<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -646,49 +608,18 @@
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
-	currentValue={{
-		summary: summary,
-		value: app,
-		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-		policy,
-		custom_path: customPath
-	}}
+	currentValue={currentDiffValue}
 />
 
-{#if appPath == ''}
-	<Drawer bind:open={draftDrawerOpen} size="800px">
-		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
-			{#snippet actions()}
-				<div>
-					<Button
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' || app == undefined}
-						on:click={() => saveInitialDraft()}
-						unifiedSize="md"
-						variant="accent"
-					>
-						Save initial draft
-					</Button>
-				</div>
-			{/snippet}
-			<AppEditorHeaderDeployInitialDraft
-				bind:summary
-				bind:appPath
-				bind:pathError
-				bind:newEditedPath
-			/>
-		</DrawerContent>
-	</Drawer>
-{/if}
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#snippet actions()}
 			<div class="flex flex-row gap-2">
 				<Button
 					variant="default"
-					disabled={!savedApp || savedApp.draft_only}
+					disabled={!savedApp || newApp}
 					on:click={async () => {
-						if (!savedApp) {
+						if (!savedApp || newApp) {
 							return
 						}
 						// deployedValue should be syncronized when we open Diff
@@ -698,19 +629,12 @@
 						diffDrawer?.openDrawer()
 						diffDrawer?.setDiff({
 							mode: 'normal',
-							deployed: deployedValue ?? savedApp,
-							draft: savedApp.draft,
-							current: {
-								summary: summary,
-								value: app,
-								path: newEditedPath || savedApp.draft?.path || savedApp.path,
-								policy,
-								custom_path: customPath
-							},
+							deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+							current: currentDiffValue,
 							button: {
 								text: 'Looks good, deploy',
 								onClick: () => {
-									if (appPath == '') {
+									if (newApp || appPath == '') {
 										createApp(newEditedPath)
 									} else {
 										handleUpdateApp(newEditedPath)
@@ -731,7 +655,7 @@
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || customPathError != '' || app == undefined}
 					on:click={() => {
-						if (appPath == '') {
+						if (newApp || appPath == '') {
 							createApp(newEditedPath)
 						} else {
 							handleUpdateApp(newEditedPath)
@@ -745,58 +669,62 @@
 
 		<AppEditorHeaderDeploy
 			{newPath}
+			{newApp}
 			{policy}
 			{setPublishState}
 			{appPath}
 			{onLatest}
 			{savedApp}
+			rawApp
+			operatingWorkspace={opWorkspace}
 			bind:summary
 			bind:customPath
 			bind:deploymentMsg
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
+			bind:preserveOnBehalfOf
+			bind:labels
 		/>
 	</DrawerContent>
 </Drawer>
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {appPath} />
+		<DeploymentHistory on:restore={(e) => onRestore?.(e.detail)} {appPath} />
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:open={publishToHubDrawerOpen} size="600px">
-	<DrawerContent title="Publish to Hub" on:close={() => (publishToHubDrawerOpen = false)}>
-		{#snippet actions()}
-			<Button
-				loading={publishingToHub}
-				disabled={!app}
-				on:click={publishToHub}
-				variant="accent"
-				startIcon={{ icon: Download }}
-			>
-				Download & open hub
-			</Button>
-		{/snippet}
-		<div class="flex flex-col gap-4">
-			<p class="text-secondary text-sm">
-				This will download a zip file containing your raw app bundle and open the Windmill Hub
-				submission page.
-			</p>
-			<div class="text-sm">
-				<p class="font-semibold mb-2">The zip file will contain:</p>
-				<ul class="list-disc list-inside text-secondary space-y-1">
-					<li
-						><code class="text-xs bg-surface-secondary px-1 rounded">app.yaml</code> - App configuration</li
-					>
-					<li
-						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.js</code> - JavaScript bundle</li
-					>
-					<li
-						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.css</code> - CSS styles</li
-					>
-				</ul>
+<!-- Full screen: the demo is recorded at the size it replays at. -->
+<Drawer bind:this={recordDrawer} size="100vw">
+	<DrawerContent
+		title="Record a demo — {savedApp?.path ?? appPath}"
+		on:close={() => recordDrawer?.closeDrawer()}
+	>
+		<div class="flex flex-col h-full min-h-0 gap-2">
+			<div class="text-xs text-secondary flex flex-col gap-1">
+				<span>
+					Use the app the way someone else would — each interaction becomes a step, and the
+					recording captures the page as they would see it. Passwords are masked; add
+					<span class="font-mono">data-wm-no-record</span> to anything else that should stay out.
+				</span>
+				<span>
+					Stop recording, then <b>Download</b> the JSON. It is self-contained: open it on
+					<a href="{base}/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
+						{base}/replay
+					</a>
+					— a public page that needs no login and can be embedded in an iframe. Host the JSON anywhere
+					it can be fetched (S3, GitHub raw, your docs site) and link
+					<span class="font-mono">{base}/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
+					keeps no copy.
+				</span>
+			</div>
+			<div class="flex-1 min-h-0">
+				{#if recordDrawer}
+					<!-- opWorkspace, not the selected one: a session edits an app that may
+				     live in another workspace, and recording must load and run it there. -->
+					<RawAppRecordSession workspace={opWorkspace ?? ''} path={savedApp?.path ?? appPath} />
+				{/if}
 			</div>
 		</div>
 	</DrawerContent>
@@ -817,61 +745,63 @@
 />
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto min-h-10 shrink-0"
+	bind:clientWidth={topbarWidth}
+	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto shrink-0 {condensedHeader
+		? 'max-h-9 h-9'
+		: 'max-h-12 h-12'}"
 >
-	<div class="flex flex-row gap-2 items-center">
-		<Summary bind:value={summary} />
-		<div></div>
-		<UndoRedo
-			undoProps={{ disabled: !canUndo }}
-			redoProps={{ disabled: !canRedo }}
-			on:undo={() => onUndo?.()}
-			on:redo={() => onRedo?.()}
-		/>
-	</div>
-
-	<div class=" flex">
-		{#if newPath || newEditedPath}
-			<div class="flex justify-start w-full border rounded-md overflow-hidden">
-				<div>
-					<button
-						onclick={async () => {
-							saveDrawerOpen = true
-							setTimeout(() => {
-								document.getElementById('path')?.focus()
-							}, 100)
-						}}
-					>
-						<Badge
-							color="gray"
-							class="center-center !bg-surface-secondary !text-primary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all flex gap-1"
-						>
-							<Pen size={14} />Path
-						</Badge>
-					</button>
-				</div>
-				<input
-					type="text"
-					readonly
-					value={defaultIfEmptyString(newEditedPath, newPath)}
-					size={defaultIfEmptyString(newEditedPath, newPath)?.length || 50}
-					class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
-					onfocus={({ currentTarget }) => {
-						currentTarget.select()
-					}}
-				/>
-			</div>
+	<!-- Identity block: shrinks/truncates first so the cloud indicator and the
+	     action buttons stay visible. Without min-w-0 the breadcrumb + summary
+	     overflow this box on narrow widths and get overlapped by the (formerly
+	     un-pinned) action group, hiding the autosave cloud. -->
+	<div class="flex flex-row gap-2 items-center min-w-0">
+		{#if onToggleSidebar}
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				iconOnly
+				startIcon={{ icon: sidebarCollapsed ? PanelLeft : PanelLeftClose }}
+				title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} file sidebar (${isMac() ? '⌘' : 'Ctrl+'}B)`}
+				on:click={() => onToggleSidebar?.()}
+			/>
+		{/if}
+		<div class="min-w-0 overflow-hidden">
+			<EditorHeader
+				bind:summary
+				bind:path={newEditedPath}
+				savedPath={appPath || newPath || undefined}
+				kind="app"
+				raw_app
+				hidePath={condensedHeader}
+				workspaceId={autosaveWorkspace}
+				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
+			/>
+		</div>
+		{#if opWorkspace && indicatorPath !== undefined}
+			<AutosaveIndicator
+				workspace={opWorkspace}
+				itemKind="raw_app"
+				path={indicatorPath}
+				draftOnly={newApp}
+				{onResetToDeployed}
+				{loadedFromDraft}
+				{othersDraftsCount}
+				{onOpenOthersDrafts}
+			/>
 		{/if}
 	</div>
-	{#if $enterpriseLicense && appPath != ''}
-		<Awareness />
+
+	{#if $enterpriseLicense && appPath != '' && !inSessionPane}
+		<div class="shrink-0">
+			<Awareness />
+		</div>
 	{/if}
-	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
+	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
 		<DropdownV2 items={moreItems} class="h-auto">
 			{#snippet buttonReplacement()}
 				<Button
 					nonCaptureEvent
-					unifiedSize="md"
+					unifiedSize={headerBtnSize}
 					variant="subtle"
 					startIcon={{ icon: EllipsisVertical }}
 					iconOnly
@@ -879,13 +809,42 @@
 			{/snippet}
 		</DropdownV2>
 
-		<div class="hidden md:inline relative overflow-visible">
+		<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+		     never shows on hover. pointer-events-none on the button lets the hover
+		     reach this titled wrapper instead. -->
+		<div
+			title={newApp || savedApp?.no_deployed === true
+				? 'Deploy this app once to compare against the deployed version'
+				: 'Diff'}
+			class={!savedApp || newApp || savedApp?.no_deployed === true
+				? 'flex cursor-not-allowed'
+				: 'flex'}
+		>
+			<Button
+				variant="default"
+				unifiedSize={headerBtnSize}
+				on:click={() => openDiffDrawer()}
+				disabled={!savedApp || newApp || savedApp?.no_deployed === true}
+				btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
+					? 'pointer-events-none'
+					: undefined}
+				iconOnly={compactTopbar}
+				title={newApp || savedApp?.no_deployed === true
+					? 'Deploy this app once to compare against the deployed version'
+					: 'Diff'}
+				startIcon={{ icon: DiffIcon }}
+			>
+				Diff
+			</Button>
+		</div>
+
+		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
 			<Button
 				on:click={() => {
 					jobsDrawerOpen = true
 				}}
 				color="light"
-				unifiedSize="md"
+				unifiedSize={headerBtnSize}
 				variant="default"
 				btnClasses="relative"
 			>
@@ -900,32 +859,25 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
-		<Button
-			unifiedSize="md"
-			variant="default"
-			onClick={() => aiChatManager.toggleOpen()}
-			startIcon={{ icon: WandSparkles }}
-			iconOnly
-			btnClasses={AIBtnClasses('default')}
-		>
-			AI
-		</Button>
-		<Button
-			loading={loading.save}
-			startIcon={{ icon: Save }}
-			on:click={() => saveDraft()}
-			unifiedSize="md"
-			variant="default"
-			disabled={!newApp && !savedApp}
-			shortCut={{ key: 'S' }}
-		>
-			Draft
-		</Button>
+		<OpenInSessionButton source={sessionOpen}>
+			{#snippet fallback()}
+				<Button
+					unifiedSize={headerBtnSize}
+					variant="default"
+					onClick={() => aiChatManager.toggleOpen()}
+					startIcon={{ icon: WandSparkles }}
+					iconOnly
+					btnClasses={AIBtnClasses('default')}
+				>
+					AI
+				</Button>
+			{/snippet}
+		</OpenInSessionButton>
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
-			unifiedSize="md"
+			unifiedSize={headerBtnSize}
 			variant="accent"
 			dropdownItems={appPath != ''
 				? () => [
@@ -935,12 +887,12 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+						...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: editInForkLabel(opWorkspace, $userWorkspaces),
 										onClick: () => {
-											window.open(buildForkEditUrl('raw_app', appPath))
+											openEditInFork('raw_app', appPath, opWorkspace)
 										}
 									}
 								]

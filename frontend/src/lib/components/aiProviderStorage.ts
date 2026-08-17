@@ -50,6 +50,7 @@ export function isSameAsStoredConfig(config: ProviderConfig | undefined): boolea
 		storedConfig !== undefined &&
 		storedConfig.kind === config?.kind &&
 		storedConfig.resource === config?.resource &&
-		storedConfig.model === config?.model
+		storedConfig.model === config?.model &&
+		storedConfig.reasoning_effort === config?.reasoning_effort
 	)
 }

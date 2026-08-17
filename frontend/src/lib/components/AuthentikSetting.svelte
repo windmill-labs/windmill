@@ -1,18 +1,16 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import IconedResourceType from './IconedResourceType.svelte'
+	import Password from './Password.svelte'
 	import Toggle from './Toggle.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
-		value: any;
+		value: any
 	}
 
-	let { value = $bindable() }: Props = $props();
-
-
-
+	let { value = $bindable() }: Props = $props()
 
 	function changeOrg(org) {
 		if (value && org) {
@@ -34,10 +32,12 @@
 	}
 	let enabled = $derived(value != undefined)
 	// Initialize org from existing auth_url
-	let org = $derived(value?.connect_config?.auth_url?.replace('/application/o/authorize/', '') ?? '')
+	let org = $derived(
+		value?.connect_config?.auth_url?.replace('/application/o/authorize/', '') ?? ''
+	)
 	run(() => {
 		changeOrg(org)
-	});
+	})
 </script>
 
 <div class="flex flex-col gap-1">
@@ -71,9 +71,13 @@
 				<span class="text-emphasis font-semibold text-xs">Client Id</span>
 				<input type="text" placeholder="Client Id" bind:value={value['id']} />
 			</label>
-			<label>
+			<label for="authentik_client_secret">
 				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<Password
+					id="authentik_client_secret"
+					placeholder="Client Secret"
+					bind:password={value['secret']}
+				/>
 			</label>
 		</SettingCard>
 	{/if}

@@ -157,6 +157,7 @@ async fn push_job(db: &Pool<Postgres>, content: &str, args: &serde_json::Value) 
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
@@ -170,6 +171,7 @@ async fn push_job(db: &Pool<Postgres>, content: &str, args: &serde_json::Value) 
         /* email */ "test@windmill.dev",
         /* permissioned_as */ "u/test-user".to_string(),
         /* token_prefix */ None,
+        /* audit_end_user */ None,
         /* scheduled_for */ None,
         /* schedule_path */ None,
         /* parent_job */ None,
@@ -223,7 +225,7 @@ fn spawn_workers(
         let future = async move {
             let base_internal_url = format!("http://localhost:{}", port);
             {
-                let mut wc = WORKER_CONFIG.write().await;
+                let mut wc = (**WORKER_CONFIG.load()).clone();
                 wc.worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
                 wc.priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
                     priority: 0,
@@ -231,6 +233,7 @@ fn spawn_workers(
                 }];
                 windmill_common::worker::store_suspended_pull_query(&wc).await;
                 windmill_common::worker::store_pull_query(&wc).await;
+                WORKER_CONFIG.store(std::sync::Arc::new(wc));
             }
             windmill_worker::run_worker(
                 &conn,
@@ -238,7 +241,6 @@ fn spawn_workers(
                 worker_name,
                 i as u64,
                 n as u32,
-                "127.0.0.1",
                 rx,
                 tx2,
                 &base_internal_url,

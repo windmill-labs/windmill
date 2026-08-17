@@ -77,7 +77,9 @@
                 "nu",
                 "java",
                 "duckdb",
-                "ruby"
+                "ruby",
+                "rlang",
+                "dbt"
               ]
             }
           }
@@ -106,7 +108,13 @@
                 "gcp",
                 "mqtt",
                 "nextcloud",
-                "google"
+                "google",
+                "ci_test",
+                "github",
+                "azure",
+                "asset",
+                "freshness",
+                "amqp"
               ]
             }
           }

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT test_script_path, tested_item_path FROM ci_test_reference WHERE workspace_id = $1 AND tested_item_path = $2 AND tested_item_kind = $3 AND NOT has_wildcard",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "test_script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "tested_item_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e36ae283d27b52dc5626841209e130a1095110e4b88b19b20f0a3ee5d20f9ee2"
+}

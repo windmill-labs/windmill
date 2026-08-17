@@ -3,10 +3,12 @@ use std::{
     process::Stdio,
     str::FromStr,
     sync::Arc,
+    time::UNIX_EPOCH,
 };
 
 use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{fs::DirBuilder, process::Command, sync::RwLock};
 use uuid::Uuid;
@@ -23,9 +25,9 @@ use crate::python_executor::UV_PATH;
 use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
-    python_executor::{INDEX_CERT, NATIVE_CERT, PYTHON_PATH},
-    HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR,
-    WIN_ENVS,
+    python_executor::PYTHON_PATH,
+    HOME_ENV, INDEX_CERT, INSTANCE_PYTHON_VERSION, NATIVE_CERT, PATH_ENV, PROXY_ENVS,
+    PY_INSTALL_DIR, UV_CACHE_DIR, UV_PYTHON_INSTALL_MIRROR, WIN_ENVS,
 };
 
 impl From<PyV> for PyVAlias {
@@ -465,7 +467,7 @@ impl PyV {
         w_id: &str,
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     ) -> error::Result<Option<String>> {
-        let py_path = self.find_python().await;
+        let py_path = self.find_python_cached().await;
 
         // Runtime is not installed
         if let Err(py_err) = py_path {
@@ -480,7 +482,7 @@ impl PyV {
                 return Err(err);
             } else {
                 // Try to find one more time
-                let py_path = self.find_python().await;
+                let py_path = self.find_python_cached().await;
 
                 if let Err(err) = py_path {
                     tracing::error!(
@@ -489,7 +491,6 @@ impl PyV {
                     return Err(err);
                 }
 
-                // TODO: Cache the result
                 py_path
             }
         } else {
@@ -537,6 +538,11 @@ impl PyV {
                 &v,
                 "--python-preference=only-managed",
                 "--no-bin",
+                // Compile the runtime's stdlib to bytecode at install time. The
+                // runtime is mounted read-only into the job nsjail, so without
+                // precompiled .pyc Python would recompile ~stdlib from source on
+                // every job (and can never persist it). Requires uv >= 0.9.25.
+                "--compile-bytecode",
             ])
             // TODO: Do we need these?
             .envs([
@@ -545,6 +551,17 @@ impl PyV {
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            child_cmd.env("SSL_CERT_FILE", cert_path);
+        }
+        if *NATIVE_CERT {
+            child_cmd.env("UV_NATIVE_TLS", "true");
+        }
+
+        if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
+            child_cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);
+        }
 
         #[cfg(windows)]
         {
@@ -584,7 +601,37 @@ impl PyV {
         .await?;
         Ok(())
     }
+    /// Same as [`Self::find_python`] but backed by [`PY_PATH_CACHE_DIR`], which outlives the
+    /// worker process. The subprocess is only spawned when there is nothing usable on disk.
+    async fn find_python_cached(&self) -> error::Result<Option<String>> {
+        // Keyed on the requested version, not on the resolved patch: uv answers a minor-only
+        // request with its own minor-version link, which it re-points when a newer patch is
+        // installed, so an entry follows patch upgrades without being invalidated.
+        let version = self.to_string();
+        // Without an identity for uv an upgrade would go unnoticed, so the cache is skipped.
+        let uv = uv_identity().await;
+
+        if let Some(ref uv) = uv {
+            if let Some(py_path) = read_cached_python_path(&PY_PATH_CACHE_DIR, uv, &version).await {
+                // Serving a path that no longer exists is far worse than the spawn it saves, so
+                // the interpreter is checked instead of trusted (the install dir may have been
+                // wiped, or uv may have moved it).
+                if tokio::fs::try_exists(&py_path).await.unwrap_or(false) {
+                    return Ok(Some(py_path));
+                }
+            }
+        }
+
+        let py_path = self.find_python().await;
+        if let (Some(uv), Ok(Some(py_path))) = (&uv, &py_path) {
+            write_cached_python_path(&PY_PATH_CACHE_DIR, uv, &version, py_path).await;
+        }
+        py_path
+    }
+
     async fn find_python(&self) -> error::Result<Option<String>> {
+        tracing::debug!("Resolving python {} with uv python find", self.to_string());
+
         #[cfg(windows)]
         let uv_cmd = "uv";
 
@@ -651,6 +698,81 @@ impl PyV {
                 String::from_utf8(output.stderr).expect("Failed to convert error output to String");
             return Err(error::Error::FindPythonError(stderr));
         }
+    }
+}
+
+lazy_static::lazy_static! {
+    /// Sits next to `PY_INSTALL_DIR` rather than inside it, so uv never sees these entries while
+    /// scanning that directory for managed interpreters.
+    static ref PY_PATH_CACHE_DIR: String = format!("{}_paths", *PY_INSTALL_DIR);
+}
+
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    /// uv is invoked as a bare `uv` on windows, hence resolved through PATH, which
+    /// [`tokio::fs::metadata`] does not search. PATH does not change under us, so the lookup is
+    /// done once.
+    static ref UV_PATH: Option<String> = std::env::split_paths(PATH_ENV.as_str())
+        .map(|dir| dir.join("uv.exe"))
+        .find(|path| path.is_file())
+        .map(|path| path.to_string_lossy().into_owned());
+}
+
+/// Interpreter path resolved by `uv python find` for one requested version.
+#[derive(Serialize, Deserialize)]
+struct CachedPythonPath {
+    /// Identity of the uv that resolved `path`. An upgraded uv may pick a different interpreter
+    /// for the same request, so an entry left by another uv is ignored.
+    uv: String,
+    path: String,
+}
+
+/// `None` disables the cache: an upgrade of a uv we cannot stat would go unnoticed.
+async fn uv_identity() -> Option<String> {
+    #[cfg(unix)]
+    let uv_cmd = UV_PATH.clone();
+
+    // Initializing the static probes PATH synchronously, which must not happen on the runtime.
+    #[cfg(windows)]
+    let uv_cmd = tokio::task::spawn_blocking(|| UV_PATH.clone())
+        .await
+        .ok()
+        .flatten()?;
+
+    let metadata = tokio::fs::metadata(&uv_cmd).await.ok()?;
+    let mtime = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    Some(format!("{uv_cmd}:{}:{}", metadata.len(), mtime.as_secs()))
+}
+
+/// One file per version, so that workers resolving different versions concurrently cannot drop
+/// each other's entry the way a shared map would.
+fn cached_python_path_file(dir: &str, version: &str) -> String {
+    format!("{dir}/{version}.json")
+}
+
+async fn read_cached_python_path(dir: &str, uv: &str, version: &str) -> Option<String> {
+    let content = tokio::fs::read(cached_python_path_file(dir, version))
+        .await
+        .ok()?;
+    let cached = serde_json::from_slice::<CachedPythonPath>(&content).ok()?;
+    (cached.uv == uv).then_some(cached.path)
+}
+
+async fn write_cached_python_path(dir: &str, uv: &str, version: &str, py_path: &str) {
+    let cached = CachedPythonPath { uv: uv.to_owned(), path: py_path.to_owned() };
+
+    // Written aside and renamed so that a concurrent worker never reads a half-written entry.
+    let tmp_file = format!("{dir}/{}.tmp", Uuid::new_v4());
+    let write = async {
+        tokio::fs::create_dir_all(dir).await?;
+        tokio::fs::write(&tmp_file, serde_json::to_vec(&cached)?).await?;
+        tokio::fs::rename(&tmp_file, cached_python_path_file(dir, version)).await?;
+        Ok::<_, anyhow::Error>(())
+    };
+
+    if let Err(e) = write.await {
+        tracing::warn!("Could not cache resolved python path ({py_path}): {e}");
+        let _ = tokio::fs::remove_file(&tmp_file).await;
     }
 }
 
@@ -948,5 +1070,26 @@ mod tests {
             pyv("2.3"),
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn test_cached_python_path_is_scoped_to_uv() {
+        let dir = std::env::temp_dir()
+            .join(format!("wm_py_path_cache_{}", Uuid::new_v4()))
+            .to_string_lossy()
+            .into_owned();
+
+        write_cached_python_path(&dir, "uv-a", "3.12", "/py/3.12/bin/python3.12").await;
+        assert_eq!(
+            read_cached_python_path(&dir, "uv-a", "3.12")
+                .await
+                .as_deref(),
+            Some("/py/3.12/bin/python3.12")
+        );
+        // An upgraded uv may pick a different interpreter, so its entries cannot be reused
+        assert_eq!(read_cached_python_path(&dir, "uv-b", "3.12").await, None);
+        assert_eq!(read_cached_python_path(&dir, "uv-a", "3.13").await, None);
+
+        tokio::fs::remove_dir_all(&dir).await.unwrap();
     }
 }

@@ -26,12 +26,16 @@ import SendflakeIcon from './SendflakeIcon.svelte'
 import QRCodeIcon from './QRCodeIcon.svelte'
 import LinkedinIcon from './LinkedinIcon.svelte'
 import HubspotIcon from './HubspotIcon.svelte'
+import CoupaIcon from './CoupaIcon.svelte'
 import DatadogIcon from './DatadogIcon.svelte'
+import DatabricksIcon from './DatabricksIcon.svelte'
+import AdobeAcrobatSignIcon from './AdobeAcrobatSignIcon.svelte'
 import StripeIcon from './StripeIcon.svelte'
 import TelegramIcon from './TelegramIcon.svelte'
 import FunkwhaleIcon from './FunkwhaleIcon.svelte'
 import GdocsIcon from './GdocsIcon.svelte'
 import NextcloudIcon from './NextcloudIcon.svelte'
+import NetsuiteIcon from './NetsuiteIcon.svelte'
 import FaunadbIcon from './FaunadbIcon.svelte'
 import ClickhouseIcon from './ClickhouseIcon.svelte'
 import OpenaiIcon from './OpenaiIcon.svelte'
@@ -68,6 +72,7 @@ import GraphqlIcon from './GraphqlIcon.svelte'
 import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
 import OktaIcon from './OktaIcon.svelte'
+import OutreachIcon from './OutreachIcon.svelte'
 import Auth0Icon from './Auth0Icon.svelte'
 import MsSqlServerIcon from './MSSqlServerIcon.svelte'
 import AuthentikIcon from './AuthentikIcon.svelte'
@@ -99,6 +104,7 @@ import XeroIcon from './XeroIcon.svelte'
 import KafkaIcon from './KafkaIcon.svelte'
 import NatsIcon from './NatsIcon.svelte'
 import MqttIcon from './MqttIcon.svelte'
+import AmqpIcon from './AmqpIcon.svelte'
 import ApifyIcon from './ApifyIcon.svelte'
 import McpIcon from './McpIcon.svelte'
 import SageIcon from './SageIcon.svelte'
@@ -180,6 +186,7 @@ import TwitchIcon from './TwitchIcon.svelte'
 import TwitterIcon from './TwitterIcon.svelte'
 import VercelIcon from './VercelIcon.svelte'
 import WebflowIcon from './WebflowIcon.svelte'
+import WhatsappBusinessIcon from './WhatsappBusinessIcon.svelte'
 import WooCommerceIcon from './WooCommerceIcon.svelte'
 import WordpressIcon from './WordpressIcon.svelte'
 import XataIcon from './XataIcon.svelte'
@@ -193,6 +200,12 @@ import RaindropIcon from './RaindropIcon.svelte'
 import MagentoIcon from './MagentoIcon.svelte'
 import DeelIcon from './DeelIcon.svelte'
 import GroqIcon from './GroqIcon.svelte'
+import AnthropicIcon from './AnthropicIcon.svelte'
+import DeepSeekIcon from './DeepSeekIcon.svelte'
+import OpenRouterIcon from './OpenRouterIcon.svelte'
+import GoogleAiIcon from './GoogleAiIcon.svelte'
+import UltravoxIcon from './UltravoxIcon.svelte'
+import AnsibleIcon from './AnsibleIcon.svelte'
 import TogetherAiIcon from './TogetherAiIcon.svelte'
 import RunPodIcon from './RunPodIcon.svelte'
 import SigNozIcon from './SigNozIcon.svelte'
@@ -214,6 +227,7 @@ import YnabIcon from './YnabIcon.svelte'
 import SpeechifyIcon from './SpeechifyIcon.svelte'
 import ConvertKitIcon from './ConvertKitIcon.svelte'
 import BrowserlessIcon from './BrowserlessIcon.svelte'
+import WizIcon from './WizIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -244,6 +258,10 @@ export const APP_TO_ICON_COMPONENT = {
 	linkedin: LinkedinIcon,
 	hubspot: HubspotIcon,
 	datadog: DatadogIcon,
+	databricks: DatabricksIcon,
+	netsuite: NetsuiteIcon,
+	coupa: CoupaIcon,
+	adobe_acrobat_sign: AdobeAcrobatSignIcon,
 	stripe: StripeIcon,
 	telegram: TelegramIcon,
 	funkwhale: FunkwhaleIcon,
@@ -257,6 +275,7 @@ export const APP_TO_ICON_COMPONENT = {
 	appwrite: AppwriteIcon,
 	linkding: LinkdingIconSvelte,
 	aws: AwsIcon,
+	redshift: AwsIcon,
 	microsoft: MicrosoftIcon,
 	bcrypt: BcryptIcon,
 	google: GoogleIcon,
@@ -288,6 +307,7 @@ export const APP_TO_ICON_COMPONENT = {
 	nocodb: NocoDbIcon,
 	azure: AzureIcon,
 	okta: OktaIcon,
+	outreach: OutreachIcon,
 	auth0: Auth0Icon,
 	authentik: AuthentikIcon,
 	authelia: AutheliaIcon,
@@ -321,6 +341,7 @@ export const APP_TO_ICON_COMPONENT = {
 	kafka: KafkaIcon,
 	nats: NatsIcon,
 	mqtt: MqttIcon,
+	amqp: AmqpIcon,
 	apify: ApifyIcon,
 	mcp: McpIcon,
 	zoho: ZohoIcon,
@@ -402,6 +423,7 @@ export const APP_TO_ICON_COMPONENT = {
 	twitter: TwitterIcon,
 	vercel: VercelIcon,
 	webflow: WebflowIcon,
+	whatsapp_business: WhatsappBusinessIcon,
 	woocommerce: WooCommerceIcon,
 	wordpress: WordpressIcon,
 	xata: XataIcon,
@@ -415,6 +437,13 @@ export const APP_TO_ICON_COMPONENT = {
 	magento: MagentoIcon,
 	deel: DeelIcon,
 	groqai: GroqIcon,
+	groq: GroqIcon,
+	anthropic: AnthropicIcon,
+	deepseek: DeepSeekIcon,
+	openrouter: OpenRouterIcon,
+	googleai: GoogleAiIcon,
+	ultravox: UltravoxIcon,
+	ansible: AnsibleIcon,
 	togetherai: TogetherAiIcon,
 	runpod: RunPodIcon,
 	signoz: SigNozIcon,
@@ -436,8 +465,16 @@ export const APP_TO_ICON_COMPONENT = {
 	ynab: YnabIcon,
 	speechify: SpeechifyIcon,
 	convertkit: ConvertKitIcon,
-	browserless: BrowserlessIcon
+	browserless: BrowserlessIcon,
+	wiz: WizIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
+
+// Resource types are named `<app>` or `<app>_<variant>` (e.g. `airtable_table`), so an
+// unmatched name retries on the leading segment before giving up.
+export function appIconComponent(name: string | undefined): Component | undefined {
+	if (!name) return undefined
+	return APP_TO_ICON_COMPONENT[name] ?? APP_TO_ICON_COMPONENT[name.split('_')[0]]
+}
 
 export {
 	AirtableIcon,
@@ -485,6 +522,12 @@ export {
 	ZammadIcon,
 	NextcloudIcon,
 	SendflakeIcon,
+	AnsibleIcon,
+	AnthropicIcon,
+	DeepSeekIcon,
+	OpenRouterIcon,
+	GoogleAiIcon,
+	UltravoxIcon,
 	SurrealdbIcon,
 	ActivitypubIcon,
 	AwsEcrIcon,
@@ -506,6 +549,7 @@ export {
 	AzureIcon,
 	MicrosoftIcon,
 	OktaIcon,
+	OutreachIcon,
 	Auth0Icon,
 	AuthentikIcon,
 	AutheliaIcon,
@@ -535,6 +579,7 @@ export {
 	KafkaIcon,
 	NatsIcon,
 	MqttIcon,
+	AmqpIcon,
 	ApifyIcon,
 	McpIcon,
 	ZohoIcon,
@@ -647,5 +692,6 @@ export {
 	YnabIcon,
 	SpeechifyIcon,
 	ConvertKitIcon,
-	BrowserlessIcon
+	BrowserlessIcon,
+	WizIcon
 }

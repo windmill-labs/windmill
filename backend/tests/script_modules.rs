@@ -40,6 +40,7 @@ def main(name: str):
         path: Some("f/test/my_script".to_string()),
         language: ScriptLang::Python3,
         modules: Some(modules),
+        tag: None,
         ..RawCode::default()
     });
 
@@ -92,6 +93,7 @@ def main(a: int, b: int):
         path: Some("f/test/my_script".to_string()),
         language: ScriptLang::Python3,
         modules: Some(modules),
+        tag: None,
         ..RawCode::default()
     });
 
@@ -143,6 +145,7 @@ export function main(name: string) {
         path: Some("f/test/my_script".to_string()),
         language: ScriptLang::Bun,
         modules: Some(modules),
+        tag: None,
         ..RawCode::default()
     });
 

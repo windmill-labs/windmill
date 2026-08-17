@@ -20,7 +20,9 @@ use windmill_common::client::AuthedClient;
 use windmill_common::worker::TypeScriptAnnotations;
 
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
-use windmill_common::{error::Result, scripts::ScriptLang, worker::write_file, BASE_URL};
+use windmill_common::{
+    error::Result, jobs::JobKind, scripts::ScriptLang, worker::write_file, BASE_URL,
+};
 use windmill_common::{
     error::{self},
     worker::Connection,
@@ -66,11 +68,12 @@ lazy_static::lazy_static! {
 async fn get_common_deno_proc_envs(
     token: &str,
     base_internal_url: &str,
+    job_kind: JobKind,
     job_id: &Uuid,
     w_id: &str,
     conn: Option<&Connection>,
 ) -> HashMap<String, String> {
-    let hostname = BASE_URL.read().await.clone();
+    let hostname = (**BASE_URL.load()).clone();
     let hostname_base = hostname.split("://").last().unwrap_or("localhost");
     let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
     let deno_auth_tokens_base = DENO_AUTH_TOKENS.as_str();
@@ -141,7 +144,7 @@ async fn get_common_deno_proc_envs(
 
     // Add proxy envs (including OTEL tracing proxy if enabled for deno)
     if let Some(conn) = conn {
-        for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno, job_id, w_id, conn)
+        for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno, job_kind, job_id, w_id, conn)
             .await
             .unwrap_or_default()
         {
@@ -177,7 +180,8 @@ pub async fn generate_deno_lock(
     write_file(job_dir, "import_map.json", &import_map)?;
     write_file(job_dir, "empty.ts", "")?;
 
-    let deno_envs = get_common_deno_proc_envs("", base_internal_url, job_id, w_id, db).await;
+    let deno_envs =
+        get_common_deno_proc_envs("", base_internal_url, JobKind::Script, job_id, w_id, db).await;
 
     let mut child_cmd = Command::new(DENO_PATH.as_str());
     child_cmd
@@ -408,6 +412,7 @@ try {{
     let mut common_deno_proc_envs = get_common_deno_proc_envs(
         &client.token,
         base_internal_url,
+        job.kind,
         &job.id,
         &job.workspace_id,
         Some(conn),
@@ -429,7 +434,11 @@ try {{
     if let Some(ref npmrc_content) = npmrc {
         if !npmrc_content.trim().is_empty() {
             write_file(job_dir, ".npmrc", npmrc_content)?;
-            write_file(job_dir, "deno.json", "{}")?;
+            // minimumDependencyAge=0 opts out of Deno's supply-chain guard that rejects
+            // npm packages published within the last ~24h. Private/internal registries
+            // routinely serve just-published versions, so the guard would break them.
+            // Older Deno ignores the unknown field, so this is safe across versions.
+            write_file(job_dir, "deno.json", r#"{"minimumDependencyAge":"0"}"#)?;
         }
     }
 
@@ -472,7 +481,15 @@ try {{
             args.push("--allow-write=./");
             args.push("--allow-env");
             args.push("--allow-import");
-            args.push("--allow-run=git,/usr/bin/chromium");
+            // Deliberately NO --allow-run: unlike every other language, deno jobs
+            // are never nsjail-wrapped, so the Deno permission model is the *only*
+            // sandbox boundary. Any allowed binary that can spawn a subprocess
+            // therefore escapes it entirely — git via hook configs
+            // (`-c core.fsmonitor=<cmd>`) and chromium via subprocess-launcher flags
+            // (`--renderer-cmd-prefix` / `--gpu-launcher`) both coerce /bin/sh and
+            // defeat the guarantee (GHSA-gj6h-vw66-mr8f). Omitting the flag denies
+            // all subprocess execution. Admins who accept the risk (e.g. puppeteer)
+            // can re-add specific binaries via DENO_FLAGS.
         } else {
             args.push("-A");
         }
@@ -590,7 +607,7 @@ pub(crate) async fn build_import_map(
 use crate::{dedicated_worker_oss::handle_dedicated_process, JobCompletedSender};
 /// Generate the dedicated worker wrapper for Deno.
 /// Parses the script signature and bakes in arg destructuring, date conversions,
-/// and preprocessor logic. Uses the `exec:<path>:<args>` protocol.
+/// and preprocessor logic. Uses the `execd:<args>` protocol (single-script, no path needed).
 #[cfg(any(feature = "private", test))]
 pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> {
     let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
@@ -627,20 +644,14 @@ pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> 
     let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
         format!(
             r#"
-        if (line.startsWith("exec_preprocess:")) {{
-            const rest = line.slice("exec_preprocess:".length);
-            const colonIdx = rest.indexOf(":");
-            if (colonIdx === -1) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec_preprocess command: missing colon separator", name: "Error" }}) + '\n');
-                continue;
-            }}
-            const argsJson = rest.slice(colonIdx + 1);
-            const parsedArgs = JSON.parse(argsJson);
+        if (line.startsWith("execd_preprocess:")) {{
+            const argsJson = line.slice("execd_preprocess:".length);
             if (typeof preprocessor !== 'function') {{
                 console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
                 continue;
             }}
             try {{
+                const parsedArgs = JSON.parse(argsJson);
                 function preArgsObjToArr({{ {pre_spread} }}: any) {{
                     return [ {pre_spread} ];
                 }}
@@ -686,14 +697,8 @@ for await (const chunk of Deno.stdin.readable) {{
             break;
         }}
         {preprocessor_logic}
-        if (line.startsWith("exec:")) {{
-            const rest = line.slice("exec:".length);
-            const colonIdx = rest.indexOf(":");
-            if (colonIdx === -1) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec command: missing colon separator", name: "Error" }}) + '\n');
-                continue;
-            }}
-            const argsJson = rest.slice(colonIdx + 1);
+        if (line.startsWith("execd:")) {{
+            const argsJson = line.slice("execd:".length);
             try {{
                 let {{ {spread} }} = JSON.parse(argsJson)
                 {dates}
@@ -734,6 +739,7 @@ pub async fn start_worker(
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: windmill_common::client::AuthedClient,
+    concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
 ) -> Result<()> {
     use windmill_common::variables;
 
@@ -743,6 +749,7 @@ pub async fn start_worker(
     let common_deno_proc_envs = get_common_deno_proc_envs(
         &token,
         base_internal_url,
+        JobKind::Script,
         &Uuid::nil(),
         w_id,
         Some(&db.into()),
@@ -758,6 +765,7 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
         None,
         None,
         None,
@@ -802,6 +810,8 @@ pub async fn start_worker(
         script_path,
         "deno",
         client,
+        false,
+        concurrency_semaphore,
     )
     .await
 }

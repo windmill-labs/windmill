@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                ctr.test_script_path,\n                ctr.tested_item_path,\n                j.id as \"job_id?\",\n                COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as \"status?\",\n                j.created_at as \"started_at?\"\n            FROM ci_test_reference ctr\n            LEFT JOIN LATERAL (\n                SELECT id, created_at FROM v2_job\n                WHERE workspace_id = $1\n                  AND runnable_path = ctr.test_script_path\n                  AND trigger_kind = 'ci_test'\n                  AND trigger = $3 || '/' || ctr.tested_item_path\n                ORDER BY created_at DESC\n                LIMIT 1\n            ) j ON true\n            LEFT JOIN v2_job_completed jc ON jc.id = j.id\n            WHERE ctr.workspace_id = $1\n              AND ctr.tested_item_path = ANY($2::text[])\n              AND ctr.tested_item_kind = $3\n              AND NOT ctr.has_wildcard",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "test_script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "tested_item_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "status?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "started_at?",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "a6ff192cdf184b6e8eda25608aff9545079b3e5dafd1702f2f0a4718c682e6b2"
+}

@@ -51,6 +51,14 @@ pub fn start_all_listeners(db: DB, killpill_rx: &tokio::sync::broadcast::Receive
         listen_to(MqttTrigger, db.clone(), mqtt_killpill_rx)
     }
 
+    #[cfg(feature = "amqp_trigger")]
+    {
+        let amqp_killpill_rx = killpill_rx.resubscribe();
+        use crate::triggers::amqp::AmqpTrigger;
+
+        listen_to(AmqpTrigger, db.clone(), amqp_killpill_rx)
+    }
+
     #[cfg(feature = "websocket")]
     {
         let mqtt_killpill_rx = killpill_rx.resubscribe();
@@ -65,6 +73,14 @@ pub fn start_all_listeners(db: DB, killpill_rx: &tokio::sync::broadcast::Receive
         use crate::triggers::gcp::GcpTrigger;
 
         listen_to(GcpTrigger, db.clone(), gcp_killpill_rx);
+    }
+
+    #[cfg(all(feature = "azure_trigger", feature = "enterprise", feature = "private"))]
+    {
+        let azure_killpill_rx = killpill_rx.resubscribe();
+        use crate::triggers::azure::AzureTrigger;
+
+        listen_to(AzureTrigger, db.clone(), azure_killpill_rx);
     }
 
     #[cfg(all(feature = "sqs_trigger", feature = "enterprise", feature = "private"))]

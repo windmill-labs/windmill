@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ci_test_reference WHERE workspace_id = $1 AND (test_script_path = $2 OR test_script_path = $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "871e9024861a8462cef64f19e3a100fd80f6b113a45a66c03125b93ce2ca2a83"
+}

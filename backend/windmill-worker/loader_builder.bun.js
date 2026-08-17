@@ -1,13 +1,26 @@
+let buildResult;
 try {
-  await Bun.build({
+  buildResult = await Bun.build({
     entrypoints: ["./main.ts"],
     outdir: "./out",
     plugins: [p],
     external: ["*"],
   });
 } catch (err) {
+  const msgs = (err?.errors ?? []).map((e) => e?.message ?? String(e));
+  msgs.push(err?.message ?? String(err));
+  const full = msgs.join(" ");
+  if (full.includes("Unexpected end of file") || full.includes("Unterminated")) {
+    console.log("Failed to build bundle: syntax error in the script (e.g. unclosed bracket, string, or comment)");
+  } else {
+    console.log("Failed to build bundle");
+  }
   console.log(err);
-  console.log("Failed to build bundle");
+  process.exit(1);
+}
+if (!buildResult?.success || !(buildResult.outputs?.length > 0)) {
+  for (const log of buildResult?.logs ?? []) console.log(log);
+  console.log("Failed to build bundle: success=" + buildResult?.success + ", outputs=" + (buildResult?.outputs?.length ?? 0));
   process.exit(1);
 }
 

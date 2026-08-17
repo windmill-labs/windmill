@@ -13,13 +13,15 @@
 		createDocumentationString,
 		displayPartsToString,
 		editorConfig,
+		registerWebviewPaste,
 		updateOptions
 	} from '$lib/editorUtils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash } from '$lib/editorLangUtils'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import { editor as meditor, Uri as mUri, languages, Range, KeyMod, KeyCode } from 'monaco-editor'
-	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, tick, untrack } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
 	// import '@codingame/monaco-vscode-standalone-languages'
@@ -364,6 +366,7 @@
 
 	let divEl: HTMLDivElement | null = $state(null)
 	let editor: meditor.IStandaloneCodeEditor | undefined = $state(undefined)
+	let pasteCleanup: (() => void) | undefined = undefined
 	let model: meditor.ITextModel
 
 	const { componentControl, selectedComponent } = getContext<AppViewerContext>(
@@ -398,10 +401,12 @@
 		extraLib = '',
 		autoHeight = true,
 		fixedOverflowWidgets = true,
-		fontSize = 12,
+		fontSize,
 		loadAsync = false,
 		class: clazz = ''
 	}: Props = $props()
+
+	let effectiveFontSize = $derived(fontSize ?? editorFontSize.regular)
 
 	let yPadding = MONACO_Y_PADDING
 
@@ -470,7 +475,7 @@
 				// lineNumbers: 'on',
 				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
-				fontSize,
+				fontSize: effectiveFontSize,
 				suggestOnTriggerCharacters: true,
 				renderLineHighlight: 'none',
 				lineNumbers: 'off',
@@ -491,31 +496,22 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
-				try {
-					const text = await navigator.clipboard.readText()
-					if (text && editor) {
-						const selection = editor.getSelection()
-						if (selection) {
-							editor.executeEdits('paste', [
-								{
-									range: selection,
-									text: text,
-									forceMoveMarkers: true
-								}
-							])
-						}
-					}
-				} catch (e) {
-					document.execCommand('paste')
-				}
-			})
+			// Paste is scoped to this editor's container instead of a global
+			// Ctrl+V keybinding, which would leak across editor instances.
+			pasteCleanup?.()
+			pasteCleanup = registerWebviewPaste(divEl, () => editor)
 		}
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
 
-			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
+				updateCode()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers, after `tick()` so they see
+				// the value `updateCode()` just materialized.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
+			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
 		})
@@ -688,6 +684,7 @@
 	onDestroy(() => {
 		try {
 			valueAfterDispose = getCode()
+			pasteCleanup?.()
 			jsLoader && clearTimeout(jsLoader)
 			timeoutModel && clearTimeout(timeoutModel)
 			loadTimeout && clearTimeout(loadTimeout)
@@ -700,6 +697,13 @@
 	$effect(() => {
 		mounted && extraLib && initialized && untrack(() => loadExtraLib())
 	})
+
+	$effect(() => {
+		const next = effectiveFontSize
+		if (editor) {
+			editor.updateOptions({ fontSize: next })
+		}
+	})
 </script>
 
 <EditorTheme />
@@ -708,7 +712,7 @@
 	class={twMerge(inputBorderClass({ forceFocus: isFocus }), 'rounded-md overflow-auto pl-2', clazz)}
 >
 	{#if !editor}
-		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} {fontSize} />
+		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} fontSize={effectiveFontSize} />
 	{/if}
 	<div
 		bind:this={divEl}

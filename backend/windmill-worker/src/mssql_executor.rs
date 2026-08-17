@@ -11,6 +11,9 @@ use tiberius::{
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
+use windmill_common::azure_workload_identity::{
+    WorkloadIdentityConfig, AZURE_SQL_SCOPE, WORKLOAD_IDENTITY_PASSWORD,
+};
 use windmill_common::utils::merge_raw_values_to_object;
 use windmill_common::worker::SqlResultCollectionStrategy;
 use windmill_common::{
@@ -18,17 +21,19 @@ use windmill_common::{
     utils::empty_as_none,
     worker::{to_raw_value, Connection},
 };
-use windmill_object_store::convert_json_line_stream;
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::common::{
-    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, OccupancyMetrics,
+    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data,
+    s3_stream_and_upload_with_logs, OccupancyMetrics,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sql_s3_input::fetch_s3object_as_json_text;
 use windmill_common::client::AuthedClient;
+use windmill_types::s3::S3Object;
 
 use serde::Deserializer;
 
@@ -59,6 +64,32 @@ lazy_static::lazy_static! {
     static ref RE_MSSQL_READONLY_INTENT: Regex = Regex::new(r#"(?mi)^-- ApplicationIntent=ReadOnly *(?:\r|\n|$)"#).unwrap();
 }
 
+/// Point a rejected login at the sentinel, but only where the advice is actionable: an
+/// Azure host, a worker that holds an identity, and a login the server rejected rather
+/// than a connection that never reached it.
+fn connect_error(e: tiberius::error::Error, host: &str, sql_auth_user: Option<&str>) -> Error {
+    const LOGIN_FAILED: u32 = 18456;
+    // Matches the sovereign clouds as well as `.database.windows.net`.
+    let azure_host = host.to_ascii_lowercase().contains(".database.");
+
+    let hint = sql_auth_user
+        .filter(|_| {
+            azure_host
+                && e.code() == Some(LOGIN_FAILED)
+                && WorkloadIdentityConfig::resolve().is_ok()
+        })
+        .map(|user| {
+            format!(
+                "\n\nThis tried to authenticate as SQL Server user `{user}`. This worker has an \
+                 Azure workload identity available: to authenticate as it instead, set the \
+                 resource password to `{WORKLOAD_IDENTITY_PASSWORD}` (`user` is then ignored)."
+            )
+        })
+        .unwrap_or_default();
+
+    Error::ExecutionErr(format!("{e}{hint}"))
+}
+
 pub async fn do_mssql(
     job: &MiniPulledJob,
     authed_client: &AuthedClient,
@@ -71,7 +102,7 @@ pub async fn do_mssql(
     job_dir: &str,
     parent_runnable_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
-    let mssql_args = build_args_values(job, authed_client, conn).await?;
+    let mut mssql_args = build_args_values(job, authed_client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
     let s3 = parse_s3_mode(&query)?
@@ -129,7 +160,9 @@ pub async fn do_mssql(
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
 
-    // Handle authentication based on available credentials
+    // Handle authentication based on available credentials. Every branch must name the
+    // mode it picked: the job log is the only place that choice is visible.
+    let mut sql_auth_user = None;
     if database.integrated_auth.unwrap_or(false) {
         #[cfg(any(feature = "mssql-kerberos", feature = "mssql-winauth"))]
         {
@@ -146,8 +179,24 @@ pub async fn do_mssql(
                 "Integrated authentication is not available in this build. Requires mssql-kerberos (Linux) or mssql-winauth (Windows) feature.".to_string(),
             ));
         }
+    } else if database.password.as_deref().map(str::trim) == Some(WORKLOAD_IDENTITY_PASSWORD) {
+        let workload_identity = WorkloadIdentityConfig::resolve()?;
+        let logs = format!(
+            "\nUsing Azure Workload Identity (client id {})",
+            workload_identity.client_id()
+        );
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
+        let token = workload_identity.access_token(AZURE_SQL_SCOPE).await?;
+        config.authentication(AuthMethod::aad_token(token));
     } else if let Some(token_value) = &database.aad_token {
         if let Some(token) = &token_value.token {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                "\nUsing the AAD token set on the resource",
+                conn,
+            )
+            .await;
             config.authentication(AuthMethod::aad_token(token));
         } else {
             return Err(Error::BadRequest(
@@ -155,10 +204,13 @@ pub async fn do_mssql(
             ));
         }
     } else if let (Some(user), Some(password)) = (&database.user, &database.password) {
+        let logs = format!("\nUsing SQL Server authentication (user {user})");
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
+        sql_auth_user = Some(user.clone());
         config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
     } else {
         return Err(Error::BadRequest(
-            "No authentication method configured. Set integrated_auth, aad_token, or user/password.".to_string(),
+            "No authentication method configured. Set integrated_auth, aad_token, or user/password (password `ms_entraid` for Azure workload identity).".to_string(),
         ));
     }
 
@@ -210,14 +262,42 @@ pub async fn do_mssql(
 
             Client::connect(config, tcp.compat_write())
                 .await
-                .map_err(to_anyhow)?
+                .map_err(|e| connect_error(e, host_ref, sql_auth_user.as_deref()))?
         }
-        Err(e) => return Err(to_anyhow(e).into()),
+        Err(e) => return Err(connect_error(e, host_ref, sql_auth_user.as_deref())),
     };
 
     let sig = parse_mssql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
+
+    // Materialize any `(s3object)` args into JSON text. tiberius binds the resulting
+    // String as nvarchar(max), which is exactly the input type for `OPENJSON(@P)`.
+    for arg in sig.iter() {
+        if arg.otyp.as_deref() != Some("s3object") {
+            continue;
+        }
+        let raw = mssql_args.remove(&arg.name).unwrap_or(Value::Null);
+        if matches!(raw, Value::Null) {
+            return Err(Error::BadRequest(format!(
+                "Missing S3Object value for arg `{}`",
+                arg.name
+            )));
+        }
+        let s3_obj: S3Object = serde_json::from_value(raw).map_err(|e| {
+            Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+        })?;
+        let json_text =
+            fetch_s3object_as_json_text(authed_client, conn, job.id, &job.workspace_id, &s3_obj)
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to fetch S3 object for arg `{}`: {e}",
+                        arg.name
+                    ))
+                })?;
+        mssql_args.insert(arg.name.clone(), Value::String(json_text));
+    }
 
     let reserved_variables =
         get_reserved_variables(job, &authed_client.token, conn, parent_runnable_path).await?;
@@ -246,17 +326,22 @@ pub async fn do_mssql(
         if let Some(s3) = s3 {
             let rows_stream = async_stream::stream! {
                 let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
-                    let raw_value = row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow);
-                    let json = raw_value.and_then(|raw_value| serde_json::from_str(raw_value.get()).map_err(to_anyhow));
-                    json
+                    row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow)
                 });
                 while let Some(row) = stream.next().await {
                     yield row;
                 }
             };
 
-            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
-            s3.upload(stream.boxed()).await?;
+            s3_stream_and_upload_with_logs(
+                "MSSQL",
+                rows_stream.boxed(),
+                &s3,
+                job.id,
+                &job.workspace_id,
+                conn,
+            )
+            .await?;
 
             Ok(to_raw_value(&s3.to_return_s3_obj()))
         } else {

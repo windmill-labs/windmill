@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
+import { waitForDeploymentJobs } from "./new_commands_helpers.ts";
 import { addWorkspace } from "../workspace.ts";
 import * as path from "node:path";
-import { writeFile, readFile, stat, rm, mkdir } from "node:fs/promises";
+import { writeFile, readFile, stat, rm, mkdir, readdir } from "node:fs/promises";
 
 // =============================================================================
 // RAW APP SYNC TESTS
@@ -174,6 +175,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_test");
 
       expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // =========================================================================
       // STEP 2: Clear disk and pull - verify raw app is pulled correctly
@@ -240,6 +242,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_test");
 
       expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // =========================================================================
       // STEP 5: Clear disk (delete the app directory)
@@ -349,6 +352,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_new_file_test");
 
       expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // Add a new file
       const newFilePath = path.join(appDir, "utils.ts");
@@ -364,6 +368,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_new_file_test");
 
       expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // Clear and pull again
       await rm(appDir, { recursive: true });
@@ -379,6 +384,151 @@ excludes: []`, "utf-8");
       expect(await fileExists(newFilePath)).toBeTruthy();
       const newFileContent = await readFileContent(newFilePath);
       expect(newFileContent).toContain("formatValue");
+    });
+});
+
+test("Raw App: frontend .ts file sorting first does not short-circuit the app push", async () => {
+    // Regression: in the push apply loop, raw-app changes are collapsed to a
+    // single representative change (changes[0]). Because every file inside a
+    // raw_app folder shares the same sort order, changes[0] is just the
+    // alphabetically-first changed path. When that path was a frontend file
+    // with a script extension (e.g. "Api.ts", which sorts before "App.tsx"),
+    // handleFile() mistook it for a standalone script: it pushed a bogus script
+    // at the truncated path (f/test/<app>) AND returned true, so the loop
+    // `continue`d and pushRawApp() never ran. Result: the whole raw app silently
+    // failed to deploy while the CLI still reported success.
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_ts_first_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "ts_first_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      // A frontend .ts file whose name sorts before "App.tsx".
+      const apiTsPath = path.join(appDir, "Api.ts");
+      await writeFile(apiTsPath, "export const API = '/api/v1'\n", "utf-8");
+
+      // Initial push: create the raw app on the backend.
+      const pushResult1 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_ts_first_test"
+      );
+      expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+
+      // Edit App.tsx (and the .ts file that sorts first) and push again.
+      const appTsxPath = path.join(appDir, "App.tsx");
+      const appTsxContent = await readFileContent(appTsxPath);
+      await writeFile(
+        appTsxPath,
+        appTsxContent.replace("hello world", "REGRESSION MARKER"),
+        "utf-8"
+      );
+      await writeFile(apiTsPath, "export const API = '/api/v2'\n", "utf-8");
+
+      const pushResult2 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_ts_first_test"
+      );
+      expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+
+      // The App.tsx edit must have landed on the remote app's bundled files.
+      const appResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/apps/get/p/f/test/ts_first_app`
+      );
+      expect(appResp.status).toEqual(200);
+      const appJson = await appResp.json();
+      const files = appJson?.value?.files ?? {};
+      expect(files["/App.tsx"]).toContain("REGRESSION MARKER");
+      // The first-sorting .ts file is part of the app bundle, with fresh content.
+      expect(files["/Api.ts"]).toContain("/api/v2");
+
+      // And no bogus standalone script was created at the truncated path
+      // (f/test/ts_first_app.raw_app/Api.ts -> f/test/ts_first_app).
+      const scriptResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/get/p/f/test/ts_first_app`
+      );
+      expect(scriptResp.status).toEqual(404);
+    });
+});
+
+test("Raw App: deleted .lock sorting first does not short-circuit the app push", async () => {
+    // Regression: raw-app changes collapse to one representative change and
+    // deletes sort first, so removing a backend runnable makes its `.lock` the
+    // representative. Skipping a `.lock` there drops the whole app while the
+    // push still reports success.
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_lock_first_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "lock_first_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir, true);
+
+      // A backend runnable's lockfile. Among the app's files it sorts first,
+      // so once deleted it becomes changes[0] for the whole group.
+      const queryLockPath = path.join(appDir, "backend", "query.lock");
+      await writeFile(queryLockPath, INLINE_SCRIPT_A_LOCK, "utf-8");
+
+      const pushResult1 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_lock_first_test"
+      );
+      expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+
+      // Remove the backend runnable (lock included) and edit a frontend file.
+      await rm(queryLockPath);
+      await rm(path.join(appDir, "backend", "query.ts"));
+      await rm(path.join(appDir, "backend", "query.yaml"));
+      const appTsxPath = path.join(appDir, "App.tsx");
+      const appTsxContent = await readFileContent(appTsxPath);
+      await writeFile(
+        appTsxPath,
+        appTsxContent.replace("hello world", "REGRESSION MARKER"),
+        "utf-8"
+      );
+
+      const pushResult2 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_lock_first_test"
+      );
+      expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+
+      // The edit must have reached the remote bundle, and the removed runnable
+      // must be gone from it.
+      const appResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/apps/get/p/f/test/lock_first_app`
+      );
+      expect(appResp.status).toEqual(200);
+      const appJson = await appResp.json();
+      const files = appJson?.value?.files ?? {};
+      expect(files["/App.tsx"]).toContain("REGRESSION MARKER");
+      // Backend runnables live in value.runnables, not in the bundled files.
+      expect(appJson?.value?.runnables?.query).toBeUndefined();
     });
 });
 
@@ -411,6 +561,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_delete_file_test");
 
       expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       const indexCssPath = path.join(appDir, "index.css");
       const appTsxPath = path.join(appDir, "App.tsx");
@@ -432,6 +583,7 @@ excludes: []`, "utf-8");
       ], tempDir, "raw_app_delete_file_test");
 
       expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
 
       // Clear and pull again
       await rm(appDir, { recursive: true });
@@ -506,5 +658,91 @@ excludes: []`, "utf-8");
       const changePaths = jsonOutput.changes.map((c: any) => c.path);
       const hasRawApp = changePaths.some((p: string) => p.includes("dry_run_app"));
       expect(hasRawApp).toBeTruthy();
+    });
+});
+
+test("Raw App: CamelCase backend runnableId round-trips without duplicates", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_camelcase_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "camelcase_app.raw_app");
+      const backendDir = path.join(appDir, "backend");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      // Add a backend runnable whose id contains uppercase letters. The YAML
+      // metadata file is named `${runnableId}.yaml` and must stay in sync with
+      // the code file's casing — the bug fixed here desynced them.
+      await mkdir(backendDir, { recursive: true });
+      await writeFile(path.join(backendDir, "CamelCaseTSRunnable.yaml"), "type: inline\n", "utf-8");
+      await writeFile(
+        path.join(backendDir, "CamelCaseTSRunnable.ts"),
+        `export async function main(x: number): Promise<string> {\n  return \`Result: \${x}\`;\n}\n`,
+        "utf-8"
+      );
+
+      const pushResult1 = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir, "raw_app_camelcase_test"
+      );
+      expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+
+      await rm(appDir, { recursive: true });
+
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes"],
+        tempDir, "raw_app_camelcase_test"
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // YAML and code file must both come back with the original case so
+      // loadRunnablesFromBackend pairs them as one runnable, not two.
+      // Use readdir for exact-case comparison: Windows is case-insensitive at
+      // the filesystem level, so fileExists("camelcasetsrunnable.ts") would
+      // resolve to CamelCaseTSRunnable.ts and false-positive the orphan check.
+      const backendEntries = await readdir(backendDir);
+      expect(backendEntries).toContain("CamelCaseTSRunnable.yaml");
+      expect(backendEntries).toContain("CamelCaseTSRunnable.ts");
+      expect(backendEntries).not.toContain("camelcasetsrunnable.ts");
+      expect(backendEntries).not.toContain("camelcasetsrunnable.yaml");
+
+      const pulledContent = await readFileContent(path.join(backendDir, "CamelCaseTSRunnable.ts"));
+      expect(pulledContent).toContain("Result:");
+
+      // A second push must not surface a duplicate lowercase runnable: the
+      // dry-run change list should only mention the one app, no orphan code
+      // file getting registered as a separate inline runnable.
+      const dryRun = await backend.runCLICommand(
+        ["sync", "push", "--dry-run", "--json-output"],
+        tempDir, "raw_app_camelcase_test"
+      );
+      expect(dryRun.code).toEqual(0);
+
+      let jsonOutput: any = null;
+      try {
+        jsonOutput = JSON.parse(dryRun.stdout.trim());
+      } catch {
+        const jsonMatch = dryRun.stdout.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try { jsonOutput = JSON.parse(jsonMatch[0]); } catch { /* ignore */ }
+        }
+      }
+      expect(jsonOutput !== null).toBeTruthy();
+      const changes = (jsonOutput.changes ?? []) as Array<{ path: string }>;
+      // No change should reference a lowercased runnable filename.
+      const lowercased = changes.filter((c) => c.path.includes("camelcasetsrunnable"));
+      expect(lowercased).toEqual([]);
     });
 });

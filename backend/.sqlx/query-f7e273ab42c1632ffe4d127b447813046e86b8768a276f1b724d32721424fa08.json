@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ws_specific\n         WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f7e273ab42c1632ffe4d127b447813046e86b8768a276f1b724d32721424fa08"
+}

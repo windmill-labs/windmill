@@ -1,0 +1,1 @@
+ALTER TABLE token DROP COLUMN IF EXISTS read_only;

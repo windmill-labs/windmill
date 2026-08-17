@@ -58,7 +58,9 @@ export const defaultTags = [
 	'nu',
 	'java',
 	'ruby',
-	'duckdb'
+	'rlang',
+	'duckdb',
+	'dbt'
 	// for related places search: ADD_NEW_LANG
 ]
 /** Strip cache_clear, null/undefined values, empty arrays and empty objects from a worker group config. */

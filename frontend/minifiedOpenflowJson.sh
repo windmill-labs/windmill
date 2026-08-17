@@ -7,13 +7,13 @@ script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source_file="${script_dirpath}/../windmill-yaml-validator/src/gen/openflow.json"
 output_dirpath="${script_dirpath}/src/lib/components/copilot/chat/flow"
 json_output_file="${output_dirpath}/openFlow.json"
-zod_output_file="${output_dirpath}/openFlowZod.ts"
+zod_output_file="${output_dirpath}/openFlowZod.gen.ts"
 
 echo "Generating OpenFlow JSON and Zod schemas..."
 
 if [ ! -f "${source_file}" ]; then
     echo "Error: Source file not found: ${source_file}"
-    echo "Please run windmill-yaml-validator/gen_openflow_schema.sh first"
+    echo "Please run 'npm run gen' in windmill-yaml-validator first"
     exit 1
 fi
 
@@ -96,9 +96,20 @@ zodCode = zodCode.replace(/z\\.literal\\(\"__CIRCULAR_REF_FLOWMODULEVALUE__\"\\)
 
 // Fix z.record() calls for Zod 4 compatibility
 // In Zod 4, z.record(valueSchema) means keySchema, not valueSchema
-// We need z.record(z.string(), valueSchema) for string keys with typed values
-zodCode = zodCode.replace(/z\\.record\\(z\\./g, 'z.record(z.string(), z.');
-valueSchemaExport = valueSchemaExport.replace(/z\\.record\\(z\\./g, 'z.record(z.string(), z.');
+// We need z.record(z.string(), valueSchema) for string keys with typed values.
+// A single pass can't reach a record nested directly inside another record (the outer match
+// consumes the inner one's prefix), so repeat until stable; the lookahead skips already-fixed
+// calls and keeps that loop terminating.
+const fixRecordArity = (code) => {
+    let prev;
+    do {
+        prev = code;
+        code = code.replace(/z\\.record\\((?!z\\.string\\(\\), )z\\./g, 'z.record(z.string(), z.');
+    } while (code !== prev);
+    return code;
+};
+zodCode = fixRecordArity(zodCode);
+valueSchemaExport = fixRecordArity(valueSchemaExport);
 
 // Fix refinement API for Zod 4 compatibility
 // Zod 4 uses 'errors' instead of 'unionErrors' and doesn't have ctx.path

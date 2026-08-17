@@ -1,97 +1,98 @@
 ---
 name: local-review
-description: Code review a pull request for bugs and CLAUDE.md compliance. MUST use when asked to review code.
+description: Code review the current PR (or branch diff against main) for bugs, security, and AGENTS.md compliance. MUST use when asked to review code.
 ---
 
-# Local Code Review Skill
+# Local Code Review
 
-Review a pull request for real bugs and CLAUDE.md compliance violations. This review targets HIGH SIGNAL issues only.
+Run the same review locally that the GitHub auto-review actions run on PRs (Claude / Codex / Pi). The review policy lives in `REVIEW.md`.
 
-## Review Philosophy
+**Why a subagent**: the review MUST run in a fresh context — not inline in the current session. If the user has been iterating on the diff, the main session has absorbed their reasoning and rationalizations, so it anchors and misses things CI catches. A subagent starts cold, like CI does.
 
-- **Only flag issues you are certain about.** If you are not sure an issue is real, do not flag it. False positives erode trust and waste reviewer time.
-- Think like a senior engineer doing a final review — flag things that would cause incidents, not things that are merely imperfect.
+## Steps
 
-## What to Flag
+1. **Determine the PR scope** (cheap, do this in the main session):
+   - If an argument is provided, treat it as a PR number or branch.
+   - Otherwise, detect from the current branch vs `main`.
+   - Confirm the PR/branch exists (`gh pr view <n>` or `git rev-parse <branch>`).
 
-- Code that won't compile or parse (syntax errors, type errors, missing imports)
-- Code that will definitely produce wrong results regardless of inputs
-- Clear, unambiguous CLAUDE.md violations (quote the exact rule being violated)
-- Security issues in introduced code (injection, auth bypass, data exposure)
-- Incorrect logic that will fail in production
+2. **Delegate the review to a fresh-context subagent** with a self-contained prompt. The prompt MUST include:
+   - The PR number or branch name to review.
+   - The instruction to read `REVIEW.md` first for the policy, then `AGENTS.md` files in directories touched by the diff.
+   - The exact output format (see below).
+   - Whether `--comment` was requested (so the subagent emits inline-comment payloads if needed).
+   - Any "Additional reviewer instructions" the user provided.
 
-## What NOT to Flag
+   - **Claude Code**: use the `Agent` tool with `subagent_type: branch-diff-reviewer` (read-only tools, purpose-built for this). If unavailable, fall back to `general-purpose`.
+   - **Codex / Pi**: if the CLI exposes a fresh-session subagent mechanism, use it. Otherwise tell the user to run the skill in a fresh CLI session and stop — running inline in the current session defeats the purpose.
 
-- Code style or quality concerns
-- Potential issues that depend on specific inputs or runtime state
-- Subjective suggestions or improvements
-- Pre-existing issues not introduced by this PR
-- Pedantic nitpicks a senior engineer wouldn't flag
-- Issues a linter or type checker will catch
-- General quality concerns unless explicitly prohibited in CLAUDE.md
-- Issues silenced via lint ignore comments
+3. **Receive the findings** from the subagent and relay them to the user verbatim. Do not re-summarize, re-judge, or filter — the whole point of fresh context is to surface what the main session would dismiss.
 
-## Execution Steps
+4. **Post comments if `--comment` was requested**: use the `gh` commands below with the subagent's output as the body. The main session does the posting because the subagent is read-only.
 
-1. **Determine the PR scope**:
-   - If an argument is provided, use it as the PR number or branch
-   - Otherwise, detect from the current branch vs main
-   - Run `gh pr view` if a PR exists, or use `git diff main...HEAD`
+## Subagent prompt template
 
-2. **Find relevant CLAUDE.md files**:
-   - Read the root `CLAUDE.md`
-   - Check for CLAUDE.md files in directories containing changed files
+```
+Review <PR #N | branch X> against main per the policy in REVIEW.md.
 
-3. **Get the diff and metadata**:
-   - `gh pr diff` or `git diff main...HEAD` for the full diff
-   - `gh pr view` or `git log main..HEAD --oneline` for context
+Steps:
+1. Read REVIEW.md (repo root) for the full policy: severity triage, public-surface
+   checklist, AGENTS.md compliance, test coverage assessment.
+2. Read AGENTS.md (repo root) and any AGENTS.md in directories touched by the diff.
+3. Get the diff: `gh pr diff <N>` (if PR) or `git diff main...<branch>`.
+4. Get context: `gh pr view <N>` (if PR) or `git log main..<branch> --oneline`.
+5. Read changed files only when the diff alone is insufficient to validate a finding.
+6. Self-validate each finding: "is this definitely a real issue a senior engineer
+   would flag?" Discard if uncertain.
+7. Output findings in the exact format below. Do not modify any files.
 
-4. **Read changed files** where the diff alone is insufficient to understand context
+<paste output format from below>
 
-5. **Review for**:
-   - CLAUDE.md compliance — check each rule against the changed code
-   - Bugs and logic errors — will this code work correctly?
-   - Security issues — injection, auth, data exposure in new code
+<if --comment requested:>
+Additionally emit a JSON array of inline comments suitable for the GitHub reviews
+API, one per finding that maps to a specific line:
+[{"path": "...", "line": N, "side": "RIGHT", "body": "[P1] ..."}, ...]
+```
 
-6. **Self-validate each finding**: Before reporting, ask yourself:
-   - "Is this definitely a real issue, not a false positive?"
-   - "Would a senior engineer flag this in review?"
-   - If the answer to either is no, discard the finding
-
-7. **Output findings** to the terminal (default) or post as PR comments (with `--comment` flag)
-
-## Output Format
+## Output format
 
 ```
 ## Code review
 
+<verdict line per REVIEW.md>
+
 Found N issues:
 
-1. <description> (<reason: CLAUDE.md adherence | bug | security>)
+1. [P0|P1|P2] <description>
    <file_path:line_number>
 
-2. <description> (<reason>)
+2. [P0|P1|P2] <description>
    <file_path:line_number>
 ```
+
+End with a `Test coverage` section per the shared policy.
 
 If no issues are found:
 
 ```
 ## Code review
 
-No issues found. Checked for bugs and CLAUDE.md compliance.
+Good to merge.
+
+No issues found. Checked for bugs, security, and AGENTS.md compliance.
 ```
 
-## Posting Comments (--comment flag)
+## Posting comments (`--comment`)
 
-If the user passes `--comment`, post findings as inline PR comments using:
+For a top-level PR comment:
 
 ```bash
-gh pr review --comment --body "<summary>"
+gh pr review --comment --body "<summary from subagent>"
 ```
 
-Or for inline comments on specific lines:
+For inline comments on specific lines (using the JSON the subagent emitted):
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/{pr}/reviews -f body="<summary>" -f event="COMMENT" -f comments="[...]"
+gh api repos/{owner}/{repo}/pulls/{pr}/reviews \
+  -f body="<summary>" -f event="COMMENT" -f comments="<json from subagent>"
 ```

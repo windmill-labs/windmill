@@ -5,9 +5,11 @@ import { stringify as yamlStringify } from "yaml";
 import * as wmill from "../../../gen/services.gen.ts";
 import {
   GcpTrigger,
+  AzureTrigger,
   HttpTrigger,
   KafkaTrigger,
   MqttTrigger,
+  AmqpTrigger,
   NatsTrigger,
   PostgresTrigger,
   SqsTrigger,
@@ -31,12 +33,14 @@ import {
   extractNativeTriggerInfo,
 } from "../../types.ts";
 import {
-  fromBranchSpecificPath,
-  isBranchSpecificFile,
+  fromWorkspaceSpecificPath,
+  isWorkspaceSpecificFile,
+  resolveWsNameForGitBranch,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 
 type Trigger = {
   http: HttpTrigger;
@@ -45,8 +49,10 @@ type Trigger = {
   nats: NatsTrigger;
   postgres: PostgresTrigger;
   mqtt: MqttTrigger;
+  amqp: AmqpTrigger;
   sqs: SqsTrigger;
   gcp: GcpTrigger;
+  azure: AzureTrigger;
   email: EmailTrigger;
 };
 
@@ -80,8 +86,10 @@ async function getTrigger<K extends TriggerType>(
     nats: wmill.getNatsTrigger,
     postgres: wmill.getPostgresTrigger,
     mqtt: wmill.getMqttTrigger,
+    amqp: wmill.getAmqpTrigger,
     sqs: wmill.getSqsTrigger,
     gcp: wmill.getGcpTrigger,
+    azure: wmill.getAzureTrigger,
     email: wmill.getEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -109,8 +117,10 @@ async function updateTrigger<K extends TriggerType>(
     nats: wmill.updateNatsTrigger,
     postgres: wmill.updatePostgresTrigger,
     mqtt: wmill.updateMqttTrigger,
+    amqp: wmill.updateAmqpTrigger,
     sqs: wmill.updateSqsTrigger,
     gcp: wmill.updateGcpTrigger,
+    azure: wmill.updateAzureTrigger,
     email: wmill.updateEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -136,8 +146,10 @@ async function createTrigger<K extends TriggerType>(
     nats: wmill.createNatsTrigger,
     postgres: wmill.createPostgresTrigger,
     mqtt: wmill.createMqttTrigger,
+    amqp: wmill.createAmqpTrigger,
     sqs: wmill.createSqsTrigger,
     gcp: wmill.createGcpTrigger,
+    azure: wmill.createAzureTrigger,
     email: wmill.createEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -149,7 +161,8 @@ export async function pushTrigger<K extends TriggerType>(
   workspace: string,
   path: string,
   trigger: TriggerFile<K> | Trigger[K] | undefined,
-  localTrigger: TriggerFile<K>
+  localTrigger: TriggerFile<K>,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   path = removeType(path, triggerType + "_trigger").replaceAll(SEP, "/");
   log.debug(`Processing local ${triggerType} trigger ${path}`);
@@ -162,6 +175,20 @@ export async function pushTrigger<K extends TriggerType>(
     //ignore
   }
 
+  // Strip CLI-only boolean marker before sending to API
+  delete (localTrigger as any).has_permissioned_as;
+
+  const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (trigger) {
+      preserveFields.preserve_permissioned_as = true;
+      if ((trigger as any).permissioned_as) {
+        preserveFields.permissioned_as = (trigger as any).permissioned_as;
+        log.info(`Preserving ${(trigger as any).permissioned_as} as permissioned_as for trigger ${path}`);
+      }
+    }
+  }
+
   if (trigger) {
     if (isSuperset(localTrigger, trigger)) {
       log.debug(`${triggerType} trigger ${path} is up to date`);
@@ -171,6 +198,7 @@ export async function pushTrigger<K extends TriggerType>(
     try {
       await updateTrigger(triggerType, workspace, path, {
         ...localTrigger,
+        ...preserveFields,
         path,
       } as Trigger[K]);
     } catch (e) {
@@ -184,6 +212,7 @@ export async function pushTrigger<K extends TriggerType>(
     try {
       await createTrigger(triggerType, workspace, path, {
         ...localTrigger,
+        ...preserveFields,
         path,
       } as Trigger[K]);
     } catch (e) {
@@ -357,6 +386,13 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     subscribe_topics: [],
     enabled: false,
   },
+  amqp: {
+    script_path: "",
+    is_flow: false,
+    amqp_resource_path: "",
+    queue_name: "",
+    enabled: false,
+  },
   sqs: {
     script_path: "",
     is_flow: false,
@@ -375,9 +411,19 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     subscription_mode: "create_update",
     enabled: false,
   },
+  azure: {
+    script_path: "",
+    is_flow: false,
+    azure_resource_path: "",
+    azure_mode: "namespace_pull",
+    scope_resource_id: "",
+    subscription_name: "",
+    enabled: false,
+  },
   email: {
     script_path: "",
     is_flow: false,
+    local_part: "",
     enabled: false,
   },
 };
@@ -409,6 +455,27 @@ async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) 
   log.info(colors.green(`Created ${filePath}`));
 }
 
+const TRIGGER_SKIP_FIELDS = new Set(["workspace_id", "extra_perms", "edited_by", "edited_at"]);
+
+function printTriggerDetails(trigger: any, kind: string) {
+  console.log(colors.bold("Path:") + " " + trigger.path);
+  console.log(colors.bold("Kind:") + " " + kind);
+  console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? trigger.mode ?? "-"));
+  console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
+  console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
+  // Show all other non-internal fields
+  for (const [key, value] of Object.entries(trigger)) {
+    if (["path", "enabled", "mode", "script_path", "is_flow"].includes(key)) continue;
+    if (TRIGGER_SKIP_FIELDS.has(key)) continue;
+    if (value === undefined || value === null || value === "") continue;
+    const display = Array.isArray(value) ? (value.length > 0 ? JSON.stringify(value) : "[]") :
+                    typeof value === "object" ? JSON.stringify(value) : String(value);
+    if (display === "[]" || display === "{}") continue;
+    const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    console.log(colors.bold(label + ":") + " " + display);
+  }
+}
+
 async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path: string) {
   if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
@@ -422,11 +489,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     if (opts.json) {
       console.log(JSON.stringify(trigger));
     } else {
-      console.log(colors.bold("Path:") + " " + (trigger as any).path);
-      console.log(colors.bold("Kind:") + " " + opts.kind);
-      console.log(colors.bold("Enabled:") + " " + ((trigger as any).enabled ?? "-"));
-      console.log(colors.bold("Script Path:") + " " + ((trigger as any).script_path ?? ""));
-      console.log(colors.bold("Is Flow:") + " " + ((trigger as any).is_flow ? "true" : "false"));
+      printTriggerDetails(trigger as any, opts.kind);
     }
     return;
   }
@@ -451,11 +514,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     if (opts.json) {
       console.log(JSON.stringify(trigger));
     } else {
-      console.log(colors.bold("Path:") + " " + trigger.path);
-      console.log(colors.bold("Kind:") + " " + kind);
-      console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? (trigger as any).mode ?? "-"));
-      console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
-      console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
+      printTriggerDetails(trigger, kind);
     }
     return;
   }
@@ -489,8 +548,10 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     natsTriggers,
     postgresTriggers,
     mqttTriggers,
+    amqpTriggers,
     sqsTriggers,
     gcpTriggers,
+    azureTriggers,
     emailTriggers,
   ] = await Promise.all([
     listOrEmpty(() => wmill.listHttpTriggers({ workspace: ws })),
@@ -499,8 +560,10 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     listOrEmpty(() => wmill.listNatsTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listPostgresTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listMqttTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listAmqpTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listSqsTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listGcpTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listAzureTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listEmailTriggers({ workspace: ws })),
   ]);
   const triggers = [
@@ -510,8 +573,10 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     ...natsTriggers.map((x) => ({ path: x.path, kind: "nats" })),
     ...postgresTriggers.map((x) => ({ path: x.path, kind: "postgres" })),
     ...mqttTriggers.map((x) => ({ path: x.path, kind: "mqtt" })),
+    ...amqpTriggers.map((x) => ({ path: x.path, kind: "amqp" })),
     ...sqsTriggers.map((x) => ({ path: x.path, kind: "sqs" })),
     ...gcpTriggers.map((x) => ({ path: x.path, kind: "gcp" })),
+    ...azureTriggers.map((x) => ({ path: x.path, kind: "azure" })),
     ...emailTriggers.map((x) => ({ path: x.path, kind: "email" })),
   ];
 
@@ -535,14 +600,17 @@ function checkIfValidTrigger(kind: string | undefined): kind is TriggerType {
   }
 }
 
-function extractTriggerKindFromPath(filePath: string): string | undefined {
+async function extractTriggerKindFromPath(filePath: string): Promise<string | undefined> {
   let pathToAnalyze = filePath;
 
-  // If this is a branch-specific file, convert it to the base path first
-  if (isBranchSpecificFile(filePath)) {
+  // If this is a workspace-specific file, convert it to the base path first.
+  // Resolve the wmill.yaml config key for the current branch (falls back to
+  // the branch name when no matching workspace entry exists).
+  if (isWorkspaceSpecificFile(filePath)) {
     const currentBranch = getCurrentGitBranch();
     if (currentBranch) {
-      pathToAnalyze = fromBranchSpecificPath(filePath, currentBranch);
+      const wsName = await resolveWsNameForGitBranch(currentBranch);
+      pathToAnalyze = fromWorkspaceSpecificPath(filePath, wsName);
     }
   }
 
@@ -566,7 +634,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
   console.log(colors.bold.yellow("Pushing trigger..."));
 
-  const triggerKind = extractTriggerKindFromPath(filePath);
+  const triggerKind = await extractTriggerKindFromPath(filePath);
   if (!checkIfValidTrigger(triggerKind)) {
     throw new Error("Invalid trigger kind: " + triggerKind);
   }
@@ -590,17 +658,54 @@ const command = new Command()
   .command("get", "get a trigger's details")
   .arguments("<path:string>")
   .option("--json", "Output as JSON (for piping to jq)")
-  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email). Recommended for faster lookup")
+  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email). Recommended for faster lookup")
   .action(get as any)
   .command("new", "create a new trigger locally")
   .arguments("<path:string>")
-  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)")
+  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)")
   .action(newTrigger as any)
   .command(
     "push",
     "push a local trigger spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
-  .action(push as any);
+  .action(push as any)
+  .command(
+    "set-permissioned-as",
+    "Set the email (run-as user) for a trigger (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .option(
+    "--kind <kind:string>",
+    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)"
+  )
+  .action((async (opts: any, triggerPath: string, email: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    if (!opts.kind) {
+      throw new Error("--kind is required. Valid kinds: " + TRIGGER_TYPES.join(", "));
+    }
+    if (!checkIfValidTrigger(opts.kind)) {
+      throw new Error("Invalid trigger kind: " + opts.kind + ". Valid kinds: " + TRIGGER_TYPES.join(", "));
+    }
+
+    const { lookupUsernameByEmail } = await import("../../core/permissioned_as.ts");
+    const cache = new Map<string, { username: string; email: string }>();
+    const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
+
+    const remote = await getTrigger(opts.kind as TriggerType, workspace.workspaceId, triggerPath);
+    if (!remote) throw new Error(`${opts.kind} trigger ${triggerPath} not found`);
+
+    await updateTrigger(opts.kind, workspace.workspaceId, triggerPath, {
+      ...(remote as any),
+      permissioned_as: `u/${username}`,
+      preserve_permissioned_as: true,
+      path: triggerPath,
+    } as any);
+    log.info(colors.green(
+      `Updated permissioned_as for ${opts.kind} trigger ${triggerPath} to ${email} (username: ${username})`
+    ));
+  }) as any);
 
 export default command;

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_diff\n         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)\n         VALUES ('test-workspace', 'wm-fork-stale-super', 'f/folder2/myscript', 'script', 1, 0, NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f83cf3c87a1e80d4a0a7f236c4fa472a4f9ae49e9c2e601c41cd7229ecde765a"
+}

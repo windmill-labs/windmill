@@ -18,7 +18,9 @@
 		workspace,
 		editor = $bindable(),
 		appPath,
-		bottom
+		bottom,
+		hideCatalogPicker = false,
+		hideRawInput = false
 	}: {
 		multiple: boolean
 		value: any
@@ -40,6 +42,8 @@
 		editor: SimpleEditor | undefined
 		appPath: string | undefined
 		bottom?: import('svelte').Snippet
+		hideCatalogPicker?: boolean
+		hideRawInput?: boolean
 	} = $props()
 
 	let s3FileUploadRawMode: boolean = $state(false)
@@ -48,7 +52,7 @@
 	let fileUpload: FileUpload | undefined = $state(undefined)
 </script>
 
-{#if $userStore}
+{#if $userStore && !hideCatalogPicker}
 	<S3FilePicker
 		bind:this={s3FilePicker}
 		onSelectAndClose={(selected) => {
@@ -126,7 +130,7 @@
 			initialValue={value}
 		/>
 	{/if}
-	{#if $userStore}
+	{#if $userStore && !hideCatalogPicker}
 		<Button
 			variant="default"
 			size="xs"
@@ -140,11 +144,13 @@
 		</Button>
 	{/if}
 	{@render bottom?.()}
-	<Toggle
-		class="mt-1"
-		textClass="font-normal text-hint"
-		bind:checked={s3FileUploadRawMode}
-		size="xs"
-		options={{ right: `Raw S3 object${multiple ? 's' : ''} input` }}
-	/>
+	{#if !hideRawInput}
+		<Toggle
+			class="mt-1"
+			textClass="font-normal text-hint"
+			bind:checked={s3FileUploadRawMode}
+			size="xs"
+			options={{ right: `Raw S3 object${multiple ? 's' : ''} input` }}
+		/>
+	{/if}
 </div>

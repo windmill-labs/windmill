@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email as \"email!\", login_type::text, verified as \"verified!\", super_admin as \"super_admin!\", devops as \"devops!\", name, company, username, NULL::bool as operator_only, NULL::bool as is_workspace_admin, first_time_user as \"first_time_user!\", role_source as \"role_source!\", disabled as \"disabled!\", NULL::text as workspace_id FROM password\n            UNION ALL\n            SELECT email as \"email!\", 'service_account'::text as login_type, true as \"verified!\", false as \"super_admin!\", false as \"devops!\", NULL::text as name, NULL::text as company, username, operator as operator_only, is_admin as is_workspace_admin, false as \"first_time_user!\", 'service_account'::text as \"role_source!\", disabled as \"disabled!\", workspace_id\n            FROM usr\n            WHERE is_service_account IS true\n            ORDER BY \"super_admin!\" DESC, \"devops!\" DESC, \"email!\"\n            LIMIT $1 OFFSET $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "login_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "verified!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "super_admin!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "devops!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "company",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "operator_only",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_workspace_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "first_time_user!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "role_source!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "disabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "workspace_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "bce66e3f3fecda6c226556f2f3cff27702b8fc8d2850fdb262b9a2a77b468646"
+}

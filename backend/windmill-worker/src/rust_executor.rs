@@ -23,8 +23,8 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, resolve_nsjail_timeout, start_child_process,
-        OccupancyMetrics, DEV_CONF_NSJAIL,
+        get_reserved_variables, read_result, resolve_nsjail_timeout,
+        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -101,7 +101,8 @@ lazy_static::lazy_static! {
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", HOME_ENV.as_str());
 }
 
-const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
+const RUST_OBJECT_STORE_PREFIX: &str =
+    const_format::concatcp!(crate::global_cache::TARGET, "_rustbin/");
 
 #[cfg(not(windows))]
 lazy_static::lazy_static! {
@@ -476,8 +477,13 @@ pub async fn build_rust_crate(
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", &*RUST_CACHE_DIR)
                 .replace("{CARGO_HOME}", CARGO_HOME.as_str())
+                .replace("{RUSTUP_HOME}", RUSTUP_HOME.as_str())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{BUILD}", &build_dir),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -594,6 +600,58 @@ pub async fn build_rust_crate(
     }
 }
 
+/// Cache key of a Rust build. The run path and the deploy-time prebuild must derive it
+/// the same way or the prebuilt binary is never found and gets rebuilt on first run.
+async fn rust_cache_key(code: &str, requirements_o: Option<&String>, w_id: &str) -> String {
+    let mut hash = compute_rust_hash(code, requirements_o);
+    hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
+    hash
+}
+
+/// Compile a deployed Rust script ahead of its first run and push the binary to the
+/// shared cache.
+pub async fn prebuild_rust_binary(
+    job: &MiniPulledJob,
+    code: &str,
+    lock: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    base_internal_url: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> error::Result<Option<String>> {
+    ensure_rust_runtime_dirs();
+    check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
+
+    let hash = rust_cache_key(code, Some(&lock.to_string()), &job.workspace_id).await;
+    let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
+    if crate::global_cache::exists_in_object_store(&remote_path).await {
+        return Ok(None);
+    }
+
+    gen_cargo_crate(code, job_dir)?;
+    write_cargo_config(job_dir, &job.id, &job.workspace_id, conn).await?;
+    write_file(job_dir, "Cargo.lock", lock)?;
+
+    let logs = build_rust_crate(
+        job,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        conn,
+        worker_name,
+        base_internal_url,
+        &hash,
+        occupancy_metrics,
+        false,
+    )
+    .await?;
+    crate::global_cache::ensure_pushed_to_object_store(&remote_path).await?;
+    Ok(Some(logs))
+}
+
 pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String {
     calculate_hash(&format!(
         "{}{}",
@@ -625,9 +683,7 @@ pub async fn handle_rust_job(
     ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
-    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
-    let mut hash = compute_rust_hash(inner_content, requirements_o);
-    hash.push_str(&ws_suffix);
+    let hash = rust_cache_key(inner_content, requirements_o, &job.workspace_id).await;
     let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 
@@ -699,6 +755,10 @@ pub async fn handle_rust_job(
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{SHARED_MOUNT}", shared_mount)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -708,8 +768,14 @@ pub async fn handle_rust_job(
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Rust, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Rust,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
@@ -727,8 +793,14 @@ pub async fn handle_rust_job(
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Rust, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Rust,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())

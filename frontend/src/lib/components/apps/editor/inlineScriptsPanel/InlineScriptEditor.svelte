@@ -22,6 +22,7 @@
 	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
+	import TagPopup from './TagPopup.svelte'
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -255,6 +256,12 @@
 			{/if}
 			<div class="flex w-full flex-row gap-1 items-center justify-end">
 				{#if inlineScript}
+					{#if inlineScript.language != 'frontend'}
+						<TagPopup
+							bind:tag={inlineScript.tag}
+							btnProps={{ unifiedSize: 'sm', variant: 'subtle' }}
+						/>
+					{/if}
 					<CacheTtlPopup
 						bind:cache_ttl={inlineScript.cache_ttl}
 						btnProps={{ unifiedSize: 'sm', variant: 'subtle' }}

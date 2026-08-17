@@ -1,5 +1,5 @@
 import type { FlowConversation, FlowConversationMessage } from '$lib/gen/types.gen'
-import { FlowConversationService, JobService } from '$lib/gen'
+import { FlowConversationsService, JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { tick } from 'svelte'
@@ -7,6 +7,7 @@ import InfiniteList from '$lib/components/InfiniteList.svelte'
 import { workspaceStore, userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { parseStreamDeltas } from '$lib/components/chat/utils'
+import { randomUUID } from '$lib/utils/uuid'
 
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
@@ -15,15 +16,6 @@ export interface ChatMessage extends FlowConversationMessage {
 
 export interface ConversationWithDraft extends FlowConversation {
 	isDraft?: boolean
-}
-
-export function randomUUID() {
-	// Pure JS (RFC4122 v4) UUID implementation (no external dependencies)
-	return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-		const r = (Math.random() * 16) | 0
-		const v = c === 'x' ? r : (r & 0x3) | 0x8
-		return v.toString(16)
-	})
 }
 
 export class FlowChatManager {
@@ -60,6 +52,15 @@ export class FlowChatManager {
 	) => Promise<string | undefined>
 	#useStreaming = $state(false)
 	#path = $state<string | undefined>(undefined)
+
+	// When the flow editor runs as an AI-session live editor, it acts on a workspace
+	// that can differ from the nav store. FlowChat.svelte wires this to
+	// FlowEditorContext.opWorkspace so workspace-scoped calls hit the acting workspace.
+	operatingWorkspace?: () => string | undefined
+
+	#workspace(): string | undefined {
+		return this.operatingWorkspace?.() ?? get(workspaceStore)
+	}
 
 	initialize(
 		onRunFlow: (
@@ -120,7 +121,7 @@ export class FlowChatManager {
 		// Create a new conversation object and add it to the top of the list
 		const newConversation: ConversationWithDraft = {
 			id: newConversationId,
-			workspace_id: get(workspaceStore)!,
+			workspace_id: this.#workspace()!,
 			flow_path: this.#path!,
 			title: 'New chat',
 			created_at: new Date().toISOString(),
@@ -167,8 +168,8 @@ export class FlowChatManager {
 	private async deleteConversation(conversationId: string) {
 		try {
 			this.deletingConversationId = conversationId
-			await FlowConversationService.deleteFlowConversation({
-				workspace: get(workspaceStore)!,
+			await FlowConversationsService.deleteFlowConversation({
+				workspace: this.#workspace()!,
 				conversationId
 			})
 			if (this.selectedConversationId === conversationId) {
@@ -186,14 +187,14 @@ export class FlowChatManager {
 	}
 
 	async cancelCurrentJob() {
-		if (!get(workspaceStore)) {
+		if (!this.#workspace()) {
 			return
 		}
 
 		try {
 			if (this.currentJobId) {
 				await JobService.cancelQueuedJob({
-					workspace: get(workspaceStore)!,
+					workspace: this.#workspace()!,
 					id: this.currentJobId,
 					requestBody: {}
 				})
@@ -214,11 +215,11 @@ export class FlowChatManager {
 
 	// Only used by InfiniteList
 	private async loadConversations(page: number, perPage: number) {
-		if (!get(workspaceStore) || !this.#path) return []
+		if (!this.#workspace() || !this.#path) return []
 
 		try {
-			const response = await FlowConversationService.listFlowConversations({
-				workspace: get(workspaceStore)!,
+			const response = await FlowConversationsService.listFlowConversations({
+				workspace: this.#workspace()!,
 				flowPath: this.#path,
 				page: page,
 				perPage: perPage
@@ -235,7 +236,7 @@ export class FlowChatManager {
 	// Message loading
 	private async loadMessages(reset: boolean, conversationId?: string) {
 		let conversationIdToUse = conversationId ?? this.selectedConversationId
-		if (!get(workspaceStore) || !conversationIdToUse) return
+		if (!this.#workspace() || !conversationIdToUse) return
 
 		if (reset) {
 			if (this.#conversationsCache[conversationIdToUse]) {
@@ -252,8 +253,8 @@ export class FlowChatManager {
 		try {
 			const previousScrollHeight = this.messagesContainer?.scrollHeight || 0
 
-			const response = await FlowConversationService.listConversationMessages({
-				workspace: get(workspaceStore)!,
+			const response = await FlowConversationsService.listConversationMessages({
+				workspace: this.#workspace()!,
 				conversationId: conversationIdToUse,
 				page: pageToFetch,
 				perPage: this.#perPage
@@ -312,10 +313,21 @@ export class FlowChatManager {
 		}
 	}
 
+	private getLastPersistedMessageSeq() {
+		for (let i = this.messages.length - 1; i >= 0; i--) {
+			const message = this.messages[i]
+			if (!message.id.startsWith('temp-')) {
+				return message.created_seq
+			}
+		}
+
+		return undefined
+	}
+
 	// Polling
 	private async pollJobResult(jobId: string) {
 		try {
-			await waitJob(jobId)
+			await waitJob(jobId, this.#workspace())
 		} catch (error) {
 			console.error('Error polling job result:', error)
 		} finally {
@@ -335,16 +347,16 @@ export class FlowChatManager {
 		conversationId: string,
 		options?: { isNewConversation?: boolean; removeTempMessages?: boolean }
 	) {
-		if (!get(workspaceStore)) return
+		if (!this.#workspace()) return
 
 		try {
-			const lastId = this.messages[this.messages.length - 1].id
-			const response = await FlowConversationService.listConversationMessages({
-				workspace: get(workspaceStore)!,
+			const lastSeq = this.getLastPersistedMessageSeq()
+			const response = await FlowConversationsService.listConversationMessages({
+				workspace: this.#workspace()!,
 				conversationId: conversationId,
 				page: 1,
 				perPage: 50,
-				afterId: lastId
+				afterSeq: lastSeq
 			})
 
 			if (options?.isNewConversation) {
@@ -352,8 +364,6 @@ export class FlowChatManager {
 			}
 
 			const filteredResponse = response.filter((msg) => msg.message_type !== 'user')
-
-			// Add any new intermediate messages not already present
 			for (const msg of filteredResponse) {
 				if (!this.messages.find((m) => m.id === msg.id)) {
 					this.messages = [...this.messages, msg]
@@ -363,7 +373,9 @@ export class FlowChatManager {
 			// Only remove temporary messages when explicitly requested (e.g., after job completion)
 			// During streaming, we keep temp messages to avoid them disappearing due to race conditions
 			if (options?.removeTempMessages) {
-				this.messages = this.messages.filter((msg) => !msg.id.startsWith('temp-'))
+				this.messages = this.messages.filter(
+					(msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user'
+				)
 			}
 		} catch (error) {
 			console.error('Polling error:', error)
@@ -415,9 +427,10 @@ export class FlowChatManager {
 		delete this.#conversationsCache[currentConversationId]
 
 		const userMessage: ChatMessage = {
-			id: randomUUID(),
+			id: `temp-${randomUUID()}`,
 			content: this.inputMessage.trim(),
 			created_at: new Date().toISOString(),
+			created_seq: 0,
 			message_type: 'user',
 			conversation_id: currentConversationId
 		}
@@ -484,7 +497,7 @@ export class FlowChatManager {
 			}
 
 			// Build the EventSource URL
-			const streamUrl = `/api/w/${get(workspaceStore)}/jobs_u/getupdate_sse/${jobId}`
+			const streamUrl = `/api/w/${this.#workspace()}/jobs_u/getupdate_sse/${jobId}`
 			const url = new URL(streamUrl, window.location.origin)
 			url.searchParams.set('poll_delay_ms', '50')
 			url.searchParams.set('fast', 'true')
@@ -570,6 +583,7 @@ export class FlowChatManager {
 										id: 'temp-' + randomUUID(),
 										content: newContent,
 										created_at: new Date().toISOString(),
+										created_seq: 0,
 										message_type: 'tool',
 										conversation_id: currentConversationId,
 										job_id: '',
@@ -596,6 +610,7 @@ export class FlowChatManager {
 										id: assistantMessageId,
 										content: accumulatedContent,
 										created_at: new Date().toISOString(),
+										created_seq: 0,
 										message_type: 'assistant',
 										conversation_id: currentConversationId,
 										job_id: '',

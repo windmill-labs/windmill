@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            workspace_id,\n            (elem->>'installation_id')::bigint as \"installation_id!\",\n            COALESCE((elem->>'provisioned_by_admin')::bool, false) as \"provisioned_by_admin!\"\n        FROM workspace_settings,\n        LATERAL jsonb_array_elements(git_app_installations) AS elem\n        WHERE (elem->>'installation_id')::bigint = ANY($1)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "installation_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "provisioned_by_admin!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "f5e98ff83301b89f33e4454ae944da1977030cf2db9dadd372188902bb23062f"
+}

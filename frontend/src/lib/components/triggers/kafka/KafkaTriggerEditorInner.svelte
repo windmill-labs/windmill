@@ -1,14 +1,20 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import Required from '$lib/components/Required.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -23,9 +29,12 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import TriggerFilters from '../TriggerFilters.svelte'
+	import type { FilterNode } from '../filters'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
@@ -64,6 +73,8 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
@@ -97,7 +108,8 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
-	let filters: { key: string; value: any }[] = $state([])
+	let filters: FilterNode[] = $state([])
+	let filterLogic = $state<'and' | 'or'>('and')
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -124,6 +136,16 @@
 			!hasChanged
 	)
 	const kafkaConfig = $derived.by(getSaveCfg)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_kafka',
+		path: () => initialPath,
+		workspace: () => wsId,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => kafkaConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	$effect(() => {
@@ -133,7 +155,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Record<string, any>
+		defaultConfig?: Record<string, any>,
+		fixedScriptPath_?: string
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -141,18 +164,26 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.kafka.path, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			await loadTrigger(defaultConfig)
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-		} catch (err) {
-			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
-		} finally {
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			await draftSync.maybeRestore()
+		} catch (err) {
+			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -190,8 +221,12 @@
 			error_handler_args = nDefaultValues?.error_handler_args ?? {}
 			retry = nDefaultValues?.retry ?? undefined
 			filters = nDefaultValues?.filters ?? []
+			filterLogic = 'and'
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = nDefaultValues?.mode ?? 'enabled'
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -219,22 +254,33 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		filters = cfg?.filters ?? []
+		filterLogic = cfg?.filter_logic ?? 'and'
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg?.permissioned_as
+		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return
-		} else {
-			const s = await KafkaTriggerService.getKafkaTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			loadTriggerConfig(s)
+			return { overlay: undefined, noDeployed: false }
+		}
+		const s = await KafkaTriggerService.getKafkaTrigger({
+			workspace: wsId!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		loadTriggerConfig(deployedTrigger)
+		return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		}
 	}
 
@@ -247,6 +293,7 @@
 			group_id: kafkaCfg.group_id,
 			topics: kafkaCfg.topics,
 			filters,
+			filter_logic: filterLogic,
 			auto_offset_reset: autoOffsetReset,
 			auto_commit: autoCommit,
 			mode,
@@ -261,15 +308,11 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = getSaveCfg()
-		const isSaved = await saveKafkaTriggerFromCfg(
-			initialPath,
-			cfg,
-			edit,
-			$workspaceStore!,
-			usedTriggerKinds
-		)
+		const isSaved = await saveKafkaTriggerFromCfg(initialPath, cfg, edit, wsId!, usedTriggerKinds)
 		if (isSaved) {
+			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -294,7 +337,7 @@
 		resetLoading = true
 		try {
 			await KafkaTriggerService.resetKafkaOffsets({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath
 			})
 			sendUserToast(
@@ -309,15 +352,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await KafkaTriggerService.setKafkaTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			const ok = await withForkConflictRetry(
+				(force) =>
+					KafkaTriggerService.setKafkaTriggerMode({
+						path: initialPath,
+						workspace: wsId ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'Kafka trigger'
+			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} Kafka trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {
@@ -367,8 +418,13 @@
 {/if}
 
 {#if useDrawer}
-	<Drawer size="800px" bind:this={drawer}>
+	<Drawer
+		size="800px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.kafka.path)}
+	>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit Kafka trigger ${initialPath}`
@@ -378,6 +434,16 @@
 		>
 			{#snippet actions()}
 				{@render actionsButtons('sm')}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>
@@ -399,6 +465,8 @@
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="kafka"
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{mode}
@@ -423,15 +491,14 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
@@ -453,6 +520,7 @@
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
+						workspaceOverride={wsId}
 						bind:dirty={dirtyPath}
 						bind:error={pathError}
 						bind:path
@@ -468,32 +536,28 @@
 
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs mb-1 text-primary">
-						Pick a script or flow to be triggered<Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-							clearable
-						/>
-						{#if emptyString(script_path)}
-							<Button
-								btnClasses="ml-4"
-								variant="accent"
-								size="xs"
-								disabled={!can_write}
-								href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'}
-								target="_blank">Create from template</Button
-							>
-						{/if}
-					</div>
+					<TriggerRunnablePicker
+						workspace={wsId}
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						isOperator={!!$userStore?.operator}
+					>
+						{#snippet createButton()}
+							{#if emptyString(script_path)}
+								<Button
+									btnClasses="ml-4"
+									variant="accent"
+									size="xs"
+									disabled={!can_write}
+									href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'}
+									target="_blank">Create from template</Button
+								>
+							{/if}
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 
@@ -577,7 +641,12 @@
 						</Label>
 					{/if}
 
-					<TriggerFilters bind:filters disabled={!can_write} />
+					<TriggerFilters
+						bind:filters
+						bind:filterLogic
+						disabled={!can_write}
+						payloadBase64Encoded
+					/>
 
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
@@ -586,6 +655,7 @@
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler
+								workspace={wsId}
 								{optionTabSelected}
 								{itemKind}
 								{can_write}

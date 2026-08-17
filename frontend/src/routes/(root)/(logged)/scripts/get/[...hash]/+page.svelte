@@ -14,11 +14,15 @@
 		canWrite,
 		truncateHash,
 		copyToClipboard,
-		urlParamsToObject
+		urlParamsToObject,
+		extractTagFromSharableHash,
+		interpolateTag,
+		isDynamicTag,
+		isTagTemplate
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -36,6 +40,7 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
@@ -45,6 +50,7 @@
 
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
+	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import {
 		Activity,
@@ -53,12 +59,11 @@
 		Eye,
 		FolderOpen,
 		GitFork,
-		Globe2,
 		History,
 		Loader2,
 		Pen,
 		ChevronUpSquare,
-		Share,
+		Shield,
 		Trash,
 		Play,
 		ClipboardCopy,
@@ -66,13 +71,10 @@
 		ChevronDown,
 		ChevronRight
 	} from 'lucide-svelte'
-	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
-	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
-	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
-	import { importStore } from '$lib/components/apps/store'
+	import { createRawAppFromScript } from '$lib/components/details/createRawAppFromScript'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -89,9 +91,17 @@
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { page } from '$app/state'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import {
+		buildForkEditUrl,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
+	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import CiTestResults from '$lib/components/CiTestResults.svelte'
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
@@ -108,10 +118,17 @@
 	let scheduledForStr: string | undefined = $state(undefined)
 	let invisible_to_owner: boolean | undefined = $state(undefined)
 	let overrideTag: string | undefined = $state(undefined)
+	let overrideTagNote: string | undefined = $state(undefined)
+	// Tag carried over from 'Run again', pending the dynamic-tag check in loadScript
+	let carriedTag: string | undefined = undefined
 	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
 	let jsonView = $state(false)
 
 	let previousHash: string | undefined = $state(undefined)
+
+	let isWac = $derived(
+		script?.content && script?.language ? isWorkflowAsCode(script.content, script.language) : false
+	)
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
@@ -245,6 +262,22 @@
 				return
 			}
 		}
+		// A carried non-template value equal to the resolution of the script's own dynamic
+		// tag for these args is not an override but the previous run's pinned resolution:
+		// drop it so the backend re-resolves from the (possibly edited) args. A differing
+		// value is a genuine user override and a template re-resolves at push, so both stay.
+		if (
+			carriedTag &&
+			isDynamicTag(script.tag) &&
+			!isTagTemplate(carriedTag) &&
+			interpolateTag(script.tag ?? '', $workspaceStore!, args) === carriedTag
+		) {
+			if (overrideTag === carriedTag) {
+				overrideTag = undefined
+				overrideTagNote = `tag ${script.tag} is resolved at run time, so the previous run's tag ${carriedTag} was not applied`
+			}
+			carriedTag = undefined
+		}
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
@@ -321,6 +354,8 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
+			carriedTag = extractTagFromSharableHash(searchParams)
+			overrideTag = carriedTag
 			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
 				k,
 				JSON.parse(v)
@@ -328,6 +363,74 @@
 			args = Object.fromEntries(params)
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
+		}
+	}
+
+	// A dbt retry must name the run it resumes, and a job id is not something to
+	// type from memory: picking `retry` fills the field with the run this caller's
+	// retry would land on. Filled once per script, so clearing it stays cleared.
+	let dbtResumableAsked: string | undefined = $state(undefined)
+	$effect(() => {
+		const ws = $workspaceStore
+		const path = script?.path
+		const command = args?.['command'] as Record<string, any> | undefined
+		if (!ws || !path || script?.language !== 'dbt' || command?.label !== 'retry') return
+		if (command['dbt_retry_job'] || dbtResumableAsked === path) return
+		dbtResumableAsked = path
+		JobService.getDbtResumableForScript({ workspace: ws, path })
+			.then((held) => {
+				// The page may show another script, or another workspace, by now:
+				// filling THIS answer into that form aims its retry at a run of a
+				// script it is not, which only a reload could undo.
+				if ($workspaceStore !== ws || script?.path !== path) return
+				const current = untrack(() => args)
+				const block = current?.['command'] as Record<string, any> | undefined
+				if (!held || !current || block?.label !== 'retry' || block['dbt_retry_job']) return
+				args = { ...current, command: { ...block, dbt_retry_job: held } }
+				if (jsonView) {
+					runForm?.setCode(JSON.stringify(args, null, '\t'))
+				}
+			})
+			.catch(() => {})
+	})
+
+	// Arrived from a failed dbt run's `Run again`, which prefills the arguments it
+	// ran with — a whole-project rebuild. Resuming that run instead is usually
+	// what the reader wants and there is nothing on this form that says so, hence
+	// the offer. Confirmed against the run rather than trusted from the URL: only
+	// the latest failure of a script is resumable, and by the time the form opens
+	// another run may hold it.
+	let dbtRetryFrom: string | undefined = $state(undefined)
+	$effect(() => {
+		const ws = $workspaceStore
+		const from = page.url.searchParams.get('dbt_retry_from') ?? undefined
+		dbtRetryFrom = undefined
+		if (!ws || !from || script?.language !== 'dbt') return
+		JobService.getDbtResumable({ workspace: ws, id: from })
+			.then((held) => {
+				if ($workspaceStore === ws && held === from) dbtRetryFrom = from
+			})
+			.catch(() => {})
+	})
+
+	function useDbtRetry() {
+		const from = dbtRetryFrom
+		if (!from) return
+		// Merged, never replaced: a tag, concurrency key or debounce key may
+		// interpolate `command.vars`, and the QUEUE reads those at enqueue — long
+		// before the worker restores the failed run's own arguments. Dropping them
+		// here routes the retry by a different key than the run it resumes. Same
+		// as the run page's retry.
+		args = {
+			...(args ?? {}),
+			command: {
+				...((args?.['command'] as Record<string, any> | undefined) ?? {}),
+				label: 'retry',
+				dbt_retry_job: from
+			}
+		}
+		if (jsonView) {
+			runForm?.setCode(JSON.stringify(args, null, '\t'))
 		}
 	}
 
@@ -361,15 +464,16 @@
 			script &&
 			!$userStore?.operator &&
 			!isCloudHosted() &&
-			!isRuleActive('DisableWorkspaceForking')
+			editInForkAllowed($workspaceStore, $userWorkspaces)
 		) {
 			buttons.push({
-				label: 'Edit in fork',
+				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path),
+					onClick: (e: Event | undefined) => onEditInForkClick(e, 'script', script.path, { hasHref: true }),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
-					startIcon: GitFork
+					startIcon: Pen
 				}
 			})
 		}
@@ -412,9 +516,11 @@
 				label: 'Build app',
 				buttonProps: {
 					onClick: async () => {
-						const app = createAppFromScript(script.path, script.schema)
-						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add?nodraft=true')
+						const app = createRawAppFromScript(script.path, script.summary, script.schema)
+						// /apps_raw/add hard-reloads (cross-origin isolation), so the
+						// in-memory importStore would be dropped; hand off via sessionStorage.
+						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+						await goto('/apps_raw/add')
 					},
 					disabled: !showEditButtons,
 					unifiedSize: 'md',
@@ -463,7 +569,7 @@
 			deployUiSettings = ALL_DEPLOYABLE
 			return
 		}
-		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
@@ -495,8 +601,8 @@
 		})
 
 		menuItems.push({
-			label: 'Share',
-			Icon: Share,
+			label: 'Permissions',
+			Icon: Shield,
 			onclick: () => {
 				shareModal?.openDrawer(script?.path ?? '', 'script')
 			}
@@ -508,30 +614,6 @@
 				Icon: ChevronUpSquare,
 				onclick: () => {
 					deploymentDrawer?.openDrawer(script?.path ?? '', 'script')
-				}
-			})
-		}
-
-		if (SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB) {
-			menuItems.push({
-				label: 'Publish to Hub',
-				Icon: Globe2,
-				onclick: () => {
-					if (!script) return
-
-					window.open(
-						scriptToHubUrl(
-							script.content,
-							script.summary,
-							script.description ?? '',
-							script.kind,
-							script.language,
-							script.schema,
-							script.lock ?? '',
-							$hubBaseUrlStore
-						).toString(),
-						'_blank'
-					)
 				}
 			})
 		}
@@ -557,14 +639,16 @@
 				})
 			}
 
-			menuItems.push({
-				label: 'Delete',
-				Icon: Trash,
-				onclick: async () => {
-					deleteScript(script.hash)
-				},
-				color: 'red'
-			})
+			if ($userStore?.is_admin) {
+				menuItems.push({
+					label: 'Delete',
+					Icon: Trash,
+					onclick: async () => {
+						deleteScript(script.hash)
+					},
+					color: 'red'
+				})
+			}
 		}
 
 		return menuItems
@@ -655,6 +739,8 @@
 				errorHandlerKind="script"
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
+				labels={script?.labels}
+				inheritedLabels={script?.inherited_labels}
 				on:seeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}
@@ -665,7 +751,7 @@
 							if (newPath !== script?.path) {
 								await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
 							} else {
-								loadScript(page.params.hash ?? '')
+								loadScript(newPath)
 							}
 						}
 					: undefined}
@@ -698,6 +784,14 @@
 						<Badge small color="indigo" baseClass="border border-indigo-200">wac</Badge>
 					</Popover>
 				{/if}
+				{#if script?.auto_kind === 'test'}
+					<Popover notClickable>
+						{#snippet text()}
+							CI test script
+						{/snippet}
+						<Badge small color="yellow" baseClass="border">CI test</Badge>
+					</Popover>
+				{/if}
 				{#if script?.codebase}
 					<Badge
 						>bundle<Tooltip
@@ -705,6 +799,11 @@
 						></Badge
 					>
 				{/if}
+				<OnBehalfOfBadge
+					onBehalfOf={script?.on_behalf_of}
+					onBehalfOfEmail={script?.on_behalf_of_email}
+					kind="script"
+				/>
 				{#if script?.priority != undefined}
 					<div class="hidden md:block">
 						<Badge color="blue" variant="outlined" size="xs">
@@ -733,150 +832,205 @@
 				<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
 			</div>
 			{#if script}
-				<div class="p-8 w-full max-w-3xl mx-auto md:min-h-[300px] flex flex-col md:justify-center">
-					<div class="flex flex-col gap-0.5 mb-1">
-						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
-							<div class="flex flex-col gap-2 my-2">
-								{#if script.lock_error_logs}
-									<Alert type="error" title="Deployment failed">
-										<p>
-											This script has not been deployed successfully because of the following
-											errors:
-										</p>
-										<LogViewer content={script.lock_error_logs} isLoading={false} tag={undefined} />
-									</Alert>
-								{/if}
-								{#if topHash}
-									<div class="mt-2"></div>
-									<Alert type="warning" title="Not HEAD">
-										This hash is not HEAD (latest non-archived version at this path) :
-										<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
-											>Go to the HEAD of this path</a
+				{@const showsDbtGraph = script.language === 'dbt' && !!script.path}
+				<div class={twMerge('flex flex-col', isWac || showsDbtGraph ? 'h-full divide-y' : '')}>
+					<div
+						class={twMerge(
+							'p-8 w-full max-w-3xl overflow-y-auto mx-auto flex flex-col relative',
+							isWac ? 'max-h-1/2' : '',
+							// The graph takes the rest of the pane, as a flow's does, so the form
+							// scrolls within its half instead of pushing the models off-screen.
+							showsDbtGraph ? 'shrink-0 max-h-1/2' : ''
+						)}
+					>
+						{#if script?.path}
+							<CiTestResults path={script.path} kind="script" />
+						{/if}
+
+						<div class="flex flex-col gap-0.5 mb-1">
+							{#if script.lock_error_logs || topHash || script.archived || script.deleted}
+								<div class="flex flex-col gap-2 my-2">
+									{#if script.lock_error_logs}
+										<Alert type="error" title="Deployment failed">
+											<p>
+												This script has not been deployed successfully because of the following
+												errors:
+											</p>
+											<LogViewer
+												content={script.lock_error_logs}
+												isLoading={false}
+												tag={undefined}
+											/>
+										</Alert>
+									{/if}
+									{#if topHash}
+										<div class="mt-2"></div>
+										<Alert type="warning" title="Not HEAD">
+											This hash is not HEAD (latest non-archived version at this path) :
+											<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
+												>Go to the HEAD of this path</a
+											>
+										</Alert>
+									{/if}
+									{#if script.archived && !topHash}
+										<Alert type="error" title="Archived">This path was archived</Alert>
+									{/if}
+									{#if script.deleted}
+										<Alert type="error" title="Deleted">
+											<p>The content of this script was deleted (by an admin, no less)</p>
+										</Alert>
+									{/if}
+								</div>
+							{/if}
+
+							{#if !emptyString(script.description)}
+								<div class="p-4 rounded-md bg-surface-secondary">
+									<GfmMarkdown
+										md={defaultIfEmptyString(script?.description, 'No description')}
+										noPadding
+									/>
+								</div>
+								<div class="h-4"></div>
+							{/if}
+						</div>
+
+						{#if deploymentInProgress}
+							<div class="pb-4" transition:slide={{ duration: 150 }}>
+								<Badge color="yellow">
+									<Loader2 size={12} class="inline animate-spin mr-1" />
+									Deployment in progress
+									{#if deploymentJobId}
+										<a
+											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+											class="underline"
+											target="_blank">view job</a
 										>
-									</Alert>
-								{/if}
-								{#if script.archived && !topHash}
-									<Alert type="error" title="Archived">This path was archived</Alert>
-								{/if}
-								{#if script.deleted}
-									<Alert type="error" title="Deleted">
-										<p>The content of this script was deleted (by an admin, no less)</p>
-									</Alert>
-								{/if}
+									{/if}
+								</Badge>
 							</div>
 						{/if}
 
-						{#if !emptyString(script.description)}
-							<div class="p-4 rounded-md bg-surface-secondary">
-								<GfmMarkdown
-									md={defaultIfEmptyString(script?.description, 'No description')}
-									noPadding
+						<div class="flex flex-col align-left">
+							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected}
+								{@const hasSchema =
+									script.schema && Object.keys(script.schema.properties ?? {}).length > 0}
+								<div
+									class="flex flex-row justify-between min-h-12"
+									transition:slide={{ duration: 150 }}
+								>
+									<InputSelectedBadge
+										onReject={() => {
+											savedInputsV2?.resetSelected()
+										}}
+										{inputSelected}
+									/>
+									{#if hasSchema}
+										<Toggle
+											bind:checked={jsonView}
+											size="xs"
+											options={{
+												right: 'JSON',
+												rightTooltip: 'Fill args from JSON'
+											}}
+											lightMode
+											on:change={(e) => {
+												runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+											}}
+										/>
+									{/if}
+								</div>
+							{/if}
+
+							<!-- Landed here from a failed dbt run's `Run again`, which prefills a
+							     whole-project rebuild. Resuming that run is one click, and the
+							     form alone never says it is possible. -->
+							{#if dbtRetryFrom && (args?.['command'] as any)?.label !== 'retry'}
+								<div class="mb-2">
+									<Alert type="info" size="xs" title="This rebuilds the whole project">
+										<div class="flex flex-row gap-2 items-center flex-wrap">
+											<span>
+												The run you came from failed part-way. <span class="font-mono"
+													>dbt retry</span
+												>
+												rebuilds only its failed and skipped nodes, with the arguments it ran with.
+											</span>
+											<Button size="xs" variant="border" color="light" on:click={useDbtRetry}>
+												Retry that run instead
+											</Button>
+										</div>
+									</Alert>
+								</div>
+							{/if}
+
+							{#if script?.schema?.prompt_for_ai !== undefined}
+								<AIFormAssistant
+									instructions={script.schema?.prompt_for_ai as string}
+									onEditInstructions={() => {
+										goto(`/scripts/edit/${script?.path}?metadata_open=true`)
+									}}
+									runnableType="script"
 								/>
-							</div>
-							<div class="h-4"></div>
-						{/if}
-					</div>
+							{/if}
 
-					{#if deploymentInProgress}
-						<div class="pb-4" transition:slide={{ duration: 150 }}>
-							<Badge color="yellow">
-								<Loader2 size={12} class="inline animate-spin mr-1" />
-								Deployment in progress
-								{#if deploymentJobId}
-									<a
-										href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-										class="underline"
-										target="_blank">view job</a
-									>
+							<RunForm
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
+								{overrideTagNote}
+								viewKeybinding
+								loading={runLoading}
+								autofocus
+								detailed={false}
+								bind:isValid
+								runnable={script}
+								runAction={runScript}
+								bind:args
+								schedulable={true}
+								bind:this={runForm}
+								{jsonView}
+							/>
+						</div>
+
+						<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
+							{#if !isHubScript}
+								<span class="text-2xs text-secondary">
+									Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by ||
+										'unknown'}
+								</span>
+							{/if}
+							<div class="flex flex-row gap-x-2 flex-wrap items-center">
+								{#if !isHubScript}
+									<Badge small color="gray">
+										{truncateHash(script?.hash ?? '')}
+									</Badge>
 								{/if}
-							</Badge>
+								{#if script?.is_template}
+									<Badge color="blue">Template</Badge>
+								{/if}
+								{#if script && script.kind !== 'script'}
+									<Badge color="blue">
+										{script?.kind}
+									</Badge>
+								{/if}
+
+								<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
+							</div>
+						</div>
+					</div>
+					{#if showsDbtGraph}
+						<!-- The bottom of the pane, the way a flow's graph takes it: a dbt
+						     script's `content` is a descriptor, so what it BUILDS is the thing
+						     to look at. Pinned to the version on screen and given no job, so
+						     this is the project as THIS deploy declared it; a node opens its
+						     SQL and previews its rows with whatever the form above holds. -->
+						<div class="grow min-h-0">
+							<DbtRunGraph scriptPath={script.path} scriptHash={script.hash} runArgs={args} fill />
+						</div>
+					{:else if isWac && script.content}
+						<div class="grow min-h-0" style="min-height: 400px;">
+							<WacDiagram code={script.content} language={script.language ?? ''} />
 						</div>
 					{/if}
-
-					<div class="flex flex-col align-left">
-						{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected}
-							{@const hasSchema =
-								script.schema && Object.keys(script.schema.properties ?? {}).length > 0}
-							<div
-								class="flex flex-row justify-between min-h-12"
-								transition:slide={{ duration: 150 }}
-							>
-								<InputSelectedBadge
-									onReject={() => {
-										savedInputsV2?.resetSelected()
-									}}
-									{inputSelected}
-								/>
-								{#if hasSchema}
-									<Toggle
-										bind:checked={jsonView}
-										size="xs"
-										options={{
-											right: 'JSON',
-											rightTooltip: 'Fill args from JSON'
-										}}
-										lightMode
-										on:change={(e) => {
-											runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-										}}
-									/>
-								{/if}
-							</div>
-						{/if}
-
-						{#if script?.schema?.prompt_for_ai !== undefined}
-							<AIFormAssistant
-								instructions={script.schema?.prompt_for_ai as string}
-								onEditInstructions={() => {
-									goto(`/scripts/edit/${script?.path}?metadata_open=true`)
-								}}
-								runnableType="script"
-							/>
-						{/if}
-
-						<RunForm
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							viewKeybinding
-							loading={runLoading}
-							autofocus
-							detailed={false}
-							bind:isValid
-							runnable={script}
-							runAction={runScript}
-							bind:args
-							schedulable={true}
-							bind:this={runForm}
-							{jsonView}
-						/>
-					</div>
-
-					<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
-						{#if !isHubScript}
-							<span class="text-2xs text-secondary">
-								Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by ||
-									'unknown'}
-							</span>
-						{/if}
-						<div class="flex flex-row gap-x-2 flex-wrap items-center">
-							{#if !isHubScript}
-								<Badge small color="gray">
-									{truncateHash(script?.hash ?? '')}
-								</Badge>
-							{/if}
-							{#if script?.is_template}
-								<Badge color="blue">Template</Badge>
-							{/if}
-							{#if script && script.kind !== 'script'}
-								<Badge color="blue">
-									{script?.kind}
-								</Badge>
-							{/if}
-
-							<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
-						</div>
-					</div>
 				</div>
 			{/if}
 		{/snippet}

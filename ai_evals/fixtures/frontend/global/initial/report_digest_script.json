@@ -1,0 +1,23 @@
+{
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/evals/global/send_report_digest",
+        "summary": "Build and send the eval report digest",
+        "description": "Returns a dry-run summary for eval report digest notifications.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "dry_run": {
+              "type": "boolean"
+            }
+          },
+          "required": ["dry_run"]
+        },
+        "content": "export async function main(dry_run: boolean) {\n  return { dry_run, sent: !dry_run, message: dry_run ? 'Preview digest' : 'Digest sent' }\n}\n"
+      }
+    ]
+  }
+}

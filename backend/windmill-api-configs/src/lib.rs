@@ -43,6 +43,14 @@ pub fn global_service() -> Router {
             "/list_available_python_versions",
             get(list_available_python_versions),
         )
+        .route(
+            "/list_all_workspace_dependencies",
+            get(list_all_workspace_dependencies),
+        )
+        .route(
+            "/list_all_dedicated_with_deps",
+            get(list_all_dedicated_with_deps),
+        )
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -56,7 +64,7 @@ async fn list_worker_groups(
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
     let mut configs_raw =
-        sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
+        sqlx::query_as!(Config, "SELECT name, config FROM config WHERE name LIKE 'worker__%'")
             .fetch_all(&db)
             .await?;
     // Remove the 'worker__' prefix from all config names
@@ -111,7 +119,7 @@ async fn get_config(
 ) -> error::JsonResult<Option<serde_json::Value>> {
     require_devops_role(&db, &authed.email).await?;
 
-    let config = sqlx::query_as!(Config, "SELECT * FROM config WHERE name = $1", name)
+    let config = sqlx::query_as!(Config, "SELECT name, config FROM config WHERE name = $1", name)
         .fetch_optional(&db)
         .await?
         .map(|c| c.config);
@@ -209,7 +217,7 @@ async fn delete_config(
     let mut tx = db.begin().await?;
 
     let deleted = sqlx::query!("DELETE FROM config WHERE name = $1 RETURNING name", name)
-        .fetch_all(&db)
+        .fetch_all(&mut *tx)
         .await?;
 
     audit_log(
@@ -239,7 +247,7 @@ struct AutoscalingEvent {
     event_type: Option<String>,
     desired_workers: i32,
     reason: Option<String>,
-    applied_at: chrono::NaiveDateTime,
+    applied_at: chrono::DateTime<chrono::Utc>,
 }
 
 async fn list_autoscaling_events(
@@ -252,9 +260,12 @@ async fn list_autoscaling_events(
     }
     let (per_page, offset) = windmill_common::utils::paginate(pagination);
 
+    // applied_at is a naive TIMESTAMP; reinterpret it as UTC so the response
+    // includes a timezone (otherwise the browser parses it as local time and
+    // TimeAgo clamps future timestamps to "0s ago").
     let events = sqlx::query_as!(
         AutoscalingEvent,
-        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3",
+        r#"SELECT id, worker_group, event_type::text, desired_workers, reason, (applied_at AT TIME ZONE 'UTC') AS "applied_at!: chrono::DateTime<chrono::Utc>" FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3"#,
         worker_group,
         per_page as i64,
         offset as i64
@@ -318,4 +329,85 @@ async fn list_configs() -> error::JsonResult<String> {
     Err(error::Error::BadRequest(
         "Config listing available only in the enterprise version".to_string(),
     ))
+}
+
+#[derive(Serialize)]
+struct WorkspaceDependencySummary {
+    workspace_id: String,
+    name: Option<String>,
+    language: windmill_common::scripts::ScriptLang,
+}
+
+async fn list_all_workspace_dependencies(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> error::JsonResult<Vec<WorkspaceDependencySummary>> {
+    require_devops_role(&db, &authed.email).await?;
+    let deps = sqlx::query!(
+        r#"SELECT workspace_id, name, language AS "language: windmill_common::scripts::ScriptLang"
+           FROM workspace_dependencies
+           WHERE archived = false
+           ORDER BY workspace_id, name"#,
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(
+        deps.into_iter()
+            .map(|r| WorkspaceDependencySummary {
+                workspace_id: r.workspace_id,
+                name: r.name,
+                language: r.language,
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Serialize)]
+struct DedicatedScriptDepsWithWorkspace {
+    workspace_id: String,
+    path: String,
+    language: windmill_common::scripts::ScriptLang,
+    workspace_dep_names: Vec<String>,
+}
+
+async fn list_all_dedicated_with_deps(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> error::JsonResult<Vec<DedicatedScriptDepsWithWorkspace>> {
+    require_devops_role(&db, &authed.email).await?;
+
+    let rows = sqlx::query!(
+        r#"SELECT DISTINCT ON (workspace_id, path)
+                  workspace_id, path, language AS "language: windmill_common::scripts::ScriptLang", content
+           FROM script
+           WHERE archived = false
+             AND dedicated_worker = true
+             AND language = ANY($1::text[]::SCRIPT_LANG[])
+           ORDER BY workspace_id, path, created_at DESC"#,
+        &["python3", "bun", "bunnative", "deno"] as &[&str],
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let result = rows
+        .into_iter()
+        .map(|row| {
+            let dep_names =
+                windmill_common::scripts::extract_workspace_dependencies_annotated_refs(
+                    &row.language,
+                    &row.content,
+                    &row.path,
+                )
+                .map(|refs| refs.external)
+                .unwrap_or_default();
+            DedicatedScriptDepsWithWorkspace {
+                workspace_id: row.workspace_id,
+                path: row.path,
+                language: row.language,
+                workspace_dep_names: dep_names,
+            }
+        })
+        .collect();
+
+    Ok(Json(result))
 }

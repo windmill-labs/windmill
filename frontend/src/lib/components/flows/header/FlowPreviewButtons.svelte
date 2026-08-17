@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
+	import type { ButtonType } from '$lib/components/common/button/model'
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
@@ -14,10 +15,11 @@
 
 	interface Props {
 		loading?: boolean
-		onRunPreview?: () => void
+		onRunPreview?: (jobId?: string) => void
 		onJobDone?: () => void
 		localModuleStates?: Record<string, GraphModuleState>
 		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
+		unifiedSize?: ButtonType.UnifiedSize
 	}
 
 	let {
@@ -25,7 +27,8 @@
 		onRunPreview,
 		onJobDone,
 		localModuleStates = $bindable({}),
-		suspendStatus
+		suspendStatus,
+		unifiedSize = 'md'
 	}: Props = $props()
 
 	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -143,7 +146,7 @@
 <Button
 	variant="accent-secondary"
 	wrapperClasses="whitespace-nowrap"
-	unifiedSize="md"
+	{unifiedSize}
 	on:click={() => {
 		previewMode = 'whole'
 		previewOpen = !previewOpen
@@ -166,7 +169,12 @@
 </Button>
 
 {#if !loading}
-	<Drawer bind:open={previewOpen} size="75%" {preventEscape} alwaysOpen={deferContent}>
+	<Drawer
+		bind:open={previewOpen}
+		size="75%"
+		{preventEscape}
+		alwaysOpen={deferContent}
+	>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
 			open={previewOpen}

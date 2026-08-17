@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { FolderService } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
-	import { Pen, PlusIcon } from 'lucide-svelte'
+	import { isDemoWorkspaceRestricted } from '$lib/cloud'
+	import { ChevronDown, Pen, PlusIcon } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import FolderEditor from './FolderEditor.svelte'
 	import Select from './select/Select.svelte'
@@ -11,7 +12,11 @@
 	import { tick } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	const VALID_FOLDER_NAME = /^[a-zA-Z_0-9]+$/
+	const VALID_FOLDER_NAME = /^[a-zA-Z_0-9-]+$/
+
+	const restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
 
 	let folders: { name: string; write: boolean }[] = $state([])
 	let filterText: string = $state('')
@@ -32,6 +37,7 @@
 		disableEditing?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
+		selectInputClass?: string
 	}
 
 	let {
@@ -40,10 +46,9 @@
 		disabled = $bindable(undefined),
 		disableEditing = $bindable(undefined),
 		size = 'md',
-		drawerOffset = 0
+		drawerOffset = 0,
+		selectInputClass
 	}: Props = $props()
-
-	let hovering = $state(false)
 
 	async function loadFolders(): Promise<void> {
 		loadingFolders = true
@@ -125,7 +130,7 @@
 		!newFolderName
 			? ''
 			: !VALID_FOLDER_NAME.test(newFolderName)
-				? 'Folder name can only contain alphanumeric characters and underscores'
+				? 'Folder name can only contain alphanumeric characters, underscores, and hyphens'
 				: folders.some((f) => f.name === newFolderName)
 					? 'A folder with this name already exists'
 					: ''
@@ -137,7 +142,7 @@
 	)
 
 	function handleSelectKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && selectOpen && noMatchingItems) {
+		if (e.key === 'Enter' && selectOpen && noMatchingItems && !restricted) {
 			e.preventDefault()
 			selectOpen = false
 			openCreateFolder()
@@ -198,13 +203,12 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-	class="flex flex-row w-full items-center relative"
+	class="flex group flex-row w-full items-center relative"
 	role="group"
 	onkeydown={handleSelectKeydown}
-	onmouseenter={() => (hovering = true)}
-	onmouseleave={() => (hovering = false)}
 >
 	<Select
+		useContentEditable
 		bind:value={folderName}
 		bind:filterText
 		bind:open={selectOpen}
@@ -214,6 +218,8 @@
 		{size}
 		placeholder="Select folder"
 		class="grow min-w-0"
+		inputClass={selectInputClass}
+		RightIcon={ChevronDown}
 	>
 		{#snippet endSnippet({ item, close })}
 			<Button
@@ -232,34 +238,20 @@
 			/>
 		{/snippet}
 		{#snippet bottomSnippet({ close })}
-			<button
-				class="sticky py-2 px-4 w-full text-left text-xs font-medium hover:bg-surface-hover flex items-center justify-center gap-2 border-t border-border-light {noMatchingItems
-					? 'bg-surface-hover'
-					: ''}"
-				onclick={() => {
-					close()
-					openCreateFolder()
-				}}
-			>
-				<PlusIcon class="inline" size={16} />
-				Create folder
-			</button>
+			{#if !restricted}
+				<button
+					class="sticky py-2 px-4 w-full text-left text-xs font-medium hover:bg-surface-hover flex items-center justify-center gap-2 border-t border-border-light {noMatchingItems
+						? 'bg-surface-hover'
+						: ''}"
+					onclick={() => {
+						close()
+						openCreateFolder()
+					}}
+				>
+					<PlusIcon class="inline" size={16} />
+					Create folder
+				</button>
+			{/if}
 		{/snippet}
 	</Select>
-	{#if folderName && hovering && !loadingFolders && !disabled && !disableEditing}
-		<div class="absolute right-2 z-20">
-			<Button
-				variant="subtle"
-				unifiedSize="xs"
-				wrapperClasses="pl-1"
-				btnClasses="hover:bg-surface-tertiary"
-				onClick={() => {
-					editingFolder = folderName
-					viewFolder?.openDrawer()
-				}}
-				startIcon={{ icon: Pen }}
-				iconOnly
-			/>
-		</div>
-	{/if}
 </div>

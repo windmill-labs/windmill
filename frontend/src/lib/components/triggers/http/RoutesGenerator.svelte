@@ -16,7 +16,7 @@
 	import RouteEditor from './RouteEditor.svelte'
 	import { generateHttpTriggerFromOpenApi, type Source } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
-	import { usedTriggerKinds, workspaceStore } from '$lib/stores'
+	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import FileInput from '../../common/fileInput/FileInput.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import FolderPicker from '../../FolderPicker.svelte'
@@ -134,10 +134,16 @@
 		}
 	}
 
+	let userIsAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+
 	async function generateHttpTrigger() {
 		try {
 			isGeneratingHttpRoutes = true
 			httpTriggers = await generateHttpTriggerFromOpenApi(code, folderName)
+			// Force workspaced routes for non-admins or when the global setting is enabled
+			if (!userIsAdmin || globalHttpWorkspacedRoute) {
+				httpTriggers = httpTriggers.map((t) => ({ ...t, workspaced_route: true }))
+			}
 			if (httpTriggers.length === 0) {
 				sendUserToast('No paths defined in the OpenAPI spec. Cannot generate HTTP routes.', true)
 			}
@@ -283,7 +289,7 @@
 							{/if}
 							{#if selected === 'OpenAPI' || (selected === 'OpenAPI_File' && !emptyStringTrimmed(openApiFile)) || (selected === 'OpenAPI_URL' && !emptyStringTrimmed(openApiUrl))}
 								{#key forceRerender}
-									<SimpleEditor class="h-96" {lang} bind:code />
+									<SimpleEditor class="h-96" {lang} bind:code leadingChangeSync />
 								{/key}
 							{/if}
 							<Button

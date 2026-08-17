@@ -1,6 +1,7 @@
 import {
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ScheduleService,
@@ -8,6 +9,7 @@ import {
 	WebsocketTriggerService,
 	NativeTriggerService,
 	type GcpTrigger,
+	type AzureTrigger,
 	type KafkaTrigger,
 	type PostgresTrigger,
 	type Schedule,
@@ -15,6 +17,7 @@ import {
 	type HttpTrigger,
 	HttpTriggerService,
 	GcpTriggerService,
+	AzureTriggerService,
 	type EmailTrigger,
 	EmailTriggerService,
 	type NativeTrigger,
@@ -37,16 +40,10 @@ export class Triggers {
 			? this.#triggers[this.#selectedTriggerIndex]
 			: undefined
 	)
-	#updateDraftCallback: (() => void) | undefined = undefined
 
-	constructor(
-		triggers: Trigger[] = [],
-		selectedIndex?: number,
-		updateDraftCallback?: (() => void) | undefined
-	) {
+	constructor(triggers: Trigger[] = [], selectedIndex?: number) {
 		this.#triggers = triggers
 		this.#selectedTriggerIndex = selectedIndex
-		this.#updateDraftCallback = updateDraftCallback
 	}
 
 	get selectedTrigger(): Trigger | undefined {
@@ -63,7 +60,6 @@ export class Triggers {
 		} else {
 			this.#selectedTriggerIndex = index
 		}
-		this.#updateDraftCallback?.()
 	}
 
 	get triggers(): Trigger[] {
@@ -72,16 +68,13 @@ export class Triggers {
 
 	setTriggers(triggers: Trigger[]) {
 		this.#triggers = triggers
-		this.#updateDraftCallback?.()
 	}
 
 	setDraftConfig(triggerIndex: number, draftConfig: Record<string, any> | undefined) {
-		console.log('setDraftConfig', triggerIndex, draftConfig)
 		if (triggerIndex === undefined || triggerIndex < 0 || triggerIndex >= this.#triggers.length) {
 			return
 		}
 		this.#triggers[triggerIndex].draftConfig = draftConfig
-		this.#updateDraftCallback?.()
 	}
 
 	getDraftTriggersSnapshot(): Trigger[] | undefined {
@@ -114,7 +107,6 @@ export class Triggers {
 		}
 
 		this.#triggers.push(newTrigger)
-		this.#updateDraftCallback?.()
 
 		updateTriggersCount(triggersCountStore, type, 'add', newTrigger.draftConfig)
 
@@ -133,7 +125,6 @@ export class Triggers {
 		this.#triggers = this.#triggers.filter((_, index) => index !== triggerIndex)
 
 		updateTriggersCount(triggersCountStore, type, 'remove')
-		this.#updateDraftCallback?.()
 	}
 
 	updateTriggers(
@@ -170,7 +161,6 @@ export class Triggers {
 		const newTriggers = sortTriggers([...filteredTriggers, ...backendTriggers])
 		this.#triggers = newTriggers
 
-		this.#updateDraftCallback?.()
 		return newTriggers.filter((t) => t.type === type).length
 	}
 
@@ -360,6 +350,32 @@ export class Triggers {
 		}
 	}
 
+	async fetchAmqpTriggers(
+		triggersCountStore: Writable<TriggersCount | undefined>,
+		workspaceId: string | undefined,
+		path: string,
+		isFlow: boolean,
+		user: UserExt | undefined = undefined
+	): Promise<void> {
+		if (!workspaceId) return
+		try {
+			const amqpTriggers = await AmqpTriggerService.listAmqpTriggers({
+				workspace: workspaceId,
+				path,
+				isFlow
+			})
+			const amqpCount = this.updateTriggers(amqpTriggers, 'amqp', user)
+			triggersCountStore.update((triggersCount) => {
+				return {
+					...(triggersCount ?? {}),
+					amqp_count: amqpCount
+				}
+			})
+		} catch (error) {
+			console.error('Failed to fetch AMQP triggers:', error)
+		}
+	}
+
 	async fetchSqsTriggers(
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
@@ -409,6 +425,32 @@ export class Triggers {
 			})
 		} catch (error) {
 			console.error('Failed to fetch GCP Pub/Sub triggers:', error)
+		}
+	}
+
+	async fetchAzureTriggers(
+		triggersCountStore: Writable<TriggersCount | undefined>,
+		workspaceId: string | undefined,
+		path: string,
+		isFlow: boolean,
+		user: UserExt | undefined = undefined
+	): Promise<void> {
+		if (!workspaceId) return
+		try {
+			const azureTriggers: AzureTrigger[] = await AzureTriggerService.listAzureTriggers({
+				workspace: workspaceId,
+				path,
+				isFlow
+			})
+			const azureCount = this.updateTriggers(azureTriggers, 'azure', user)
+			triggersCountStore.update((triggersCount) => {
+				return {
+					...(triggersCount ?? {}),
+					azure_count: azureCount
+				}
+			})
+		} catch (error) {
+			console.error('Failed to fetch Azure triggers:', error)
 		}
 	}
 
@@ -518,13 +560,16 @@ export class Triggers {
 			this.fetchWebsocketTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchPostgresTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+			this.fetchAmqpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchNativeTriggers(triggersCountStore, 'nextcloud', workspaceId, path, isFlow, user),
 			this.fetchNativeTriggers(triggersCountStore, 'google', workspaceId, path, isFlow, user),
+			this.fetchNativeTriggers(triggersCountStore, 'github', workspaceId, path, isFlow, user),
 			...(get(enterpriseLicense)
 				? [
 						this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 						this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 						this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+						this.fetchAzureTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 						this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 						this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user)
 					]

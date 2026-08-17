@@ -1,0 +1,39 @@
+summary: Dashboard
+value:
+  fullscreen: false
+  grid:
+    - '12':
+        fixed: true
+        h: 6
+        w: 12
+        x: 0
+        y: 0
+      '3':
+        fixed: true
+        h: 6
+        w: 12
+        x: 0
+        y: 0
+      id: table_a
+      data:
+        type: tablecomponent
+        componentInput:
+          type: runnable
+          fields: {}
+          fieldType: any
+          runnable:
+            type: runnableByPath
+            path: f/lib/list_users
+            schema:
+              $schema: https://json-schema.org/draft/2020-12/schema
+              type: object
+              properties: {}
+              required: []
+        configuration: {}
+  hiddenInlineScripts: []
+  norefreshbar: false
+  unusedInlineScripts: []
+policy:
+  execution_mode: viewer
+  on_behalf_of_email: admin@windmill.dev
+  triggerables_v2: {}

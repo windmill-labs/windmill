@@ -108,12 +108,10 @@ async fn test_variable_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(secret["value"], serde_json::Value::Null);
 
     // list with path_start filter
-    let resp = authed(client().get(format!(
-        "{base}/list?path_start=u/test-user/plain"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("{base}/list?path_start=u/test-user/plain")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let list = resp.json::<Vec<serde_json::Value>>().await?;
     assert_eq!(list.len(), 1);
@@ -249,6 +247,94 @@ async fn test_variable_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let encrypted = resp.text().await?;
     assert!(!encrypted.is_empty());
     assert_ne!(encrypted, "test_plaintext");
+
+    Ok(())
+}
+
+/// Regression test: the variable-value cache (`get_value?allow_cache=true`) must be
+/// identity-scoped. test-user-2 (folder access) warms the cache; test-user-3 (no access)
+/// must then be denied rather than served the cached value.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "variable_cache_rls"))]
+async fn test_variable_value_cache_is_identity_scoped(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let url = format!(
+        "{}?allow_cache=true",
+        variable_url(port, "get_value", "f/secret/cache_target_var")
+    );
+    let get = |token: &str| {
+        client()
+            .get(url.as_str())
+            .header("Authorization", format!("Bearer {token}"))
+    };
+
+    // test-user-2 has folder access and WARMS the cache.
+    let resp = get("SECRET_TOKEN_2").send().await?;
+    assert_eq!(resp.status(), 200);
+    assert!(resp.text().await?.contains("LEAKED_VAR_SECRET"));
+
+    // test-user-3 has no folder access: must miss the cache and be denied (401), not leak.
+    let resp = get("SECRET_TOKEN_3").send().await?;
+    assert_eq!(resp.status(), 401);
+    assert!(!resp.text().await?.contains("LEAKED_VAR_SECRET"));
+
+    Ok(())
+}
+
+/// Secret variables ARE cached (with their per-read side effects — the EE
+/// `variables.decrypt_secret` audit and running-job secret registration — re-run on every
+/// hit; that re-emission is not observable in the OSS build since `audit_log` is a no-op).
+/// We assert the caching itself: warm the cache, delete the row directly (no API/NOTIFY, so
+/// the in-memory cache survives), and re-read with `allow_cache=true` — the value is still
+/// returned from cache. A non-secret variable behaves identically (control).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_variables_are_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/variables");
+
+    let plain = "u/test-user/cache_plain_probe";
+    let secret = "u/test-user/cache_secret_probe";
+
+    // Create one non-secret and one secret variable (the secret is stored encrypted).
+    for (path, value, is_secret) in [
+        (plain, "PLAIN_PROBE", false),
+        (secret, "SECRET_PROBE", true),
+    ] {
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(
+                &json!({ "path": path, "value": value, "is_secret": is_secret, "description": "" }),
+            )
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+    }
+
+    let read = |path: &str| {
+        let url = format!("{base}/get_value/{path}?allow_cache=true");
+        async move { authed(client().get(url)).send().await.unwrap() }
+    };
+
+    // Warm the cache for both.
+    assert_eq!(read(plain).await.json::<String>().await?, "PLAIN_PROBE");
+    assert_eq!(read(secret).await.json::<String>().await?, "SECRET_PROBE");
+
+    // Delete both rows directly — bypasses the API and its NOTIFY-based invalidation, so
+    // the in-memory cache survives. A subsequent read can only succeed from cache.
+    for path in [plain, secret] {
+        sqlx::query("DELETE FROM variable WHERE workspace_id = 'test-workspace' AND path = $1")
+            .bind(path)
+            .execute(&db)
+            .await?;
+    }
+
+    // Both (secret included) are still served from the cache.
+    assert_eq!(read(plain).await.json::<String>().await?, "PLAIN_PROBE");
+    let resp = read(secret).await;
+    assert_eq!(resp.status(), 200, "secret must still be served from cache");
+    assert_eq!(resp.json::<String>().await?, "SECRET_PROBE");
 
     Ok(())
 }

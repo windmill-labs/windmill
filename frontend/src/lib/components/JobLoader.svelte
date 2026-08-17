@@ -15,15 +15,13 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getViewToken } from '$lib/viewToken'
+	import { WM_LOGS_SKIPPED } from '$lib/consts'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import { DynamicInput, isScriptPreview } from '$lib/utils'
-	import {
-		getActiveRecording,
-		getActiveReplay,
-		getReplayStartTime
-	} from './recording/flowRecording.svelte'
+	import { getActiveReplay, getReplayStartTime } from './recording/replay.svelte'
 
 	// Will be set to number if job is not a flow
 
@@ -46,6 +44,9 @@
 		noLogs?: boolean
 		workspaceOverride?: string | undefined
 		notfound?: boolean
+		/** Status/body of the last load failure, so callers can distinguish e.g. a
+		 * 403 (job exists but no access — offer a share link) from a 404. */
+		loadError?: { status?: number; message?: string } | undefined
 		allowConcurentRequests?: boolean
 		jobUpdateLastFetch?: Date | undefined
 		toastError?: boolean
@@ -64,6 +65,7 @@
 		allowConcurentRequests = false,
 		workspaceOverride = undefined,
 		notfound = $bindable(false),
+		loadError = $bindable(undefined),
 		jobUpdateLastFetch = $bindable(undefined),
 		toastError = false,
 		onlyResult = false,
@@ -113,7 +115,7 @@
 				if (lastJobId && (job || lastCallbacks?.loadExtraLogs)) {
 					plimit(() =>
 						JobService.getCompletedJobLogsTail({
-							workspace: $workspaceStore!,
+							workspace: workspace!,
 							id: lastJobId
 						})
 					).then((res) => {
@@ -128,6 +130,37 @@
 			}
 		}
 	})
+
+	function isSkippedLogsValue(logs: string | undefined): boolean {
+		return logs === WM_LOGS_SKIPPED
+	}
+
+	function getResolvedLogs(logs: string | undefined): string {
+		return isSkippedLogsValue(logs) ? '' : (logs ?? '')
+	}
+
+	function mergeLogs(existingLogs: string | undefined, newLogs: string | undefined): string {
+		const existing = getResolvedLogs(existingLogs)
+		const incoming = newLogs ?? ''
+		return existing.length === 0 ? incoming : existing.concat(incoming)
+	}
+
+	function pickMoreCompleteLogs(
+		primaryLogs: string | undefined,
+		fallbackLogs: string | undefined
+	): string {
+		const primary = getResolvedLogs(primaryLogs)
+		const fallback = getResolvedLogs(fallbackLogs)
+		// When neither side has real logs but one was the skipped sentinel, keep
+		// the sentinel so downstream consumers can still lazily resolve logs
+		// instead of treating the job as having genuinely produced none.
+		if (primary.length === 0 && fallback.length === 0) {
+			return isSkippedLogsValue(primaryLogs) || isSkippedLogsValue(fallbackLogs)
+				? WM_LOGS_SKIPPED
+				: ''
+		}
+		return primary.length >= fallback.length ? primary : fallback
+	}
 
 	function clearCurrentId() {
 		if (currentId) {
@@ -185,7 +218,7 @@
 		return abstractRun(
 			() =>
 				JobService.runScriptByPath({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					path: path ?? '',
 					requestBody: args,
 					skipPreprocessor: true
@@ -202,7 +235,7 @@
 		return abstractRun(
 			() =>
 				JobService.runScriptByHash({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					hash: hash ?? '',
 					requestBody: args,
 					skipPreprocessor: true
@@ -219,7 +252,7 @@
 		return abstractRun(
 			() =>
 				JobService.runFlowByPath({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					path: path ?? '',
 					requestBody: args,
 					skipPreprocessor: true
@@ -237,7 +270,7 @@
 		return abstractRun(
 			() =>
 				JobService.runFlowPreview({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					requestBody: {
 						args,
 						value: flow.value,
@@ -251,7 +284,8 @@
 
 	function refreshLogOffset() {
 		if (logOffset == 0) {
-			logOffset = job?.logs?.length ? job.logs?.length + 1 : 0
+			const currentLogs = getResolvedLogs(job?.logs)
+			logOffset = currentLogs.length ? currentLogs.length + 1 : 0
 		}
 	}
 	export async function getLogs() {
@@ -264,7 +298,7 @@
 				logOffset: logOffset
 			})
 
-			if ((job?.logs ?? '').length == 0) {
+			if (getResolvedLogs(job?.logs).length == 0) {
 				job.logs = getUpdate.new_logs ?? ''
 				logOffset = getUpdate.log_offset ?? 0
 			}
@@ -280,7 +314,7 @@
 		return abstractRun(
 			() =>
 				JobService.runDynamicSelect({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					requestBody: { entrypoint_function, args, runnable_ref }
 				}),
 			callbacks
@@ -297,12 +331,15 @@
 		hash?: string,
 		callbacks?: Callbacks,
 		flowPath?: string,
-		modules?: Record<string, import('$lib/gen').ScriptModule> | null
+		modules?: Record<string, import('$lib/gen').ScriptModule> | null,
+		tempScriptRefs?: Record<string, string>,
+		timeout?: number
 	): Promise<string> {
 		return abstractRun(
 			() =>
 				JobService.runScriptPreview({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
+					timeout,
 					requestBody: {
 						path,
 						content: code,
@@ -312,7 +349,8 @@
 						lock,
 						script_hash: hash,
 						flow_path: flowPath,
-						modules: modules ?? undefined
+						modules: modules ?? undefined,
+						temp_script_refs: tempScriptRefs
 					}
 				}),
 			callbacks
@@ -329,7 +367,7 @@
 			currentEventSource = undefined
 			try {
 				await JobService.cancelQueuedJob({
-					workspace: $workspaceStore ?? '',
+					workspace: workspace ?? '',
 					id,
 					requestBody: {}
 				})
@@ -359,6 +397,11 @@
 
 	let startedWatchingJob: number | undefined = undefined
 	export async function watchJob(testId: string, callbacks?: Callbacks) {
+		// Cancel a previous replay's pending event timers: switching the watched job
+		// on a reused loader (the recording players click node→node) would otherwise
+		// let the old job's scheduled events mutate the newly-watched job.
+		replayTimeouts.forEach(clearTimeout)
+		replayTimeouts = []
 		logOffset = 0
 		resultStreamOffset = 0
 		syncIteration = 0
@@ -378,25 +421,32 @@
 				const elapsed = Date.now() - getReplayStartTime()
 				for (const event of recorded.events) {
 					const delay = Math.max(0, event.t - elapsed)
-					const timeout = setTimeout(() => {
-						if (job) {
-							updateJobFromProgress(event.data, job, callbacks)
-						}
-						if (event.data.completed) {
-							const njob = (event.data as any).job as Job & { result_stream?: string }
-							if (njob) {
-								// Use whichever logs are more complete (longer)
-								const streamedLogs = job?.logs ?? ''
-								const completedLogs = njob.logs ?? ''
-								njob.logs =
-									streamedLogs.length >= completedLogs.length ? streamedLogs : completedLogs
-								const streamedResult = job?.result_stream ?? ''
-								const completedResult = njob.result_stream ?? ''
-								njob.result_stream =
-									streamedResult.length >= completedResult.length ? streamedResult : completedResult
-								job = njob
-								onJobCompleted(testId, job, callbacks)
+					const timeout = setTimeout(async () => {
+						// A malformed replayed event (recordings are caller-controlled) would
+						// throw in this timer where no boundary can catch it, so skip it.
+						// `onJobCompleted` is awaited so its async rejection is caught too.
+						try {
+							if (job) {
+								updateJobFromProgress(event.data, job, callbacks)
 							}
+							if (event.data.completed) {
+								const njob = (event.data as any).job as Job & { result_stream?: string }
+								if (njob) {
+									// Use whichever logs are more complete (longer), but never
+									// let the WM_LOGS_SKIPPED sentinel win over real logs.
+									njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
+									const streamedResult = job?.result_stream ?? ''
+									const completedResult = njob.result_stream ?? ''
+									njob.result_stream =
+										streamedResult.length >= completedResult.length
+											? streamedResult
+											: completedResult
+									job = njob
+									await onJobCompleted(testId, job, callbacks)
+								}
+							}
+						} catch (err) {
+							console.error('replay event failed', err)
 						}
 					}, delay)
 					replayTimeouts.push(timeout)
@@ -451,11 +501,10 @@
 		}
 
 		if (previewJobUpdates.new_logs) {
-			if (logOffset == 0) {
-				job.logs = previewJobUpdates.new_logs ?? ''
-			} else {
-				job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
-			}
+			job.logs =
+				logOffset == 0
+					? (previewJobUpdates.new_logs ?? '')
+					: mergeLogs(job?.logs, previewJobUpdates.new_logs)
 		}
 
 		if (previewJobUpdates.new_result_stream) {
@@ -500,6 +549,17 @@
 			callbacks?.change?.(job)
 		}
 	}
+	// When a job is fetched with no_logs=true the server omits logs entirely.
+	// Flag it with a sentinel so consumers (the log panel) can tell "logs were
+	// intentionally skipped" apart from "job genuinely produced no logs", and
+	// lazily resolve the real logs on demand.
+	function flagSkippedLogs<T extends Job>(j: T, effectiveNoLogs: boolean): T {
+		if (effectiveNoLogs && !(j as Job & { logs?: string }).logs) {
+			;(j as Job & { logs?: string }).logs = WM_LOGS_SKIPPED
+		}
+		return j
+	}
+
 	async function loadTestJob(id: string, callbacks?: Callbacks): Promise<boolean> {
 		let isCompleted = false
 		if (isCurrentJob(id)) {
@@ -519,23 +579,29 @@
 					})
 
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-						job = await JobService.getJob({
-							workspace: workspace!,
-							id,
-							noCode,
-							noLogs: onlyResult || noLogs
-						})
+						job = flagSkippedLogs(
+							await JobService.getJob({
+								workspace: workspace!,
+								id,
+								noCode,
+								noLogs: onlyResult || noLogs
+							}),
+							onlyResult || noLogs
+						)
 						callbacks?.change?.(job)
 					}
 
 					updateJobFromProgress(previewJobUpdates, job, callbacks)
 				} else {
-					job = await JobService.getJob({
-						workspace: workspace!,
-						id,
-						noLogs: onlyResult || noLogs,
-						noCode
-					})
+					job = flagSkippedLogs(
+						await JobService.getJob({
+							workspace: workspace!,
+							id,
+							noLogs: onlyResult || noLogs,
+							noCode
+						}),
+						onlyResult || noLogs
+					)
 				}
 				jobUpdateLastFetch = new Date()
 
@@ -553,9 +619,14 @@
 					}
 				}
 				notfound = false
+				loadError = undefined
 			} catch (err) {
+				const status = (err as any)?.status
+				loadError = { status, message: (err as any)?.body ?? (err as any)?.message }
 				errorIteration += 1
-				if (errorIteration == 5) {
+				// Auth failures won't resolve by retrying: surface them immediately so
+				// the caller can show the right message (e.g. 403 -> request a share link).
+				if (status === 403 || status === 404 || errorIteration == 5) {
 					notfound = true
 					job = undefined
 					clearCurrentId()
@@ -628,15 +699,17 @@
 			try {
 				// First load the job to get initial state
 				if ((!job || job.id == '') && !onlyResult) {
-					job = await JobService.getJob({
-						workspace: workspace!,
-						id,
-						noLogs: noLogs,
-						noCode
-					})
+					job = flagSkippedLogs(
+						await JobService.getJob({
+							workspace: workspace!,
+							id,
+							noLogs: noLogs,
+							noCode
+						}),
+						noLogs
+					)
 
 					callbacks?.change?.(job)
-					getActiveRecording()?.recordInitialJob(id, job)
 				}
 
 				if (!onlyResult) {
@@ -704,6 +777,13 @@
 						params.set('token', token.token)
 					}
 
+					// Share read link: SSE/EventSource can't set the X-View-Token header,
+					// so carry the token as a query param instead.
+					const viewToken = getViewToken()
+					if (viewToken) {
+						params.set('view_token', viewToken)
+					}
+
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
 
 					currentEventSource = new EventSource(sseUrl)
@@ -739,7 +819,6 @@
 								throw new Error('Not found')
 							}
 							jobUpdateLastFetch = new Date()
-							getActiveRecording()?.recordEvent(id, previewJobUpdates)
 
 							if (job) {
 								updateJobFromProgress(previewJobUpdates, job, callbacks)
@@ -775,7 +854,7 @@
 									clearCurrentId()
 								} else {
 									const njob = previewJobUpdates.job as Job & { result_stream?: string }
-									njob.logs = job?.logs ?? ''
+									njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
 									njob.result_stream = job?.result_stream ?? ''
 									job = njob
 									onJobCompleted(id, job, callbacks)

@@ -151,7 +151,14 @@
 					href: `${base}/gcp_triggers`,
 					kind: 'gcp'
 				},
+				{
+					label: 'Azure Event Grid triggers',
+					id: 'triggers',
+					href: `${base}/azure_triggers`,
+					kind: 'azure'
+				},
 				{ label: 'MQTT triggers', id: 'triggers', href: `${base}/mqtt_triggers`, kind: 'mqtt' },
+				{ label: 'AMQP triggers', id: 'triggers', href: `${base}/amqp_triggers`, kind: 'amqp' },
 				{ label: 'Email triggers', id: 'triggers', href: `${base}/email_triggers`, kind: 'email' }
 			] as TriggerMenuLink[]
 		).filter(filterLink)

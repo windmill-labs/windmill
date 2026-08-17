@@ -50,7 +50,12 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.93.0
+          toolchain: 1.97.0
+          # This action defaults RUSTFLAGS to "-D warnings"; unset it so the test
+          # run is not failed by cross-platform dead-code (cfg(unix)-only helpers
+          # are unused on Windows). Warning hygiene is enforced on the Linux CI
+          # and the build_windows_worker_ release build, not this test job.
+          rustflags: ""
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -58,7 +63,9 @@ jobs:
 
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          # Pin to the Deno version shipped in the runtime image (Dockerfile) so CI
+          # tests what production runs, instead of floating on the latest v2.x.
+          deno-version: 2.2.1
 
       - uses: actions/setup-go@v2
         with:
@@ -74,7 +81,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6.2.1
         with:
-          version: "0.9.24"
+          version: "0.11.24"
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -98,6 +105,21 @@ jobs:
           vcpkg.exe install openssl:x64-windows-static
           vcpkg.exe integrate install
 
+      - name: Free disk space (post-vcpkg)
+        shell: pwsh
+        run: |
+          # vcpkg leaves multi-GB of buildtrees/downloads after installing openssl;
+          # we only need the installed/ dir for linking.
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          foreach ($sub in @("buildtrees", "downloads", "packages")) {
+            $path = Join-Path $vcpkgRoot $sub
+            if (Test-Path $path) {
+              Write-Host "Removing $path"
+              Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $path
+            }
+          }
+          Get-PSDrive C | Select-Object Used,Free | Format-Table -AutoSize
+
       - name: Get runtime paths
         id: runtime-paths
         shell: pwsh
@@ -119,6 +141,10 @@ jobs:
           cargo build --release -p windmill_duckdb_ffi_internal
           New-Item -ItemType Directory -Path ..\target\debug -Force
           Copy-Item target\release\windmill_duckdb_ffi_internal.dll ..\target\debug\
+          # duckdb is bundled (~2GB of build artifacts); the DLL is the only
+          # thing we need from this excluded-crate target dir.
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue target
+          Get-PSDrive C | Select-Object Used,Free | Format-Table -AutoSize
 
       - name: Print runtime versions and env
         shell: pwsh
@@ -136,6 +162,10 @@ jobs:
           echo "USERPROFILE=$env:USERPROFILE"
           echo "HOME=$env:HOME"
 
+      - name: Disk space before cargo test
+        shell: pwsh
+        run: Get-PSDrive C | Select-Object Used,Free | Format-Table -AutoSize
+
       - name: cargo test
         working-directory: backend
         timeout-minutes: 60
@@ -144,7 +174,26 @@ jobs:
           RUST_LOG: "off"
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
-          CARGO_BUILD_JOBS: 12
+          # 16-vcpu runners with disabled PDB still hit LNK1180 ("insufficient
+          # disk space") at link time with 12 parallel link jobs: each test
+          # binary link spikes several hundred MB of transient I/O. Capping at
+          # 8 trades ~25% wall time for headroom on the ~75GB runner disk.
+          CARGO_BUILD_JOBS: 8
+          # backend/Cargo.toml leaves profile.dev at the default debug = 2 for
+          # the (large) windmill workspace crates; that debuginfo is emitted
+          # into every object file and embedded in each test binary, and on
+          # windows-msvc also spawns the mspdbsrv.exe PDB type server. Across a
+          # full --all --features build it is the dominant consumer of the
+          # ~63GB free on the runner disk (LNK1180 / disk-full during linking).
+          # CI needs no debug info, so drop it entirely for the dev/test
+          # profiles here. debug = 0 supersedes the previous split-debuginfo=off
+          # knob (no debuginfo => no .pdb and no LNK1318 type-server limit).
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+          # Tests' poll-time stack frames (deep nested async fn chains in
+          # debug builds) reach ~1.8MB. 4MB gives ~2x headroom against flaky
+          # overflows under parallel-test contention.
+          RUST_MIN_STACK: 4194304
           VCPKGRS_DYNAMIC: 1
           OPENSSL_DIR: ${{ env.VCPKG_INSTALLATION_ROOT }}\installed\x64-windows-static
           DENO_PATH: ${{ steps.runtime-paths.outputs.DENO_PATH }}
@@ -159,9 +208,15 @@ jobs:
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
           WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
+        # Windows ships a worker-only binary, so test the crates a worker runs
+        # (windmill-worker/-common/-queue) via -p, not `--all`: this skips the
+        # disk-heavy windmill-api test binaries (LNK1180) and the server-only
+        # windmill-trigger-* crates (amqp does not build on Windows). Linux CI runs the rest.
         run: >
           cargo test
           --no-fail-fast
-          --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,csharp,php,quickjs,mcp,run_inline
-          --all
+          -p windmill-worker
+          -p windmill-common
+          -p windmill-queue
+          --features private,enterprise,deno_core,duckdb,python,rust,csharp,php,quickjs,parquet,mcp,scoped_cache,windmill-git-sync/private,windmill-object-store/private,windmill-object-store/enterprise
           -- --nocapture --test-threads=10

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(\n                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = norm.path AND s.workspace_id = $2 AND norm.kind = 'script' ORDER BY s.path, s.created_at DESC),\n                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = norm.path AND flow.workspace_id = $2 AND norm.kind = 'flow')\n                ) FROM (\n                    SELECT\n                        jb.runnable_path AS path,\n                        CASE\n                            WHEN jb.kind IN ('script', 'flow') THEN jb.kind::text\n                            WHEN jb.kind = 'singlestepflow' THEN COALESCE(\n                                (SELECT m->'value'->>'type' FROM jsonb_array_elements(jb.raw_flow->'modules') m WHERE m->>'id' IN ('a', 'main') LIMIT 1),\n                                'script'\n                            )\n                        END AS kind\n                    FROM v2_job jb\n                    WHERE jb.id = $1 AND jb.workspace_id = $2\n                ) norm\n                GROUP BY norm.kind, norm.path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "coalesce",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b32d8b364001f5d54c1c4e564aac6b49d514771191a004c21c2e0d042f9d6f4d"
+}

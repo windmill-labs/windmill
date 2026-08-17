@@ -1,0 +1,189 @@
+# Windmill Workflow-as-Code Writing Guide
+
+## Scope
+
+Use this guide when writing or modifying Windmill Workflow-as-Code (WAC) scripts.
+WAC is authored as a Windmill script and deployed with the normal script workflow. It is not an OpenFlow YAML flow.
+
+Supported WAC authoring targets:
+- Bun TypeScript scripts that import from `windmill-client`
+- Python 3 scripts that import from `wmill`
+
+## File Shape
+
+Bun TypeScript:
+
+```typescript
+import {
+  task,
+  taskScript,
+  taskFlow,
+  step,
+  sleep,
+  waitForApproval,
+  getApprovalUrls,
+  parallel,
+  workflow,
+} from "windmill-client";
+
+const process = task(async (x: string): Promise<string> => {
+  return `processed: ${x}`;
+});
+
+export const main = workflow(async (x: string) => {
+  const result = await process(x);
+  return { result };
+});
+```
+
+Python:
+
+```python
+from wmill import task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, parallel, workflow
+
+@task()
+async def process(x: str) -> str:
+    return f"processed: {x}"
+
+@workflow
+async def main(x: str):
+    result = await process(x)
+    return {"result": result}
+```
+
+Rules:
+- Do not call `main`.
+- Bun TypeScript should export the workflow entrypoint, preferably `export const main = workflow(async (...) => { ... })`.
+- Python must use `@workflow` on an async top-level function, usually `main`.
+- Define task functions and `taskScript`/`task_script` or `taskFlow`/`task_flow` assignments at module top level with stable names.
+- Use the exact SDK names. Do not alias `workflow`, `task`, `taskScript`, `taskFlow`, `step`, `sleep`, `waitForApproval`, `task_script`, `task_flow`, or `wait_for_approval`; the WAC parser recognizes these names directly.
+
+## Checkpoint And Replay Model
+
+The parent workflow may rerun from the top after any suspension, retry, approval, or child task completion. Completed durable steps are replayed from the checkpoint.
+
+Put every side effect or non-deterministic value behind a durable WAC boundary:
+- Use `task()` / `@task()` for substantial work that should run as its own child job.
+- Use `taskScript()` / `task_script()` for an existing script or a relative module file.
+- Use `taskFlow()` / `task_flow()` for an existing Windmill flow.
+- Use `step(name, fn)` for lightweight inline work whose result must be checkpointed.
+- Use `sleep(seconds)` for server-side sleeps that do not hold a worker.
+- Use `waitForApproval()` / `wait_for_approval()` for external approval suspension.
+
+Never put API calls, database writes, notifications, random values, timestamps, or irreversible changes directly in the top-level workflow body. The workflow body can be rerun. Put those operations in a task or in `step()`.
+
+Branching on task or step results is safe because those results are checkpointed. Branching on current time, random data, environment reads, or external state is unsafe unless the value is first captured with `step()`.
+
+## Tasks
+
+Use `task()` / `@task()` for inline functions that become workflow steps:
+
+```typescript
+const enrich = task(async (customerId: string) => {
+  return await fetchCustomer(customerId);
+});
+```
+
+```python
+@task(timeout=600, tag="etl")
+async def enrich(customer_id: str):
+    return await fetch_customer(customer_id)
+```
+
+In TypeScript, prefer assigning each task to a named top-level const. In Python, prefer top-level async functions decorated with `@task()` or `@task`.
+
+For existing scripts:
+
+```typescript
+const helper = taskScript("./helper.ts");
+const existing = taskScript("f/data/extract", { timeout: 600 });
+const value = await helper({ input: x });
+```
+
+```python
+helper = task_script("./helper.py")
+existing = task_script("f/data/extract", timeout=600)
+value = await helper(input=x)
+```
+
+For existing flows:
+
+```typescript
+const pipeline = taskFlow("f/etl/pipeline");
+const output = await pipeline({ input: data });
+```
+
+```python
+pipeline = task_flow("f/etl/pipeline")
+output = await pipeline(input=data)
+```
+
+## Inline Steps
+
+Use `step()` for lightweight inline values that must not change during replay:
+
+```typescript
+const startedAt = await step("started_at", () => new Date().toISOString());
+```
+
+```python
+from datetime import datetime
+
+started_at = await step("started_at", lambda: datetime.now().isoformat())
+```
+
+Use stable, descriptive step names. Do not generate step names dynamically.
+
+## Parallelism
+
+To run independent work in parallel, start task promises/coroutines before awaiting them together:
+
+```typescript
+const [a, b] = await Promise.all([process("a"), process("b")]);
+const many = await parallel(items, process, { concurrency: 5 });
+```
+
+```python
+import asyncio
+
+a, b = await asyncio.gather(process("a"), process("b"))
+many = await parallel(items, process, concurrency=5)
+```
+
+Only parallelize independent steps. Do not read the result of a task before it is awaited.
+
+## Approvals
+
+Name the approval step and generate its URLs inside `step()` before sending them.
+`getApprovalUrls` / `get_approval_urls` returns the URLs bound to that step, the same
+ones its built-in approve/reject buttons use:
+
+```typescript
+const urls = await step("urls", () => getApprovalUrls("manager"));
+await step("notify", () => sendApprovalEmail(urls.resume, urls.cancel));
+const approval = await waitForApproval({ key: "manager", timeout: 3600 });
+```
+
+```python
+urls = await step("urls", lambda: get_approval_urls("manager"))
+await step("notify", lambda: send_approval_email(urls["resume"], urls["cancel"]))
+approval = await wait_for_approval(key="manager", timeout=3600)
+```
+
+With several approvals in one workflow, give each its own key so each notification
+resumes its own step. Keys must be unique — reusing one raises an error rather than
+silently renaming the step. A minted URL only resumes while its own step is awaiting
+approval; used at any other moment it is rejected rather than resuming the wrong one. `getResumeUrls()` / `get_resume_urls()` still works but signs a
+random nonce, so its URLs are not tied to any particular approval step.
+
+`selfApproval: false` and `self_approval=False` are Enterprise-only approval behavior. Do not use them unless the user asks for that behavior.
+
+## Error Handling
+
+Let task errors fail the workflow unless the user asks for recovery logic.
+
+Python: `except Exception` is safe around WAC calls because internal suspension inherits from `BaseException`. Avoid bare `except:` in workflow code. If the user asks for recovery logic around failed child work, catch `TaskError` from `wmill` for task failures.
+
+TypeScript: avoid broad `try/catch` around WAC SDK calls. The SDK uses an internal suspension error during initial dispatch; catching it can break workflow suspension. If a broad catch is unavoidable, rethrow internal suspension errors before handling business errors.
+
+A caught failure reads the same whether it came from a task or from a `step()`, and the same in the round that ran the failing body as in every round replaying it. It carries `step_key`, `child_job_id` (absent for a `step()`, which runs in the workflow job and has no child job), a `message` that is the failure's own message, and `result` = `{"error": {"name", "message", "stack"?, "extra"?}}`. `name`, `message` and `stack` are the fields that read the same whichever side failed; `name` and `message` are always there, `stack` only when the failure had a traceback to give. `extra` carries the failure's own custom fields (an exception's attributes, an error's properties) and is best-effort: it is absent when there were none, and a task can report entries a step does not, so read it defensively and don't branch on its absence. `extra` is dropped when it is too large to keep in the checkpoint, and `extra_omitted: true` says so — absent `extra` with no `extra_omitted` means the failure simply had no custom fields. Branch on those, not on the original exception type: the workflow body re-runs from the top every round and a replay rebuilds the failure from the checkpoint, so nothing outside that record survives. Python raises `TaskError`; TypeScript throws an `Error` named `TaskError` carrying the same fields. Nothing is chained onto `__cause__` / `cause` — the traceback is in `result.error.stack`, and is also printed to the job log when the step fails.

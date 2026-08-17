@@ -3,7 +3,8 @@ import { sleep } from '$lib/utils'
 import { editor as meditor, Position, languages, type IDisposable } from 'monaco-editor'
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
-import { FIM_MAX_TOKENS, getModelContextWindow } from '../lib'
+import { FIM_MAX_TOKENS } from '../lib'
+import { getModelContextWindow } from '../modelConfig'
 import { setGlobalCSS } from '../shared'
 import { supportsAutocomplete } from '../utils'
 import { get } from 'svelte/store'
@@ -66,6 +67,7 @@ export class Autocompletor {
 		max: 10
 	})
 	#scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+	#workflowAsCode: boolean
 	#abortController: AbortController = new AbortController()
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
@@ -76,7 +78,8 @@ export class Autocompletor {
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
-		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
+		options: { workflowAsCode?: boolean } = {}
 	) {
 		setGlobalCSS(
 			'ai-chat-autocomplete',
@@ -87,6 +90,7 @@ export class Autocompletor {
 		`
 		)
 		this.#scriptLang = scriptLang
+		this.#workflowAsCode = options.workflowAsCode ?? false
 
 		const deletionsCues = editor.createDecorationsCollection()
 
@@ -520,7 +524,8 @@ export class Autocompletor {
 				suffix,
 				scriptLang: this.#scriptLang,
 				markers: markersAtCursor,
-				libraries: librariesCompletions
+				libraries: librariesCompletions,
+				workflowAsCode: this.#workflowAsCode
 			},
 			this.#abortController
 		)

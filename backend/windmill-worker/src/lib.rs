@@ -1,8 +1,8 @@
-#[cfg(all(feature = "enterprise", feature = "bigquery"))]
+#[cfg(feature = "bigquery")]
 mod bigquery_executor;
 #[cfg(all(feature = "enterprise", feature = "mssql"))]
 mod mssql_executor;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "snowflake")]
 mod snowflake_executor;
 
 mod agent_workers;
@@ -17,19 +17,34 @@ mod java_executor;
 #[cfg(feature = "ruby")]
 mod ruby_executor;
 
+#[cfg(feature = "rlang")]
+mod r_executor;
+
 mod ai;
 mod ai_executor;
+
+// Exposed for the MCP resource-authorization regression test
+// (tests/mcp_resource_authz.rs): the AI agent worker must load MCP resources
+// through the job's permissioned client, not the raw DB pool.
+#[cfg(feature = "mcp")]
+pub use ai::utils::{load_mcp_tools, McpResourceConfig};
 mod bun_executor;
 pub mod common;
 mod config;
 mod csharp_executor;
 
+mod dbt_engine;
+mod dbt_executor;
+mod dbt_profiles;
 #[cfg(feature = "private")]
 mod dedicated_worker_ee;
 mod dedicated_worker_oss;
 mod deno_executor;
+mod docker_v2;
 #[cfg(feature = "duckdb")]
 mod duckdb_executor;
+#[cfg(all(feature = "duckdb", feature = "private"))]
+mod duckdb_isolation_ee;
 mod global_cache;
 mod go_executor;
 mod graphql_executor;
@@ -55,7 +70,8 @@ mod otel_oss;
 #[cfg(all(feature = "private", feature = "enterprise"))]
 mod otel_tracing_proxy_ee;
 mod otel_tracing_proxy_oss;
-mod pg_executor;
+pub mod pg_executor;
+mod pg_raw_output;
 #[cfg(feature = "php")]
 mod php_executor;
 mod prepare_deps;
@@ -68,7 +84,11 @@ pub mod result_processor;
 mod rust_executor;
 mod sanitized_sql_params;
 mod schema;
+mod sql_s3_input;
 pub mod sql_utils;
+#[cfg(feature = "private")]
+mod ssh_executor_ee;
+mod ssh_executor_oss;
 mod universal_pkg_installer;
 #[cfg(feature = "private")]
 mod volume_ee;
@@ -86,9 +106,10 @@ pub use otel_tracing_proxy_ee::{load_internal_otel_exporter, DENO_OTEL_INITIALIZ
 pub use worker::*;
 
 pub use bun_executor::{
-    build_loader, compute_bundle_local_and_remote_path, get_common_bun_proc_envs,
-    install_bun_lockfile, prebundle_bun_script, prepare_job_dir, LoaderMode,
-    BUN_DEDICATED_WORKER_ARGS, RELATIVE_BUN_BUILDER, RELATIVE_BUN_LOADER,
+    build_loader, compute_bundle_local_and_remote_path, ensure_bundle_output_exists,
+    generate_bun_bundle, get_common_bun_proc_envs, install_bun_lockfile, prebundle_bun_script,
+    prepare_job_dir, LoaderMode, BUN_DEDICATED_WORKER_ARGS, RELATIVE_BUN_BUILDER,
+    RELATIVE_BUN_LOADER,
 };
 #[cfg(any(feature = "private", test))]
 pub use bun_executor::{

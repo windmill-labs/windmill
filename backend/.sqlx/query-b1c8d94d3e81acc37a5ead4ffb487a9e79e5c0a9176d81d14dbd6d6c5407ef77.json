@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH updated AS (\n            UPDATE schedule SET\n                path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\\1'),\n                script_path = REGEXP_REPLACE(script_path, 'u/' || $2 || '/(.*)', $1 || '/\\1'),\n                permissioned_as = $4\n            WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3\n            RETURNING 1\n        ) SELECT COUNT(*) FROM updated",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b1c8d94d3e81acc37a5ead4ffb487a9e79e5c0a9176d81d14dbd6d6c5407ef77"
+}

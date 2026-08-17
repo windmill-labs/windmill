@@ -20,9 +20,11 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
+	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
+	import WebhookBaseUrlSetting from './instanceSettings/WebhookBaseUrlSetting.svelte'
 	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
 	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
@@ -56,11 +58,35 @@
 		attempted_at: string
 	} | null = $state(null)
 
+	let offlineCapStatus: {
+		seats_used: number
+		seats_cap: number
+		author_count: number
+		operator_count: number
+		current_cu: number
+		cu_cap: number
+		cu_over_cap: boolean
+	} | null = $state(null)
+
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
 			if (values['license_key'] == undefined) {
 				return false
 			}
+		}
+		// Hide the nsjail-only settings only when isolation is *explicitly* a
+		// non-nsjail mode. When `job_isolation` is unset, nsjail may still be
+		// enabled via the legacy env-driven path (`DISABLE_NSJAIL=false`), so
+		// keep the controls reachable.
+		if (setting == 'nsjail_tmp_backing' || setting == 'nsjail_tmpfs_size_mb') {
+			const isolation = values['job_isolation']
+			if (isolation === 'none' || isolation === 'unshare') {
+				return false
+			}
+		}
+		// The tmpfs size knob is meaningless when /tmp is disk-backed.
+		if (setting == 'nsjail_tmpfs_size_mb' && values['nsjail_tmp_backing'] === 'disk') {
+			return false
 		}
 		return true
 	}
@@ -72,6 +98,14 @@
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
+	async function reloadLicenseStatus() {
+		try {
+			offlineCapStatus = (await SettingService.getOfflineLicenseStatus()) as any
+		} catch {
+			offlineCapStatus = null
+		}
+	}
+
 	async function reloadLicenseKey() {
 		$values['license_key'] = await SettingService.getGlobal({
 			key: 'license_key'
@@ -80,7 +114,10 @@
 
 	$effect(() => {
 		if (setting.key == 'license_key') {
-			untrack(() => reloadKeyrenewalAttemptInfo())
+			untrack(() => {
+				reloadKeyrenewalAttemptInfo()
+				reloadLicenseStatus()
+			})
 		}
 	})
 
@@ -102,11 +139,19 @@
 
 	export async function openCustomerPortal() {
 		opening = true
+		const newWindow = window.open('', '_blank')
 		try {
 			const url = await SettingService.createCustomerPortalSession({
 				licenseKey: $values['license_key'] || undefined
 			})
-			window.open(url, '_blank')
+			if (newWindow) {
+				newWindow.location.href = url
+			} else {
+				window.location.href = url
+			}
+		} catch (err) {
+			newWindow?.close()
+			throw err
 		} finally {
 			opening = false
 		}
@@ -283,6 +328,12 @@
 				</div>
 			</SettingCard>
 		{/if}
+	{:else if setting.fieldType == 'retention_overrides'}
+		<!-- Discrete inline control (no section header) — sits right under the retention field.
+		     Disabled until `loading` finishes so the editor can't be interacted with before
+		     getInstanceConfig() has populated the persisted overrides (which would let a save drop
+		     them). -->
+		<RetentionPeriodOverrides {values} disabled={!$enterpriseLicense || loading} />
 	{:else}
 		<SettingCard
 			label={setting.key === 'disable_stats'
@@ -430,7 +481,7 @@
 								</div>
 							{/if}
 						{/if}
-						{#if latestKeyRenewalAttempt}
+						{#if latestKeyRenewalAttempt && !offlineCapStatus}
 							{@const attemptedAt = new Date(latestKeyRenewalAttempt.attempted_at).toLocaleString()}
 							{@const isTrial = latestKeyRenewalAttempt.result.startsWith('error: trial:')}
 							<div class="relative">
@@ -500,11 +551,41 @@
 							</div>
 						{/if}
 
+						{#if offlineCapStatus}
+							{@const cap = offlineCapStatus}
+							{@const seatsOver = cap.seats_used > cap.seats_cap}
+							{@const cuOver = cap.cu_over_cap}
+							<div class="mt-1 flex flex-row items-center gap-2 text-xs">
+								<div class="flex flex-row items-center gap-1">
+									{#if seatsOver}
+										<BadgeX class="text-red-600" size={12} />
+									{:else}
+										<BadgeCheck class="text-green-600" size={12} />
+									{/if}
+									<span class={seatsOver ? 'text-red-600' : 'text-green-600'}>
+										Seats: {cap.seats_used.toFixed(1)} / {cap.seats_cap}
+									</span>
+								</div>
+								<div class="flex flex-row items-center gap-1">
+									{#if cuOver}
+										<BadgeX class="text-red-600" size={12} />
+									{:else}
+										<BadgeCheck class="text-green-600" size={12} />
+									{/if}
+									<span class={cuOver ? 'text-red-600' : 'text-green-600'}>
+										CUs: {cap.current_cu.toFixed(2)} / {cap.cu_cap.toFixed(2)}
+									</span>
+								</div>
+							</div>
+						{/if}
+
 						{#if valid || expiration}
 							<div class="flex flex-row gap-2 mt-1">
-								<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
-									>Renew key
-								</Button>
+								{#if !offlineCapStatus}
+									<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
+										>Renew key
+									</Button>
+								{/if}
 								<Button variant="accent" size="xs" loading={opening} on:click={openCustomerPortal}>
 									Open customer portal
 								</Button>
@@ -602,32 +683,16 @@
 									for="OTEL_EXPORTER_OTLP_PROTOCOL"
 									class="block text-xs font-semibold text-emphasis">Protocol</label
 								>
-								<span class="text-primary font-normal text-xs">gRPC</span>
+								<select
+									id="OTEL_EXPORTER_OTLP_PROTOCOL"
+									class="!text-xs"
+									disabled={!$enterpriseLicense}
+									bind:value={$values[setting.key].otel_exporter_otlp_protocol}
+								>
+									<option value={undefined}>grpc (default)</option>
+									<option value="http/protobuf">http/protobuf</option>
+								</select>
 							</div>
-							<!-- <div>
-							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-semibold"
-								>Protocol<span class="text-2xs text-primary ml-4"
-									>grpc, http/protobuf, http/json</span
-								></label
-							>
-							<input
-								type="text"
-								id="OTEL_EXPORTER_OTLP_PROTOCOL"
-								placeholder="grpc"
-								bind:value={$values[setting.key].otel_exporter_otlp_protocol}
-							/>
-						</div>
-						<div>
-							<label for="OTEL_EXPORTER_OTLP_COMPRESSION" class="block text-sm font-semibold"
-								>Compression <span class="text-2xs text-primary ml-4">none, gzip</span></label
-							>
-							<input
-								type="text"
-								id="OTEL_EXPORTER_OTLP_COMPRESSION"
-								placeholder="none"
-								bind:value={$values[setting.key].otel_exporter_otlp_compression}
-							/>
-						</div> -->
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel_tracing_proxy'}
@@ -663,6 +728,76 @@
 										<LanguageIcon {lang} size={24} />
 									</button>
 								{/each}
+							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="otel_tracing_proxy_no_proxy_hosts"
+									class="block text-xs font-semibold text-emphasis"
+								>
+									NO_PROXY hosts (bypass tracing)
+								</label>
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: '*.eks.amazonaws.com,*.internal',
+										id: 'otel_tracing_proxy_no_proxy_hosts',
+										disabled: !$enterpriseLicense
+									}}
+									bind:value={$values[setting.key].no_proxy_hosts}
+								/>
+								<p class="text-xs text-tertiary">
+									Comma-separated host patterns that job HTTP clients should bypass the tracing
+									proxy for — those hosts will not be traced. Use this for clients that pin their
+									own CA (kubectl, helm, terraform providers, aws cli for EKS, etc.) which would
+									otherwise fail with <code>x509: certificate signed by unknown authority</code>.
+									Independent of the worker's own <code>NO_PROXY</code> env, which governs the proxy's
+									upstream relay (e.g. through a corporate proxy).
+								</p>
+							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="otel_tracing_proxy_insecure_upstream_hosts"
+									class="block text-xs font-semibold text-emphasis"
+								>
+									Insecure upstream hosts (skip TLS verification)
+								</label>
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: '10.0.0.5,*.internal,git.corp.example',
+										id: 'otel_tracing_proxy_insecure_upstream_hosts',
+										disabled: !$enterpriseLicense
+									}}
+									bind:value={$values[setting.key].insecure_upstream_hosts}
+								/>
+								<p class="text-xs text-tertiary">
+									Comma-separated host/IP patterns the proxy still traces but for which it skips
+									upstream TLS certificate verification. Use for internal endpoints with
+									self-signed or otherwise untrusted certificates — unlike NO_PROXY above, these
+									requests stay traced. Same matching as NO_PROXY (<code>example.com</code> matches
+									subdomains; <code>.example.com</code> matches subdomains only).
+								</p>
+							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="otel_tracing_proxy_upstream_ca_certs"
+									class="block text-xs font-semibold text-emphasis"
+								>
+									Upstream CA certificates (PEM)
+								</label>
+								<textarea
+									id="otel_tracing_proxy_upstream_ca_certs"
+									disabled={!$enterpriseLicense}
+									rows="4"
+									placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
+									bind:value={$values[setting.key].upstream_ca_certs}
+								></textarea>
+								<p class="text-xs text-tertiary">
+									Extra CA certificates added to the proxy's upstream trust store, on top of the
+									system roots. Use this to trace internal endpoints signed by a private CA while
+									keeping certificate verification enabled — preferred over the insecure list above
+									when you have the CA.
+								</p>
 							</div>
 						{/if}
 					</div>
@@ -724,6 +859,8 @@
 					<SecretBackendConfig {values} disabled={loading} />
 				{:else if setting.fieldType == 'github_enterprise_app'}
 					<GhesAppSettings {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'webhook_base_url'}
+					<WebhookBaseUrlSetting {values} disabled={loading || !$enterpriseLicense} />
 				{:else if setting.fieldType == 'ws_connectivity'}
 					<WsConnectivityTest {values} />
 				{/if}

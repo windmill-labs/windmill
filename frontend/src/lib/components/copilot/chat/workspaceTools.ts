@@ -1,0 +1,516 @@
+import {
+	AzureTriggerService,
+	EmailTriggerService,
+	GcpTriggerService,
+	HttpTriggerService,
+	KafkaTriggerService,
+	MqttTriggerService,
+	AmqpTriggerService,
+	NatsTriggerService,
+	PostgresTriggerService,
+	ScheduleService,
+	SettingService,
+	SqsTriggerService,
+	WebsocketTriggerService,
+	type AzureTriggerData,
+	type GcpTriggerData,
+	type NewEmailTrigger,
+	type NewHttpTrigger,
+	type NewKafkaTrigger,
+	type NewMqttTrigger,
+	type NewAmqpTrigger,
+	type NewNatsTrigger,
+	type NewPostgresTrigger,
+	type NewSchedule,
+	type NewSqsTrigger,
+	type NewWebsocketTrigger
+} from '$lib/gen'
+import {
+	createTriggerToolSchema,
+	scheduleRequestSchema,
+	triggerConfigSchemas,
+	triggerRequestSchemas
+} from './workspaceToolsZod.gen'
+import { z } from 'zod'
+import {
+	advancedScheduleShape,
+	buildScheduleToolSchema,
+	describeDroppedScheduleOptions
+} from './scheduleToolSchema'
+import {
+	createToolDef,
+	droppedOptionKeys,
+	formatToolError,
+	type CreatedResourceTriggerKind,
+	type Tool,
+	type ToolCallbacks,
+	type ToolDisplayAction
+} from './shared'
+import { emptyString } from '$lib/utils'
+
+type TriggerKind = keyof typeof triggerRequestSchemas
+
+type TriggerRequestByKind = {
+	http: NewHttpTrigger
+	websocket: NewWebsocketTrigger
+	kafka: NewKafkaTrigger
+	nats: NewNatsTrigger
+	postgres: NewPostgresTrigger
+	mqtt: NewMqttTrigger
+	amqp: NewAmqpTrigger
+	sqs: NewSqsTrigger
+	gcp: GcpTriggerData
+	azure: AzureTriggerData
+	email: NewEmailTrigger
+}
+type TriggerRequestBody = TriggerRequestByKind[TriggerKind]
+
+export type WorkspaceMutationTarget = {
+	kind: 'script' | 'flow'
+	path?: string
+	deployed?: boolean
+}
+
+type WorkspaceMutationHelpers = {
+	getWorkspaceMutationTarget?: () => WorkspaceMutationTarget
+}
+
+// script_path/is_flow come from the runnable being edited, so they are hidden from the
+// model in both the tool schema and what get_schedule_schema serves.
+const SCHEDULE_TOOL_OPTIONS = { hidden: ['script_path', 'is_flow'] } as const
+
+const createScheduleToolSchema = buildScheduleToolSchema(SCHEDULE_TOOL_OPTIONS)
+
+const getScheduleSchemaTool: Tool<any> = {
+	def: createToolDef(
+		z.object({}),
+		'get_schedule_schema',
+		"Get the shape of create_schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
+	),
+	fn: async () => JSON.stringify(advancedScheduleShape(SCHEDULE_TOOL_OPTIONS), null, 2)
+}
+
+function getWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarget | undefined {
+	return (helpers as WorkspaceMutationHelpers | undefined)?.getWorkspaceMutationTarget?.()
+}
+
+function getWorkspaceMutationTargetError(
+	target: WorkspaceMutationTarget | undefined
+): string | undefined {
+	if (!target) {
+		return 'the script or flow needs to be deployed before doing this action'
+	}
+	if (!emptyString(target.path) && target.deployed) {
+		return undefined
+	}
+	return `the ${target.kind} needs to be deployed before doing this action`
+}
+
+function validateWorkspaceMutationTarget(helpers: unknown): string | undefined {
+	return getWorkspaceMutationTargetError(getWorkspaceMutationTarget(helpers))
+}
+
+function requireWorkspaceMutationTarget(
+	helpers: unknown
+): WorkspaceMutationTarget & { path: string } {
+	const target = getWorkspaceMutationTarget(helpers)
+	const error = getWorkspaceMutationTargetError(target)
+	if (error) {
+		throw new Error(error)
+	}
+	return target as WorkspaceMutationTarget & { path: string }
+}
+
+function getWorkspaceMutationTargetFields(
+	helpers: unknown
+): Pick<NewSchedule, 'script_path' | 'is_flow'> {
+	const target = requireWorkspaceMutationTarget(helpers)
+	return {
+		script_path: target.path,
+		is_flow: target.kind === 'flow'
+	}
+}
+
+const createScheduleToolDef = createToolDef(
+	createScheduleToolSchema,
+	'create_schedule',
+	'Create a schedule for the current script or flow. For anything beyond a plain cron (retry, pausing, tags, error-handler tuning), call get_schedule_schema first and pass those through `advanced`.',
+	{ strict: false }
+)
+
+const createTriggerToolDef = createToolDef(
+	createTriggerToolSchema,
+	'create_trigger',
+	'Create a trigger for the current script or flow. Call get_trigger_schema with the same kind first: the config fields differ per kind and are not listed here. For an email trigger (kind "email"), config.local_part is the local part of the receiving address (before the @); the tool reports the full address on success. Email triggers require email triggering to be configured on the instance — if it is not, the tool returns setup guidance instead of creating one.',
+	{ strict: false }
+)
+
+const getTriggerSchemaToolSchema = z.object({
+	kind: z.enum(Object.keys(triggerConfigSchemas) as [TriggerKind, ...TriggerKind[]])
+})
+
+const getTriggerSchemaTool: Tool<any> = {
+	def: createToolDef(
+		getTriggerSchemaToolSchema,
+		'get_trigger_schema',
+		'Get the configuration schema for one trigger kind. Call before create_trigger.'
+	),
+	fn: async ({ args }) => {
+		const { kind } = parseWithExplicitErrors(getTriggerSchemaToolSchema, args, 'Trigger kind')
+		const schema = z.toJSONSchema(triggerConfigSchemas[kind]) as Record<string, unknown>
+		delete schema.$schema
+		return JSON.stringify(schema, null, 2)
+	}
+}
+
+const triggerConfigs = {
+	http: {
+		label: 'HTTP trigger',
+		requestSchema: triggerRequestSchemas.http as z.ZodType<NewHttpTrigger>,
+		create: (data: { workspace: string; requestBody: NewHttpTrigger }) =>
+			HttpTriggerService.createHttpTrigger(data)
+	},
+	websocket: {
+		label: 'WebSocket trigger',
+		requestSchema: triggerRequestSchemas.websocket as z.ZodType<NewWebsocketTrigger>,
+		create: (data: { workspace: string; requestBody: NewWebsocketTrigger }) =>
+			WebsocketTriggerService.createWebsocketTrigger(data)
+	},
+	kafka: {
+		label: 'Kafka trigger',
+		requestSchema: triggerRequestSchemas.kafka as z.ZodType<NewKafkaTrigger>,
+		create: (data: { workspace: string; requestBody: NewKafkaTrigger }) =>
+			KafkaTriggerService.createKafkaTrigger(data)
+	},
+	nats: {
+		label: 'NATS trigger',
+		requestSchema: triggerRequestSchemas.nats as z.ZodType<NewNatsTrigger>,
+		create: (data: { workspace: string; requestBody: NewNatsTrigger }) =>
+			NatsTriggerService.createNatsTrigger(data)
+	},
+	postgres: {
+		label: 'Postgres trigger',
+		requestSchema: triggerRequestSchemas.postgres as z.ZodType<NewPostgresTrigger>,
+		create: (data: { workspace: string; requestBody: NewPostgresTrigger }) =>
+			PostgresTriggerService.createPostgresTrigger(data)
+	},
+	mqtt: {
+		label: 'MQTT trigger',
+		requestSchema: triggerRequestSchemas.mqtt as z.ZodType<NewMqttTrigger>,
+		create: (data: { workspace: string; requestBody: NewMqttTrigger }) =>
+			MqttTriggerService.createMqttTrigger(data)
+	},
+	amqp: {
+		label: 'AMQP trigger',
+		requestSchema: triggerRequestSchemas.amqp as z.ZodType<NewAmqpTrigger>,
+		create: (data: { workspace: string; requestBody: NewAmqpTrigger }) =>
+			AmqpTriggerService.createAmqpTrigger(data)
+	},
+	sqs: {
+		label: 'SQS trigger',
+		requestSchema: triggerRequestSchemas.sqs as z.ZodType<NewSqsTrigger>,
+		create: (data: { workspace: string; requestBody: NewSqsTrigger }) =>
+			SqsTriggerService.createSqsTrigger(data)
+	},
+	gcp: {
+		label: 'GCP Pub/Sub trigger',
+		requestSchema: triggerRequestSchemas.gcp as z.ZodType<GcpTriggerData>,
+		create: (data: { workspace: string; requestBody: GcpTriggerData }) =>
+			GcpTriggerService.createGcpTrigger(data)
+	},
+	azure: {
+		label: 'Azure Event Grid trigger',
+		requestSchema: triggerRequestSchemas.azure as z.ZodType<AzureTriggerData>,
+		create: (data: { workspace: string; requestBody: AzureTriggerData }) =>
+			AzureTriggerService.createAzureTrigger(data)
+	},
+	email: {
+		label: 'Email trigger',
+		requestSchema: triggerRequestSchemas.email as z.ZodType<NewEmailTrigger>,
+		create: (data: { workspace: string; requestBody: NewEmailTrigger }) =>
+			EmailTriggerService.createEmailTrigger(data)
+	}
+} satisfies {
+	[K in TriggerKind]: {
+		label: string
+		requestSchema: z.ZodType<TriggerRequestByKind[K]>
+		create: (data: { workspace: string; requestBody: TriggerRequestByKind[K] }) => Promise<string>
+	}
+}
+
+function getActionTargetKind(isFlow: boolean): 'script' | 'flow' {
+	return isFlow ? 'flow' : 'script'
+}
+
+function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {
+	return {
+		id: `open-created-schedule:${path}`,
+		type: 'open_created_resource',
+		label: 'Open schedule',
+		resource: 'schedule',
+		path,
+		targetKind
+	}
+}
+
+function createOpenTriggerAction(
+	kind: TriggerKind,
+	path: string,
+	targetKind: 'script' | 'flow',
+	label: string
+): ToolDisplayAction {
+	return {
+		id: `open-created-trigger:${kind}:${path}`,
+		type: 'open_created_resource',
+		label: `Open ${label}`,
+		resource: 'trigger',
+		triggerKind: kind as CreatedResourceTriggerKind,
+		path,
+		targetKind
+	}
+}
+
+function formatPath(path: (string | number | symbol)[]): string {
+	if (path.length === 0) {
+		return 'value'
+	}
+	return path
+		.map((part) => (typeof part === 'number' ? `[${part}]` : String(part)))
+		.join('.')
+		.replaceAll('.[', '[')
+}
+
+function formatZodError(error: z.ZodError): string {
+	return error.issues
+		.slice(0, 8)
+		.map((issue) => `${formatPath(issue.path)}: ${issue.message}`)
+		.join('; ')
+}
+
+function parseWithExplicitErrors<T>(schema: z.ZodType<T>, value: unknown, label: string): T {
+	const result = schema.safeParse(value)
+	if (!result.success) {
+		throw new Error(`${label} is invalid: ${formatZodError(result.error)}`)
+	}
+	return result.data
+}
+
+function setToolError(toolCallbacks: ToolCallbacks, toolId: string, error: unknown): string {
+	const errorMessage = error instanceof Error ? error.message : String(error)
+	toolCallbacks.setToolStatus(toolId, {
+		content: errorMessage,
+		error: errorMessage,
+		isLoading: false,
+		needsConfirmation: false
+	})
+	return `Error while calling tool: ${errorMessage}`
+}
+
+const createScheduleTool: Tool<any> = {
+	def: createScheduleToolDef,
+	requiresConfirmation: true,
+	confirmationMessage: 'Create schedule',
+	showDetails: true,
+	showFade: true,
+	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
+	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+		try {
+			const { advanced, ...rest } = (args ?? {}) as Record<string, unknown>
+			// `advanced` carries what the definition does not list: a named argument outranks
+			// a duplicate inside the bag, and the runnable target outranks both. The whole
+			// merged object is checked for stripped keys, not just the bag: an advanced option
+			// passed at the top level instead would otherwise be dropped without a word.
+			const merged = {
+				...((advanced as Record<string, unknown>) ?? {}),
+				...rest,
+				...getWorkspaceMutationTargetFields(helpers)
+			}
+			const requestBody = parseWithExplicitErrors(
+				scheduleRequestSchema as z.ZodType<NewSchedule>,
+				merged,
+				'Schedule'
+			)
+			const dropped = droppedOptionKeys(merged, requestBody)
+			if (dropped.length) {
+				throw new Error(
+					describeDroppedScheduleOptions(dropped)
+				)
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Validating schedule "${requestBody.path}"...`
+			})
+			try {
+				await ScheduleService.previewSchedule({
+					requestBody: {
+						schedule: requestBody.schedule,
+						timezone: requestBody.timezone,
+						cron_version: requestBody.cron_version ?? undefined
+					}
+				})
+			} catch (error) {
+				throw new Error(`Invalid schedule or timezone: ${formatToolError(error)}`)
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Creating schedule "${requestBody.path}"...`
+			})
+			try {
+				const result = await ScheduleService.createSchedule({ workspace, requestBody })
+				const targetKind = getActionTargetKind(requestBody.is_flow)
+				const toolResult = {
+					success: true,
+					path: requestBody.path,
+					target_path: requestBody.script_path,
+					target_kind: targetKind,
+					backend_result: result
+				}
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Created schedule "${requestBody.path}"`,
+					result: toolResult,
+					actions: [createOpenScheduleAction(requestBody.path, targetKind)]
+				})
+				return JSON.stringify(toolResult)
+			} catch (error) {
+				throw new Error(
+					`Failed to create schedule "${requestBody.path}": ${formatToolError(error)}`
+				)
+			}
+		} catch (error) {
+			return setToolError(toolCallbacks, toolId, error)
+		}
+	}
+}
+
+const EMAIL_TRIGGER_DOCS = 'https://windmill.dev/docs/advanced/email_triggers'
+
+type EmailTriggerAvailability =
+	| { available: true; domain: string }
+	| { available: false; hint: string }
+
+/**
+ * Email triggers only work once an instance superadmin has stood up an SMTP
+ * server forwarding to Windmill and set the `email_domain` global setting
+ * (readable by any authed user). When it is unset the create call would fail
+ * opaquely, so we surface actionable, role-aware setup guidance instead.
+ */
+async function resolveEmailTriggerAvailability(): Promise<EmailTriggerAvailability> {
+	let emailDomain: unknown
+	try {
+		emailDomain = await SettingService.getGlobal({ key: 'email_domain' })
+	} catch {
+		emailDomain = undefined
+	}
+	if (typeof emailDomain === 'string' && emailDomain.trim() !== '') {
+		return { available: true, domain: emailDomain }
+	}
+	const [{ get }, { userStore }] = await Promise.all([
+		import('svelte/store'),
+		import('$lib/stores')
+	])
+	const isSuperadmin = get(userStore)?.is_super_admin ?? false
+	const hint = isSuperadmin
+		? `Email triggering is not set up on this instance yet, so no email trigger was created. As a superadmin, enable it: run an SMTP server that forwards inbound mail to Windmill and set the "email_domain" instance setting (Instance settings). See ${EMAIL_TRIGGER_DOCS}. Once configured, ask again and I will create the trigger.`
+		: `Email triggering is not set up on this instance yet, so no email trigger was created. Ask an instance superadmin to enable it: they need to run an SMTP server that forwards inbound mail to Windmill and set the "email_domain" instance setting. See ${EMAIL_TRIGGER_DOCS}. Once it is configured, ask again and I will create the trigger.`
+	return { available: false, hint }
+}
+
+const createTriggerTool: Tool<any> = {
+	def: createTriggerToolDef,
+	requiresConfirmation: true,
+	confirmationMessage: 'Create trigger',
+	showDetails: true,
+	showFade: true,
+	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
+	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
+		try {
+			const parsedArgs = parseWithExplicitErrors(createTriggerToolSchema, args, 'Trigger')
+			const triggerConfig = triggerConfigs[parsedArgs.kind]
+			const requestBody = parseWithExplicitErrors(
+				triggerConfig.requestSchema as z.ZodType<TriggerRequestBody>,
+				{
+					...parsedArgs.config,
+					path: parsedArgs.path,
+					...getWorkspaceMutationTargetFields(helpers)
+				},
+				triggerConfig.label
+			)
+
+			let emailDomain: string | undefined
+			if (parsedArgs.kind === 'email') {
+				// `workspaced_local_part` maps to a NOT NULL column; the model may omit it,
+				// so default it here before the request is sent, not just when formatting the address.
+				const emailBody = requestBody as NewEmailTrigger
+				emailBody.workspaced_local_part = emailBody.workspaced_local_part ?? false
+				const availability = await resolveEmailTriggerAvailability()
+				if (!availability.available) {
+					toolCallbacks.setToolStatus(toolId, {
+						content: availability.hint,
+						isLoading: false,
+						needsConfirmation: false
+					})
+					return availability.hint
+				}
+				emailDomain = availability.domain
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Creating ${triggerConfig.label} "${requestBody.path}"...`
+			})
+			try {
+				const result = await triggerConfig.create({ workspace, requestBody } as never)
+				const targetKind = getActionTargetKind(requestBody.is_flow)
+				const emailAddress =
+					parsedArgs.kind === 'email' && emailDomain !== undefined
+						? (await import('$lib/components/triggers/email/utils')).getEmailAddress(
+								(requestBody as NewEmailTrigger).local_part,
+								(requestBody as NewEmailTrigger).workspaced_local_part ?? false,
+								workspace,
+								emailDomain
+							)
+						: undefined
+				const toolResult = {
+					success: true,
+					kind: parsedArgs.kind,
+					path: requestBody.path,
+					target_path: requestBody.script_path,
+					target_kind: targetKind,
+					backend_result: result,
+					...(emailAddress ? { email_address: emailAddress } : {})
+				}
+				toolCallbacks.setToolStatus(toolId, {
+					content: emailAddress
+						? `Created ${triggerConfig.label} "${requestBody.path}" (send email to ${emailAddress})`
+						: `Created ${triggerConfig.label} "${requestBody.path}"`,
+					result: toolResult,
+					actions: [
+						createOpenTriggerAction(
+							parsedArgs.kind,
+							requestBody.path,
+							targetKind,
+							triggerConfig.label
+						)
+					]
+				})
+				return JSON.stringify(toolResult)
+			} catch (error) {
+				throw new Error(
+					`Failed to create ${triggerConfig.label} "${requestBody.path}": ${formatToolError(error)}`
+				)
+			}
+		} catch (error) {
+			return setToolError(toolCallbacks, toolId, error)
+		}
+	}
+}
+
+const workspaceMutationTools = [
+	createScheduleTool,
+	createTriggerTool,
+	getTriggerSchemaTool,
+	getScheduleSchemaTool
+]
+
+export function createWorkspaceMutationTools<T>(): Tool<T>[] {
+	return workspaceMutationTools as Tool<T>[]
+}

@@ -1,0 +1,61 @@
+summary: Branches and loops
+description: ''
+value:
+  modules:
+    - id: loop
+      value:
+        type: forloopflow
+        modules:
+          - id: step
+            value:
+              type: rawscript
+              content: '!inline loop/step.bun.ts'
+              input_transforms:
+                n:
+                  type: javascript
+                  expr: flow_input.iter.value
+              language: bun
+        iterator:
+          type: javascript
+          expr: '[1,2,3]'
+        parallel: false
+        parallelism: 4
+        skip_failures: false
+    - id: branchall
+      value:
+        type: branchall
+        branches:
+          - summary: Left branch
+            modules:
+              - id: left
+                value:
+                  type: identity
+            parallel: false
+            skip_failure: false
+          - summary: Right branch
+            modules:
+              - id: right
+                value:
+                  type: identity
+            parallel: false
+            skip_failure: false
+        parallel: true
+    - id: branchone
+      value:
+        type: branchone
+        branches:
+          - summary: Case A
+            modules:
+              - id: case_a
+                value:
+                  type: identity
+            expr: results.branchall.length > 0
+        default:
+          - id: fallback
+            value:
+              type: identity
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

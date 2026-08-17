@@ -2,6 +2,7 @@ import { getContext, setContext } from 'svelte'
 import { enterpriseLicense } from '$lib/stores'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/toast'
+import { apiErrorMessage } from '$lib/utils'
 import { JobService, WorkspaceService, ResourceService } from '$lib/gen'
 import type {
 	GitRepositorySettings as BackendGitRepositorySettings,
@@ -45,7 +46,7 @@ export type GitSyncSettings = {
 export type ModalState = {
 	push: { idx: number; repo: GitSyncRepository; open: boolean } | null
 	pull: { idx: number; repo: GitSyncRepository; open: boolean; settingsOnly?: boolean } | null
-	success: { open: boolean; savedWithoutInit?: boolean } | null
+	success: { open: boolean; savedWithoutInit?: boolean; autoPullOn?: boolean } | null
 }
 
 export type ValidationState = {
@@ -178,9 +179,11 @@ export function createGitSyncContext(workspace: string) {
 			script_path: repo.script_path,
 			use_individual_branch: repo.use_individual_branch,
 			group_by_folder: repo.group_by_folder,
-			force_branch: repo.force_branch,
 			settings: repo.settings,
-			exclude_types_override: repo.exclude_types_override
+			exclude_types_override: repo.exclude_types_override,
+			auto_pull: repo.auto_pull,
+			promotion_open_prs: repo.promotion_open_prs,
+			fork_open_prs: repo.fork_open_prs
 		}
 	}
 
@@ -194,12 +197,25 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder']
+				include_type: [
+					'script',
+					'flow',
+					'app',
+					'folder',
+					'workspacedependencies',
+					'datatablemigration'
+				]
 			},
 			exclude_types_override: [],
 			legacyImported: false,
 			isUnsavedConnection: true,
-			collapsed: false
+			collapsed: false,
+			// New connections default to pulling changes from Git (webhook with a
+			// polling fallback), forks included. Existing repos load without
+			// auto_pull and stay off until an admin opts in, so upgrades never
+			// start auto-deploying.
+			auto_pull: { enabled: true, mode: 'auto', sync_forks: true },
+			fork_open_prs: true
 		})
 		gitSyncTestJobs.push({
 			jobId: '',
@@ -274,8 +290,8 @@ export function createGitSyncContext(workspace: string) {
 		closeModal('pull')
 	}
 
-	function showSuccessModal(savedWithoutInit?: boolean) {
-		activeModals.success = { open: true, savedWithoutInit }
+	function showSuccessModal(savedWithoutInit?: boolean, autoPullOn?: boolean) {
+		activeModals.success = { open: true, savedWithoutInit, autoPullOn }
 	}
 
 	function closeSuccessModal() {
@@ -365,7 +381,7 @@ export function createGitSyncContext(workspace: string) {
 			}
 
 			repo.detectionState = 'error'
-			repo.detectionError = error?.message || error?.toString() || 'Failed to detect repository'
+			repo.detectionError = apiErrorMessage(error) || 'Failed to detect repository'
 			repo.detectionJobStatus = 'failure'
 		}
 	}
@@ -408,7 +424,14 @@ export function createGitSyncContext(workspace: string) {
 							const defaultTypes: GitSyncObjectType[] =
 								workspaceLegacyIncludeType.length > 0
 									? [...workspaceLegacyIncludeType]
-									: ['script', 'flow', 'app', 'folder']
+									: [
+											'script',
+											'flow',
+											'app',
+											'folder',
+											'workspacedependencies',
+											'datatablemigration'
+										]
 
 							let repoSettings: SettingsObject
 							if (isRepoLegacy) {
@@ -433,7 +456,14 @@ export function createGitSyncContext(workspace: string) {
 									include_path: repo.settings?.include_path ?? ['f/**'],
 									exclude_path: repo.settings?.exclude_path ?? [],
 									extra_include_path: repo.settings?.extra_include_path ?? [],
-									include_type: repo.settings?.include_type ?? ['script', 'flow', 'app']
+									include_type: repo.settings?.include_type ?? [
+										'script',
+										'flow',
+										'app',
+										'folder',
+										'workspacedependencies',
+										'datatablemigration'
+									]
 								}
 							}
 
@@ -495,9 +525,11 @@ export function createGitSyncContext(workspace: string) {
 					script_path: repoToSave.script_path,
 					use_individual_branch: repoToSave.use_individual_branch,
 					group_by_folder: repoToSave.group_by_folder,
-					force_branch: repoToSave.force_branch,
 					settings: repoToSave.settings,
-					exclude_types_override: repoToSave.exclude_types_override
+					exclude_types_override: repoToSave.exclude_types_override,
+					auto_pull: repoToSave.auto_pull,
+					promotion_open_prs: repoToSave.promotion_open_prs,
+					fork_open_prs: repoToSave.fork_open_prs
 				}
 			}
 		})
@@ -512,7 +544,7 @@ export function createGitSyncContext(workspace: string) {
 			repoToSave.detectionState = undefined
 			repoToSave.extractedSettings = undefined
 			// Show success modal for new connections
-			showSuccessModal(savedWithoutInit)
+			showSuccessModal(savedWithoutInit, repoToSave.auto_pull?.enabled === true)
 		}
 	}
 
@@ -583,11 +615,7 @@ export function createGitSyncContext(workspace: string) {
 			})
 		} catch (error: any) {
 			// Initialize the job entry if it doesn't exist (e.g., job creation failed)
-			const errorMessage =
-				(typeof error?.body === 'string' ? error.body : error?.body?.message) ||
-				error?.message ||
-				error?.toString() ||
-				'Failed to run test job'
+			const errorMessage = apiErrorMessage(error) || 'Failed to run test job'
 			if (!gitSyncTestJobs[idx]) {
 				gitSyncTestJobs[idx] = {
 					jobId: '',
@@ -662,12 +690,22 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder']
+				include_type: [
+					'script',
+					'flow',
+					'app',
+					'folder',
+					'workspacedependencies',
+					'datatablemigration'
+				]
 			},
 			exclude_types_override: [],
 			legacyImported: false,
 			isUnsavedConnection: true,
 			collapsed: false
+			// Pull-from-Git defaults are applied by the repository card once the
+			// selected resource resolves: only app-backed repos (instant webhook
+			// delivery) default to auto-pull on; polling is opt-in for token repos.
 		})
 		gitSyncTestJobs.push({
 			jobId: '',
@@ -689,12 +727,22 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder']
+				include_type: [
+					'script',
+					'flow',
+					'app',
+					'folder',
+					'workspacedependencies',
+					'datatablemigration'
+				]
 			},
 			exclude_types_override: [],
 			legacyImported: false,
 			isUnsavedConnection: true,
-			collapsed: false
+			collapsed: false,
+			// New promotion repos default to opening the PR in-app when a deploy
+			// pushes its wm_deploy/** branch (app-backed repos only at runtime).
+			promotion_open_prs: true
 		})
 		gitSyncTestJobs.push({
 			jobId: '',

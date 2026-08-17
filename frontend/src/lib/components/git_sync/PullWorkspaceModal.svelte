@@ -12,9 +12,10 @@
 		Edit3
 	} from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
-	import { JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { JobService, ResourceService } from '$lib/gen'
+	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage } from '$lib/utils'
 	import hubPaths from '$lib/hubPaths.json'
 	import { jobManager } from '$lib/services/JobManager'
 	import type { SyncResponse, SettingsResponse, SettingsObject } from '$lib/git-sync'
@@ -100,7 +101,7 @@
 			onSettingsSaved?.()
 		} catch (error) {
 			console.error('Failed to save settings:', error)
-			sendUserToast('Failed to save updated settings', true)
+			sendUserToast('Failed to save updated settings: ' + apiErrorMessage(error), true)
 		}
 	}
 
@@ -147,6 +148,29 @@
 			const workspace = $workspaceStore
 			if (!workspace) return
 
+			// A dev workspace pulls from its environment-label branch (dev, staging, ...)
+			// and a fork from its wm-fork/<tracked>/<id> branch, not the resource's
+			// tracked branch. clone_ref falls back to the tracked branch in the
+			// pull script when the override branch doesn't exist yet.
+			const currentWs = $userWorkspaces?.find((w) => w.id === workspace)
+			const isFork = workspace.startsWith('wm-fork-') || Boolean(currentWs?.parent_workspace_id)
+			let cloneRef: string | undefined = undefined
+			if (currentWs?.is_dev_workspace) {
+				cloneRef = currentWs.dev_workspace_label ?? 'dev'
+			} else if (isFork) {
+				try {
+					const resource = await ResourceService.getResource({
+						workspace,
+						path: gitRepoResourcePath
+					})
+					const trackedBranch = (resource.value as any)?.branch
+					if (trackedBranch) {
+						cloneRef = `wm-fork/${trackedBranch}/${workspace.replace(/^wm-fork-/, '')}`
+					}
+				} catch (e) {
+					console.warn('Could not resolve tracked branch for fork pull:', e)
+				}
+			}
 			const payload = {
 				workspace_id: workspace,
 				repo_url_resource_path: gitRepoResourcePath,
@@ -155,7 +179,8 @@
 				only_wmill_yaml: settingsOnly,
 				settings_json: JSON.stringify(uiState),
 				use_promotion_overrides:
-					currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch === true
+					currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch === true,
+				...(cloneRef ? { clone_ref: cloneRef } : {})
 			}
 
 			const jobId = await JobService.runScriptByPath({
@@ -265,7 +290,7 @@
 			}
 		} catch (error: any) {
 			console.error('Failed to apply settings:', error)
-			sendUserToast('Failed to apply settings: ' + error.message, true)
+			sendUserToast('Failed to apply settings: ' + apiErrorMessage(error), true)
 		} finally {
 			isApplying = false
 		}
@@ -606,17 +631,16 @@ git pull
 
 {#if !settingsOnly}# Push from git repository to workspace
 wmill sync push --workspace {$workspaceStore} --repository {gitRepoResourcePath}
-{:else}# Edit wmill.yaml file
+						{:else}# Edit wmill.yaml file
 vim wmill.yaml
 git add wmill.yaml
-
-{/if}# Commit changes
+						{/if}# Commit changes
 git commit
 git push
 {#if settingsOnly}
-# Push settings only from git repository or click the pull settings button above{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch}
-wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath} --promotion main{:else}
-wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath}{/if}{/if}</pre
+							# Push settings only from git repository or click the pull settings button above{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch}
+								wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath} --promotion main{:else}
+								wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath}{/if}{/if}</pre
 					>
 					{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch && settingsOnly}
 						<div class="text-xs text-primary mt-3">
@@ -629,7 +653,7 @@ wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoR
 								>
 							</div>
 							<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto"
-								>gitBranches:
+								>workspaces:
   main:
     promotionOverrides:
       # Add your promotion-specific settings here

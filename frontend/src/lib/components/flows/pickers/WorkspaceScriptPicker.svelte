@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 	import { ScriptService } from '$lib/gen'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { Badge, Skeleton } from '$lib/components/common'
@@ -21,6 +22,9 @@
 	let items = $state(undefined) as Item[] | undefined
 
 	let filteredItems = $state(undefined) as (Item & { marked?: string })[] | undefined
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 	interface Props {
 		kind?: 'script' | 'trigger' | 'approval' | 'failure'
 		isTemplate?: boolean | undefined
@@ -39,7 +43,7 @@
 
 	async function loadItems(): Promise<void> {
 		items = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			kinds: kind,
 			isTemplate,
 			withoutDescription: true
@@ -127,7 +131,7 @@
 					<button
 						class="p-4 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all text-primary"
 						onclick={() => {
-							dispatch('pick', { path, hash: lockHash ? hash : undefined })
+							dispatch('pick', { path, hash: lockHash ? hash : undefined, summary })
 						}}
 					>
 						<div class="flex flex-col">

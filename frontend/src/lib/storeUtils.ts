@@ -4,6 +4,7 @@ import {
 	workspaceStore,
 	userStore,
 	usersWorkspaceStore,
+	nonMemberWorkspaces,
 	superadmin,
 	devopsRole,
 	clearWorkspaceFromStorage
@@ -11,12 +12,6 @@ import {
 import { resetProtectionRules, loadProtectionRules } from './workspaceProtectionRules.svelte'
 
 export function switchWorkspace(workspace: string | undefined) {
-	try {
-		localStorage.removeItem('flow')
-		localStorage.removeItem('app')
-	} catch (e) {
-		console.error('error interacting with local storage', e)
-	}
 	resourceTypesStore.set(undefined)
 
 	// Clear protection rules state
@@ -32,8 +27,6 @@ export function switchWorkspace(workspace: string | undefined) {
 
 export function clearStores(): void {
 	try {
-		localStorage.removeItem('flow')
-		localStorage.removeItem('app')
 		clearWorkspaceFromStorage()
 	} catch (e) {
 		console.error('error interacting with local storage', e)
@@ -44,6 +37,7 @@ export function clearStores(): void {
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)
+	nonMemberWorkspaces.set(undefined)
 	refreshSuperadmin.cancel()
 	superadmin.set(undefined)
 	devopsRole.set(undefined)

@@ -8,8 +8,10 @@
 	import KafkaTriggerPanel from './kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
 	import MqttTriggerPanel from './mqtt/MqttTriggersPanel.svelte'
+	import AmqpTriggerPanel from './amqp/AmqpTriggersPanel.svelte'
 	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
 	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
+	import AzureTriggerPanel from './azure/AzureTriggerPanel.svelte'
 	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
 	import { triggerIconMap, type Trigger } from './utils'
@@ -142,6 +144,15 @@
 		{customLabel}
 		{...props}
 	/>
+{:else if selectedTrigger.type === 'amqp'}
+	<AmqpTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
 {:else if selectedTrigger.type === 'sqs'}
 	<SqsTriggerPanel
 		{isFlow}
@@ -153,6 +164,15 @@
 	/>
 {:else if selectedTrigger.type === 'gcp'}
 	<GcpTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'azure'}
+	<AzureTriggerPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
@@ -185,6 +205,16 @@
 {:else if selectedTrigger.type === 'google'}
 	<NativeTriggersPanel
 		service="google"
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'github'}
+	<NativeTriggersPanel
+		service="github"
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}

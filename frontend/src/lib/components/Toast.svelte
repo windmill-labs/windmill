@@ -82,16 +82,24 @@
 		}
 	})
 
-	let color = classes[untrack(() => type)]
+	// Defensive: a miscall like `sendUserToast(msg, err)` passes a non-
+	// AlertType as `type`. Without a fallback the `classes[type]` lookup
+	// returns undefined and `color.descriptionClass` throws — and because
+	// the toast renders inside the root layout, that crashes the whole
+	// page instead of just dropping one toast. Coerce anything unknown to
+	// 'error' (a bad type almost always accompanies an error path).
+	const safeType: ToastType = untrack(() => (type in classes ? type : 'error'))
+
+	let color = classes[safeType]
 
 	let containerClass = {
 		success: 'toast-success',
 		error: 'toast-error',
 		info: 'toast-info',
 		warning: 'toast-warning'
-	}[untrack(() => type)]
+	}[safeType]
 
-	let Icon = $derived(icons[type])
+	let Icon = icons[safeType]
 
 	let showMore = $state(false)
 	const MAX_MSG_LEN = 160

@@ -129,7 +129,7 @@ test.skipIf(shouldSkipOnCI())("Init: --use-backend flag applies git-sync setting
     expect(wmillYaml).toContain("g/**");
 
     // Should have empty overrides section for consistency
-    expect(wmillYaml).toContain("gitBranches: {}");
+    expect(wmillYaml).toContain("workspaces:");
   });
 });
 
@@ -182,6 +182,6 @@ test.skipIf(shouldSkipOnCI())("Init: --use-default bypasses backend settings che
 
     // Should NOT have backend-specific settings
     expect(wmillYaml.includes("f/should-be-ignored/**")).toEqual(false);
-    expect(wmillYaml).toContain("gitBranches: {}");
+    expect(wmillYaml).toContain("workspaces:");
   });
 });

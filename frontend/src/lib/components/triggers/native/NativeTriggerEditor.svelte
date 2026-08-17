@@ -14,16 +14,18 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2, RefreshCw, Save } from 'lucide-svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import NextcloudTriggerForm from './services/nextcloud/NextcloudTriggerForm.svelte'
 	import GoogleTriggerForm from './services/google/GoogleTriggerForm.svelte'
+	import GitHubTriggerForm from './services/github/GitHubTriggerForm.svelte'
 	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
 	import { handleConfigChange, type Trigger } from '$lib/components/triggers/utils'
 	import { deepEqual } from 'fast-equals'
 	import type { Snippet } from 'svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	interface Props {
 		service: NativeServiceName
@@ -75,6 +77,8 @@
 				return NextcloudTriggerForm
 			case 'google':
 				return GoogleTriggerForm
+			case 'github':
+				return GitHubTriggerForm
 			default:
 				return null
 		}
@@ -100,6 +104,9 @@
 	let can_write = $state(true)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let loadError = $state<string | undefined>(undefined)
+	let externalError = $state<string | undefined>(undefined)
+	let retryEdit = $state<(() => void) | undefined>(undefined)
 
 	export function openNew(
 		nis_flow?: boolean,
@@ -126,6 +133,9 @@
 		originalConfig = undefined
 		initialConfig = undefined
 		summary = ''
+		loadError = undefined
+		externalError = undefined
+		retryEdit = undefined
 	}
 
 	export function openRecreate(nativeTrigger: ExtendedNativeTrigger) {
@@ -150,6 +160,9 @@
 		originalConfig = undefined
 		initialConfig = undefined
 		summary = nativeTrigger.summary ?? ''
+		loadError = undefined
+		externalError = undefined
+		retryEdit = undefined
 	}
 
 	export async function openEdit(
@@ -174,6 +187,15 @@
 		originalConfig = undefined
 		initialConfig = undefined
 		itemKind = nis_flow ? 'flow' : 'script'
+		loadError = undefined
+		externalError = undefined
+		retryEdit = undefined
+		// A failed load must not leave the previously edited trigger's target and config in the
+		// form, where saving would silently repoint this trigger at them.
+		serviceConfig = {}
+		scriptPath = ''
+		initialScriptPath = ''
+		summary = ''
 
 		try {
 			const fullTrigger = await NativeTriggerService.getNativeTrigger({
@@ -188,6 +210,7 @@
 			can_write = canWrite(fullTrigger.script_path, {}, $userStore)
 			summary = fullTrigger.summary ?? ''
 			externalData = fullTrigger.external_data
+			externalError = fullTrigger.external_error ?? undefined
 
 			// Apply default values if provided (for draft triggers)
 			if (defaultValues) {
@@ -195,8 +218,14 @@
 				externalData = { ...externalData, ...defaultValues }
 			}
 		} catch (err: any) {
-			sendUserToast(`Failed to load trigger configuration: ${err}`, true)
+			loadError = err.body ?? err.message ?? String(err)
+			sendUserToast(`Failed to load trigger configuration: ${loadError}`, true)
 			externalData = null
+			// The service form is not rendered in the error state, so nothing else will ever
+			// clear its loading flag or narrow the permission left over from the last trigger.
+			loadingForm = false
+			can_write = false
+			retryEdit = () => openEdit(externalIdOrPath, nis_flow, defaultValues)
 		} finally {
 			clearTimeout(loadingTimeout)
 			loadingConfig = false
@@ -253,7 +282,8 @@
 			loadingConfig ||
 			loadingForm ||
 			!can_write ||
-			!hasChanged
+			!hasChanged ||
+			loadError !== undefined
 	)
 	const saveCfg = $derived.by(getSaveCfg)
 
@@ -385,14 +415,43 @@
 {#snippet content()}
 	{#if loadingConfig && showLoading}
 		<Loader2 class="animate-spin" />
+	{:else if loadError}
+		<Alert
+			type="error"
+			title="Could not load this {serviceInfo?.serviceDisplayName} trigger"
+			descriptionClass="break-words"
+		>
+			<div class="flex flex-col gap-2 items-start">
+				<span>{loadError}</span>
+				<Button
+					size="xs"
+					variant="subtle"
+					startIcon={{ icon: RefreshCw }}
+					on:click={() => retryEdit?.()}
+				>
+					Retry
+				</Button>
+			</div>
+		</Alert>
 	{:else}
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
 			{/if}
 		</div>
+		{#if externalError}
+			<div class="mt-4">
+				<Alert
+					type="warning"
+					title="Could not read this trigger from {serviceInfo?.serviceDisplayName}"
+					descriptionClass="break-words"
+				>
+					{externalError} The configuration below is the one Windmill last saved.
+				</Alert>
+			</div>
+		{/if}
 		<div class="flex flex-col gap-12 mt-6">
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-semibold text-emphasis">Summary</span>

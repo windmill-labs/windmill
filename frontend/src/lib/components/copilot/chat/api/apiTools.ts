@@ -107,9 +107,11 @@ export function createApiTools(
 
 		return {
 			def: chatTool,
+			planModeSafe: !!endpoint && ['GET', 'HEAD', 'OPTIONS'].includes(method),
 			requiresConfirmation: needsConfirmation,
 			confirmationMessage: `Run ${toolName}`,
 			showDetails: true,
+			showFade: true,
 			fn: async ({ args, toolId, toolCallbacks }) => {
 				const toolName = chatTool.function.name
 				const endpoint = endpointMap[toolName]

@@ -7,7 +7,13 @@ import {
 } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common.js'
-import { emptySchema, sortObject } from './utils.js'
+import {
+	type DynamicInput,
+	emptySchema,
+	getHubFlowIdFromPath,
+	isHubFlowPath,
+	sortObject
+} from './utils.js'
 import { tick } from 'svelte'
 
 import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
@@ -38,10 +44,19 @@ import initYamlParser, {
 	parse_ansible,
 	parse_ansible_delegate
 } from 'windmill-parser-wasm-yaml'
+// `parse_dbt` is newer than the published `windmill-parser-wasm-yaml`, and a
+// NAMED import of an export a package does not have is a link-time failure —
+// which takes this whole module down, and with it every language's inference.
+// Reached through the namespace instead, so a package predating it degrades to
+// "no schema inferred for dbt" (the deployed script's own, derived server-side
+// by `dbt_arg_schema`, is unaffected).
+import * as yamlParser from 'windmill-parser-wasm-yaml'
+const parse_dbt: ((code: string) => string) | undefined = (yamlParser as any).parse_dbt
 import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
 import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
 import initRubyParser, { parse_ruby } from 'windmill-parser-wasm-ruby'
+import initRParser, { parse_r } from 'windmill-parser-wasm-r'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
@@ -54,68 +69,126 @@ import wasmUrlCSharp from 'windmill-parser-wasm-csharp/windmill_parser_wasm_bg.w
 import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRuby from 'windmill-parser-wasm-ruby/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlR from 'windmill-parser-wasm-r/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlAsset from 'windmill-parser-wasm-asset/windmill_parser_wasm_bg.wasm?url'
+import initWacParser, { parse_workflow_as_code } from 'windmill-parser-wasm-wac'
+import wasmUrlWac from 'windmill-parser-wasm-wac/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
+import { type ColumnLineage } from './components/assets/AssetGraph/parsePipelineAnnotations'
 
-const loadSchemaLastRun =
-	writable<[string | undefined, MainArgSignature | undefined, string | undefined]>(undefined)
+const loadSchemaLastRun = writable<
+	| [
+			string | undefined,
+			MainArgSignature | undefined,
+			string | undefined,
+			SupportedLanguage | 'bunnative' | undefined
+	  ]
+	| undefined
+>(undefined)
 
-let initializeTsPromise: Promise<any> | undefined = undefined
-export async function initWasmTs() {
-	if (initializeTsPromise == undefined) {
-		initializeTsPromise = initTsParser(wasmUrlTs)
+// Memoize each WASM parser's init promise. Without this, concurrent callers
+// (e.g. Promise.all in initFlowState across modules of the same language)
+// would each invoke the initializer and race — if any one of them rejected
+// transiently, the schema for that module would come back empty and the user
+// had to modify the code to trigger a second inference.
+function memoize(init: () => Promise<any>): () => Promise<any> {
+	let promise: Promise<any> | undefined
+	return () => {
+		if (promise == undefined) {
+			promise = init().catch((e) => {
+				// Allow a subsequent call to retry after a failed init
+				promise = undefined
+				throw e
+			})
+		}
+		return promise
 	}
-	await initializeTsPromise
 }
-async function initWasmRegex() {
-	await initRegexParsers(wasmUrlRegex)
+
+export const initWasmTs = memoize(() => initTsParser(wasmUrlTs))
+const initWasmRegex = memoize(() => initRegexParsers(wasmUrlRegex))
+const initWasmPython = memoize(() => initPythonParser(wasmUrlPy))
+const initWasmPhp = memoize(() => initPhpParser(wasmUrlPhp))
+const initWasmRust = memoize(() => initRustParser(wasmUrlRust))
+const initWasmGo = memoize(() => initGoParser(wasmUrlGo))
+const initWasmYaml = memoize(() => initYamlParser(wasmUrlYaml))
+const initWasmCSharp = memoize(() => initCSharpParser(wasmUrlCSharp))
+const initWasmNu = memoize(() => initNuParser(wasmUrlNu))
+const initWasmJava = memoize(() => initJavaParser(wasmUrlJava))
+const initWasmRuby = memoize(() => initRubyParser(wasmUrlRuby))
+const initWasmR = memoize(() => initRParser(wasmUrlR))
+const initWasmAsset = memoize(() => initAssetParser(wasmUrlAsset))
+const initWasmWac = memoize(() => initWacParser(wasmUrlWac))
+
+export type WacDagNode = {
+	id: string
+	node_type:
+		| { type: 'Step'; name: string; script: string }
+		| { type: 'InlineStep'; name: string }
+		| { type: 'Sleep'; seconds: string }
+		| { type: 'WaitForApproval' }
+		| { type: 'Branch'; condition_source: string }
+		| { type: 'ParallelStart' }
+		| { type: 'ParallelEnd' }
+		| { type: 'LoopStart'; iter_source: string }
+		| { type: 'LoopEnd' }
+		| { type: 'Merge' }
+		| { type: 'Return' }
+	label: string
+	line: number
 }
-async function initWasmPython() {
-	await initPythonParser(wasmUrlPy)
+
+export type WacDagEdge = {
+	from: string
+	to: string
+	label?: string
 }
-async function initWasmPhp() {
-	await initPhpParser(wasmUrlPhp)
+
+export type WacWorkflowDag = {
+	nodes: WacDagNode[]
+	edges: WacDagEdge[]
+	params: { name: string; typ?: string }[]
+	source_hash: string
 }
-async function initWasmRust() {
-	await initRustParser(wasmUrlRust)
-}
-async function initWasmGo() {
-	await initGoParser(wasmUrlGo)
-}
-async function initWasmYaml() {
-	await initYamlParser(wasmUrlYaml)
-}
-async function initWasmCSharp() {
-	await initCSharpParser(wasmUrlCSharp)
-}
-async function initWasmNu() {
-	await initNuParser(wasmUrlNu)
-}
-async function initWasmJava() {
-	await initJavaParser(wasmUrlJava)
-}
-async function initWasmRuby() {
-	await initRubyParser(wasmUrlRuby)
-}
-async function initWasmAsset() {
-	await initAssetParser(wasmUrlAsset)
+
+export async function parseWacDag(
+	code: string,
+	language: string
+): Promise<WacWorkflowDag | { errors: { message: string; line: number }[] } | null> {
+	try {
+		await initWasmWac()
+		const raw = parse_workflow_as_code(code, language)
+		const result = JSON.parse(raw)
+		if (result.type === 'success') {
+			return result as WacWorkflowDag
+		} else if (result.type === 'error') {
+			return { errors: result.errors }
+		}
+		return null
+	} catch {
+		return null
+	}
 }
 
 type InferAssetsResult =
 	| {
-		status: 'ok'
-		assets: AssetWithAccessType[]
-		sql_queries?: InferAssetsSqlQueryDetails[]
-		columns?: Record<string, AssetUsageAccessType>
-	}
+			status: 'ok'
+			assets: AssetWithAccessType[]
+			sql_queries?: InferAssetsSqlQueryDetails[]
+			columns?: Record<string, AssetUsageAccessType>
+			// Body-inferred column lineage (DuckDB SQL AST). Present once the
+			// `windmill-parser-wasm-asset` package is rebuilt with the inference;
+			// the spread below already forwards it from the parser output.
+			column_lineage?: ColumnLineage[]
+	  }
 	| {
-		status: 'error'
-		error: string
-		assets?: undefined
-		sql_queries?: undefined
-	}
+			status: 'error'
+			error: string
+			assets?: undefined
+			sql_queries?: undefined
+	  }
 
 export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations
@@ -123,6 +196,7 @@ export type InferAssetsSqlQueryDetails = {
 	source_kind: 'datatable' | 'ducklake' // AssetKind equivalent
 	source_name: string // e.g., "main", "dt"
 	source_schema?: string // e.g., "public", optional
+	has_raw_interpolation?: boolean // true if any ${sql.raw(...)} was used
 	prepared?: PreparedAssetsSqlQuery
 }
 
@@ -152,6 +226,7 @@ function getCommentPrefix(language: SupportedLanguage | undefined): string | und
 		case 'powershell':
 		case 'ansible':
 		case 'ruby':
+		case 'rlang':
 			return '#'
 		case 'deno':
 		case 'bun':
@@ -230,6 +305,88 @@ const SQL_LANGUAGES = [
 	'duckdb'
 ]
 
+/**
+ * Returns the parameter names of `entrypoint` in `code` (or `main` if not given),
+ * or `undefined` if the function can't be found, the code can't be parsed, the
+ * language isn't supported here, or the signature contains rest/keyword args
+ * (in which case the callee should fall back to a conservative full comparison).
+ *
+ * Lighter than {@link inferArgs} — does not touch any schema.
+ */
+export async function parseEntrypointArgs(
+	language: SupportedLanguage | 'bunnative' | undefined,
+	code: string,
+	entrypoint?: string
+): Promise<Set<string> | undefined> {
+	if (!code) return undefined
+	try {
+		let sig: MainArgSignature
+		if (language === 'python3') {
+			await initWasmPython()
+			sig = JSON.parse(parse_python(code, entrypoint))
+		} else if (
+			language === 'deno' ||
+			language === 'nativets' ||
+			language === 'bun' ||
+			language === 'bunnative'
+		) {
+			await initWasmTs()
+			sig = JSON.parse(parse_deno(code, entrypoint))
+		} else {
+			return undefined
+		}
+		if (sig.type === 'Invalid') return undefined
+		if (sig.star_args || sig.star_kwargs) return undefined
+		if (!Array.isArray(sig.args)) return undefined
+		// The parser sets auto_kind when no matching entrypoint function was
+		// found — empty args in that case means "unknown signature", not
+		// "function takes no params", so we fall back to a full comparison.
+		if (sig.args.length === 0 && sig.auto_kind != null) return undefined
+		return new Set(sig.args.map((a) => a.name))
+	} catch {
+		return undefined
+	}
+}
+
+const helperEntrypointCache = new Map<string, Set<string> | undefined>()
+
+/**
+ * Resolves a {@link DynamicInput.HelperScript} to its entrypoint parameter
+ * names. For deployed helpers it fetches the script (or the flow's inline
+ * dyn-select code) once and caches the result per workspace+path+entrypoint.
+ */
+export async function getHelperEntrypointArgs(
+	helper: DynamicInput.HelperScript,
+	entrypoint?: string
+): Promise<Set<string> | undefined> {
+	if (helper.source === 'inline') {
+		return parseEntrypointArgs(helper.lang, helper.code, entrypoint)
+	}
+	const workspace = get(workspaceStore)
+	if (!workspace) return undefined
+	const cacheKey = `${workspace}::${helper.runnable_kind}::${helper.path}::${entrypoint ?? ''}`
+	if (helperEntrypointCache.has(cacheKey)) return helperEntrypointCache.get(cacheKey)
+	let result: Set<string> | undefined
+	try {
+		if (helper.runnable_kind === 'script') {
+			const script = await ScriptService.getScriptByPath({ workspace, path: helper.path })
+			result = await parseEntrypointArgs(script.language, script.content ?? '', entrypoint)
+		} else {
+			const flow = await FlowService.getFlowByPath({ workspace, path: helper.path })
+			const schema = flow.schema as Record<string, unknown> | undefined
+			const code = schema?.['x-windmill-dyn-select-code']
+			const lang = schema?.['x-windmill-dyn-select-lang']
+			if (typeof code === 'string' && typeof lang === 'string') {
+				result = await parseEntrypointArgs(lang as SupportedLanguage, code, entrypoint)
+			}
+		}
+	} catch {
+		result = undefined
+	}
+	helperEntrypointCache.set(cacheKey, result)
+	return result
+}
+
 export async function inferArgs(
 	language: SupportedLanguage | 'bunnative' | undefined,
 	code: string,
@@ -241,7 +398,13 @@ export async function inferArgs(
 } | null> {
 	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
-	if (lastRun && code == lastRun[0] && lastRun[1] && lastRun[2] == mainOverride) {
+	if (
+		lastRun &&
+		code == lastRun[0] &&
+		lastRun[1] &&
+		lastRun[2] == mainOverride &&
+		lastRun[3] === language
+	) {
 		inferedSchema = lastRun[1]
 	} else {
 		if (code == '') {
@@ -359,6 +522,19 @@ export async function inferArgs(
 		} else if (language == 'ruby') {
 			await initWasmRuby()
 			inferedSchema = JSON.parse(parse_ruby(code))
+		} else if (language == 'rlang') {
+			try {
+				await initWasmR()
+				inferedSchema = JSON.parse(parse_r(code))
+			} catch {
+				inferedSchema = parseRSignatureFallback(code)
+			}
+		} else if (language == 'dbt') {
+			// Absent on a parser package predating dbt: the editor keeps whatever
+			// schema it has rather than clearing the run form to nothing.
+			if (!parse_dbt) return null
+			await initWasmYaml()
+			inferedSchema = JSON.parse(parse_dbt(code))
 			// for related places search: ADD_NEW_LANG
 		} else {
 			return null
@@ -366,7 +542,7 @@ export async function inferArgs(
 		if (inferedSchema.type == 'Invalid') {
 			throw new Error(inferedSchema.error)
 		}
-		loadSchemaLastRun.set([code, inferedSchema, mainOverride])
+		loadSchemaLastRun.set([code, inferedSchema, mainOverride, language])
 	}
 
 	schema.required = []
@@ -395,6 +571,20 @@ export async function inferArgs(
 			schema.required.push(arg.name)
 		}
 	}
+	// Store PowerShell CmdletBinding metadata as schema extensions
+	const psSchema = inferedSchema as MainArgSignature & {
+		has_cmd_binding?: boolean
+		supports_should_process?: boolean
+	}
+	if (language === 'powershell' && psSchema.has_cmd_binding) {
+		;(schema as any)['x-windmill-ps-cmd-binding'] = true
+		;(schema as any)['x-windmill-ps-supports-should-process'] =
+			psSchema.supports_should_process ?? false
+	} else {
+		delete (schema as any)['x-windmill-ps-cmd-binding']
+		delete (schema as any)['x-windmill-ps-supports-should-process']
+	}
+
 	await tick()
 
 	return {
@@ -403,7 +593,12 @@ export async function inferArgs(
 	}
 }
 
-export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
+export async function loadSchemaFromPath(
+	path: string,
+	hash?: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<Schema> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
@@ -416,14 +611,14 @@ export async function loadSchemaFromPath(path: string, hash?: string): Promise<S
 		}
 	} else if (hash) {
 		const script = await ScriptService.getScriptByHash({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			hash
 		})
 
 		return inferSchemaIfNecessary(script)
 	} else {
 		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			path: path ?? ''
 		})
 		return inferSchemaIfNecessary(script)
@@ -453,6 +648,20 @@ export async function loadSchema(
 
 		return { schema: script.schema as any, summary: script.summary }
 	} else if (runType === 'flow') {
+		if (isHubFlowPath(path)) {
+			const hubFlowId = getHubFlowIdFromPath(path)
+			if (hubFlowId === undefined) {
+				throw new Error(`Invalid hub flow path: ${path}`)
+			}
+			const hub = await FlowService.getHubFlowById({ id: hubFlowId })
+			const flow = hub.flow
+			const schema =
+				flow?.schema && typeof flow.schema === 'object' && Object.keys(flow.schema).length > 0
+					? (flow.schema as any)
+					: emptySchema()
+			return { schema, summary: flow?.summary }
+		}
+
 		const flow = await FlowService.getFlowByPath({
 			workspace,
 			path
@@ -490,4 +699,77 @@ export async function parseOutputs(
 		throw new Error(outputs.error)
 	}
 	return outputs.error ? [] : outputs.outputs
+}
+
+/** JS fallback parser for R main() signatures when WASM parser is unavailable. */
+function parseRSignatureFallback(code: string): MainArgSignature {
+	const result: MainArgSignature = {
+		type: 'Valid',
+		error: '',
+		star_args: false,
+		star_kwargs: false,
+		args: [],
+		has_preprocessor: null,
+		auto_kind: null
+	}
+
+	const mainMatch = code.match(/\bmain\s*(?:<-|=)\s*function\s*\(([^)]*)\)/)
+	if (!mainMatch) {
+		return result
+	}
+
+	const paramsStr = mainMatch[1].trim()
+	if (!paramsStr) return result
+
+	// Split params respecting nested parens
+	const params: string[] = []
+	let depth = 0
+	let current = ''
+	for (const ch of paramsStr) {
+		if ('([{'.includes(ch)) {
+			depth++
+			current += ch
+		} else if (')]}'.includes(ch)) {
+			depth--
+			current += ch
+		} else if (ch === ',' && depth === 0) {
+			params.push(current)
+			current = ''
+		} else {
+			current += ch
+		}
+	}
+	if (current.trim()) params.push(current)
+
+	for (const param of params) {
+		const trimmed = param.trim()
+		if (!trimmed) continue
+
+		const eqIndex = trimmed.indexOf('=')
+		if (eqIndex === -1) {
+			result.args.push({ name: trimmed, typ: 'unknown', has_default: false, default: undefined })
+		} else {
+			const name = trimmed.slice(0, eqIndex).trim()
+			const raw = trimmed.slice(eqIndex + 1).trim()
+			const parsed = parseRDefault(raw)
+			result.args.push({ name, typ: parsed.typ, has_default: true, default: parsed.value })
+		}
+	}
+
+	return result
+}
+
+function parseRDefault(raw: string): { value: unknown; typ: MainArgSignature['args'][0]['typ'] } {
+	if (raw === 'TRUE' || raw === 'true') return { value: true, typ: 'bool' }
+	if (raw === 'FALSE' || raw === 'false') return { value: false, typ: 'bool' }
+	if (raw === 'NULL') return { value: null, typ: 'unknown' }
+	if (/^-?\d+(\.\d+)?$/.test(raw)) {
+		const num = Number(raw)
+		if (Number.isInteger(num) && !raw.includes('.')) return { value: num, typ: 'int' }
+		return { value: num, typ: 'float' }
+	}
+	const strMatch = raw.match(/^"((?:[^"\\]|\\.)*)"$/) || raw.match(/^'((?:[^'\\]|\\.)*)'$/)
+	if (strMatch) return { value: strMatch[1], typ: { str: null } }
+	if (raw.startsWith('list(') || raw.startsWith('c(')) return { value: null, typ: { list: null } }
+	return { value: null, typ: 'unknown' }
 }

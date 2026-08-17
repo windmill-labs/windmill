@@ -110,17 +110,38 @@ source <(wmill completions zsh)
 
 ## Development
 
-### Testing with a local `windmill-yaml-validator`
+### AI Guidance Variants
 
-To test local changes to the validator before publishing, use `npm link`:
+`wmill init` can now materialize alternate AI guidance bundles without changing
+the generated defaults in the repo, but this is exposed as internal env-var
+overrides rather than public CLI flags.
+
+Examples:
 
 ```bash
-# In windmill-yaml-validator/
-npm run build
-npm link
+WMILL_INIT_AI_SKILLS_SOURCE=/path/to/custom/skills wmill init --use-default
+WMILL_INIT_AI_SKILLS_SOURCE=/path/to/custom/skills WMILL_INIT_AI_AGENTS_SOURCE=/path/to/AGENTS.md wmill init --use-default
+WMILL_INIT_AI_SKILLS_SOURCE=/path/to/custom/skills WMILL_INIT_AI_CLAUDE_SOURCE=/path/to/CLAUDE.md wmill init --use-default
+```
 
-# In cli/
-npm link windmill-yaml-validator
+This is the same guidance-writing path used by the benchmark CLI under
+`ai_evals/`, so the benchmark harness and `wmill init` now generate the same
+project guidance shape:
+
+- `AGENTS.md`
+- `CLAUDE.md`
+- `.agents/skills/*`
+- `.claude/skills/*`
+
+### `windmill-yaml-validator`
+
+`wmill lint` imports the sibling `windmill-yaml-validator` package from source rather than
+from npm, so its schemas always match the OpenAPI specs of the current checkout. `bun
+install` regenerates them through this package's `preinstall` script; run it again after
+editing `openflow.openapi.yaml` or `backend/windmill-api/openapi.yaml`:
+
+```bash
+npm --prefix ../windmill-yaml-validator run gen
 ```
 
 ### Running Tests

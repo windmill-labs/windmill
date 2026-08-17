@@ -1,0 +1,2 @@
+-- Postgres cannot drop a single enum value; leaving 'data_pipeline' in
+-- DRAFT_KIND is harmless on rollback.

@@ -98,12 +98,6 @@ async fn test_script_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let body = resp.json::<serde_json::Value>().await?;
     assert_eq!(body["path"], "u/test-user/test_script");
 
-    // --- get draft ---
-    let resp = authed_get(port, "get/draft", "u/test-user/test_script").await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.json::<serde_json::Value>().await?;
-    assert_eq!(body["path"], "u/test-user/test_script");
-
     // --- raw by path (requires language extension) ---
     let resp = authed_get(port, "raw/p", "u/test-user/test_script.ts").await;
     assert_eq!(resp.status(), 200);
@@ -460,6 +454,110 @@ async fn test_auto_parent_resolves_parent_hash(db: Pool<Postgres>) -> anyhow::Re
             .any(|h| h.as_str() == Some(v2_hash.as_str())),
         "v3 parent_hashes should contain v2 hash {v2_hash}, got: {parent_hashes:?}"
     );
+
+    Ok(())
+}
+
+/// Regression test for GHSA-2ppx-66jv-wpw5: a path-scoped token must only see
+/// the scripts within its scope when listing, even though the route-level scope
+/// check only validates `domain:action`. Before the fix, `list_search` (and
+/// `list`) returned `path` + full `content` for every script the underlying
+/// user could see, leaking out-of-scope script source to narrowly-scoped tokens.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_search_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+
+    // Create two folders and one script in each, as the (super-admin) test user.
+    for folder in ["allowed", "private"] {
+        let resp = authed(client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/folders/create"
+        )))
+        .json(&json!({ "name": folder }))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 200, "create folder: {}", resp.text().await?);
+    }
+
+    for (path, content) in [
+        (
+            "f/allowed/foo",
+            "export async function main() { return 'allowed'; }",
+        ),
+        (
+            "f/private/bar",
+            "export async function main() { return 'secret'; }",
+        ),
+    ] {
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(&new_script(path, "summary", content))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201, "create {path}: {}", resp.text().await?);
+    }
+
+    // Helper: GET /list_search with an arbitrary bearer token, returning the set
+    // of script paths visible to that token.
+    async fn list_search_paths(port: u16, token: &str) -> Vec<String> {
+        let resp = client()
+            .get(format!(
+                "http://localhost:{port}/api/w/test-workspace/scripts/list_search"
+            ))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        resp.json::<Vec<serde_json::Value>>()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s["path"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    // Insert three tokens for the same super-admin user, differing only by scope.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+         (encode(sha256('SCOPED_TOKEN'::bytea), 'hex'), 'SCOPED_TOK', 'SCOPED_TOKEN', 'test@windmill.dev', 'scoped', true, ARRAY['scripts:read:f/allowed/*']),
+         (encode(sha256('BROAD_TOKEN'::bytea), 'hex'), 'BROAD_TOK', 'BROAD_TOKEN', 'test@windmill.dev', 'broad', true, ARRAY['scripts:read']),
+         (encode(sha256('TAG_TOKEN'::bytea), 'hex'), 'TAG_TOK', 'TAG_TOKEN', 'test@windmill.dev', 'tag-only', true, ARRAY['if_jobs:filter_tags:default'])",
+    )
+    .execute(&db)
+    .await?;
+
+    // Path-scoped token: only sees scripts within `f/allowed/*`.
+    let scoped = list_search_paths(port, "SCOPED_TOKEN").await;
+    assert!(
+        scoped.contains(&"f/allowed/foo".to_string()),
+        "scoped token should see f/allowed/foo, got: {scoped:?}"
+    );
+    assert!(
+        !scoped.contains(&"f/private/bar".to_string()),
+        "scoped token must NOT see f/private/bar, got: {scoped:?}"
+    );
+
+    // Broad `scripts:read` token: still sees every RLS-visible script.
+    let broad = list_search_paths(port, "BROAD_TOKEN").await;
+    assert!(broad.contains(&"f/allowed/foo".to_string()));
+    assert!(
+        broad.contains(&"f/private/bar".to_string()),
+        "broad scripts:read token should see all scripts, got: {broad:?}"
+    );
+
+    // Tag-filter-only token is not scope-restricted: unchanged, sees all.
+    let tag_only = list_search_paths(port, "TAG_TOKEN").await;
+    assert!(tag_only.contains(&"f/allowed/foo".to_string()));
+    assert!(tag_only.contains(&"f/private/bar".to_string()));
+
+    // Unscoped token (no scopes column set): unchanged, sees all.
+    let unscoped = list_search_paths(port, "SECRET_TOKEN").await;
+    assert!(unscoped.contains(&"f/allowed/foo".to_string()));
+    assert!(unscoped.contains(&"f/private/bar".to_string()));
 
     Ok(())
 }

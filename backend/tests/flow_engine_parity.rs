@@ -20,7 +20,7 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 
 use windmill_common::{
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Branch},
+    flows::{Branch, FlowModule, FlowModuleValue, FlowValue, InputTransform},
     jobs::JobPayload,
     scripts::ScriptLang,
 };
@@ -44,6 +44,7 @@ fn flow_module(id: &str, value: FlowModuleValue) -> FlowModule {
         timeout: None,
         priority: None,
         delete_after_use: None,
+        delete_after_secs: None,
         continue_on_error: None,
         skip_if: None,
         apply_preprocessor: None,
@@ -54,12 +55,18 @@ fn flow_module(id: &str, value: FlowModuleValue) -> FlowModule {
 
 /// Helper to create input transforms from JavaScript expressions
 fn js_input(key: &str, expr: &str) -> (String, InputTransform) {
-    (key.to_string(), InputTransform::Javascript { expr: expr.to_string() })
+    (
+        key.to_string(),
+        InputTransform::Javascript { expr: expr.to_string() },
+    )
 }
 
 /// Helper to create static input transforms
 fn static_input<T: serde::Serialize>(key: &str, value: T) -> (String, InputTransform) {
-    (key.to_string(), InputTransform::Static { value: windmill_common::worker::to_raw_value(&value) })
+    (
+        key.to_string(),
+        InputTransform::Static { value: windmill_common::worker::to_raw_value(&value) },
+    )
 }
 
 // =============================================================================
@@ -115,12 +122,13 @@ export function main(total: number, doubled_items: number[], filtered: number[],
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .arg("multiplier", json!(3))
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .arg("multiplier", json!(3))
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Expected: sum=15, product=50, total=65, doubled=[2,4,6,8,10], filtered=[3,4,5], from_flow_input=45
     assert_eq!(result["total"], json!(65));
@@ -144,10 +152,12 @@ async fn test_flow_forloop_complex_expressions(db: Pool<Postgres>) -> anyhow::Re
     let flow = FlowValue {
         modules: vec![
             // Step a: return data to iterate over
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {
         users: [
@@ -157,57 +167,66 @@ export function main() {
         ]
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            // Step b: for-loop over filtered users
-            flow_module("b", FlowModuleValue::ForloopFlow {
-                iterator: InputTransform::Javascript {
-                    expr: "results.a.users.filter(u => u.score >= 80)".to_string()
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
                 },
-                skip_failures: false,
-                parallel: false,
-                squash: None,
-                parallelism: None,
-                modules: vec![
-                    flow_module("c", FlowModuleValue::RawScript {
-                        input_transforms: [
-                            js_input("user_name", "flow_input.iter.value.name"),
-                            js_input("user_score", "flow_input.iter.value.score"),
-                            js_input("bonus", "flow_input.iter.value.score >= 90 ? 10 : 5"),
-                            js_input("index", "flow_input.iter.index"),
-                        ].into(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+            ),
+            // Step b: for-loop over filtered users
+            flow_module(
+                "b",
+                FlowModuleValue::ForloopFlow {
+                    iterator: InputTransform::Javascript {
+                        expr: "results.a.users.filter(u => u.score >= 80)".to_string(),
+                    },
+                    skip_failures: false,
+                    parallel: false,
+                    squash: None,
+                    parallelism: None,
+                    modules: vec![flow_module(
+                        "c",
+                        FlowModuleValue::RawScript {
+                            input_transforms: [
+                                js_input("user_name", "flow_input.iter.value.name"),
+                                js_input("user_score", "flow_input.iter.value.score"),
+                                js_input("bonus", "flow_input.iter.value.score >= 90 ? 10 : 5"),
+                                js_input("index", "flow_input.iter.index"),
+                            ]
+                            .into(),
+                            language: ScriptLang::Deno,
+                            content: r#"
 export function main(user_name: string, user_score: number, bonus: number, index: number) {
     return {name: user_name, final_score: user_score + bonus, position: index};
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                ],
-                modules_node: None,
-            }),
+"#
+                            .to_string(),
+                            path: None,
+                            lock: None,
+                            tag: None,
+                            concurrency_settings: Default::default(),
+                            is_trigger: None,
+                            assets: None,
+                        },
+                    )],
+                    modules_node: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Only Alice (85) and Bob (92) pass the filter (score >= 80)
     // Alice gets bonus=5, Bob gets bonus=10
@@ -215,10 +234,10 @@ export function main(user_name: string, user_score: number, bonus: number, index
     let arr = result.as_array().unwrap();
     assert_eq!(arr.len(), 2);
     assert_eq!(arr[0]["name"], "Alice");
-    assert_eq!(arr[0]["final_score"], 90);  // 85 + 5
+    assert_eq!(arr[0]["final_score"], 90); // 85 + 5
     assert_eq!(arr[0]["position"], 0);
     assert_eq!(arr[1]["name"], "Bob");
-    assert_eq!(arr[1]["final_score"], 102);  // 92 + 10
+    assert_eq!(arr[1]["final_score"], 102); // 92 + 10
     assert_eq!(arr[1]["position"], 1);
 
     Ok(())
@@ -237,105 +256,122 @@ async fn test_flow_branchone_conditions(db: Pool<Postgres>) -> anyhow::Result<()
     let flow = FlowValue {
         modules: vec![
             // Step a: return data for branching
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {status: "premium", score: 95, items: [1, 2, 3]};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
             // Step b: branch based on status and score
-            flow_module("b", FlowModuleValue::BranchOne {
-                branches: vec![
-                    Branch {
-                        summary: Some("Premium with high score".to_string()),
-                        expr: "results.a.status === 'premium' && results.a.score >= 90".to_string(),
-                        modules: vec![
-                            flow_module("premium_high", FlowModuleValue::RawScript {
-                                input_transforms: [
-                                    js_input("discount", "results.a.score >= 95 ? 30 : 20"),
-                                    js_input("score_from_a", "results.a.score"),
-                                ].into(),
-                                language: ScriptLang::Deno,
-                                content: r#"
+            flow_module(
+                "b",
+                FlowModuleValue::BranchOne {
+                    branches: vec![
+                        Branch {
+                            summary: Some("Premium with high score".to_string()),
+                            expr: "results.a.status === 'premium' && results.a.score >= 90"
+                                .to_string(),
+                            modules: vec![flow_module(
+                                "premium_high",
+                                FlowModuleValue::RawScript {
+                                    input_transforms: [
+                                        js_input("discount", "results.a.score >= 95 ? 30 : 20"),
+                                        js_input("score_from_a", "results.a.score"),
+                                    ]
+                                    .into(),
+                                    language: ScriptLang::Deno,
+                                    content: r#"
 export function main(discount: number, score_from_a: number) {
     return {branch: "premium_high", discount, score_from_a};
 }
-"#.to_string(),
-                                path: None,
-                                lock: None,
-                                tag: None,
-                                concurrency_settings: Default::default(),
-                                is_trigger: None,
-                                assets: None,
-                            }),
-                        ],
-                        modules_node: None,
-                        skip_failure: true,
-                        parallel: true,
-                    },
-                    Branch {
-                        summary: Some("Premium with low score".to_string()),
-                        expr: "results.a.status === 'premium' && results.a.score < 90".to_string(),
-                        modules: vec![
-                            flow_module("premium_low", FlowModuleValue::RawScript {
-                                input_transforms: Default::default(),
-                                language: ScriptLang::Deno,
-                                content: r#"
+"#
+                                    .to_string(),
+                                    path: None,
+                                    lock: None,
+                                    tag: None,
+                                    concurrency_settings: Default::default(),
+                                    is_trigger: None,
+                                    assets: None,
+                                },
+                            )],
+                            modules_node: None,
+                            skip_failure: true,
+                            parallel: true,
+                        },
+                        Branch {
+                            summary: Some("Premium with low score".to_string()),
+                            expr: "results.a.status === 'premium' && results.a.score < 90"
+                                .to_string(),
+                            modules: vec![flow_module(
+                                "premium_low",
+                                FlowModuleValue::RawScript {
+                                    input_transforms: Default::default(),
+                                    language: ScriptLang::Deno,
+                                    content: r#"
 export function main() {
     return {branch: "premium_low", discount: 10};
 }
-"#.to_string(),
-                                path: None,
-                                lock: None,
-                                tag: None,
-                                concurrency_settings: Default::default(),
-                                is_trigger: None,
-                                assets: None,
-                            }),
-                        ],
-                        modules_node: None,
-                        skip_failure: true,
-                        parallel: true,
-                    },
-                ],
-                default: vec![
-                    flow_module("default_branch", FlowModuleValue::RawScript {
-                        input_transforms: Default::default(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+"#
+                                    .to_string(),
+                                    path: None,
+                                    lock: None,
+                                    tag: None,
+                                    concurrency_settings: Default::default(),
+                                    is_trigger: None,
+                                    assets: None,
+                                },
+                            )],
+                            modules_node: None,
+                            skip_failure: true,
+                            parallel: true,
+                        },
+                    ],
+                    default: vec![flow_module(
+                        "default_branch",
+                        FlowModuleValue::RawScript {
+                            input_transforms: Default::default(),
+                            language: ScriptLang::Deno,
+                            content: r#"
 export function main() {
     return {branch: "default", discount: 0};
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                ],
-                default_node: None,
-            }),
+"#
+                            .to_string(),
+                            path: None,
+                            lock: None,
+                            tag: None,
+                            concurrency_settings: Default::default(),
+                            is_trigger: None,
+                            assets: None,
+                        },
+                    )],
+                    default_node: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // status=premium, score=95 -> premium_high branch, discount=30
     assert_eq!(result["branch"], "premium_high");
@@ -357,69 +393,90 @@ async fn test_flow_previous_result_aggregation(db: Pool<Postgres>) -> anyhow::Re
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {value: 10, items: [1, 2, 3]};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("b", FlowModuleValue::RawScript {
-                input_transforms: [
-                    js_input("prev_value", "previous_result.value"),
-                    js_input("prev_items_sum", "previous_result.items.reduce((a, b) => a + b, 0)"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+            flow_module(
+                "b",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        js_input("prev_value", "previous_result.value"),
+                        js_input(
+                            "prev_items_sum",
+                            "previous_result.items.reduce((a, b) => a + b, 0)",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(prev_value: number, prev_items_sum: number) {
     return {value: prev_value * 2, sum: prev_items_sum};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("c", FlowModuleValue::RawScript {
-                input_transforms: [
-                    js_input("a_value", "results.a.value"),
-                    js_input("b_value", "results.b.value"),
-                    js_input("b_sum", "results.b.sum"),
-                    js_input("combined", "results.a.value + results.b.value + results.b.sum"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+            flow_module(
+                "c",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        js_input("a_value", "results.a.value"),
+                        js_input("b_value", "results.b.value"),
+                        js_input("b_sum", "results.b.sum"),
+                        js_input(
+                            "combined",
+                            "results.a.value + results.b.value + results.b.sum",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(a_value: number, b_value: number, b_sum: number, combined: number) {
     return {a_value, b_value, b_sum, combined};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // a: value=10, items=[1,2,3]
     // b: prev_value=10, prev_items_sum=6 -> value=20, sum=6
@@ -504,11 +561,12 @@ export function main(cat_name: string, multiplier: number, values: number[], sum
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Category A (multiplier=2): values=[20,40], total=60
     // Category B (multiplier=3): values=[30,60], total=90
@@ -601,11 +659,12 @@ export function main(admins: string[], active_count: number, admin_bonus: number
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Admins: Alice, Charlie
     // Active count: 1 (only Alice)
@@ -638,72 +697,84 @@ async fn test_flow_skip_if_expressions(db: Pool<Postgres>) -> anyhow::Result<()>
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("check", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "check",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {should_skip: true, value: 100};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            {
-                let mut module = flow_module("maybe_skipped", FlowModuleValue::RawScript {
-                    input_transforms: [
-                        js_input("input_val", "results.check.value * 2"),
-                    ].into(),
-                    language: ScriptLang::Deno,
-                    content: r#"
-export function main(input_val: number) {
-    return {processed: input_val, was_run: true};
-}
-"#.to_string(),
+"#
+                    .to_string(),
                     path: None,
                     lock: None,
                     tag: None,
                     concurrency_settings: Default::default(),
                     is_trigger: None,
                     assets: None,
-                });
+                },
+            ),
+            {
+                let mut module = flow_module(
+                    "maybe_skipped",
+                    FlowModuleValue::RawScript {
+                        input_transforms: [js_input("input_val", "results.check.value * 2")].into(),
+                        language: ScriptLang::Deno,
+                        content: r#"
+export function main(input_val: number) {
+    return {processed: input_val, was_run: true};
+}
+"#
+                        .to_string(),
+                        path: None,
+                        lock: None,
+                        tag: None,
+                        concurrency_settings: Default::default(),
+                        is_trigger: None,
+                        assets: None,
+                    },
+                );
                 module.skip_if = Some(windmill_common::flows::SkipIf {
                     expr: "results.check.should_skip === true".to_string(),
                 });
                 module
             },
-            flow_module("final", FlowModuleValue::RawScript {
-                input_transforms: [
-                    js_input("check_val", "results.check.value"),
-                    js_input("prev", "previous_result"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "final",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        js_input("check_val", "results.check.value"),
+                        js_input("prev", "previous_result"),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(check_val: number, prev: any) {
     return {check_val, previous: prev};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // maybe_skipped should be skipped because check.should_skip === true
     // So previous_result in final should be from check, not maybe_skipped
@@ -771,11 +842,12 @@ export function main(full_name: string, greeting: string, items_str: string, upp
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["full_name"], "John Doe");
     assert_eq!(result["greeting"], "Hello, John! You have 42 items.");
@@ -850,11 +922,12 @@ export function main(city: string, missing_city: any, null_user_name: any, defau
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["city"], "NYC");
     assert_eq!(result["missing_city"], serde_json::Value::Null);
@@ -877,62 +950,74 @@ async fn test_flow_parallel_forloop(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("data", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "data",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {items: [1, 2, 3, 4, 5]};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("parallel_loop", FlowModuleValue::ForloopFlow {
-                iterator: InputTransform::Javascript {
-                    expr: "results.data.items.map(x => ({ value: x, squared: x * x }))".to_string()
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
                 },
-                skip_failures: false,
-                parallel: true,
-                squash: None,
-                parallelism: None,
-                modules: vec![
-                    flow_module("process", FlowModuleValue::RawScript {
-                        input_transforms: [
-                            js_input("original", "flow_input.iter.value.value"),
-                            js_input("squared", "flow_input.iter.value.squared"),
-                            js_input("cubed", "flow_input.iter.value.value ** 3"),
-                        ].into(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+            ),
+            flow_module(
+                "parallel_loop",
+                FlowModuleValue::ForloopFlow {
+                    iterator: InputTransform::Javascript {
+                        expr: "results.data.items.map(x => ({ value: x, squared: x * x }))"
+                            .to_string(),
+                    },
+                    skip_failures: false,
+                    parallel: true,
+                    squash: None,
+                    parallelism: None,
+                    modules: vec![flow_module(
+                        "process",
+                        FlowModuleValue::RawScript {
+                            input_transforms: [
+                                js_input("original", "flow_input.iter.value.value"),
+                                js_input("squared", "flow_input.iter.value.squared"),
+                                js_input("cubed", "flow_input.iter.value.value ** 3"),
+                            ]
+                            .into(),
+                            language: ScriptLang::Deno,
+                            content: r#"
 export function main(original: number, squared: number, cubed: number) {
     return {original, squared, cubed};
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                ],
-                modules_node: None,
-            }),
+"#
+                            .to_string(),
+                            path: None,
+                            lock: None,
+                            tag: None,
+                            concurrency_settings: Default::default(),
+                            is_trigger: None,
+                            assets: None,
+                        },
+                    )],
+                    modules_node: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Results may be in any order due to parallel execution
     assert!(result.is_array());
@@ -940,7 +1025,8 @@ export function main(original: number, squared: number, cubed: number) {
     assert_eq!(arr.len(), 5);
 
     // Verify all expected values are present (order may vary)
-    let mut values: Vec<i64> = arr.iter()
+    let mut values: Vec<i64> = arr
+        .iter()
         .map(|r| r["original"].as_i64().unwrap())
         .collect();
     values.sort();
@@ -970,14 +1056,26 @@ async fn test_flow_env_access(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Create flow_env with various types of values
     let mut flow_env = std::collections::HashMap::new();
-    flow_env.insert("ENV".to_string(), windmill_common::worker::to_raw_value(&json!("production")));
-    flow_env.insert("DEBUG".to_string(), windmill_common::worker::to_raw_value(&json!(false)));
-    flow_env.insert("TIMEOUT".to_string(), windmill_common::worker::to_raw_value(&json!(30)));
-    flow_env.insert("CONFIG".to_string(), windmill_common::worker::to_raw_value(&json!({
-        "apiUrl": "https://api.example.com",
-        "retries": 3,
-        "features": ["auth", "logging"]
-    })));
+    flow_env.insert(
+        "ENV".to_string(),
+        windmill_common::worker::to_raw_value(&json!("production")),
+    );
+    flow_env.insert(
+        "DEBUG".to_string(),
+        windmill_common::worker::to_raw_value(&json!(false)),
+    );
+    flow_env.insert(
+        "TIMEOUT".to_string(),
+        windmill_common::worker::to_raw_value(&json!(30)),
+    );
+    flow_env.insert(
+        "CONFIG".to_string(),
+        windmill_common::worker::to_raw_value(&json!({
+            "apiUrl": "https://api.example.com",
+            "retries": 3,
+            "features": ["auth", "logging"]
+        })),
+    );
 
     let flow = FlowValue {
         modules: vec![
@@ -1009,11 +1107,12 @@ export function main(env_name: string, is_debug: boolean, timeout_val: number, a
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["env_name"], "production");
     assert_eq!(result["is_debug"], false);
@@ -1037,8 +1136,14 @@ async fn test_flow_input_and_env_combined(db: Pool<Postgres>) -> anyhow::Result<
 
     // flow_env with environment-specific configuration
     let mut flow_env = std::collections::HashMap::new();
-    flow_env.insert("ENV".to_string(), windmill_common::worker::to_raw_value(&json!("production")));
-    flow_env.insert("MAX_ITEMS".to_string(), windmill_common::worker::to_raw_value(&json!(100)));
+    flow_env.insert(
+        "ENV".to_string(),
+        windmill_common::worker::to_raw_value(&json!("production")),
+    );
+    flow_env.insert(
+        "MAX_ITEMS".to_string(),
+        windmill_common::worker::to_raw_value(&json!(100)),
+    );
 
     let flow = FlowValue {
         modules: vec![
@@ -1071,21 +1176,22 @@ export function main(effective_limit: number, env_prefix: string, is_prod: boole
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .arg("requested_limit", json!(150))
-        .arg("value", json!(25))
-        .arg("prod_mult", json!(3))
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .arg("requested_limit", json!(150))
+            .arg("value", json!(25))
+            .arg("prod_mult", json!(3))
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // effective_limit = min(150, 100) = 100
     assert_eq!(result["effective_limit"], 100);
     assert_eq!(result["env_prefix"], "[production]");
     assert_eq!(result["is_prod"], true);
-    assert_eq!(result["doubled_input"], 50);  // 25 * 2
-    // final_value = 50 * 3 (prod_mult because ENV is production)
+    assert_eq!(result["doubled_input"], 50); // 25 * 2
+                                             // final_value = 50 * 3 (prod_mult because ENV is production)
     assert_eq!(result["final_value"], 150);
 
     Ok(())
@@ -1104,10 +1210,12 @@ async fn test_flow_results_optional_chaining(db: Pool<Postgres>) -> anyhow::Resu
     let flow = FlowValue {
         modules: vec![
             // Step a: return nested data with some null values
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {
         user: {
@@ -1127,39 +1235,59 @@ export function main() {
         null_field: null
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
             // Step b: use optional chaining on results
-            flow_module("b", FlowModuleValue::RawScript {
-                input_transforms: [
-                    // Basic optional chaining
-                    js_input("user_name", "results.a.user?.name"),
-                    js_input("user_email", "results.a.user?.profile?.email"),
-                    // Optional chaining with null value
-                    js_input("user_phone", "results.a.user?.profile?.phone ?? 'no_phone'"),
-                    // Optional chaining on null settings
-                    js_input("user_setting", "results.a.user?.settings?.theme ?? 'default_theme'"),
-                    // Optional chaining with array access
-                    js_input("first_item_value", "results.a.items?.[0]?.value"),
-                    js_input("second_item_value", "results.a.items?.[1]?.value ?? 0"),
-                    // Optional chaining with find
-                    js_input("item_by_id", "results.a.items?.find(i => i.id === 1)?.value"),
-                    js_input("missing_item", "results.a.items?.find(i => i.id === 999)?.value ?? 'not_found'"),
-                    // Optional chaining on empty array
-                    js_input("empty_first", "results.a.empty_array?.[0]?.value ?? 'empty'"),
-                    // Nullish coalescing with null field
-                    js_input("null_with_default", "results.a.null_field ?? 'was_null'"),
-                    // Accessing missing property with ?.
-                    js_input("missing_prop", "results.a.nonexistent?.nested?.deep ?? 'missing'"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "b",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        // Basic optional chaining
+                        js_input("user_name", "results.a.user?.name"),
+                        js_input("user_email", "results.a.user?.profile?.email"),
+                        // Optional chaining with null value
+                        js_input("user_phone", "results.a.user?.profile?.phone ?? 'no_phone'"),
+                        // Optional chaining on null settings
+                        js_input(
+                            "user_setting",
+                            "results.a.user?.settings?.theme ?? 'default_theme'",
+                        ),
+                        // Optional chaining with array access
+                        js_input("first_item_value", "results.a.items?.[0]?.value"),
+                        js_input("second_item_value", "results.a.items?.[1]?.value ?? 0"),
+                        // Optional chaining with find
+                        js_input(
+                            "item_by_id",
+                            "results.a.items?.find(i => i.id === 1)?.value",
+                        ),
+                        js_input(
+                            "missing_item",
+                            "results.a.items?.find(i => i.id === 999)?.value ?? 'not_found'",
+                        ),
+                        // Optional chaining on empty array
+                        js_input(
+                            "empty_first",
+                            "results.a.empty_array?.[0]?.value ?? 'empty'",
+                        ),
+                        // Nullish coalescing with null field
+                        js_input("null_with_default", "results.a.null_field ?? 'was_null'"),
+                        // Accessing missing property with ?.
+                        js_input(
+                            "missing_prop",
+                            "results.a.nonexistent?.nested?.deep ?? 'missing'",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(
     user_name: string,
     user_email: string,
@@ -1179,24 +1307,27 @@ export function main(
         empty_first, null_with_default, missing_prop
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["user_name"], "Alice");
     assert_eq!(result["user_email"], "alice@example.com");
@@ -1225,10 +1356,12 @@ async fn test_flow_large_integers(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {
         small_int: 42,
@@ -1238,29 +1371,37 @@ export function main() {
         large_safe: 9007199254740991,  // MAX_SAFE_INTEGER
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("b", FlowModuleValue::RawScript {
-                input_transforms: [
-                    js_input("small", "results.a.small_int"),
-                    js_input("i32_max", "results.a.i32_max"),
-                    js_input("over_i32", "results.a.i32_max_plus_1"),
-                    js_input("timestamp", "results.a.timestamp"),
-                    js_input("ts_plus_day", "results.a.timestamp + 86400000"),
-                    js_input("large", "results.a.large_safe"),
-                    // Arithmetic on large numbers
-                    js_input("large_minus_1", "results.a.large_safe - 1"),
-                    // Comparisons
-                    js_input("is_large_safe", "Number.isSafeInteger(results.a.large_safe)"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+            flow_module(
+                "b",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        js_input("small", "results.a.small_int"),
+                        js_input("i32_max", "results.a.i32_max"),
+                        js_input("over_i32", "results.a.i32_max_plus_1"),
+                        js_input("timestamp", "results.a.timestamp"),
+                        js_input("ts_plus_day", "results.a.timestamp + 86400000"),
+                        js_input("large", "results.a.large_safe"),
+                        // Arithmetic on large numbers
+                        js_input("large_minus_1", "results.a.large_safe - 1"),
+                        // Comparisons
+                        js_input(
+                            "is_large_safe",
+                            "Number.isSafeInteger(results.a.large_safe)",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(
     small: number, i32_max: number, over_i32: number,
     timestamp: number, ts_plus_day: number,
@@ -1269,24 +1410,27 @@ export function main(
 ) {
     return {small, i32_max, over_i32, timestamp, ts_plus_day, large, large_minus_1, is_large_safe};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["small"], 42);
     assert_eq!(result["i32_max"], 2147483647_i64);
@@ -1365,11 +1509,12 @@ export function main(
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["greeting"], "Hello World");
     assert_eq!(result["greeting_len"], 11);
@@ -1466,16 +1611,20 @@ export function main(
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["sorted_asc"], json!([1, 2, 3, 4, 5, 6, 7, 8, 9]));
     assert_eq!(result["sorted_desc"], json!([9, 8, 7, 6, 5, 4, 3, 2, 1]));
     assert_eq!(result["active_names"], json!(["Alice", "Charlie", "Diana"]));
-    assert_eq!(result["high_scorers"], json!([{"name": "Bob", "score": 92}, {"name": "Diana", "score": 95}]));
+    assert_eq!(
+        result["high_scorers"],
+        json!([{"name": "Bob", "score": 92}, {"name": "Diana", "score": 95}])
+    );
     assert_eq!(result["total_score"], 350); // 85 + 92 + 78 + 95
     assert_eq!(result["avg_score"], 87.5);
     assert_eq!(result["top_scorer"], "Diana");
@@ -1582,17 +1731,21 @@ export function main(
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // subtotal = 10*2 + 20*3 + 30*1 = 20 + 60 + 30 = 110
     assert_eq!(result["subtotal"], 110);
     // discounted_total = 110 * (1 - 0.1) = 99
     assert_eq!(result["discounted_total"], 99.0);
-    assert_eq!(result["item_summary"]["names"], json!(["Item A", "Item B", "Item C"]));
+    assert_eq!(
+        result["item_summary"]["names"],
+        json!(["Item A", "Item B", "Item C"])
+    );
     assert_eq!(result["item_summary"]["total_qty"], 6);
     // safe_calculation = 110 * 1.08 = 118.8
     assert_eq!(result["safe_calculation"], 118.8);
@@ -1670,18 +1823,28 @@ export function main(
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
-    assert_eq!(result["merged_config"], json!({"host": "localhost", "port": 3000, "timeout": 5000}));
+    assert_eq!(
+        result["merged_config"],
+        json!({"host": "localhost", "port": 3000, "timeout": 5000})
+    );
     assert_eq!(result["all_tags"], json!(["api", "v1", "production"]));
-    assert_eq!(result["full_user"], json!({"name": "Alice", "role": "admin", "permissions": ["read", "write"]}));
+    assert_eq!(
+        result["full_user"],
+        json!({"name": "Alice", "role": "admin", "permissions": ["read", "write"]})
+    );
     assert_eq!(result["max_port"], 8080);
     assert_eq!(result["rest_config"], json!({"port": 3000}));
-    assert_eq!(result["combined"]["config"], json!({"host": "localhost", "port": 3000}));
+    assert_eq!(
+        result["combined"]["config"],
+        json!({"host": "localhost", "port": 3000})
+    );
     assert_eq!(result["combined"]["tags"], json!(["api", "v1"]));
     assert_eq!(result["combined"]["source"], "flow");
 
@@ -1701,42 +1864,51 @@ async fn test_flow_nested_forloop_results_access(db: Pool<Postgres>) -> anyhow::
     let flow = FlowValue {
         modules: vec![
             // Step a: outer data
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {
         multiplier: 10,
         categories: ["cat1", "cat2"]
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            // Outer for-loop
-            flow_module("outer", FlowModuleValue::ForloopFlow {
-                iterator: InputTransform::Javascript {
-                    expr: "results.a.categories".to_string()
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
                 },
-                skip_failures: false,
-                parallel: false,
-                squash: None,
-                parallelism: None,
-                modules: vec![
-                    // Step b: generate inner items based on category
-                    flow_module("b", FlowModuleValue::RawScript {
-                        input_transforms: [
-                            js_input("category", "flow_input.iter.value"),
-                            js_input("multiplier", "results.a.multiplier"),  // Access outer step from inside for-loop
-                        ].into(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+            ),
+            // Outer for-loop
+            flow_module(
+                "outer",
+                FlowModuleValue::ForloopFlow {
+                    iterator: InputTransform::Javascript {
+                        expr: "results.a.categories".to_string(),
+                    },
+                    skip_failures: false,
+                    parallel: false,
+                    squash: None,
+                    parallelism: None,
+                    modules: vec![
+                        // Step b: generate inner items based on category
+                        flow_module(
+                            "b",
+                            FlowModuleValue::RawScript {
+                                input_transforms: [
+                                    js_input("category", "flow_input.iter.value"),
+                                    js_input("multiplier", "results.a.multiplier"), // Access outer step from inside for-loop
+                                ]
+                                .into(),
+                                language: ScriptLang::Deno,
+                                content: r#"
 export function main(category: string, multiplier: number) {
     return {
         category,
@@ -1746,23 +1918,28 @@ export function main(category: string, multiplier: number) {
         }))
     };
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                    // Step c: process inner items and access previous step in loop
-                    flow_module("c", FlowModuleValue::RawScript {
-                        input_transforms: [
-                            js_input("items", "results.b.items"),  // Access sibling step
-                            js_input("category", "results.b.category"),
-                            js_input("original_mult", "results.a.multiplier"),  // Access outer step
-                        ].into(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+"#
+                                .to_string(),
+                                path: None,
+                                lock: None,
+                                tag: None,
+                                concurrency_settings: Default::default(),
+                                is_trigger: None,
+                                assets: None,
+                            },
+                        ),
+                        // Step c: process inner items and access previous step in loop
+                        flow_module(
+                            "c",
+                            FlowModuleValue::RawScript {
+                                input_transforms: [
+                                    js_input("items", "results.b.items"), // Access sibling step
+                                    js_input("category", "results.b.category"),
+                                    js_input("original_mult", "results.a.multiplier"), // Access outer step
+                                ]
+                                .into(),
+                                language: ScriptLang::Deno,
+                                content: r#"
 export function main(items: any[], category: string, original_mult: number) {
     return {
         category,
@@ -1771,27 +1948,31 @@ export function main(items: any[], category: string, original_mult: number) {
         total_value: items.reduce((sum, i) => sum + i.value, 0)
     };
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                ],
-                modules_node: None,
-            }),
+"#
+                                .to_string(),
+                                path: None,
+                                lock: None,
+                                tag: None,
+                                concurrency_settings: Default::default(),
+                                is_trigger: None,
+                                assets: None,
+                            },
+                        ),
+                    ],
+                    modules_node: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // outer loop produces 2 results (for cat1 and cat2)
     assert!(result.is_array());
@@ -1827,36 +2008,49 @@ async fn test_flow_results_non_existent_step(db: Pool<Postgres>) -> anyhow::Resu
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return { value: 42 };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("b", FlowModuleValue::RawScript {
-                input_transforms: [
-                    // Access existing step - should work
-                    js_input("existing", "results.a.value"),
-                    // Access non-existent step - should return null, not error
-                    // Note: The expression gets wrapped as (await results.nonexistent)
-                    // The proxy returns a Promise that resolves to null for non-existent steps
-                    js_input("non_existent", "results.nonexistent"),
-                    // Access non-existent step with nullish coalescing
-                    js_input("non_existent_with_default", "results.nonexistent ?? 'default_value'"),
-                    // Nested access on non-existent step (null?.value -> undefined -> ?? kicks in)
-                    js_input("non_existent_nested", "results.nonexistent?.value ?? 'nested_default'"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+            flow_module(
+                "b",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        // Access existing step - should work
+                        js_input("existing", "results.a.value"),
+                        // Access non-existent step - should return null, not error
+                        // Note: The expression gets wrapped as (await results.nonexistent)
+                        // The proxy returns a Promise that resolves to null for non-existent steps
+                        js_input("non_existent", "results.nonexistent"),
+                        // Access non-existent step with nullish coalescing
+                        js_input(
+                            "non_existent_with_default",
+                            "results.nonexistent ?? 'default_value'",
+                        ),
+                        // Nested access on non-existent step (null?.value -> undefined -> ?? kicks in)
+                        js_input(
+                            "non_existent_nested",
+                            "results.nonexistent?.value ?? 'nested_default'",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(
     existing: number,
     non_existent: any,
@@ -1870,24 +2064,27 @@ export function main(
         non_existent_nested
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // existing step should work
     assert_eq!(result["existing"], 42);
@@ -1897,6 +2094,1221 @@ export function main(
     assert_eq!(result["non_existent_with_default"], "default_value");
     // nested non-existent should return the default
     assert_eq!(result["non_existent_nested"], "nested_default");
+
+    Ok(())
+}
+
+// =============================================================================
+// flow_env inside predicates of nested sub-flows (BranchOne / loops).
+//
+// Sub-flows spawned by `payload_from_modules` for branches/loops don't carry
+// the parent's `flow_env` in their own FlowValue, so without explicit lookup
+// the predicate evaluators receive `None` and `flow_env.X` resolves to
+// `undefined` inside QuickJS. Verify `handle_flow` walks up to the nearest
+// enclosing scope so predicates see the inherited env.
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_skip_if_inside_branchone(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "SKIP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let inner_step = {
+        let mut m = flow_module(
+            "inner",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {ran: true};
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        // skip_if uses `Boolean(...)`-wrapped expression, so it falls through
+        // to QuickJS and exercises the local flow_env propagation path.
+        m.skip_if =
+            Some(windmill_common::flows::SkipIf { expr: "flow_env.SKIP === true".to_string() });
+        m
+    };
+
+    // Branch with two modules: a marker that runs first, then `inner` which
+    // should be skipped via `flow_env.SKIP === true`. When skipped, `inner`
+    // becomes an identity job and the branch's terminal result is whatever
+    // `previous_result` was at that point — i.e. the branch_marker output.
+    let branch_marker = flow_module(
+        "branch_marker",
+        FlowModuleValue::RawScript {
+            input_transforms: Default::default(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main() {
+    return {marker: "branch-marker"};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module(
+                "router",
+                FlowModuleValue::BranchOne {
+                    branches: vec![Branch {
+                        summary: None,
+                        expr: "true".to_string(),
+                        modules: vec![branch_marker, inner_step],
+                        modules_node: None,
+                        skip_failure: false,
+                        parallel: false,
+                    }],
+                    default: vec![],
+                    default_node: None,
+                },
+            ),
+            flow_module(
+                "after",
+                FlowModuleValue::RawScript {
+                    input_transforms: [js_input("prev", "previous_result")].into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
+export function main(prev: any) {
+    return {prev};
+}
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+        ],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // With the fix, skip_if sees `flow_env.SKIP === true`, `inner` becomes an
+    // identity step and passes through `previous_result` (branch_marker).
+    // Without the fix, flow_env was None inside the sub-flow, the predicate
+    // returned false, and `inner` ran, leaving `{ran: true}` in `prev`.
+    assert_eq!(
+        result["prev"]["marker"], "branch-marker",
+        "skip_if with flow_env should skip `inner`; expected branch_marker passed through (got {result:?})"
+    );
+    assert!(
+        result["prev"].get("ran").is_none(),
+        "`inner` ran when it should have been skipped (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// Nested sub-flows: branch inside branch. The recursive CTE in
+// `fetch_root_flow_env` must walk past more than one layer of
+// `payload_from_modules`-constructed FlowValue (each of which has
+// `flow_env = None`) to reach the root's flow_env.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_skip_if_nested_branchone(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "SKIP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let leaf = {
+        let mut m = flow_module(
+            "leaf",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {ran: true};
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.skip_if =
+            Some(windmill_common::flows::SkipIf { expr: "flow_env.SKIP === true".to_string() });
+        m
+    };
+
+    let inner_marker = flow_module(
+        "inner_marker",
+        FlowModuleValue::RawScript {
+            input_transforms: Default::default(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main() {
+    return {marker: "inner"};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    // Inner BranchOne: contains the marker + the leaf with skip_if.
+    let inner_branch = flow_module(
+        "inner_router",
+        FlowModuleValue::BranchOne {
+            branches: vec![Branch {
+                summary: None,
+                expr: "true".to_string(),
+                modules: vec![inner_marker, leaf],
+                modules_node: None,
+                skip_failure: false,
+                parallel: false,
+            }],
+            default: vec![],
+            default_node: None,
+        },
+    );
+
+    // Outer BranchOne: contains the inner BranchOne. So the leaf is two
+    // levels deep in payload_from_modules-constructed sub-flows.
+    let outer = flow_module(
+        "outer_router",
+        FlowModuleValue::BranchOne {
+            branches: vec![Branch {
+                summary: None,
+                expr: "true".to_string(),
+                modules: vec![inner_branch],
+                modules_node: None,
+                skip_failure: false,
+                parallel: false,
+            }],
+            default: vec![],
+            default_node: None,
+        },
+    );
+
+    let after = flow_module(
+        "after",
+        FlowModuleValue::RawScript {
+            input_transforms: [js_input("prev", "previous_result")].into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(prev: any) {
+    return {prev};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![outer, after],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // Leaf's skip_if should see flow_env.SKIP=true → leaf becomes identity →
+    // previous_result inside the inner branch is `inner_marker`. That bubbles
+    // up to the outer branch and into `after`.
+    assert_eq!(
+        result["prev"]["marker"], "inner",
+        "skip_if with flow_env should skip `leaf` even nested two layers deep (got {result:?})"
+    );
+    assert!(
+        result["prev"].get("ran").is_none(),
+        "`leaf` ran when it should have been skipped two layers deep (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// Complex input-transform expression inside a sub-flow exercises the
+// QuickJS evaluation path (it doesn't match the `flow_env.X` /
+// `flow_env.X.Y` regex that hits the API fast path). Without flow_env
+// inheritance, QuickJS would see an empty `flow_env` and the expression
+// would NaN/undefined out.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_complex_input_transform_in_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "LIMIT".to_string(),
+        windmill_common::worker::to_raw_value(&json!(7)),
+    );
+    flow_env.insert(
+        "OFFSET".to_string(),
+        windmill_common::worker::to_raw_value(&json!(3)),
+    );
+
+    let inner = flow_module(
+        "compute",
+        FlowModuleValue::RawScript {
+            // Expression doesn't match the regex fast path (uses arithmetic
+            // and Math.min), so the worker falls through to QuickJS using
+            // the local flow_env. Without inheritance, this is empty.
+            input_transforms: [js_input(
+                "value",
+                "Math.min(flow_env.LIMIT, 10) + flow_env.OFFSET",
+            )]
+            .into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(value: number) {
+    return {value};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![flow_module(
+            "router",
+            FlowModuleValue::BranchOne {
+                branches: vec![Branch {
+                    summary: None,
+                    expr: "true".to_string(),
+                    modules: vec![inner],
+                    modules_node: None,
+                    skip_failure: false,
+                    parallel: false,
+                }],
+                default: vec![],
+                default_node: None,
+            },
+        )],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // min(7, 10) + 3 = 10
+    assert_eq!(
+        result["value"], 10,
+        "complex input transform `Math.min(flow_env.LIMIT, 10) + flow_env.OFFSET` should resolve via QuickJS with inherited flow_env (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// Parallel for-loop iterations are pushed with `flow_innermost_root_job =
+// None` (worker_flow.rs:3941), so the recursive CTE in `fetch_root_flow_env`
+// must use `parent_job` to walk up. Verify a skip_if inside an iteration
+// sub-flow sees the parent's flow_env.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_skip_if_in_parallel_forloop(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "SKIP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let inner_marker = flow_module(
+        "marker",
+        FlowModuleValue::RawScript {
+            input_transforms: [js_input("i", "flow_input.iter.value")].into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(i: number) {
+    return {marker: i};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let leaf = {
+        let mut m = flow_module(
+            "leaf",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {ran: true};
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.skip_if =
+            Some(windmill_common::flows::SkipIf { expr: "flow_env.SKIP === true".to_string() });
+        m
+    };
+
+    let flow = FlowValue {
+        modules: vec![flow_module(
+            "loop",
+            FlowModuleValue::ForloopFlow {
+                iterator: InputTransform::Javascript { expr: "[1, 2]".to_string() },
+                modules: vec![inner_marker, leaf],
+                modules_node: None,
+                skip_failures: false,
+                parallel: true,
+                parallelism: None,
+                squash: None,
+            },
+        )],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // Each iteration's `leaf` is skipped (skip_if reads flow_env.SKIP=true via
+    // parent_job lookup since parallel iterations have flow_innermost_root_job
+    // = None). The skipped step passes through previous_result = marker's
+    // output. So iteration result = `{marker: i}`, not `{ran: true}`.
+    let arr = result.as_array().expect("parallel loop result is an array");
+    assert_eq!(arr.len(), 2, "expected 2 iterations, got {result:?}");
+    for (i, iter_result) in arr.iter().enumerate() {
+        assert_eq!(
+            iter_result["marker"],
+            json!(i + 1),
+            "iteration {i} marker mismatch (got {result:?})"
+        );
+        assert!(
+            iter_result.get("ran").is_none(),
+            "leaf ran in iteration {i} when it should have been skipped (got {result:?})"
+        );
+    }
+
+    Ok(())
+}
+
+// Imported flows (`FlowModuleValue::Flow { path }`) load their value from
+// `flow_version`. Two cases:
+//   (a) the imported flow defines its own flow_env → that wins, parent's is
+//       NOT merged (current behavior; option (i) per design discussion).
+//   (b) the imported flow defines no flow_env → it inherits from the parent
+//       via the recursive CTE.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_imported_flow_uses_own_env(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Imported flow with its own flow_env: a single step that returns
+    // `flow_env.KEY`. Saved at f/system/imported_with_env.
+    let imported_path = "f/system/imported_with_env";
+    let imported_value = json!({
+        "modules": [{
+            "id": "leaf",
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(key: string) { return {key}; }",
+                "input_transforms": {
+                    "key": { "type": "javascript", "expr": "flow_env.KEY" }
+                }
+            }
+        }],
+        "flow_env": { "KEY": "imported" }
+    });
+    let imported_version_id: i64 = 9991001;
+    sqlx::query!(
+        "INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ($1, '', '', $2, ARRAY[$3]::bigint[], '{}'::jsonb, $4, 'system')",
+        "test-workspace",
+        imported_path,
+        imported_version_id,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, $2, $3, '{}'::jsonb, $4, 'system')",
+        imported_version_id,
+        "test-workspace",
+        imported_path,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+
+    let mut parent_env = std::collections::HashMap::new();
+    parent_env.insert(
+        "KEY".to_string(),
+        windmill_common::worker::to_raw_value(&json!("parent")),
+    );
+
+    let parent = FlowValue {
+        modules: vec![flow_module(
+            "import",
+            FlowModuleValue::Flow {
+                input_transforms: Default::default(),
+                path: imported_path.to_string(),
+                pass_flow_input_directly: None,
+            },
+        )],
+        flow_env: Some(parent_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: parent, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // The imported flow's `leaf` reads flow_env.KEY. The imported flow has its
+    // own flow_env so it wins — result should be "imported", not "parent".
+    assert_eq!(
+        result["key"], "imported",
+        "imported flow's own flow_env should win over parent's (got {result:?})"
+    );
+
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_imported_flow_inherits_when_unset(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Imported flow without its own flow_env. The leaf step's `skip_if` uses
+    // a Boolean()-wrapped expression — that always falls through to QuickJS
+    // (no regex/API fast path) and reads the LOCAL flow_env. Without the fix,
+    // local flow_env inside the imported sub-flow is None and the predicate
+    // returns false; with the fix, the imported flow inherits the parent's
+    // env via the recursive CTE.
+    let imported_path = "f/system/imported_no_env";
+    let imported_value = json!({
+        "modules": [
+            {
+                "id": "marker",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return {marker: \"from-imported\"}; }",
+                    "input_transforms": {}
+                }
+            },
+            {
+                "id": "leaf",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return {ran: true}; }",
+                    "input_transforms": {}
+                },
+                "skip_if": { "expr": "flow_env.KEY === 'parent'" }
+            }
+        ]
+    });
+    let imported_version_id: i64 = 9991002;
+    sqlx::query!(
+        "INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ($1, '', '', $2, ARRAY[$3]::bigint[], '{}'::jsonb, $4, 'system')",
+        "test-workspace",
+        imported_path,
+        imported_version_id,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, $2, $3, '{}'::jsonb, $4, 'system')",
+        imported_version_id,
+        "test-workspace",
+        imported_path,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+
+    let mut parent_env = std::collections::HashMap::new();
+    parent_env.insert(
+        "KEY".to_string(),
+        windmill_common::worker::to_raw_value(&json!("parent")),
+    );
+
+    let parent = FlowValue {
+        modules: vec![flow_module(
+            "import",
+            FlowModuleValue::Flow {
+                input_transforms: Default::default(),
+                path: imported_path.to_string(),
+                pass_flow_input_directly: None,
+            },
+        )],
+        flow_env: Some(parent_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: parent, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // Imported flow has no flow_env → inherits parent's via lookup. The
+    // leaf's skip_if (`flow_env.KEY === 'parent'`) evaluates to true → leaf
+    // becomes identity, passes through `previous_result` (marker's output).
+    // Without the fix, skip_if's QuickJS context has flow_env=None inside
+    // the imported sub-flow, the predicate is false, and `leaf` runs.
+    assert_eq!(
+        result["marker"], "from-imported",
+        "imported flow's leaf should be skipped via inherited flow_env (got {result:?})"
+    );
+    assert!(
+        result.get("ran").is_none(),
+        "leaf ran when it should have been skipped (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// Imported flow with its own flow_env contains a nested BranchOne whose
+// inner step has a skip_if predicate. The branch sub-flow inside the
+// imported flow has `root_job` pointing to the **top parent**, but its
+// `flow_innermost_root_job` points to the imported flow — so the lookup
+// must walk via flow_innermost_root_job to find the imported flow's scope,
+// not jump straight to root_job (which would surface the parent's env and
+// give the wrong answer).
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_imported_flow_with_nested_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Imported flow: own flow_env={KEY: "imported"}, contains a BranchOne
+    // whose inner step has skip_if = "flow_env.KEY === 'imported'". The
+    // predicate must see the IMPORTED flow's env, not the parent's
+    // ({KEY: "parent"}).
+    let imported_path = "f/system/imported_with_nested_branch";
+    let imported_value = json!({
+        "modules": [{
+            "id": "router",
+            "value": {
+                "type": "branchone",
+                "branches": [{
+                    "summary": null,
+                    "expr": "true",
+                    "modules": [
+                        {
+                            "id": "marker",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main() { return {marker: \"from-imported-branch\"}; }",
+                                "input_transforms": {}
+                            }
+                        },
+                        {
+                            "id": "leaf",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main() { return {ran: true}; }",
+                                "input_transforms": {}
+                            },
+                            "skip_if": { "expr": "flow_env.KEY === 'imported'" }
+                        }
+                    ],
+                    "skip_failure": false,
+                    "parallel": false,
+                }],
+                "default": [],
+            }
+        }],
+        "flow_env": { "KEY": "imported" }
+    });
+    let imported_version_id: i64 = 9991003;
+    sqlx::query!(
+        "INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ($1, '', '', $2, ARRAY[$3]::bigint[], '{}'::jsonb, $4, 'system')",
+        "test-workspace",
+        imported_path,
+        imported_version_id,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, $2, $3, '{}'::jsonb, $4, 'system')",
+        imported_version_id,
+        "test-workspace",
+        imported_path,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+
+    let mut parent_env = std::collections::HashMap::new();
+    parent_env.insert(
+        "KEY".to_string(),
+        windmill_common::worker::to_raw_value(&json!("parent")),
+    );
+
+    let parent = FlowValue {
+        modules: vec![flow_module(
+            "import",
+            FlowModuleValue::Flow {
+                input_transforms: Default::default(),
+                path: imported_path.to_string(),
+                pass_flow_input_directly: None,
+            },
+        )],
+        flow_env: Some(parent_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: parent, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // skip_if must see imported's env (KEY="imported") → predicate is true →
+    // leaf is skipped → branch returns marker's output. If the lookup
+    // shortcuts via root_job to the top parent, KEY would be "parent",
+    // skip_if would be false, leaf would run and return {ran: true}.
+    assert_eq!(
+        result["marker"], "from-imported-branch",
+        "skip_if inside imported flow's branch must see imported's flow_env, not parent's (got {result:?})"
+    );
+    assert!(
+        result.get("ran").is_none(),
+        "leaf ran — predicate didn't see imported flow's flow_env scope (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// stop_after_if predicate sees flow_env. Regression for the eval at line 614
+// of `update_flow_status_after_job_completion_internal` which used to pass
+// `None` for flow_env unconditionally.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_in_stop_after_if(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "STOP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let first = {
+        let mut m = flow_module(
+            "first",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {stage: "first"};
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.stop_after_if = Some(windmill_common::flows::StopAfterIf {
+            expr: "flow_env.STOP === true".to_string(),
+            skip_if_stopped: true,
+            error_message: None,
+            error_include_result: false,
+        });
+        m
+    };
+
+    let second = flow_module(
+        "second",
+        FlowModuleValue::RawScript {
+            input_transforms: Default::default(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main() {
+    return {stage: "second"};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![first, second],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // With fix: stop_after_if reads flow_env.STOP=true → flow stops early
+    // after `first`, result is first's output.
+    // Without fix: stop_after_if sees flow_env=None, predicate is false, the
+    // flow continues to `second` whose output overrides the result.
+    assert_eq!(
+        result["stage"], "first",
+        "stop_after_if with flow_env should stop after `first`; got {result:?}"
+    );
+
+    Ok(())
+}
+
+// stop_after_if with `error_message` + `error_include_result` should fail the
+// flow but preserve the stopping step's own result inside the raised error
+// object, i.e. `{ "error": { .., "result": <step result> } }`. With the flag off
+// (the default) the error object carries no `result`. Regression for the
+// early-stop branch in `update_flow_status_after_job_completion_internal`.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_if_error_include_result(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let make_flow = |include_result: bool| {
+        let mut m = flow_module(
+            "step",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return { userErrors: ["email taken"], ok: false };
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.stop_after_if = Some(windmill_common::flows::StopAfterIf {
+            expr: "true".to_string(),
+            skip_if_stopped: false,
+            error_message: Some("API returned userErrors".to_string()),
+            error_include_result: include_result,
+        });
+        FlowValue { modules: vec![m], same_worker: false, ..Default::default() }
+    };
+
+    // include_result = true: result preserves both the error and the step output
+    let job = RunJob::from(JobPayload::RawFlow {
+        value: make_flow(true),
+        path: None,
+        restarted_from: None,
+    })
+    .run_until_complete(&db, false, server.addr.port())
+    .await;
+    assert!(
+        !job.success,
+        "flow with raised early-stop error should fail"
+    );
+    let result = job.json_result().unwrap();
+    assert_eq!(
+        result["error"]["name"], "EarlyStopError",
+        "expected EarlyStopError; got {result:?}"
+    );
+    assert_eq!(result["error"]["message"], "API returned userErrors");
+    assert_eq!(
+        result["error"]["result"],
+        json!({ "userErrors": ["email taken"], "ok": false }),
+        "step result should be preserved under `error.result`; got {result:?}"
+    );
+
+    // include_result = false (default behavior): result is the bare error object
+    let job = RunJob::from(JobPayload::RawFlow {
+        value: make_flow(false),
+        path: None,
+        restarted_from: None,
+    })
+    .run_until_complete(&db, false, server.addr.port())
+    .await;
+    assert!(
+        !job.success,
+        "flow with raised early-stop error should fail"
+    );
+    let result = job.json_result().unwrap();
+    assert_eq!(result["error"]["name"], "EarlyStopError");
+    assert!(
+        result["error"].get("result").is_none(),
+        "without the flag the error must not embed the step result; got {result:?}"
+    );
+
+    Ok(())
+}
+
+// retry_if predicate sees flow_env. Regression for the two evaluate_retry
+// call sites in `update_flow_status_after_job_completion_internal` (lines
+// 1194 and 1576) which used to pass `None` for flow_env.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_in_retry_if(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "SHOULD_RETRY".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let fails = {
+        let mut m = flow_module(
+            "fails",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    throw new Error("nope");
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.retry = Some(windmill_common::flows::Retry {
+            constant: windmill_common::flows::ConstantDelay { attempts: 2, seconds: 0 },
+            exponential: Default::default(),
+            retry_if: Some(windmill_common::flows::RetryIf {
+                expr: "flow_env.SHOULD_RETRY === true".to_string(),
+            }),
+        });
+        m
+    };
+
+    let flow = FlowValue {
+        modules: vec![fails],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let completed =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await;
+
+    // The flow always fails (script throws every attempt), but retry_if
+    // controls whether retries happen at all. With the fix, retry_if sees
+    // flow_env.SHOULD_RETRY=true and retries fire (fail_count > 0). Without
+    // the fix, the predicate gets `None` for flow_env, evaluates to false,
+    // and the flow fails on the first attempt with fail_count = 0.
+    let flow_status = completed
+        .flow_status
+        .as_ref()
+        .expect("flow should have a flow_status");
+    let module_status = &flow_status["modules"][0];
+    let failed_retries = module_status["failed_retries"].as_array();
+    assert!(
+        failed_retries.is_some_and(|v| !v.is_empty()),
+        "retry_if with flow_env should have triggered retries; module status: {module_status:?}"
+    );
+
+    Ok(())
+}
+
+// stop_after_all_iters_if predicate sees flow_env. Regression for the
+// signature change to `evaluate_stop_after_all_iters_if`.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_in_stop_after_all_iters_if(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "STOP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let inner = flow_module(
+        "iter_step",
+        FlowModuleValue::RawScript {
+            input_transforms: [js_input("i", "flow_input.iter.value")].into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(i: number) {
+    return {iter: i};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let loop_module = {
+        let mut m = flow_module(
+            "loop",
+            FlowModuleValue::ForloopFlow {
+                iterator: InputTransform::Javascript { expr: "[1, 2, 3]".to_string() },
+                modules: vec![inner],
+                modules_node: None,
+                skip_failures: false,
+                parallel: false,
+                parallelism: None,
+                squash: None,
+            },
+        );
+        m.stop_after_all_iters_if = Some(windmill_common::flows::StopAfterIf {
+            expr: "flow_env.STOP === true".to_string(),
+            skip_if_stopped: true,
+            error_message: None,
+            error_include_result: false,
+        });
+        m
+    };
+
+    let after = flow_module(
+        "after",
+        FlowModuleValue::RawScript {
+            input_transforms: Default::default(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main() {
+    return {stage: "after-loop"};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![loop_module, after],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // With fix: stop_after_all_iters_if reads flow_env.STOP=true after the
+    // loop completes → flow stops, `after` does not run, final result is
+    // the loop's output.
+    // Without fix: predicate sees flow_env=None, returns false, `after` runs
+    // and overrides the result.
+    assert!(
+        result.get("stage").is_none() || result["stage"] != "after-loop",
+        "stop_after_all_iters_if with flow_env should stop after the loop; got {result:?}"
+    );
+
+    Ok(())
+}
+
+// stop_after_all_iters_if with `error_message` + `error_include_result` fails the
+// flow and embeds the loop's aggregated iteration results under `error.result`.
+// Covers the loop/branch-all path where `nresult` is already populated with the
+// aggregated results (distinct from the per-step fallback to `result`).
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_all_iters_if_error_includes_result(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let inner = flow_module(
+        "iter_step",
+        FlowModuleValue::RawScript {
+            input_transforms: [js_input("i", "flow_input.iter.value")].into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(i: number) {
+    return { iter: i };
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let loop_module = {
+        let mut m = flow_module(
+            "loop",
+            FlowModuleValue::ForloopFlow {
+                iterator: InputTransform::Javascript { expr: "[1, 2, 3]".to_string() },
+                modules: vec![inner],
+                modules_node: None,
+                skip_failures: false,
+                parallel: false,
+                parallelism: None,
+                squash: None,
+            },
+        );
+        m.stop_after_all_iters_if = Some(windmill_common::flows::StopAfterIf {
+            expr: "true".to_string(),
+            skip_if_stopped: false,
+            error_message: Some("loop failed".to_string()),
+            error_include_result: true,
+        });
+        m
+    };
+
+    let flow = FlowValue { modules: vec![loop_module], same_worker: false, ..Default::default() };
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+
+    assert!(
+        !job.success,
+        "loop with a raised early-stop error should fail"
+    );
+    let result = job.json_result().unwrap();
+    assert_eq!(result["error"]["name"], "EarlyStopError", "got {result:?}");
+    assert_eq!(result["error"]["message"], "loop failed");
+    // error.result holds the aggregated iteration results (one per iteration)
+    let iters = result["error"]["result"].as_array().unwrap_or_else(|| {
+        panic!("error.result should be an array of iteration results; got {result:?}")
+    });
+    let iter_values: Vec<_> = iters.iter().map(|r| r["iter"].clone()).collect();
+    assert_eq!(
+        iter_values,
+        vec![json!(1), json!(2), json!(3)],
+        "error.result should contain each iteration's output; got {result:?}"
+    );
 
     Ok(())
 }

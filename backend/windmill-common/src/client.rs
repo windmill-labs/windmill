@@ -2,7 +2,7 @@ use anyhow::Context;
 use reqwest::{Body, Response};
 use serde::de::DeserializeOwned;
 
-use crate::utils::HTTP_CLIENT;
+use crate::utils::{HTTP_CLIENT, HTTP_CLIENT_STREAMING};
 
 #[derive(Clone)]
 pub struct AuthedClient {
@@ -49,7 +49,31 @@ impl AuthedClient {
             "{}/api/w/{}/oidc/token/{}",
             self.base_internal_url, self.workspace, audience
         );
-        make_basic_get_request(self, &url, None, Some("decoding oidc token as json string")).await
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::error!("Error requesting oidc token from {url}: {e:#?}");
+                anyhow::anyhow!("Error requesting oidc token from {url}: {e:#?}")
+            })?;
+
+        match response.status().as_u16() {
+            200u16 => Ok(response.text().await.context("reading oidc token body")?),
+            status => {
+                let body = response.text().await.unwrap_or_default();
+                Err(anyhow::anyhow!(
+                    "oidc token request to {url} failed with status {status}: {body}"
+                ))
+            }
+        }
     }
 
     pub async fn get_resource_value<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
@@ -91,6 +115,59 @@ impl AuthedClient {
         }
     }
 
+    /// Whether the workspace configures this dbt warehouse. Resolves nothing.
+    pub async fn dbt_warehouse_exists(&self, name: &str) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/api/w/{}/dbt/warehouse_exists/{}",
+            self.base_internal_url, self.workspace, name
+        );
+        let response = self.get(&url, vec![]).await?;
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    /// Record a run's settled dbt nodes, for a worker with no database.
+    ///
+    /// Posted with the JOB's token, not the agent's: the route takes the job
+    /// from the token, and the agent's own credential only authenticates
+    /// against the agent surface.
+    pub async fn record_dbt_run_progress(
+        &self,
+        req: &[crate::dbt_manifest::DbtRunProgressRequest],
+    ) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/api/w/{}/dbt/run_progress",
+            self.base_internal_url, self.workspace
+        );
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+            )
+            .json(req)
+            .send()
+            .await?;
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    /// Where a dbt warehouse name points, for a worker with no database.
+    pub async fn get_dbt_warehouse<T: DeserializeOwned>(&self, name: &str) -> anyhow::Result<T> {
+        let url = format!(
+            "{}/api/w/{}/dbt/warehouse/{}",
+            self.base_internal_url, self.workspace, name
+        );
+        make_basic_get_request(self, &url, None, Some("decoding the dbt warehouse ref")).await
+    }
+
     pub async fn get_completed_job_result<T: DeserializeOwned>(
         &self,
         path: &str,
@@ -106,26 +183,6 @@ impl AuthedClient {
             &url,
             Some(query),
             Some("decoding completed job result as json"),
-        )
-        .await
-    }
-
-    pub async fn get_flow_env_by_flow_job_id<T: DeserializeOwned>(
-        &self,
-        root_job_id: &str,
-        var_name: &str,
-        json_path: Option<String>,
-    ) -> anyhow::Result<T> {
-        let url = format!(
-            "{}/api/w/{}/jobs/flow_env_by_flow_job_id/{}/{}",
-            self.base_internal_url, self.workspace, root_job_id, var_name
-        );
-        let query = query_from_json_path(json_path);
-        make_basic_get_request(
-            self,
-            &url,
-            Some(query),
-            Some("decoding flow env variable as json"),
         )
         .await
     }
@@ -150,6 +207,21 @@ impl AuthedClient {
         .await
     }
 
+    pub async fn get_flow_user_state(
+        &self,
+        job_id: &str,
+        key: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let url = format!(
+            "{}/api/w/{}/jobs/flow/user_states/{}/{}",
+            self.base_internal_url,
+            self.workspace,
+            job_id,
+            urlencoding::encode(key),
+        );
+        make_basic_get_request(self, &url, None, Some("decoding flow user state as json")).await
+    }
+
     pub async fn upload_s3_file<S>(
         &self,
         workspace_id: &str,
@@ -166,14 +238,17 @@ impl AuthedClient {
         if let Some(storage) = storage {
             query.push(("storage", storage));
         }
+        let url = format!(
+            "{}/api/w/{}/job_helpers/upload_s3_file",
+            self.base_internal_url, workspace_id
+        );
+        // Use the streaming HTTP client (no total request timeout) because the
+        // upload body is streamed and total time depends on data size.
         let response = self
             .force_client
             .as_ref()
-            .unwrap_or(&HTTP_CLIENT)
-            .post(format!(
-                "{}/api/w/{}/job_helpers/upload_s3_file",
-                self.base_internal_url, workspace_id
-            ))
+            .unwrap_or(&HTTP_CLIENT_STREAMING)
+            .post(&url)
             .query(&query)
             .header(
                 reqwest::header::ACCEPT,
@@ -187,12 +262,17 @@ impl AuthedClient {
             .body(Body::wrap_stream(body))
             .send()
             .await
-            .context(format!("Sent upload_s3_file request",))
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            .context(format!("Failed to send upload_s3_file request to {url}"))?;
 
         match response.status().as_u16() {
             200u16 => Ok(()),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+            _ => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                Err(anyhow::anyhow!(
+                    "upload_s3_file request to {url} failed with status {status}: {body}"
+                ))
+            }
         }
     }
 

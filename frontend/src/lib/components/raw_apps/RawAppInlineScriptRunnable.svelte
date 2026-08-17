@@ -20,16 +20,23 @@
 	import SchemaForm from '../SchemaForm.svelte'
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
 	import JobLoader from '../JobLoader.svelte'
-	import type { Job, ScriptLang } from '$lib/gen'
+	import type { Job, OpenFlow, ScriptLang } from '$lib/gen'
 	import { slide } from 'svelte/transition'
 	import { DebugToolbar, DebugPanel, debugState } from '$lib/components/debug'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { isHubFlowPath } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
+	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+
+	const getOpWs = getRawAppOperatingWorkspace()
+	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
+		delete_after_secs?: number
 	}
 	export type Runnable = RunnableWithInlineScript | undefined
 	interface Props {
@@ -70,6 +77,7 @@
 
 	let selectedTab = $state('test')
 	let args = $state({})
+	let hubFlowPreview: OpenFlow | undefined = $state(undefined)
 
 	function getSchema(runnable: RunnableWithFields) {
 		if (isRunnableByPath(runnable)) {
@@ -127,7 +135,7 @@
 			case 'groups':
 				return $userStore?.groups ?? []
 			case 'workspace':
-				return $workspaceStore ?? ''
+				return opWs ?? ''
 			case 'author':
 				return $userStore?.email ?? '' // In editor, author is the current user
 			default:
@@ -162,7 +170,15 @@
 		} else if (isRunnableByPath(runnable)) {
 			if (jobLoader && isRunnableByPath(runnable)) {
 				if (runnable.runType == 'flow') {
-					await jobLoader.runFlowByPath(runnable.path, args)
+					if (isHubFlowPath(runnable.path)) {
+						if (!hubFlowPreview) {
+							sendUserToast('Hub flow preview is still loading', true)
+							return
+						}
+						await jobLoader.runFlowPreview(args, hubFlowPreview, undefined, runnable.path)
+					} else {
+						await jobLoader.runFlowByPath(runnable.path, args)
+					}
 				} else if (runnable.runType == 'script' || runnable.runType == 'hubscript') {
 					await jobLoader.runScriptByPath(runnable.path, args)
 				}
@@ -176,6 +192,7 @@
 
 <JobLoader
 	noCode={true}
+	workspaceOverride={opWs}
 	bind:scriptProgress
 	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
@@ -193,6 +210,7 @@
 					bind:inlineScript={runnable.inlineScript}
 					bind:name={runnable.name}
 					bind:fields={runnable.fields}
+					bind:delete_after_secs={runnable.delete_after_secs}
 					onRun={testPreview}
 					on:delete
 					path={appPath}
@@ -203,6 +221,7 @@
 					rawApps
 					bind:runnable
 					bind:fields={runnable.fields}
+					bind:hubFlowPreview
 					on:fork={(e) => fork(e.detail)}
 					on:delete
 					{id}
@@ -285,6 +304,7 @@
 										</div>
 										<SchemaForm
 											on:keydownCmdEnter={testPreview}
+											workspace={opWs}
 											disabledArgs={Object.entries(runnable?.fields ?? {})
 												.filter(([_, v]) => v.type == 'static')
 												.map(([k]) => k)}

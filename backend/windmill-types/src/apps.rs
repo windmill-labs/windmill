@@ -16,6 +16,7 @@ pub struct ListAppQuery {
     pub path_start: Option<String>,
     pub include_draft_only: Option<bool>,
     pub with_deployment_msg: Option<bool>,
+    pub label: Option<String>,
 }
 
 #[derive(Deserialize)]

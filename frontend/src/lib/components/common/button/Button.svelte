@@ -355,8 +355,12 @@
 			onblur={bubble('blur')}
 			onmouseenter={bubble('mouseenter')}
 			onmouseleave={bubble('mouseleave')}
-			onclick={() => {
+			onclick={(event) => {
 				loading = true
+				// A link button can still want to intercept its own click (e.g. to resolve
+				// the real destination first and preventDefault), so `onClick` must run here
+				// too — the button branch below is not the only one that takes a handler.
+				onClick?.(event)
 				dispatch('click', event)
 				if (!loadUntilNav) {
 					loading = false
@@ -385,7 +389,11 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon class={twMerge('shrink-0', endIcon?.classes)} size={lucideIconSize} />
+				<endIcon.icon
+					class={twMerge('shrink-0', endIcon?.classes)}
+					size={lucideIconSize}
+					{...endIcon.props}
+				/>
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				<div
@@ -434,7 +442,11 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon class={twMerge('shrink-0', endIcon?.classes)} size={lucideIconSize} />
+				<endIcon.icon
+					class={twMerge('shrink-0', endIcon?.classes)}
+					size={lucideIconSize}
+					{...endIcon.props}
+				/>
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				{@const Icon = shortCut.Icon}

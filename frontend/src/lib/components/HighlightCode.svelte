@@ -14,8 +14,11 @@
 	import yaml from 'svelte-highlight/languages/yaml'
 	import java from 'svelte-highlight/languages/java'
 	import ruby from 'svelte-highlight/languages/ruby'
+	import r from 'svelte-highlight/languages/r'
 	import type { Script } from '$lib/gen'
 	import { Button } from './common'
+	import CopyButton from './common/button/CopyButton.svelte'
+	import ScrollableX from './common/ScrollableX.svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
@@ -23,13 +26,20 @@
 
 	interface Props {
 		code?: string
-		language: Script['language'] | 'bunnative' | 'frontend' | 'json' | undefined
+		// `sql` is the dialect-agnostic option: a dbt model's SQL is compiled by
+		// whichever adapter the project targets, so naming one dialect would be a
+		// guess. Every dialect below highlights through the same grammar anyway.
+		language: Script['language'] | 'bunnative' | 'frontend' | 'json' | 'sql' | undefined
 		highlightLanguage?: LanguageType<string> | undefined
 		lines?: boolean
 		className?: string
 		onApplyCode?: () => void
 		showApplyButton?: boolean
 		applyButtonIcon?: typeof ClipboardCopy
+		/** Keep the copy/apply buttons hidden until the block is hovered, and render them subtly. */
+		buttonsOnHover?: boolean
+		/** Wrap the code in ScrollableX (native scroll, subtle hover-revealed scrollbar) for horizontal overflow. */
+		customScrollbarX?: boolean
 	}
 
 	let {
@@ -40,10 +50,18 @@
 		className = '',
 		onApplyCode = undefined,
 		showApplyButton = false,
-		applyButtonIcon = undefined
+		applyButtonIcon = undefined,
+		buttonsOnHover = false,
+		customScrollbarX = false
 	}: Props = $props()
 
-	function getLang(lang: Script['language'] | 'bunnative' | 'frontend' | 'json' | undefined) {
+	const hoverButtonClasses = buttonsOnHover
+		? 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150'
+		: ''
+
+	function getLang(
+		lang: Script['language'] | 'bunnative' | 'frontend' | 'json' | 'sql' | undefined
+	) {
 		switch (lang) {
 			case 'python3':
 				return python
@@ -63,6 +81,8 @@
 				return javascript
 			case 'graphql':
 				return graphql
+			case 'sql':
+				return sql
 			case 'mysql':
 				return sql
 			case 'postgresql':
@@ -91,6 +111,8 @@
 				return java
 			case 'ruby':
 				return ruby
+			case 'rlang':
+				return r
 			case 'json':
 				return json
 			// for related places search: ADD_NEW_LANG
@@ -104,21 +126,27 @@
 
 <HighlightTheme />
 
-<div class="relative">
-	<Button
-		wrapperClasses="absolute top-2 right-2 z-20"
-		onclick={() => copyToClipboard(code)}
-		color="light"
-		size="xs2"
-		startIcon={{
-			icon: ClipboardCopy
-		}}
-		iconOnly
-		title="Copy to clipboard"
-	/>
+<div class="relative group">
+	{#if buttonsOnHover}
+		<!-- Chat/markdown code blocks: subtle CopyButton on a surface chip. -->
+		<CopyButton
+			value={code}
+			class="absolute top-2 right-2 z-20 bg-surface rounded-md {hoverButtonClasses}"
+		/>
+	{:else}
+		<Button
+			wrapperClasses="absolute top-2 right-2 z-20"
+			onclick={() => copyToClipboard(code)}
+			color="light"
+			size="xs2"
+			startIcon={{ icon: ClipboardCopy }}
+			iconOnly
+			title="Copy to clipboard"
+		/>
+	{/if}
 	{#if showApplyButton}
 		<Button
-			wrapperClasses="absolute top-2 right-10 z-20"
+			wrapperClasses="absolute top-2 right-10 z-20 {hoverButtonClasses}"
 			onclick={onApplyCode}
 			color="light"
 			size="xs2"
@@ -129,19 +157,29 @@
 			title="Apply code"
 		/>
 	{/if}
-	<div class="overflow-x-auto">
-		{#if code?.length < 10000}
-			{#if !lines}
-				<Highlight class="nowrap {className}" language={lang} {code} />
-			{:else}
-				<Highlight class="nowrap {className}" language={lang} {code} let:highlighted>
-					<LineNumbers {highlighted} />
-				</Highlight>
-			{/if}
-		{:else}
-			<pre class="overflow-auto max-h-screen text-xs {className}"
-				><code class="language-{language}">{code}</code></pre
-			>
-		{/if}
-	</div>
+	{#if customScrollbarX}
+		<ScrollableX>
+			{@render codeBody()}
+		</ScrollableX>
+	{:else}
+		<div class="overflow-x-auto">
+			{@render codeBody()}
+		</div>
+	{/if}
 </div>
+
+{#snippet codeBody()}
+	{#if code?.length < 10000}
+		{#if !lines}
+			<Highlight class="nowrap {className}" language={lang} {code} />
+		{:else}
+			<Highlight class="nowrap {className}" language={lang} {code} let:highlighted>
+				<LineNumbers {highlighted} />
+			</Highlight>
+		{/if}
+	{:else}
+		<pre class="overflow-auto max-h-screen text-xs {className}"
+			><code class="language-{language}">{code}</code></pre
+		>
+	{/if}
+{/snippet}

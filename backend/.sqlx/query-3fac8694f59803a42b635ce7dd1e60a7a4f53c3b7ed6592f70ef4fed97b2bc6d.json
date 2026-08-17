@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS \"count!\" FROM workspace_diff\n             WHERE source_workspace_id = 'test-workspace'\n               AND fork_workspace_id = 'wm-fork-rename-test'\n               AND kind = 'script'\n               AND path = 'f/folder2/myscript'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3fac8694f59803a42b635ce7dd1e60a7a4f53c3b7ed6592f70ef4fed97b2bc6d"
+}

@@ -23,6 +23,8 @@ use windmill_common::{
     },
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
+    jobs::JobTriggerKind,
+    triggers::TriggerMetadata,
     users::username_to_permissioned_as,
     DB,
 };
@@ -31,11 +33,16 @@ use scopes::ScopeDefinition;
 
 // Re-export key auth types and functions
 pub use auth::{
-    get_end_user_email, invalidate_token_from_cache, AuthCache, ExpiringAuthCache, OptTokened,
-    Tokened, TruncatedTokenWithEmail, AUTH_CACHE,
+    get_end_user_email, invalidate_token_from_cache, is_no_auth, AuthCache, ExpiringAuthCache,
+    OptTokened, Tokened, TruncatedTokenWithEmail, AUTH_CACHE,
 };
 
 // ------------ ApiAuthed & OptJobAuthed types ------------
+
+/// Prefix `username_override_from_label` puts on the label of a generic user token. The
+/// override keeps this form even though `display_username` skips it: `require_job_read_access`
+/// matches it against `created_by` to let a token re-read the jobs it launched.
+pub const GENERIC_TOKEN_LABEL_PREFIX: &str = "label-";
 
 #[derive(Default, Clone, Debug)]
 pub struct OptJobAuthed {
@@ -54,7 +61,18 @@ pub struct ApiAuthed {
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
     pub username_override: Option<String>,
+    /// Whether `username_override` is a generic user-token label rather than a name that
+    /// identifies the requester. It cannot be recovered from the value: the ephemeral
+    /// end-user override passes a `created_by` through verbatim, and that may itself be a
+    /// `label-*` string. Only `username_override_from_label` sets it.
+    pub username_override_is_token_label: bool,
+    /// Whether the request authenticated with the session token minted at browser login.
+    /// Read by `trigger_or_fallback` and by `TriggerSource::of_request` (which attributes a
+    /// trigger mutation to the UI) — see `is_session_label` for why it attributes rather than
+    /// proves, and must not gate authority.
+    pub is_session_token: bool,
     pub token_prefix: Option<String>,
+    pub read_only: bool,
 }
 
 impl ApiAuthed {
@@ -71,8 +89,43 @@ impl ApiAuthed {
         }
     }
 
+    /// The name a run triggered by this principal is credited to (`v2_job.created_by`). A
+    /// trigger-token override names the entity that fired the request and wins; a generic
+    /// token label does not, so the token owner is credited and stays traceable even when
+    /// `permissioned_as` is an on-behalf-of identity. The audit `end_user` is the override
+    /// itself, label included, so the two diverge for a labeled token.
     pub fn display_username(&self) -> &str {
-        self.username_override.as_ref().unwrap_or(&self.username)
+        match self.username_override.as_deref() {
+            Some(o) if !self.username_override_is_token_label => o,
+            _ => &self.username,
+        }
+    }
+
+    /// Set an override that names the entity acting, e.g. a trigger. Assigning
+    /// `username_override` on its own would keep the provenance flag of whatever this authed
+    /// was built from, and a stale `true` makes `display_username` ignore the new value.
+    pub fn set_acting_username_override(&mut self, username_override: Option<String>) {
+        self.username_override = username_override;
+        self.username_override_is_token_label = false;
+    }
+
+    /// The `trigger_kind` a run started through a `/jobs/run*` route is stamped with: a trigger
+    /// that built its own metadata always wins, and a run driven by any other token — webhooks,
+    /// the CLI, the SDKs — is `webhook`, matching the `wm_trigger.kind` the preprocessor already
+    /// reports for these routes. Derived from the token, never from the request, because the
+    /// column is authority-bearing for other kinds (`app` marks a file as app-produced).
+    ///
+    /// A browser session is left unstamped rather than marked [`JobTriggerKind::Ui`]: that label
+    /// is one a worker built before this release cannot decode, and it would strand the jobs
+    /// carrying it. `webhook` has always been decodable, so it is safe to write today.
+    pub fn trigger_or_fallback(&self, trigger: Option<TriggerMetadata>) -> Option<TriggerMetadata> {
+        if trigger.is_some() {
+            return trigger;
+        }
+        if self.is_session_token {
+            return None;
+        }
+        Some(TriggerMetadata::new(None, JobTriggerKind::Webhook))
     }
 }
 
@@ -102,7 +155,10 @@ impl From<Authed> for ApiAuthed {
             folders: value.folders,
             scopes: value.scopes,
             username_override: None,
+            username_override_is_token_label: false,
+            is_session_token: false,
             token_prefix: value.token_prefix,
+            read_only: false,
         }
     }
 }
@@ -183,6 +239,10 @@ impl windmill_mcp::server::McpAuth for ApiAuthed {
     fn scopes(&self) -> Option<&[String]> {
         self.scopes.as_deref()
     }
+
+    fn read_only(&self) -> bool {
+        self.read_only
+    }
 }
 
 // ------------ Utility functions ------------
@@ -197,6 +257,33 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// Forbid sensitive global user/token management when authenticated as a
+/// superadmin *via a job token* (`WM_TOKEN`).
+///
+/// A `WM_TOKEN`'s identity is derived from an app/flow `on_behalf_of`, which a
+/// non-admin `wm_deployers` member can point at a superadmin. Trusting it for
+/// these operations would let them establish *persistent* superadmin (promote a
+/// user, reset a superadmin's password, mint a superadmin token, ...). `job_id`
+/// is set only for `WM_TOKEN`s; regular session/API tokens have it `None`, so a
+/// real superadmin who needs this from a script uses a dedicated superadmin API
+/// token (which only a real superadmin can create) instead of `$WM_TOKEN`.
+pub async fn forbid_superadmin_job_token(
+    db: &DB,
+    email: &str,
+    job_id: Option<uuid::Uuid>,
+) -> error::Result<()> {
+    if job_id.is_some() && is_super_admin_email(db, email).await? {
+        return Err(Error::NotAuthorized(
+            "This operation cannot be performed with a job token ($WM_TOKEN) that runs as a \
+             superadmin. If a script genuinely needs to do this, create a dedicated superadmin \
+             token from the User settings drawer (the 'Tokens' section), store it as a secret, \
+             and use that token explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
@@ -220,13 +307,348 @@ where
         }
 
         if is_scoped_token {
-            return Err(Error::NotAuthorized(format!(
+            return Err(Error::PermissionDenied(format!(
                 "Required scope: {}",
                 required_scope.as_string()
             )));
         }
     }
     Ok(())
+}
+
+/// Returns the caller's "real" scope restrictions: every scope other than
+/// `if_jobs:filter_tags:` tag filters. `None` means the token is unscoped and
+/// has the full privileges of its user; `Some` means it is restricted to the
+/// returned scopes. An empty or filter-tags-only scope list is treated as
+/// unscoped, mirroring `check_scopes`/`check_route_access`.
+fn scope_restrictions(scopes: Option<&[String]>) -> Option<Vec<&String>> {
+    let restrictions: Vec<&String> = scopes?
+        .iter()
+        .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+        .collect();
+    (!restrictions.is_empty()).then_some(restrictions)
+}
+
+/// True when the token carries no real scope restriction — unscoped, an empty scope
+/// list, or only `if_jobs:filter_tags:` filters — so it holds the full privileges of
+/// its user and can reach any non-job route they are authorized for (mirrors
+/// `check_scopes` / `check_route_access`). A `false` result means the token is
+/// genuinely scope-restricted.
+pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
+    scope_restrictions(scopes).is_none()
+}
+
+/// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
+/// a credential on behalf of `authed`: the resulting credential must never be
+/// more privileged than the caller's own token.
+///
+/// - An unscoped caller may grant any scopes (this is the existing UI/CLI flow).
+/// - A scope-restricted caller may only grant scopes that are a subset of its
+///   own, and may never produce an unscoped credential.
+///
+/// Without this, a `users:write` token could create or rescope a token to be
+/// unscoped, and a `users:read` token could refresh into an unscoped session —
+/// escaping its own restrictions.
+pub fn ensure_scopes_within_caller(
+    authed: &ApiAuthed,
+    requested_scopes: Option<&[String]>,
+) -> error::Result<()> {
+    if let Some(caller_restrictions) = scope_restrictions(authed.scopes.as_deref()) {
+        let Some(requested_restrictions) = scope_restrictions(requested_scopes) else {
+            return Err(Error::PermissionDenied(
+                "A scope-restricted token cannot create or update a token with broader (unscoped) \
+                 privileges"
+                    .to_string(),
+            ));
+        };
+
+        // MCP scopes (`mcp:all`, `mcp:favorites`, `mcp:scripts:*`, etc.) use a
+        // custom format that ScopeDefinition::from_scope_string parses
+        // permissively but the MCP runtime interprets via its own parser
+        // (parse_mcp_scopes). The two views disagree — e.g. the generic parser
+        // accepts `mcp:scripts` as an unrestricted-resource scope, while the
+        // MCP runtime ignores it as unrecognized but interprets `mcp:scripts:*`
+        // as granting all scripts. So generic containment would silently allow
+        // `mcp:scripts` → `mcp:scripts:*` (a widening). Legitimate MCP token
+        // issuance goes through the OAuth gateway (mcp/oauth_server.rs), not
+        // these user-token endpoints, so require byte-identical match for MCP
+        // scopes here rather than trying to mirror MCP semantics in two places.
+        // Unparseable non-MCP caller scopes are intentionally dropped
+        // (fail-closed): a caller scope that fails to parse can only narrow
+        // the set of requested scopes that get covered, never widen it.
+        // Unparseable requested scopes surface as `BadRequest`, which is what
+        // we want — the client is sending garbage.
+        let parsed_caller: Vec<ScopeDefinition> = caller_restrictions
+            .iter()
+            .filter(|s| !s.starts_with("mcp:"))
+            .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
+            .collect();
+        let caller_mcp: std::collections::HashSet<&str> = caller_restrictions
+            .iter()
+            .filter(|s| s.starts_with("mcp:"))
+            .map(|s| s.as_str())
+            .collect();
+
+        for requested in requested_restrictions {
+            if requested.starts_with("mcp:") {
+                if !caller_mcp.contains(requested.as_str()) {
+                    return Err(Error::PermissionDenied(format!(
+                        "A scope-restricted token cannot grant MCP scope '{requested}' unless the \
+                         caller holds the same scope verbatim"
+                    )));
+                }
+                continue;
+            }
+            let requested_scope = ScopeDefinition::from_scope_string(requested)?;
+            let covered = parsed_caller
+                .iter()
+                .any(|caller_scope| scope_contains(caller_scope, &requested_scope));
+            if !covered {
+                return Err(Error::PermissionDenied(format!(
+                    "A scope-restricted token cannot grant scope '{requested}' which exceeds its \
+                     own scopes"
+                )));
+            }
+        }
+    }
+
+    // `if_jobs:filter_tags:` fences which job tags a token can run on (enforced
+    // at job operations as `v2_job.tag = ANY(...)`), and is checked independently
+    // of domain/action/resource subset. A caller restricted by filter_tags must
+    // not be able to mint or rescope a credential that drops or widens the fence
+    // — even if the caller has no other scope restrictions (filter_tags-only
+    // tokens otherwise look "unscoped" to `scope_restrictions`).
+    if let Some(caller_tags) = first_filter_tags(authed.scopes.as_deref()) {
+        let Some(requested_tags) = first_filter_tags(requested_scopes) else {
+            return Err(Error::PermissionDenied(
+                "A token restricted by if_jobs:filter_tags cannot mint or rescope a token that \
+                 drops the tag restriction"
+                    .to_string(),
+            ));
+        };
+        let caller_set: std::collections::HashSet<&str> = caller_tags.iter().copied().collect();
+        for tag in &requested_tags {
+            if !caller_set.contains(tag) {
+                return Err(Error::PermissionDenied(format!(
+                    "A token restricted by if_jobs:filter_tags cannot grant tag '{tag}' which is \
+                     not within its own filter_tags"
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Tags from the first `if_jobs:filter_tags:<a,b,...>` scope, matching the
+/// semantics of [`get_scope_tags`] (which is what the job runtime consults).
+/// Returns `None` if no such scope is present.
+fn first_filter_tags(scopes: Option<&[String]>) -> Option<Vec<&str>> {
+    scopes?.iter().find_map(|s| {
+        s.strip_prefix("if_jobs:filter_tags:")
+            .map(|tags| tags.split(',').collect())
+    })
+}
+
+/// Whether `caller` grants at least everything `requested` grants (directional
+/// containment).
+///
+/// This is intentionally NOT `ScopeDefinition::includes`: that method answers
+/// "does this scope grant access to a required action" using OR semantics over
+/// resources (any overlap counts, and a `*` on either side matches), which is
+/// correct for access checks but unsafe for subset checks — it would let a
+/// token scoped to `scripts:read:f/team/a` mint `scripts:read:*` or
+/// `scripts:read:f/team/a,f/other/b`. Subset containment instead requires that
+/// EVERY requested resource is covered by SOME caller resource.
+fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool {
+    if caller.domain != requested.domain {
+        return false;
+    }
+
+    // write subsumes read; otherwise the action must match exactly.
+    match (caller.action.as_str(), requested.action.as_str()) {
+        (c, r) if c == r || (c == "write" && r == "read") => {}
+        // Apps only: `write` covers `run` (see `ScopeDefinition::includes`), so an
+        // app-editor token can mint the narrower run-only credential.
+        ("write", "run") if caller.domain == "apps" => {}
+        _ => return false,
+    }
+
+    if caller.domain == "jobs" && caller.action == "run" {
+        match (&caller.kind, &requested.kind) {
+            (Some(caller_kind), Some(requested_kind)) if caller_kind != requested_kind => {
+                return false
+            }
+            // Caller pinned to a kind, but the request covers any kind.
+            (Some(_), None) => return false,
+            _ => {}
+        }
+    }
+
+    match (&caller.resource, &requested.resource) {
+        // Caller is unrestricted on resources: covers everything.
+        (None, _) => true,
+        // Caller is resource-restricted but the request is not: broader.
+        (Some(_), None) => false,
+        (Some(caller_resources), Some(requested_resources)) => {
+            resource_set_contains(caller_resources, requested_resources)
+        }
+    }
+}
+
+/// Every resource in `requested` must be covered by some resource in `caller`.
+fn resource_set_contains(caller: &[String], requested: &[String]) -> bool {
+    if caller.iter().any(|r| r == "*") {
+        return true;
+    }
+    requested
+        .iter()
+        .all(|req| req != "*" && caller.iter().any(|c| resource_covers(c, req)))
+}
+
+/// Directional: does the single caller resource pattern cover `requested`?
+/// `caller` may be an exact path or a `<prefix>/*` subtree wildcard; `requested`
+/// may itself be a subtree wildcard, in which case the whole requested subtree
+/// must fall within the caller's subtree.
+fn resource_covers(caller: &str, requested: &str) -> bool {
+    if caller == requested {
+        return true;
+    }
+    let Some(prefix) = caller.strip_suffix("/*") else {
+        // An exact caller resource only covers itself (handled above).
+        return false;
+    };
+    let requested_base = requested.strip_suffix("/*").unwrap_or(requested);
+    requested_base == prefix
+        || (requested_base.starts_with(prefix)
+            && requested_base.as_bytes().get(prefix.len()) == Some(&b'/'))
+}
+
+/// Returns a predicate that checks whether `path` is within the token's
+/// scope for `{domain}:{action}:{path}`. For tokens without scope
+/// restrictions (no scopes at all, or only `if_jobs:filter_tags:*` scopes),
+/// the predicate always returns `true`.
+///
+/// Pre-parses the token's scopes once so the returned closure can cheaply
+/// filter large listings without re-parsing on each call.
+pub fn build_scope_path_predicate(
+    authed: &ApiAuthed,
+    domain: &str,
+    action: &str,
+) -> impl Fn(&str) -> bool {
+    // Mirror check_scopes semantics: a token is "scope-restricted" iff it has
+    // at least one non-`if_jobs:filter_tags:` scope. Unparseable scopes still
+    // count as restrictive — they just match nothing.
+    let (is_scoped_token, parsed): (bool, Vec<ScopeDefinition>) = match authed.scopes.as_ref() {
+        Some(scopes) => {
+            let mut is_scoped = false;
+            let parsed = scopes
+                .iter()
+                .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+                .inspect(|_| is_scoped = true)
+                .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
+                .collect();
+            (is_scoped, parsed)
+        }
+        None => (false, Vec::new()),
+    };
+    let domain = domain.to_string();
+    let action = action.to_string();
+
+    move |path: &str| -> bool {
+        if !is_scoped_token {
+            return true;
+        }
+        let required =
+            match ScopeDefinition::from_scope_string(&format!("{}:{}:{}", domain, action, path)) {
+                Ok(r) => r,
+                Err(_) => return false,
+            };
+        parsed.iter().any(|s| s.includes(&required))
+    }
+}
+
+/// The same `domain:action` path grant as [`build_scope_path_predicate`], decomposed
+/// into what a SQL `WHERE` clause needs so the filtering happens IN the query.
+///
+/// Filtering in SQL rather than dropping rows after the fetch is mandatory wherever
+/// the result is paginated: a post-fetch filter makes a page's size — and any
+/// continuation cursor derived from it — reveal the count of rows the caller cannot
+/// see. `ScopePathFilter::allows` mirrors the emitted SQL, and a cross-check test
+/// pins both to the predicate.
+pub enum ScopePathFilter {
+    /// Unscoped token, or a grant that covers every path: no restriction.
+    AllowAll,
+    /// A path is granted iff it equals an `exact` entry or sits at or under a
+    /// `prefix` (from a `prefix/*` grant, matched on the `/` boundary). Both empty
+    /// grants nothing.
+    Restricted { exact: Vec<String>, prefix: Vec<String> },
+}
+
+impl ScopePathFilter {
+    /// Whether `path` is granted. Mirrors the SQL a caller builds from this filter,
+    /// and the matching rule in `resource_matches_pattern`.
+    pub fn allows(&self, path: &str) -> bool {
+        match self {
+            ScopePathFilter::AllowAll => true,
+            ScopePathFilter::Restricted { exact, prefix } => {
+                exact.iter().any(|e| e == path)
+                    || prefix.iter().any(|p| {
+                        path == p || path.strip_prefix(p).is_some_and(|r| r.starts_with('/'))
+                    })
+            }
+        }
+    }
+}
+
+/// Restrictions equivalent to `build_scope_path_predicate(authed, domain, action)`,
+/// but pushable into SQL. See [`ScopePathFilter`]. Not for `jobs:run` scopes (whose
+/// `kind` dimension this ignores), matching the predicate's path-domain use.
+pub fn build_scope_path_filter(authed: &ApiAuthed, domain: &str, action: &str) -> ScopePathFilter {
+    let (is_scoped_token, parsed): (bool, Vec<ScopeDefinition>) = match authed.scopes.as_ref() {
+        Some(scopes) => {
+            let mut is_scoped = false;
+            let parsed = scopes
+                .iter()
+                .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+                .inspect(|_| is_scoped = true)
+                .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
+                .collect();
+            (is_scoped, parsed)
+        }
+        None => (false, Vec::new()),
+    };
+    if !is_scoped_token {
+        return ScopePathFilter::AllowAll;
+    }
+    let mut exact = Vec::new();
+    let mut prefix = Vec::new();
+    for s in &parsed {
+        if s.domain != domain {
+            continue;
+        }
+        // `write` covers `read`, mirroring ScopeDefinition::includes' action rule.
+        if !(s.action == action || (s.action == "write" && action == "read")) {
+            continue;
+        }
+        match &s.resource {
+            // A domain:action scope with no path part grants every path.
+            None => return ScopePathFilter::AllowAll,
+            Some(resources) => {
+                for r in resources {
+                    // `*` grants every path (resources_match's wildcard short-circuit).
+                    if r == "*" {
+                        return ScopePathFilter::AllowAll;
+                    }
+                    match r.strip_suffix("/*") {
+                        Some(p) => prefix.push(p.to_string()),
+                        None => exact.push(r.clone()),
+                    }
+                }
+            }
+        }
+    }
+    ScopePathFilter::Restricted { exact, prefix }
 }
 
 pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
@@ -268,6 +690,16 @@ pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
     }
     if !path.is_empty() {
         let splitted = path.split("/").collect::<Vec<&str>>();
+        // A valid path is at least `<kind>/<name>` (e.g. `u/alice/...`,
+        // `f/folder/...`). Guard the `splitted[1]` accesses below so a
+        // malformed single-segment path returns a clear error instead of
+        // panicking with an out-of-bounds index.
+        if splitted.len() < 2 {
+            return Err(Error::BadRequest(format!(
+                "Invalid path '{}': a valid path starts with 'u/<user>/' or 'f/<folder>/'",
+                path
+            )));
+        }
         if splitted[0] == "u" {
             if splitted[1] == authed.username {
                 Ok(())
@@ -477,7 +909,10 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 folders: authed.folders,
                 scopes: authed.scopes,
                 username_override: None,
+                username_override_is_token_label: false,
+                is_session_token: false,
                 token_prefix: authed.token_prefix,
+                read_only: false,
             };
 
             API_AUTHED_CACHE.insert(
@@ -493,7 +928,8 @@ pub async fn fetch_api_authed_from_permissioned_as(
         }
     };
 
-    api_authed.username_override = username_override;
+    // Callers pass a trigger or app identity here, never a token label.
+    api_authed.set_acting_username_override(username_override);
     Ok(api_authed)
 }
 
@@ -506,6 +942,8 @@ pub struct NewToken {
     pub impersonate_email: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub read_only: Option<bool>,
 }
 
 impl NewToken {
@@ -515,11 +953,19 @@ impl NewToken {
         impersonate_email: Option<String>,
         scopes: Option<Vec<String>>,
         workspace_id: Option<String>,
+        read_only: Option<bool>,
     ) -> Self {
-        Self { label, expiration, impersonate_email, scopes, workspace_id }
+        Self { label, expiration, impersonate_email, scopes, workspace_id, read_only }
     }
 }
 
+/// Low-level token mint shared by trusted callers (the user-facing
+/// `tokens/create` handler and internal mints such as native-trigger webhook
+/// tokens). It does NOT enforce that `token_config.scopes` is within the
+/// caller's own scopes — callers exposed to untrusted input must call
+/// [`ensure_scopes_within_caller`] first (internal narrowing mints intentionally
+/// skip it, since their scopes derive from the action being authorized, not the
+/// caller's token).
 pub async fn create_token_internal(
     tx: &mut sqlx::PgConnection,
     db: &DB,
@@ -564,8 +1010,8 @@ pub async fn create_token_internal(
     }
     let rows = sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id)
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id, read_only)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
             WHERE $9::varchar IS NULL OR NOT EXISTS(
                 SELECT 1 FROM workspace WHERE id = $9 AND deleted = true
             )",
@@ -578,6 +1024,7 @@ pub async fn create_token_internal(
         is_super_admin,
         token_config.scopes.as_ref().map(|x| x.as_slice()),
         token_config.workspace_id,
+        token_config.read_only.unwrap_or(false),
     )
     .execute(&mut *tx)
     .await?;
@@ -613,9 +1060,6 @@ pub async fn create_token_internal(
 /// Insert a pending expiry notification row for user tokens that have an expiration.
 /// Stores the token_hash so the join in check_expiring_tokens works even when
 /// the plaintext token column is NULL (after hash migration).
-/// When updating this filter, also update:
-/// - `is_user_token` in src/monitor.rs
-/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
 pub async fn register_token_expiry_notification(
     tx: &mut sqlx::PgConnection,
     token_hash: &str,
@@ -623,14 +1067,8 @@ pub async fn register_token_expiry_notification(
     expiration: Option<chrono::DateTime<chrono::Utc>>,
 ) {
     let Some(expiration) = expiration else { return };
-    if label == Some("session")
-        || label.is_some_and(|l| {
-            l.starts_with("ephemeral")
-                || l.starts_with("Ephemeral")
-                || l == "debugger-token"
-                || l.starts_with("mcp-oauth-")
-        })
-    {
+    // System tokens don't get expiry notifications.
+    if !windmill_common::auth::is_user_token(label) {
         return;
     }
     if let Err(e) = sqlx::query!(
@@ -747,6 +1185,18 @@ pub fn require_path_read_access_for_preview(
         return Ok(());
     };
 
+    // Reject path traversal before any privilege-based short-circuit. A Preview's
+    // path is request-supplied and bypasses the DB `proper_id` CHECK that deployed
+    // runnables get; it then flows to the worker where it builds on-disk module
+    // directories. A `..` segment or an absolute path could let a write escape the
+    // per-job dir.
+    if path.starts_with('/') || path.split('/').any(|seg| seg == "..") || path.contains('\0') {
+        return Err(Error::BadRequest(format!(
+            "Invalid path for preview job: {}",
+            path
+        )));
+    }
+
     if authed.is_admin {
         return Ok(());
     }
@@ -790,5 +1240,569 @@ pub fn require_path_read_access_for_preview(
             "Invalid path format for preview job: {}. Path must start with 'u/' or 'f/'",
             path
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn authed_with_scopes(scopes: Option<Vec<&str>>) -> ApiAuthed {
+        ApiAuthed {
+            scopes: scopes.map(|v| v.into_iter().map(String::from).collect()),
+            ..Default::default()
+        }
+    }
+
+    /// `display_username` is what `push` credits a run to, so a token label standing in for
+    /// it erases the caller from `created_by` and from the audit trail — irrecoverably when
+    /// `permissioned_as` is an on-behalf-of identity that also takes the `username` slot.
+    #[test]
+    fn generic_token_label_credits_the_token_owner() {
+        let owner_of = |label: &str| {
+            let (username_override, username_override_is_token_label) =
+                auth::username_override_from_label(Some(label.to_string()));
+            ApiAuthed {
+                username: "alice".into(),
+                username_override,
+                username_override_is_token_label,
+                ..Default::default()
+            }
+        };
+
+        // Arbitrary user-chosen labels, and the auto-generated MCP OAuth one.
+        assert_eq!(owner_of("my-personal-token").display_username(), "alice");
+        assert_eq!(
+            owner_of("mcp-oauth-mcp-client-9f3a1c").display_username(),
+            "alice"
+        );
+
+        // A trigger-*shaped* label is just as user-settable as any other, so it is credited
+        // the same way. Its value is still kept as the override, for `require_job_read_access`.
+        let webhookish = owner_of("webhook-f/svc/my_script");
+        assert_eq!(webhookish.display_username(), "alice");
+        assert_eq!(
+            webhookish.username_override.as_deref(),
+            Some("webhook-f/svc/my_script")
+        );
+
+        // Only labels `create_token` refuses to mint name the entity that fired the request.
+        assert_eq!(
+            owner_of("ephemeral-webhook-google-abc12").display_username(),
+            "ephemeral-webhook-google-abc12"
+        );
+
+        // Minted by the editor through the public handler, so it names no principal either.
+        assert_eq!(owner_of("Ephemeral lsp token").display_username(), "alice");
+
+        // The SMTP trigger sets its `email-*` identity server-side rather than through a
+        // label, so a token carrying that prefix is just a user token.
+        assert_eq!(owner_of("email-f/team/inbox").display_username(), "alice");
+        assert_eq!(
+            owner_of("ephemeral-script-end-user-enduser42").display_username(),
+            "enduser42"
+        );
+
+        // The end-user token forwards a `created_by` verbatim, and `created_by` is not
+        // constrained to a username — a job launched before the owner was credited still
+        // carries `label-*`. That is an end user, not this token's label, so it stands.
+        assert_eq!(
+            owner_of("ephemeral-script-end-user-label-alice").display_username(),
+            "label-alice"
+        );
+    }
+
+    /// A browser session is the one shape left unstamped, so the Runs page can say "a token
+    /// started this" without claiming the converse. Every other label — every shape a member
+    /// can pass to `create_token` — is `webhook`.
+    #[test]
+    fn only_a_browser_session_is_left_unstamped() {
+        let kind_of = |label: Option<&str>| {
+            ApiAuthed {
+                is_session_token: windmill_common::auth::is_session_label(label),
+                ..Default::default()
+            }
+            .trigger_or_fallback(None)
+            .map(|t| t.trigger_kind.to_string())
+        };
+
+        assert_eq!(kind_of(Some("session")), None);
+
+        for label in [
+            Some("my-personal-token"),
+            Some("webhook-f/svc/my_script"),
+            Some("Ephemeral lsp token"),
+            Some("ephemeral-script"),
+            Some("ephemeral-webhook-google-abc12"),
+            Some("mcp-oauth-mcp-client-9f3a1c"),
+            Some(""),
+            // A label-less token: the job WM_TOKEN, and any token created without one.
+            None,
+        ] {
+            assert_eq!(
+                kind_of(label).as_deref(),
+                Some("webhook"),
+                "label {label:?}"
+            );
+        }
+    }
+
+    /// A trigger that built its own metadata must survive the fallback, or a scheduled or
+    /// routed run started under a personal token would be re-attributed to a webhook.
+    #[test]
+    fn a_real_trigger_wins_over_the_token_fallback() {
+        let authed = ApiAuthed::default();
+        let schedule = TriggerMetadata::new(
+            Some("u/alice/nightly".to_string()),
+            JobTriggerKind::Schedule,
+        );
+
+        let kept = authed.trigger_or_fallback(Some(schedule)).unwrap();
+        assert_eq!(kept.trigger_kind.to_string(), "schedule");
+        assert_eq!(kept.trigger_path.as_deref(), Some("u/alice/nightly"));
+    }
+
+    // Regression tests for the Preview path traversal: a Preview's path skips the
+    // DB `proper_id` CHECK and reaches the worker, where it builds on-disk module
+    // dirs. Traversal must be rejected even for admins, who otherwise bypass the
+    // namespace/folder access check.
+    #[test]
+    fn preview_path_rejects_traversal() {
+        let admin = ApiAuthed { is_admin: true, username: "admin".into(), ..Default::default() };
+        for path in [
+            "u/admin/../../../../../../tmp/evil/payload",
+            "../../tmp/evil",
+            "/tmp/evil",
+            "u/admin/ok/../../../../etc/cron.d/x",
+        ] {
+            assert!(
+                require_path_read_access_for_preview(&admin, &Some(path.to_string())).is_err(),
+                "expected traversal path to be rejected: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn preview_path_allows_legitimate_paths() {
+        let alice = ApiAuthed { username: "alice".into(), ..Default::default() };
+        assert!(require_path_read_access_for_preview(&alice, &None).is_ok());
+        assert!(require_path_read_access_for_preview(&alice, &Some(String::new())).is_ok());
+        assert!(
+            require_path_read_access_for_preview(&alice, &Some("u/alice/my_script".into())).is_ok()
+        );
+
+        let admin = ApiAuthed { is_admin: true, username: "admin".into(), ..Default::default() };
+        assert!(
+            require_path_read_access_for_preview(&admin, &Some("hub/foo/bar/baz".into())).is_ok()
+        );
+        // `..` only as a substring of a segment is a valid name, not traversal.
+        assert!(
+            require_path_read_access_for_preview(&admin, &Some("f/team/my..script".into())).is_ok()
+        );
+    }
+
+    // Regression for WIN-2157: a malformed single-segment path (e.g. a draft
+    // saved at a bare `u`) must return a clear error, not panic on the
+    // `splitted[1]` index. Non-admins reach this branch (admins short-circuit).
+    #[test]
+    fn require_owner_of_path_rejects_malformed_path_without_panicking() {
+        let alice = ApiAuthed { username: "alice".into(), ..Default::default() };
+        for path in ["u", "f", "g", "nonsense"] {
+            let err =
+                require_owner_of_path(&alice, path).expect_err("malformed path must be rejected");
+            assert!(
+                matches!(err, Error::BadRequest(_)),
+                "expected BadRequest for '{path}', got {err:?}"
+            );
+        }
+        // A well-formed foreign path returns the owner error, not a malformed one.
+        assert!(require_owner_of_path(&alice, "u/bob/script").is_err());
+        // The user's own namespace resolves.
+        assert!(require_owner_of_path(&alice, "u/alice/script").is_ok());
+    }
+
+    #[test]
+    fn predicate_no_scopes_allows_all() {
+        let authed = authed_with_scopes(None);
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("u/alice/anything"));
+        assert!(allowed("u/bob/other"));
+    }
+
+    #[test]
+    fn predicate_tag_filter_only_allows_all() {
+        let authed = authed_with_scopes(Some(vec!["if_jobs:filter_tags:default"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("u/alice/foo"));
+    }
+
+    #[test]
+    fn predicate_single_resource_scope_filters_others() {
+        // Regression test for WIN-1981: a token scoped to one resource must
+        // not match unrelated paths in listings (e.g. /resources/list_search).
+        let authed = authed_with_scopes(Some(vec!["resources:read:u/alice/allowed_resource"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("u/alice/allowed_resource"));
+        assert!(!allowed("u/alice/other_resource"));
+        assert!(!allowed("u/bob/foo"));
+    }
+
+    #[test]
+    fn predicate_wildcard_scope_matches_subtree() {
+        let authed = authed_with_scopes(Some(vec!["resources:read:f/team/*"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("f/team/db"));
+        assert!(allowed("f/team/sub/nested"));
+        assert!(!allowed("f/other/db"));
+    }
+
+    #[test]
+    fn predicate_wrong_domain_is_rejected() {
+        let authed = authed_with_scopes(Some(vec!["variables:read:u/alice/secret"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(!allowed("u/alice/secret"));
+    }
+
+    #[test]
+    fn predicate_write_implies_read() {
+        let authed = authed_with_scopes(Some(vec!["resources:write:u/alice/foo"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("u/alice/foo"));
+        assert!(!allowed("u/alice/bar"));
+    }
+
+    // The SQL-pushable filter must grant exactly what the post-fetch predicate does:
+    // any divergence either leaks/over-grants (filter looser) or hides authorized
+    // rows (filter tighter). Cross-check both over a matrix of scope sets and paths.
+    #[test]
+    fn scope_path_filter_agrees_with_predicate() {
+        let scope_sets: Vec<Option<Vec<&str>>> = vec![
+            None,
+            Some(vec![]),
+            Some(vec!["if_jobs:filter_tags:default"]),
+            Some(vec!["resources:read"]),
+            Some(vec!["resources:read:*"]),
+            Some(vec!["resources:read:u/alice/foo"]),
+            Some(vec!["resources:read:f/team/*"]),
+            Some(vec!["resources:write:f/team/*"]),
+            Some(vec!["resources:read:u/alice/foo,f/team/*"]),
+            Some(vec!["variables:read:f/team/*"]),
+            Some(vec!["resources:read:f/team", "resources:read:f/team2/*"]),
+        ];
+        let paths = [
+            "u/alice/foo",
+            "u/alice/foobar",
+            "u/bob/foo",
+            "f/team",
+            "f/team/db",
+            "f/team/sub/nested",
+            "f/team2",
+            "f/other/db",
+        ];
+        for scopes in &scope_sets {
+            let authed = authed_with_scopes(scopes.clone());
+            let predicate = build_scope_path_predicate(&authed, "resources", "read");
+            let filter = build_scope_path_filter(&authed, "resources", "read");
+            for path in paths {
+                assert_eq!(
+                    filter.allows(path),
+                    predicate(path),
+                    "mismatch for scopes {scopes:?} path {path}"
+                );
+            }
+        }
+    }
+
+    fn opt_scopes(scopes: Option<Vec<&str>>) -> Option<Vec<String>> {
+        scopes.map(|v| v.into_iter().map(String::from).collect())
+    }
+
+    // Regression tests for WIN-1999: scoped user tokens must not be able to
+    // mint or rescope credentials with broader privileges than themselves.
+
+    #[test]
+    fn unscoped_caller_can_grant_anything() {
+        let authed = authed_with_scopes(None);
+        assert!(ensure_scopes_within_caller(&authed, None).is_ok());
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["jobs:run:scripts"])).as_deref()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn filter_tags_only_caller_is_unrestricted_on_domain_action_dimension() {
+        // The domain/action/resource subset check treats filter-tags-only as
+        // unrestricted, mirroring check_scopes/check_route_access. The tag
+        // dimension is checked separately (see filter_tags_dimension_is_monotonic).
+        let authed = authed_with_scopes(Some(vec!["if_jobs:filter_tags:default"]));
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["users:write", "if_jobs:filter_tags:default"])).as_deref()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn filter_tags_dimension_is_monotonic() {
+        // Caller restricted to tag fence "a" cannot drop the fence …
+        let single = authed_with_scopes(Some(vec!["if_jobs:filter_tags:a"]));
+        assert!(ensure_scopes_within_caller(&single, None).is_err());
+        assert!(
+            ensure_scopes_within_caller(&single, opt_scopes(Some(vec!["users:read"])).as_deref())
+                .is_err(),
+            "minting a token without filter_tags must be rejected"
+        );
+        // … cannot widen to a tag it lacks …
+        assert!(ensure_scopes_within_caller(
+            &single,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:a,b"])).as_deref()
+        )
+        .is_err());
+        // … and cannot mint a token fenced on a disjoint tag.
+        assert!(ensure_scopes_within_caller(
+            &single,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:b"])).as_deref()
+        )
+        .is_err());
+        // Narrowing or matching the tag fence is allowed.
+        let multi = authed_with_scopes(Some(vec!["if_jobs:filter_tags:a,b"]));
+        assert!(ensure_scopes_within_caller(
+            &multi,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:a"])).as_deref()
+        )
+        .is_ok());
+        assert!(ensure_scopes_within_caller(
+            &multi,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:a,b"])).as_deref()
+        )
+        .is_ok());
+        // A caller with a real scope plus a tag fence cannot drop just the fence.
+        let mixed = authed_with_scopes(Some(vec!["jobs:run:scripts", "if_jobs:filter_tags:a"]));
+        assert!(ensure_scopes_within_caller(
+            &mixed,
+            opt_scopes(Some(vec!["jobs:run:scripts"])).as_deref()
+        )
+        .is_err());
+        assert!(ensure_scopes_within_caller(
+            &mixed,
+            opt_scopes(Some(vec!["jobs:run:scripts", "if_jobs:filter_tags:a"])).as_deref()
+        )
+        .is_ok());
+        // An unrestricted caller may grant filter_tags freely.
+        let unscoped = authed_with_scopes(None);
+        assert!(ensure_scopes_within_caller(
+            &unscoped,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:x"])).as_deref()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_mint_unscoped_token() {
+        // Primitive 2 in the report: a users:write token minting an unscoped token.
+        let authed = authed_with_scopes(Some(vec!["users:write"]));
+        assert!(ensure_scopes_within_caller(&authed, None).is_err());
+        // Empty scope list is effectively unscoped and must also be rejected.
+        assert!(ensure_scopes_within_caller(&authed, Some(&[])).is_err());
+        // A scope list of only tag filters is effectively unscoped too.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:default"])).as_deref()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_remove_its_own_scopes() {
+        // Primitive 3 in the report: a users:write token setting its scopes to null.
+        let authed = authed_with_scopes(Some(vec!["users:write"]));
+        assert!(ensure_scopes_within_caller(&authed, None).is_err());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_grant_scope_it_lacks() {
+        let authed = authed_with_scopes(Some(vec!["users:write"]));
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["jobs:run:scripts"])).as_deref()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scoped_caller_can_grant_subset_of_own_scopes() {
+        let authed = authed_with_scopes(Some(vec!["users:write", "jobs:run:scripts"]));
+        // Equal scope is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["jobs:run:scripts"])).as_deref()
+        )
+        .is_ok());
+        // write implies read, so a narrower read scope is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["users:read"])).as_deref()
+        )
+        .is_ok());
+        // Tag filters narrow further and are always permitted.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["users:read", "if_jobs:filter_tags:default"])).as_deref()
+        )
+        .is_ok());
+        // Apps `write` covers `run`, so an app-editor token can mint the run-only
+        // credential for the same app — but only within its own resource subtree,
+        // and the equivalence stays Apps-only.
+        let app_editor = authed_with_scopes(Some(vec!["apps:write:u/me/a", "jobs:write"]));
+        assert!(ensure_scopes_within_caller(
+            &app_editor,
+            opt_scopes(Some(vec!["apps:run:u/me/a"])).as_deref()
+        )
+        .is_ok());
+        assert!(ensure_scopes_within_caller(
+            &app_editor,
+            opt_scopes(Some(vec!["apps:run:u/me/b"])).as_deref()
+        )
+        .is_err());
+        assert!(ensure_scopes_within_caller(
+            &app_editor,
+            opt_scopes(Some(vec!["jobs:run"])).as_deref()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_broaden_resource_scope() {
+        let authed = authed_with_scopes(Some(vec!["scripts:read:f/team/*"]));
+        // Narrower resource within the subtree is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:read:f/team/sub"])).as_deref()
+        )
+        .is_ok());
+        // A nested subtree within the caller's subtree is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:read:f/team/sub/*"])).as_deref()
+        )
+        .is_ok());
+        // The subtree root itself is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:read:f/team"])).as_deref()
+        )
+        .is_ok());
+        // A path outside the subtree is rejected.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:read:f/other/x"])).as_deref()
+        )
+        .is_err());
+        // read caller cannot grant write.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:write:f/team/db"])).as_deref()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn mcp_scopes_require_byte_identical_match() {
+        // Regression for the access-grant-OR vs runtime-MCP-parser confusion:
+        // ScopeDefinition treats `mcp:scripts` as an unrestricted-resource scope
+        // and `mcp:scripts:*` as a strictly narrower one, so generic containment
+        // would silently allow widening. The MCP runtime however ignores
+        // `mcp:scripts` (unrecognized) while `mcp:scripts:*` grants all scripts.
+        // Legitimate MCP token issuance is the OAuth gateway, not these
+        // user-token endpoints, so MCP scopes must match the caller verbatim.
+
+        // The bypass the reviewer flagged: malformed `mcp:scripts` would widen
+        // into the real `mcp:scripts:*` under generic containment.
+        let bypass = authed_with_scopes(Some(vec!["users:write", "mcp:scripts"]));
+        assert!(ensure_scopes_within_caller(
+            &bypass,
+            opt_scopes(Some(vec!["users:write", "mcp:scripts:*"])).as_deref()
+        )
+        .is_err());
+
+        // A caller without any MCP scope cannot grant one (widening on the MCP
+        // dimension), even if the rest of the requested scopes are within reach.
+        let no_mcp = authed_with_scopes(Some(vec!["users:write"]));
+        assert!(ensure_scopes_within_caller(
+            &no_mcp,
+            opt_scopes(Some(vec!["users:write", "mcp:scripts:*"])).as_deref()
+        )
+        .is_err());
+
+        // Byte-identical MCP scope passes; an additional non-matching MCP scope
+        // alongside it does not.
+        let mcp_caller = authed_with_scopes(Some(vec!["mcp:scripts:*"]));
+        assert!(ensure_scopes_within_caller(
+            &mcp_caller,
+            opt_scopes(Some(vec!["mcp:scripts:*"])).as_deref()
+        )
+        .is_ok());
+        assert!(ensure_scopes_within_caller(
+            &mcp_caller,
+            opt_scopes(Some(vec!["mcp:scripts:*", "mcp:flows:*"])).as_deref()
+        )
+        .is_err());
+
+        // Even a narrowing within MCP semantics (`mcp:all` → `mcp:scripts:*`)
+        // is rejected by the byte-identical rule. This is intentional — these
+        // endpoints are not the legitimate path for narrowing MCP tokens.
+        let mcp_all = authed_with_scopes(Some(vec!["mcp:all"]));
+        assert!(ensure_scopes_within_caller(
+            &mcp_all,
+            opt_scopes(Some(vec!["mcp:scripts:*"])).as_deref()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_escalate_to_wildcard_or_superset() {
+        // Regression for the access-grant-OR vs subset-containment confusion:
+        // ScopeDefinition::includes would (incorrectly) allow all of these.
+        let star = authed_with_scopes(Some(vec!["scripts:read:f/team/a"]));
+        // Minting `*` from a single-path scope must be rejected.
+        assert!(ensure_scopes_within_caller(
+            &star,
+            opt_scopes(Some(vec!["scripts:read:*"])).as_deref()
+        )
+        .is_err());
+        // Minting a broader subtree must be rejected.
+        assert!(ensure_scopes_within_caller(
+            &star,
+            opt_scopes(Some(vec!["scripts:read:f/team/*"])).as_deref()
+        )
+        .is_err());
+
+        // A comma-separated list that adds an uncovered resource must be rejected,
+        // even though one element overlaps the caller's scope.
+        let list = authed_with_scopes(Some(vec!["scripts:read:f/team/a"]));
+        assert!(ensure_scopes_within_caller(
+            &list,
+            opt_scopes(Some(vec!["scripts:read:f/team/a,f/other/b"])).as_deref()
+        )
+        .is_err());
+
+        // A subset of a multi-resource caller scope is allowed.
+        let multi = authed_with_scopes(Some(vec!["scripts:read:f/team/a,f/team/b"]));
+        assert!(ensure_scopes_within_caller(
+            &multi,
+            opt_scopes(Some(vec!["scripts:read:f/team/a"])).as_deref()
+        )
+        .is_ok());
+
+        // A wildcard caller covers any subset, but not `*`-less escalation rules apply
+        // only when the caller itself lacks `*`.
+        let wildcard = authed_with_scopes(Some(vec!["scripts:read:*"]));
+        assert!(ensure_scopes_within_caller(
+            &wildcard,
+            opt_scopes(Some(vec!["scripts:read:f/team/a"])).as_deref()
+        )
+        .is_ok());
     }
 }

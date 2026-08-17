@@ -11,6 +11,8 @@ import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { lookupUsernameByEmail } from "../../core/permissioned_as.ts";
 
 import {
   GlobalOptions,
@@ -103,7 +105,8 @@ export async function pushSchedule(
   workspace: string,
   path: string,
   schedule: Schedule | ScheduleFile | undefined,
-  localSchedule: ScheduleFile
+  localSchedule: ScheduleFile,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   path = removeType(path, "schedule").replaceAll(SEP, "/");
   log.debug(`Processing local schedule ${path}`);
@@ -115,6 +118,21 @@ export async function pushSchedule(
   } catch {
     log.debug(`Schedule ${path} does not exist on remote`);
     //ignore
+  }
+
+  // Strip CLI-only boolean marker before sending to API
+  delete (localSchedule as any).has_permissioned_as;
+
+  const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (schedule) {
+      preserveFields.preserve_permissioned_as = true;
+      if ((schedule as Schedule).permissioned_as) {
+        preserveFields.permissioned_as = (schedule as Schedule).permissioned_as;
+        log.info(`Preserving ${(schedule as Schedule).permissioned_as} as permissioned_as for schedule ${path}`);
+      }
+    }
+    // On create: no client-side rule resolution needed — the backend applies folder defaults
   }
 
   if (schedule) {
@@ -132,9 +150,20 @@ export async function pushSchedule(
         path,
         requestBody: {
           ...localSchedule,
+          ...preserveFields,
         },
       });
-      if (localSchedule.enabled != schedule.enabled) {
+      // Tarball export from a fork strips `enabled` from schedule YAMLs so
+      // the fork→parent git-sync round-trip can't flip the parent's state.
+      // Skip the secondary setScheduleEnabled call when the local YAML
+      // doesn't carry `enabled` — sending `{ enabled: undefined }` would
+      // serialize to `{}` and the backend (`SetEnabled.enabled` is required)
+      // would reject the request. Preserving the target's existing flag is
+      // exactly the round-trip-safe behavior.
+      if (
+        localSchedule.enabled !== undefined &&
+        localSchedule.enabled !== schedule.enabled
+      ) {
         log.info(colors.bold.yellow(
           `Schedule ${path} is ${localSchedule.enabled ? "enabled" : "disabled"} locally but not on remote, updating remote`
         ));
@@ -158,6 +187,7 @@ export async function pushSchedule(
         requestBody: {
           path: path,
           ...localSchedule,
+          ...preserveFields,
         },
       });
     } catch (e) {
@@ -167,18 +197,42 @@ export async function pushSchedule(
   }
 }
 
-async function enable(opts: GlobalOptions, path: string) {
+async function enable(opts: GlobalOptions & { force?: boolean }, path: string) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await wmill.setScheduleEnabled({
-    workspace: workspace.workspaceId,
-    path,
-    requestBody: { enabled: true },
-  });
+  try {
+    await wmill.setScheduleEnabled({
+      workspace: workspace.workspaceId,
+      path,
+      requestBody: { enabled: true, force: opts.force },
+    });
+  } catch (e) {
+    const conflict = parseForkConflict(e);
+    if (conflict) {
+      log.error(
+        `Cannot enable schedule '${path}': the parent workspace '${conflict.parentWorkspaceId}' has the same path configured. ` +
+          `Both crons would fire on every tick and the script would run twice per scheduled time.\n` +
+          `Re-run with --force to enable anyway.`
+      );
+      process.exit(1);
+    }
+    throw e;
+  }
 
   log.info(colors.green(`Schedule ${path} enabled.`));
+}
+
+/** Parse a backend error body of the shape `fork-conflict:<kind>:<parent_workspace_id>`. */
+function parseForkConflict(
+  e: unknown
+): { kind: string; parentWorkspaceId: string } | undefined {
+  const body = (e as any)?.body;
+  const raw = typeof body === "string" ? body : (e as any)?.message ?? "";
+  const m = String(raw).match(/fork-conflict:([^:]+):(.+)/);
+  if (!m) return undefined;
+  return { kind: m[1], parentWorkspaceId: m[2].trim() };
 }
 
 async function disable(opts: GlobalOptions, path: string) {
@@ -240,10 +294,51 @@ const command = new Command()
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any)
   .command("enable", "Enable a schedule")
+  .option(
+    "--force",
+    "Bypass the fork-conflict warning when the parent workspace has the same schedule (acknowledges that both crons will fire)"
+  )
   .arguments("<path:string>")
   .action(enable as any)
   .command("disable", "Disable a schedule")
   .arguments("<path:string>")
-  .action(disable as any);
+  .action(disable as any)
+  .command(
+    "set-permissioned-as",
+    "Set the email (run-as user) for a schedule (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action((async (opts: any, schedulePath: string, email: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    const cache = new Map<string, { username: string; email: string }>();
+    const username = await lookupUsernameByEmail(
+      workspace.workspaceId,
+      email,
+      cache,
+    );
+
+    const remote = await wmill.getSchedule({
+      workspace: workspace.workspaceId,
+      path: schedulePath,
+    });
+    if (!remote) throw new Error(`Schedule ${schedulePath} not found`);
+
+    await wmill.updateSchedule({
+      workspace: workspace.workspaceId,
+      path: schedulePath,
+      requestBody: {
+        ...(remote as any),
+        permissioned_as: `u/${username}`,
+        preserve_permissioned_as: true,
+      } as any,
+    });
+    log.info(
+      colors.green(
+        `Updated permissioned_as for schedule ${schedulePath} to ${email} (username: ${username})`
+      )
+    );
+  }) as any);
 
 export default command;

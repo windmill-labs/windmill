@@ -9,12 +9,14 @@
 use axum::extract::Multipart;
 use windmill_api_auth::{
     auth::{list_tokens_internal, AuthCache, TruncatedTokenWithEmail},
-    check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    ApiAuthed,
 };
 use windmill_common::{
+    user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
-    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
+    workspaces::{check_deploy_rules, RuleCheckResult},
     DB,
 };
 use windmill_queue::schedule::clear_schedule;
@@ -32,7 +34,6 @@ use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
@@ -43,8 +44,10 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 
 use windmill_common::{
     assets::{
-        clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
+        clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
+        derive_pipeline_asset_trigger_refs, insert_script_trigger, parse_duration_secs,
+        parse_pipeline_annotations, replace_static_asset_usage, trigger_spec_to_row,
+        AssetUsageKind, ScriptTriggerKind, TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -68,6 +71,7 @@ use windmill_common::{
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptModule,
         ScriptWithStarred,
     },
+    triggers::MovedNativeTrigger,
     users::username_to_permissioned_as,
     utils::{not_found_if_none, query_elems_from_hub, require_admin, Pagination, StripPath},
     worker::to_raw_value,
@@ -80,112 +84,6 @@ use windmill_queue::{
 };
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
-
-#[derive(Serialize, sqlx::FromRow)]
-pub struct ScriptWDraft<SR> {
-    pub hash: ScriptHash,
-    pub path: String,
-    pub summary: String,
-    pub description: String,
-    pub content: String,
-    pub language: ScriptLang,
-    pub kind: ScriptKind,
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub schema: Option<Schema>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub envs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ttl: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ignore_s3_path: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dedicated_worker: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restart_unless_cancelled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_use: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_kind: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_preprocessor: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(json(nullable))]
-    pub assets: Option<Vec<AssetWithAltAccessType>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(json(nullable))]
-    pub modules: Option<HashMap<String, ScriptModule>>,
-    #[serde(flatten)]
-    #[sqlx(flatten)]
-    pub runnable_settings: SR,
-}
-
-impl ScriptWDraft<ScriptRunnableSettingsHandle> {
-    pub async fn prefetch_cached<'a>(
-        self,
-        db: &DB,
-    ) -> error::Result<ScriptWDraft<ScriptRunnableSettingsInline>> {
-        let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
-                self.runnable_settings.runnable_settings_handle,
-                db,
-            )
-            .await?;
-
-        Ok(ScriptWDraft {
-            runnable_settings: ScriptRunnableSettingsInline {
-                concurrency_settings: concurrency_settings.maybe_fallback(
-                    self.runnable_settings.concurrency_key,
-                    self.runnable_settings.concurrent_limit,
-                    self.runnable_settings.concurrency_time_window_s,
-                ),
-                debouncing_settings: debouncing_settings.maybe_fallback(
-                    self.runnable_settings.debounce_key,
-                    self.runnable_settings.debounce_delay_s,
-                ),
-            },
-            hash: self.hash,
-            path: self.path,
-            summary: self.summary,
-            description: self.description,
-            content: self.content,
-            language: self.language,
-            kind: self.kind,
-            tag: self.tag,
-            draft: self.draft,
-            schema: self.schema,
-            draft_only: self.draft_only,
-            envs: self.envs,
-            cache_ttl: self.cache_ttl,
-            cache_ignore_s3_path: self.cache_ignore_s3_path,
-            dedicated_worker: self.dedicated_worker,
-            ws_error_handler_muted: self.ws_error_handler_muted,
-            priority: self.priority,
-            restart_unless_cancelled: self.restart_unless_cancelled,
-            delete_after_use: self.delete_after_use,
-            timeout: self.timeout,
-            visible_to_runner_only: self.visible_to_runner_only,
-            auto_kind: self.auto_kind,
-            has_preprocessor: self.has_preprocessor,
-            on_behalf_of_email: self.on_behalf_of_email,
-            assets: self.assets,
-            modules: self.modules,
-        })
-    }
-}
 
 pub fn global_service() -> Router {
     Router::new()
@@ -211,7 +109,6 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_script))
         .route("/create_snapshot", post(create_snapshot_script))
         .route("/archive/p/{*path}", post(archive_script_by_path))
-        .route("/get/draft/{*path}", get(get_script_by_path_w_draft))
         .route("/get/p/{*path}", get(get_script_by_path))
         .route("/list_tokens/{*path}", get(list_tokens))
         .route("/raw/p/{*path}", get(raw_script_by_path))
@@ -243,6 +140,11 @@ pub fn workspaced_service() -> Router {
         // Temporary raw script storage for CLI lock generation
         .route("/raw_temp/store", post(store_raw_script_temp))
         .route("/raw_temp/diff", post(diff_raw_scripts_with_deployed))
+        // CI test results
+        .route("/ci_test_results/{kind}/{*path}", get(get_ci_test_results))
+        .route("/ci_test_results_batch", post(get_ci_test_results_batch))
+        // Save-time schema-contract check (pipelines gap #2b)
+        .route("/check_schema_contracts", post(check_schema_contracts))
 }
 
 #[derive(Serialize, FromRow)]
@@ -256,12 +158,9 @@ async fn list_search_scripts(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchScript>> {
     let mut tx = user_db.begin(&authed).await?;
-    #[cfg(feature = "enterprise")]
     let n = 10000;
 
-    #[cfg(not(feature = "enterprise"))]
-    let n = 10;
-
+    let allowed = build_scope_path_predicate(&authed, "scripts", "read");
     let rows = sqlx::query_as!(
         SearchScript,
         "SELECT path, content from script WHERE workspace_id = $1 AND archived = false LIMIT $2",
@@ -271,6 +170,7 @@ async fn list_search_scripts(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -279,6 +179,7 @@ async fn list_search_scripts(
 async fn list_scripts(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
@@ -289,7 +190,7 @@ async fn list_scripts(
             "hash",
             "o.path",
             "summary",
-            "COALESCE(draft.created_at, o.created_at) as created_at",
+            "o.created_at as created_at",
             "archived",
             "extra_perms",
             if !lq.without_description.unwrap_or(false) {
@@ -301,12 +202,26 @@ async fn list_scripts(
             "language",
             "favorite.path IS NOT NULL as starred",
             "tag",
-            "draft.path IS NOT NULL as has_draft",
-            "draft_only",
             "ws_error_handler_muted",
             "auto_kind",
             "codebase IS NOT NULL as use_codebase",
-            "kind"
+            "kind",
+            "o.labels",
+            "draft.email IS NOT NULL as is_draft",
+            // Canonical reference for the draft-feature comments; flows/apps point here.
+            // Per-path draft owners as a JSON array (`Json<Vec<DraftUserRef>>`); NULL -> None,
+            // never an empty array. LEFT JOIN `usr` keeps orphaned drafts (user left workspace)
+            // visible with `username = None`. A superadmin authoring in a workspace they are not
+            // a member of has no `usr` row, so fall back to their instance-derived username
+            // (`password.username`), or their email when derivation is disabled — this keeps the
+            // raw email out of the payload whenever a derived username exists. The genuine
+            // NULL-email legacy row stays None (no `usr`/`password` match, `d.email` is NULL).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END)) ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
+            "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
         .join("favorite")
@@ -317,7 +232,8 @@ async fn list_scripts(
         .left()
         .join("draft")
         .on(
-            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script'"
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script' AND draft.email = ?"
+                .bind(&authed.email),
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("created_at", lq.order_desc.unwrap_or(true))
@@ -337,13 +253,10 @@ async fn list_scripts(
             .unwrap_or(true))
         || authed.is_operator
     {
-        // only include scripts that have a main function
-        // do not hide scripts without main if preprocessor is in the kinds
-        sqlb.and_where("o.auto_kind IS NULL");
-    }
-
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("draft_only IS NOT TRUE");
+        // only include scripts that have a runnable entrypoint. Use a
+        // deny-list: anything that isn't a 'lib' (library script without
+        // main) is callable, including future `auto_kind` values.
+        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
     }
 
     if lq.show_archived.unwrap_or(false) {
@@ -384,6 +297,15 @@ async fn list_scripts(
     if let Some(dw) = &lq.dedicated_worker {
         sqlb.and_where_eq("dedicated_worker", dw);
     }
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where(
+                "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
+        }
+    }
     if authed.is_operator {
         sqlb.and_where_eq("kind", quote("script"));
     } else if let Some(lowercased_kinds) = lowercased_kinds {
@@ -406,7 +328,7 @@ async fn list_scripts(
             .fields(&["dm.deployment_msg"]);
     }
 
-    if let Some(languages) = lq.languages {
+    if let Some(languages) = &lq.languages {
         sqlb.and_where_in(
             "language",
             &languages
@@ -418,10 +340,131 @@ async fn list_scripts(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, ListableScript>(&sql)
+    let allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    let mut rows = sqlx::query_as::<_, ListableScript>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
     tx.commit().await?;
+
+    // Canonical reference for draft-only synthesis; the other kinds point here.
+    // Append the authed user's drafts at paths with no deployed script. Gated on
+    // `include_draft_only` so picker callers stay deployed-only (home page opts in);
+    // skipped past page 0 or under any narrowing filter to keep pagination clean.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.created_by.is_none()
+        && lq.first_parent_hash.is_none()
+        && lq.last_parent_hash.is_none()
+        && lq.parent_hash.is_none()
+        && lq.is_template.is_none()
+        && lq.dedicated_worker.is_none()
+        && lq.label.is_none()
+        && lq.languages.is_none()
+        && !lq.starred_only.unwrap_or(false)
+        && !lq.show_archived.unwrap_or(false)
+    {
+        // `(email = $2 OR email IS NULL)` surfaces the user's own draft-only rows plus
+        // legacy NULL-email workspace rows; `DISTINCT ON (path)` ordered `email IS NULL`
+        // last collapses a path holding both to the owned row.
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT DISTINCT ON (path)
+                      path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'script'
+                 AND (email = $2 OR email IS NULL)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM script s
+                     WHERE s.workspace_id = draft.workspace_id
+                       AND s.path = draft.path
+                 )
+               ORDER BY path, (email IS NULL)"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            let language: ScriptLang = v
+                .get("language")
+                .and_then(|x| serde_json::from_value(x.clone()).ok())
+                .unwrap_or_default();
+            let kind: ScriptKind = v
+                .get("kind")
+                .and_then(|x| serde_json::from_value(x.clone()).ok())
+                .unwrap_or(ScriptKind::Script);
+            // Scripts bind the Path widget to `script.path`, so the typed path
+            // round-trips through the draft JSON's own `path` (no `draft_path` field).
+            let draft_path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty() && *s != row.path.as_str())
+                .map(|s| s.to_string());
+            // A draft-only pipeline node (`// pipeline`) has no deployed row to carry
+            // auto_kind, so compute it from the draft content — mirroring the create
+            // path — so the home page folds it into its pipeline like a deployed member.
+            // Otherwise fall back to the `auto_kind` the frontend saved into the draft
+            // (e.g. `lib` for scripts without a `main`); the content-derived pipeline
+            // annotation keeps priority since it mirrors the deploy-time computation.
+            let auto_kind = v
+                .get("content")
+                .and_then(|s| s.as_str())
+                .filter(|c| parse_pipeline_annotations(c).in_pipeline)
+                .map(|_| "pipeline".to_string())
+                .or_else(|| {
+                    v.get("auto_kind")
+                        .and_then(|s| s.as_str())
+                        .map(|s| s.to_string())
+                });
+            rows.push(ListableScript {
+                hash: ScriptHash(0),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                created_at: row.created_at,
+                archived: false,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                language,
+                starred: false,
+                tag: v.get("tag").and_then(|s| s.as_str()).map(|s| s.to_string()),
+                description: v
+                    .get("description")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string()),
+                draft_only: Some(true),
+                has_deploy_errors: false,
+                ws_error_handler_muted: None,
+                auto_kind,
+                use_codebase: false,
+                deployment_msg: None,
+                kind,
+                labels: None,
+                // Synthesized rows have no deployed row to inherit folder labels from.
+                inherited_labels: None,
+                is_draft: true,
+                draft_path,
+                // Synthesized rows are the authed user's own draft (single-user case).
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
@@ -449,12 +492,41 @@ async fn get_top_hub_scripts(
 
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/scripts/top", *HUB_BASE_URL.read().await),
+        &format!("{}/scripts/top", **HUB_BASE_URL.load()),
         Some(query_params),
         &db,
     )
     .await?;
     Ok::<_, Error>((status_code, headers, response))
+}
+
+/// Re-point the webhooks of the native triggers a rename carried onto the new path.
+///
+/// Runs after the deploy transaction commits — repointing a webhook is not undoable — and off the
+/// request, because it waits on a third-party service that may be slow or gone, and a deploy that
+/// already committed must not look like it failed. The rename itself marked these rows
+/// `REREGISTRATION_PENDING`, so nothing is lost silently if this never finishes.
+fn reregister_moved_native_triggers(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    moved: Vec<MovedNativeTrigger>,
+) {
+    if moved.is_empty() {
+        return;
+    }
+    #[cfg(feature = "native_trigger")]
+    {
+        let (db, authed, w_id) = (db.clone(), authed.clone(), w_id.to_string());
+        tokio::spawn(async move {
+            windmill_native_triggers::rename::reregister_triggers_after_rename(
+                &db, &authed, &w_id, &moved,
+            )
+            .await;
+        });
+    }
+    #[cfg(not(feature = "native_trigger"))]
+    let _ = (db, authed, w_id, moved);
 }
 
 async fn create_snapshot_script(
@@ -463,6 +535,7 @@ async fn create_snapshot_script(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<CreateScriptQuery>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
     // TODO: Check for debouncing here as well.
@@ -470,6 +543,7 @@ async fn create_snapshot_script(
     let mut tx = None;
     let mut uploaded = false;
     let mut handle_deployment_metadata = None;
+    let mut moved_native_triggers = Vec::new();
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -477,13 +551,14 @@ async fn create_snapshot_script(
             let ns: NewScript = Some(serde_json::from_slice(&data).map_err(to_anyhow)?).unwrap();
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
             let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
-            let (new_hash, ntx, hdm) = create_script_internal(
+            let (new_hash, ntx, hdm, moved) = create_script_internal(
                 ns,
                 w_id.clone(),
                 authed.clone(),
                 db.clone(),
                 user_db.clone(),
                 webhook.clone(),
+                query.skip_if_noop,
             )
             .await?;
             let mut nh = new_hash.to_string();
@@ -496,6 +571,7 @@ async fn create_snapshot_script(
             script_hash = Some(nh);
             tx = Some(ntx);
             handle_deployment_metadata = hdm;
+            moved_native_triggers = moved;
         }
         if name == "file" {
             let hash = script_hash.as_ref().ok_or_else(|| {
@@ -526,6 +602,7 @@ async fn create_snapshot_script(
     }
 
     tx.unwrap().commit().await?;
+    reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
         hdm.handle(&db).await?;
     }
@@ -550,17 +627,27 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
+#[derive(Deserialize, Default, Clone, Copy)]
+struct CreateScriptQuery {
+    /// When set by the caller (currently only the CLI), the backend
+    /// short-circuits deploys whose content, lockfile, and metadata are
+    /// identical to the parent: no new version is inserted and the git
+    /// sync / promotion callbacks are suppressed.
+    #[serde(default)]
+    skip_if_noop: bool,
+}
+
 async fn create_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<CreateScriptQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -570,37 +657,333 @@ async fn create_script(
     {
         return Err(Error::PermissionDenied(msg));
     }
-    let (hash, tx, hdm) =
-        create_script_internal(ns, w_id, authed, db.clone(), user_db, webhook).await?;
+    let script_path = ns.path.clone();
+    let email = authed.email.clone();
+    let username = authed.username.clone();
+    let authed_for_triggers = authed.clone();
+    let (hash, tx, hdm, moved_native_triggers) = create_script_internal(
+        ns,
+        w_id.clone(),
+        authed,
+        db.clone(),
+        user_db,
+        webhook,
+        query.skip_if_noop,
+    )
+    .await?;
     tx.commit().await?;
+    reregister_moved_native_triggers(&db, &authed_for_triggers, &w_id, moved_native_triggers);
     if let Some(hdm) = hdm {
+        // Only a script that needed no lock generation is deployed and runnable by
+        // now; one that did gets its CI tests from the dependency job instead, so
+        // they don't run against a version whose lock does not exist yet — and
+        // don't run twice.
+        let ready_to_test = matches!(hdm, PostCommitDeploy::Full { .. });
         hdm.handle(&db).await?;
+        let db2 = db.clone();
+        if ready_to_test {
+            tokio::spawn(async move {
+                if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                    &db2,
+                    &w_id,
+                    &script_path,
+                    "script",
+                    &email,
+                    &username,
+                )
+                .await
+                {
+                    tracing::error!(%e, "error triggering CI tests after script deploy");
+                }
+            });
+        }
     }
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }
 
-struct HandleDeploymentMetadata {
-    email: String,
-    created_by: String,
-    w_id: String,
-    obj: DeployedObject,
-    deployment_message: Option<String>,
-    renamed_from: Option<String>,
+/// What a script deploy still has to do once its transaction has committed.
+enum PostCommitDeploy {
+    /// Everything, for a deploy with no dependency job to hand it to.
+    Full {
+        email: String,
+        created_by: String,
+        w_id: String,
+        obj: DeployedObject,
+        deployment_message: Option<String>,
+        renamed_from: Option<String>,
+    },
+    /// Only the path a rename left behind; the dependency job handles the rest.
+    /// See `tally_rename_vacated_path`.
+    VacatedPath { w_id: String, obj: DeployedObject },
 }
 
-impl HandleDeploymentMetadata {
+impl PostCommitDeploy {
     async fn handle(self, db: &DB) -> Result<()> {
-        handle_deployment_metadata(
-            &self.email,
-            &self.created_by,
-            &db,
-            &self.w_id,
-            self.obj,
-            self.deployment_message,
-            false,
-            self.renamed_from.as_deref(),
+        match self {
+            PostCommitDeploy::Full {
+                email,
+                created_by,
+                w_id,
+                obj,
+                deployment_message,
+                renamed_from,
+            } => {
+                handle_deployment_metadata(
+                    &email,
+                    &created_by,
+                    &db,
+                    &w_id,
+                    obj,
+                    deployment_message,
+                    false,
+                    renamed_from.as_deref(),
+                )
+                .await
+            }
+            PostCommitDeploy::VacatedPath { w_id, obj } => {
+                windmill_git_sync::tally_rename_vacated_path(db, &w_id, obj).await
+            }
+        }
+    }
+}
+
+/// Returns true when `ns` is effectively identical to its `parent`: same
+/// path, content, lockfile, and all persisted metadata. Used by the deploy
+/// path to short-circuit no-op re-deploys and suppress the follow-on git
+/// sync / promotion callbacks.
+///
+/// ## How drift is prevented
+///
+/// `NewScript` grows over time. If a new field is added but not wired in
+/// here, a real change would be silently classified as a no-op and
+/// dropped. The exhaustive destructure below turns that into a *compile
+/// error*: every field of `NewScript` must either feed into a comparison
+/// or be explicitly opted out via `field: _` with a one-line rationale.
+///
+/// When adding a field to `NewScript`:
+/// 1. Add it to the destructure here. The compiler will refuse to build
+///    until you do.
+/// 2. Either add a `!=` comparison against `parent` below, or bind it to
+///    `_` and write why it shouldn't affect the no-op decision.
+/// 3. Don't forget `impl Hash for NewScript` in windmill-types.
+async fn is_noop_deploy_against_parent(
+    ns: &NewScript,
+    parent: &Script<ScriptRunnableSettingsHandle>,
+    resolved_on_behalf_of: Option<&str>,
+    db: &DB,
+) -> Result<bool> {
+    if parent.archived || parent.deleted {
+        return Ok(false);
+    }
+
+    // Compile-time drift guard — see the docstring above. The `ns.foo` bindings
+    // below shadow each field as `&T`; every binding must be referenced in a
+    // comparison (the compiler will warn on any that isn't), and every ignored
+    // field (`_`) carries its rationale inline.
+    let NewScript {
+        path,
+        // version-identity field — always differs between child and parent by design
+        parent_hash: _,
+        summary,
+        description,
+        content,
+        schema,
+        is_template,
+        lock,
+        language,
+        kind,
+        tag,
+        envs,
+        concurrency_settings,
+        debouncing_settings,
+        cache_ttl,
+        cache_ignore_s3_path,
+        dedicated_worker,
+        ws_error_handler_muted,
+        priority,
+        timeout,
+        delete_after_use,
+        delete_after_secs,
+        restart_unless_cancelled,
+        // per-deploy audit field — does not change what the script *is*
+        deployment_message: _,
+        visible_to_runner_only,
+        // derived from `content` at deploy time; content equality implies equality here
+        auto_kind: _,
+        codebase,
+        has_preprocessor,
+        // both halves are folded into `resolved_on_behalf_of` before the comparison below,
+        // which is the identity that would actually be stored
+        on_behalf_of_email: _,
+        on_behalf_of: _,
+        // caller-intent flag (permission preservation), not script state
+        preserve_on_behalf_of: _,
+        assets,
+        modules,
+        // caller-intent flag (auto-resolve parent), not script state
+        auto_parent: _,
+        labels,
+        // caller-intent flag (preserve user drafts on CLI/git-sync deploys);
+        // transient, never persisted, does not change what the script *is*
+        skip_draft_deletion: _,
+    } = ns;
+
+    if path != &parent.path {
+        return Ok(false);
+    }
+    if content != &parent.content {
+        return Ok(false);
+    }
+    // A dbt lock is DERIVED, never supplied: the request carries none — the CLI
+    // sends `lock: undefined` and this route discards any anyway — while a
+    // deployed parent carries what its dependency job wrote. Comparing them makes
+    // every unchanged push a new version, a fresh dependency job and the sync
+    // activity `skip_if_noop` exists to prevent. The parent must actually hold
+    // one, or a deploy whose dependency job failed could never be retried by
+    // pushing the same project again.
+    if matches!(language, ScriptLang::Dbt) {
+        if normalize_optional_text(parent.lock.as_deref()).is_empty() {
+            return Ok(false);
+        }
+    } else if normalize_optional_text(lock.as_deref())
+        != normalize_optional_text(parent.lock.as_deref())
+    {
+        return Ok(false);
+    }
+    if summary != &parent.summary {
+        return Ok(false);
+    }
+    if description != &parent.description {
+        return Ok(false);
+    }
+    if language != &parent.language {
+        return Ok(false);
+    }
+    if std::mem::discriminant(kind.as_ref().unwrap_or(&ScriptKind::Script))
+        != std::mem::discriminant(&parent.kind)
+    {
+        return Ok(false);
+    }
+    if tag != &parent.tag {
+        return Ok(false);
+    }
+    if envs.as_deref().unwrap_or_default() != parent.envs.as_deref().unwrap_or_default() {
+        return Ok(false);
+    }
+    if labels != &parent.labels {
+        return Ok(false);
+    }
+    if cache_ttl != &parent.cache_ttl
+        || cache_ignore_s3_path != &parent.cache_ignore_s3_path
+        || dedicated_worker != &parent.dedicated_worker
+        || ws_error_handler_muted != &parent.ws_error_handler_muted
+        || priority != &parent.priority
+        || timeout != &parent.timeout
+        || delete_after_use != &parent.delete_after_use
+        || delete_after_secs != &parent.delete_after_secs
+        || restart_unless_cancelled != &parent.restart_unless_cancelled
+        || visible_to_runner_only != &parent.visible_to_runner_only
+        || has_preprocessor != &parent.has_preprocessor
+        || is_template.unwrap_or(false) != parent.is_template.unwrap_or(false)
+    {
+        return Ok(false);
+    }
+    if normalize_optional_text(codebase.as_deref())
+        != normalize_optional_text(parent.codebase.as_deref())
+    {
+        return Ok(false);
+    }
+    if resolved_on_behalf_of != parent.on_behalf_of.as_deref() {
+        return Ok(false);
+    }
+    // Both of a dbt script's derived fields are compared as they WOULD BE STORED,
+    // not as they arrived: the schema comes from the descriptor and the clients
+    // cannot derive it (`windmill-parser-wasm` has no dbt arm), so they send the
+    // previous version's or none at all. Comparing what they sent makes every
+    // unchanged push differ.
+    let dbt_schema = matches!(language, ScriptLang::Dbt)
+        .then(|| windmill_parser_yaml::dbt_arg_schema(content).ok())
+        .flatten()
+        .and_then(|v| serde_json::value::to_raw_value(&v).ok())
+        .map(|v| Schema(sqlx::types::Json(v)));
+    let effective_schema = if matches!(language, ScriptLang::Dbt) {
+        dbt_schema.as_ref()
+    } else {
+        schema.as_ref()
+    };
+    if !schema_opt_eq(effective_schema, parent.schema.as_ref()) {
+        return Ok(false);
+    }
+    if !json_serialize_eq(assets, &parent.assets) {
+        return Ok(false);
+    }
+    if !modules_eq(modules.as_ref(), parent.modules.as_ref()) {
+        return Ok(false);
+    }
+
+    let (parent_debouncing, parent_concurrency) =
+        windmill_common::runnable_settings::prefetch_cached_from_handle(
+            parent.runnable_settings.runnable_settings_handle,
+            db,
         )
-        .await
+        .await?;
+    if concurrency_settings != &parent_concurrency {
+        return Ok(false);
+    }
+    if debouncing_settings != &parent_debouncing {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+/// Treats `None` and `Some("")` as equivalent — matches how the insert path
+/// normalizes optional text fields like `lock` and `codebase`.
+fn normalize_optional_text(s: Option<&str>) -> &str {
+    s.unwrap_or("")
+}
+
+fn schema_opt_eq(a: Option<&Schema>, b: Option<&Schema>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            match (
+                serde_json::from_str::<serde_json::Value>(x.0.get()),
+                serde_json::from_str::<serde_json::Value>(y.0.get()),
+            ) {
+                (Ok(xv), Ok(yv)) => xv == yv,
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+fn json_serialize_eq<T: Serialize>(a: &T, b: &T) -> bool {
+    match (serde_json::to_value(a), serde_json::to_value(b)) {
+        (Ok(av), Ok(bv)) => av == bv,
+        _ => false,
+    }
+}
+
+fn modules_eq(
+    a: Option<&HashMap<String, ScriptModule>>,
+    b: Option<&HashMap<String, ScriptModule>>,
+) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            if x.len() != y.len() {
+                return false;
+            }
+            x.iter().all(|(k, v)| match y.get(k) {
+                Some(ov) => {
+                    v.content == ov.content && v.language == ov.language && v.lock == ov.lock
+                }
+                None => false,
+            })
+        }
+        _ => false,
     }
 }
 
@@ -611,10 +994,12 @@ async fn create_script_internal<'c>(
     db: sqlx::Pool<Postgres>,
     user_db: UserDB,
     webhook: WebhookShared,
+    skip_if_noop: bool,
 ) -> Result<(
     ScriptHash,
     Transaction<'c, Postgres>,
-    Option<HandleDeploymentMetadata>,
+    Option<PostCommitDeploy>,
+    Vec<MovedNativeTrigger>,
 )> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
@@ -622,6 +1007,13 @@ async fn create_script_internal<'c>(
         ));
     }
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
+
+    // Normalize positive-only settings so a `<= 0` value (e.g. a CLI-pushed `0`) persists as
+    // disabled rather than as a zero-slot concurrency cap or a 0-second timeout. Deserialization
+    // already normalizes the concurrency fields; re-applying here also covers `timeout` and any
+    // NewScript built in-process rather than from a request body.
+    ns.timeout = windmill_common::runnable_settings::none_if_non_positive(ns.timeout);
+    ns.concurrency_settings = ns.concurrency_settings.normalized();
 
     guard_script_from_debounce_data(&ns).await?;
 
@@ -657,9 +1049,56 @@ async fn create_script_internal<'c>(
         }
     }
     let script_path = ns.path.clone();
+    // Caller-intent: CLI / git-sync deploys ask us to preserve any existing
+    // user draft at this path instead of wiping it as part of the deploy.
+    let skip_draft_deletion = ns.skip_draft_deletion.unwrap_or(false);
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
+
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
+
+    // Apply folder default_permissioned_as the first time a script is deployed
+    // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
+    let explicit_preserve = (ns.on_behalf_of_email.is_some() || ns.on_behalf_of.is_some())
+        && ns.preserve_on_behalf_of.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed);
+    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+        let path_already_exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2)",
+            &ns.path,
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if !path_already_exists {
+            if let Some((default_email, default_permissioned_as)) =
+                windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &ns.path)
+                    .await?
+            {
+                ns.on_behalf_of_email = Some(default_email);
+                ns.on_behalf_of = Some(default_permissioned_as);
+                ns.preserve_on_behalf_of = Some(true);
+            }
+        }
+    }
+    let authed_principal = windmill_common::users::username_to_permissioned_as(&authed.username);
+    // Resolved here rather than at the INSERT so the no-op check below compares the identity
+    // that would actually be stored: the parent row holds only the principal, while a
+    // preserving push may name that same principal by address alone.
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        ns.on_behalf_of_email.as_deref(),
+        ns.on_behalf_of.as_deref(),
+        ns.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
@@ -686,9 +1125,10 @@ async fn create_script_internal<'c>(
         .fetch_one(&mut *tx)
         .await?;
     }
-    let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
-        "SELECT * FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
-    )
+    let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
+        "SELECT {} FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
+        windmill_common::scripts::SCRIPT_COLUMNS,
+    ))
     .bind(&ns.path)
     .bind(&w_id)
     .fetch_optional(&mut *tx)
@@ -704,25 +1144,17 @@ async fn create_script_internal<'c>(
     if ns.auto_parent.unwrap_or(false) {
         if let Some(ref cs) = clashing_script {
             ns.parent_hash = Some(cs.hash.clone());
+        } else {
+            ns.parent_hash = None;
         }
     }
 
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
-        (None, Some(s)) if !s.draft_only.unwrap_or(false) => Err(Error::BadRequest(format!(
+        (None, Some(s)) => Err(Error::BadRequest(format!(
             "Path conflict for {} with non-archived hash {}",
             &ns.path, &s.hash
         ))),
-        (None, Some(s)) => {
-            sqlx::query!(
-                "DELETE FROM script WHERE hash = $1 AND workspace_id = $2",
-                s.hash.0,
-                &w_id
-            )
-            .execute(&mut *tx)
-            .await?;
-            Ok(None)
-        }
         (Some(p_hash), o) => {
             // Lock the parent row to prevent concurrent updates with the same parent_hash
             // This ensures linear lineage - only one script can have a given parent at a time
@@ -759,7 +1191,34 @@ async fn create_script_internal<'c>(
             let ScriptWithStarred { script: ps, .. } =
                 get_script_by_hash_internal(&mut tx, &w_id, p_hash, None).await?;
 
+            // No-op detection (opt-in via `?skip_if_noop=true`, currently only
+            // passed by the CLI): when the new script is effectively identical
+            // to its parent (same path, content, lockfile, and metadata), skip
+            // creating a new version entirely. Returning `None` for the
+            // deployment-metadata handle also suppresses the follow-on git
+            // sync / promotion callbacks — the whole point is that idempotent
+            // CLI pushes must not produce phantom commits on the downstream
+            // git repository.
+            if skip_if_noop
+                && is_noop_deploy_against_parent(&ns, &ps, resolved_on_behalf_of.as_deref(), &db)
+                    .await?
+            {
+                tracing::info!(
+                    workspace_id = %w_id,
+                    path = %ns.path,
+                    parent_hash = %p_hash.0,
+                    "Skipping no-op script deploy (identical to parent)"
+                );
+                return Ok((p_hash.clone(), tx, None, Vec::new()));
+            }
+
             if ps.path != ns.path {
+                // A rename writes the source as much as the destination, and only the destination
+                // is scope-checked above. `require_owner_of_path` answers whether the *user* owns
+                // the source, never what their token is scoped to — so without this a path-scoped
+                // token could move a script it has no say over, taking its native triggers along
+                // and re-registering them under that token's identity.
+                check_scopes(&authed, || format!("scripts:write:{}", ps.path))?;
                 require_owner_of_path(&authed, &ps.path)?;
             }
 
@@ -795,8 +1254,6 @@ async fn create_script_internal<'c>(
             .execute(&mut *tx)
             .await?;
 
-            clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
-
             r
         }
     }?;
@@ -805,6 +1262,25 @@ async fn create_script_internal<'c>(
         .as_ref()
         .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
+    // A dbt lock names a manifest digest and engine versions that only a
+    // dependency job can determine, and that job is also what publishes the
+    // script's manifest graph. Honouring a supplied one would skip it, leaving
+    // the script with no graph — including on the UI paths that round-trip an
+    // existing lock, like rename and unarchive.
+    if matches!(ns.language, ScriptLang::Dbt) {
+        ns.lock = None;
+        // A codebase is a bundle of JS/TS sources; a dbt script's project is
+        // its modules. Accepting one takes the branch below that stands in for
+        // lock generation, which would suppress the very job that parses the
+        // project and publishes the graph.
+        if ns.codebase.is_some() {
+            return Err(Error::BadRequest(
+                "a dbt script has no codebase: its project is its modules, the \
+                 `<script>__dbt/` folder the CLI syncs"
+                    .to_string(),
+            ));
+        }
+    }
     let lock = if ns.codebase.is_some() {
         Some(String::new())
     } else if !(
@@ -820,6 +1296,9 @@ async fn create_script_internal<'c>(
             || ns.language == ScriptLang::Php
             || ns.language == ScriptLang::Java
             || ns.language == ScriptLang::Ruby
+            || ns.language == ScriptLang::Rlang
+            || ns.language == ScriptLang::Powershell
+            || ns.language == ScriptLang::Dbt
         // for related places search: ADD_NEW_LANG
     ) {
         Some(String::new())
@@ -833,7 +1312,11 @@ async fn create_script_internal<'c>(
         })
     };
 
-    let needs_lock_gen = lock.is_none() && codebase.is_none();
+    // Always generate a lock for dedicated worker scripts, even if a lock was provided.
+    // The dependency job runs on the dedicated worker and triggers a restart so it picks
+    // up the new script version (see result_processor.rs: is_dependency_job && is_dedicated_worker).
+    let needs_lock_gen =
+        (lock.is_none() && codebase.is_none()) || ns.dedicated_worker.is_some_and(|x| x);
     let envs = ns.envs.as_ref().map(|x| x.as_slice());
     let envs = if ns.envs.is_none() || ns.envs.as_ref().unwrap().is_empty() {
         None
@@ -851,6 +1334,23 @@ async fn create_script_internal<'c>(
     } else {
         ns.language.clone()
     };
+
+    // The dbt run form's arguments come from the descriptor, and only the
+    // server can read them: both the browser and the CLI infer schemas through
+    // `windmill-parser-wasm`, whose published package has no dbt arm, so they
+    // send whatever the previous version had (nothing, for a new script).
+    if matches!(lang, ScriptLang::Dbt) {
+        match windmill_parser_yaml::dbt_arg_schema(&ns.content) {
+            Ok(schema) => {
+                ns.schema = serde_json::value::to_raw_value(&schema)
+                    .ok()
+                    .map(|v| Schema(sqlx::types::Json(v)));
+            }
+            // A descriptor that does not parse fails later with a better
+            // message than a schema error would give.
+            Err(e) => tracing::warn!("could not derive the dbt schema for {}: {e:#}", ns.path),
+        }
+    }
 
     let validate_schema = should_validate_schema(&ns.content, &ns.language);
 
@@ -897,10 +1397,288 @@ async fn create_script_internal<'c>(
         }
     };
 
+    // Failure, Trigger, and Approval scripts are runnable entrypoints by
+    // definition. They must never be marked `auto_kind = 'lib'`, or they
+    // disappear from the flow error-handler / trigger / approval pickers
+    // (which filter out lib scripts). Strip a stray `lib` here so a parser
+    // misclassification — e.g. failing to detect `main` after a deno_ast
+    // bump — cannot orphan these scripts in the UI.
+    let auto_kind = if matches!(
+        ns.kind,
+        Some(ScriptKind::Failure) | Some(ScriptKind::Trigger) | Some(ScriptKind::Approval)
+    ) && auto_kind.as_deref() == Some("lib")
+    {
+        None
+    } else {
+        auto_kind
+    };
+
+    let ci_test_refs =
+        windmill_common::schema::parse_ci_test_annotation(&ns.content, &lang.as_comment_lit());
+    // `pipeline` wins over `test` and any client-supplied auto_kind. The
+    // bare `// pipeline` marker is the opt-in signal for pipeline
+    // membership; parsed writes tell us what is produced (we don't record
+    // them in auto_kind itself).
+    let pipeline_annotations = parse_pipeline_annotations(&ns.content);
+    // `// materialize` materializes a `ducklake://<name>/<table>` target from a
+    // DuckDB script. These two constraints hold for *both* modes: a non-DuckLake
+    // target would otherwise deploy, register a producer in the asset graph, then
+    // silently no-op at run time (`build_materialized_query` returns `Ok(None)`),
+    // and a non-DuckDB script never reaches the executor that records state. The
+    // managed-only checks (single trailing SELECT, no SQL args) come after — a
+    // `manual` script owns its DDL and skips them.
+    if let Some(m) = pipeline_annotations.materialize.as_ref() {
+        if ns.language != ScriptLang::DuckDb {
+            return Err(Error::BadRequest(format!(
+                "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
+                 wmll.ducklake helpers to materialize from other languages.",
+                ns.language.as_str()
+            )));
+        }
+        if m.target_kind != windmill_parser::asset_parser::AssetKind::Ducklake {
+            return Err(Error::BadRequest(
+                "`// materialize` only supports a DuckLake target \
+                 (`ducklake://<name>/<table>`); other asset kinds aren't materializable."
+                    .to_string(),
+            ));
+        }
+        if !m.target_path.contains('/') {
+            return Err(Error::BadRequest(format!(
+                "`// materialize` needs a table in the target: \
+                 `ducklake://{0}/<table>` (got `ducklake://{0}`).",
+                m.target_path
+            )));
+        }
+        if !m.manual {
+            if let Err(e) = windmill_parser::sql_materialize::classify_wrap(&ns.content) {
+                return Err(Error::BadRequest(e.message()));
+            }
+            // SQL args are supported: managed materialize strips line comments
+            // (including `-- $name (type)` declarations) when it wraps the SELECT,
+            // but the executor parses the signature from the un-wrapped script, so
+            // `$name` references in the SELECT stay bound at run time.
+        }
+        // Reconciliation strategies are mutually exclusive; surface a conflict
+        // rather than silently dropping behavior the author may have intended.
+        // Precedence must mirror the runtime (`duckdb_executor` strategy
+        // derivation): scd2 (`history`) > append > merge (`key=`) > replace.
+        if m.scd2 && m.append {
+            tracing::warn!(
+                "script {}: both `history`/`scd2` and `append` set on // materialize; history wins (SCD2), append ignored",
+                ns.path
+            );
+        } else if m.unique_key.is_some() && m.append {
+            tracing::warn!(
+                "script {}: both `key=` and `append` set on // materialize; append wins (INSERT-only, no dedup)",
+                ns.path
+            );
+        }
+        // SCD2 (`key=<col> history` / `scd2`) option-combination checks the
+        // runtime cannot honor: reject at deploy with a clear message rather
+        // than letting the script deploy and fail on its first run. Mirrors the
+        // executor's safety-net `MaterializeSpec::validate` (duckdb_executor).
+        if let Err(e) = m.validate(pipeline_annotations.partition.is_some()) {
+            return Err(Error::BadRequest(e));
+        }
+        // `manual` materialize never captures a schema (no wrap codegen), so
+        // there is no contract for `on_schema_change` to mute downstream.
+        if m.manual && m.on_schema_change == windmill_parser::asset_parser::OnSchemaChange::Ignore {
+            tracing::warn!(
+                "script {}: `on_schema_change=ignore` on a `manual` materialize is inert — manual mode captures no schema, so consumers have no contract to check",
+                ns.path
+            );
+        }
+    }
+    // A `// data_test` line whose right-hand side doesn't parse into a known
+    // check is dropped silently by the parser (fail-safe). For a data-quality
+    // assertion that is a footgun — a typo disables the test with no signal —
+    // so warn at deploy. Warning, not rejection: it matches the other pipeline
+    // deploy checks above and can't false-positive a deploy on an edge the
+    // coarse count and the parser disagree on.
+    let malformed_data_tests =
+        windmill_parser::asset_parser::count_malformed_data_tests(&ns.content);
+    if malformed_data_tests > 0 {
+        tracing::warn!(
+            "script {}: {} `// data_test` line(s) are malformed and were dropped — the intended \
+             check(s) will not run. Fix the syntax (e.g. `data_test accepted_values <col> = a,b,c`, \
+             `data_test relationships <col> -> <asset>.<refcol>`).",
+            ns.path,
+            malformed_data_tests
+        );
+    }
+    let (malformed_measures, malformed_dimensions) =
+        windmill_parser::asset_parser::count_malformed_metric_annotations(&ns.content);
+    if malformed_measures > 0 || malformed_dimensions > 0 {
+        tracing::warn!(
+            "script {}: {} `// measure` and {} `// dimension` line(s) are malformed and were \
+             dropped. Fix the syntax (`measure <name> = <agg> [where <pred>]`, \
+             `dimension <name> = <expr>`).",
+            ns.path,
+            malformed_measures,
+            malformed_dimensions
+        );
+    }
+    // `// macros` — this script is a workspace macro library: its body is
+    // CREATE [OR REPLACE] MACRO statements plus plain setup, registered into
+    // `macro_definition` and injected as TEMP macros into consumer jobs.
+    // Pure shape checks happen here; the registry writes and the cross-lib
+    // name-collision check run inside the deploy transaction below.
+    let macro_lib_defs: Option<Vec<windmill_parser::duckdb_macros::ParsedMacro>> =
+        if pipeline_annotations.macros {
+            if ns.language != ScriptLang::DuckDb {
+                return Err(Error::BadRequest(format!(
+                    "`// macros` is only supported for DuckDB scripts, not {}",
+                    ns.language.as_str()
+                )));
+            }
+            if pipeline_annotations.materialize.is_some() {
+                return Err(Error::BadRequest(
+                    "`// macros` and `// materialize` are mutually exclusive — a macro \
+                     library defines reusable macros, it does not produce an asset"
+                        .to_string(),
+                ));
+            }
+            let lib = windmill_parser::duckdb_macros::parse_macro_library(&ns.content)
+                .map_err(Error::BadRequest)?;
+            let macros: Vec<_> = lib
+                .into_iter()
+                .filter_map(|s| match s {
+                    windmill_parser::duckdb_macros::LibStatement::Macro(m) => Some(m),
+                    windmill_parser::duckdb_macros::LibStatement::Setup(_) => None,
+                })
+                .collect();
+            if macros.is_empty() {
+                return Err(Error::BadRequest(
+                    "`// macros` library defines no macros".to_string(),
+                ));
+            }
+            let all_names: std::collections::HashSet<String> =
+                macros.iter().map(|m| m.name.clone()).collect();
+            // DuckDB bind-checks a macro body at CREATE time, so a body may
+            // only call same-file macros defined *earlier* — this also makes
+            // file order a valid creation order for whole-lib (`// use`)
+            // injection and rules out within-lib cycles.
+            let mut defined: std::collections::HashSet<String> = Default::default();
+            for m in &macros {
+                if windmill_parser::duckdb_builtins::is_duckdb_builtin(&m.name) {
+                    return Err(Error::BadRequest(format!(
+                        "macro `{}` shadows a DuckDB built-in function; pick another name",
+                        m.name
+                    )));
+                }
+                if defined.contains(&m.name) {
+                    return Err(Error::BadRequest(format!(
+                        "macro `{}` is defined twice in this library",
+                        m.name
+                    )));
+                }
+                let called =
+                    windmill_parser::duckdb_macros::detect_macro_calls(&m.body, &all_names);
+                if let Some(fwd) = called
+                    .iter()
+                    .find(|c| !defined.contains(*c) && *c != &m.name)
+                {
+                    return Err(Error::BadRequest(format!(
+                        "macro `{}` calls `{}`, which is defined later in the file; define \
+                         `{}` first (DuckDB bind-checks macro bodies at creation)",
+                        m.name, fwd, fwd
+                    )));
+                }
+                defined.insert(m.name.clone());
+            }
+            Some(macros)
+        } else {
+            None
+        };
+    // dbt is deliberately not a pipeline member: that membership carries an
+    // editor whose premise is that the transforms are authored in it, and a dbt
+    // project is authored in a local `dbt run` loop. Its models reach the shared
+    // graph as `dbt://` assets either way (docs/dbt-runtime.md).
+    let in_pipeline = pipeline_annotations.in_pipeline && ns.language != ScriptLang::Dbt;
+    // `// trigger all` → AND join barrier (else OR, the default).
+    let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
+    // Script-level `// debounce <dur>` default; a per-`// on debounce=`
+    // overrides it (precedence resolved per edge below).
+    let pipeline_debounce_default = pipeline_annotations.debounce_default;
+    let pipeline_triggers = pipeline_annotations.triggers;
+    // `// tag <name>` overrides the caller-supplied tag at deploy. Source
+    // wins, matching the wipe-and-reinsert convention of other pipeline
+    // annotations. Applied before the dep-job tag selection below (which
+    // special-cases dedicated_worker / bunnative / `$args[`) so that path
+    // sees the annotation-overridden value.
+    if let Some(t) = pipeline_annotations.tag.clone() {
+        ns.tag = Some(t);
+    }
+    // `// retry <count> [<delay>]` is persisted to `script_trigger` below (asset
+    // edges only) and drives native subscriber retry in the cascade: a failed
+    // subscriber re-runs as a `Script` job (not a flow step), so it stays
+    // eligible for asset dispatch and can trigger its own downstream on success.
+    // Asset presence is server-authoritative: re-parse the deployed content
+    // (same parsers the frontend wasm wraps) and union with the client list.
+    // The `asset` rows written below drive the asset-trigger cascade, so a
+    // client deploying `assets: null` (e.g. broken wasm inference) must not
+    // silently kill the producer side while `// on` subscribers stay wired.
+    let effective_assets = crate::asset_inference::effective_script_assets(
+        &ns.language,
+        &ns.content,
+        ns.assets.take(),
+    );
+    // Register the `// materialize` target as a write asset so the deployed
+    // asset graph shows this script as the producer of the managed table — the
+    // body's `SELECT` doesn't express the write (the runtime generates it), so
+    // server-side inference wouldn't otherwise link it.
+    let effective_assets = if let Some(m) = pipeline_annotations.materialize.as_ref() {
+        let mut a = effective_assets.unwrap_or_default();
+        // Produced assets: the managed table, plus — for managed scd2 — the
+        // `<dim>_current` companion view the runtime (re)creates each run
+        // (`MaterializeSpec::write_targets`). Registering the view as a write
+        // asset lets `// on ducklake://…/<dim>_current` subscribers be
+        // dispatched by the cascade (which fans out from these deploy-time asset
+        // rows) and connects a consumer that reads only the view back to this
+        // producer; without it a subscriber on the view would silently never
+        // fire and the view would be an orphan node in the lineage graph.
+        for (target_kind, path) in m.write_targets() {
+            let kind = windmill_common::assets::asset_kind_from_parser(target_kind);
+            use windmill_common::assets::AssetUsageAccessType;
+            if let Some(existing) = a.iter_mut().find(|x| x.kind == kind && x.path == path) {
+                // The body reads its own managed target (an incremental/merge
+                // model `SELECT`ing from the table it materializes). The runtime
+                // still generates the write, so the effective access is RW — mark
+                // it so, otherwise it stays a plain read and (a) auto-derives a
+                // self-cascade edge back to this producer and (b) shows as a muted
+                // read on the canvas. Both are wrong: it's the script's own output.
+                if existing.access_type != Some(AssetUsageAccessType::W) {
+                    existing.access_type = Some(AssetUsageAccessType::RW);
+                }
+            } else {
+                a.push(windmill_common::assets::AssetWithAltAccessType {
+                    path,
+                    kind,
+                    access_type: Some(AssetUsageAccessType::W),
+                    alt_access_type: None,
+                    columns: None,
+                });
+            }
+        }
+        Some(a)
+    } else {
+        effective_assets
+    };
+    let auto_kind = if in_pipeline || macro_lib_defs.is_some() {
+        // A macro library is a pipeline member (graph node) even without the
+        // bare `// pipeline` marker.
+        Some("pipeline".to_string())
+    } else if ci_test_refs.is_some() {
+        Some("test".to_string())
+    } else {
+        auto_kind
+    };
+
     let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
         RunnableSettings {
             debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
             concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
+            retry_settings: None,
         },
         &db,
     )
@@ -927,10 +1705,10 @@ async fn create_script_internal<'c>(
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+         envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
         &w_id,
         &hash.0,
         ns.path,
@@ -946,7 +1724,6 @@ async fn create_script_internal<'c>(
         lang as ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script) as ScriptKind,
         ns.tag,
-        ns.draft_only,
         envs,
         guarded_concurrent_limit,
         guarded_concurrency_time_window_s,
@@ -956,37 +1733,254 @@ async fn create_script_internal<'c>(
         ns.priority,
         ns.restart_unless_cancelled,
         ns.delete_after_use,
+        ns.delete_after_secs,
         ns.timeout,
         guarded_concurrency_key,
         ns.visible_to_runner_only,
         auto_kind.as_deref(),
         codebase,
-        has_preprocessor.filter(|x: &bool| *x), // should be Some(true) or None
-        windmill_common::resolve_on_behalf_of_email(
-            ns.on_behalf_of_email.as_deref(),
-            ns.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-        ),
+        has_preprocessor.filter(|x: &bool| *x),
         validate_schema,
-        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        effective_assets
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a).ok()),
         guarded_debounce_key,
         guarded_debounce_delay_s,
         ns.cache_ignore_s3_path,
         runnable_settings_handle,
-        ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok())
+        ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()),
+        ns.labels.as_deref() as Option<&[String]>,
+        resolved_on_behalf_of,
+        legacy_on_behalf_of_email,
     )
     .execute(&mut *tx)
     .await?;
 
-    let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
-    if let Some(ref p_path) = p_path_opt {
+    // Update ci_test_reference table for test scripts
+    // Delete by both new and old path to handle renames
+    let old_path = parent_hashes_and_perms.as_ref().map(|x| x.p_path.as_str());
+    sqlx::query!(
+        "DELETE FROM ci_test_reference WHERE workspace_id = $1 AND (test_script_path = $2 OR test_script_path = $3)",
+        &w_id,
+        &ns.path,
+        old_path.unwrap_or(&ns.path)
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if let Some(ref refs) = ci_test_refs {
+        for item in refs {
+            sqlx::query!(
+                "INSERT INTO ci_test_reference (workspace_id, test_script_path, test_script_hash, tested_item_path, tested_item_kind) \
+                 VALUES ($1, $2, $3, $4, $5)",
+                &w_id,
+                &ns.path,
+                &hash.0,
+                &item.path,
+                &item.kind
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // DuckDB workspace macros: wipe-and-reinsert this script's registry rows
+    // (as provider) and call-site edges (as consumer), by new+old path so
+    // renames are handled — mirrors the ci_test_reference block above.
+    let macro_defs_deleted = sqlx::query!(
+        "DELETE FROM macro_definition WHERE workspace_id = $1 AND (provider_path = $2 OR provider_path = $3)",
+        &w_id,
+        &ns.path,
+        old_path.unwrap_or(&ns.path)
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    sqlx::query!(
+        "DELETE FROM macro_usage WHERE workspace_id = $1 AND (consumer_path = $2 OR consumer_path = $3)",
+        &w_id,
+        &ns.path,
+        old_path.unwrap_or(&ns.path)
+    )
+    .execute(&mut *tx)
+    .await?;
+    // Workers cache the registry per workspace; a mutation must evict it on
+    // every replica. Transactional emit — pollers see it only on commit.
+    if macro_lib_defs.is_some() || macro_defs_deleted > 0 {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
-            p_path,
+            "INSERT INTO notify_event (channel, payload) VALUES ('notify_macro_registry_change', $1)",
             &w_id
         )
         .execute(&mut *tx)
         .await?;
+    }
+
+    if let Some(ref macros) = macro_lib_defs {
+        // Macro names are workspace-unique (they're injected unqualified into
+        // consumers). This lib's own rows — old and new path — were deleted
+        // just above, so any remaining match is a genuine cross-lib clash.
+        let names: Vec<String> = macros.iter().map(|m| m.name.clone()).collect();
+        if let Some(clash) = sqlx::query!(
+            "SELECT name, provider_path FROM macro_definition WHERE workspace_id = $1 AND name = ANY($2) LIMIT 1",
+            &w_id,
+            &names[..]
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            return Err(Error::BadRequest(format!(
+                "macro `{}` is already defined by `{}`; macro names are workspace-unique",
+                clash.name, clash.provider_path
+            )));
+        }
+        for m in macros {
+            sqlx::query!(
+                "INSERT INTO macro_definition (workspace_id, name, provider_path, params, body, is_table_macro) \
+                 VALUES ($1, $2, $3, $4, $5, $6)",
+                &w_id,
+                &m.name,
+                &ns.path,
+                &m.params,
+                &m.body,
+                m.is_table
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // Metric catalog: replace this path's declared measures/dimensions wholesale,
+    // so the catalog always describes the deployed state. Runs for every language,
+    // not just DuckDB: a script that drops its declarations (or changes language,
+    // or is replaced at the same path) must clear its old rows.
+    windmill_common::data_metrics::sync_metric_catalog(
+        &mut *tx,
+        &w_id,
+        &ns.path,
+        old_path,
+        &ns.content,
+    )
+    .await?;
+
+    if ns.language == ScriptLang::DuckDb {
+        // Record this script's macro-call edges for the asset graph (the
+        // worker re-detects calls live at job time, so these are display
+        // metadata only). A library's edges point at *other* libs' macros.
+        let registry_names: Vec<String> = sqlx::query_scalar!(
+            "SELECT name FROM macro_definition WHERE workspace_id = $1 AND provider_path != $2",
+            &w_id,
+            &ns.path
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let names_set: std::collections::HashSet<String> = registry_names.into_iter().collect();
+        let mut called: Vec<String> =
+            windmill_parser::duckdb_macros::detect_macro_calls(&ns.content, &names_set)
+                .into_iter()
+                .collect();
+        called.sort();
+        for name in called {
+            sqlx::query!(
+                "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                &w_id,
+                &ns.path,
+                &name
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        // `// use` targets should be deployed macro libraries — warn only:
+        // git-sync deploys scripts in arbitrary order, so the consumer landing
+        // first must not hard-fail. The runtime is the enforcement point.
+        for lib in &pipeline_annotations.use_libs {
+            let exists = sqlx::query_scalar!(
+                r#"SELECT EXISTS(SELECT 1 FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2) AS "e!""#,
+                &w_id,
+                lib
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if !exists {
+                tracing::warn!(
+                    "script {}: `// use {}` does not (yet) match a deployed macro library",
+                    ns.path,
+                    lib
+                );
+            }
+        }
+    } else if !pipeline_annotations.use_libs.is_empty() {
+        tracing::warn!(
+            "script {}: `// use` is only honored on DuckDB scripts; annotation ignored",
+            ns.path
+        );
+    }
+
+    if let Some(ref macros) = macro_lib_defs {
+        // Refresh every other DuckDB script's edges for this lib's names (a
+        // redeploy may add/remove macros; late-bound runtime picks changes up
+        // regardless — this only keeps the deployed graph current). The rescan
+        // covers ALL live DuckDB scripts, not just pipeline members: their
+        // edges were recorded at their own deploy and must survive the wipe.
+        let names: Vec<String> = macros.iter().map(|m| m.name.clone()).collect();
+        sqlx::query!(
+            "DELETE FROM macro_usage WHERE workspace_id = $1 AND macro_name = ANY($2) AND consumer_path != $3",
+            &w_id,
+            &names[..],
+            &ns.path
+        )
+        .execute(&mut *tx)
+        .await?;
+        let names_set: std::collections::HashSet<String> = names.into_iter().collect();
+        let members = sqlx::query!(
+            r#"SELECT DISTINCT ON (path) path AS "path!", content AS "content!"
+               FROM script
+               WHERE workspace_id = $1
+                 AND language = 'duckdb'::script_lang
+                 AND archived = false
+                 AND deleted = false
+                 AND path != $2
+               ORDER BY path, created_at DESC"#,
+            &w_id,
+            &ns.path
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for member in members {
+            let mut called: Vec<String> =
+                windmill_parser::duckdb_macros::detect_macro_calls(&member.content, &names_set)
+                    .into_iter()
+                    .collect();
+            called.sort();
+            for name in called {
+                sqlx::query!(
+                    "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                    &w_id,
+                    &member.path,
+                    &name
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+
+    let mut moved_native_triggers = Vec::new();
+    let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
+    if let Some(ref p_path) = p_path_opt {
+        if !skip_draft_deletion {
+            // Canonical: on deploy only wipe the deployer's own draft (plus the legacy
+            // NULL-email row). Teammates' drafts are independent — they stay and fire the
+            // StaleDraftModal on the teammate's next reload rather than vanishing silently.
+            sqlx::query!(
+                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+                 AND (email = $3 OR email IS NULL)",
+                p_path,
+                &w_id,
+                &authed.email,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
 
         sqlx::query!(
             "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS FALSE",
@@ -1036,6 +2030,28 @@ async fn create_script_internal<'c>(
         .execute(&mut *tx)
         .await?;
 
+        // Update ci_test_reference when a tested item is renamed
+        sqlx::query!(
+            "UPDATE ci_test_reference SET tested_item_path = $1 WHERE tested_item_path = $2 AND workspace_id = $3 AND tested_item_kind = 'script'",
+            &ns.path,
+            &p_path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        if p_path != &ns.path {
+            moved_native_triggers = windmill_common::triggers::update_triggers_script_path(
+                &mut tx, &ns.path, p_path, &w_id, false,
+            )
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!(
+                    "Error updating triggers due to runnable path change: {e:#}"
+                ))
+            })?;
+        }
+
         for schedule in schedulables {
             clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 
@@ -1043,11 +2059,15 @@ async fn create_script_internal<'c>(
                 tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
             }
         }
-    } else {
+    } else if !skip_draft_deletion {
+        // See the matching branch above — only wipe the deployer's own
+        // draft (plus the legacy NULL-email row).
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+             AND (email = $3 OR email IS NULL)",
             ns.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1064,10 +2084,10 @@ async fn create_script_internal<'c>(
         )
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-            ns.on_behalf_of_email.as_deref(),
+            resolved_on_behalf_of.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
             &authed,
-            &authed.email,
+            &authed_principal,
         ) {
             audit_log(
                 &mut *tx,
@@ -1112,10 +2132,10 @@ async fn create_script_internal<'c>(
         )
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-            ns.on_behalf_of_email.as_deref(),
+            resolved_on_behalf_of.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
             &authed,
-            &authed.email,
+            &authed_principal,
         ) {
             audit_log(
                 &mut *tx,
@@ -1144,11 +2164,181 @@ async fn create_script_internal<'c>(
         );
     }
 
-    clear_static_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
-    for asset in ns.assets.as_ref().into_iter().flatten() {
-        insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
-            .await?;
+    // Clear + reinsert this script's producer rows at script_path (== ns.path),
+    // invalidating the producer-writes cache once iff the write-producer set
+    // changed (see replace_static_asset_usage).
+    replace_static_asset_usage(
+        &mut tx,
+        &w_id,
+        &script_path,
+        effective_assets.as_deref().unwrap_or(&[]),
+    )
+    .await?;
+
+    // Pipeline trigger edges: wipe-and-reinsert per deploy so removing an
+    // `// on ...` annotation drops the edge. Only Asset / Schedule produce
+    // a row — native trigger marker annotations (`// on kafka`, etc.) are
+    // discovered by the graph endpoint directly from the per-kind trigger
+    // tables, so `trigger_spec_to_row` returns None for those.
+    clear_script_triggers(&mut *tx, &w_id, &ns.path, AssetUsageKind::Script).await?;
+    // On rename, also drop the OLD path's trigger and producer/asset rows.
+    // Both clears are keyed by path, and only `ns.path` is (re)written above
+    // (script_triggers here, asset rows via replace_static_asset_usage) — the
+    // renamed script no longer lives at the old path, so without this its
+    // stale `// on` edges keep matching producers (and would trigger a script
+    // later recreated at that path with no annotation, P1) and its producer
+    // rows keep it lingering in the asset graph.
+    // The dbt GRAPH is deliberately not cleared when a path stops being a dbt
+    // script, nor on the rename below. It is keyed by version, and every graph
+    // query joins it on `(path, hash)` through a `language = 'dbt'` CTE — so an
+    // old version's rows can never attach to whatever lives at that path now,
+    // while its own finished runs still render from them. Clearing by path
+    // would empty those run pages for good.
+    if ns.language != ScriptLang::Dbt {
+        // The saved retry state does go: nothing regenerates it, it is keyed by
+        // path alone, and it carries one user's failed invocation and its
+        // arguments. No dbt version is live at this path any more to resume it.
+        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, &ns.path).await?;
     }
+    if let Some(ref old) = p_path_opt {
+        if old != &ns.path {
+            clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
+            clear_static_asset_usage(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
+            // The saved retry state travels rather than being cleared: nothing
+            // regenerates it, so dropping it would throw away a resumable
+            // failure for what is only a rename. Only while the destination is
+            // still dbt — a rename that also converts the language would
+            // otherwise reinstate at the new path the state the branch above
+            // just cleared, leaving one user's arguments and results under a
+            // path no dbt script occupies.
+            if ns.language == ScriptLang::Dbt {
+                windmill_common::dbt_manifest::move_dbt_run_state(&mut tx, &w_id, old, &ns.path)
+                    .await?;
+            } else {
+                windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, old).await?;
+            }
+        }
+    }
+    for spec in &pipeline_triggers {
+        let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
+            continue;
+        };
+        // A `dbt://` subscription can never fire: dbt is the only producer of a
+        // warehouse relation (`// materialize` takes DuckLake targets only) and a
+        // dbt run does not dispatch. Refusing beats persisting a row that draws a
+        // cascade arrow on the canvas and then never wakes anything.
+        if trigger_ref.starts_with("dbt://") {
+            return Err(Error::BadRequest(format!(
+                "`{trigger_ref}` cannot be subscribed to: a dbt run does not trigger downstream \
+                 runs, and nothing else writes a warehouse relation. Declare the read without \
+                 `on` to keep the lineage edge, or schedule this script."
+            )));
+        }
+        // Effective debounce for this edge: per-`// on debounce=` wins,
+        // else the script-level `// debounce` default. Debounce only
+        // applies to asset-cascade edges; other trigger kinds get none.
+        let debounce_s = match spec {
+            TriggerSpec::Asset { debounce: Some(d), .. } => parse_duration_secs(d),
+            TriggerSpec::Asset { .. } => pipeline_debounce_default
+                .as_deref()
+                .and_then(parse_duration_secs),
+            _ => None,
+        };
+        // `// retry` applies only to the asset cascade: a failed subscriber is
+        // re-run natively (a `Script` job, not a flow step), so it can still
+        // trigger its own downstream on success — see asset_dispatch.
+        let (retry_count, retry_delay_s) = match spec {
+            TriggerSpec::Asset { .. } => (
+                pipeline_annotations
+                    .retry
+                    .as_ref()
+                    // `// retry <count>` count is u32; saturate the narrowing to i16.
+                    .map(|r| r.count.min(i16::MAX as u32) as i16),
+                pipeline_annotations
+                    .retry
+                    .as_ref()
+                    .and_then(|r| r.delay.as_deref())
+                    .and_then(parse_duration_secs),
+            ),
+            _ => (None, None),
+        };
+        insert_script_trigger(
+            &mut *tx,
+            &w_id,
+            AssetUsageKind::Script,
+            &ns.path,
+            trigger_kind,
+            &trigger_ref,
+            pipeline_join_all,
+            debounce_s,
+            retry_count,
+            retry_delay_s,
+        )
+        .await?;
+    }
+
+    // Auto-derived cascade edges: within a `// pipeline`, a read of a ducklake
+    // table or s3 object wires the cascade edge straight from the FROM clause,
+    // so `// on <asset>` is only needed for edges inference can't see (dynamic
+    // SQL) or to carry per-edge opts. `// mute <asset>` / `// mute all` opt out.
+    // Explicit `// on` asset edges (inserted just above) win the dedup — they
+    // carry the per-edge debounce, so a derived row must not shadow them.
+    if in_pipeline && !pipeline_annotations.mute_all {
+        let asset_ref = |spec: &TriggerSpec| {
+            trigger_spec_to_row(spec)
+                .filter(|(k, _)| *k == ScriptTriggerKind::Asset)
+                .map(|(_, r)| r)
+        };
+        let explicit_refs: std::collections::HashSet<String> =
+            pipeline_triggers.iter().filter_map(asset_ref).collect();
+        let muted_refs: std::collections::HashSet<String> = pipeline_annotations
+            .mute
+            .iter()
+            .filter_map(asset_ref)
+            .collect();
+        let derived = derive_pipeline_asset_trigger_refs(
+            effective_assets.as_deref().unwrap_or(&[]),
+            &explicit_refs,
+            &muted_refs,
+            pipeline_annotations.mute_all,
+        );
+        // Derived edges have no per-`// on` opts, so they take the script-level
+        // `// debounce` default and `// retry` policy — same as writing a bare
+        // `// on <asset>` would.
+        let derived_debounce_s = pipeline_debounce_default
+            .as_deref()
+            .and_then(parse_duration_secs);
+        let derived_retry_count = pipeline_annotations
+            .retry
+            .as_ref()
+            .map(|r| r.count.min(i16::MAX as u32) as i16);
+        let derived_retry_delay_s = pipeline_annotations
+            .retry
+            .as_ref()
+            .and_then(|r| r.delay.as_deref())
+            .and_then(parse_duration_secs);
+        for trigger_ref in derived {
+            insert_script_trigger(
+                &mut *tx,
+                &w_id,
+                AssetUsageKind::Script,
+                &ns.path,
+                ScriptTriggerKind::Asset,
+                &trigger_ref,
+                pipeline_join_all,
+                derived_debounce_s,
+                derived_retry_count,
+                derived_retry_delay_s,
+            )
+            .await?;
+        }
+    }
+
+    // Schedule annotations (`// on schedule`) are marker-only — the binding
+    // lives on the schedule row's own `script_path` field, which the user
+    // creates separately via the schedule editor. No script-create-time
+    // reconciliation is needed (and there are no "managed" schedules to
+    // upsert/delete anymore).
 
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if let Some(parent_hash) = ns.parent_hash {
@@ -1198,6 +2388,7 @@ async fn create_script_internal<'c>(
             &authed.email,
             permissioned_as,
             authed.token_prefix.as_deref(),
+            authed.username_override.as_deref(),
             None,
             None,
             None,
@@ -1234,7 +2425,19 @@ async fn create_script_internal<'c>(
         .execute(&mut *new_tx)
         .await?;
 
-        Ok((hash, new_tx, None))
+        // The dependency job takes it from here, except for the path a rename left.
+        let vacated =
+            p_path_opt
+                .filter(|old| *old != script_path)
+                .map(|old| PostCommitDeploy::VacatedPath {
+                    w_id: w_id.clone(),
+                    obj: DeployedObject::Script {
+                        hash: hash.clone(),
+                        path: old,
+                        parent_path: None,
+                    },
+                });
+        Ok((hash, new_tx, vacated, moved_native_triggers))
     } else {
         if codebase.is_none() {
             let db2 = db.clone();
@@ -1284,10 +2487,62 @@ async fn create_script_internal<'c>(
         // )
         // .await?;
 
+        // A caller-supplied lock (CLI, git-sync) queues no dependency job, so this is the
+        // only place a deploy of one can also queue the binary build. Pushed on the deploy's
+        // own transaction: the build reads the script version back by hash, which an
+        // independently pushed job could reach before this commit lands.
+        let tx = match windmill_queue::binary_prebuild::binary_prebuild_job(
+            &db,
+            &script_path,
+            hash,
+            ns.language,
+            lock.as_deref(),
+        )
+        .await?
+        {
+            Some(prebuild) => {
+                let (job_id, new_tx) = windmill_queue::push(
+                    &db,
+                    PushIsolationLevel::Transaction(tx),
+                    &w_id,
+                    prebuild.payload,
+                    windmill_queue::PushArgs { args: &prebuild.args, extra: None },
+                    &authed.username,
+                    &authed.email,
+                    permissioned_as,
+                    authed.token_prefix.as_deref(),
+                    authed.username_override.as_deref(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                    None,
+                    true,
+                    prebuild.tag,
+                    None,
+                    None,
+                    None,
+                    Some(&authed.clone().into()),
+                    false,
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+                tracing::info!("pushed auto-build binary job {job_id} for {script_path}");
+                new_tx
+            }
+            None => tx,
+        };
+
         Ok((
             hash,
             tx,
-            Some(HandleDeploymentMetadata {
+            Some(PostCommitDeploy::Full {
                 email: authed.email,
                 created_by: authed.username,
                 w_id,
@@ -1299,6 +2554,7 @@ async fn create_script_internal<'c>(
                 deployment_message: ns.deployment_message,
                 renamed_from: p_path_opt,
             }),
+            moved_native_triggers,
         ))
     }
 }
@@ -1329,7 +2585,7 @@ pub async fn pick_hub_script_by_path(
     // Extract version_id from path (format: {hub}/{version_id}/{summary})
     let version_id = path_str.split('/').nth(1).unwrap_or("");
 
-    let hub_base_url = HUB_BASE_URL.read().await.clone();
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
     // Determine which hub to use based on version_id
     // If version_id < PRIVATE_HUB_MIN_VERSION, use default hub
@@ -1354,88 +2610,93 @@ pub async fn pick_hub_script_by_path(
     Ok::<_, Error>((status_code, headers, response))
 }
 
+// Canonical: fields inlined rather than `#[serde(flatten)]` from
+// `WithStarredInfoQuery` / `WithDraftQuery`. axum's `serde_urlencoded` extractor
+// drops type info through flatten, so `?get_draft=true` arrives as a String and
+// fails the inner bool deserializer. Inlining lets the bool adapter see it directly.
+#[derive(Deserialize)]
+struct GetScriptByPathQuery {
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
+}
+
 #[axum::debug_handler]
 async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<ScriptWithStarred<ScriptRunnableSettingsInline>> {
+    Query(query): Query<GetScriptByPathQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
-            "SELECT s.*, favorite.path IS NOT NULL as starred
+            "SELECT s.*, favorite.path IS NOT NULL as starred,
+                folder_labels(s.workspace_id, s.path) as inherited_labels
             FROM script s
             LEFT JOIN favorite
-            ON favorite.favorite_kind = 'script' 
-                AND favorite.workspace_id = s.workspace_id 
-                AND favorite.path = s.path 
+            ON favorite.favorite_kind = 'script'
+                AND favorite.workspace_id = s.workspace_id
+                AND favorite.path = s.path
                 AND favorite.usr = $3
             WHERE s.path = $1
                 AND s.workspace_id = $2
             ORDER BY s.created_at DESC LIMIT 1",
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .bind(&authed.username)
         .fetch_optional(&mut *tx)
         .await?
     } else {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
-            "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+            &format!(
+                "SELECT {}, NULL as starred, folder_labels(workspace_id, path) as inherited_labels FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                windmill_common::scripts::SCRIPT_COLUMNS,
+            ),
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .fetch_optional(&mut *tx)
         .await?
     };
     tx.commit().await?;
 
-    let script = windmill_common::scripts::prefetch_cached_script_with_starred(
-        not_found_if_none(script_o, "Script", path)?,
+    // Canonical: with no deployed row and `get_draft` set, fall back to the draft
+    // table so editing a never-deployed draft works like a deployed reload.
+    let deployed = match script_o {
+        Some(script_o) => Some(
+            windmill_common::scripts::prefetch_cached_script_with_starred(script_o, &db).await?,
+        ),
+        None => None,
+    };
+    let overlay = overlay_or_draft_only(
         &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Script,
+        path,
+        query.get_draft,
+        deployed,
+        || windmill_common::error::Error::NotFound(format!("Script not found at path {path}")),
     )
     .await?;
 
-    Ok(Json(script))
+    Ok(Json(overlay))
 }
 
 async fn list_tokens(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
     let path = path.to_path();
-    list_tokens_internal(&db, &w_id, &path, false).await
-}
-
-async fn get_script_by_path_w_draft(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ScriptWDraft<ScriptRunnableSettingsInline>> {
-    let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-
-    let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s FROM script LEFT JOIN draft ON
-         script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
-         WHERE script.path = $1 AND script.workspace_id = $2
-         ORDER BY script.created_at DESC LIMIT 1",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    let script = not_found_if_none(script_o, "Script", path)?;
-    Ok(Json(script.prefetch_cached(&db).await?))
+    list_tokens_internal(&db, &w_id, &path, false).await
 }
 
 async fn get_script_history(
@@ -1566,6 +2827,7 @@ async fn toggle_workspace_error_handler(
 async fn toggle_workspace_error_handler(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
@@ -1581,7 +2843,7 @@ async fn toggle_workspace_error_handler(
 
     match error_handler_maybe {
         Some(_) => {
-            sqlx::query_scalar!(
+            let updated = sqlx::query_scalar!(
                 "UPDATE script 
                 SET ws_error_handler_muted = $3 
                 WHERE ctid = (
@@ -1598,6 +2860,38 @@ async fn toggle_workspace_error_handler(
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
+
+            // `ws_error_handler_muted` is part of the synced script metadata, so
+            // the toggle is a deploy like any other edit of it. The hash is a
+            // placeholder: git sync keys off the path and kind alone. The update
+            // runs under RLS against an unchecked path, so it can match nothing —
+            // deploy only what it actually wrote.
+            if updated.rows_affected() > 0 {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Script {
+                        hash: ScriptHash(0),
+                        path: path.to_path().to_string(),
+                        parent_path: None,
+                    },
+                    Some(format!(
+                        "Script '{}' {} the workspace error handler",
+                        path.to_path(),
+                        if req.muted.unwrap_or(false) {
+                            "muted"
+                        } else {
+                            "unmuted"
+                        }
+                    )),
+                    true,
+                    None,
+                )
+                .await?;
+            }
+
             Ok("".to_string())
         }
         None => {
@@ -1682,12 +2976,62 @@ async fn raw_script_by_path_unpinned(
 lazy_static::lazy_static! {
     static ref DEBUG_RAW_SCRIPT_ENDPOINTS: bool =
         std::env::var("DEBUG_RAW_SCRIPT_ENDPOINTS").is_ok();
+
+    /// Fallback freshness window (seconds) for [`RAW_SCRIPT_LATEST_HASH_CACHE`].
+    /// Primary invalidation is event-driven: deploying a script writes a
+    /// `notify_runnable_version_change` row, and the server's polling-events handler
+    /// evicts the entry across all replicas (see `main.rs`). This TTL only bounds
+    /// staleness if that event is missed. Defaults to 60s (matches
+    /// `DEPLOYED_SCRIPT_HASH_CACHE`). Override with `RAW_SCRIPT_CACHE_TTL_SECONDS`.
+    static ref RAW_SCRIPT_CACHE_TTL_S: i64 = std::env::var("RAW_SCRIPT_CACHE_TTL_SECONDS")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .filter(|s| *s >= 0)
+        .unwrap_or(60);
 }
 
 lazy_static::lazy_static! {
+    // Imported-script content, keyed by
+    // `{ws}:{path}:{importer_cache_key}[:unpinned]:{latest_hash}`. Including the
+    // imported script's own latest hash makes each entry immutable, so no
+    // per-entry TTL is needed; staleness is bounded by RAW_SCRIPT_LATEST_HASH_CACHE.
     pub static ref RAW_SCRIPT_CACHE: Cache<String, String> = Cache::new(1000);
+    // `{ws}:{path}` (bare path) -> (latest non-archived hash, unix_ts cached).
+    // Resolving the imported script's own hash and keying content by it is what
+    // fixes relative-import staleness for deployed scripts, whose importer hash
+    // never moves (see #6769). Evicted on deploy by the `notify_runnable_version_change`
+    // handler in main.rs (cross-replica, within a poll interval); RAW_SCRIPT_CACHE_TTL_S
+    // is a fallback bound.
+    pub static ref RAW_SCRIPT_LATEST_HASH_CACHE: Cache<String, (i64, i64)> = Cache::new(1000);
     pub static ref CACHE_FOLDERS_PATH: Cache<String, i64> = Cache::new(1000);
 
+}
+
+/// Records a [`RAW_SCRIPT_CACHE`] lookup outcome (`hit` / `expired` / `miss`) to
+/// the `raw_script_cache_total` counter when the prometheus feature is enabled.
+#[cfg(feature = "prometheus")]
+fn record_raw_script_cache(result: &str) {
+    if let Some(c) = RAW_SCRIPT_CACHE_METRIC.as_ref() {
+        c.with_label_values(&[result]).inc();
+    }
+}
+
+#[cfg(not(feature = "prometheus"))]
+fn record_raw_script_cache(_result: &str) {}
+
+#[cfg(feature = "prometheus")]
+lazy_static::lazy_static! {
+    /// Raw relative-import cache lookups, labeled by `result` (hit/expired/miss).
+    static ref RAW_SCRIPT_CACHE_METRIC: Option<prometheus::IntCounterVec> =
+        if windmill_common::METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(prometheus::register_int_counter_vec!(
+                "raw_script_cache_total",
+                "Raw script relative-import cache lookups by result (hit/expired/miss)",
+                &["result"]
+            ).unwrap())
+        } else {
+            None
+        };
 }
 
 async fn raw_script_by_path_internal(
@@ -1711,23 +3055,10 @@ async fn raw_script_by_path_internal(
         }
     }
 
-    let cache_path = query
-        .cache_key
-        .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));
-    if let Some(cache_path) = cache_path.clone() {
-        let cached_content = RAW_SCRIPT_CACHE.get(&cache_path);
-        if let Some(cached_content) = cached_content {
-            if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-                tracing::warn!("Raw script by path request: {} (cached)", path);
-            }
-            return Ok(cached_content);
-        }
-    }
-
-    if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-        tracing::warn!("Raw script by path request: {} (not cached)", path);
-    }
-
+    // Validate + strip the language extension up front so cache keys use the bare
+    // script path. This matches the `notify_runnable_version_change` event payload
+    // (which carries the bare path), so a deploy can evict RAW_SCRIPT_LATEST_HASH_CACHE
+    // by key from the polling-events handler in the server binary.
     if !path.ends_with(".py")
         && !path.ends_with(".ts")
         && !path.ends_with(".go")
@@ -1745,6 +3076,52 @@ async fn raw_script_by_path_internal(
         .trim_end_matches(".ts")
         .trim_end_matches(".go")
         .trim_end_matches(".sh");
+
+    // Content cache is keyed by the IMPORTED script's own latest hash, not by the
+    // importer's runnable hash (`query.cache_key`). The importer hash never moves
+    // when only an imported script's content changes (relock is in-place — see
+    // #6769), so keying solely on it served stale content indefinitely. The
+    // importer + unpin dimensions are kept to preserve per-runnable authorization
+    // scoping (a content-cache hit skips the authed RLS query, so an entry must
+    // stay scoped to the runnable that fetched it); the imported latest hash is
+    // appended for content correctness.
+    let cache_path_base = query
+        .cache_key
+        .as_ref()
+        .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));
+
+    // Resolve the imported script's latest hash from RAW_SCRIPT_LATEST_HASH_CACHE
+    // (keyed by the bare path so the deploy event can evict it). A fresh entry
+    // serves from the immutable content cache with no DB hit; a stale/absent entry
+    // falls through to the query below, which refreshes both caches.
+    let hash_cache_key = format!("{w_id}:{path}");
+    let (fresh_hash, had_stale_hash) = match RAW_SCRIPT_LATEST_HASH_CACHE.get(&hash_cache_key) {
+        Some((hash, cached_at))
+            if chrono::Utc::now().timestamp() - cached_at <= *RAW_SCRIPT_CACHE_TTL_S =>
+        {
+            (Some(hash), false)
+        }
+        Some(_) => (None, true),
+        None => (None, false),
+    };
+
+    if let (Some(base), Some(latest_hash)) = (cache_path_base.as_ref(), fresh_hash) {
+        let content_key = format!("{base}:{latest_hash}");
+        if let Some(cached_content) = RAW_SCRIPT_CACHE.get(&content_key) {
+            if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+                tracing::warn!("Raw script by path request: {path} (cached, key={content_key})");
+            }
+            record_raw_script_cache("hit");
+            return Ok(cached_content);
+        }
+    }
+    if cache_path_base.is_some() {
+        record_raw_script_cache(if had_stale_hash { "expired" } else { "miss" });
+    }
+
+    if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+        tracing::warn!("Raw script by path request: {} (not cached)", path);
+    }
 
     // folder cache is only useful for python given it needs to recuse over all intermediate folders to find the package.
     // When a script exists in a folder, we can cache the fact that the folder exists to avoid extra db calls.
@@ -1778,8 +3155,10 @@ async fn raw_script_by_path_internal(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let content_o = sqlx::query_scalar!(
-        "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
+    // Fetch the latest non-archived row's hash AND content in one query: the hash
+    // keys the (immutable) content cache and refreshes RAW_SCRIPT_LATEST_HASH_CACHE.
+    let row_o = sqlx::query!(
+        "SELECT hash, content FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
         path,
         w_id
     )
@@ -1787,6 +3166,10 @@ async fn raw_script_by_path_internal(
     .warn_after_seconds(5)
     .await?;
     tx.commit().await?;
+    let (db_hash, content_o) = match row_o {
+        Some(r) => (Some(r.hash), Some(r.content)),
+        None => (None, None),
+    };
     if *DEBUG_RAW_SCRIPT_ENDPOINTS {
         tracing::warn!(
             "Raw script by path request: {} (content: {:?})",
@@ -1850,8 +3233,14 @@ async fn raw_script_by_path_internal(
         }
     }
 
-    if let Some(cache_path) = cache_path {
-        RAW_SCRIPT_CACHE.insert(cache_path, content.clone());
+    // content_o was Some, so db_hash is Some too (same row). Refresh the latest-hash
+    // cache and store the content under the hash-qualified key.
+    if let Some(db_hash) = db_hash {
+        RAW_SCRIPT_LATEST_HASH_CACHE
+            .insert(hash_cache_key, (db_hash, chrono::Utc::now().timestamp()));
+        if let Some(base) = cache_path_base {
+            RAW_SCRIPT_CACHE.insert(format!("{base}:{db_hash}"), content.clone());
+        }
     }
     if *DEBUG_RAW_SCRIPT_ENDPOINTS {
         tracing::warn!("Raw script by path request: {} (content response)", path);
@@ -1866,7 +3255,7 @@ async fn exists_script_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1)",
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1)",
         path,
         w_id
     )
@@ -1885,13 +3274,14 @@ async fn get_script_by_hash_internal<'c>(
 ) -> Result<ScriptWithStarred<ScriptRunnableSettingsHandle>> {
     let script_o = if let Some(username) = with_starred_info_for_username {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
-            "SELECT s.*, favorite.path IS NOT NULL as starred
+            "SELECT s.*, favorite.path IS NOT NULL as starred,
+                folder_labels(s.workspace_id, s.path) as inherited_labels
             FROM script s
-            LEFT JOIN favorite 
-            ON favorite.favorite_kind = 'script' 
-                AND favorite.workspace_id = s.workspace_id 
-                AND favorite.path = s.path 
-                AND favorite.usr = $1 
+            LEFT JOIN favorite
+            ON favorite.favorite_kind = 'script'
+                AND favorite.workspace_id = s.workspace_id
+                AND favorite.path = s.path
+                AND favorite.usr = $1
             WHERE s.hash = $2 AND s.workspace_id = $3",
         )
         .bind(&username)
@@ -1900,9 +3290,10 @@ async fn get_script_by_hash_internal<'c>(
         .fetch_optional(&mut **db)
         .await?
     } else {
-        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
-            "SELECT *, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
-        )
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(&format!(
+            "SELECT {}, NULL as starred, folder_labels(workspace_id, path) as inherited_labels FROM script WHERE hash = $1 AND workspace_id = $2",
+            windmill_common::scripts::SCRIPT_COLUMNS,
+        ))
         .bind(hash)
         .bind(workspace_id)
         .fetch_optional(&mut **db)
@@ -2001,18 +3392,6 @@ async fn get_deployment_status(
     Ok(Json(deployment_status))
 }
 
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return windmill_api_auth::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
-        "script",
-    )
-    .await;
-}
-
 async fn archive_script_by_path(
     authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
@@ -2027,9 +3406,8 @@ async fn archive_script_by_path(
     }
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -2053,6 +3431,17 @@ async fn archive_script_by_path(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    // The graph stays: the pinned read resolves versions through a CTE that
+    // already skips archived rows, so it stops answering for current relations
+    // either way, while deleting it would empty the Models panel of every
+    // completed run of the project. Retry state does go — nothing may resume a
+    // script that is no longer live.
+    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
+    // Pipeline event hygiene: an archived script must not be triggered by
+    // anything. Wipe declared `// on ...` edges (asset-event subscribers
+    // look these up).
+    clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, path).await?;
 
     audit_log(
         &mut *tx,
@@ -2106,9 +3495,8 @@ async fn archive_script_by_hash(
             "Operators cannot archive scripts for security reasons".to_string(),
         ));
     }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -2131,6 +3519,18 @@ async fn archive_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // The version's graph stays: its finished runs still render from it, and
+    // the live-version CTE already skips archived rows. Deletion clears it.
+    windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
+        &mut tx,
+        &w_id,
+        &script.path,
+    )
+    .await?;
+    // Pipeline event hygiene: archived scripts must not be triggered by
+    // anything. Wipe declared `// on ...` edges.
+    clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -2166,9 +3566,8 @@ async fn delete_script_by_hash(
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
     require_admin(authed.is_admin, &authed.username)?;
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -2191,7 +3590,24 @@ async fn delete_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
 
+    // Graph before assets, the order both publishers take them in — the reverse
+    // deadlocks against a job that clears its own graph and then rewrites the
+    // path's `asset` rows. A clear is needed at all because this route only
+    // soft-deletes the `script` row, so nothing cascades.
+    windmill_common::dbt_manifest::clear_dbt_manifest_version(&mut tx, &w_id, &script.path, hash.0)
+        .await?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
+        &mut tx,
+        &w_id,
+        &script.path,
+    )
+    .await?;
+    // Pipeline event hygiene: a deleted script must not be triggered by
+    // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
+    // the script was never a pipeline member.
+    clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -2238,9 +3654,8 @@ async fn delete_script_by_path(
         ));
     }
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -2253,18 +3668,7 @@ async fn delete_script_by_path(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let draft_only = sqlx::query_scalar!(
-        "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-
-    if !draft_only {
-        require_admin(authed.is_admin, &authed.username)?;
-    }
+    require_admin(authed.is_admin, &authed.username)?;
 
     // Capture all script versions and drafts for trashbin before deleting
     let trash_scripts: Vec<serde_json::Value> = sqlx::query_scalar(
@@ -2292,6 +3696,15 @@ async fn delete_script_by_path(
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
 
+    // After the DELETE, never before: every dbt writer locks the `script` row
+    // first, so taking a sidecar ahead of it deadlocks one of the pair. The
+    // VERSIONED graph needs no clear at all, cascading off `script`; the retry
+    // state does, being keyed by path alone and so inherited by whatever is
+    // created here next, and so do the editor's own graphs, whose NULL
+    // `script_hash` satisfies that foreign key without riding its cascade.
+    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
+    windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, path).await?;
+
     if !trash_scripts.is_empty() {
         let mut trash_data = serde_json::json!({"scripts": trash_scripts});
         if !trash_drafts.is_empty() {
@@ -2315,6 +3728,12 @@ async fn delete_script_by_path(
     )
     .execute(&mut *tx)
     .await?;
+
+    // Pipeline event hygiene: a deleted script must not be triggered by
+    // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
+    // the script was never a pipeline member.
+    clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    clear_macro_registry(&mut *tx, &w_id, path).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(
@@ -2402,9 +3821,8 @@ async fn delete_scripts_bulk(
         ));
     }
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -2450,6 +3868,13 @@ async fn delete_scripts_bulk(
     .await
     .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?;
 
+    // Same reason as the single-path delete, over every requested path rather
+    // than the deleted ones: a path that had no script left can still hold state.
+    for p in &request.paths {
+        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, p).await?;
+        windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
+    }
+
     // remove duplicates from deleted_paths
     deleted_paths.sort();
     deleted_paths.dedup();
@@ -2477,6 +3902,10 @@ async fn delete_scripts_bulk(
     )
     .execute(&mut *tx)
     .await?;
+
+    for path in &deleted_paths {
+        clear_macro_registry(&mut *tx, &w_id, path).await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -2526,6 +3955,39 @@ async fn delete_scripts_bulk(
     }
 
     Ok(Json(deleted_paths))
+}
+
+/// Deployed-macro hygiene for an archived/deleted script: it must neither
+/// provide macros to the workspace registry nor keep stale call-site edges.
+/// Usage edges pointing at the script's own macros go too (names are
+/// workspace-unique, so those edges can only reference this provider).
+async fn clear_macro_registry(db: &mut sqlx::PgConnection, w_id: &str, path: &str) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM macro_usage WHERE workspace_id = $1 AND (consumer_path = $2 \
+         OR macro_name IN (SELECT name FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2))",
+        w_id,
+        path
+    )
+    .execute(&mut *db)
+    .await?;
+    let deleted = sqlx::query!(
+        "DELETE FROM macro_definition WHERE workspace_id = $1 AND provider_path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *db)
+    .await?
+    .rows_affected();
+    // Evict workers' per-workspace registry cache (transactional emit).
+    if deleted > 0 {
+        sqlx::query!(
+            "INSERT INTO notify_event (channel, payload) VALUES ('notify_macro_registry_change', $1)",
+            w_id
+        )
+        .execute(&mut *db)
+        .await?;
+    }
+    Ok(())
 }
 
 /// Validates that script debouncing configuration is supported by all workers
@@ -2730,4 +4192,292 @@ async fn diff_raw_scripts_with_deployed(
         .collect();
 
     Ok(Json(mismatched))
+}
+
+#[derive(Serialize, FromRow)]
+struct CiTestResult {
+    test_script_path: String,
+    job_id: Option<sqlx::types::Uuid>,
+    status: Option<String>,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(FromRow)]
+struct CiTestResultWithPattern {
+    test_script_path: String,
+    tested_item_path: String,
+    job_id: Option<sqlx::types::Uuid>,
+    status: Option<String>,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl From<CiTestResultWithPattern> for CiTestResult {
+    fn from(r: CiTestResultWithPattern) -> Self {
+        CiTestResult {
+            test_script_path: r.test_script_path,
+            job_id: r.job_id,
+            status: r.status,
+            started_at: r.started_at,
+        }
+    }
+}
+
+async fn get_ci_test_results(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, kind, path)): Path<(String, String, StripPath)>,
+) -> JsonResult<Vec<CiTestResult>> {
+    let path = path.to_path();
+    let expected_trigger = format!("{}/{}", kind, path);
+
+    // Exact matches — uses the primary ci_test_reference index.
+    // Job lookup is scoped by trigger so multi-target tests report the right job per target.
+    let exact = sqlx::query_as!(
+        CiTestResult,
+        r#"SELECT
+            ctr.test_script_path,
+            j.id as "job_id?",
+            COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+            j.created_at as "started_at?"
+        FROM ci_test_reference ctr
+        LEFT JOIN LATERAL (
+            SELECT id, created_at FROM v2_job
+            WHERE workspace_id = $1
+              AND runnable_path = ctr.test_script_path
+              AND trigger_kind = 'ci_test'
+              AND trigger = $4
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) j ON true
+        LEFT JOIN v2_job_completed jc ON jc.id = j.id
+        WHERE ctr.workspace_id = $1
+          AND ctr.tested_item_path = $2
+          AND ctr.tested_item_kind = $3
+          AND NOT ctr.has_wildcard"#,
+        &w_id,
+        path,
+        &kind,
+        &expected_trigger
+    )
+    .fetch_all(&db)
+    .await?;
+
+    // Wildcard candidates — partial index; filter patterns in Rust.
+    let wildcard = sqlx::query_as!(
+        CiTestResultWithPattern,
+        r#"SELECT
+            ctr.test_script_path,
+            ctr.tested_item_path,
+            j.id as "job_id?",
+            COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+            j.created_at as "started_at?"
+        FROM ci_test_reference ctr
+        LEFT JOIN LATERAL (
+            SELECT id, created_at FROM v2_job
+            WHERE workspace_id = $1
+              AND runnable_path = ctr.test_script_path
+              AND trigger_kind = 'ci_test'
+              AND trigger = $3
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) j ON true
+        LEFT JOIN v2_job_completed jc ON jc.id = j.id
+        WHERE ctr.workspace_id = $1
+          AND ctr.tested_item_kind = $2
+          AND ctr.has_wildcard"#,
+        &w_id,
+        &kind,
+        &expected_trigger
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let mut results = exact;
+    results.extend(
+        wildcard
+            .into_iter()
+            .filter(|r| windmill_common::schema::ci_test_path_matches(path, &r.tested_item_path))
+            .map(CiTestResult::from),
+    );
+
+    Ok(Json(results))
+}
+
+#[derive(Deserialize)]
+struct CiTestBatchItem {
+    path: String,
+    kind: String,
+}
+
+#[derive(Deserialize)]
+struct CiTestBatchRequest {
+    items: Vec<CiTestBatchItem>,
+}
+
+async fn get_ci_test_results_batch(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<CiTestBatchRequest>,
+) -> JsonResult<HashMap<String, Vec<CiTestResult>>> {
+    if req.items.len() > 200 {
+        return Err(Error::BadRequest(
+            "too many items in batch request (max 200)".to_string(),
+        ));
+    }
+
+    // Initialize every requested key with an empty vec so the response shape matches input.
+    let mut result_map: HashMap<String, Vec<CiTestResult>> = req
+        .items
+        .iter()
+        .map(|it| (format!("{}:{}", it.kind, it.path), Vec::new()))
+        .collect();
+
+    // Group paths by kind so we can do one exact query + one wildcard query per distinct kind.
+    // Dedupe via HashSet so duplicate items in the input don't push matches multiple times.
+    let mut paths_by_kind: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for item in &req.items {
+        paths_by_kind
+            .entry(item.kind.clone())
+            .or_default()
+            .insert(item.path.clone());
+    }
+
+    for (kind, paths) in &paths_by_kind {
+        let paths_vec: Vec<String> = paths.iter().cloned().collect();
+        // Exact matches for all paths of this kind in one query.
+        // Trigger scoping ensures the job returned matches the requested target.
+        let exact = sqlx::query_as!(
+            CiTestResultWithPattern,
+            r#"SELECT
+                ctr.test_script_path,
+                ctr.tested_item_path,
+                j.id as "job_id?",
+                COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+                j.created_at as "started_at?"
+            FROM ci_test_reference ctr
+            LEFT JOIN LATERAL (
+                SELECT id, created_at FROM v2_job
+                WHERE workspace_id = $1
+                  AND runnable_path = ctr.test_script_path
+                  AND trigger_kind = 'ci_test'
+                  AND trigger = $3 || '/' || ctr.tested_item_path
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) j ON true
+            LEFT JOIN v2_job_completed jc ON jc.id = j.id
+            WHERE ctr.workspace_id = $1
+              AND ctr.tested_item_path = ANY($2::text[])
+              AND ctr.tested_item_kind = $3
+              AND NOT ctr.has_wildcard"#,
+            &w_id,
+            &paths_vec[..],
+            kind
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in exact {
+            let key = format!("{}:{}", kind, row.tested_item_path);
+            if let Some(bucket) = result_map.get_mut(&key) {
+                bucket.push(row.into());
+            }
+        }
+
+        // Wildcard candidates for this kind — one row per (pattern, requested_path) pair so the
+        // LATERAL can scope the job lookup by the specific trigger.
+        let wildcard = sqlx::query!(
+            r#"SELECT
+                ctr.test_script_path as "test_script_path!",
+                ctr.tested_item_path as "tested_item_path!",
+                req.path as "requested_path!",
+                j.id as "job_id?",
+                COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+                j.created_at as "started_at?"
+            FROM ci_test_reference ctr
+            CROSS JOIN unnest($3::text[]) AS req(path)
+            LEFT JOIN LATERAL (
+                SELECT id, created_at FROM v2_job
+                WHERE workspace_id = $1
+                  AND runnable_path = ctr.test_script_path
+                  AND trigger_kind = 'ci_test'
+                  AND trigger = $2 || '/' || req.path
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) j ON true
+            LEFT JOIN v2_job_completed jc ON jc.id = j.id
+            WHERE ctr.workspace_id = $1
+              AND ctr.tested_item_kind = $2
+              AND ctr.has_wildcard"#,
+            &w_id,
+            kind,
+            &paths_vec[..]
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in wildcard {
+            if windmill_common::schema::ci_test_path_matches(
+                &row.requested_path,
+                &row.tested_item_path,
+            ) {
+                let key = format!("{}:{}", kind, row.requested_path);
+                if let Some(bucket) = result_map.get_mut(&key) {
+                    bucket.push(CiTestResult {
+                        test_script_path: row.test_script_path,
+                        job_id: row.job_id,
+                        status: row.status,
+                        started_at: row.started_at,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(Json(result_map))
+}
+
+#[derive(Deserialize)]
+struct CheckSchemaContractsRequest {
+    language: ScriptLang,
+    content: String,
+}
+
+#[derive(Serialize)]
+struct CheckSchemaContractsResponse {
+    warnings: Vec<windmill_common::schema_contracts::ContractWarning>,
+}
+
+// Save-time schema-contract check (pipelines gap #2b): validate the given
+// script content's asset references (body column reads, `// column` lineage,
+// `// data_test relationships`) against the latest captured producer schemas
+// and return WARNINGS — never errors, and deploy never blocks on this. The
+// frontend calls it right after a successful deploy (post-commit, so a
+// self-produced target resolves to the fresh content) and the editor mirrors
+// the same diff client-side; this endpoint is the authoritative check. Parsing
+// uses the same server path as deploy (`effective_script_assets` +
+// `parse_pipeline_annotations`) so the verdict matches what deployed.
+async fn check_schema_contracts(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<CheckSchemaContractsRequest>,
+) -> JsonResult<CheckSchemaContractsResponse> {
+    let assets = crate::asset_inference::effective_script_assets(&req.language, &req.content, None)
+        .unwrap_or_default();
+    let ann = parse_pipeline_annotations(&req.content);
+    let mut tx = user_db.begin(&authed).await?;
+    let warnings = windmill_common::schema_contracts::check_schema_contracts(
+        &mut tx,
+        &w_id,
+        &assets,
+        &ann.column_lineage,
+        &ann.data_tests,
+        ann.materialize.as_ref(),
+        &ann.measures,
+        &ann.dimensions,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(CheckSchemaContractsResponse { warnings }))
 }

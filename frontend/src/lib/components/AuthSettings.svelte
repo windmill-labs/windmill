@@ -14,9 +14,12 @@
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
 	import NextcloudSetting from '$lib/components/NextcloudSetting.svelte'
 	import CustomOauth from './CustomOauth.svelte'
+	import Password from './Password.svelte'
 	import { capitalize, type Item } from '$lib/utils'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Toggle from './Toggle.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
 	import { ExternalLink, Plus, Circle, X } from 'lucide-svelte'
@@ -25,9 +28,13 @@
 	import { tick } from 'svelte'
 	import { Popover } from './meltComponents'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 
 	interface Props {
-		snowflakeAccountIdentifier?: string
+		// Per-instance OAuth providers (Snowflake, ServiceNow, …): instance name
+		// keyed by provider, used to build their per-instance connect_config URLs.
+		// Required (and always bound by InstanceSettings) so it is never undefined.
+		instanceInputs: Record<string, string>
 		oauths?: Record<string, any>
 		requirePreexistingUserForOauth?: boolean
 		baseUrl?: string
@@ -37,7 +44,7 @@
 	}
 
 	let {
-		snowflakeAccountIdentifier = $bindable(),
+		instanceInputs = $bindable(),
 		oauths = $bindable(),
 		requirePreexistingUserForOauth = $bindable(),
 		baseUrl,
@@ -46,10 +53,14 @@
 		hideTabs = false
 	}: Props = $props()
 
+	// The callback lands on a frontend route, so a base url that is not the origin
+	// the admin is browsing is almost always a misconfiguration.
+	let browserOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+	let baseUrlMismatch = $derived(
+		!!baseUrl && !!browserOrigin && baseUrl.replace(/\/$/, '') !== browserOrigin
+	)
+
 	$effect(() => {
-		if (snowflakeAccountIdentifier == undefined) {
-			snowflakeAccountIdentifier = ''
-		}
 		if (oauths == undefined) {
 			oauths = {}
 		}
@@ -58,7 +69,7 @@
 		}
 	})
 
-	const windmillBuiltins = [
+	const windmillBuiltinsBase = [
 		'azure_oauth',
 		'github',
 		'gitlab',
@@ -77,12 +88,91 @@
 		'visma',
 		'sage_intacct',
 		'spotify',
-		'snowflake_oauth',
 		'teams',
 		'zoho',
 		'xero',
-		'apify'
+		'apify',
+		'docusign',
+		'salesforce',
+		'outreach'
 	]
+	// Providers whose registry entry (`backend/oauth_connect.json`) carries a
+	// `sandbox` URL block. Each one gets a sibling `<name>_sandbox` dropdown
+	// entry and is treated as a builtin so we don't render the custom-URL form
+	// — the URLs come from the registry sandbox block. Derived at build time
+	// from the registry so adding a sandbox to a provider needs no frontend
+	// change.
+	const windmillBuiltinsWithSandbox = Object.entries(oauthConnectRegistry)
+		.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'sandbox' in cfg)
+		.map(([name]) => name)
+	// Per-instance providers (Snowflake, ServiceNow, …): registry entries that
+	// carry a `connect_config_template`. Derived from the registry so adding a
+	// new one needs only a JSON entry — they get a builtin tile + the generic
+	// instance-name input below, with no frontend change.
+	// Every per-instance templated provider gets a settings tile + instance input:
+	// authorization-code ones (ServiceNow) provide an `auth_url`, client-credentials-only
+	// ones (Coupa) provide only a `token_url`. The admin enters their instance host so
+	// the shared credentials point at the right endpoint.
+	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
+		Object.entries(oauthConnectRegistry)
+			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
+	)
+	const windmillBuiltinsTemplated = Object.keys(connectConfigTemplates)
+	const windmillBuiltins = [
+		...windmillBuiltinsBase,
+		...windmillBuiltinsWithSandbox.map((n) => `${n}_sandbox`),
+		...windmillBuiltinsTemplated
+	]
+
+	/** Resolve a `<name>_sandbox` key to its parent registry entry (sandbox
+	 * variants inherit the parent's grant_types), matching the connect dialog. */
+	function canonicalRegistryKey(name: string): string {
+		return name.endsWith('_sandbox') ? name.slice(0, -'_sandbox'.length) : name
+	}
+
+	/** The static registry declares client credentials for this provider */
+	function registryCcCapable(name: string): boolean {
+		return (
+			(oauthConnectRegistry as Record<string, any>)[
+				canonicalRegistryKey(name)
+			]?.grant_types?.includes('client_credentials') ?? false
+		)
+	}
+
+	/** The static registry supports authorization code for this provider. A
+	 * provider with no explicit grant_types defaults to authorization code. */
+	function registryAuthCodeCapable(name: string): boolean {
+		const reg = (oauthConnectRegistry as Record<string, any>)[canonicalRegistryKey(name)]
+		if (!reg) return false
+		return reg.grant_types ? reg.grant_types.includes('authorization_code') : true
+	}
+
+	/** Built-in provider that only supports client credentials (e.g. Coupa): no
+	 * authorization-code flow to choose, so the grant is fixed. */
+	function registryCcOnly(name: string): boolean {
+		return registryCcCapable(name) && !registryAuthCodeCapable(name)
+	}
+
+	/** Map the entry's grant_types to the single-select choice (so the segmented
+	 * control always has exactly one selected and can never be empty) */
+	function grantChoice(name: string): string {
+		const gts = oauths?.[name]?.['grant_types'] ?? ['authorization_code']
+		const cc = gts.includes('client_credentials')
+		const ac = gts.includes('authorization_code')
+		if (cc && ac) return 'both'
+		if (cc) return 'client_credentials'
+		return 'authorization_code'
+	}
+
+	/** Set the grant types from the segmented choice. The instance credentials are
+	 * then used for every selected grant — authorization-code popup and/or
+	 * server-to-server. */
+	function setGrantChoice(name: string, choice: string) {
+		if (!oauths || !oauths[name]) return
+		oauths[name]['grant_types'] =
+			choice === 'both' ? ['authorization_code', 'client_credentials'] : [choice]
+	}
 
 	let showCustomOAuthForm = $state(false)
 	let customOAuthName = $state('')
@@ -97,7 +187,11 @@
 		if (oauths && name) {
 			// Create a new object to ensure the new item is added at the end
 			const newOauths = { ...oauths }
-			newOauths[name] = { id: '', secret: '', grant_types: ['authorization_code'] }
+			newOauths[name] = {
+				id: '',
+				secret: '',
+				grant_types: registryCcOnly(name) ? ['client_credentials'] : ['authorization_code']
+			}
 			oauths = newOauths
 			dropdownOpen = false
 		}
@@ -174,31 +268,61 @@
 	}
 
 	function getOAuthProviderIcon(name: string) {
+		// Sandbox variants share the parent provider's icon.
+		const lookup = name.endsWith('_sandbox') ? name.slice(0, -'_sandbox'.length) : name
+
 		// Handle special cases
-		if (name === 'teams') {
+		if (lookup === 'teams') {
 			return APP_TO_ICON_COMPONENT.ms_teams_webhook
 		}
-		if (name === 'snowflake_oauth') {
+		if (lookup === 'snowflake_oauth') {
 			return APP_TO_ICON_COMPONENT.snowflake
 		}
-		if (name === 'azure_oauth') {
+		if (lookup === 'azure_oauth') {
 			return APP_TO_ICON_COMPONENT.azure
 		}
 
 		// Try direct mapping, fallback to Circle icon if not found
-		return APP_TO_ICON_COMPONENT[name as keyof typeof APP_TO_ICON_COMPONENT] || Circle
+		return APP_TO_ICON_COMPONENT[lookup as keyof typeof APP_TO_ICON_COMPONENT] || Circle
 	}
 
 	function generateOAuthDropdownItems(): Item[] {
 		const items: Item[] = []
 
 		// Add built-in providers that are not already configured
-		windmillBuiltins.forEach((name) => {
+		windmillBuiltinsBase.forEach((name) => {
 			// Only show providers that are not already in the oauths object
 			if (!oauths || !oauths[name]) {
 				const icon = getOAuthProviderIcon(name)
 				items.push({
 					displayName: capitalize(name),
+					action: () => createOAuthClient(name),
+					icon: icon
+				})
+			}
+		})
+
+		// Add sandbox variants for providers that have sandbox URLs in the registry
+		windmillBuiltinsWithSandbox.forEach((name) => {
+			const sandboxKey = `${name}_sandbox`
+			if (!oauths || !oauths[sandboxKey]) {
+				const icon = getOAuthProviderIcon(name)
+				items.push({
+					displayName: `${capitalize(name)} (sandbox)`,
+					action: () => createOAuthClient(sandboxKey),
+					icon: icon
+				})
+			}
+		})
+
+		// Add per-instance providers (registry entries with a connect_config_template)
+		windmillBuiltinsTemplated.forEach((name) => {
+			if (!oauths || !oauths[name]) {
+				const icon = getOAuthProviderIcon(name)
+				items.push({
+					// Prefer the template's display_name (properly cased, e.g. "ServiceNow")
+					// over capitalize(name) which yields "Servicenow"/"Snowflake_oauth".
+					displayName: connectConfigTemplates[name]?.display_name ?? capitalize(name),
 					action: () => createOAuthClient(name),
 					icon: icon
 				})
@@ -297,12 +421,12 @@
 										<span class="text-primary font-semibold text-xs">Client Id</span>
 										<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 									</label>
-									<label class="block pb-6">
+									<label for="{k}_client_secret_sso" class="block pb-6">
 										<span class="text-primary font-semibold text-xs">Client Secret</span>
-										<input
-											type="text"
+										<Password
+											id="{k}_client_secret_sso"
 											placeholder="Client Secret"
-											bind:value={oauths[k]['secret']}
+											bind:password={oauths[k]['secret']}
 										/>
 									</label>
 									{#if !windmillBuiltins.includes(k) && k != 'slack'}
@@ -369,11 +493,14 @@
 				{#if oauths[k] && !(oauths[k] && 'login_config' in oauths[k])}
 					{#if !['slack', 'teams'].includes(k) && oauths[k]}
 						{@const IconComponent = getOAuthProviderIcon(k) as any}
+						{@const headerLabel = k.endsWith('_sandbox')
+							? `${k.slice(0, -'_sandbox'.length)} (sandbox)`
+							: k}
 						<div class="flex flex-col gap-2 pb-6">
 							<div class="flex flex-row items-center gap-2">
 								<IconComponent size={24} width="24" height="24" class="shrink-0" />
 								<!-- svelte-ignore a11y_label_has_associated_control -->
-								<label class="text-xs font-semibold text-emphasis">{k}</label>
+								<label class="text-xs font-semibold text-emphasis">{headerLabel}</label>
 								<Button
 									variant="subtle"
 									destructive
@@ -394,71 +521,102 @@
 									<span class="text-primary font-semibold text-xs">Client Id</span>
 									<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 								</label>
-								<label>
+								<label for="{k}_client_secret_oauth">
 									<span class="text-primary font-semibold text-xs">Client Secret</span>
-									<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
+									<Password
+										id="{k}_client_secret_oauth"
+										placeholder="Client Secret"
+										bind:password={oauths[k]['secret']}
+									/>
 								</label>
-								{#if k === 'visma' || !windmillBuiltins.includes(k)}
-									<div class="mb-8">
-										<div style="display: flex; align-items: center; gap: 8px;">
-											<input
-												type="checkbox"
-												style="width: 16px; height: 16px; margin: 0;"
-												checked={oauths?.[k]?.['grant_types']?.includes('client_credentials') ??
-													false}
-												onchange={(e) => {
-													const target = e.target as HTMLInputElement
-													if (oauths && oauths[k]) {
-														if (!oauths[k]['grant_types']) {
-															oauths[k]['grant_types'] = ['authorization_code']
-														}
-														if (target.checked) {
-															if (!oauths[k]['grant_types'].includes('client_credentials')) {
-																oauths[k]['grant_types'] = [
-																	...oauths[k]['grant_types'],
-																	'client_credentials'
-																]
-															}
-														} else {
-															oauths[k]['grant_types'] = oauths[k]['grant_types'].filter(
-																(gt: string) => gt !== 'client_credentials'
-															)
-														}
-													}
-												}}
-											/>
-											<span class="text-xs font-semibold text-emphasis"
-												>Support Client Credentials Flow</span
+								<div class="flex flex-col gap-1">
+									<span class="text-primary font-semibold text-xs">Redirect URL</span>
+									{#if !baseUrl}
+										<Alert type="warning" title="No instance base url configured" size="xs">
+											Set it in Core settings. The redirect url is built from it, and {k} needs the exact
+											value.
+										</Alert>
+									{:else}
+										<ClipboardPanel content="{baseUrl}/oauth/callback/{k}" size="sm" />
+									{/if}
+									{#if baseUrlMismatch}
+										<Alert
+											type="warning"
+											title="Does not match the url you are on ({browserOrigin})"
+											size="xs"
+										>
+											This is built from the instance base url. Update it in Core settings if it is
+											wrong, or {k} will reject the callback.
+										</Alert>
+									{/if}
+								</div>
+								<div class="flex flex-col gap-2 mb-2">
+									<span class="text-xs font-semibold text-emphasis">These credentials are for</span>
+									{#if !windmillBuiltins.includes(k) || (registryCcCapable(k) && registryAuthCodeCapable(k))}
+										<ToggleButtonGroup
+											selected={grantChoice(k)}
+											onSelected={(v) => setGrantChoice(k, v)}
+										>
+											{#snippet children({ item })}
+												<ToggleButton
+													value="authorization_code"
+													label="Authorization code"
+													showTooltipIcon
+													tooltip="Users sign in through a browser popup using this app's Client ID and Secret."
+													{item}
+												/>
+												<ToggleButton
+													value="client_credentials"
+													label="Client credentials"
+													showTooltipIcon
+													tooltip={`Server-to-server. Fill Client ID and Secret to share one service account for every connection, or leave them empty so each user brings their own.${!windmillBuiltins.includes(k) ? ' A Token URL is required below.' : ''}`}
+													{item}
+												/>
+												<ToggleButton
+													value="both"
+													label="Both"
+													showTooltipIcon
+													tooltip="Offer both flows; the same Client ID and Secret are used for each selected grant."
+													{item}
+												/>
+											{/snippet}
+										</ToggleButtonGroup>
+									{:else if registryCcCapable(k)}
+										<span class="text-xs text-secondary font-normal flex items-center gap-1">
+											Client credentials (server-to-server)
+											<Tooltip
+												>Fill Client ID and Secret to share one service account, or leave them empty
+												so each user brings their own.</Tooltip
 											>
-											<Tooltip>
-												Enables server-to-server authentication without user interaction. Use for
-												automated scripts and background jobs.
-												<br /><br />
-												When enabled, users can provide their own client credentials at the resource
-												level. The Client ID and Secret configured above are only used for the traditional
-												OAuth flow (popup window).
-											</Tooltip>
-										</div>
-									</div>
-								{/if}
+										</span>
+									{:else}
+										<span class="text-xs text-secondary font-normal"
+											>Authorization code (browser sign-in)</span
+										>
+									{/if}
+								</div>
 								{#if k === 'azure_oauth'}
 									<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
 								{:else if !windmillBuiltins.includes(k) && k != 'slack'}
 									<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
 								{/if}
-								{#if k == 'snowflake_oauth'}
+								{#if connectConfigTemplates[k]}
+									{@const tmpl = connectConfigTemplates[k]}
 									<label class="block pb-2">
-										<span class="text-primary font-semibold text-xs flex gap-2 items-center"
-											><a
-												href="https://docs.snowflake.com/en/user-guide/admin-account-identifier#using-an-account-name-as-an-identifier"
-												target="_blank">Snowflake Account Identifier</a
-											><ExternalLink size={12} /></span
-										>
+										<span class="text-primary font-semibold text-xs flex gap-2 items-center">
+											{#if tmpl.help_url}
+												<a href={tmpl.help_url} target="_blank">{tmpl.label}</a><ExternalLink
+													size={12}
+												/>
+											{:else}
+												{tmpl.label}
+											{/if}
+										</span>
 										<input
 											type="text"
-											placeholder="<orgname>-<account_name>"
+											placeholder={tmpl.placeholder}
 											required={true}
-											bind:value={snowflakeAccountIdentifier}
+											bind:value={instanceInputs[k]}
 										/>
 									</label>
 								{/if}

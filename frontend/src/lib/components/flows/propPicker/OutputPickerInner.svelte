@@ -16,7 +16,7 @@
 
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Pin, History, Pen, Check, X, Loader2, Pencil } from 'lucide-svelte'
+	import { Pin, History, Pen, Check, X, Loader2, Pencil, ScrollText } from 'lucide-svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
@@ -27,9 +27,11 @@
 	import OutputBadge from './OutputBadge.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
+	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { base } from '$lib/base'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext, OutputViewerJob } from '../types'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	interface Props {
 		prefix?: string
@@ -66,6 +68,9 @@
 		initial?: boolean
 		onResetInitial?: () => void
 		customEmptyJobMessage?: string
+		/** Offer a result/logs toggle. Only for viewers that show the result alone —
+		 *  where a log pane sits alongside it, the toggle just hides what is already there. */
+		logsToggle?: boolean
 	}
 
 	let {
@@ -95,7 +100,8 @@
 		onEditInput,
 		selectionId,
 		initial,
-		customEmptyJobMessage
+		customEmptyJobMessage,
+		logsToggle = false
 	}: Props = $props()
 
 	let jsonView = $state(false)
@@ -108,6 +114,7 @@
 	let hasOverflow = $state(false)
 	let preview: 'mock' | 'job' | undefined = $state(undefined)
 	let selectedJob: OutputViewerJob = $state(undefined)
+	let showLogs = $state(false)
 
 	function checkOverflow() {
 		if (contentEl) {
@@ -164,6 +171,12 @@
 	}
 
 	function togglePin() {
+		// The adoption read counts pins still enabled on a deployed flow; this counts
+		// the act, including the pins undone before deploying. Keyed per direction,
+		// so unpinning shows how often a pin was temporary.
+		logFeatureUsage('flow_step', 'pinned', {
+			key: mock?.enabled && !preview ? 'off' : 'on'
+		})
 		if (mock?.enabled && !preview) {
 			// Unpin
 			onUpdateMock?.({
@@ -222,7 +235,8 @@
 			id: flowStateStore.val[moduleId]?.previewJobId ?? '',
 			result: flowStateStore.val[moduleId]?.previewResult,
 			type: 'CompletedJob' as const,
-			success: flowStateStore.val[moduleId]?.previewSuccess ?? undefined
+			success: flowStateStore.val[moduleId]?.previewSuccess ?? undefined,
+			logs: flowStateStore.val[moduleId]?.previewLogs
 		} as Job & { result_stream?: string } & { preview?: boolean }
 	}
 
@@ -363,6 +377,13 @@
 							preview ? 'bg-surface shadow-sm' : ''
 						)}
 					/>
+				{:else if isLoadingAndNotMock && !mock?.enabled}
+					<div
+						class="flex flex-row w-fit items-center justify-between gap-2 rounded-md bg-surface-secondary p-1 px-2 min-w-16 min-h-[23px]"
+					>
+						<Loader2 size={12} class="animate-spin text-secondary shrink-0" />
+						<span class="text-xs text-secondary w-[56px]">&nbsp;</span>
+					</div>
 				{:else if !isLoadingAndNotMock || mock?.enabled}
 					<div
 						class={twMerge(
@@ -424,7 +445,7 @@
 				{/if}
 
 				<!-- Pin button -->
-				{#if !disableMock && !isLoadingAndNotMock}
+				{#if !disableMock}
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							color="light"
@@ -511,6 +532,28 @@
 						{/snippet}
 					</Tooltip>
 				{/if}
+
+				<!-- Logs button -->
+				{#if logsToggle && selectedJob?.type === 'CompletedJob' && selectedJob?.['logs']}
+					<Tooltip>
+						<Button
+							size="xs2"
+							color="light"
+							variant="contained"
+							btnClasses={twMerge(
+								'h-[27px]',
+								showLogs ? 'bg-blue-500/10 text-blue-800 dark:text-blue-200' : 'bg-transparent'
+							)}
+							startIcon={{ icon: ScrollText }}
+							on:click={() => {
+								showLogs = !showLogs
+							}}
+						/>
+						{#snippet text()}
+							{showLogs ? 'Show result' : 'Show logs'}
+						{/snippet}
+					</Tooltip>
+				{/if}
 			</div>
 
 			<div class="px-2">
@@ -592,7 +635,29 @@
 				hoveringResult = false
 			}}
 		>
-			{#if isLoadingAndNotMock}
+			{#if logsToggle && showLogs && selectedJob?.type === 'CompletedJob' && selectedJob?.['logs']}
+				<LogViewer
+					small
+					jobId={selectedJob.id}
+					duration={selectedJob['duration_ms']}
+					mem={selectedJob['mem_peak']}
+					content={selectedJob['logs']}
+					isLoading={false}
+					tag={selectedJob['tag']}
+					onLogsResolved={(logs) => {
+						if (
+							moduleId &&
+							flowStateStore?.val[moduleId] &&
+							flowStateStore.val[moduleId].previewJobId === selectedJob?.id
+						) {
+							flowStateStore.val[moduleId] = {
+								...flowStateStore.val[moduleId],
+								previewLogs: logs
+							}
+						}
+					}}
+				/>
+			{:else if isLoadingAndNotMock}
 				<div class="flex flex-col items-center justify-center">
 					<Loader2 class="animate-spin" />
 				</div>

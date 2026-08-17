@@ -85,6 +85,22 @@ export function extToLang(ext: string) {
 			return 'graphql'
 		case 'css':
 			return 'css'
+		case 'scss':
+			return 'scss'
+		case 'less':
+			return 'less'
+		case 'html':
+		case 'htm':
+			return 'html'
+		case 'md':
+		case 'markdown':
+			return 'markdown'
+		case 'xml':
+			return 'xml'
+		case 'svg':
+			return 'xml'
+		case 'txt':
+			return 'plaintext'
 		case 'yml':
 			return 'ansible'
 		case 'cs':
@@ -99,6 +115,8 @@ export function extToLang(ext: string) {
 			return 'java'
 		case 'rb':
 			return 'ruby'
+		case 'r':
+			return 'r'
 		// for related places search: ADD_NEW_LANG
 		default:
 			return 'unknown'

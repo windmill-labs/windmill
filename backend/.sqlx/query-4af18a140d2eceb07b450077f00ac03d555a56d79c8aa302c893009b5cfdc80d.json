@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO workspace_fork_deployment_request_assignee (request_id, username, email)\n            SELECT $1, u, e\n            FROM UNNEST($2::text[], $3::text[]) AS t(u, e)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4af18a140d2eceb07b450077f00ac03d555a56d79c8aa302c893009b5cfdc80d"
+}

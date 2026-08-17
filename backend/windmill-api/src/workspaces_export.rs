@@ -12,17 +12,21 @@ use crate::db::ApiAuthed;
 
 use crate::{apps::AppWithLastVersion, db::DB, folders::Folder};
 
+use windmill_api_auth::check_scopes;
+
 #[cfg(any(
     feature = "http_trigger",
     feature = "websocket",
     feature = "postgres_trigger",
     feature = "mqtt_trigger",
+    feature = "amqp_trigger",
     all(
         feature = "enterprise",
         any(
             feature = "kafka",
             feature = "sqs_trigger",
             feature = "gcp_trigger",
+            feature = "azure_trigger",
             feature = "nats",
             feature = "smtp",
         ),
@@ -84,7 +88,7 @@ struct ScriptMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_use: Option<bool>,
+    pub delete_after_secs: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart_unless_cancelled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,12 +105,60 @@ struct ScriptMetadata {
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    /// Emitted instead of the address from syncBehavior v1 on, where the CLI only needs to
+    /// know *that* the runnable has an identity — it re-reads the value itself on push.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_on_behalf_of: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modules: Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettings,
     #[serde(flatten)]
     pub debouncing_settings: DebouncingSettings,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "is_empty_extra_perms")]
+    pub extra_perms: serde_json::Value,
+}
+
+/// `syncBehavior` as the CLI writes it (`"v1"`); anything unparseable is v0, matching
+/// `parseSyncBehavior` on the client.
+fn parse_sync_behavior_version(value: Option<&str>) -> u32 {
+    value
+        .and_then(|v| v.strip_prefix('v'))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
+/// The address a runnable's principal resolves to, memoised for the duration of one export.
+///
+/// `on_behalf_of` is sparse — most runnables carry none, and those that do
+/// usually share a handful of identities — so this collapses to roughly one lookup per
+/// distinct principal instead of one per row.
+async fn derive_email(
+    cache: &mut HashMap<String, String>,
+    db: &DB,
+    w_id: &str,
+    permissioned_as: Option<&str>,
+) -> Result<Option<String>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    if let Some(hit) = cache.get(permissioned_as) {
+        return Ok(Some(hit.clone()));
+    }
+    // Uncached: the address goes into an archive a client redeploys from, and the write path
+    // validates the pair it sends back against an uncached lookup. The memo above still holds
+    // this to one query per distinct principal per export.
+    let email =
+        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+            .await?;
+    cache.insert(permissioned_as.to_string(), email.clone());
+    Ok(Some(email))
+}
+
+fn is_empty_extra_perms(value: &serde_json::Value) -> bool {
+    value.as_object().is_some_and(|o| o.is_empty()) || value.is_null()
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -114,6 +166,113 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
         Some(val) => !val,
         None => true,
     }
+}
+
+/// A fork's git-sync export rewrites each trigger's `mode` (and each schedule's
+/// `enabled`) to the *parent* workspace's value, instead of emitting the fork's
+/// own (clone-disabled / locally-toggled) state. This keeps the fork's synced
+/// file byte-identical to the parent on the operational-state field, so a
+/// normal-git PR merge has nothing to resolve — no dropped `mode:` line, no
+/// flipped parent trigger. Fork-only paths (absent from the parent) keep the
+/// fork's own value: there's no parent state to defer to, so the trigger lands
+/// with whatever the fork creator set. The write half of the same rule lives in
+/// `windmill-trigger::handler::workspace_is_fork`.
+///
+/// Maps trigger `path` → parent `mode` (as the lowercase enum text that matches
+/// `TriggerMode`'s serde representation). Empty when not a fork.
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "websocket",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    feature = "amqp_trigger",
+    feature = "native_trigger",
+    all(
+        feature = "enterprise",
+        any(
+            feature = "kafka",
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "azure_trigger",
+            feature = "nats",
+            feature = "smtp",
+        ),
+        feature = "private"
+    )
+))]
+async fn fork_parent_trigger_modes(
+    db: &DB,
+    table_name: &str,
+    parent_workspace_id: Option<&str>,
+) -> Result<HashMap<String, String>> {
+    let Some(parent) = parent_workspace_id else {
+        return Ok(HashMap::new());
+    };
+    // Read the parent's rows on the non-RLS pool (like `workspace_is_fork`): the
+    // substitution must be complete regardless of the exporter's folder perms,
+    // otherwise a parent path the exporter can't read would fall back to the
+    // fork's own value and silently re-introduce the divergence we're fixing.
+    // No leak: only values for paths the fork already has (it's a clone) are used.
+    // SAFETY: `table_name` is a compile-time `TriggerCrud::TABLE_NAME` constant.
+    let rows: Vec<(String, String)> = sqlx::query_as(&format!(
+        "SELECT path, mode::text FROM {} WHERE workspace_id = $1",
+        table_name
+    ))
+    .bind(parent)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
+/// Build the `{ "mode": <parent value> }` override for a single trigger, or
+/// `None` (keep the fork's own value) when the path is fork-only.
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "websocket",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    feature = "amqp_trigger",
+    feature = "native_trigger",
+    all(
+        feature = "enterprise",
+        any(
+            feature = "kafka",
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "azure_trigger",
+            feature = "nats",
+            feature = "smtp",
+        ),
+        feature = "private"
+    )
+))]
+fn trigger_mode_override(
+    parent_modes: &HashMap<String, String>,
+    path: &str,
+) -> Option<serde_json::Map<String, Value>> {
+    parent_modes.get(path).map(|mode| {
+        let mut o = serde_json::Map::new();
+        o.insert("mode".to_string(), Value::String(mode.clone()));
+        o
+    })
+}
+
+/// Schedule analog of [`fork_parent_trigger_modes`]: maps schedule `path` →
+/// parent `enabled`. Empty when not a fork.
+async fn fork_parent_schedule_enabled(
+    db: &DB,
+    parent_workspace_id: Option<&str>,
+) -> Result<HashMap<String, bool>> {
+    let Some(parent) = parent_workspace_id else {
+        return Ok(HashMap::new());
+    };
+    // Non-RLS pool, same rationale as `fork_parent_trigger_modes`.
+    let rows: Vec<(String, bool)> =
+        sqlx::query_as("SELECT path, enabled FROM schedule WHERE workspace_id = $1")
+            .bind(parent)
+            .fetch_all(db)
+            .await?;
+    Ok(rows.into_iter().collect())
 }
 
 enum ArchiveImpl {
@@ -179,16 +338,64 @@ pub(crate) struct ArchiveQueryParams {
     include_settings: Option<bool>,
     include_key: Option<bool>,
     include_workspace_dependencies: Option<bool>,
+    /// Default `false`: data table migrations ship in the tarball unless the repo
+    /// opted out of the `datatablemigration` object type.
+    skip_datatable_migrations: Option<bool>,
     default_ts: Option<String>,
     /// Settings format version: "v1" (default) returns legacy flat format, "v2" returns grouped format
     settings_version: Option<String>,
+    /// Opt-in: include `extra_perms` on flow / script / app rows. Default `false`
+    /// so cross-workspace tarball imports do not carry over ACLs referring to
+    /// identities that may not exist in the target workspace. `wmill sync pull`
+    /// passes `true` to surface ACLs in the git-tracked yaml.
+    preserve_extra_perms: Option<bool>,
+    /// The caller's `wmill.yaml` `syncBehavior`. From v1 the CLI strips the on-behalf-of
+    /// address from what it writes and keeps only a `has_on_behalf_of` marker, so the
+    /// tarball emits that marker directly and skips resolving any address at all.
+    sync_behavior_version: Option<String>,
+}
+
+/// How to handle `extra_perms` in the serialized output.
+///
+/// * `Drop`           — strip the field unconditionally (legacy behavior for
+///                      types that have never carried ACLs in source).
+/// * `KeepEvenEmpty`  — always keep the field, even when `{}`. Matches the
+///                      pre-existing serialization for folders and groups so
+///                      no customer sees a one-time noisy diff on upgrade.
+/// * `KeepIfNonEmpty` — keep when there is at least one entry, drop when `{}`
+///                      or null. New surface for flow / script / app, which
+///                      never carried ACLs in source before this change.
+#[derive(Clone, Copy)]
+pub enum ExtraPermsBehavior {
+    Drop,
+    KeepEvenEmpty,
+    KeepIfNonEmpty,
 }
 
 #[inline]
 pub fn to_string_without_metadata<T>(
     value: &T,
-    preserve_extra_perms: bool,
+    extra_perms: ExtraPermsBehavior,
     ignore_keys: Option<Vec<&str>>,
+) -> Result<String>
+where
+    T: ?Sized + Serialize,
+{
+    to_string_without_metadata_inner(value, extra_perms, ignore_keys, None)
+}
+
+/// Like [`to_string_without_metadata`] but additionally lets the caller
+/// override top-level keys after stripping. Used for fork trigger/schedule
+/// exports, where `mode`/`enabled` is rewritten to the *parent* workspace's
+/// value so the fork's synced file is byte-identical to the parent on those
+/// fields — a clean 3-way git merge instead of a dropped line. See the write
+/// half of the rule in `windmill-trigger::handler::workspace_is_fork`.
+#[inline]
+pub fn to_string_without_metadata_inner<T>(
+    value: &T,
+    extra_perms: ExtraPermsBehavior,
+    ignore_keys: Option<Vec<&str>>,
+    overrides: Option<&serde_json::Map<String, Value>>,
 ) -> Result<String>
 where
     T: ?Sized + Serialize,
@@ -211,8 +418,8 @@ where
                     "edited_at",
                     "edited_by",
                     "permissioned_as",
+                    "on_behalf_of",
                     "archived",
-                    "has_draft",
                     "error",
                     "last_server_ping",
                     "server_id",
@@ -232,8 +439,32 @@ where
                 o2.remove("on_behalf_of");
                 o2.remove("on_behalf_of_email");
             }
-            if !preserve_extra_perms && obj.contains_key("extra_perms") {
-                obj.remove("extra_perms");
+            if obj.contains_key("extra_perms") {
+                let is_empty_extra_perms = obj
+                    .get("extra_perms")
+                    .map(|v| v.as_object().is_some_and(|o| o.is_empty()) || v.is_null())
+                    .unwrap_or(true);
+                let drop = match extra_perms {
+                    ExtraPermsBehavior::Drop => true,
+                    ExtraPermsBehavior::KeepEvenEmpty => false,
+                    ExtraPermsBehavior::KeepIfNonEmpty => is_empty_extra_perms,
+                };
+                if drop {
+                    obj.remove("extra_perms");
+                }
+            }
+            if obj
+                .get("default_permissioned_as")
+                .and_then(|v| v.as_array())
+                .is_some_and(|a| a.is_empty())
+            {
+                obj.remove("default_permissioned_as");
+            }
+
+            if let Some(overrides) = overrides {
+                for (k, v) in overrides {
+                    obj.insert(k.clone(), v.clone());
+                }
             }
 
             serde_json::to_string_pretty(&obj).ok()
@@ -266,11 +497,11 @@ struct SimplifiedSettings {
     auto_invite: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     webhook: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    deploy_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Always serialize (including as `null`) so that `wmill sync pull` emits
+    // these fields in settings.yaml unconditionally. Makes round-trip
+    // bijective: YAML is the source of truth, absence/null = "clear remote",
+    // mirroring every other workspace setting.
     error_handler: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     success_handler: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_config: Option<serde_json::Value>,
@@ -297,6 +528,9 @@ struct SimplifiedSettings {
     slack_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     slack_command_script: Option<String>,
+    // Always serialize (see note above on error_handler / success_handler).
+    slack_oauth_client_id: Option<String>,
+    slack_oauth_client_secret: Option<String>,
 }
 
 // V1 format: Legacy flat format for backward compatibility (matches main branch exactly)
@@ -307,8 +541,6 @@ struct SimplifiedSettingsLegacy {
     auto_invite_mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     webhook: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    deploy_to: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_handler: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -346,7 +578,6 @@ struct SimplifiedSettingsLegacy {
 struct SettingsRow {
     auto_invite: Option<Value>,
     webhook: Option<String>,
-    deploy_to: Option<String>,
     error_handler: Option<Value>,
     success_handler: Option<Value>,
     ai_config: Option<serde_json::Value>,
@@ -362,6 +593,8 @@ struct SettingsRow {
     slack_team_id: Option<String>,
     slack_name: Option<String>,
     slack_command_script: Option<String>,
+    slack_oauth_client_id: Option<String>,
+    slack_oauth_client_secret: Option<String>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -384,8 +617,11 @@ pub(crate) async fn tarball_workspace(
         include_settings,
         include_key,
         include_workspace_dependencies,
+        skip_datatable_migrations,
         default_ts,
         settings_version,
+        preserve_extra_perms,
+        sync_behavior_version,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
     tracing::info!(
@@ -396,7 +632,71 @@ pub(crate) async fn tarball_workspace(
         skip_resources
     );
 
+    // The route is gated by workspaces:read, but exporting DECRYPTED secrets is a
+    // variable-read capability beyond workspace metadata. Require variables:read
+    // only on the plaintext-secret path: ordinary tarball pulls (structure and
+    // encrypted-only values) keep working with workspaces:read, and the workspace
+    // key itself stays admin-only (include_key). No-op for unscoped tokens.
+    if plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+        && !skip_variables.unwrap_or(false)
+    {
+        check_scopes(&authed, || "variables:read".to_string())?;
+    }
+
+    // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
+    // Folder and group rows have always carried `extra_perms` in source and
+    // continue to do so unconditionally (`KeepEvenEmpty`) so existing
+    // customer git repos see no one-time noisy diff.
+    let new_kinds_extra_perms = if preserve_extra_perms.unwrap_or(false) {
+        ExtraPermsBehavior::KeepIfNonEmpty
+    } else {
+        ExtraPermsBehavior::Drop
+    };
+
+    // Resolve workspace dependencies on the pool *before* opening the RLS
+    // transaction: fetching them mid-transaction would hold a second
+    // simultaneous connection while `tx` is still checked out.
+    let workspace_dependencies = if include_workspace_dependencies.unwrap_or(false)
+        && require_admin(authed.is_admin, &authed.username).is_ok()
+    {
+        Some(WorkspaceDependencies::list(&w_id, &db).await?)
+    } else {
+        None
+    };
+
     let mut tx = user_db.begin(&authed).await?;
+
+    // Exporting decrypted secrets in bulk is the same capability as a per-item
+    // secret read, so record it for parity with variables.decrypt_secret.
+    if plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_variables.unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+    {
+        windmill_audit::audit_oss::audit_log(
+            &mut *tx,
+            &authed,
+            "variables.decrypt_secret",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
+
+    // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
+    // The wm-fork-* prefix is a creation-time naming convention that could in
+    // principle drift (rename, manual SQL); the column is the contract that
+    // matches what the conflict-warning gates read. The id is also the workspace
+    // whose trigger `mode` / schedule `enabled` a fork export defers to.
+    let parent_workspace_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+    )
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
 
     let tmp_dir = TempDir::new_in(&*WINDMILL_DIR)?;
 
@@ -421,7 +721,7 @@ pub(crate) async fn tarball_workspace(
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
     {
-        let folders = sqlx::query_as::<_, Folder>("SELECT * FROM folder WHERE workspace_id = $1")
+        let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
             .fetch_all(&mut *tx)
             .await?;
@@ -429,26 +729,32 @@ pub(crate) async fn tarball_workspace(
         for folder in folders {
             archive
                 .write_to_archive(
-                    &to_string_without_metadata(&folder, true, None).unwrap(),
+                    &to_string_without_metadata(&folder, ExtraPermsBehavior::KeepEvenEmpty, None)
+                        .unwrap(),
                     &format!("f/{}/folder.meta.json", folder.name),
                 )
                 .await?;
         }
     }
 
+    // From v1 the CLI never writes the address, so resolving it would be pure waste on the
+    // default sync path; emit the marker it actually keeps instead.
+    let obo_marker_only = parse_sync_behavior_version(sync_behavior_version.as_deref()) >= 1;
+    let mut obo_cache: HashMap<String, String> = HashMap::new();
     {
-        let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
-            "SELECT * FROM script as o WHERE workspace_id = $1 AND archived = false
-             AND (draft_only IS NULL OR draft_only = false)
-             AND created_at = (select max(created_at) from script where path = o.path AND \
-              workspace_id = $1)",
-        )
+        let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
+            "SELECT {} FROM script as o WHERE workspace_id = $1 AND archived = false
+                 AND created_at = (select max(created_at) from script where path = o.path AND \
+                  workspace_id = $1)",
+            windmill_common::scripts::SCRIPT_COLUMNS,
+        ))
         .bind(&w_id)
         .fetch_all(&mut *tx)
         .await?;
 
         for script in scripts {
-            let script = windmill_common::scripts::prefetch_cached_script(script, &db).await?;
+            let script =
+                windmill_common::scripts::prefetch_cached_script_without_email(script, &db).await?;
             let ext = match script.language {
                 ScriptLang::Python3 => "py",
                 ScriptLang::Deno => {
@@ -484,11 +790,31 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::OracleDB => "odb.sql",
                 ScriptLang::Java => "java",
                 ScriptLang::Ruby => "rb",
+                ScriptLang::Rlang => "r",
+                // A dbt script's content path is not `<path>.<ext>` — it is the
+                // descriptor inside the project folder, built below.
+                ScriptLang::Dbt => "",
                 // for related places search: ADD_NEW_LANG
             };
-            archive
-                .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
-                .await?;
+            if script.language == ScriptLang::Dbt {
+                // The descriptor belongs inside the project it configures, and
+                // is OPTIONAL: an unmodified dbt project is already a complete
+                // script. Writing an empty one would put a Windmill file in a
+                // directory that had none, so a project that names no descriptor
+                // exports without one.
+                if !script.content.trim().is_empty() {
+                    archive
+                        .write_to_archive(
+                            &script.content,
+                            &format!("{}__dbt/wm_dbt.yaml", script.path),
+                        )
+                        .await?;
+                }
+            } else {
+                archive
+                    .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
+                    .await?;
+            }
 
             let metadata = ScriptMetadata {
                 summary: script.summary,
@@ -505,14 +831,30 @@ pub(crate) async fn tarball_workspace(
                 priority: script.priority,
                 tag: script.tag,
                 timeout: script.timeout,
-                delete_after_use: script.delete_after_use,
+                delete_after_secs: script.delete_after_secs,
                 restart_unless_cancelled: script.restart_unless_cancelled,
                 visible_to_runner_only: script.visible_to_runner_only,
                 auto_kind: script.auto_kind,
                 codebase: script.codebase,
                 has_preprocessor: script.has_preprocessor,
-                on_behalf_of_email: script.on_behalf_of_email,
+                on_behalf_of_email: if obo_marker_only {
+                    None
+                } else {
+                    derive_email(&mut obo_cache, &db, &w_id, script.on_behalf_of.as_deref()).await?
+                },
+                has_on_behalf_of: (obo_marker_only && script.on_behalf_of.is_some())
+                    .then_some(true),
                 modules: script.modules,
+                labels: script.labels,
+                // Same opt-in contract as flow/app: the tarball only surfaces
+                // ACLs when `?preserve_extra_perms=true`. Passing `Null` lets the
+                // `is_empty_extra_perms` skip-serializer drop the field entirely.
+                extra_perms: if matches!(new_kinds_extra_perms, ExtraPermsBehavior::KeepIfNonEmpty)
+                {
+                    script.extra_perms
+                } else {
+                    serde_json::Value::Null
+                },
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -524,14 +866,16 @@ pub(crate) async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
              Resource,
-             "SELECT * FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
-             &w_id
+             "SELECT workspace_id, path, value, description, resource_type, extra_perms, created_by, edited_at, labels FROM resource WHERE workspace_id = $1 AND resource_type <> ALL($2)",
+             &w_id,
+             &windmill_store::resources::INTERNAL_RESOURCE_TYPES.map(|t| t.to_string())[..]
          )
          .fetch_all(&mut *tx)
          .await?;
 
         for resource in resources {
-            let resource_str = &to_string_without_metadata(&resource, false, None).unwrap();
+            let resource_str =
+                &to_string_without_metadata(&resource, ExtraPermsBehavior::Drop, None).unwrap();
             archive
                 .write_to_archive(&resource_str, &format!("{}.resource.json", resource.path))
                 .await?;
@@ -541,14 +885,16 @@ pub(crate) async fn tarball_workspace(
     if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
-            "SELECT * FROM resource_type WHERE workspace_id = $1",
+            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset FROM resource_type WHERE workspace_id = $1",
             &w_id
         )
         .fetch_all(&mut *tx)
         .await?;
 
         for resource_type in resource_types {
-            let resource_str = &to_string_without_metadata(&resource_type, false, None).unwrap();
+            let resource_str =
+                &to_string_without_metadata(&resource_type, ExtraPermsBehavior::Drop, None)
+                    .unwrap();
             archive
                 .write_to_archive(
                     &resource_str,
@@ -560,17 +906,33 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-             WHERE flow.workspace_id = $1 AND flow.archived = false AND (flow.draft_only IS NULL OR flow.draft_only = false)",
+             WHERE flow.workspace_id = $1 AND flow.archived = false",
          )
          .bind(&w_id)
          .fetch_all(&mut *tx)
          .await?;
 
-        for flow in flows {
-            let flow_str = &to_string_without_metadata(&flow, false, None).unwrap();
+        for mut flow in flows {
+            let flow_marker = obo_marker_only && flow.on_behalf_of.is_some();
+            flow.on_behalf_of_email = if obo_marker_only {
+                None
+            } else {
+                derive_email(&mut obo_cache, &db, &w_id, flow.on_behalf_of.as_deref()).await?
+            };
+            let mut overrides = serde_json::Map::new();
+            if flow_marker {
+                overrides.insert("has_on_behalf_of".to_string(), Value::Bool(true));
+            }
+            let flow_str = &to_string_without_metadata_inner(
+                &flow,
+                new_kinds_extra_perms,
+                None,
+                (!overrides.is_empty()).then_some(&overrides),
+            )
+            .unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
                 .await?;
@@ -580,9 +942,9 @@ pub(crate) async fn tarball_workspace(
     if !skip_variables.unwrap_or(false) {
         let variables =
              sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                 "SELECT * FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
              } else {
-                 "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
              })
              .bind(&w_id)
              .fetch_all(&mut *tx)
@@ -599,7 +961,8 @@ pub(crate) async fn tarball_workspace(
                     Error::internal_err(format!("Error decrypting variable {}: {}", var.path, e))
                 })?);
             }
-            let var_str = &to_string_without_metadata(&var, false, None).unwrap();
+            let var_str =
+                &to_string_without_metadata(&var, ExtraPermsBehavior::Drop, None).unwrap();
             archive
                 .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;
@@ -610,16 +973,15 @@ pub(crate) async fn tarball_workspace(
         let apps = sqlx::query_as::<_, AppWithLastVersion>(
              "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
              app.extra_perms, app_version.value,
-             app_version.created_at, app_version.created_by, app_version.raw_app from app, app_version
-             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]
-             AND (app.draft_only IS NULL OR app.draft_only = false)",
+             app_version.created_at, app_version.created_by, app_version.raw_app, app.labels from app, app_version
+             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
          )
          .bind(&w_id)
          .fetch_all(&mut *tx)
          .await?;
 
         for app in apps {
-            let app_str = &to_string_without_metadata(&app, false, None).unwrap();
+            let app_str = &to_string_without_metadata(&app, new_kinds_extra_perms, None).unwrap();
             let kind = if app.raw_app { "raw_app" } else { "app" };
             archive
                 .write_to_archive(&app_str, &format!("{}.{}.json", app.path, kind))
@@ -627,17 +989,14 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
-    if include_workspace_dependencies.unwrap_or(false)
-        && require_admin(authed.is_admin, &authed.username).is_ok()
-    {
+    if let Some(workspace_dependencies) = workspace_dependencies {
         tracing::info!("Including workspace dependencies in tarball export");
-        let workspace_dependencies = WorkspaceDependencies::list(&w_id, &db).await?;
         tracing::info!(
             "Found {} workspace dependencies",
             workspace_dependencies.len()
         );
         for dep in workspace_dependencies {
-            // let dep_str = &to_string_without_metadata(&dep, false, None).unwrap();
+            // let dep_str = &to_string_without_metadata(&dep, ExtraPermsBehavior::Drop, None).unwrap();
             let filename = WorkspaceDependencies::to_path(&dep.name, dep.language)?;
             tracing::info!(
                 "Adding workspace dependency: name={:?}, language={:?}, filename={}",
@@ -655,16 +1014,36 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_schedules.unwrap_or(false) {
+        // Managed ducklake-maintenance schedules are excluded: they are
+        // derived from the workspace ducklake settings (and admins bypass the
+        // RLS that hides them), so exporting them would drag unsyncable rows
+        // into git.
         let schedules = sqlx::query_as::<_, Schedule>(
-            "SELECT * FROM schedule
-             WHERE workspace_id = $1",
+            "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule
+             WHERE workspace_id = $1 AND NOT starts_with(path, $2)",
         )
         .bind(&w_id)
+        .bind(windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX)
         .fetch_all(&mut *tx)
         .await?;
 
+        // For a fork, defer each schedule's `enabled` to the parent so the
+        // synced file matches the parent and the merge doesn't flip it.
+        let parent_enabled =
+            fork_parent_schedule_enabled(&db, parent_workspace_id.as_deref()).await?;
         for schedule in schedules {
-            let app_str = &to_string_without_metadata(&schedule, false, None).unwrap();
+            let enabled_override = parent_enabled.get(&schedule.path).map(|enabled| {
+                let mut o = serde_json::Map::new();
+                o.insert("enabled".to_string(), Value::Bool(*enabled));
+                o
+            });
+            let app_str = &to_string_without_metadata_inner(
+                &schedule,
+                ExtraPermsBehavior::Drop,
+                None,
+                enabled_override.as_ref(),
+            )
+            .unwrap();
             archive
                 .write_to_archive(&app_str, &format!("{}.schedule.json", schedule.path))
                 .await?;
@@ -676,10 +1055,23 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::http::HttpTrigger;
             let handler = HttpTrigger;
-            let http_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let http_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <HttpTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in http_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -693,10 +1085,23 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::websocket::WebsocketTrigger;
             let handler = WebsocketTrigger;
-            let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <WebsocketTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in websocket_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -710,10 +1115,23 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::kafka::KafkaTrigger;
             let handler = KafkaTrigger;
-            let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <KafkaTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in kafka_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -727,10 +1145,23 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::sqs::SqsTrigger;
             let handler = SqsTrigger;
-            let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <SqsTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in sqs_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -744,10 +1175,23 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::gcp::GcpTrigger;
             let handler = GcpTrigger;
-            let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <GcpTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in gcp_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -757,15 +1201,57 @@ pub(crate) async fn tarball_workspace(
             }
         }
 
+        #[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+        {
+            use crate::triggers::azure::AzureTrigger;
+            let handler = AzureTrigger;
+            let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <AzureTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
+
+            for trigger in azure_triggers {
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.azure_trigger.json", trigger.base.path),
+                    )
+                    .await?;
+            }
+        }
+
         #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
         {
             use crate::triggers::nats::NatsTrigger;
             let handler = NatsTrigger;
-            let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <NatsTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in nats_triggers {
-                let trigger_str: &String =
-                    &to_string_without_metadata(&trigger, false, None).unwrap();
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str: &String = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -779,10 +1265,23 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::postgres::PostgresTrigger;
             let handler = PostgresTrigger;
-            let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <PostgresTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in postgres_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -796,10 +1295,23 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::mqtt::MqttTrigger;
             let handler = MqttTrigger;
-            let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <MqttTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in mqtt_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -809,14 +1321,57 @@ pub(crate) async fn tarball_workspace(
             }
         }
 
+        #[cfg(feature = "amqp_trigger")]
+        {
+            use crate::triggers::amqp::AmqpTrigger;
+            let handler = AmqpTrigger;
+            let amqp_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <AmqpTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
+
+            for trigger in amqp_triggers {
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.amqp_trigger.json", trigger.base.path),
+                    )
+                    .await?;
+            }
+        }
+
         #[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
         {
             use crate::triggers::email::EmailTrigger;
             let handler = EmailTrigger;
-            let email_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let email_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
+            let parent_modes = fork_parent_trigger_modes(
+                &db,
+                <EmailTrigger as TriggerCrud>::TABLE_NAME,
+                parent_workspace_id.as_deref(),
+            )
+            .await?;
 
             for trigger in email_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let mode_override = trigger_mode_override(&parent_modes, &trigger.base.path);
+                let trigger_str = &to_string_without_metadata_inner(
+                    &trigger,
+                    ExtraPermsBehavior::Drop,
+                    None,
+                    mode_override.as_ref(),
+                )
+                .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -836,11 +1391,18 @@ pub(crate) async fn tarball_workspace(
                     list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None)
                         .await?;
 
+                // Native triggers (Nextcloud, Google Drive, GitHub) are never
+                // cloned into a fork — a fork only has one if its owner created
+                // it there, so it's always "fork-only" and keeps its own mode.
+                // No parent-value substitution applies; we only strip the
+                // webhook token hash.
+                let native_ignore_keys = vec!["webhook_token_hash"];
+
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(
                         &trigger,
-                        false,
-                        Some(vec!["webhook_token_hash"]),
+                        ExtraPermsBehavior::Drop,
+                        Some(native_ignore_keys.clone()),
                     )
                     .unwrap();
                     archive
@@ -862,7 +1424,7 @@ pub(crate) async fn tarball_workspace(
 
     if include_users.unwrap_or(false) {
         let users = sqlx::query!(
-            "SELECT * FROM usr
+            "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via FROM usr
              WHERE workspace_id = $1",
             &w_id
         )
@@ -882,7 +1444,9 @@ pub(crate) async fn tarball_workspace(
                 disabled: user.disabled,
                 email: user.email,
             };
-            let user_str = &to_string_without_metadata(&user, false, Some(vec!["email"])).unwrap();
+            let user_str =
+                &to_string_without_metadata(&user, ExtraPermsBehavior::Drop, Some(vec!["email"]))
+                    .unwrap();
             archive
                 .write_to_archive(&user_str, &format!("users/{}.user.json", user.email))
                 .await?;
@@ -942,7 +1506,9 @@ pub(crate) async fn tarball_workspace(
                 admins,
             };
 
-            let group_str = &to_string_without_metadata(&group, true, None).unwrap();
+            let group_str =
+                &to_string_without_metadata(&group, ExtraPermsBehavior::KeepEvenEmpty, None)
+                    .unwrap();
             archive
                 .write_to_archive(&group_str, &format!("groups/{}.group.json", group.name))
                 .await?;
@@ -954,7 +1520,6 @@ pub(crate) async fn tarball_workspace(
             r#"SELECT
                  auto_invite,
                  webhook,
-                 deploy_to,
                  error_handler,
                  success_handler,
                  ai_config,
@@ -969,7 +1534,9 @@ pub(crate) async fn tarball_workspace(
                  datatable,
                  slack_team_id,
                  slack_name,
-                 slack_command_script
+                 slack_command_script,
+                 slack_oauth_client_id,
+                 slack_oauth_client_secret
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
@@ -979,16 +1546,44 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
+        // Server-owned auto-pull state (the HMAC webhook secret + hook id/error and
+        // the synced-sha / last-pull status) must never leave the server: keep it out
+        // of export archives and synced repos, and don't let a re-imported workspace
+        // inherit another install's hook/sync state. Mirrors the GET-settings redaction.
+        fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
+            let mut git_sync = git_sync?;
+            if let Some(repos) = git_sync
+                .get_mut("repositories")
+                .and_then(|r| r.as_array_mut())
+            {
+                for repo in repos {
+                    if let Some(auto_pull) =
+                        repo.get_mut("auto_pull").and_then(|a| a.as_object_mut())
+                    {
+                        for field in [
+                            "webhook_secret",
+                            "webhook_id",
+                            "webhook_error",
+                            "last_synced_sha",
+                            "last_pull_status",
+                        ] {
+                            auto_pull.remove(field);
+                        }
+                    }
+                }
+            }
+            Some(git_sync)
+        }
+
         let settings_str = if settings_version.as_deref() == Some("v2") {
             let settings = SimplifiedSettings {
                 auto_invite: row.auto_invite,
                 webhook: row.webhook,
-                deploy_to: row.deploy_to,
                 error_handler: row.error_handler,
                 success_handler: row.success_handler,
                 ai_config: row.ai_config,
                 large_file_storage: row.large_file_storage,
-                git_sync: row.git_sync,
+                git_sync: redact_git_sync_for_export(row.git_sync),
                 default_app: row.default_app,
                 default_scripts: row.default_scripts,
                 name: row.name.clone().unwrap_or_default(),
@@ -999,6 +1594,14 @@ pub(crate) async fn tarball_workspace(
                 slack_team_id: row.slack_team_id.clone(),
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
+                slack_oauth_client_id: row.slack_oauth_client_id.clone(),
+                // Mirror the non-admin redaction in `get_settings`: the OAuth
+                // client secret is admin-only and must not leak via tarball.
+                slack_oauth_client_secret: if authed.is_admin {
+                    row.slack_oauth_client_secret.clone()
+                } else {
+                    None
+                },
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())
@@ -1045,13 +1648,12 @@ pub(crate) async fn tarball_workspace(
                 auto_invite_as,
                 auto_invite_mode,
                 webhook: row.webhook,
-                deploy_to: row.deploy_to,
                 error_handler,
                 error_handler_extra_args,
                 error_handler_muted_on_cancel,
                 ai_config: row.ai_config,
                 large_file_storage: row.large_file_storage,
-                git_sync: row.git_sync,
+                git_sync: redact_git_sync_for_export(row.git_sync),
                 default_app: row.default_app,
                 default_scripts: row.default_scripts,
                 name: row.name.unwrap_or_default(),
@@ -1095,6 +1697,34 @@ pub(crate) async fn tarball_workspace(
             .await?;
     }
 
+    if !skip_datatable_migrations.unwrap_or(false) {
+        // Data table migrations live in the `datatable_migrations` table; surface
+        // them in the export as `migrations/datatable/<datatable>/<version>_<name>`
+        // .up.sql (and .down.sql when present) so `wmill sync` treats them like any
+        // other workspace item.
+        let migrations = sqlx::query!(
+            "SELECT datatable, timestamp, name, code_up, code_down FROM datatable_migrations \
+             WHERE workspace_id = $1 ORDER BY datatable, timestamp",
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for m in migrations {
+            let base = format!(
+                "migrations/datatable/{}/{}_{}",
+                m.datatable, m.timestamp, m.name
+            );
+            archive
+                .write_to_archive(&m.code_up, &format!("{base}.up.sql"))
+                .await?;
+            if let Some(code_down) = m.code_down {
+                archive
+                    .write_to_archive(&code_down, &format!("{base}.down.sql"))
+                    .await?;
+            }
+        }
+    }
+
     archive.finish().await?;
 
     let file = tokio::fs::File::open(&file_path).await?;
@@ -1110,4 +1740,68 @@ pub(crate) async fn tarball_workspace(
         ),
     ];
     Ok((headers, body))
+}
+
+#[cfg(test)]
+mod fork_export_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A fork export rewrites `mode` to the parent's value: the serialized file
+    /// carries the parent's state (`enabled`), not the fork's clone-disabled DB
+    /// value — so a normal-git merge sees no change on that line.
+    #[test]
+    fn override_substitutes_parent_mode() {
+        let fork_trigger = json!({
+            "path": "f/triggers/x",
+            "script_path": "f/scripts/x",
+            "mode": "disabled", // fork's local (clone-disabled) state
+            "is_flow": false,
+        });
+        let mut overrides = serde_json::Map::new();
+        overrides.insert("mode".to_string(), Value::String("enabled".to_string()));
+
+        let out = to_string_without_metadata_inner(
+            &fork_trigger,
+            ExtraPermsBehavior::Drop,
+            None,
+            Some(&overrides),
+        )
+        .unwrap();
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+
+        assert_eq!(parsed["mode"], json!("enabled"), "parent mode substituted");
+        // `path` is in the metadata strip list, so it should be removed.
+        assert!(parsed.get("path").is_none());
+    }
+
+    /// A fork-only trigger (no parent counterpart, so no override) keeps the
+    /// fork creator's chosen state.
+    #[test]
+    fn no_override_keeps_fork_value() {
+        let fork_only = json!({ "mode": "enabled", "script_path": "f/scripts/x" });
+        let out =
+            to_string_without_metadata_inner(&fork_only, ExtraPermsBehavior::Drop, None, None)
+                .unwrap();
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["mode"], json!("enabled"));
+    }
+
+    /// `trigger_mode_override` builds an override only when the parent has the
+    /// path; fork-only paths return `None` (keep the fork's own value).
+    #[cfg(feature = "http_trigger")]
+    #[test]
+    fn trigger_mode_override_defers_to_parent_or_self() {
+        let mut parent_modes = HashMap::new();
+        parent_modes.insert("f/triggers/shared".to_string(), "enabled".to_string());
+
+        let shared = trigger_mode_override(&parent_modes, "f/triggers/shared");
+        assert_eq!(
+            shared.as_ref().and_then(|o| o.get("mode")),
+            Some(&Value::String("enabled".to_string())),
+        );
+
+        // Fork-only path: no parent entry → no override → keep fork's own value.
+        assert!(trigger_mode_override(&parent_modes, "f/triggers/fork_only").is_none());
+    }
 }

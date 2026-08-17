@@ -3,9 +3,10 @@
 	import { classNames } from '$lib/utils'
 	import CloseButton from '../CloseButton.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import { DRAWER_ANCHORED } from './Drawer.svelte'
 
 	interface Props {
 		aiId?: string | undefined
@@ -22,6 +23,13 @@
 		id?: string | undefined
 		actions?: import('svelte').Snippet
 		titleExtra?: import('svelte').Snippet
+		/** Rendered fixed below the header, above the scrollable content. */
+		banner?: import('svelte').Snippet
+		/**
+		 * Whether the `banner` reserves space (its baseline exists). Only then does
+		 * the content hug it with tight top padding; new entities keep normal padding.
+		 */
+		bannerReserved?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -40,14 +48,25 @@
 		id,
 		actions,
 		titleExtra,
+		banner,
+		bannerReserved = false,
 		children
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+
+	// A drawer anchored to a pane (see overlayHost) is as tall as that pane, so sizing
+	// against the viewport would overflow it. Asking the drawer rather than the host keeps
+	// this in step with `shouldUsePortal`, which decides whether it is anchored at all.
+	const drawerAnchored = getContext<(() => boolean) | undefined>(DRAWER_ANCHORED)
+	const anchored = $derived(drawerAnchored?.() ?? false)
 </script>
 
 <div
-	class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}
+	class={classNames(
+		'flex flex-col divide-y',
+		fullScreen && !anchored ? 'h-screen max-h-screen' : 'h-full'
+	)}
 	{id}
 >
 	<div class="flex justify-between w-full items-center pl-2 pr-4 py-2 gap-2">
@@ -83,15 +102,29 @@
 		{/if}
 	</div>
 
-	<div
-		class={classNames(
-			noPadding ? '' : 'p-4',
-			'grow min-h-0 max-h-full',
-			forceOverflowVisible ? '!overflow-visible' : ''
-		)}
-		class:overflow-y-auto={overflow_y}
-		style={overflow_y ? 'scrollbar-gutter: stable;' : ''}
-	>
-		{@render children?.()}
-	</div>
+	{#snippet contentBox(tightTop = false)}
+		<div
+			class={classNames(
+				noPadding ? '' : tightTop ? 'px-4 pb-4 pt-1' : 'p-4',
+				'grow min-h-0 max-h-full',
+				forceOverflowVisible ? '!overflow-visible' : ''
+			)}
+			class:overflow-y-auto={overflow_y}
+			style={overflow_y ? 'scrollbar-gutter: stable;' : ''}
+		>
+			{@render children?.()}
+		</div>
+	{/snippet}
+
+	{#if banner}
+		<!-- Banner + content share one `divide-y` cell: the header keeps its single
+		     divider (no bordered strip around the reserved slot) and the content hugs
+		     the slot with tight top padding (see `contentBox`/`bannerReserved`). -->
+		<div class="flex flex-col grow min-h-0 max-h-full">
+			{@render banner()}
+			{@render contentBox(bannerReserved)}
+		</div>
+	{:else}
+		{@render contentBox()}
+	{/if}
 </div>

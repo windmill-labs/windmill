@@ -21,6 +21,9 @@
 		showRefreshButton?: boolean
 		onError?: (error: Error) => void
 		onSelectedChannelChange?: (channel: ChannelItem | undefined) => void
+		/** Workspace to list Teams channels from; defaults to the nav
+		 * `$workspaceStore`. A forked session passes its acting workspace. */
+		workspace?: string
 	}
 
 	let {
@@ -33,8 +36,11 @@
 		teamId,
 		showRefreshButton = true,
 		onError,
-		onSelectedChannelChange
+		onSelectedChannelChange,
+		workspace = undefined
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
 
 	let isFetching = $state(false)
 	let loadedChannels = $state<ChannelItem[]>([])
@@ -88,7 +94,7 @@
 		isFetching = true
 		try {
 			const response = await WorkspaceService.listAvailableTeamsChannels({
-				workspace: $workspaceStore!,
+				workspace: effectiveWorkspace!,
 				teamId: teamId
 			})
 
@@ -130,10 +136,7 @@
 						clearable
 						disabled={disabled || !teamId}
 						loading={isFetching}
-						bind:value={
-							() => selectedChannel?.channel_id,
-							(newId) => setSelectedChannelById(newId)
-						}
+						bind:value={() => selectedChannel?.channel_id, (newId) => setSelectedChannelById(newId)}
 					/>
 				{:else}
 					<Select
@@ -147,10 +150,7 @@
 						{placeholder}
 						clearable
 						disabled={disabled || displayChannels.length === 0}
-						bind:value={
-							() => selectedChannel?.channel_id,
-							(newId) => setSelectedChannelById(newId)
-						}
+						bind:value={() => selectedChannel?.channel_id, (newId) => setSelectedChannelById(newId)}
 					/>
 				{/if}
 			</div>

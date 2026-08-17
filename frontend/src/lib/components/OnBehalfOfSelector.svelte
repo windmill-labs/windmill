@@ -1,4 +1,6 @@
 <script lang="ts" module>
+	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
+
 	export type OnBehalfOfChoice = 'target' | 'me' | 'custom' | undefined
 
 	export interface OnBehalfOfDetails {
@@ -11,14 +13,14 @@
 	 * Shows the selector when the source item has an on_behalf_of value set.
 	 */
 	export function needsOnBehalfOfSelection(kind: string, sourceValue: string | undefined): boolean {
-		if (
-			kind !== 'flow' &&
-			kind !== 'script' &&
-			kind !== 'app' &&
-			kind !== 'raw_app' &&
-			kind !== 'trigger'
-		)
-			return false
+		const supported =
+			kind === 'flow' ||
+			kind === 'script' ||
+			kind === 'app' ||
+			kind === 'raw_app' ||
+			kind === 'trigger' ||
+			isTriggerOrScheduleKind(kind)
+		if (!supported) return false
 		return !!sourceValue
 	}
 </script>
@@ -26,6 +28,7 @@
 <script lang="ts">
 	import { Check, UserCog, Users, ExternalLink } from 'lucide-svelte'
 	import MeltPopover from './meltComponents/Popover.svelte'
+	import Portal from './Portal.svelte'
 	import Modal from './common/modal/Modal.svelte'
 	import { userStore } from '$lib/stores'
 	import { UserService, type User } from '$lib/gen'
@@ -48,6 +51,29 @@
 		customValue?: string | undefined
 		/** When false, labels say "current" instead of "target" and modal text refers to "this workspace" */
 		isDeployment?: boolean
+		/**
+		 * Folder default permissioned_as for this item path — resolved by the parent via
+		 * `useFolderDefaultPermissionedAs`. When set and no explicit choice has been made,
+		 * the selector preselects `'custom'` with this value and shows a "folder default"
+		 * badge so the user sees where the value came from.
+		 */
+		folderDefault?: string | undefined
+		/**
+		 * Raises the popover and user picker above a `ConfirmationModal`, which renders at a
+		 * z-index above the popover layer — without this they open behind the dialog hosting them.
+		 */
+		aboveConfirmationModal?: boolean
+		/**
+		 * Fires as the user picker opens and closes. A host that binds its own Enter/Escape handler
+		 * must suspend it meanwhile: both handlers sit on `window`, where `stopPropagation` can't
+		 * separate them, so Escape in the picker would also dismiss the host.
+		 */
+		onPickerOpenChange?: (open: boolean) => void
+		/**
+		 * `u/username` to label the "me" option with. Usernames are per-workspace, so the current
+		 * one is the wrong name whenever the deploy targets a different workspace.
+		 */
+		myPermissionedAs?: string
 	}
 
 	let {
@@ -58,10 +84,14 @@
 		kind,
 		canPreserve,
 		customValue,
-		isDeployment = true
+		isDeployment = true,
+		folderDefault = undefined,
+		aboveConfirmationModal = false,
+		onPickerOpenChange = undefined,
+		myPermissionedAs = undefined
 	}: Props = $props()
 
-	const isTrigger = $derived(kind === 'trigger')
+	const isTrigger = $derived(kind === 'trigger' || isTriggerOrScheduleKind(kind))
 
 	let label = $derived(
 		isTrigger
@@ -97,7 +127,9 @@
 
 	let targetDisplayName = $derived(resolveDisplayName(targetValue))
 	let customDisplayName = $derived(resolveDisplayName(customValue))
-	let myDisplayName = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
+	let myDisplayName = $derived(
+		myPermissionedAs ?? ($userStore?.username ? `u/${$userStore.username}` : undefined)
+	)
 
 	let activeUsers = $derived(users.filter((u) => !u.disabled))
 	let filteredUsers = $derived(
@@ -113,12 +145,23 @@
 			: activeUsers
 	)
 
-	// Preselect "target" when available and user has permission to preserve
+	// Preselect "target" when available and user has permission to preserve.
+	// When no target is set but a folder default is, preselect that as a custom value.
+	// We track `users.length` so the effect re-runs once the async user list loads.
 	$effect(() => {
-		if (selected === undefined && targetValue && canPreserve) {
+		if (selected !== undefined || !canPreserve) return
+		if (targetValue) {
 			onSelect('target')
+		} else if (folderDefault && users.length > 0) {
+			const username = folderDefault.startsWith('u/') ? folderDefault.slice(2) : folderDefault
+			const email = users.find((u) => u.username === username)?.email ?? folderDefault
+			onSelect('custom', { email, permissionedAs: folderDefault })
 		}
 	})
+
+	const isFolderDefaultSelected = $derived(
+		selected === 'custom' && folderDefault !== undefined && customValue === folderDefault
+	)
 
 	function openModal() {
 		loadUsers()
@@ -131,6 +174,11 @@
 		modalOpen = false
 	}
 
+	// Covers every close path — the X, the overlay, Escape — not just `selectUser`.
+	$effect(() => {
+		onPickerOpenChange?.(modalOpen)
+	})
+
 	let selectedDisplayName = $derived.by(() => {
 		if (selected === 'target') return targetDisplayName
 		if (selected === 'me') return myDisplayName
@@ -139,12 +187,24 @@
 	})
 </script>
 
-<MeltPopover placement="bottom" on:openChange={(e) => e.detail && loadUsers()}>
+<MeltPopover
+	placement="bottom"
+	contentClasses={aboveConfirmationModal ? 'z-[10001]' : ''}
+	on:openChange={(e) => e.detail && loadUsers()}
+>
 	{#snippet trigger()}
 		<span class="inline-flex items-center gap-1">
 			<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
 			{#if selectedDisplayName}
 				<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
+			{/if}
+			{#if isFolderDefaultSelected}
+				<span
+					class="text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
+					title="From this folder's default_permissioned_as rule"
+				>
+					folder default
+				</span>
 			{/if}
 		</span>
 	{/snippet}
@@ -199,56 +259,65 @@
 	{/snippet}
 </MeltPopover>
 
-<!-- User selection modal -->
-<Modal title="Select a user" bind:open={modalOpen} kind="X">
-	<div class="flex flex-col gap-4">
-		<div class="text-xs text-secondary">
-			{#if isTrigger}
-				Choose the user this trigger will be permissioned as {isDeployment
-					? 'in the target workspace'
-					: 'in this workspace'}. The selected user's permissions will be used when the trigger
-				fires.
-			{:else}
-				Choose the user this {kind} will run on behalf of {isDeployment
-					? 'in the target workspace'
-					: 'in this workspace'}. The selected user's permissions will be used when executing.
-			{/if}
-			<a
-				href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
-				target="_blank"
-				rel="noopener noreferrer"
-				class="text-blue-500 hover:underline inline-flex items-center gap-0.5"
-			>
-				Learn more
-				<ExternalLink class="w-3 h-3" />
-			</a>
-		</div>
-
-		<TextInput bind:value={searchQuery} inputProps={{ placeholder: 'Search users...' }} />
-
-		<div class="max-h-60 overflow-y-auto border rounded">
-			{#each filteredUsers as user (user.email)}
-				<button
-					class="w-full flex items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-hover border-b last:border-b-0"
-					onclick={() => selectUser(user)}
+<!-- User selection modal. Portalled: the modal positions itself with `fixed`, which resolves
+     against the nearest transformed ancestor — inside a dialog card (which is transformed for
+     its open transition) it would be laid out within that card instead of the viewport. -->
+<Portal>
+	<Modal
+		title="Select a user"
+		bind:open={modalOpen}
+		kind="X"
+		minZIndex={aboveConfirmationModal ? 10001 : undefined}
+	>
+		<div class="flex flex-col gap-4">
+			<div class="text-xs text-secondary">
+				{#if isTrigger}
+					Choose the user this trigger will be permissioned as {isDeployment
+						? 'in the target workspace'
+						: 'in this workspace'}. The selected user's permissions will be used when the trigger
+					fires.
+				{:else}
+					Choose the user this {kind} will run on behalf of {isDeployment
+						? 'in the target workspace'
+						: 'in this workspace'}. The selected user's permissions will be used when executing.
+				{/if}
+				<a
+					href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="text-blue-500 hover:underline inline-flex items-center gap-0.5"
 				>
-					<div class="flex flex-col min-w-0">
-						<span class="font-medium truncate">u/{user.username}</span>
-						<span class="text-xs text-tertiary truncate">{user.email}</span>
+					Learn more
+					<ExternalLink class="w-3 h-3" />
+				</a>
+			</div>
+
+			<TextInput bind:value={searchQuery} inputProps={{ placeholder: 'Search users...' }} />
+
+			<div class="max-h-60 overflow-y-auto border rounded">
+				{#each filteredUsers as user (user.email)}
+					<button
+						class="w-full flex items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-hover border-b last:border-b-0"
+						onclick={() => selectUser(user)}
+					>
+						<div class="flex flex-col min-w-0">
+							<span class="font-medium truncate">u/{user.username}</span>
+							<span class="text-xs text-tertiary truncate">{user.email}</span>
+						</div>
+						{#if selected === 'custom' && (customValue === `u/${user.username}` || customValue === user.email)}
+							<Check class="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />
+						{/if}
+					</button>
+				{:else}
+					<div class="px-3 py-4 text-sm text-tertiary text-center">
+						{#if !usersLoaded}
+							Loading users&hellip;
+						{:else}
+							No users found
+						{/if}
 					</div>
-					{#if selected === 'custom' && (customValue === `u/${user.username}` || customValue === user.email)}
-						<Check class="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />
-					{/if}
-				</button>
-			{:else}
-				<div class="px-3 py-4 text-sm text-tertiary text-center">
-					{#if !usersLoaded}
-						Loading users&hellip;
-					{:else}
-						No users found
-					{/if}
-				</div>
-			{/each}
+				{/each}
+			</div>
 		</div>
-	</div>
-</Modal>
+	</Modal>
+</Portal>

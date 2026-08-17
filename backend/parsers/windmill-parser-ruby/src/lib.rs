@@ -41,6 +41,7 @@ pub fn parse_ruby_sig_meta(code: &str) -> anyhow::Result<MainArgSignature> {
         args: args.unwrap_or_default(),
         has_preprocessor: None,
         auto_kind,
+        ..Default::default()
     };
 
     Ok(main_sig)

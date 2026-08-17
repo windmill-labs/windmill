@@ -1,5 +1,5 @@
-use crate::ai::types::OpenAIMessage;
 use uuid::Uuid;
+use windmill_ai::types::OpenAIMessage;
 use windmill_common::{db::DB, error::Error};
 
 pub const MAX_MEMORY_SIZE_BYTES: usize = 100_000; // 100KB per memory entry in database

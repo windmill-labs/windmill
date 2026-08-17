@@ -3,7 +3,7 @@
 	import AIChatInput from './AIChatInput.svelte'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
-	import LoadingIcon from '$lib/components/apps/svelte-select/lib/LoadingIcon.svelte'
+	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy } from 'svelte'
 	import type { AIChatEditorHandler } from './monaco-adapter'
@@ -183,20 +183,19 @@
 	})
 </script>
 
-{#snippet bottomRightSnippet()}
-	{#if processing}
-		<LoadingIcon />
-	{:else if aiChatManager.pendingNewCode}
-		<span class="text-xs text-primary pr-1">
-			{getModifierKey()}↓ to apply
-		</span>
-	{:else}
-		<div></div>
-	{/if}
+{#snippet pendingApplyHint()}
+	<span class="text-xs text-primary pr-1">
+		{getModifierKey()}↓ to apply
+	</span>
 {/snippet}
 
 {#if show}
-	<div bind:this={widgetElement} class="w-[300px] -mt-2">
+	<div bind:this={widgetElement} class="w-[300px] -mt-2 relative">
+		{#if processing}
+			<div class="absolute -top-5 left-2 pointer-events-none z-10">
+				<ChatTypingIndicator loading={processing} compact />
+			</div>
+		{/if}
 		<AIChatInput
 			bind:this={aiChatInput}
 			availableContext={aiChatManager.contextManager.getAvailableContext()}
@@ -214,7 +213,7 @@
 				try {
 					const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
 					if (reply) {
-						aiChatManager.scriptEditorApplyCode?.(reply)
+						await aiChatManager.applyScriptEditorCode(reply)
 					}
 				} catch (error) {
 					console.error('Inline AI request failed:', error)
@@ -231,9 +230,9 @@
 			}}
 			showContext={false}
 			className="-ml-2"
-			bottomRightSnippet={processing || aiChatManager.pendingNewCode
-				? bottomRightSnippet
-				: undefined}
+			bottomRightSnippet={aiChatManager.pendingNewCode ? pendingApplyHint : undefined}
+			loading={processing}
+			onCancel={() => aiChatManager.cancelInlineRequest('user pressed stop')}
 			disabled={processing}
 		/>
 	</div>

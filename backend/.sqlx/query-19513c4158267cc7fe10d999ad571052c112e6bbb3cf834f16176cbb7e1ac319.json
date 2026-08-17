@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE chain(id, parent_job) AS (\n                SELECT id, parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2\n                UNION ALL\n                SELECT j.id, j.parent_job FROM v2_job j\n                    JOIN chain c ON j.id = c.parent_job AND j.workspace_id = $2\n            )\n            SELECT id AS \"id!\" FROM chain",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "19513c4158267cc7fe10d999ad571052c112e6bbb3cf834f16176cbb7e1ac319"
+}

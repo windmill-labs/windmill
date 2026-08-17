@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import {
 		ScheduleService,
 		type ScheduleWJobs,
@@ -6,6 +7,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
@@ -13,6 +15,8 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
@@ -26,7 +30,7 @@
 		Pen,
 		Play,
 		Plus,
-		Share,
+		Shield,
 		Trash
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
@@ -41,6 +45,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { untrack } from 'svelte'
+	import { page } from '$app/stores'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { runScheduleNow } from '$lib/components/triggers/scheduled/utils'
@@ -60,16 +65,21 @@
 			deployUiSettings = ALL_DEPLOYABLE
 			return
 		}
-		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
 	async function loadSchedules(): Promise<void> {
 		const currentFilters = filters.val
 
-		// Build API parameters from filters
+		// Build API parameters from filters.
+		// `includeDraftOnly` surfaces per-user drafts at paths that have
+		// no deployed schedule — appended server-side when no narrowing
+		// filter is set, so the user sees AI-agent-created drafts on
+		// the home page.
 		const apiParams: any = {
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			includeDraftOnly: true
 		}
 
 		if (currentFilters.schedule_path) {
@@ -93,6 +103,9 @@
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_
 		}
+		if (currentFilters.label) {
+			apiParams.label = currentFilters.label
+		}
 
 		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
@@ -101,6 +114,9 @@
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
 		allScriptPaths = Array.from(new Set(result.map((x) => x.script_path))).sort()
+		allLabels = Array.from(
+			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
+		).sort()
 
 		schedules = result
 		loading = false
@@ -135,16 +151,41 @@
 		loadingSchedulesWithJobStats = false
 	}
 
+	// Per-path counter bumped when a schedule toggle is cancelled or errors,
+	// to force-remount that row's <Toggle>. Toggle uses `bind:checked` on
+	// its native input; once the user clicks, the local checkbox state
+	// diverges from the parent's prop expression, and Svelte 5 prop
+	// reactivity won't push a same-valued prop back down. Re-mounting
+	// re-initializes from the prop. List-page rows don't optimistically
+	// flip `enabled`, so they need this nudge — but only the affected row,
+	// not all rows on the page.
+	let toggleResetVersions = $state<Record<string, number>>({})
+	function bumpToggleReset(path: string) {
+		toggleResetVersions[path] = (toggleResetVersions[path] ?? 0) + 1
+	}
+
 	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
-			await ScheduleService.setScheduleEnabled({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { enabled }
-			})
-			loadSchedules()
+			const ok = await withForkConflictRetry(
+				(force) =>
+					ScheduleService.setScheduleEnabled({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { enabled, force }
+					}),
+				'schedule'
+			)
+			if (ok) {
+				loadSchedules()
+			} else {
+				// Cancelled — nothing changed on the server, skip the reload
+				// (which would re-fetch job stats and flash the loading flag)
+				// and just nudge the toggle back to the prop value.
+				bumpToggleReset(path)
+			}
 		} catch (err) {
 			sendUserToast(`Cannot ` + (enabled ? 'enable' : 'disable') + ` schedule: ${err.body}`, true)
+			bumpToggleReset(path)
 			loadSchedules()
 		}
 	}
@@ -158,9 +199,32 @@
 	})
 	let scheduleEditor: ScheduleEditor | undefined = $state()
 
+	// Deep link: #<path> opens that schedule's edit drawer. Tracks the last
+	// handled hash (not a one-shot flag) so a hash change on the already-mounted
+	// page (e.g. the AI session preview re-pointing its tab) opens the drawer
+	// too. Row links pre-set handledHash: their onclick already opens the drawer.
+	let handledHash = ''
+	$effect(() => {
+		const hash = $page.url.hash
+		if (hash.length <= 1) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same schedule later would be skipped as already handled.
+			handledHash = ''
+			return
+		}
+		if (hash === handledHash || schedules.length === 0 || !scheduleEditor) return
+		const path = hash.slice(1)
+		const schedule = schedules.find((s) => s.path === path)
+		if (schedule) {
+			handledHash = hash
+			scheduleEditor.openEdit(path, schedule.is_flow)
+		}
+	})
+
 	// Collect unique values for filter autocomplete
 	let allPaths: string[] = $state([])
 	let allScriptPaths: string[] = $state([])
+	let allLabels: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -174,12 +238,36 @@
 		buildSchedulesFilterSchema({
 			paths: allPaths,
 			scriptPaths: allScriptPaths,
+			labels: allLabels,
 			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
+	let allFolders = $derived(
+		Array.from(
+			new Set(
+				(schedules ?? [])
+					.map((x) => x.path.split('/').slice(0, 2).join('/'))
+					.filter((x) => x.startsWith('f/'))
+			)
+		)
+			.sort()
+			.map((f) => f.replace(/^f\//, ''))
+	)
+	let presets = $derived([
+		...allFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
+		...(schedulesFilterSchema.user_folders_only
+			? [
+					{
+						name: schedulesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
+			: [])
+	])
 
 	let nbDisplayed = $state(15)
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
@@ -198,7 +286,6 @@
 		selectedFilterKind: 'schedule' | 'script_flow',
 		userFoldersOnly: boolean
 	) {
-		if ($workspaceStore == 'admins') return true
 		if (userFoldersOnly) {
 			if (selectedFilterKind === 'schedule') {
 				return (
@@ -219,9 +306,12 @@
 		item: ScheduleW,
 		filterEnabledDisabled: 'all' | 'enabled' | 'disabled'
 	) {
+		// Draft-only rows have nothing deployed, so they read as disabled here
+		// too — matching the off, disabled toggle the row renders.
+		const enabled = !item.draft_only && item.enabled
 		if (filterEnabledDisabled === 'all') return true
-		if (filterEnabledDisabled === 'enabled') return item.enabled
-		if (filterEnabledDisabled === 'disabled') return !item.enabled
+		if (filterEnabledDisabled === 'enabled') return enabled
+		if (filterEnabledDisabled === 'disabled') return !enabled
 	}
 
 	// Filter schedules client-side for enabled/disabled and user folders
@@ -275,6 +365,7 @@
 					schema={schedulesFilterSchema}
 					bind:value={filters.val}
 					class="grow max-w-[26rem]"
+					{presets}
 				/>
 			</div>
 			{#if loading}
@@ -285,7 +376,9 @@
 				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+						{@const hasDraft =
+							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -300,18 +393,43 @@
 
 								<a
 									href="#{path}"
-									onclick={() => scheduleEditor?.openEdit(path, is_flow)}
+									onclick={() => {
+										handledHash = `#${path}`
+										scheduleEditor?.openEdit(path, is_flow)
+									}}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
 									<div
 										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
 									>
-										{summary || script_path}
+										{summary || script_path}{hasDraft ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left">
 										schedule: {path}
 									</div>
 								</a>
+								{#if labels?.length}
+									{#each labels as label}
+										<Badge
+											color="blue"
+											small
+											class="px-1"
+											title="Label: {label}"
+											clickable
+											onclick={() => {
+												const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+												const idx = arr.indexOf(label)
+												if (idx >= 0) arr.splice(idx, 1)
+												else arr.push(label)
+												const newFilters = { ...filters.val }
+												if (arr.length) newFilters.label = arr.join(',')
+												else delete newFilters.label
+												filters.val = newFilters
+											}}>{label}</Badge
+										>
+									{/each}
+								{/if}
+								<InheritedLabels labels={inherited_labels} />
 
 								{#if paused_until && new Date(paused_until) > new Date()}
 									<div class="pb-1">
@@ -350,19 +468,39 @@
 									{/if}
 								</div>
 
-								<Toggle
-									checked={enabled}
-									on:change={(e) => {
-										if (canWrite) {
-											setScheduleEnabled(path, e.detail)
-										} else {
-											sendUserToast('not enough permission', true)
-										}
-									}}
-								/>
+								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+									<DraftBadge {draft_only} is_draft={hasDraft} />
+									{#key toggleResetVersions[path] ?? 0}
+										<Toggle
+											disabled={draft_only}
+											options={{
+												title: draft_only
+													? 'Draft only: deploy the schedule to enable it'
+													: hasDraft
+														? 'Enables/disables the deployed schedule; the draft is not affected'
+														: undefined
+											}}
+											checked={!draft_only && enabled}
+											on:change={(e) => {
+												if (canWrite) {
+													setScheduleEnabled(path, e.detail)
+												} else {
+													sendUserToast('not enough permission', true)
+													// Permission denied — bump the row's reset
+													// counter so the Toggle remounts back to the
+													// prop value. Without this, the local
+													// `bind:checked` flip from the user's click
+													// stays stuck on.
+													bumpToggleReset(path)
+												}
+											}}
+										/>
+									{/key}
+								</div>
 								<div class="flex gap-2 items-center justify-end">
 									<Button
-										href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}
+										href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+										disabled={draft_only}
 										unifiedSize="md"
 										startIcon={{ icon: List }}
 										variant="subtle"
@@ -432,11 +570,7 @@
 											{
 												displayName: 'View runs',
 												icon: List,
-												href:
-													base +
-													'/runs/?schedule_path=' +
-													path +
-													'&show_schedules=true&show_future_jobs=true'
+												href: `${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
 											},
 											{
 												displayName: 'Audit logs',
@@ -451,8 +585,8 @@
 												}
 											},
 											{
-												displayName: canWrite ? 'Share' : 'See Permissions',
-												icon: Share,
+												displayName: 'Permissions',
+												icon: Shield,
 												action: () => {
 													shareModal?.openDrawer(path, 'schedule')
 												}
@@ -494,8 +628,8 @@
 								{/if}
 								<div
 									class="flex flex-wrap text-xs text-secondary gap-1 items-center justify-end truncate pr-2"
-									><div class="truncate">edited by {edited_by}</div><div class="truncate"
-										>the {displayDate(edited_at)}</div
+									>{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}<div
+										class="truncate">{edited_by ? 'the ' : ''}{displayDate(edited_at)}</div
 									></div
 								></div
 							>

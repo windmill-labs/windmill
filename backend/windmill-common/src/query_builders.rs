@@ -1,6 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use windmill_types::scripts::ScriptLang;
 
+use crate::error::pg_error_message;
+
 fn deserialize_bool_from_null<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
@@ -39,7 +41,14 @@ fn deserialize_string_from_null<'de, D>(deserializer: D) -> Result<String, D::Er
 where
     D: Deserializer<'de>,
 {
-    Option::<String>::deserialize(deserializer).map(|v| v.unwrap_or_default())
+    // DuckDB may return booleans for fields that other databases return as strings
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match v {
+        serde_json::Value::Null => Ok(String::new()),
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Bool(b) => Ok(b.to_string()),
+        other => Ok(other.to_string()),
+    }
 }
 
 fn deserialize_column_identity_from_null<'de, D>(
@@ -49,15 +58,21 @@ where
     D: Deserializer<'de>,
 {
     // MySQL returns uppercase "YES"/"NO" while the enum expects title case.
-    let v = Option::<String>::deserialize(deserializer)?;
-    match v.as_deref() {
-        None => Ok(ColumnIdentity::default()),
-        Some(s) => match s.to_lowercase().as_str() {
+    // DuckDB returns a boolean false instead of a string.
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match v {
+        serde_json::Value::Null => Ok(ColumnIdentity::default()),
+        serde_json::Value::Bool(_) => Ok(ColumnIdentity::No),
+        serde_json::Value::String(s) => match s.to_lowercase().as_str() {
             "no" => Ok(ColumnIdentity::No),
             "yes" | "always" => Ok(ColumnIdentity::Always),
             "by default" => Ok(ColumnIdentity::ByDefault),
             _ => Ok(ColumnIdentity::No),
         },
+        _ => Err(serde::de::Error::custom(format!(
+            "expected string, bool, or null for isidentity, got {}",
+            v
+        ))),
     }
 }
 
@@ -159,6 +174,19 @@ pub struct SimpleColumn {
 pub struct SelectOptions {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    /// DuckLake time-travel: when set (DuckDB only), the read is pinned to this
+    /// catalog snapshot via `AT (VERSION => n)`. Ignored for other db types.
+    pub version: Option<i64>,
+}
+
+/// DuckLake time-travel suffix appended after a table name in a FROM clause.
+/// `n` is a server-controlled `i64` (a snapshot id), so inlining it is
+/// injection-safe. Empty string when unpinned (reads the latest snapshot).
+fn duckdb_version_suffix(version: Option<i64>) -> String {
+    match version {
+        Some(v) => format!(" AT (VERSION => {})", v),
+        None => String::new(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +205,8 @@ struct SelectPayload {
     #[serde(rename = "fixPgIntTypes")]
     fix_pg_int_types: Option<bool>,
     ducklake: Option<String>,
+    /// DuckLake snapshot to time-travel the read to (DuckDB only).
+    version: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -187,6 +217,21 @@ struct CountPayload {
     #[serde(rename = "whereClause")]
     where_clause: Option<String>,
     ducklake: Option<String>,
+    /// DuckLake snapshot to time-travel the count to (DuckDB only).
+    version: Option<i64>,
+}
+
+/// `WM_INTERNAL_DB_DUCKLAKE_SNAPSHOTS` payload — lists the time-travel history
+/// of a ducklake table. DuckLake snapshots are catalog-wide commits, so without
+/// a `table` this lists every commit; with one it is scoped to snapshots where
+/// that table exists (see `expand_ducklake_snapshots`).
+#[derive(Deserialize)]
+struct DucklakeSnapshotsPayload {
+    ducklake: String,
+    /// Schema-qualified table name (e.g. `main.events_daily`) to scope the
+    /// history to. Snapshots predating the table's creation are excluded — a
+    /// time-travel read can't target a version where the table didn't exist.
+    table: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -207,7 +252,7 @@ struct InsertPayload {
 struct UpdatePayload {
     table: String,
     column: SimpleColumn,
-    columns: Vec<SimpleColumn>,
+    columns: Vec<ColumnDef>,
     ducklake: Option<String>,
 }
 
@@ -291,6 +336,10 @@ pub fn try_expand_internal_db_query(
             expand_primary_key_constraint(json_str, db_type).map(ExpandedQuery::sql)
         }
         "SNOWFLAKE_PRIMARY_KEYS" => expand_snowflake_primary_keys(json_str).map(ExpandedQuery::sql),
+        // DuckLake time-travel: list a ducklake's snapshot history
+        "DUCKLAKE_SNAPSHOTS" => {
+            expand_ducklake_snapshots(json_str, db_type).map(ExpandedQuery::sql)
+        }
         _ => Err(format!("Unknown WM_INTERNAL_DB operation: {}", op)),
     };
 
@@ -311,7 +360,8 @@ fn expand_select(json_str: &str, db_type: DbType) -> Result<String, String> {
     let payload: SelectPayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid SELECT payload: {}", e))?;
 
-    let options = SelectOptions { limit: payload.limit, offset: payload.offset };
+    let options =
+        SelectOptions { limit: payload.limit, offset: payload.offset, version: payload.version };
     let breaking = payload
         .fix_pg_int_types
         .map(|v| BreakingFeatures { fix_pg_int_types: v });
@@ -337,16 +387,63 @@ fn expand_count(json_str: &str, db_type: DbType) -> Result<String, String> {
         &payload.table,
         payload.where_clause.as_deref(),
         &payload.column_defs,
+        payload.version,
     )?;
 
     Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
+}
+
+/// Expand `DUCKLAKE_SNAPSHOTS` into the catalog's time-travel history. DuckLake
+/// snapshots are catalog-wide commits, so `ducklake_snapshots('dl')` (the alias
+/// `maybe_wrap_ducklake` attaches) lists every version any `AT (VERSION => n)`
+/// read can target, newest first.
+fn expand_ducklake_snapshots(json_str: &str, db_type: DbType) -> Result<String, String> {
+    if db_type != DbType::Duckdb {
+        return Err("DUCKLAKE_SNAPSHOTS is only supported for DuckDB".to_string());
+    }
+    let payload: DucklakeSnapshotsPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid DUCKLAKE_SNAPSHOTS payload: {}", e))?;
+    // `dl` is the alias `wrap_ducklake_query` attaches and `USE`s below.
+    let query = match &payload.table {
+        // Scope to snapshots from the table's first creation onward. A DuckLake
+        // table created at snapshot N can't be read before N (the catalog-wide
+        // list would otherwise offer impossible versions). The creation snapshot
+        // is the earliest whose `changes.tables_created` names the table;
+        // COALESCE to 0 (show all) if it is never found.
+        Some(table) => {
+            let table = escape_sql_literal(table);
+            format!(
+                "SELECT snapshot_id, snapshot_time FROM ducklake_snapshots('dl') \
+                 WHERE snapshot_id >= COALESCE((\
+                   SELECT min(snapshot_id) FROM ducklake_snapshots('dl') \
+                   WHERE list_contains(changes.tables_created, '{table}')), 0) \
+                 ORDER BY snapshot_id DESC"
+            )
+        }
+        None => {
+            "SELECT snapshot_id, snapshot_time FROM ducklake_snapshots('dl') ORDER BY snapshot_id DESC"
+                .to_string()
+        }
+    };
+    Ok(maybe_wrap_ducklake(query, Some(&payload.ducklake)))
+}
+
+/// Filter columns to primary keys only; fall back to all columns if none are marked.
+fn pk_columns_or_all(columns: &[ColumnDef]) -> Vec<ColumnDef> {
+    let pks: Vec<ColumnDef> = columns.iter().filter(|c| c.isprimarykey).cloned().collect();
+    if pks.is_empty() {
+        columns.to_vec()
+    } else {
+        pks
+    }
 }
 
 fn expand_delete(json_str: &str, db_type: DbType) -> Result<String, String> {
     let payload: DeletePayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid DELETE payload: {}", e))?;
 
-    let query = make_delete_query(&payload.table, &payload.columns, db_type);
+    let where_columns = pk_columns_or_all(&payload.columns);
+    let query = make_delete_query(&payload.table, &where_columns, db_type);
     Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
 }
 
@@ -362,7 +459,9 @@ fn expand_update(json_str: &str, db_type: DbType) -> Result<String, String> {
     let payload: UpdatePayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid UPDATE payload: {}", e))?;
 
-    let query = make_update_query(&payload.table, &payload.column, &payload.columns, db_type);
+    let where_columns = pk_columns_or_all(&payload.columns);
+    let where_simple = cols_to_simple(&where_columns);
+    let query = make_update_query(&payload.table, &payload.column, &where_simple, db_type);
     Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
 }
 
@@ -381,14 +480,31 @@ pub struct BreakingFeatures {
 // Helper functions
 // ---------------------------------------------------------------------------
 
+fn normalize_pg_type(typ: &str) -> &str {
+    match typ {
+        "double precision" => "float8",
+        "character varying" => "varchar",
+        "time with time zone" => "timetz",
+        "time without time zone" => "time",
+        "timestamp with time zone" => "timestamptz",
+        "timestamp without time zone" => "timestamp",
+        other => other,
+    }
+}
+
 pub fn build_parameters(columns: &[SimpleColumn], db_type: DbType) -> String {
     columns
         .iter()
         .enumerate()
         .map(|(i, col)| {
             let base_type = col.datatype.split('(').next().unwrap_or(&col.datatype);
+            let base_type = if db_type == DbType::Postgresql {
+                normalize_pg_type(base_type)
+            } else {
+                base_type
+            };
             match db_type {
-                DbType::Postgresql => format!("-- ${} {}", i + 1, col.field),
+                DbType::Postgresql => format!("-- ${} {} ({})", i + 1, col.field, base_type),
                 DbType::Mysql => format!("-- :{} ({})", col.field, base_type),
                 DbType::MsSqlServer => {
                     format!("-- @p{} {} ({})", i + 1, col.field, base_type)
@@ -406,6 +522,26 @@ fn cols_to_simple(cols: &[ColumnDef]) -> Vec<SimpleColumn> {
     cols.iter()
         .map(|c| SimpleColumn { field: c.field.clone(), datatype: c.datatype.clone() })
         .collect()
+}
+
+/// DuckDB's `concat` doubles as list concatenation, so a LIST or ARRAY beside a
+/// VARCHAR is a binder error rather than an implicit cast, and quicksearch
+/// concatenates every visible column, so one of them makes the table
+/// unpreviewable. Everything else concatenates as text and stays uncast: the
+/// frontend twin of this predicate feeds app policy digests that a changed
+/// string invalidates.
+fn duckdb_quicksearch_columns(column_defs: &[ColumnDef]) -> String {
+    visible_column_defs(column_defs)
+        .map(|c| {
+            let quoted = render_db_quoted_identifier(&c.field, DbType::Duckdb);
+            if c.datatype.trim_end().ends_with(']') {
+                format!("CAST({} AS VARCHAR)", quoted)
+            } else {
+                quoted
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// MSSQL `text`, `ntext`, and `image` types cannot be used with the `=` operator.
@@ -462,10 +598,14 @@ fn qi(identifier: &str, db_type: DbType) -> String {
     render_db_quoted_identifier(identifier, db_type)
 }
 
+/// The columns a table preview shows, in the order [`build_visible_field_list`]
+/// renders them.
+fn visible_column_defs(column_defs: &[ColumnDef]) -> impl Iterator<Item = &ColumnDef> {
+    column_defs.iter().filter(|c| c.ignored != Some(true))
+}
+
 pub fn build_visible_field_list(column_defs: &[ColumnDef], db_type: DbType) -> Vec<String> {
-    column_defs
-        .iter()
-        .filter(|c| c.ignored != Some(true))
+    visible_column_defs(column_defs)
         .map(|c| render_db_quoted_identifier(&c.field, db_type))
         .collect()
 }
@@ -752,7 +892,7 @@ pub fn make_select_query(
                 quicksearch
             ));
             query.push_str(&format!(" ORDER BY {}\n", order_by));
-            query.push_str(" LIMIT $1::INT OFFSET $2::INT");
+            query.push_str(" LIMIT $1 OFFSET $2");
             Ok(query)
         }
         DbType::MsSqlServer => {
@@ -903,13 +1043,14 @@ pub fn make_select_query(
 
             let quicksearch = format!(
                 "($quicksearch = '' OR CONCAT({}) ILIKE '%' || $quicksearch || '%')",
-                filtered_columns.join(", ")
+                duckdb_quicksearch_columns(column_defs)
             );
 
             query.push_str(&format!(
-                "SELECT {} FROM {}\n",
+                "SELECT {} FROM {}{}\n",
                 filtered_columns.join(", "),
-                quote_table_name(table, db_type)
+                quote_table_name(table, db_type),
+                duckdb_version_suffix(options.and_then(|o| o.version))
             ));
             query.push_str(&format!(
                 " WHERE {} {}\n",
@@ -934,6 +1075,8 @@ pub fn make_count_query(
     table: &str,
     where_clause: Option<&str>,
     column_defs: &[ColumnDef],
+    // DuckLake time-travel snapshot (DuckDB only); `None` counts the latest.
+    version: Option<i64>,
 ) -> Result<String, String> {
     let where_prefix = " WHERE ";
     let and_condition = " AND ";
@@ -1069,14 +1212,15 @@ pub fn make_count_query(
             if !filtered_columns.is_empty() {
                 quicksearch_condition.push_str(&format!(
                     " ($quicksearch = '' OR CONCAT(' ', {}) LIKE CONCAT('%', $quicksearch, '%'))",
-                    filtered_columns.join(", ")
+                    duckdb_quicksearch_columns(column_defs)
                 ));
             } else {
                 quicksearch_condition.push_str(" ($quicksearch = '' OR 1 = 1)");
             }
             query.push_str(&format!(
-                "SELECT COUNT(*) as count FROM {}",
-                quote_table_name(table, db_type)
+                "SELECT COUNT(*) as count FROM {}{}",
+                quote_table_name(table, db_type),
+                duckdb_version_suffix(version)
             ));
         }
     }
@@ -1145,13 +1289,11 @@ pub fn make_delete_query(table: &str, columns: &[ColumnDef], db_type: DbType) ->
                 .map(|(i, c)| {
                     let qf = qi(&c.field, db_type);
                     format!(
-                        "(${}::text::{} IS NULL AND {} IS NULL OR {} = ${}::text::{})",
+                        "(${} IS NULL AND {} IS NULL OR {} = ${})",
                         i + 1,
-                        c.datatype,
                         qf,
                         qf,
                         i + 1,
-                        c.datatype
                     )
                 })
                 .collect::<Vec<_>>()
@@ -1253,6 +1395,8 @@ fn get_user_default_value(column: &ColumnDef) -> Option<String> {
     if let Some(ref val) = column.default_user_value {
         if is_truthy(val) {
             return match val {
+                // SAFETY: not escaped — this SQL runs against the user's own external database
+                // (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
                 serde_json::Value::String(s) => Some(format!("'{}'", s)),
                 other => Some(other.to_string()),
             };
@@ -1267,7 +1411,7 @@ fn format_insert_values(columns: &[ColumnDef], db_type: DbType, start_index: usi
         .enumerate()
         .map(|(i, c)| match db_type {
             DbType::Mysql => format!(":{}", c.field),
-            DbType::Postgresql => format!("${}::{}", start_index + i, c.datatype),
+            DbType::Postgresql => format!("${}", start_index + i),
             DbType::MsSqlServer => format!("@p{}", start_index + i),
             DbType::Snowflake => "?".to_string(),
             DbType::Bigquery => format!("@{}", c.field),
@@ -1445,21 +1589,19 @@ pub fn make_update_query(
                 .map(|(i, c)| {
                     let qf = qi(&c.field, db_type);
                     format!(
-                        "(${}::text::{} IS NULL AND {} IS NULL OR {} = ${}::text::{})",
+                        "(${} IS NULL AND {} IS NULL OR {} = ${})",
                         i + 2,
-                        c.datatype,
                         qf,
                         qf,
                         i + 2,
-                        c.datatype
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
 
             query.push_str(&format!(
-                "\nUPDATE {} SET {} = $1::text::{} \nWHERE {}\tRETURNING 1",
-                qt, qcol, column.datatype, conditions
+                "\nUPDATE {} SET {} = $1 \nWHERE {}\tRETURNING 1",
+                qt, qcol, conditions
             ));
         }
         DbType::Mysql => {
@@ -1698,7 +1840,7 @@ struct PrimaryKeyConstraintPayload {
 fn db_supports_schemas(db_type: DbType) -> bool {
     matches!(
         db_type,
-        DbType::Postgresql | DbType::Snowflake | DbType::Bigquery
+        DbType::Postgresql | DbType::Snowflake | DbType::Bigquery | DbType::Duckdb
     )
 }
 
@@ -1740,6 +1882,8 @@ fn format_default_value(s: &str, datatype: &str, db_type: DbType) -> String {
         return s[1..s.len() - 1].to_string();
     }
     let escaped = escape_sql_literal(s);
+    // SAFETY: datatype is not escaped — this SQL runs against the user's own external database
+    // (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
     if db_type == DbType::Postgresql {
         return format!("CAST('{}' AS {})", escaped, datatype);
     }
@@ -1818,6 +1962,8 @@ fn render_fk_ddl(
         quote_table_name(&target_table_raw, db_type),
         target_quoted.join(", ")
     ));
+    // SAFETY: on_delete/on_update are not validated — this SQL runs against the user's own
+    // external database (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
     if fk.on_delete != "NO ACTION" {
         sql.push_str(&format!(" ON DELETE {}", fk.on_delete));
     }
@@ -1954,6 +2100,8 @@ fn render_fk_inline(fk: &TableEditorForeignKey, use_schema: bool, db_type: DbTyp
         target_table,
         target_cols.join(", ")
     );
+    // SAFETY: on_delete/on_update are not validated — this SQL runs against the user's own
+    // external database (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
     if fk.on_delete != "NO ACTION" {
         sql.push_str(&format!(" ON DELETE {}", fk.on_delete));
     }
@@ -2197,6 +2345,8 @@ fn render_alter_column(
     Ok(queries)
 }
 
+// SAFETY: datatype is not escaped — this SQL runs against the user's own external database
+// (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
 fn render_alter_datatype(table_ref: &str, col: &str, datatype: &str, db_type: DbType) -> String {
     let qc = qi(col, db_type);
     match db_type {
@@ -2361,38 +2511,65 @@ fn make_load_table_metadata_query(
 ) -> Result<String, String> {
     match db_type {
         DbType::Duckdb => {
-            // For ducklake, the ducklake ATTACH is handled by the ducklake wrapper.
-            let mut q = String::from(
+            // For ducklake, the ducklake ATTACH is handled by the ducklake wrapper, so the
+            // ducklake catalog is the current database. information_schema spans every attached
+            // catalog, so we always scope to current_database() to stay within the ducklake.
+            let extra_col = if table.is_none() {
+                ",\n    TABLE_SCHEMA as schema_name"
+            } else {
+                ""
+            };
+            let mut q = format!(
                 "SELECT
     COLUMN_NAME as field,
     DATA_TYPE as DataType,
     COLUMN_DEFAULT as DefaultValue,
     false as IsPrimaryKey,
     false as IsIdentity,
-    IS_NULLABLE as IsNullable,
+    CASE WHEN IS_NULLABLE = true THEN 'YES' ELSE 'NO' END as IsNullable,
     false as IsEnum,
-    TABLE_NAME as table_name
+    TABLE_NAME as table_name{}
 FROM information_schema.columns c
-WHERE table_schema = current_schema()",
+WHERE table_catalog = current_database()",
+                extra_col
             );
             if let Some(t) = table {
-                q.push_str(&format!(" AND TABLE_NAME = '{}'", escape_sql_literal(t)));
+                let parts: Vec<&str> = t.split('.').collect();
+                let tname = parts[parts.len() - 1];
+                let schema = if parts.len() > 1 { parts[0] } else { "main" };
+                q.push_str(&format!(
+                    " AND TABLE_NAME = '{}' AND TABLE_SCHEMA = '{}'",
+                    escape_sql_literal(tname),
+                    escape_sql_literal(schema)
+                ));
             }
             Ok(q)
         }
         DbType::Mysql => {
-            let db_name = database_name.unwrap_or("");
+            let explicit_db = database_name.filter(|s| !s.is_empty());
             let table_filter = if let Some(t) = table {
                 let parts: Vec<&str> = t.split('.').collect();
                 let tname = parts[parts.len() - 1];
-                let schema = if parts.len() > 1 { parts[0] } else { db_name };
+                let schema_sql = if parts.len() > 1 {
+                    format!("'{}'", escape_sql_literal(parts[0]))
+                } else {
+                    explicit_db
+                        .map(|dn| format!("'{}'", escape_sql_literal(dn)))
+                        .unwrap_or_else(|| "DATABASE()".to_string())
+                };
                 format!(
-                    "\nWHERE\n    TABLE_NAME = '{}' AND TABLE_SCHEMA = '{}'",
+                    "\nWHERE\n    TABLE_NAME = '{}' AND TABLE_SCHEMA = {}",
                     escape_sql_literal(tname),
-                    escape_sql_literal(schema)
+                    schema_sql
                 )
             } else {
-                "\nWHERE\n    TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')".to_string()
+                let schema_predicate = explicit_db
+                    .map(|dn| format!("TABLE_SCHEMA = '{}'", escape_sql_literal(dn)))
+                    .unwrap_or_else(|| "TABLE_SCHEMA = DATABASE()".to_string());
+                format!(
+                    "\nWHERE\n    {}\n    AND TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')",
+                    schema_predicate
+                )
             };
             let extra_col = if table.is_none() {
                 ",\n    TABLE_NAME as table_name"
@@ -2693,7 +2870,7 @@ mod tests {
     fn test_build_parameters_postgresql() {
         let cols = vec![simple_col("limit", "int"), simple_col("offset", "int")];
         let result = build_parameters(&cols, DbType::Postgresql);
-        assert_eq!(result, "-- $1 limit\n-- $2 offset");
+        assert_eq!(result, "-- $1 limit (int)\n-- $2 offset (int)");
     }
 
     #[test]
@@ -2802,11 +2979,11 @@ mod tests {
             make_select_query("my_table", &cols, None, DbType::Postgresql, None, None).unwrap();
 
         assert!(result.starts_with(
-            "-- $1 limit\n-- $2 offset\n-- $3 quicksearch\n-- $4 order_by\n-- $5 is_desc\n"
+            "-- $1 limit (int)\n-- $2 offset (int)\n-- $3 quicksearch (text)\n-- $4 order_by (text)\n-- $5 is_desc (boolean)\n"
         ));
         assert!(result.contains("SELECT \"id\"::text, \"name\"::text FROM \"my_table\"\n"));
         assert!(result.contains("($3 = '' OR CONCAT(\"id\", \"name\") ILIKE '%' || $3 || '%')"));
-        assert!(result.contains("LIMIT $1::INT OFFSET $2::INT"));
+        assert!(result.contains("LIMIT $1 OFFSET $2"));
         assert!(result.contains("$4 = 'id' AND $5 IS false THEN \"id\"::text"));
         assert!(result.contains("$4 = 'name' AND $5 IS true THEN \"name\"::text END) DESC"));
     }
@@ -2922,7 +3099,7 @@ mod tests {
     #[test]
     fn test_select_snowflake_custom_limit() {
         let cols = vec![col("id", "int")];
-        let opts = SelectOptions { limit: Some(50), offset: Some(10) };
+        let opts = SelectOptions { limit: Some(50), offset: Some(10), version: None };
         let result = make_select_query(
             "my_table",
             &cols,
@@ -2977,6 +3154,40 @@ mod tests {
         assert!(result.contains("LIMIT $limit::INT OFFSET $offset::INT"));
     }
 
+    /// Both the SELECT and the COUNT build the quicksearch predicate; fixing only
+    /// one leaves the grid rendering while the row count errors out.
+    #[test]
+    fn test_duckdb_quicksearch_casts_only_list_columns() {
+        let cols = vec![
+            col("id", "VARCHAR"),
+            col("tags", "VARCHAR[]"),
+            col("pos", "INTEGER[3]"),
+            col("meta", "STRUCT(a INTEGER)"),
+        ];
+
+        let select =
+            make_select_query("my_table", &cols, None, DbType::Duckdb, None, None).unwrap();
+        assert!(
+            select.contains(
+                "CONCAT(\"id\", CAST(\"tags\" AS VARCHAR), CAST(\"pos\" AS VARCHAR), \"meta\") ILIKE"
+            ),
+            "got:\n{}",
+            select
+        );
+        // The projection stays untouched: casting there would change the types
+        // the caller reads back.
+        assert!(select.contains("SELECT \"id\", \"tags\", \"pos\", \"meta\" FROM \"my_table\""));
+
+        let count = make_count_query(DbType::Duckdb, "my_table", None, &cols, None).unwrap();
+        assert!(
+            count.contains(
+                "CONCAT(' ', \"id\", CAST(\"tags\" AS VARCHAR), CAST(\"pos\" AS VARCHAR), \"meta\") LIKE"
+            ),
+            "got:\n{}",
+            count
+        );
+    }
+
     // -----------------------------------------------------------------------
     // SELECT - error cases
     // -----------------------------------------------------------------------
@@ -2996,9 +3207,9 @@ mod tests {
     #[test]
     fn test_count_postgresql_basic() {
         let cols = vec![col("id", "int4"), col("name", "text")];
-        let result = make_count_query(DbType::Postgresql, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Postgresql, "my_table", None, &cols, None).unwrap();
 
-        assert!(result.contains("-- $1 quicksearch"));
+        assert!(result.contains("-- $1 quicksearch (text)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM \"my_table\""));
         assert!(result.contains("($1 = '' OR CONCAT(\"id\", \"name\") ILIKE '%' || $1 || '%')"));
         // Should use WHERE not AND
@@ -3014,6 +3225,7 @@ mod tests {
             "my_table",
             Some("status = 'active'"),
             &cols,
+            None,
         )
         .unwrap();
 
@@ -3029,7 +3241,7 @@ mod tests {
             c.ignored = Some(true);
             c
         }];
-        let result = make_count_query(DbType::Postgresql, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Postgresql, "my_table", None, &cols, None).unwrap();
         assert!(result.contains("($1 = '' OR 1 = 1)"));
     }
 
@@ -3040,7 +3252,7 @@ mod tests {
     #[test]
     fn test_count_mysql_basic() {
         let cols = vec![col("id", "int"), col("name", "varchar")];
-        let result = make_count_query(DbType::Mysql, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Mysql, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("-- :quicksearch (text)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM `my_table`"));
@@ -3054,7 +3266,7 @@ mod tests {
     #[test]
     fn test_count_mssql_basic() {
         let cols = vec![col("id", "int"), col("name", "nvarchar")];
-        let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("SELECT COUNT(*) as count FROM [my_table]"));
         assert!(result.contains("(@p1 = '' OR CONCAT([id], [name]) LIKE '%' + @p1 + '%')"));
@@ -3067,7 +3279,7 @@ mod tests {
     #[test]
     fn test_count_snowflake_basic() {
         let cols = vec![col("id", "int"), col("name", "text")];
-        let result = make_count_query(DbType::Snowflake, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Snowflake, "my_table", None, &cols, None).unwrap();
 
         // Two quicksearch params for snowflake with visible columns
         assert!(result.contains("-- ? quicksearch (text)\n-- ? quicksearch (text)"));
@@ -3082,7 +3294,7 @@ mod tests {
             c.ignored = Some(true);
             c
         }];
-        let result = make_count_query(DbType::Snowflake, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Snowflake, "my_table", None, &cols, None).unwrap();
         // One quicksearch param
         let param_lines: Vec<&str> = result.lines().filter(|l| l.starts_with("-- ?")).collect();
         assert_eq!(param_lines.len(), 1);
@@ -3096,7 +3308,7 @@ mod tests {
     #[test]
     fn test_count_bigquery_basic() {
         let cols = vec![col("id", "INTEGER"), col("name", "STRING")];
-        let result = make_count_query(DbType::Bigquery, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Bigquery, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("-- @quicksearch (string)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM `my_table`"));
@@ -3106,7 +3318,7 @@ mod tests {
     #[test]
     fn test_count_bigquery_json_type() {
         let cols = vec![col("id", "INTEGER"), col("data", "JSON")];
-        let result = make_count_query(DbType::Bigquery, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Bigquery, "my_table", None, &cols, None).unwrap();
         assert!(result.contains("TO_JSON_STRING(`data`)"));
     }
 
@@ -3117,13 +3329,81 @@ mod tests {
     #[test]
     fn test_count_duckdb_basic() {
         let cols = vec![col("id", "int"), col("name", "text")];
-        let result = make_count_query(DbType::Duckdb, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Duckdb, "my_table", None, &cols, None).unwrap();
 
         assert!(result.contains("-- $quicksearch (text)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM \"my_table\""));
         assert!(
             result.contains("CONCAT(' ', \"id\", \"name\") LIKE CONCAT('%', $quicksearch, '%')")
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // DuckLake time-travel (AT VERSION) + snapshot history
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_select_duckdb_time_travel() {
+        let cols = vec![col("id", "int"), col("name", "text")];
+        let opts = SelectOptions { limit: None, offset: None, version: Some(42) };
+        let result =
+            make_select_query("orders", &cols, None, DbType::Duckdb, Some(&opts), None).unwrap();
+        // Read is pinned to the catalog snapshot via AT (VERSION => n).
+        assert!(result.contains("FROM \"orders\" AT (VERSION => 42)\n"));
+    }
+
+    #[test]
+    fn test_select_duckdb_no_version_unpinned() {
+        let cols = vec![col("id", "int")];
+        let result = make_select_query("orders", &cols, None, DbType::Duckdb, None, None).unwrap();
+        // Without a version the read targets the latest snapshot — no AT clause.
+        assert!(result.contains("FROM \"orders\"\n"));
+        assert!(!result.contains("AT (VERSION"));
+    }
+
+    #[test]
+    fn test_count_duckdb_time_travel() {
+        let cols = vec![col("id", "int")];
+        let result = make_count_query(DbType::Duckdb, "orders", None, &cols, Some(7)).unwrap();
+        assert!(result.contains("FROM \"orders\" AT (VERSION => 7)"));
+    }
+
+    #[test]
+    fn test_version_ignored_for_non_duckdb() {
+        // AT (VERSION) is DuckLake-only; other dialects must never emit it even
+        // if a version is somehow passed through.
+        let cols = vec![col("id", "int4")];
+        let opts = SelectOptions { limit: None, offset: None, version: Some(5) };
+        let result =
+            make_select_query("orders", &cols, None, DbType::Postgresql, Some(&opts), None)
+                .unwrap();
+        assert!(!result.contains("AT (VERSION"));
+    }
+
+    #[test]
+    fn test_expand_ducklake_snapshots() {
+        let json = r#"{"ducklake": "analytics"}"#;
+        let result = expand_ducklake_snapshots(json, DbType::Duckdb).unwrap();
+        assert!(result.contains("ATTACH 'ducklake://analytics' AS dl;USE dl;"));
+        assert!(result.contains("ducklake_snapshots('dl')"));
+        assert!(result.contains("ORDER BY snapshot_id DESC"));
+        // Unscoped: no per-table existence filter.
+        assert!(!result.contains("tables_created"));
+    }
+
+    #[test]
+    fn test_expand_ducklake_snapshots_scoped_to_table() {
+        let json = r#"{"ducklake": "analytics", "table": "main.events_daily"}"#;
+        let result = expand_ducklake_snapshots(json, DbType::Duckdb).unwrap();
+        // Scoped to snapshots from the table's first creation onward.
+        assert!(result.contains("list_contains(changes.tables_created, 'main.events_daily')"));
+        assert!(result.contains("snapshot_id >= COALESCE"));
+    }
+
+    #[test]
+    fn test_expand_ducklake_snapshots_non_duckdb_errors() {
+        let json = r#"{"ducklake": "analytics"}"#;
+        assert!(expand_ducklake_snapshots(json, DbType::Postgresql).is_err());
     }
 
     // -----------------------------------------------------------------------
@@ -3135,13 +3415,10 @@ mod tests {
         let cols = vec![col("id", "int4"), col("name", "text")];
         let result = make_delete_query("my_table", &cols, DbType::Postgresql);
 
-        assert!(result.contains("-- $1 id\n-- $2 name"));
+        assert!(result.contains("-- $1 id (int4)\n-- $2 name (text)"));
         assert!(result.contains("DELETE FROM \"my_table\""));
-        assert!(result
-            .contains("($1::text::int4 IS NULL AND \"id\" IS NULL OR \"id\" = $1::text::int4)"));
-        assert!(result.contains(
-            "($2::text::text IS NULL AND \"name\" IS NULL OR \"name\" = $2::text::text)"
-        ));
+        assert!(result.contains("($1 IS NULL AND \"id\" IS NULL OR \"id\" = $1)"));
+        assert!(result.contains("($2 IS NULL AND \"name\" IS NULL OR \"name\" = $2)"));
         assert!(result.contains("RETURNING 1;"));
     }
 
@@ -3208,9 +3485,8 @@ mod tests {
         let cols = vec![col("id", "int4"), col("name", "text")];
         let result = make_insert_query("my_table", &cols, DbType::Postgresql).unwrap();
 
-        assert!(result.contains("-- $1 id\n-- $2 name"));
-        assert!(result
-            .contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1::int4, $2::text)"));
+        assert!(result.contains("-- $1 id (int4)\n-- $2 name (text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1, $2)"));
     }
 
     #[test]
@@ -3266,7 +3542,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // id should be skipped from insert columns (has nextval default in pg)
-        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1::text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1)"));
     }
 
     #[test]
@@ -3280,9 +3556,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // name should be in insert params, id should be in defaults
-        assert!(
-            result.contains("INSERT INTO \"my_table\" (\"name\", \"id\") VALUES ($1::text, '42')")
-        );
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\", \"id\") VALUES ($1, '42')"));
     }
 
     #[test]
@@ -3295,7 +3569,7 @@ mod tests {
         let result =
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
-        assert!(result.contains("VALUES ($1::text, NULL)"));
+        assert!(result.contains("VALUES ($1, NULL)"));
     }
 
     #[test]
@@ -3310,7 +3584,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // Column is hidden, not nullable, has db default, no user default -> omit (use db default)
-        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1::text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1)"));
     }
 
     #[test]
@@ -3324,7 +3598,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // Always identity should be omitted
-        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1::text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1)"));
     }
 
     #[test]
@@ -3362,13 +3636,12 @@ mod tests {
         let where_cols = vec![simple_col("id", "int4"), simple_col("email", "text")];
         let result = make_update_query("my_table", &update_col, &where_cols, DbType::Postgresql);
 
-        assert!(result.contains("-- $1 value_to_update\n-- $2 id\n-- $3 email"));
-        assert!(result.contains("UPDATE \"my_table\" SET \"name\" = $1::text::text"));
-        assert!(result
-            .contains("($2::text::int4 IS NULL AND \"id\" IS NULL OR \"id\" = $2::text::int4)"));
-        assert!(result.contains(
-            "($3::text::text IS NULL AND \"email\" IS NULL OR \"email\" = $3::text::text)"
-        ));
+        assert!(
+            result.contains("-- $1 value_to_update (text)\n-- $2 id (int4)\n-- $3 email (text)")
+        );
+        assert!(result.contains("UPDATE \"my_table\" SET \"name\" = $1"));
+        assert!(result.contains("($2 IS NULL AND \"id\" IS NULL OR \"id\" = $2)"));
+        assert!(result.contains("($3 IS NULL AND \"email\" IS NULL OR \"email\" = $3)"));
         assert!(result.contains("RETURNING 1"));
     }
 
@@ -3431,7 +3704,7 @@ mod tests {
     #[test]
     fn test_count_mssql_no_where() {
         let cols = vec![col("id", "int")];
-        let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::MsSqlServer, "my_table", None, &cols, None).unwrap();
         // MSSQL uses WHERE directly (no AND replacement)
         assert!(result.contains("SELECT COUNT(*) as count FROM [my_table] WHERE "));
     }
@@ -3439,7 +3712,7 @@ mod tests {
     #[test]
     fn test_count_mysql_no_where_uses_where_keyword() {
         let cols = vec![col("id", "int")];
-        let result = make_count_query(DbType::Mysql, "my_table", None, &cols).unwrap();
+        let result = make_count_query(DbType::Mysql, "my_table", None, &cols, None).unwrap();
         // The AND should be replaced with WHERE
         assert!(result.contains("FROM `my_table` WHERE "));
         assert!(!result.contains("FROM `my_table` AND "));
@@ -3450,10 +3723,8 @@ mod tests {
         let cols = vec![col("a", "int4"), col("b", "text"), col("c", "bool")];
         let result = make_delete_query("t", &cols, DbType::Postgresql);
         // Check all three conditions are present and joined
-        assert!(result
-            .contains("AND ($2::text::text IS NULL AND \"b\" IS NULL OR \"b\" = $2::text::text)"));
-        assert!(result
-            .contains("AND ($3::text::bool IS NULL AND \"c\" IS NULL OR \"c\" = $3::text::bool)"));
+        assert!(result.contains("AND ($2 IS NULL AND \"b\" IS NULL OR \"b\" = $2)"));
+        assert!(result.contains("AND ($3 IS NULL AND \"c\" IS NULL OR \"c\" = $3)"));
     }
 
     #[test]
@@ -3505,7 +3776,7 @@ mod tests {
         let result = make_insert_query("my_table", &[name_col, col1], DbType::Postgresql).unwrap();
 
         // Numeric value should not be quoted
-        assert!(result.contains("VALUES ($1::text, 5)"));
+        assert!(result.contains("VALUES ($1, 5)"));
     }
 
     // -----------------------------------------------------------------------
@@ -3527,7 +3798,7 @@ mod tests {
         assert!(result.is_some());
         let sql = result.unwrap().unwrap().code;
         assert!(sql.contains("SELECT \"id\"::text, \"name\"::text FROM \"my_table\""));
-        assert!(sql.contains("LIMIT $1::INT OFFSET $2::INT"));
+        assert!(sql.contains("LIMIT $1 OFFSET $2"));
     }
 
     #[test]
@@ -3558,16 +3829,14 @@ mod tests {
     fn test_expand_insert_marker() {
         let marker = r#"-- WM_INTERNAL_DB_INSERT {"table":"my_table","columns":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(
-            sql.contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1::int4, $2::text)")
-        );
+        assert!(sql.contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1, $2)"));
     }
 
     #[test]
     fn test_expand_update_marker() {
         let marker = r#"-- WM_INTERNAL_DB_UPDATE {"table":"my_table","column":{"field":"name","datatype":"text"},"columns":[{"field":"id","datatype":"int4"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("UPDATE \"my_table\" SET \"name\" = $1::text::text"));
+        assert!(sql.contains("UPDATE \"my_table\" SET \"name\" = $1"));
         assert!(sql.contains("RETURNING 1"));
     }
 
@@ -3672,9 +3941,10 @@ mod tests {
             table_ref("users", Some("myschema"), DbType::Mysql),
             "`users`"
         );
+        // DuckDB (ducklake) supports schemas
         assert_eq!(
             table_ref("users", Some("myschema"), DbType::Duckdb),
-            r#""users""#
+            r#""myschema"."users""#
         );
     }
 
@@ -3804,6 +4074,13 @@ mod tests {
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("ATTACH 'ducklake://my_lake' AS dl;USE dl;"));
         assert!(sql.contains("DROP TABLE \"users\";"));
+    }
+
+    #[test]
+    fn test_expand_drop_table_ducklake_with_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"events","schema":"analytics","ducklake":"my_lake"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert!(sql.contains("DROP TABLE \"analytics\".\"events\";"));
     }
 
     // -----------------------------------------------------------------------
@@ -4212,10 +4489,28 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_load_table_metadata_mysql_all_tables() {
+    fn test_expand_load_table_metadata_mysql_single_table_uses_session_db() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"users"}"#;
+        let sql = expand_code(marker, &ScriptLang::Mysql);
+        assert!(sql.contains("TABLE_NAME = 'users'"));
+        assert!(sql.contains("TABLE_SCHEMA = DATABASE()"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_mysql_all_tables_uses_session_db() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("TABLE_NAME as table_name"));
+        assert!(sql.contains("TABLE_SCHEMA = DATABASE()"));
+        assert!(sql.contains("TABLE_SCHEMA NOT IN"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_mysql_all_tables_with_database_name() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"databaseName":"mydb"}"#;
+        let sql = expand_code(marker, &ScriptLang::Mysql);
+        assert!(sql.contains("TABLE_NAME as table_name"));
+        assert!(sql.contains("TABLE_SCHEMA = 'mydb'"));
         assert!(sql.contains("TABLE_SCHEMA NOT IN"));
     }
 
@@ -4287,7 +4582,27 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"users","ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
-        assert!(sql.contains("TABLE_NAME = 'users'"));
+        assert!(sql.contains("table_catalog = current_database()"));
+        // Unqualified table defaults to the "main" schema.
+        assert!(sql.contains("TABLE_NAME = 'users' AND TABLE_SCHEMA = 'main'"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_ducklake_qualified_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"analytics.events","ducklake":"lake"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert!(sql.contains("TABLE_NAME = 'events' AND TABLE_SCHEMA = 'analytics'"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_ducklake_all_tables() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"ducklake":"lake"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
+        // All-tables listing scopes to the ducklake catalog and exposes the schema per table.
+        assert!(sql.contains("table_catalog = current_database()"));
+        assert!(sql.contains("TABLE_SCHEMA as schema_name"));
+        assert!(!sql.contains("TABLE_NAME = '"));
     }
 
     // -----------------------------------------------------------------------
@@ -4462,4 +4777,308 @@ mod tests {
         let sql = expand_code(marker, &ScriptLang::Snowflake);
         assert_eq!(sql, "SHOW PRIMARY KEYS IN ACCOUNT");
     }
+
+    // -----------------------------------------------------------------------
+    // Primary key filtering for DELETE / UPDATE
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_delete_uses_pk_columns_only() {
+        let marker = r#"-- WM_INTERNAL_DB_DELETE {"table":"users","columns":[{"field":"id","datatype":"int4","isprimarykey":true},{"field":"name","datatype":"text","isprimarykey":false},{"field":"email","datatype":"text","isprimarykey":false}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        // Should only use 'id' in WHERE, not 'name' or 'email'
+        assert!(sql.contains("\"id\" = $1"));
+        assert!(!sql.contains("\"name\""));
+        assert!(!sql.contains("\"email\""));
+    }
+
+    #[test]
+    fn test_delete_falls_back_to_all_when_no_pk() {
+        let marker = r#"-- WM_INTERNAL_DB_DELETE {"table":"users","columns":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        // No PK columns -> should use all columns
+        assert!(sql.contains("\"id\" = $1"));
+        assert!(sql.contains("\"name\" = $2"));
+    }
+
+    #[test]
+    fn test_update_uses_pk_columns_only() {
+        let marker = r#"-- WM_INTERNAL_DB_UPDATE {"table":"users","column":{"field":"name","datatype":"text"},"columns":[{"field":"id","datatype":"int4","isprimarykey":true},{"field":"name","datatype":"text","isprimarykey":false},{"field":"email","datatype":"text","isprimarykey":false}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        // SET clause should target 'name'
+        assert!(sql.contains("SET \"name\" = $1"));
+        // WHERE should only use 'id', not 'name' or 'email'
+        assert!(sql.contains("\"id\" = $2"));
+        assert!(!sql.contains("\"email\""));
+    }
+
+    #[test]
+    fn test_update_falls_back_to_all_when_no_pk() {
+        let marker = r#"-- WM_INTERNAL_DB_UPDATE {"table":"users","column":{"field":"name","datatype":"text"},"columns":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert!(sql.contains("SET \"name\" = $1"));
+        assert!(sql.contains("\"id\" = $2"));
+        assert!(sql.contains("\"name\" = $3"));
+    }
+
+    #[test]
+    fn test_delete_composite_pk() {
+        let marker = r#"-- WM_INTERNAL_DB_DELETE {"table":"order_items","columns":[{"field":"order_id","datatype":"int4","isprimarykey":true},{"field":"item_id","datatype":"int4","isprimarykey":true},{"field":"quantity","datatype":"int4","isprimarykey":false}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert!(sql.contains("\"order_id\" = $1"));
+        assert!(sql.contains("\"item_id\" = $2"));
+        assert!(!sql.contains("\"quantity\""));
+    }
+}
+
+// ============================================================================
+// Full schema introspection types and logic (used by get_datatable_full_schema)
+// ============================================================================
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaColumn {
+    pub name: String,
+    pub datatype: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary_key: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nullable: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaForeignKeyColumn {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_column: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_column: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaForeignKey {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_table: Option<String>,
+    pub columns: Vec<FullSchemaForeignKeyColumn>,
+    pub on_delete: String,
+    pub on_update: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fk_constraint_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaTable {
+    pub name: String,
+    pub columns: Vec<FullSchemaColumn>,
+    pub foreign_keys: Vec<FullSchemaForeignKey>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pk_constraint_name: Option<String>,
+}
+
+/// Full database schema: { schema_name: { table_name: FullSchemaTable } }
+pub type FullDatabaseSchema =
+    std::collections::HashMap<String, std::collections::HashMap<String, FullSchemaTable>>;
+
+fn pg_action_to_string(action: &str) -> String {
+    match action {
+        "a" => "NO ACTION".to_string(),
+        "r" => "RESTRICT".to_string(),
+        "c" => "CASCADE".to_string(),
+        "n" => "SET NULL".to_string(),
+        "d" => "SET DEFAULT".to_string(),
+        _ => "NO ACTION".to_string(),
+    }
+}
+
+/// Rows of a simple-protocol result, dropping the framing messages.
+fn simple_query_rows(
+    messages: Vec<tokio_postgres::SimpleQueryMessage>,
+) -> Vec<tokio_postgres::SimpleQueryRow> {
+    messages
+        .into_iter()
+        .filter_map(|m| match m {
+            tokio_postgres::SimpleQueryMessage::Row(row) => Some(row),
+            _ => None,
+        })
+        .collect()
+}
+
+fn required_str<'a>(
+    row: &'a tokio_postgres::SimpleQueryRow,
+    column: &str,
+) -> Result<&'a str, String> {
+    row.try_get(column)
+        .map_err(|e| format!("Failed to read column {}: {}", column, pg_error_message(&e)))?
+        .ok_or_else(|| format!("Unexpected NULL in column {}", column))
+}
+
+/// Introspect a PostgreSQL database and return the full schema.
+/// Takes a connected tokio_postgres Client.
+///
+/// Both statements go through the simple query protocol. The extended protocol allocates a
+/// named prepared statement per call and closes it when the statement handle drops; behind a
+/// transaction-pooling proxy those names are shared with, and outlive, other sessions on the
+/// same backend, and the exchange then stalls with no reply — the connection never becomes
+/// idle again and the request hangs. Neither statement takes parameters, so nothing here
+/// needs the extended protocol.
+pub async fn pg_get_full_schema(
+    client: &tokio_postgres::Client,
+) -> Result<FullDatabaseSchema, String> {
+    // Primary-key and default-value info are joined in (a table has at most one
+    // primary-key constraint, so `pkc` stays 1:1) rather than fetched via
+    // per-column correlated subqueries — on large catalogs those subqueries run
+    // once per column and make the introspection time out.
+    let column_rows = client
+        .simple_query(
+            "SELECT
+                ns.nspname AS schema_name,
+                c.relname AS table_name,
+                a.attname AS column_name,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) AS datatype,
+                substring(pg_catalog.pg_get_expr(ad.adbin, ad.adrelid, true) for 128) AS default_value,
+                NOT a.attnotnull AS nullable,
+                COALESCE(pkc.conkey @> ARRAY[a.attnum], false) AS is_primary_key,
+                pkc.conname AS pk_constraint_name
+            FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+            JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
+            LEFT JOIN pg_catalog.pg_attrdef ad
+                ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum AND a.atthasdef
+            LEFT JOIN pg_catalog.pg_constraint pkc
+                ON pkc.conrelid = c.oid AND pkc.contype = 'p'
+            WHERE c.relkind = 'r'
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+                AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY ns.nspname, c.relname, a.attnum",
+        )
+        .await
+        .map(simple_query_rows)
+        .map_err(|e| format!("Failed to query columns: {}", pg_error_message(&e)))?;
+
+    let fk_rows = client
+        .simple_query(
+            "SELECT
+                ns.nspname AS schema_name,
+                c.relname AS table_name,
+                con.conname AS fk_constraint_name,
+                att_src.attname AS source_column,
+                ns_ref.nspname AS ref_schema,
+                c_ref.relname AS ref_table,
+                att_ref.attname AS ref_column,
+                con.confdeltype::text AS on_delete,
+                con.confupdtype::text AS on_update
+            FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_class c ON con.conrelid = c.oid
+            JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
+            JOIN pg_catalog.pg_class c_ref ON con.confrelid = c_ref.oid
+            JOIN pg_catalog.pg_namespace ns_ref ON c_ref.relnamespace = ns_ref.oid
+            CROSS JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS u(src_attnum, ref_attnum, ord)
+            JOIN pg_catalog.pg_attribute att_src ON att_src.attrelid = c.oid AND att_src.attnum = u.src_attnum
+            JOIN pg_catalog.pg_attribute att_ref ON att_ref.attrelid = c_ref.oid AND att_ref.attnum = u.ref_attnum
+            WHERE con.contype = 'f'
+                AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY ns.nspname, c.relname, con.conname, u.ord",
+        )
+        .await
+        .map(simple_query_rows)
+        .map_err(|e| format!("Failed to query foreign keys: {}", pg_error_message(&e)))?;
+
+    let mut result: FullDatabaseSchema = std::collections::HashMap::new();
+
+    for row in &column_rows {
+        let schema_name = required_str(row, "schema_name")?;
+        let table_name = required_str(row, "table_name")?;
+        let column_name = required_str(row, "column_name")?;
+        let datatype = required_str(row, "datatype")?;
+        let default_value: Option<&str> = row.get("default_value");
+        let nullable = required_str(row, "nullable")? == "t";
+        let is_primary_key = required_str(row, "is_primary_key")? == "t";
+        let pk_constraint_name: Option<&str> = row.get("pk_constraint_name");
+
+        let schema_tables = result.entry(schema_name.to_string()).or_default();
+        let table = schema_tables
+            .entry(table_name.to_string())
+            .or_insert_with(|| FullSchemaTable {
+                name: table_name.to_string(),
+                columns: vec![],
+                foreign_keys: vec![],
+                pk_constraint_name: pk_constraint_name.map(|s| s.to_string()),
+            });
+
+        table.columns.push(FullSchemaColumn {
+            name: column_name.to_string(),
+            datatype: datatype.to_string(),
+            primary_key: if is_primary_key { Some(true) } else { None },
+            default_value: default_value.map(|s| s.to_string()),
+            nullable: Some(nullable),
+        });
+    }
+
+    let mut fk_map: std::collections::HashMap<
+        (String, String, String),
+        (
+            Option<String>,
+            Vec<FullSchemaForeignKeyColumn>,
+            String,
+            String,
+        ),
+    > = std::collections::HashMap::new();
+
+    for row in &fk_rows {
+        let schema_name = required_str(row, "schema_name")?;
+        let table_name = required_str(row, "table_name")?;
+        let fk_name = required_str(row, "fk_constraint_name")?;
+        let source_column = required_str(row, "source_column")?;
+        let ref_schema = required_str(row, "ref_schema")?;
+        let ref_table = required_str(row, "ref_table")?;
+        let ref_column = required_str(row, "ref_column")?;
+        let on_delete = required_str(row, "on_delete")?;
+        let on_update = required_str(row, "on_update")?;
+
+        let target_table = if ref_schema == schema_name {
+            ref_table.to_string()
+        } else {
+            format!("{}.{}", ref_schema, ref_table)
+        };
+
+        let key = (
+            schema_name.to_string(),
+            table_name.to_string(),
+            fk_name.to_string(),
+        );
+        let entry = fk_map.entry(key).or_insert_with(|| {
+            (
+                Some(target_table.clone()),
+                vec![],
+                pg_action_to_string(on_delete),
+                pg_action_to_string(on_update),
+            )
+        });
+        entry.1.push(FullSchemaForeignKeyColumn {
+            source_column: Some(source_column.to_string()),
+            target_column: Some(ref_column.to_string()),
+        });
+    }
+
+    let mut fk_entries: Vec<_> = fk_map.into_iter().collect();
+    fk_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    for ((schema_name, table_name, fk_name), (target_table, columns, on_delete, on_update)) in
+        fk_entries
+    {
+        if let Some(schema_tables) = result.get_mut(&schema_name) {
+            if let Some(table) = schema_tables.get_mut(&table_name) {
+                table.foreign_keys.push(FullSchemaForeignKey {
+                    target_table,
+                    columns,
+                    on_delete,
+                    on_update,
+                    fk_constraint_name: Some(fk_name),
+                });
+            }
+        }
+    }
+
+    Ok(result)
 }

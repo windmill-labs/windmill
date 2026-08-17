@@ -1,0 +1,19 @@
+name: Check fixture is empty
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "fixtures/**"
+  pull_request:
+    paths:
+      - "fixtures/**"
+
+jobs:
+  check-empty-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure fixtures/cli-sync/ has no committed snapshot
+        run: bash fixtures/check-empty.sh

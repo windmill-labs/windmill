@@ -1,5 +1,11 @@
 <script module lang="ts">
 	export const EDITOR_BAR_WIDTH_THRESHOLD = 1420
+	// Below this width even the icon-only helpers cluster is too crowded —
+	// collapse them into a single "Helpers" dropdown menu.
+	export const EDITOR_BAR_HELPERS_COMPACT_THRESHOLD = 800
+	// Tighter threshold for editors embedded inline in narrow panes
+	// (flow-step editor, raw-app inline script editor).
+	export const EDITOR_BAR_HELPERS_INLINE_THRESHOLD = 600
 
 	function getImportWmillTsStatement(lang: string | undefined) {
 		if (lang === 'deno') {
@@ -33,6 +39,7 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
+	import { bashRunsInCustomImage } from '$lib/script_helpers'
 	import Toggle from './Toggle.svelte'
 
 	import {
@@ -47,11 +54,13 @@
 		Package,
 		Plus,
 		RotateCw,
+		Sigma,
 		Save,
 		Settings,
 		Users
 	} from 'lucide-svelte'
-	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
+	import { capitalize, formatS3Object, toCamel, type Item } from '$lib/utils'
+	import DropdownV2 from './DropdownV2.svelte'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 	import { getResetCode } from '$lib/script_helpers'
@@ -62,6 +71,8 @@
 	import { quicktype, InputData, JSONSchemaInput, FetchingJSONSchemaStore } from 'quicktype-core'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
+	import MetricsDrawer from './metrics/MetricsDrawer.svelte'
+	import { endsWithUnterminatedStatement } from './sqlDdl'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
@@ -77,9 +88,25 @@
 			shellcheck: boolean
 		}
 		iconOnly?: boolean
+		compactHelpers?: boolean
 		validCode?: boolean
+		// Asset-parse validity, when the context cares about it (pipeline
+		// editor). `undefined` = not applicable; `false` makes the badge red
+		// even if the main function parses.
+		validAssets?: boolean | undefined
 		kind?: 'script' | 'trigger' | 'approval'
-		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox' | 'wac_python' | 'wac_typescript'
+		template?:
+			| 'pgsql'
+			| 'mysql'
+			| 'script'
+			| 'docker'
+			| 'powershell'
+			| 'bunnative'
+			| 'claudesandbox'
+			| 'wac_python'
+			| 'wac_typescript'
+			| 'ci_test_bun'
+			| 'ci_test_python'
 		collabMode?: boolean
 		collabLive?: boolean
 		collabUsers?: { name: string }[]
@@ -94,6 +121,10 @@
 		right?: import('svelte').Snippet
 		openAiChat?: boolean
 		moduleId?: string
+		// Workspace to scope variable/resource/data-table lookups to. Defaults to
+		// the nav `$workspaceStore`; an AI-session live editor passes the session's
+		// acting workspace (a fork) so the helper pickers hit the right workspace.
+		workspace?: string
 	}
 
 	let {
@@ -101,7 +132,9 @@
 		editor,
 		websocketAlive,
 		iconOnly = false,
+		compactHelpers = false,
 		validCode = true,
+		validAssets = undefined,
 		kind = 'script',
 		template = 'script',
 		collabMode = false,
@@ -116,8 +149,11 @@
 		showHistoryDrawer = $bindable(false),
 		right,
 		openAiChat = false,
-		moduleId = undefined
+		moduleId = undefined,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let contextualVariablePicker: ItemPicker | undefined = $state()
 	let variablePicker: ItemPicker | undefined = $state()
@@ -129,6 +165,7 @@
 	let ducklakePicker: ItemPicker | undefined = $state()
 	let dataTablePicker: ItemPicker | undefined = $state()
 	let databasePicker: ItemPicker | undefined = $state()
+	let metricsDrawer: MetricsDrawer | undefined = $state()
 	let gitRepoPickerOpen = $state(false)
 
 	let showContextVarPicker = $derived(
@@ -147,6 +184,8 @@
 			'nu',
 			'java',
 			'ruby',
+			'rlang',
+			'ansible',
 			'postgresql',
 			'mysql',
 			'bigquery',
@@ -173,7 +212,8 @@
 			'csharp',
 			'nu',
 			'java',
-			'ruby'
+			'ruby',
+			'rlang'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -193,7 +233,8 @@
 			'csharp',
 			'nu',
 			'java',
-			'ruby'
+			'ruby',
+			'rlang'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -202,6 +243,9 @@
 		['duckdb', 'python3'].includes(lang ?? '') ||
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
 	)
+	// Declared metrics compile to a SELECT, so only a DuckDB script can take the
+	// insertion; the other DuckLake-capable languages call it through the SDK.
+	let showMetricsDrawer = $derived(lang === 'duckdb')
 	let showDucklakePicker = $derived(
 		['duckdb', 'python3'].includes(lang ?? '') ||
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
@@ -222,6 +266,89 @@
 
 	let codeViewer: Drawer | undefined = $state()
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
+
+	function getHelperItems(): Item[] {
+		const items: Item[] = []
+		if (showContextVarPicker && customUi?.contextVar != false) {
+			items.push({
+				displayName: 'Context variable',
+				icon: DollarSign,
+				action: () => contextualVariablePicker?.openDrawer()
+			})
+		}
+		if (showVarPicker && customUi?.variable != false) {
+			items.push({
+				displayName: 'Variable',
+				icon: DollarSign,
+				action: () => variablePicker?.openDrawer()
+			})
+		}
+		if (showS3Picker && customUi?.s3object != false) {
+			items.push({
+				displayName: 'S3 object',
+				icon: File,
+				action: () => s3FilePicker?.open()
+			})
+		}
+		if (showResourcePicker && customUi?.resource != false) {
+			items.push({
+				displayName: 'Resource',
+				icon: Package,
+				action: () => resourcePicker?.openDrawer()
+			})
+		}
+		if (showGitRepoPicker && customUi?.resource != false) {
+			items.push({
+				displayName: 'Git repository',
+				icon: GitBranch,
+				action: () => (gitRepoPickerOpen = true)
+			})
+		}
+		if (showResourceTypePicker && customUi?.type != false) {
+			items.push({
+				displayName: 'Resource type',
+				icon: Package,
+				action: () => resourceTypePicker?.openDrawer()
+			})
+		}
+		if (showDatabasePicker && customUi?.database != false) {
+			items.push({
+				displayName: 'Database',
+				icon: DatabaseIcon,
+				action: () => databasePicker?.openDrawer()
+			})
+		}
+		if (showDucklakePicker && customUi?.ducklake != false) {
+			items.push({
+				displayName: 'Ducklake',
+				icon: DucklakeIcon,
+				action: () => ducklakePicker?.openDrawer()
+			})
+		}
+		if (showMetricsDrawer && customUi?.metrics != false) {
+			items.push({
+				displayName: 'Metrics',
+				icon: Sigma,
+				action: () => metricsDrawer?.open()
+			})
+		}
+		if (showDataTablePicker && customUi?.dataTable != false) {
+			items.push({
+				displayName: 'Data table',
+				icon: DatabaseIcon,
+				action: () => dataTablePicker?.openDrawer()
+			})
+		}
+		if (customUi?.reset != false) {
+			items.push({
+				displayName: 'Reset content',
+				icon: RotateCw,
+				action: () => clearContent(),
+				separatorTop: items.length > 0
+			})
+		}
+		return items
+	}
 
 	function insertDelegateToGitRepo(resourcePath: string) {
 		if (!editor) return
@@ -245,12 +372,12 @@
 	})
 
 	async function loadVariables() {
-		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
+		return await VariableService.listVariable({ workspace: ws ?? '' })
 	}
 
 	async function loadContextualVariables() {
 		return await VariableService.listContextualVariables({
-			workspace: $workspaceStore ?? 'NO_W'
+			workspace: ws ?? 'NO_W'
 		})
 	}
 
@@ -261,7 +388,7 @@
 	async function onScriptPick(e: { detail: { path: string } }) {
 		codeObj = undefined
 		codeViewer?.openDrawer?.()
-		codeObj = await getScriptByPath(e.detail.path ?? '')
+		codeObj = await getScriptByPath(e.detail.path ?? '', ws)
 	}
 
 	const dispatch = createEventDispatcher()
@@ -318,7 +445,7 @@
 	async function resourceTypePickCallback(name: string) {
 		if (!editor) return
 		const resourceType = await ResourceService.getResourceType({
-			workspace: $workspaceStore ?? 'NO_W',
+			workspace: ws ?? 'NO_W',
 			path: name
 		})
 
@@ -506,6 +633,10 @@
 			// for related places search: ADD_NEW_LANG
 		} else if (lang == 'ruby') {
 			editor.insertAtCursor(`ENV['${name}']`)
+		} else if (lang == 'rlang') {
+			editor.insertAtCursor(`Sys.getenv("${name}")`)
+		} else if (lang == 'ansible') {
+			editor.insertAtCursor(`{{ lookup('env', '${name}') }}`)
 		} else if (
 			['postgresql', 'mysql', 'bigquery', 'mssql', 'oracledb', 'snowflake', 'duckdb'].includes(
 				lang ?? ''
@@ -543,7 +674,17 @@
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		} else if (lang == 'bash') {
-			editor.insertAtCursor(`wmill variable get ${path} --json | jq -r .value`)
+			if (bashRunsInCustomImage(editor.getCode())) {
+				// Custom image: no wmill CLI. Fall back to curl, then busybox wget
+				// (the default `# sandbox alpine:latest` image ships wget, not curl).
+				// get_value returns a JSON-quoted string, so strip the outer quotes
+				// to match the `jq -r .value` output of the non-sandbox branch.
+				editor.insertAtCursor(
+					`{ curl -sf -H "Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path}" 2>/dev/null || wget -qO- --header="Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path}"; } | sed 's/^"//;s/"$//'`
+				)
+			} else {
+				editor.insertAtCursor(`wmill variable get ${path} --json | jq -r .value`)
+			}
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
 			editor.arrowDown()
@@ -573,6 +714,8 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			if (!editor.getCode().includes("require 'windmill/mini'")) {
 				editor.insertAtBeginning("require 'windmill/mini'\n")
 			}
+			editor.insertAtCursor(`get_variable("${path}")`)
+		} else if (lang == 'rlang') {
 			editor.insertAtCursor(`get_variable("${path}")`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
@@ -619,7 +762,16 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
 		} else if (lang == 'bash') {
-			editor.insertAtCursor(`wmill resource get ${path} --json | jq .value`)
+			if (bashRunsInCustomImage(editor.getCode())) {
+				// Custom image: no wmill CLI. Fall back to curl, then busybox wget
+				// (the default `# sandbox alpine:latest` image ships wget, not curl).
+				// get_value_interpolated returns JSON, matching the `jq .value` branch.
+				editor.insertAtCursor(
+					`curl -sf -H "Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}" 2>/dev/null || wget -qO- --header="Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}"`
+				)
+			} else {
+				editor.insertAtCursor(`wmill resource get ${path} --json | jq .value`)
+			}
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
 			editor.arrowDown()
@@ -653,6 +805,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				editor.insertAtBeginning("require 'windmill/mini'\n")
 			}
 			editor.insertAtCursor(`get_resource("${path}")`)
+		} else if (lang == 'rlang') {
+			editor.insertAtCursor(`get_resource("${path}")`)
 		} else if (lang == 'duckdb') {
 			let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
 			if (!t) {
@@ -672,8 +826,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	buttons={{ 'Edit/View': (x) => resourceEditor?.initEdit(x) }}
 	extraField="description"
 	extraField2="resource_type"
-	loadItems={async () =>
-		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
+	loadItems={async () => await ResourceService.listResource({ workspace: ws ?? 'NO_W' })}
 >
 	{#snippet submission()}
 		<div class="flex flex-row gap-x-1 mr-2">
@@ -699,12 +852,15 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 		itemName="Resource Type"
 		extraField="name"
-		loadItems={async () =>
-			await ResourceService.listResourceType({ workspace: $workspaceStore ?? 'NO_W' })}
+		loadItems={async () => await ResourceService.listResourceType({ workspace: ws ?? 'NO_W' })}
 	/>
 {/if}
-<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
-<VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
+<ResourceEditorDrawer
+	bind:this={resourceEditor}
+	workspace={ws}
+	on:refresh={resourcePicker.openDrawer}
+/>
+<VariableEditor bind:this={variableEditor} workspace={ws} on:create={variablePicker.openDrawer} />
 
 {#if showDucklakePicker}
 	<ItemPicker
@@ -729,9 +885,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake"
 		itemName="ducklake"
 		loadItems={async () =>
-			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
-				(path) => ({ path })
-			)}
+			(await WorkspaceService.listDucklakes({ workspace: ws ?? 'NO_W' })).map((path) => ({ path }))}
 	>
 		{#snippet submission()}
 			<div class="flex flex-row gap-x-1 mr-2">
@@ -739,7 +893,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=windmill_lfs"
+					href="{base}/workspace_settings?tab=ducklake"
 				>
 					Go to settings
 				</Button>
@@ -772,9 +926,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
 		itemName="data table"
 		loadItems={async () =>
-			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
-				(path) => ({ path })
-			)}
+			(await WorkspaceService.listDataTables({ workspace: ws ?? 'NO_W' })).map((d) => ({
+				path: d.name
+			}))}
 	>
 		{#snippet submission()}
 			<div class="flex flex-row gap-x-1 mr-2">
@@ -810,10 +964,29 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		extraField2="resource_type"
 		loadItems={async () =>
 			await ResourceService.listResource({
-				workspace: $workspaceStore ?? 'NO_W',
+				workspace: ws ?? 'NO_W',
 				resourceType: 'postgresql,mysql,bigquery'
 			})}
 	></ItemPicker>
+{/if}
+
+{#if showMetricsDrawer && customUi?.metrics != false}
+	<!-- Appended rather than inserted at the cursor: the snippet is a whole statement
+	     block, and when it relies on an ATTACH already in the script it must follow it. -->
+	<MetricsDrawer
+		bind:this={metricsDrawer}
+		workspace={ws}
+		getCode={() => editor?.getCode() ?? ''}
+		onInsert={(sql) => {
+			// Terminate whatever the script ends with: appending a fresh statement
+			// after an unterminated one produces invalid SQL. The separator starts on
+			// its own line so the `;` cannot land inside a trailing line comment.
+			const existing = editor?.getCode() ?? ''
+			const sep =
+				existing.trim() === '' ? '' : endsWithUnterminatedStatement(existing) ? '\n;\n\n' : '\n\n'
+			editor?.append(sep + sql + '\n')
+		}}
+	/>
 {/if}
 
 <S3FilePicker
@@ -840,157 +1013,207 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
 	<div class="flex gap-3 items-center">
 		<div
-			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
-			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
+			title={!validCode
+				? 'Main function not parsable'
+				: validAssets === false
+					? 'Assets not parsable'
+					: 'Parsable'}
+			class="rounded-full w-2 h-2 mx-2 {validCode && validAssets !== false
+				? 'bg-green-300'
+				: 'bg-red-300'}"
 		></div>
 		<div class="flex items-center gap-2">
-			{#if showContextVarPicker && customUi?.contextVar != false}
-				<Button
-					aiId="editor-bar-add-context-variable"
-					aiDescription="Add context variable"
-					title="Add context variable"
-					variant="subtle"
-					on:click={contextualVariablePicker.openDrawer}
-					unifiedSize="sm"
-					startIcon={{ icon: DollarSign }}
-					{iconOnly}
-					>+Context var
-				</Button>
-			{/if}
-			{#if showVarPicker && customUi?.variable != false}
-				<Button
-					aiId="editor-bar-add-variable"
-					aiDescription="Add variable"
-					title="Add variable"
-					variant="subtle"
-					on:click={variablePicker.openDrawer}
-					unifiedSize="sm"
-					startIcon={{ icon: DollarSign }}
-					{iconOnly}
-				>
-					+Variable
-				</Button>
-			{/if}
-
-			{#if showS3Picker && customUi?.s3object != false}
-				<Button
-					aiId="editor-bar-add-s3-object"
-					aiDescription="Add S3 Object"
-					title="Add S3 object"
-					variant="subtle"
-					on:click={() => s3FilePicker?.open()}
-					unifiedSize="sm"
-					startIcon={{ icon: File }}
-					{iconOnly}
-					>+S3 Object
-				</Button>
-			{/if}
-
-			{#if showResourcePicker && customUi?.resource != false}
-				<Button
-					aiId="editor-bar-add-resource"
-					aiDescription="Add resource"
-					title="Add resource"
-					unifiedSize="sm"
-					variant="subtle"
-					on:click={resourcePicker.openDrawer}
-					{iconOnly}
-					startIcon={{ icon: Package }}
-				>
-					+Resource
-				</Button>
-			{/if}
-
-			{#if showGitRepoPicker && customUi?.resource != false}
-				<GitRepoPopoverPicker
-					bind:isOpen={gitRepoPickerOpen}
-					on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
-				>
+			{#if compactHelpers}
+				{#snippet helpersDropdown()}
+					<DropdownV2 items={getHelperItems} placement="bottom-start">
+						{#snippet buttonReplacement()}
+							<Button
+								nonCaptureEvent
+								variant="subtle"
+								unifiedSize="sm"
+								startIcon={{ icon: Plus }}
+								title="Helpers"
+							>
+								Helpers
+							</Button>
+						{/snippet}
+					</DropdownV2>
+				{/snippet}
+				{#if showGitRepoPicker && customUi?.resource != false}
+					<!-- Wrap the Helpers dropdown so the Git-repo popover anchors to
+					     the visible Helpers button rather than an sr-only placeholder. -->
+					<GitRepoPopoverPicker
+						bind:isOpen={gitRepoPickerOpen}
+						on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+					>
+						{@render helpersDropdown()}
+					</GitRepoPopoverPicker>
+				{:else}
+					{@render helpersDropdown()}
+				{/if}
+			{:else}
+				{#if showContextVarPicker && customUi?.contextVar != false}
 					<Button
-						aiId="editor-bar-add-git-repo"
-						aiDescription="Delegate to Git repository"
-						title="Delegate to Git repository"
+						aiId="editor-bar-add-context-variable"
+						aiDescription="Add context variable"
+						title="Add context variable"
+						variant="subtle"
+						on:click={contextualVariablePicker.openDrawer}
+						unifiedSize="sm"
+						startIcon={{ icon: DollarSign }}
+						{iconOnly}
+						>+Context var
+					</Button>
+				{/if}
+				{#if showVarPicker && customUi?.variable != false}
+					<Button
+						aiId="editor-bar-add-variable"
+						aiDescription="Add variable"
+						title="Add variable"
+						variant="subtle"
+						on:click={variablePicker.openDrawer}
+						unifiedSize="sm"
+						startIcon={{ icon: DollarSign }}
+						{iconOnly}
+					>
+						+Variable
+					</Button>
+				{/if}
+
+				{#if showS3Picker && customUi?.s3object != false}
+					<Button
+						aiId="editor-bar-add-s3-object"
+						aiDescription="Add S3 Object"
+						title="Add S3 object"
+						variant="subtle"
+						on:click={() => s3FilePicker?.open()}
+						unifiedSize="sm"
+						startIcon={{ icon: File }}
+						{iconOnly}
+						>+S3 Object
+					</Button>
+				{/if}
+
+				{#if showResourcePicker && customUi?.resource != false}
+					<Button
+						aiId="editor-bar-add-resource"
+						aiDescription="Add resource"
+						title="Add resource"
 						unifiedSize="sm"
 						variant="subtle"
-						on:click={() => (gitRepoPickerOpen = true)}
+						on:click={resourcePicker.openDrawer}
 						{iconOnly}
-						startIcon={{ icon: GitBranch }}
+						startIcon={{ icon: Package }}
 					>
-						+Git Repo
+						+Resource
 					</Button>
-				</GitRepoPopoverPicker>
-			{/if}
+				{/if}
 
-			{#if showResourceTypePicker && customUi?.type != false}
-				<Button
-					aiId="editor-bar-add-resource-type"
-					aiDescription="Add resource type"
-					title="Add resource type"
-					variant="subtle"
-					unifiedSize="sm"
-					on:click={() => resourceTypePicker?.openDrawer()}
-					{iconOnly}
-					startIcon={{ icon: Package }}
-				>
-					+Type
-				</Button>
-			{/if}
+				{#if showGitRepoPicker && customUi?.resource != false}
+					<GitRepoPopoverPicker
+						bind:isOpen={gitRepoPickerOpen}
+						on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+					>
+						<Button
+							aiId="editor-bar-add-git-repo"
+							aiDescription="Delegate to Git repository"
+							title="Delegate to Git repository"
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => (gitRepoPickerOpen = true)}
+							{iconOnly}
+							startIcon={{ icon: GitBranch }}
+						>
+							+Git Repo
+						</Button>
+					</GitRepoPopoverPicker>
+				{/if}
 
-			{#if showDatabasePicker && customUi?.database != false}
-				<Button
-					aiId="editor-bar-add-database"
-					aiDescription="Add database"
-					title="Add database"
-					variant="subtle"
-					on:click={() => databasePicker?.openDrawer()}
-					unifiedSize="sm"
-					startIcon={{ icon: DatabaseIcon }}
-					{iconOnly}
-					>+Database
-				</Button>
-			{/if}
+				{#if showResourceTypePicker && customUi?.type != false}
+					<Button
+						aiId="editor-bar-add-resource-type"
+						aiDescription="Add resource type"
+						title="Add resource type"
+						variant="subtle"
+						unifiedSize="sm"
+						on:click={() => resourceTypePicker?.openDrawer()}
+						{iconOnly}
+						startIcon={{ icon: Package }}
+					>
+						+Type
+					</Button>
+				{/if}
 
-			{#if showDucklakePicker && customUi?.ducklake != false}
-				<Button
-					aiId="editor-bar-use-ducklake"
-					aiDescription="Use Ducklake"
-					title="Use Ducklake"
-					variant="subtle"
-					on:click={() => ducklakePicker?.openDrawer()}
-					unifiedSize="sm"
-					startIcon={{ icon: DucklakeIcon }}
-					{iconOnly}
-					>+Ducklake
-				</Button>
-			{/if}
+				{#if showDatabasePicker && customUi?.database != false}
+					<Button
+						aiId="editor-bar-add-database"
+						aiDescription="Add database"
+						title="Add database"
+						variant="subtle"
+						on:click={() => databasePicker?.openDrawer()}
+						unifiedSize="sm"
+						startIcon={{ icon: DatabaseIcon }}
+						{iconOnly}
+						>+Database
+					</Button>
+				{/if}
 
-			{#if showDataTablePicker && customUi?.dataTable != false}
-				<Button
-					aiId="editor-bar-use-datatable"
-					aiDescription="Use DataTable"
-					title="Use DataTable"
-					variant="subtle"
-					on:click={() => dataTablePicker?.openDrawer()}
-					unifiedSize="sm"
-					startIcon={{ icon: DatabaseIcon }}
-					{iconOnly}
-					>+Data table
-				</Button>
-			{/if}
+				{#if showDucklakePicker && customUi?.ducklake != false}
+					<Button
+						aiId="editor-bar-use-ducklake"
+						aiDescription="Use Ducklake"
+						title="Use Ducklake"
+						variant="subtle"
+						on:click={() => ducklakePicker?.openDrawer()}
+						unifiedSize="sm"
+						startIcon={{ icon: DucklakeIcon }}
+						{iconOnly}
+						>+Ducklake
+					</Button>
+				{/if}
 
-			{#if customUi?.reset != false}
-				<Button
-					aiId="editor-bar-reset-content"
-					aiDescription="Reset content"
-					title="Reset Content"
-					unifiedSize="sm"
-					variant="subtle"
-					on:click={clearContent}
-					{iconOnly}
-					startIcon={{ icon: RotateCw }}
-				>
-					Reset
-				</Button>
+				{#if showMetricsDrawer && customUi?.metrics != false}
+					<Button
+						aiId="editor-bar-metrics"
+						aiDescription="Open the measures and dimensions declared on DuckLake tables"
+						title="Metrics"
+						variant="subtle"
+						on:click={() => metricsDrawer?.open()}
+						unifiedSize="sm"
+						startIcon={{ icon: Sigma }}
+						{iconOnly}
+						>Metrics
+					</Button>
+				{/if}
+
+				{#if showDataTablePicker && customUi?.dataTable != false}
+					<Button
+						aiId="editor-bar-use-datatable"
+						aiDescription="Use DataTable"
+						title="Use DataTable"
+						variant="subtle"
+						on:click={() => dataTablePicker?.openDrawer()}
+						unifiedSize="sm"
+						startIcon={{ icon: DatabaseIcon }}
+						{iconOnly}
+						>+Data table
+					</Button>
+				{/if}
+
+				{#if customUi?.reset != false}
+					<Button
+						aiId="editor-bar-reset-content"
+						aiDescription="Reset content"
+						title="Reset Content"
+						unifiedSize="sm"
+						variant="subtle"
+						on:click={clearContent}
+						{iconOnly}
+						startIcon={{ icon: RotateCw }}
+					>
+						Reset
+					</Button>
+				{/if}
 			{/if}
 
 			{#if customUi?.assistants != false}
@@ -1086,7 +1309,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if customUi?.aiGen != false}
 				{#if openAiChat}
-					<FlowInlineScriptAiButton {moduleId} btnProps={{ variant: 'subtle' }} />
+					<FlowInlineScriptAiButton
+						{moduleId}
+						flushEditor={() => editor?.flushPendingChanges()}
+						btnProps={{ variant: 'subtle' }}
+					/>
 				{/if}
 			{/if}
 

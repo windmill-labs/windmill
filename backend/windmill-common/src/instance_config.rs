@@ -200,7 +200,15 @@ fn opaque_json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schem
 
 /// Typed global settings with schema validation.
 /// Known settings have explicit fields; unknown settings pass through via `extra`.
+///
+/// `#[serde(remote = "Self")]` turns the derived (de)serializers into inherent
+/// associated functions so we can wrap them with the manual `Deserialize` impl
+/// below. The wrapper preserves explicit `null` values (which the typed
+/// `Option<T>` fields would otherwise silently drop on round-trip through
+/// `to_settings_map`) by stashing them in `extra`, where they survive
+/// re-serialization and reach `diff_global_settings` as proper deletes.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(remote = "Self")]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct GlobalSettings {
     // Numeric settings
@@ -212,6 +220,14 @@ pub struct GlobalSettings {
     pub retention_period_secs: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub job_default_timeout: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nsjail_tmpfs_size_mb: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nsjail_tmp_backing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bun_install_min_release_age: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uv_exclude_newer: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_size_limit_mb: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -243,11 +259,19 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_tags_override: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_build_binary_on_deploy: Option<bool>,
 
     // String settings
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_build_binary_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_app_webhook_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -257,7 +281,7 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub_api_secret: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwt_secret: Option<String>,
+    pub jwt_secret: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scim_token: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -274,6 +298,8 @@ pub struct GlobalSettings {
     pub pip_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pip_extra_index_url: Option<StringOrSecretRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ruff_config: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub npm_config_registry: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -365,6 +391,42 @@ pub struct GlobalSettings {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
+impl Serialize for GlobalSettings {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Self::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for GlobalSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Capture top-level keys explicitly set to `null` so they survive the
+        // `to_settings_map` round-trip — typed `Option<T>` fields all use
+        // `skip_serializing_if = "Option::is_none"`, which would otherwise
+        // silently drop the null. We stash the null entries in `extra`, which
+        // serializes them back out as `null` for `diff_global_settings` to
+        // route to deletes.
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        let null_keys: Vec<String> = value
+            .as_object()
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| v.is_null().then(|| k.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(obj) = value.as_object_mut() {
+            for k in &null_keys {
+                obj.remove(k);
+            }
+        }
+        let mut s = Self::deserialize(value).map_err(serde::de::Error::custom)?;
+        for k in null_keys {
+            s.extra.insert(k, serde_json::Value::Null);
+        }
+        Ok(s)
+    }
+}
+
 impl GlobalSettings {
     /// Convert to a flat `BTreeMap` suitable for DB sync.
     pub fn to_settings_map(&self) -> BTreeMap<String, serde_json::Value> {
@@ -431,6 +493,8 @@ pub struct IndexerSettings {
     pub refresh_log_index_period: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_indexed_job_log_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_index_time_window_secs: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub should_clear_job_index: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -528,6 +592,21 @@ pub struct OAuthConfig {
     pub req_body_auth: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grant_types: Vec<String>,
+    /// Optional URL overrides for the provider's sandbox environment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<OAuthSandboxOverride>,
+}
+
+/// URL overrides for an OAuth provider's sandbox environment.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct OAuthSandboxOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub userinfo_url: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -562,6 +641,21 @@ pub struct OtelTracingProxySettings {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enabled_languages: Vec<ScriptLang>,
+    /// Comma-separated list of host patterns injected as NO_PROXY into jobs so their HTTP
+    /// clients bypass the local MITM tracing proxy. Independent of the worker's own
+    /// NO_PROXY env (which governs the proxy's upstream relay). Use this for clients that
+    /// pin their own CA (kubectl, helm, terraform providers, aws cli for EKS, etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_proxy_hosts: Option<String>,
+    /// Comma-separated host/IP patterns for which the MITM proxy skips upstream TLS
+    /// verification. Unlike `no_proxy_hosts` the hosts stay traced — only the proxy's own
+    /// upstream certificate check is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insecure_upstream_hosts: Option<String>,
+    /// Extra CA certificates (PEM bundle) added to the MITM proxy's upstream trust store,
+    /// on top of the system roots, so internal endpoints signed by a private CA verify.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_ca_certs: Option<String>,
 }
 
 /// Script language identifier (for instance config use).
@@ -595,6 +689,7 @@ pub enum ScriptLang {
     Nu,
     Java,
     Ruby,
+    Rlang,
 }
 
 // ---------------------------------------------------------------------------
@@ -687,7 +782,10 @@ pub enum DucklakeCatalogResourceType {
 // Custom instance PG databases
 // ---------------------------------------------------------------------------
 
-/// Custom PostgreSQL databases managed by the instance.
+/// Custom PostgreSQL databases managed by the instance. `user_pwd` is operator-configurable
+/// (resolved from a Kubernetes secretKeyRef by the EE operator); `databases` is runtime
+/// setup status. The replication-role password lives in a separate hidden setting
+/// (`custom_instance_replication_pwd`), never in this operator-facing config row.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct CustomInstancePgDatabases {
@@ -727,6 +825,10 @@ pub struct CustomInstanceDbLogs {
     pub db_connect: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub grant_permissions: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub replication_user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replication_user_error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -856,6 +958,7 @@ pub const PROTECTED_SETTINGS: &[&str] = &[
     "ducklake_user_pg_pwd",
     "ducklake_settings",
     "custom_instance_pg_databases",
+    "custom_instance_replication_pwd",
     "uid",
     "rsa_keys",
     "jwt_secret",
@@ -871,6 +974,16 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "min_keep_alive_version",
     "automate_username_creation",
     "_restart_coordination",
+    // Legacy ghost: worker configs live in the `config` table with a
+    // `worker__` prefix, not as a single blob in `global_settings`. Older
+    // Windmill versions stored them here and the row would be resurrected on
+    // every bulk InstanceSettings save via `GlobalSettings::extra`. Hiding it
+    // on read + rejecting it in `diff_global_settings` breaks that loop.
+    "worker_configs",
+    // Auto-generated password for the REPLICATION role used by postgres triggers.
+    // Server-only (written by setup/refresh via direct SQL), never operator-authored —
+    // hidden so the config machinery can't read, rewrite, or drop it.
+    "custom_instance_replication_pwd",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -881,6 +994,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "hub_api_secret",
     "license_key",
     "ducklake_user_pg_pwd",
+    "custom_instance_replication_pwd",
     "pip_index_url",
     "pip_extra_index_url",
     "npm_config_registry",
@@ -890,17 +1004,22 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "ruby_repos",
     "powershell_repo_pat",
     "workspace_registries",
+    "sandbox_registry_auth",
 ];
 
 /// Object-valued settings that contain sensitive sub-fields.
 /// Maps a top-level key to the sub-field names that must be redacted.
 const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
-    ("secret_backend", &["token"]),
+    (
+        "secret_backend",
+        &["token", "client_secret", "secret_access_key"],
+    ),
     (
         "object_store_cache_config",
         &["secret_key", "serviceAccountKey"],
     ),
+    ("custom_instance_pg_databases", &["user_pwd"]),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -925,10 +1044,7 @@ fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Va
         }
     }
     // Settings that are maps-of-objects where each child has a sensitive sub-field.
-    const NESTED_MAP_SENSITIVE: &[(&str, &str)] = &[
-        ("oauths", "secret"),
-        ("custom_instance_pg_databases", "user_pwd"),
-    ];
+    const NESTED_MAP_SENSITIVE: &[(&str, &str)] = &[("oauths", "secret")];
     for &(parent_key, child_field) in NESTED_MAP_SENSITIVE {
         if key == parent_key {
             if let serde_json::Value::Object(entries) = value {
@@ -967,12 +1083,7 @@ pub fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
         };
     }
     let value = mask_nested_sensitive(key, value);
-    let s = value.to_string();
-    if s.len() > 200 {
-        format!("{}...", &s[..197])
-    } else {
-        s
-    }
+    crate::utils::truncate_with_ellipsis(&value.to_string(), 197)
 }
 
 /// Extract the expiry timestamp from a license key JSON value.
@@ -1003,7 +1114,7 @@ fn license_keys_same_client(a: &serde_json::Value, b: &serde_json::Value) -> boo
 }
 
 fn is_empty_or_null(value: &serde_json::Value) -> bool {
-    value.is_null() || value.as_str().map_or(false, |s| s.is_empty())
+    value.is_null() || value.as_str().map_or(false, |s| s.trim().is_empty())
 }
 
 /// Maximum retention period in seconds for CE builds (30 days).
@@ -1039,9 +1150,20 @@ pub fn diff_global_settings(
     mode: ApplyMode,
 ) -> SettingsDiff {
     let mut upserts = BTreeMap::new();
+    let mut deletes = Vec::new();
     let mut previous_values = BTreeMap::new();
     let mut unchanged_count: usize = 0;
     for (key, desired_value) in desired {
+        // Hidden settings are server-managed and never driven by config: they are
+        // filtered out on read (`from_db`) and must be ignored on write too, so a client
+        // PUT that flattened one into `GlobalSettings::extra` can't resurrect or clobber
+        // the row (e.g. `worker_configs`, or the custom-instance credentials/status).
+        if HIDDEN_SETTINGS.contains(&key.as_str()) {
+            tracing::warn!(
+                "Ignoring hidden setting '{key}' in global_settings diff (server-managed, not configurable)"
+            );
+            continue;
+        }
         if PROTECTED_SETTINGS.contains(&key.as_str())
             && is_empty_or_null(desired_value)
             && current.contains_key(key)
@@ -1049,6 +1171,23 @@ pub fn diff_global_settings(
             tracing::warn!(
                 "Skipping {key} update: protected setting cannot be overwritten with empty/null value"
             );
+            continue;
+        }
+        // An empty string or explicit null means "unset": route it to deletes
+        // so clearing a setting via the bulk endpoint has the same effect as
+        // clearing it via the per-key endpoint (`set_global_setting_internal`
+        // already treats both `""` and `null` as deletes).
+        // Without this, the InstanceSettings YAML editor cannot delete keys
+        // (Merge mode silently preserves missing/null values), and stale `""`
+        // rows linger and trip the EE registry gate, producing spurious
+        // "requires Enterprise" warnings on every CE job.
+        if is_empty_or_null(desired_value) {
+            if let Some(existing) = current.get(key) {
+                previous_values.insert(key.clone(), existing.clone());
+                deletes.push(key.clone());
+            } else {
+                unchanged_count += 1;
+            }
             continue;
         }
         let mut value = if key == "retention_period_secs" {
@@ -1101,7 +1240,6 @@ pub fn diff_global_settings(
             }
         }
     }
-    let mut deletes = Vec::new();
     if matches!(mode, ApplyMode::Replace) {
         for key in current.keys() {
             if !desired.contains_key(key)
@@ -1140,6 +1278,62 @@ pub fn diff_worker_configs(
         }
     }
     ConfigsDiff { upserts, deletes }
+}
+
+/// Declaratively replace the global settings, rejecting a `github_app_webhook_base_url`
+/// the API would reject.
+///
+/// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
+/// ConfigMap sync) MUST go through this rather than calling
+/// [`apply_settings_diff`] directly, or that validation is silently skipped.
+/// Note this is *not* the full equivalent of the HTTP layer's pre-write hook —
+/// that also enforces rules for `automate_username_creation`,
+/// `critical_alert_mute_ui` and `app_workspaced_route`, which the declarative
+/// paths have never applied. A new rule added there does not appear here for free.
+///
+/// Registered webhooks are deliberately not re-pointed here. The receiver is set at
+/// instance setup, before any GitHub App is connected, so there is normally nothing
+/// registered to move; an instance that changes it later finds the affected
+/// workspaces listed in instance settings and re-saves them.
+///
+/// AUTHORIZATION: replaces instance-wide settings and takes no authed context, so
+/// callers MUST have established superadmin or equivalent system authority (the CLI
+/// and the operator both run with direct instance credentials).
+pub async fn sync_global_settings_declarative(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    current: &BTreeMap<String, serde_json::Value>,
+    desired: &BTreeMap<String, serde_json::Value>,
+) -> anyhow::Result<()> {
+    let webhook_key = crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING;
+    // Non-string shapes are rejected rather than ignored: `as_str()` alone would let a
+    // bool/number/object through as if the key were absent, and the diff below would
+    // then persist it — where the HTTP path answers "must be a URL string".
+    match desired.get(webhook_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(serde_json::Value::String(s)) => crate::global_settings::validate_webhook_base_url(s)
+            .map_err(|e| anyhow::anyhow!("{webhook_key}: {e}"))?,
+        // Names the JSON kind rather than printing it: this is the last message on
+        // this path that could report submitted content, and an object or array could
+        // carry a secret into `sync-config` output and operator logs.
+        Some(other) => {
+            let kind = match other {
+                serde_json::Value::Bool(_) => "a boolean",
+                serde_json::Value::Number(_) => "a number",
+                serde_json::Value::Array(_) => "an array",
+                serde_json::Value::Object(_) => "an object",
+                _ => "a non-string value",
+            };
+            return Err(anyhow::anyhow!(
+                "{webhook_key} must be a URL string, got {kind}"
+            ));
+        }
+    }
+
+    let diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    apply_settings_diff(db, &diff).await?;
+
+    Ok(())
 }
 
 /// Apply a settings diff to the global_settings table.
@@ -1322,9 +1516,7 @@ impl InstanceConfig {
                 .await?;
         let current_settings: BTreeMap<String, serde_json::Value> = rows.into_iter().collect();
 
-        let settings_diff =
-            diff_global_settings(&current_settings, &desired_settings, ApplyMode::Replace);
-        apply_settings_diff(db, &settings_diff).await?;
+        sync_global_settings_declarative(db, &current_settings, &desired_settings).await?;
 
         // Worker configs
         let desired_configs: BTreeMap<String, serde_json::Value> = self
@@ -1796,6 +1988,40 @@ mod tests {
     }
 
     #[test]
+    fn diff_global_settings_merge_deletes_on_null_or_empty_string() {
+        // Frontend sends explicit null when the user removes a key (e.g.
+        // deletes `object_store_cache_config` in the YAML editor). Merge mode
+        // must honor this as a deletion, just like `set_global_setting_internal`.
+        let mut current = BTreeMap::new();
+        current.insert(
+            "object_store_cache_config".to_string(),
+            serde_json::json!({"type": "S3"}),
+        );
+        current.insert("base_url".to_string(), serde_json::json!("http://x"));
+        current.insert("hub_base_url".to_string(), serde_json::json!("http://y"));
+
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "object_store_cache_config".to_string(),
+            serde_json::Value::Null,
+        );
+        desired.insert("base_url".to_string(), serde_json::json!("http://x"));
+        desired.insert("hub_base_url".to_string(), serde_json::json!(""));
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+        assert!(diff.upserts.is_empty(), "no upserts expected");
+        let mut deletes = diff.deletes.clone();
+        deletes.sort();
+        assert_eq!(
+            deletes,
+            vec![
+                "hub_base_url".to_string(),
+                "object_store_cache_config".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn diff_global_settings_merge_never_deletes() {
         let mut current = BTreeMap::new();
         current.insert("a".to_string(), serde_json::json!(1));
@@ -1847,6 +2073,101 @@ mod tests {
     // -----------------------------------------------------------------------
     // to_settings_map edge cases
     // -----------------------------------------------------------------------
+
+    /// Regression test for bulk-endpoint deletion of typed settings.
+    ///
+    /// A naive `#[derive(Deserialize)]` would route
+    /// `{"object_store_cache_config": null}` to the typed `Option<...>` field
+    /// as `None`, and `skip_serializing_if = "Option::is_none"` would then
+    /// strip it from `to_settings_map`, so `diff_global_settings` (Merge mode)
+    /// would never see the deletion. The manual `Deserialize` impl on
+    /// `GlobalSettings` captures explicit top-level nulls into `extra` so they
+    /// survive the round-trip and reach `diff_global_settings` as proper
+    /// deletes.
+    #[test]
+    fn explicit_null_on_typed_field_survives_round_trip() {
+        let json = serde_json::json!({
+            "object_store_cache_config": null,
+            "secret_backend": null,
+            "smtp_settings": null,
+            "base_url": "https://x",
+        });
+        let settings: GlobalSettings =
+            serde_json::from_value(json).expect("null should deserialize");
+        assert!(settings.object_store_cache_config.is_none());
+        assert!(settings.secret_backend.is_none());
+        assert!(settings.smtp_settings.is_none());
+        assert_eq!(settings.base_url.as_deref(), Some("https://x"));
+        let map = settings.to_settings_map();
+        assert_eq!(map["object_store_cache_config"], serde_json::Value::Null);
+        assert_eq!(map["secret_backend"], serde_json::Value::Null);
+        assert_eq!(map["smtp_settings"], serde_json::Value::Null);
+        assert_eq!(map["base_url"], serde_json::json!("https://x"));
+    }
+
+    /// Absent keys remain absent — critical so a PUT that only sets a single
+    /// field doesn't accidentally delete every other setting in Merge mode.
+    #[test]
+    fn absent_typed_fields_do_not_appear_in_map() {
+        let settings: GlobalSettings =
+            serde_json::from_value(serde_json::json!({"base_url": "https://x"})).unwrap();
+        let map = settings.to_settings_map();
+        assert!(!map.contains_key("object_store_cache_config"));
+        assert!(!map.contains_key("smtp_settings"));
+        assert_eq!(map.get("base_url"), Some(&serde_json::json!("https://x")));
+    }
+
+    /// End-to-end: deserialize → `to_settings_map` → diff in Merge mode with
+    /// an explicit null produces a delete (the scenario that silently failed
+    /// before the manual `Deserialize` impl).
+    #[test]
+    fn deserialize_then_diff_deletes_typed_null() {
+        let mut current = BTreeMap::new();
+        current.insert(
+            "object_store_cache_config".to_string(),
+            serde_json::json!({"type": "S3", "bucket": "b"}),
+        );
+        let desired: GlobalSettings =
+            serde_json::from_value(serde_json::json!({"object_store_cache_config": null})).unwrap();
+        let desired_map = desired.to_settings_map();
+        let diff = diff_global_settings(&current, &desired_map, ApplyMode::Merge);
+        assert!(diff.upserts.is_empty());
+        assert_eq!(diff.deletes, vec!["object_store_cache_config".to_string()]);
+    }
+
+    /// Nested nulls inside a typed sub-struct are not promoted to top-level
+    /// deletes — only the top-level key matters, mirroring the per-key API.
+    #[test]
+    fn nested_null_inside_typed_field_is_not_treated_as_top_level_null() {
+        let settings: GlobalSettings =
+            serde_json::from_value(serde_json::json!({"smtp_settings": {"smtp_host": null}}))
+                .unwrap();
+        let map = settings.to_settings_map();
+        assert!(
+            map["smtp_settings"].is_object(),
+            "smtp_settings should be an object, not null"
+        );
+    }
+
+    /// Unknown/extra keys with explicit null still flow through `extra` — this
+    /// was already correct before the manual impl; guard against regression.
+    #[test]
+    fn explicit_null_on_extra_field_survives_round_trip() {
+        let settings: GlobalSettings =
+            serde_json::from_value(serde_json::json!({"unknown_legacy_setting": null})).unwrap();
+        let map = settings.to_settings_map();
+        assert_eq!(map["unknown_legacy_setting"], serde_json::Value::Null);
+    }
+
+    /// Top-level non-object input must reject with a deserialize error rather
+    /// than silently producing defaults. Matches the previous derive behavior.
+    #[test]
+    fn non_object_top_level_input_errors() {
+        assert!(serde_json::from_value::<GlobalSettings>(serde_json::json!(null)).is_err());
+        assert!(serde_json::from_value::<GlobalSettings>(serde_json::json!("s")).is_err());
+        assert!(serde_json::from_value::<GlobalSettings>(serde_json::json!(42)).is_err());
+        assert!(serde_json::from_value::<GlobalSettings>(serde_json::json!([])).is_err());
+    }
 
     #[test]
     fn to_settings_map_empty_defaults() {
@@ -2111,34 +2432,63 @@ mod tests {
     }
 
     #[test]
-    fn custom_instance_pg_databases_roundtrips() {
+    fn custom_instance_replication_pwd_is_isolated_from_config() {
+        // The replication-role password is server-only: written by setup/refresh via direct
+        // SQL, never operator-authored. It must stay out of the declarative config surface
+        // (hidden on read) and be undeletable, so config sync can't read, rewrite, or drop it.
+        assert!(HIDDEN_SETTINGS.contains(&"custom_instance_replication_pwd"));
+        assert!(PROTECTED_SETTINGS.contains(&"custom_instance_replication_pwd"));
+        assert!(SENSITIVE_SETTINGS.contains(&"custom_instance_replication_pwd"));
+
+        // A stray desired value (e.g. flattened into `extra`) is ignored, not upserted.
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "custom_instance_replication_pwd".to_string(),
+            serde_json::json!("attacker-set"),
+        );
+        let diff = diff_global_settings(&BTreeMap::new(), &desired, ApplyMode::Merge);
+        assert!(
+            diff.upserts.is_empty(),
+            "hidden setting must not be upserted"
+        );
+
+        // A current value is never deleted by a Replace that omits it.
+        let mut current = BTreeMap::new();
+        current.insert(
+            "custom_instance_replication_pwd".to_string(),
+            serde_json::json!("live"),
+        );
+        let diff = diff_global_settings(&current, &BTreeMap::new(), ApplyMode::Replace);
+        assert!(
+            !diff
+                .deletes
+                .contains(&"custom_instance_replication_pwd".to_string()),
+            "hidden setting must not be deleted"
+        );
+    }
+
+    #[test]
+    fn custom_instance_pg_databases_roundtrips_and_redacts_user_pwd() {
+        // user_pwd stays operator-configurable (EE secretKeyRef); databases is runtime status.
         let json = r#"{
             "user_pwd": "secret123",
-            "databases": {
-                "mydb": {
-                    "logs": {
-                        "super_admin": "OK",
-                        "database_credentials": "OK",
-                        "valid_dbname": "OK",
-                        "created_database": "OK",
-                        "db_connect": "OK",
-                        "grant_permissions": "OK"
-                    },
-                    "success": true,
-                    "tag": "production"
-                }
-            }
+            "databases": { "mydb": { "success": true, "tag": "production" } }
         }"#;
         let pg: CustomInstancePgDatabases = serde_json::from_str(json).unwrap();
         assert_eq!(
             pg.user_pwd.as_ref().and_then(|v| v.as_literal()),
             Some("secret123")
         );
-        let db = &pg.databases["mydb"];
-        assert!(db.success);
-        assert_eq!(db.tag.as_deref(), Some("production"));
-        assert_eq!(db.logs.super_admin, "OK");
-        assert_eq!(db.logs.grant_permissions, "OK");
+        assert!(pg.databases["mydb"].success);
+
+        let out = format_setting_value(
+            "custom_instance_pg_databases",
+            &serde_json::json!({ "user_pwd": "user-plaintext-password" }),
+        );
+        assert!(
+            !out.contains("user-plaintext-password"),
+            "user_pwd leaked: {out}"
+        );
     }
 
     #[test]

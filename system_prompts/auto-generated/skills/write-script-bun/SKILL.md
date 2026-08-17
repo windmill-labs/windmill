@@ -1,21 +1,56 @@
 ---
 name: write-script-bun
-description: MUST use when writing Bun/TypeScript scripts.
+description: MUST use when writing TypeScript scripts. Bun is the default and preferred TypeScript runtime — pick it for TypeScript unless the script specifically needs Deno.
 ---
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- `wmill script generate-metadata` - Generate .script.yaml and .lock files
-- `wmill sync push` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- `wmill script preview <script_path>` — **default when iterating on a local script.** Runs the local file without deploying.
+- `wmill script run <path>` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- `wmill generate-metadata` — regenerate the local `.script.yaml` (input schema) and `.lock` (resolved dependencies) for scripts you changed, and refresh their content hashes in `wmill-lock.yaml`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
+- Deploy local changes to the workspace — via `git push` or `wmill sync push` depending on how the repo is wired (see the **Deploying** section in `AGENTS.wmill.md`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use `script preview`. Do NOT push the script to then `script run` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use `script run` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use `sync push` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### Keep metadata in sync after editing
+
+`wmill-lock.yaml` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing `main`'s arguments** — invalidates that hash and leaves the `.lock`, the `.script.yaml` input schema, and the hash row out of date. Run `wmill generate-metadata` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by `.script.yaml`), and `wmill-lock.yaml` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's `AGENTS.md` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated `.lock` / `.script.lock` files and tell the user which dependency versions changed (e.g. `requests 2.31.0 → 2.32.0`), so they can catch an unwanted bump before deploying — even under `Metadata: auto`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, `generate-metadata` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run `wmill generate-metadata --dry-run` — it lists each stale item with a reason (`content changed` or `depends on <path>`) without changing anything — then narrow with a path argument (`wmill generate-metadata f/foo`) or `--strict-folder-boundaries`.
+
+If the on-disk `.lock` and `.script.yaml` are already correct and only `wmill-lock.yaml` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use `wmill generate-metadata rehash` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run `wmill script preview` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute `wmill script preview <path> -d '<args>'` directly — pick plausible args from the script's declared parameters. The shape varies by language: `main(...)` for code languages, the SQL dialect's own placeholder syntax (`$1` for PostgreSQL, `?` for MySQL/Snowflake, `@P1` for MSSQL, `@name` for BigQuery, etc.), positional `$1`, `$2`, … for Bash, `param(...)` for PowerShell.
+
+`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill generate-metadata` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's `AGENTS.md` opts in), per "Keep metadata in sync" above. Deploying to the workspace (`git push` or `wmill sync push` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than `script preview`'s run-and-print-result), use the `preview` skill.
 
 Use `wmill resource-type list --schema` to discover available resource types.
 
 # TypeScript (Bun)
 
-Bun runtime with full npm ecosystem and fastest execution.
+Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
 
 ## Structure
 
@@ -53,6 +88,10 @@ import Stripe from "stripe";
 import { someFunction } from "some-package";
 ```
 
+## Prefer `//native` when the runtime allows it
+
+If a script only needs `fetch` and the JavaScript standard library — including when it uses `windmill-client` — prefer making it a **native** script: add `//native` as the first line and write it with the `write-script-bunnative` skill. Native scripts run on a lightweight V8 isolate, start faster, and parallelize heavily. `windmill-client` works on the native worker (its calls go over `fetch`), so needing the Windmill client is **not** a reason to avoid `//native`. Use the regular `bun` language only when the code (or a dependency) needs Node/Bun runtime APIs — `node:*` modules, the filesystem, child processes, or native addons.
+
 ## Windmill Client
 
 Import the windmill client for platform interactions:
@@ -61,7 +100,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 ```
 
-See the SDK documentation for available methods.
+**Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 
@@ -95,19 +136,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The `wmill.S3Object` type covers both the `s3://storage/key` URI form (`s3:///key` for the workspace default storage) and the `{ s3, storage? }` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 ```typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 ```
 
-## TypeScript Operations
+### S3 operations
 
 ```typescript
 import * as wmill from "windmill-client";
@@ -119,7 +161,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -130,6 +172,13 @@ const result: S3Object = await wmill.writeS3File(
 # TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
+
+To know who is running the script, read the contextual variables rather than calling the API:
+`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username.
+
+workerHasInternalServer(): boolean
 
 /**
  * Initialize the Windmill client with authentication token and base URL
@@ -160,27 +209,24 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
 async getRootJobId(jobId?: string): Promise<string>
 
 /**
- * @deprecated Use runScriptByPath or runScriptByHash instead
- */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
-
-/**
  * Run a script synchronously by its path and wait for the result
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
-async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByPath(path: string, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its hash and wait for the result
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Script execution result
  */
-async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runScriptByHash(hash_: string, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Append a text to the result stream
@@ -199,9 +245,10 @@ async streamResult(stream: AsyncIterable<string>): Promise<void>
  * @param path - Flow path in Windmill
  * @param args - Arguments to pass to the flow
  * @param verbose - Enable verbose logging
+ * @param tag - Override the worker tag the job runs on
  * @returns Flow execution result
  */
-async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false): Promise<any>
+async runFlow(path: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Wait for a job to complete and return its result
@@ -226,27 +273,32 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
- * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
  */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null): Promise<string>
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
 
 /**
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a flow asynchronously by its path
@@ -254,9 +306,10 @@ async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = nul
  * @param args - Arguments to pass to the flow
  * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
  * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+ * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true): Promise<string>
+async runFlowAsync(path: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, // can only be set to false if this the job will be fully await and not concurrent with any other job // as otherwise the child flow and its own child will store their state in the parent job which will // lead to incorrectness and failures doNotTrackInParent: boolean = true, tag: string | null = null): Promise<string>
 
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
@@ -278,13 +331,6 @@ getStatePath(): string
  * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
  */
 async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
- * @deprecated use setState instead
- */
-async setInternalState(state: any): Promise<void>
 
 /**
  * Set the state
@@ -322,12 +368,6 @@ async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): P
 async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
 
 /**
- * Get the internal state
- * @deprecated use getState instead
- */
-async getInternalState(): Promise<any>
-
-/**
  * Get the state shared across executions
  * @param path Optional state resource path override. Defaults to `getStatePath()`.
  */
@@ -363,9 +403,10 @@ async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<an
 /**
  * Get S3 client settings from a resource or workspace default
  * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
  * @returns S3 client configuration settings
  */
-async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+async denoS3LightClientSettings(s3_resource_path: string | undefined, workspace: string | undefined = undefined): Promise<DenoS3LightClientSettings>
 
 /**
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -376,8 +417,10 @@ async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<D
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
  * ```
+ * 
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
  */
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Uint8Array | undefined>
 
 /**
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -387,8 +430,10 @@ async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefi
  * // if the content is plain text, the blob can be read directly:
  * console.log(await fileContentBlob.text());
  * ```
+ * 
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
  */
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Blob | undefined>
 
 /**
  * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -398,8 +443,22 @@ async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = 
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
  * console.log(fileContentAsUtf8Str)
  * ```
+ * 
+ * @param workspace - Workspace to write to (defaults to the `WM_WORKSPACE` env var)
  */
-async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined, workspace: string | undefined = undefined): Promise<S3Object>
+
+/**
+ * Permanently delete a file from S3 by key.
+ * 
+ * ```typescript
+ * await wmill.deleteS3File({ s3: "path/to/file.txt" })
+ * ```
+ * 
+ * @param s3object - S3 object identifying the file to delete (must have `s3` set)
+ * @param workspace - Workspace to delete from (defaults to the `WM_WORKSPACE` env var)
+ */
+async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined): Promise<void>
 
 /**
  * Sign S3 objects to be used by anonymous users in public apps
@@ -444,15 +503,6 @@ async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
 }>
 
 /**
- * @deprecated use getResumeUrls instead
- */
-getResumeEndpoints(approver?: string): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
  * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
  * @param audience audience of the token
  * @param expiresIn Optional number of seconds until the token expires
@@ -473,15 +523,6 @@ base64ToUint8Array(data: string): Uint8Array
  * @returns Base64-encoded string
  */
 uint8ArrayToBase64(arrayBuffer: Uint8Array): string
-
-/**
- * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
- * @param username
- * @returns email address
- */
-async usernameToEmail(username: string): Promise<string>
 
 /**
  * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
@@ -557,18 +598,19 @@ async requestInteractiveSlackApproval({ slackResourcePath, channelId, message, a
  */
 async requestInteractiveTeamsApproval({ teamName, channelName, message, approver, defaultArgsJson, dynamicEnumsJson, }: TeamsApprovalOptions): Promise<void>
 
-/**
- * Parse an S3 object from URI string or record format
- * @param s3Object - S3 object as URI string (s3://storage/key) or record
- * @returns S3 object record with storage and s3 key
- */
-parseS3Object(s3Object: S3Object): S3ObjectRecord
-
 setWorkflowCtx(ctx: WorkflowCtx | null): void
 
 async sleep(seconds: number): Promise<void>
 
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+/**
+ * Execute `fn` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing `fn`.
+ * 
+ * `fn`'s result is encoded as JSON and decoded back before it is returned, so
+ * the round that runs the body sees the same types every replay sees: a `Date`
+ * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ */
+async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -602,15 +644,43 @@ workflow<T>(fn: (...args: any[]) => Promise<T>): void
 /**
  * Suspend the workflow and wait for an external approval.
  * 
- * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
+ * Pass `key` to name the step, then `getApprovalUrls(key)` yields the URLs that
+ * resume exactly this approval — route them through your own channel. Without a
+ * key the steps are named `approval`, `approval_2`, ...
  * 
  * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
+ * 
+ * Unlike `getResumeUrls()`, which signs a random nonce, these address the very
+ * `resume_job` record the step's built-in approval buttons use, so they are
+ * stable across replays and safe to embed in a custom notification.
+ * 
+ * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
+ * 
+ * `resume` and `cancel` are step-bound; `approvalPage` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
+ * 
+ * @example
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * await waitForApproval({ key: "manager" });
+ */
+async getApprovalUrls(stepKey: string = "approval", approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
 
 /**
  * Process items in parallel with optional concurrency control.
@@ -634,6 +704,17 @@ async parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: 
 async commitKafkaOffsets(triggerPath: string, topic: string, partition: number, offset: number,): Promise<void>
 
 /**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (`s3://storage/key`, `s3:///key`
+ *   for the default storage) or record. Any other string throws rather than
+ *   falling back to an auto-generated key: an auto key is requested by
+ *   omitting the object, and a fallback would silently misplace the upload
+ *   on any typo.
+ * @returns S3 object record with storage and s3 key
+ */
+parseS3Object(s3Object: S3Object): S3ObjectRecord
+
+/**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
  * @returns SQL template function for building parameterized queries
@@ -650,7 +731,7 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
+ * @param name - DuckDB database name, optionally with a schema as `name:schema` (default: "main")
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.ducklake()
@@ -660,5 +741,31 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}
  * `.fetch()
+ * @example
+ * // Target a specific schema within the ducklake
+ * let sql = wmill.ducklake("my_lake:analytics")
  */
 ducklake(name: string = "main"): SqlTemplateFunction
+
+/**
+ * Idempotently materialize `selectSql` into a ducklake table for one
+ * partition (or the whole table when `partition` is omitted) — the client-side
+ * equivalent of the `// materialize` engine.
+ * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
+ * replaces it (whole table → `CREATE OR REPLACE`; partition → delete + insert).
+ * Safe to re-run for the same partition (backfill / failure-recovery).
+ * 
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.upsertPartition({ table, selectSql, partition }).execute()`.
+ */
+upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any>
+
+/**
+ * INSERT-only materialization (no dedup/replace) for append-only tables.
+ * Re-running the same partition duplicates rows — use only for immutable
+ * event-log sources.
+ * 
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.appendPartition({ table, selectSql, partition }).execute()`.
+ */
+appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatement<any>

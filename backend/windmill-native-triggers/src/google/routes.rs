@@ -7,9 +7,13 @@ use axum::{
 };
 use http::Method;
 use serde::{Deserialize, Serialize};
+use windmill_api_auth::ApiAuthed;
 use windmill_common::{error::JsonResult, DB};
 
-use crate::{get_workspace_integration, External, ServiceName};
+use crate::{
+    get_workspace_integration, map_external_error, require_native_integration_use, External,
+    ServiceName,
+};
 
 use super::Google;
 
@@ -84,10 +88,12 @@ pub struct DriveFilesQuery {
 }
 
 async fn list_calendars(
+    authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<GoogleCalendarEntry>> {
+    require_native_integration_use(&authed)?;
     get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
 
     let url = format!(
@@ -97,7 +103,8 @@ async fn list_calendars(
 
     let response: GoogleCalendarListResponse = handler
         .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
-        .await?;
+        .await
+        .map_err(map_external_error)?;
 
     let calendars = response
         .items
@@ -113,11 +120,13 @@ async fn list_calendars(
 }
 
 async fn list_drive_files(
+    authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
     Query(query): Query<DriveFilesQuery>,
 ) -> JsonResult<GoogleDriveFilesResponse> {
+    require_native_integration_use(&authed)?;
     get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
 
     let drive_query = if query.shared_with_me {
@@ -148,7 +157,8 @@ async fn list_drive_files(
 
     let response: DriveApiResponse = handler
         .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
-        .await?;
+        .await
+        .map_err(map_external_error)?;
 
     let files = response
         .files
@@ -186,10 +196,12 @@ struct SharedDriveApiEntry {
 }
 
 async fn list_shared_drives(
+    authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<SharedDriveEntry>> {
+    require_native_integration_use(&authed)?;
     get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
 
     let url = format!(
@@ -199,7 +211,8 @@ async fn list_shared_drives(
 
     let response: SharedDrivesApiResponse = handler
         .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
-        .await?;
+        .await
+        .map_err(map_external_error)?;
 
     let drives = response
         .drives

@@ -22,11 +22,12 @@ use sql_builder::bind::Bind;
 use sql_builder::SqlBuilder;
 use uuid::Uuid;
 
+/// `/{job_id}/key` is added by `windmill-api`, which is where the shared job read gate
+/// it needs lives.
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
         .route("/prune/{*concurrency_key}", delete(prune_concurrency_group))
-        .route("/{job_id}/key", get(get_concurrency_key))
 }
 
 pub fn workspaced_service() -> Router {
@@ -191,10 +192,12 @@ async fn get_concurrent_intervals(
             script_path_exact: None,
             script_hash: None,
             created_by: None,
+            status: None,
             success: None,
             running: None,
             parent_job: None,
             is_skipped: None | Some(false),
+            resolved: None,
             suspended: None,
             schedule_path: None,
             args: None,
@@ -226,6 +229,7 @@ async fn get_concurrent_intervals(
             trigger_kind: _,
             include_args: _,
             broad_filter: _,
+            excludes_entrypoint_override: _,
         } => true,
         _ => false,
     };
@@ -264,7 +268,7 @@ async fn get_concurrent_intervals(
         // This first transaction uses the user_db to know which uuids are
         // accessible to the user.
         let mut tx = user_db.begin(&authed).await?;
-        let running_jobs_user: Vec<Uuid> = if lq.success.is_none() {
+        let running_jobs_user: Vec<Uuid> = if lq.success.is_none() && lq.resolved != Some(true) {
             sqlx::query_scalar(&sql_q_user).fetch_all(&mut *tx).await?
         } else {
             vec![]
@@ -279,7 +283,7 @@ async fn get_concurrent_intervals(
         // This second transaction uses the db, so it will fetch information
         // potentially forbidden to the user. It must be obscured before
         // returning it
-        let running_jobs_db: Vec<UnifiedJob> = if lq.success.is_none() {
+        let running_jobs_db: Vec<UnifiedJob> = if lq.success.is_none() && lq.resolved != Some(true) {
             sqlx::query_as(&sql_q).fetch_all(&db).await?
         } else {
             vec![]
@@ -328,7 +332,7 @@ async fn get_concurrent_intervals(
         let sql_c = sqlb_c.query()?;
 
         let mut tx = user_db.begin(&authed).await?;
-        let running_jobs: Vec<UnifiedJob> = if lq.success.is_none() {
+        let running_jobs: Vec<UnifiedJob> = if lq.success.is_none() && lq.resolved != Some(true) {
             sqlx::query_as(&sql_q).fetch_all(&mut *tx).await?
         } else {
             vec![]
@@ -352,14 +356,4 @@ async fn get_concurrent_intervals(
             omitted_obscured_jobs: !should_fetch_obscured_jobs,
         }))
     }
-}
-
-async fn get_concurrency_key(
-    Extension(db): Extension<DB>,
-    Path(job_id): Path<Uuid>,
-) -> JsonResult<Option<String>> {
-    let key = sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", job_id)
-        .fetch_optional(&db)
-        .await?;
-    Ok(Json(key))
 }

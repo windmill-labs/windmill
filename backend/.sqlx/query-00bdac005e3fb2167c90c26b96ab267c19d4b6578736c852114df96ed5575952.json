@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE background_task_state\n         SET value = $1, updated_at = NOW()\n         WHERE name = $2 AND owner = $3 AND running = true",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "00bdac005e3fb2167c90c26b96ab267c19d4b6578736c852114df96ed5575952"
+}

@@ -7,6 +7,7 @@ import * as log from "../../core/log.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import fs from "node:fs";
 import { workspaceDependenciesPathToLanguageAndFilename } from "../../utils/metadata.ts";
+import { readTextFileSync } from "../../utils/utils.ts";
 
 async function push(
   opts: GlobalOptions,
@@ -19,7 +20,7 @@ async function push(
     throw new Error(`File not found: ${filePath}`);
   }
 
-  const content = fs.readFileSync(filePath, "utf8");
+  const content = readTextFileSync(filePath);
 
   // Use the existing pushWorkspaceDependencies function
   await pushWorkspaceDependencies(
@@ -43,70 +44,66 @@ export async function pushWorkspaceDependencies(
   _befObj: any,
   newDependenciesContent: string,
 ): Promise<void> {
-  try {
-    const res = workspaceDependenciesPathToLanguageAndFilename(path);
-    if (!res) {
-      throw new Error(`Unknown workspace dependencies file format: ${path}`);
-    }
-
-    const { language, name } = res;
-
-    const displayName = name
-      ? `named dependencies "${name}"`
-      : `workspace default dependencies`;
-
-    // Fetch remote workspace dependencies and compare content directly
-    try {
-      const remoteDeps = await wmill.getLatestWorkspaceDependencies({
-        workspace,
-        language,
-        name,
-      });
-
-      if (remoteDeps && remoteDeps.content === newDependenciesContent) {
-        log.info(
-          colors.green(
-            `${displayName} for ${language} are up-to-date, skipping push`,
-          ),
-        );
-        return;
-      }
-    } catch (e: any) {
-      // If 404 or not found, the dependency doesn't exist remotely yet - proceed with push
-      if (e.status !== 404 && !e.message?.includes("not found")) {
-        throw e;
-      }
-    }
-
-    log.info(
-      colors.yellow(
-        `Pushing ${
-          name ? "named" : "workspace default"
-        } dependencies for ${language}...`,
-      ),
+  const res = workspaceDependenciesPathToLanguageAndFilename(path);
+  if (!res) {
+    throw new Error(
+      `Unknown workspace dependencies file format: ${path}. ` +
+      `Valid files: package.json, requirements.in, composer.json, go.mod, modules.json`
     );
+  }
 
-    await wmill.createWorkspaceDependencies({
+  const { language, name } = res;
+
+  const displayName = name
+    ? `named dependencies "${name}"`
+    : `workspace default dependencies`;
+
+  // Fetch remote workspace dependencies and compare content directly
+  try {
+    const remoteDeps = await wmill.getLatestWorkspaceDependencies({
       workspace,
-      requestBody: {
-        name,
-        content: newDependenciesContent,
-        language,
-        workspace_id: workspace,
-        // Description is not supported in cli, it will use old description
-        description: undefined,
-      },
+      language,
+      name,
     });
 
-    log.info(
-      colors.green(`Successfully pushed ${displayName} for ${language}`),
-    );
-  } catch (error: any) {
-    log.error(
-      colors.red(`Failed to push workspace dependencies: ${error.message}`),
-    );
-    throw error;
+    if (remoteDeps && remoteDeps.content === newDependenciesContent) {
+      log.info(
+        colors.green(
+          `${displayName} for ${language} are up-to-date, skipping push`,
+        ),
+      );
+      return;
+    }
+  } catch (e: any) {
+    // If 404 or not found, the dependency doesn't exist remotely yet - proceed with push
+    if (e.status !== 404 && !e.message?.includes("not found")) {
+      throw e;
+    }
   }
+
+  log.info(
+    colors.yellow(
+      `Pushing ${
+        name ? "named" : "workspace default"
+      } dependencies for ${language}...`,
+    ),
+  );
+
+  await wmill.createWorkspaceDependencies({
+    workspace,
+    requestBody: {
+      name,
+      content: newDependenciesContent,
+      language,
+      workspace_id: workspace,
+      // Description is not supported in cli, it will use old description
+      description: undefined,
+    },
+  });
+
+  log.info(
+    colors.green(`Successfully pushed ${displayName} for ${language}`),
+  );
 }
 
 export default command;

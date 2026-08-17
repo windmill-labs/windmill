@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT path FROM flow WHERE value::text LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5813a60051218e35fe4e8d91fe483dd49aab1c7964c6010c45bebf3a1e6fce7b"
+}

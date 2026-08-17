@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH norm AS (\n                        SELECT\n                            j.id, j.workspace_id, j.runnable_path, j.runnable_id, j.kind, j.args,\n                            -- Project effective kind for dispatch: pass script/flow through;\n                            -- for singlestepflow, read the wrapped runnable's type from\n                            -- raw_flow.modules[id='a'].value.type (always 'script' or 'flow').\n                            CASE\n                                WHEN j.kind IN ('script', 'flow') THEN j.kind::text\n                                WHEN j.kind = 'singlestepflow' THEN\n                                    COALESCE(\n                                        (SELECT m->'value'->>'type'\n                                            FROM jsonb_array_elements(j.raw_flow->'modules') m\n                                            WHERE m->>'id' = 'a'\n                                            LIMIT 1),\n                                        'script'\n                                    )\n                            END AS norm_kind,\n                            -- Pinned script hash for script-wrapped singlestepflow lives in\n                            -- raw_flow.modules[id='a'].value.hash. Flow-wrapped doesn't pin a\n                            -- version, so this is NULL there (Flow rerun pushes by path).\n                            (CASE WHEN j.kind = 'singlestepflow' THEN\n                                (SELECT ('x' || lpad(m->'value'->>'hash', 16, '0'))::bit(64)::bigint\n                                    FROM jsonb_array_elements(j.raw_flow->'modules') m\n                                    WHERE m->>'id' = 'a'\n                                      AND m->'value'->>'hash' IS NOT NULL\n                                    LIMIT 1)\n                            END) AS ssf_hash\n                        FROM v2_job j\n                        WHERE j.id = ANY($1)\n                            AND j.workspace_id = $2\n                            AND j.kind IN ('script', 'flow', 'singlestepflow')\n                    )\n                    SELECT\n                        n.id,\n                        n.norm_kind::JOB_KIND AS \"kind!: _\",\n                        COALESCE(s.path, f.path, n.runnable_path) AS \"script_path!\",\n                        -- script_hash is unused on the Flow rerun path (path-based push), so\n                        -- 0 is a safe placeholder when no version is pinned.\n                        COALESCE(s.hash, f.id, n.ssf_hash, 0::bigint) AS \"script_hash!: _\",\n                        COALESCE(jc.started_at, jq.scheduled_for, make_date(1970, 1, 1)) AS \"scheduled_for!: _\",\n                        n.args AS input,\n                        -- Pinned schema for script/flow; latest-by-path fallback for\n                        -- singlestepflow so input_transforms still resolve at rerun time.\n                        COALESCE(\n                            s.schema,\n                            f.schema,\n                            (CASE WHEN n.kind = 'singlestepflow' AND n.norm_kind = 'script' THEN\n                                (SELECT s2.schema FROM script s2\n                                    WHERE s2.workspace_id = $2 AND s2.path = n.runnable_path\n                                    ORDER BY s2.created_at DESC LIMIT 1)\n                            END),\n                            (CASE WHEN n.kind = 'singlestepflow' AND n.norm_kind = 'flow' THEN\n                                (SELECT fv.schema FROM flow\n                                    LEFT JOIN flow_version fv ON fv.id = flow.versions[array_upper(flow.versions, 1)]\n                                    WHERE flow.workspace_id = $2 AND flow.path = n.runnable_path)\n                            END)\n                        ) AS \"schema: _\"\n                    FROM norm n\n                    LEFT JOIN script s ON s.hash = n.runnable_id AND n.kind = 'script'\n                    LEFT JOIN flow_version f ON f.id = n.runnable_id AND f.path = n.runnable_path AND n.kind = 'flow'\n                    LEFT JOIN v2_job_completed jc ON jc.id = n.id\n                    LEFT JOIN v2_job_queue jq ON jq.id = n.id\n                    WHERE n.norm_kind IS NOT NULL\n                        AND COALESCE(s.path, f.path, n.runnable_path) IS NOT NULL\n                        AND (\n                            n.kind = 'singlestepflow'\n                            OR (COALESCE(s.hash, f.id) IS NOT NULL AND COALESCE(s.path, f.path) IS NOT NULL)\n                        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind!: _",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "script_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "script_hash!: _",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "scheduled_for!: _",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "input",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "schema: _",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "6cda14bc33e3144b78b2147ac1153c516b5962b5648ae07c247fbd57b1b16ada"
+}

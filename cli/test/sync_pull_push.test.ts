@@ -41,8 +41,13 @@ import {
   isFlowInlineScriptPath,
   isRawAppBackendPath,
   getModuleFolderSuffix,
+  hasWrongFormatSuffix,
 } from "../src/utils/resource_folders.ts";
-import { newPathAssigner } from "../windmill-utils-internal/src/path-utils/path-assigner.ts";
+import {
+  newPathAssigner,
+  newRawAppPathAssigner,
+} from "../windmill-utils-internal/src/path-utils/path-assigner.ts";
+import { waitForDeploymentJobs } from "./new_commands_helpers.ts";
 
 // =============================================================================
 // Test Fixtures - Every Type of Windmill Resource
@@ -107,6 +112,10 @@ kind: script
 function createFlowFixture(name: string): Record<string, { path: string; content: string }> {
   const flowSuffix = getFolderSuffix("flow");
   const metadataFile = getMetadataFileName("flow", "yaml");
+  // !inline paths are resolved relative to the flow folder (see
+  // pushFlow's fileReader in cli/src/commands/flow/flow.ts), so the
+  // path inside the directive must NOT include the flow folder prefix.
+  const scriptFile = "a.ts";
 
   return {
     metadata: {
@@ -118,7 +127,7 @@ value:
     - id: a
       value:
         type: rawscript
-        content: "!inline ${name}${flowSuffix}/a.ts"
+        content: "!inline ${scriptFile}"
         language: bun
         input_transforms: {}
 schema:
@@ -129,7 +138,7 @@ schema:
 `,
     },
     inlineScript: {
-      path: `${name}${flowSuffix}/a.ts`,
+      path: `${name}${flowSuffix}/${scriptFile}`,
       content: `export async function main() {\n  return "Hello from flow ${name}";\n}`,
     },
   };
@@ -625,6 +634,24 @@ test("newPathAssigner with skipInlineScriptSuffix removes .inline_script. from p
   const [noSuffixPyPath, noSuffixPyExt] = noSuffixPyAssigner.assignPath("python_script", "python3");
   expect(noSuffixPyPath).toEqual("python_script.");
   expect(noSuffixPyExt).toEqual("py");
+});
+
+test("newPathAssigner lowercases summaries; newRawAppPathAssigner preserves case", () => {
+  const inlineAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
+  const [inlinePath] = inlineAssigner.assignPath("CamelCaseTSRunnable", "bun");
+  expect(inlinePath).toEqual("camelcasetsrunnable.");
+
+  const rawAssigner = newRawAppPathAssigner("bun");
+  const [rawPath] = rawAssigner.assignPath("CamelCaseTSRunnable", "bun");
+  expect(rawPath).toEqual("CamelCaseTSRunnable.");
+});
+
+test("path assigners dedupe case-insensitively", () => {
+  const assigner = newRawAppPathAssigner("bun");
+  const [first] = assigner.assignPath("Foo", "bun");
+  const [second] = assigner.assignPath("foo", "bun");
+  expect(first).toEqual("Foo.");
+  expect(second).toEqual("foo_1.");
 });
 
 test("newPathAssigner generates unique paths for duplicate names", () => {
@@ -1240,6 +1267,32 @@ test("setNonDottedPaths and getNonDottedPaths work correctly", () => {
   expect(getNonDottedPaths()).toEqual(false);
 });
 
+test("hasWrongFormatSuffix detects mismatched folder suffixes", () => {
+  // In dotted mode (default), non-dotted dirs are wrong
+  setNonDottedPaths(false);
+  expect(hasWrongFormatSuffix("my_flow__flow")).toEqual("flow");
+  expect(hasWrongFormatSuffix("my_app__app")).toEqual("app");
+  expect(hasWrongFormatSuffix("my_raw_app__raw_app")).toEqual("raw_app");
+  // Correct format should return null
+  expect(hasWrongFormatSuffix("my_flow.flow")).toBeNull();
+  expect(hasWrongFormatSuffix("my_app.app")).toBeNull();
+  expect(hasWrongFormatSuffix("my_raw_app.raw_app")).toBeNull();
+  // Non-resource dirs return null
+  expect(hasWrongFormatSuffix("some_folder")).toBeNull();
+  expect(hasWrongFormatSuffix("node_modules")).toBeNull();
+
+  // In non-dotted mode, dotted dirs are wrong
+  setNonDottedPaths(true);
+  expect(hasWrongFormatSuffix("my_flow.flow")).toEqual("flow");
+  expect(hasWrongFormatSuffix("my_app.app")).toEqual("app");
+  expect(hasWrongFormatSuffix("my_raw_app.raw_app")).toEqual("raw_app");
+  // Correct format should return null
+  expect(hasWrongFormatSuffix("my_flow__flow")).toBeNull();
+  expect(hasWrongFormatSuffix("my_app__app")).toBeNull();
+  expect(hasWrongFormatSuffix("my_raw_app__raw_app")).toBeNull();
+  setNonDottedPaths(false); // Reset
+});
+
 // =============================================================================
 // nonDottedPaths Fixture Functions
 // =============================================================================
@@ -1748,6 +1801,12 @@ excludes: []
       );
 
       expect(pushResult.code).toEqual(0);
+
+      // Both the script (empty lock) and the flow enqueue async dependency jobs
+      // that generate lockfiles and rewrite the deployed value. Drain them before
+      // pulling back, otherwise pull races the worker and the dry-run push
+      // idempotency check sees phantom diffs (CI-only flake).
+      await waitForDeploymentJobs(backend);
 
       // Pull back
       const pullResult = await backend.runCLICommand(

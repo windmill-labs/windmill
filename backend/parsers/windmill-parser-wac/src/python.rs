@@ -37,7 +37,8 @@ impl LineIndex {
 /// Maps task function name → optional external path (from `@task(path="...")`)
 type TaskFunctions = HashMap<String, Option<String>>;
 
-/// First pass: scan top-level `@task async def foo(...)` declarations.
+/// First pass: scan top-level `@task async def foo(...)` declarations
+/// and `foo = task_script("path")` / `foo = task_flow("path")` assignments.
 fn collect_task_functions(stmts: &[Stmt]) -> TaskFunctions {
     let mut tasks = HashMap::new();
     for stmt in stmts {
@@ -58,6 +59,30 @@ fn collect_task_functions(stmts: &[Stmt]) -> TaskFunctions {
                         }
                     }
                     _ => {}
+                }
+            }
+        }
+        // foo = task_script("path") or foo = task_flow("path")
+        if let Stmt::Assign(assign) = stmt {
+            if let Expr::Call(call) = assign.value.as_ref() {
+                if let Expr::Name(ExprName { id, .. }) = call.func.as_ref() {
+                    if id.as_str() == "task_script" || id.as_str() == "task_flow" {
+                        // Extract the path from the first positional argument
+                        let path = call.args.first().and_then(|arg| {
+                            if let Expr::Constant(c) = arg {
+                                if let rustpython_parser::ast::Constant::Str(s) = &c.value {
+                                    return Some(s.to_string());
+                                }
+                            }
+                            None
+                        });
+                        // Extract variable name from target
+                        if let Some(Expr::Name(ExprName { id: var_name, .. })) =
+                            assign.targets.first()
+                        {
+                            tasks.insert(var_name.to_string(), path);
+                        }
+                    }
                 }
             }
         }
@@ -88,8 +113,6 @@ struct WacWalker {
     node_counter: usize,
     line_index: LineIndex,
     task_functions: TaskFunctions,
-    in_try: bool,
-    in_while: bool,
     in_nested_func: bool,
     in_comprehension: bool,
 }
@@ -103,8 +126,6 @@ impl WacWalker {
             node_counter: 0,
             line_index: LineIndex::new(source),
             task_functions,
-            in_try: false,
-            in_while: false,
             in_nested_func: false,
             in_comprehension: false,
         }
@@ -292,6 +313,9 @@ impl WacWalker {
         if self.is_task_fn_call(expr) {
             return true;
         }
+        if Self::is_sdk_call(expr) {
+            return true;
+        }
         match expr {
             Expr::Await(ExprAwait { value, .. }) => self.expr_contains_step(value),
             Expr::Call(call) => {
@@ -305,6 +329,17 @@ impl WacWalker {
             }
             _ => false,
         }
+    }
+
+    /// Check if expr is a call to a known SDK function (step, sleep, wait_for_approval)
+    fn is_sdk_call(expr: &Expr) -> bool {
+        if let Expr::Call(call) = expr {
+            if let Expr::Name(ExprName { id, .. }) = call.func.as_ref() {
+                let name = id.as_str();
+                return name == "step" || name == "sleep" || name == "wait_for_approval";
+            }
+        }
+        false
     }
 
     /// Walk a list of statements, returning (first_node_id, last_node_id)
@@ -353,12 +388,16 @@ impl WacWalker {
     }
 
     fn walk_expr_stmt(&mut self, expr: &Expr) -> Option<(String, String)> {
-        // await task_fn(...)
+        // await task_fn(...) / await step(...) / await sleep(...) / await wait_for_approval(...)
         if let Expr::Await(ExprAwait { value, .. }) = expr {
             // await task_fn(...)
             if let Expr::Call(call) = value.as_ref() {
                 if self.is_task_fn_call(&Expr::Call(call.clone())) {
                     return self.emit_step(call, expr);
+                }
+                // Check for SDK-level calls: step(), sleep(), wait_for_approval()
+                if let Some(result) = self.try_emit_sdk_call(call, expr) {
+                    return Some(result);
                 }
             }
             // await asyncio.gather(task_fn(...), task_fn(...), ...)
@@ -378,17 +417,69 @@ impl WacWalker {
         None
     }
 
+    /// Try to emit a node for SDK-level calls: step(), sleep(), wait_for_approval()
+    fn try_emit_sdk_call(&mut self, call: &ExprCall, expr: &Expr) -> Option<(String, String)> {
+        let callee_name = match call.func.as_ref() {
+            Expr::Name(ExprName { id, .. }) => Some(id.as_str()),
+            _ => None,
+        }?;
+
+        let line = self.line_of_expr(expr);
+
+        match callee_name {
+            "step" => {
+                // step("name", fn) — extract the name from the first string argument
+                let name = call
+                    .args
+                    .first()
+                    .and_then(|arg| {
+                        if let Expr::Constant(c) = arg {
+                            if let rustpython_parser::ast::Constant::Str(s) = &c.value {
+                                return Some(s.to_string());
+                            }
+                        }
+                        None
+                    })
+                    .unwrap_or_else(|| "step".to_string());
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::InlineStep { name: name.clone() },
+                    label: name,
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            "sleep" => {
+                let seconds = call
+                    .args
+                    .first()
+                    .map(|arg| Self::expr_to_source(arg))
+                    .unwrap_or_else(|| "?".to_string());
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::Sleep { seconds: seconds.clone() },
+                    label: format!("sleep({seconds})"),
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            "wait_for_approval" => {
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::WaitForApproval,
+                    label: "wait_for_approval".to_string(),
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            _ => None,
+        }
+    }
+
     fn emit_step(&mut self, call: &ExprCall, expr: &Expr) -> Option<(String, String)> {
-        if self.in_try {
-            self.errors
-                .push(validation::error_step_in_try(self.line_of_expr(expr)));
-            return None;
-        }
-        if self.in_while {
-            self.errors
-                .push(validation::error_step_in_while(self.line_of_expr(expr)));
-            return None;
-        }
         if self.in_nested_func {
             self.errors.push(validation::error_step_in_nested_function(
                 self.line_of_expr(expr),
@@ -416,17 +507,6 @@ impl WacWalker {
     }
 
     fn emit_parallel(&mut self, gather_call: &ExprCall, expr: &Expr) -> Option<(String, String)> {
-        if self.in_try {
-            self.errors
-                .push(validation::error_step_in_try(self.line_of_expr(expr)));
-            return None;
-        }
-        if self.in_while {
-            self.errors
-                .push(validation::error_step_in_while(self.line_of_expr(expr)));
-            return None;
-        }
-
         let line = self.line_of_expr(expr);
         let start_id = self.next_id();
         let start_node_id = self.add_node(DagNode {
@@ -491,8 +571,6 @@ impl WacWalker {
             line,
         });
 
-        let merge_id = format!("{branch_id}_merge");
-
         let mut last_ids = Vec::new();
 
         if let Some((true_first, true_last)) = self.walk_body(&if_stmt.body) {
@@ -514,7 +592,17 @@ impl WacWalker {
         if last_ids.len() == 1 {
             Some((branch_node_id, last_ids.into_iter().next().unwrap()))
         } else {
-            Some((branch_node_id, merge_id))
+            let merge_id = format!("{branch_id}_merge");
+            let merge_node_id = self.add_node(DagNode {
+                id: merge_id,
+                node_type: DagNodeType::Merge,
+                label: "merge".to_string(),
+                line,
+            });
+            for last in last_ids {
+                self.add_edge(&last, &merge_node_id, None);
+            }
+            Some((branch_node_id, merge_node_id))
         }
     }
 
@@ -552,11 +640,36 @@ impl WacWalker {
     }
 
     fn walk_while(&mut self, while_stmt: &StmtWhile) -> Option<(String, String)> {
-        if self.body_contains_step(&while_stmt.body) {
-            let line = self.line_index.line_of(while_stmt.range.start().to_usize());
-            self.errors.push(validation::error_step_in_while(line));
+        if !self.body_contains_step(&while_stmt.body) {
+            return None;
         }
-        None
+
+        let line = self.line_index.line_of(while_stmt.range.start().to_usize());
+        let condition = Self::expr_to_source(&while_stmt.test);
+
+        let start_id = self.next_id();
+        let start_node_id = self.add_node(DagNode {
+            id: start_id.clone(),
+            node_type: DagNodeType::LoopStart { iter_source: condition },
+            label: "while".to_string(),
+            line,
+        });
+
+        if let Some((body_first, body_last)) = self.walk_body(&while_stmt.body) {
+            self.add_edge(&start_node_id, &body_first, None);
+            self.add_edge(&body_last, &start_node_id, Some("next".to_string()));
+        }
+
+        let end_id = self.next_id();
+        let end_node_id = self.add_node(DagNode {
+            id: end_id.clone(),
+            node_type: DagNodeType::LoopEnd,
+            label: "end while".to_string(),
+            line,
+        });
+        self.add_edge(&start_node_id, &end_node_id, Some("done".to_string()));
+
+        Some((start_node_id, end_node_id))
     }
 
     fn walk_try(&mut self, try_stmt: &StmtTry) -> Option<(String, String)> {
@@ -569,11 +682,17 @@ impl WacWalker {
                 }
             });
 
-        if has_steps {
-            let line = self.line_index.line_of(try_stmt.range.start().to_usize());
-            self.errors.push(validation::error_step_in_try(line));
+        if !has_steps {
+            return None;
         }
-        None
+
+        let line = self.line_index.line_of(try_stmt.range.start().to_usize());
+        self.emit_try_catch_branch(
+            &try_stmt.body,
+            &try_stmt.handlers,
+            &try_stmt.finalbody,
+            line,
+        )
     }
 
     fn walk_try_star(&mut self, try_stmt: &StmtTryStar) -> Option<(String, String)> {
@@ -586,11 +705,81 @@ impl WacWalker {
                 }
             });
 
-        if has_steps {
-            let line = self.line_index.line_of(try_stmt.range.start().to_usize());
-            self.errors.push(validation::error_step_in_try(line));
+        if !has_steps {
+            return None;
         }
-        None
+
+        let line = self.line_index.line_of(try_stmt.range.start().to_usize());
+        self.emit_try_catch_branch(
+            &try_stmt.body,
+            &try_stmt.handlers,
+            &try_stmt.finalbody,
+            line,
+        )
+    }
+
+    fn emit_try_catch_branch(
+        &mut self,
+        try_body: &[Stmt],
+        handlers: &[rustpython_parser::ast::ExceptHandler],
+        finally_body: &[Stmt],
+        line: usize,
+    ) -> Option<(String, String)> {
+        let branch_id = self.next_id();
+        let branch_node_id = self.add_node(DagNode {
+            id: branch_id.clone(),
+            node_type: DagNodeType::Branch { condition_source: "try/except".to_string() },
+            label: "try".to_string(),
+            line,
+        });
+
+        let mut last_ids = Vec::new();
+
+        // Try body
+        if let Some((try_first, try_last)) = self.walk_body(try_body) {
+            self.add_edge(&branch_node_id, &try_first, Some("try".to_string()));
+            last_ids.push(try_last);
+        } else {
+            last_ids.push(branch_node_id.clone());
+        }
+
+        // Except handlers
+        for handler in handlers {
+            match handler {
+                rustpython_parser::ast::ExceptHandler::ExceptHandler(eh) => {
+                    if let Some((catch_first, catch_last)) = self.walk_body(&eh.body) {
+                        self.add_edge(&branch_node_id, &catch_first, Some("except".to_string()));
+                        last_ids.push(catch_last);
+                    }
+                }
+            }
+        }
+
+        // Finally body — sequential after merge
+        let merge_last = if last_ids.len() == 1 {
+            last_ids.into_iter().next().unwrap()
+        } else {
+            let merge_id = format!("{branch_id}_merge");
+            let merge_node_id = self.add_node(DagNode {
+                id: merge_id,
+                node_type: DagNodeType::Merge,
+                label: "merge".to_string(),
+                line,
+            });
+            for last in last_ids {
+                self.add_edge(&last, &merge_node_id, None);
+            }
+            merge_node_id
+        };
+
+        if !finally_body.is_empty() {
+            if let Some((finally_first, finally_last)) = self.walk_body(finally_body) {
+                self.add_edge(&merge_last, &finally_first, None);
+                return Some((branch_node_id, finally_last));
+            }
+        }
+
+        Some((branch_node_id, merge_last))
     }
 
     fn walk_return(&mut self, ret: &StmtReturn) -> Option<(String, String)> {

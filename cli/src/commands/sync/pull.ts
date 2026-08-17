@@ -7,6 +7,7 @@ import { extract } from "tar-stream";
 import { Readable } from "node:stream";
 import { Workspace } from "../workspace/workspace.ts";
 import { getHeaders } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 
 /**
  * Adapter that wraps tar entries in a JSZip-compatible interface
@@ -83,7 +84,9 @@ export async function downloadZip(
   includeSettings?: boolean,
   includeKey?: boolean,
   skipWorkspaceDependencies?: boolean,
-  defaultTs?: "bun" | "deno"
+  skipDatatableMigrations?: boolean,
+  defaultTs?: "bun" | "deno",
+  syncBehavior?: string
 ): Promise<JSZip | TarAsZip | undefined> {
   const requestHeaders = new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
@@ -97,18 +100,27 @@ export async function downloadZip(
   }
 
   const includeWorkspaceDependenciesValue = !(skipWorkspaceDependencies ?? false);
+  // `sync_behavior_version` lets the server skip work this client would only throw away:
+  // from v1 the on-behalf-of address is stripped below, so the tarball sends the
+  // `has_on_behalf_of` marker instead and never resolves an address.
+  // `preserve_extra_perms=true` opts the tarball into surfacing granular ACLs
+  // on flow / script / app rows. Default-off on the server protects cross-
+  // workspace tarball imports from carrying ACLs that reference identities
+  // missing in the target workspace; the CLI sync flow explicitly wants them.
   const baseParams = `&plain_secret=${plainSecrets ?? false
     }&skip_variables=${skipVariables ?? false}&skip_resources=${skipResources ?? false
     }&skip_secrets=${skipSecrets ?? false}&include_schedules=${includeSchedules ?? false
     }&include_triggers=${includeTriggers ?? false}&include_users=${includeUsers ?? false
     }&include_groups=${includeGroups ?? false}&include_settings=${includeSettings ?? false
-    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}&settings_version=v2`;
+    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&skip_datatable_migrations=${skipDatatableMigrations ?? false}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}&settings_version=v2&preserve_extra_perms=true&sync_behavior_version=${syncBehavior ?? "v0"}`;
 
   const baseUrl = workspace.remote + "api/w/" + workspace.workspaceId + "/workspaces/tarball?";
 
   // Try zip first (standard format), fall back to tar if zip is not supported
   const zipUrl = baseUrl + "archive_type=zip" + baseParams;
   const zipResponse = await fetch(zipUrl, { headers: requestHeaders, method: "GET" });
+
+  await detectAuthGatewayChallenge(zipResponse, zipUrl);
 
   if (zipResponse.ok) {
     log.debug("Downloaded zip archive successfully");
@@ -123,6 +135,8 @@ export async function downloadZip(
     log.debug("Zip archive not supported by backend, falling back to tar");
     const tarUrl = baseUrl + "archive_type=tar" + baseParams;
     const tarResponse = await fetch(tarUrl, { headers: requestHeaders, method: "GET" });
+
+    await detectAuthGatewayChallenge(tarResponse, tarUrl);
 
     if (tarResponse.ok) {
       log.debug("Downloaded tar archive successfully");
@@ -147,7 +161,7 @@ export async function downloadZip(
 function stub(_opts: GlobalOptions & { override: boolean }, _dir: string) {
   console.log(
     colors.red.underline(
-      'Pull is deprecated. Use "sync pull --raw" instead. See <TODO_LINK_HERE> for more information.'
+      'Pull is deprecated. Use "sync pull --raw" instead. See https://www.windmill.dev/docs/advanced/cli/sync for more information.'
     )
   );
 }

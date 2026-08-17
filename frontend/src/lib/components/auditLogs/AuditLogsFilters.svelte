@@ -21,24 +21,21 @@
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 	import {
 		type AuditLog,
-		AuditService,
 		ResourceService,
 		UserService,
 		ScriptService,
 		FlowService,
-		AppService,
-		CancelError
+		AppService
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { ChevronDown, Download, Loader2, RefreshCcw } from 'lucide-svelte'
-	import { onDestroy, untrack } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '../select/Select.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
-	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
 	import { sendUserToast } from '$lib/toast'
 
 	let usernames: string[] | undefined = $state()
@@ -48,7 +45,6 @@
 		logs?: AuditLog[]
 		username?: string
 		pageIndex?: number | undefined
-		hasMore?: boolean
 		before?: string | undefined
 		after?: string | undefined
 		perPage?: number | undefined
@@ -57,13 +53,13 @@
 		actionKind?: ActionKind | 'all'
 		scope?: undefined | 'all_workspaces' | 'instance'
 		loading?: boolean
+		onRefresh?: () => void
 	}
 
 	let {
-		logs = $bindable(undefined),
+		logs = undefined,
 		username = $bindable('all'),
 		pageIndex = $bindable(1),
-		hasMore = $bindable(false),
 		before = $bindable(undefined),
 		after = $bindable(undefined),
 		perPage = $bindable(100),
@@ -71,13 +67,11 @@
 		resource = $bindable() as string | undefined,
 		actionKind = $bindable(undefined),
 		scope = $bindable(undefined),
-		loading = $bindable(false)
+		loading = false,
+		onRefresh
 	}: Props = $props()
 
 	$effect.pre(() => {
-		if (logs == undefined) {
-			logs = []
-		}
 		if (operation == undefined) {
 			operation = 'all'
 		}
@@ -88,47 +82,6 @@
 			actionKind = 'all'
 		}
 	})
-
-	function loadLogs() {
-		loading = true
-
-		let username_ = username == 'all' ? undefined : username
-		let operation_ = operation == 'all' || operation == '' ? undefined : operation
-		let actionKind_ = actionKind == 'all' ? undefined : actionKind
-		let resource_ = resource == 'all' || resource == '' ? undefined : resource
-
-		let _promise = AuditService.listAuditLogs({
-			workspace: scope === 'instance' ? 'global' : $workspaceStore!,
-			page: pageIndex,
-			perPage,
-			before,
-			after,
-			username: username_,
-			operation: operation_,
-			resource: resource_,
-			actionKind: actionKind_,
-			allWorkspaces: scope === 'all_workspaces'
-		})
-		let promise = CancelablePromiseUtils.map(_promise, (value) => {
-			logs = value
-			hasMore = !logs || (logs.length > 0 && logs.length === perPage)
-			loading = false
-		})
-		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
-			sendUserToast(
-				'Loading audit logs is taking longer than expected...',
-				'warning',
-				perPage > 25
-					? [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }]
-					: []
-			)
-		})
-		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
-			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
-			return CancelablePromiseUtils.err<void>(e)
-		})
-		return promise
-	}
 
 	async function loadUsers() {
 		usernames =
@@ -198,6 +151,7 @@
 		JOBS_FORCE_CANCEL: 'jobs.force_cancel',
 		JOBS_DISAPPROVAL: 'jobs.disapproval',
 		JOBS_DELETE: 'jobs.delete',
+		JOBS_SHARE_PUBLICLY: 'jobs.share_publicly',
 		ACCOUNT_DELETE: 'account.delete',
 		AI_REQUEST: 'ai.request',
 		RESOURCES_CREATE: 'resources.create',
@@ -276,9 +230,6 @@
 		WORKSPACES_DELETE: 'workspaces.delete'
 	}
 
-	let refresh = $state(0)
-	let lastRefresh = $state(-1)
-
 	function downloadAuditLogsAsJson() {
 		if (!logs || logs.length === 0) {
 			sendUserToast('No audit logs to download', true)
@@ -301,23 +252,19 @@
 		URL.revokeObjectURL(url)
 	}
 
-	// observe all the variables that should trigger an update
+	onMount(() => {
+		loadUsers()
+		resources.refresh()
+	})
+
+	// observe all the variables that should be reflected in the url
 	$effect(() => {
-		;[refresh, username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
-		return untrack(() => {
-			if (refresh !== lastRefresh) {
-				loadUsers()
-				resources.refresh()
-				lastRefresh = refresh
-			}
-			updateQueryParams()
-			let promise = loadLogs()
-			return () => promise?.cancel()
-		})
+		;[username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
+		untrack(() => updateQueryParams())
 	})
 </script>
 
-<div class="flex flex-col items-center gap-2 2xl:flex-row mt-4 xl:mt-0 pr-2">
+<div class="flex flex-col gap-8 2xl:gap-2 2xl:flex-row mt-4 xl:mt-0 pr-2">
 	{#if $workspaceStore == 'admins'}
 		<div class="flex gap-1 relative">
 			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
@@ -350,7 +297,7 @@
 			</ToggleButtonGroup>
 		</div>
 	{/if}
-	<div class="flex relative">
+	<div class="flex relative bg-surface-input">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">From</span>
 		<input type="text" value={after ?? 'From'} disabled />
 		<CalendarPicker
@@ -366,7 +313,7 @@
 			}}
 		/>
 	</div>
-	<div class="flex relative">
+	<div class="flex relative bg-surface-input">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">To</span>
 		<input type="text" value={before ?? 'To'} disabled />
 		<CalendarPicker
@@ -386,6 +333,7 @@
 	<div class="flex relative">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Username</span>
 		<Select
+			class="w-full"
 			bind:value={username}
 			RightIcon={ChevronDown}
 			items={usernames
@@ -406,6 +354,7 @@
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Resource</span>
 
 		<Select
+			class="w-full"
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			createText="Press enter to use this value"
 			bind:value={resource}
@@ -419,6 +368,7 @@
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Operation</span>
 
 		<Select
+			class="w-full"
 			bind:value={operation}
 			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
@@ -430,6 +380,7 @@
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Action</span>
 
 		<Select
+			class="w-full"
 			bind:value={actionKind}
 			RightIcon={ChevronDown}
 			items={[
@@ -471,9 +422,12 @@
 		<Button
 			variant="accent"
 			on:click={() => {
-				refresh++
+				loadUsers()
+				resources.refresh()
+				onRefresh?.()
 			}}
 			unifiedSize="md"
+			wrapperClasses="ml-auto"
 		>
 			<div class="flex flex-row gap-1 items-center">
 				{#if loading}

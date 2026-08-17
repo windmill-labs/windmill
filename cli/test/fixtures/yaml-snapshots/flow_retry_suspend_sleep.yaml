@@ -1,0 +1,58 @@
+summary: Retry / suspend / sleep
+description: ''
+value:
+  modules:
+    - id: with_retry
+      value:
+        type: script
+        input_transforms: {}
+        path: f/lib/may_fail
+      retry:
+        constant:
+          attempts: 3
+          seconds: 5
+        exponential:
+          attempts: 2
+          multiplier: 2
+          random_factor: 0
+          seconds: 1
+      sleep:
+        type: static
+        value: 1
+    - id: with_suspend
+      value:
+        type: script
+        input_transforms: {}
+        path: f/lib/manual_review
+      suspend:
+        continue_on_disapproved: false
+        hide_cancel: false
+        required_events: 1
+        resume_form:
+          schema:
+            $schema: https://json-schema.org/draft/2020-12/schema
+            type: object
+            properties:
+              approved:
+                type: boolean
+            required:
+              - approved
+        timeout: 86400
+  failure_module:
+    id: failure
+    value:
+      type: script
+      input_transforms: {}
+      path: f/lib/notify_failure
+  preprocessor_module:
+    id: preprocessor
+    value:
+      type: rawscript
+      content: '!inline preprocessor.bun.ts'
+      input_transforms: {}
+      language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

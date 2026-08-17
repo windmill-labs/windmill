@@ -1,7 +1,6 @@
 import { ResourceService, JobService } from '$lib/gen/services.gen'
 import type { AIProvider, AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
-import { get } from 'svelte/store'
 import { compile, phpCompile, pythonCompile } from '../../utils'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -21,12 +20,13 @@ import {
 	createSearchWorkspaceTool,
 	createGetRunnableDetailsTool
 } from '../shared'
+import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
-import { getModelContextWindow } from '../../lib'
+import { getModelContextWindow } from '../../modelConfig'
 import type { ReviewChangesOpts } from '../monaco-adapter'
 import { getCurrentModel } from '$lib/aiStore'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
-import { getScriptPrompt } from '$system_prompts'
+import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -96,18 +96,30 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'powershell',
 	'csharp',
 	'java',
-	'duckdb'
+	'duckdb',
+	'ansible'
 ]
 
 export function getLangContext(
 	lang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
 	{
 		allowResourcesFetch = false,
-		isPreprocessor = false
-	}: { allowResourcesFetch?: boolean; isPreprocessor?: boolean; isFailure?: boolean } = {}
+		isPreprocessor = false,
+		workflowAsCode = false
+	}: {
+		allowResourcesFetch?: boolean
+		isPreprocessor?: boolean
+		isFailure?: boolean
+		workflowAsCode?: boolean
+	} = {}
 ): string {
 	// Get base language context from centralized prompts
-	let context = getScriptPrompt(lang)
+	let context = workflowAsCode ? getWorkflowAsCodePrompt(lang) : getScriptPrompt(lang)
+
+	// Fallback to the regular script prompt if WAC context is requested for an unsupported language.
+	if (!context) {
+		context = getScriptPrompt(lang)
+	}
 
 	// Add tool usage instructions for applicable languages
 	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(lang)) {
@@ -116,8 +128,8 @@ export function getLangContext(
 		}
 	}
 
-	// Note preprocessor function naming if applicable
-	if (isPreprocessor) {
+	// Note preprocessor function naming if applicable. WAC scripts are not preprocessors.
+	if (isPreprocessor && !workflowAsCode) {
 		context +=
 			'\n\nThe main function for this script should be named `preprocessor` instead of `main`.'
 	}
@@ -181,6 +193,7 @@ function buildChatSystemPrompt(currentModel: AIProviderModel) {
 	- Before giving your answer, check again that you carefully followed these instructions.
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
 	- Use \`search_workspace\` to find existing scripts and flows in the workspace, and \`get_runnable_details\` to inspect their schema and code. This is useful when the user wants to reference or reuse existing workspace runnables.
+	- Use \`create_schedule\` or \`create_trigger\` when the user asks to create a schedule or trigger for the current script.
 	- After applying code changes with the \`${editToolName}\` tool, ALWAYS use the \`get_lint_errors\` tool to check for lint errors. If there are errors, fix them before proceeding. Then use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
@@ -275,8 +288,15 @@ export async function main() {
 \`\`\`
 `
 
-export function prepareInlineChatSystemPrompt(lang: ScriptLang | 'bunnative') {
-	return INLINE_CHAT_SYSTEM_PROMPT + getLangContext(lang, { allowResourcesFetch: true })
+export function prepareInlineChatSystemPrompt(
+	lang: ScriptLang | 'bunnative',
+	options: { workflowAsCode?: boolean } = {}
+) {
+	return (
+		INLINE_CHAT_SYSTEM_PROMPT +
+		'\n\n' +
+		getLangContext(lang, { allowResourcesFetch: true, workflowAsCode: options.workflowAsCode })
+	)
 }
 
 export const CHAT_USER_PROMPT = `
@@ -288,7 +308,11 @@ INSTRUCTIONS:
 export function prepareScriptSystemMessage(
 	currentModel: AIProviderModel,
 	language: ScriptLang | 'bunnative',
-	options: { isPreprocessor?: boolean; allowResourcesFetch?: boolean } = {},
+	options: {
+		isPreprocessor?: boolean
+		allowResourcesFetch?: boolean
+		workflowAsCode?: boolean
+	} = {},
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
 	let content = buildChatSystemPrompt(currentModel)
@@ -334,6 +358,7 @@ export function prepareScriptTools(
 	tools.push(getLintErrorsTool)
 	tools.push(createSearchWorkspaceTool())
 	tools.push(createGetRunnableDetailsTool())
+	tools.push(...createWorkspaceMutationTools<ScriptChatHelpers>())
 	return tools
 }
 
@@ -421,6 +446,7 @@ export interface ScriptChatHelpers {
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
+	planModeSafe: true,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching resource types for "' + args.query + '"...'
@@ -434,10 +460,22 @@ export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	}
 }
 
-// Generic DB schema tool factory that can be used by both script and flow modes
-export function createDbSchemaTool<T>(): Tool<T> {
+// Generic DB schema tool factory shared by the script, flow and global modes
+export function createDbSchemaTool<T>(
+	opts: { description?: string; updateEditorCache?: boolean } = {}
+): Tool<T> {
+	const { description, updateEditorCache = true } = opts
 	return {
-		def: DB_SCHEMA_FUNCTION_DEF,
+		def: description
+			? {
+					...DB_SCHEMA_FUNCTION_DEF,
+					function: { ...DB_SCHEMA_FUNCTION_DEF.function, description }
+				}
+			: DB_SCHEMA_FUNCTION_DEF,
+		// The one safe tool that starts a job: the job runs a fixed introspection query this
+		// codebase authors, never the user's code, and writes nothing. Planning a change to a
+		// database is not possible without its schema.
+		planModeSafe: true,
 		fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
@@ -449,23 +487,24 @@ export function createDbSchemaTool<T>(): Tool<T> {
 				workspace: workspace,
 				path: args.resourcePath
 			})
-			const newDbSchemas = {
-				[args.resourcePath]: await getDbSchemas(
-					resource.resource_type,
-					args.resourcePath,
-					workspace,
-					(error) => {
-						console.error(error)
-					}
-				)
-			}
-			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
-			const dbs = get(dbSchemas)
-			const db = dbs[args.resourcePath]
-			if (!db) {
+			const dbSchema = await getDbSchemas(
+				resource.resource_type,
+				args.resourcePath,
+				workspace,
+				(error) => {
+					console.error(error)
+				}
+			)
+			if (!dbSchema) {
 				throw new Error('Database not found')
 			}
-			const stringSchema = await formatDBSchema(db)
+			// The dbSchemas store is an editor cache keyed by resource path with no
+			// workspace dimension: a chat that may operate on a different workspace than
+			// the navigation one (global/session) must not write into it.
+			if (updateEditorCache) {
+				dbSchemas.update((schemas) => ({ ...schemas, [args.resourcePath]: dbSchema }))
+			}
+			const stringSchema = await formatDBSchema(dbSchema)
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Retrieved database schema for ' + args.resourcePath
 			})
@@ -503,7 +542,9 @@ export async function searchExternalIntegrationResources(args: { query: string }
 			return JSON.stringify(packagesSearchCache.get(args.query))
 		}
 
-		const result = await fetch(`https://registry.npmjs.org/-/v1/search?text=${args.query}&size=2`)
+		const result = await fetch(
+			`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(args.query)}&size=2`
+		)
 		const data = await result.json()
 		const filtered = data.objects.filter(
 			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
@@ -565,8 +606,10 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionFunctionTool = {
 	}
 }
 
-export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
+// Helpers-agnostic so both script mode and global mode can offer it.
+export const searchNpmPackagesTool: Tool<{}> = {
 	def: SEARCH_NPM_PACKAGES_TOOL,
+	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
 		const result = await searchExternalIntegrationResources(args)
@@ -883,12 +926,14 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		})
 	},
 	requiresConfirmation: true,
-	confirmationMessage: 'Run script test',
-	showDetails: true
+	confirmationMessage: 'Run a test of the current script',
+	showDetails: true,
+	autoCollapseDetails: false
 }
 
 export const getLintErrorsTool: Tool<ScriptChatHelpers> = {
 	def: GET_LINT_ERRORS_TOOL,
+	planModeSafe: true,
 	fn: async function ({ helpers, toolCallbacks, toolId }) {
 		toolCallbacks.setToolStatus(toolId, { content: 'Getting lint errors...' })
 

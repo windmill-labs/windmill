@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingMetadataCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
@@ -14,6 +14,8 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Flow } from '$lib/gen'
 	import { copilotInfo } from '$lib/aiStore'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
+	import { twMerge } from 'tailwind-merge'
 
 	let loading = $state(false)
 	interface Props {
@@ -66,7 +68,7 @@ Here's a summary of the available data:
 ${YAML.stringify(availableData)}</available>
 If the branching is made inside a for-loop, the iterator value is accessible as flow_input.iter.value
 Only return the expression without any wrapper. Do not explain or discuss.`
-			const result = await getNonStreamingCompletion(
+			const result = await getNonStreamingMetadataCompletion(
 				[
 					{
 						role: 'user',
@@ -94,14 +96,23 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 		contentClasses="p-4 flex w-96"
 	>
 		{#snippet trigger()}
+			<!-- Sized to match FlowPlugConnect: the two sit side by side under every
+			     predicate input, so they have to read as one pair of controls. -->
 			<Button
+				variant="default"
+				size="xs3"
 				color={loading ? 'red' : 'light'}
-				size="xs"
 				nonCaptureEvent={!loading}
 				startIcon={{ icon: Wand2 }}
 				iconOnly
 				title="AI Assistant"
-				btnClasses="min-h-[30px] text-ai bg-violet-100 dark:bg-gray-700"
+				btnClasses={twMerge(AIBtnClasses(), 'bg-surface overflow-clip flex p-0')}
+				wrapperClasses={twMerge(
+					// Revealed by the row it sits in, like the connect plug beside it. A request in
+					// flight keeps it visible so its cancel affordance stays reachable.
+					'h-5 w-8 p-0 group-hover:opacity-100 transition-opacity',
+					loading ? '' : 'opacity-0'
+				)}
 				{loading}
 				clickableWhileLoading
 				on:click={loading ? () => abortController?.abort() : () => {}}
@@ -121,11 +132,11 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				}}
 			/>
 			<Button
-				size="xs"
+				unifiedSize="sm"
 				color="light"
 				variant="contained"
 				buttonType="button"
-				btnClasses="!p-1 !w-[38px] !ml-2 text-ai bg-violet-100 dark:bg-gray-700"
+				btnClasses={'!ml-2 ' + AIBtnClasses()}
 				title="Generate predicate from prompt"
 				aria-label="Generate"
 				iconOnly

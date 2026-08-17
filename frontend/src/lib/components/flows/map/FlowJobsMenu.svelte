@@ -124,8 +124,7 @@
 					class={twMerge(
 						'text-xs bg-surface border-[1px] border-gray-300 dark:border-gray-500 focus:outline-none',
 						'hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-sm w-[40px] gap-1 h-[20px]',
-						'flex items-center justify-center',
-						flowJobsSuccess?.[selected] == false ? 'text-red-400' : 'text-secondary'
+						'flex items-center justify-center text-secondary'
 					)}
 					meltElement={trigger}
 				>
@@ -143,34 +142,41 @@
 					<div class="max-h-[300px]">
 						{#key items}
 							{#if items.length > 0}
-							<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
-								{#snippet header()}{/snippet}
-								{#snippet footer()}{/snippet}
-								{#snippet item({ index: idx, style })}
-									<div {style}>
-										<MenuItem
-											class={twMerge(
-												'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
-												items[idx].success == false ? 'text-red-400' : '',
-												'data-[highlighted]:bg-surface-hover',
-												items[idx].index == selected ? 'bg-surface-selected' : ''
-											)}
-											onClick={() => {
-												onSelectedIteration?.({
-													moduleId: moduleId,
-													index: items[idx].index,
-													id: items[idx].id,
-													manuallySet: true
-												})
-												menu?.close()
-											}}
-											item={childrenItem}
-										>
-											#{items[idx].index + 1}
-										</MenuItem>
-									</div>
-								{/snippet}
-							</VirtualList>
+								<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
+									{#snippet header()}{/snippet}
+									{#snippet footer()}{/snippet}
+									{#snippet item({ index: idx, style })}
+										<div {style}>
+											<MenuItem
+												class={twMerge(
+													'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
+													'data-[highlighted]:bg-surface-hover',
+													items[idx].index == selected ? 'bg-surface-selected' : ''
+												)}
+												onClick={() => {
+													onSelectedIteration?.({
+														moduleId: moduleId,
+														index: items[idx].index,
+														id: items[idx].id,
+														manuallySet: true
+													})
+													menu?.close()
+												}}
+												item={childrenItem}
+											>
+												<span
+													class="inline-block w-2 h-2 rounded-full shrink-0 {items[idx].success ===
+													true
+														? 'bg-green-500'
+														: items[idx].success === false
+															? 'bg-red-500'
+															: 'bg-yellow-400'}"
+												></span>
+												#{items[idx].index + 1}
+											</MenuItem>
+										</div>
+									{/snippet}
+								</VirtualList>
 							{:else}
 								<div class="text-xs text-tertiary py-2 px-2">No iterations</div>
 							{/if}

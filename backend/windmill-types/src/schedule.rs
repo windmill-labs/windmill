@@ -55,6 +55,8 @@ pub struct Schedule {
     pub cron_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dynamic_skip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 impl Schedule {

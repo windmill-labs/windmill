@@ -11,6 +11,7 @@
 	import Select from './select/Select.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
+	import { appIconComponent } from './icons'
 
 	interface Props {
 		initialValue?: string | undefined
@@ -26,6 +27,7 @@
 		placeholder?: string | undefined
 		selectInputClass?: string
 		class?: string
+		error?: boolean
 		onClear?: () => void
 		excludedValues?: string[]
 		datatableAsPgResource?: boolean
@@ -47,6 +49,7 @@
 		placeholder = undefined,
 		selectInputClass = '',
 		class: className = '',
+		error = false,
 		onClear = undefined,
 		excludedValues = undefined,
 		datatableAsPgResource = false,
@@ -127,9 +130,11 @@
 
 			if (datatableAsPgResource && resourceType === 'postgresql') {
 				try {
-					const datatables = await WorkspaceService.listDataTables({
-						workspace: effectiveWorkspace
-					})
+					const datatables = (
+						await WorkspaceService.listDataTables({
+							workspace: effectiveWorkspace
+						})
+					).map((d) => d.name)
 					for (const dt of datatables) {
 						nc.push({
 							value: `datatable://${dt}`,
@@ -182,6 +187,8 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let hovering = $state(false)
 	let isDatatableSelected = $derived(value?.startsWith('datatable://') ?? false)
+	let typeByPath = $derived(new Map(collection.map((x) => [x.value, x.type])))
+	let SelectedIcon = $derived(appIconComponent(typeByPath.get(value!)))
 </script>
 
 <AppConnect
@@ -208,6 +215,12 @@
 		}
 	}}
 />
+{#snippet selectedIconSnippet()}
+	{#if SelectedIcon}
+		<SelectedIcon height="14px" width="14px" size={14} />
+	{/if}
+{/snippet}
+
 <!-- {JSON.stringify({ value, collection })} -->
 <div class="flex flex-col w-full items-start {className}">
 	<div
@@ -234,12 +247,22 @@
 			}}
 			items={collection}
 			clearable
+			{error}
 			class="text-clip grow min-w-0"
 			inputClass={selectInputClass}
 			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 			itemLabelWrapperClasses="flex-1"
 			id="resource-picker-select"
+			inputLeadingSnippet={SelectedIcon ? selectedIconSnippet : undefined}
 		>
+			{#snippet startSnippet({ item })}
+				{@const Icon = appIconComponent(typeByPath.get(item.value))}
+				{#if Icon}
+					<span class="shrink-0 text-secondary">
+						<Icon height="14px" width="14px" size={14} />
+					</span>
+				{/if}
+			{/snippet}
 			{#snippet endSnippet({ item, close })}
 				{#if !item.value?.startsWith('datatable://')}
 					<Button
@@ -326,6 +349,7 @@
 			class="mt-1"
 			_resourceMetadata={{ resource_type: resourceType }}
 			asset={{ kind: 'resource', path: value }}
+			workspace={effectiveWorkspace}
 		/>
 	{/if}
 </div>

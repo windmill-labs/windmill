@@ -1,0 +1,66 @@
+{
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/evals/global/format_greeting",
+        "summary": "Format a deployed greeting",
+        "description": "Returns a plain greeting for a provided name.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": ["name"]
+        },
+        "content": "export async function main(name: string) {\n  return `Hello, ${name}`\n}\n"
+      },
+      {
+        "path": "f/evals/global/format_greeting_archive",
+        "summary": "Archived greeting formatter",
+        "description": "Older greeting formatter kept for reference.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": ["name"]
+        },
+        "content": "export async function main(name: string) {\n  return `Hi, ${name}`\n}\n"
+      }
+    ]
+  },
+  "liveEditorDrafts": [
+    {
+      "type": "script",
+      "storagePath": "f/evals/global/current_greeting",
+      "effectivePath": "f/evals/global/current_greeting",
+      "value": {
+        "path": "f/evals/global/current_greeting",
+        "summary": "Open greeting formatter",
+        "description": "Formats a greeting in the live editor.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": ["name"]
+        },
+        "content": "export async function main(name: string) {\n  return `Hello, ${name}`\n}\n",
+        "is_template": false,
+        "kind": "script"
+      }
+    }
+  ]
+}

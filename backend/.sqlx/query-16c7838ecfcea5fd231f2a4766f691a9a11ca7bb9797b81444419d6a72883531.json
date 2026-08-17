@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (parent_workspace_id IS NOT NULL) AS \"has_parent!\", is_dev_workspace\n           FROM workspace WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "has_parent!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_dev_workspace",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "16c7838ecfcea5fd231f2a4766f691a9a11ca7bb9797b81444419d6a72883531"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, username)\n         VALUES ('sa@windmill.dev', 'not-a-real-hash', 'password', true, true, 'Ext', 'ext-sa')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "652c7a8adefc03f06485a7e223f54ebcab136711b89671192f379bf06bf3ca9b"
+}

@@ -40,7 +40,15 @@
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
 	import Logs from 'lucide-svelte/icons/logs'
-	import { AwsIcon, GoogleCloudIcon, KafkaIcon, MqttIcon, NatsIcon } from '../icons'
+	import {
+		AwsIcon,
+		AzureIcon,
+		GoogleCloudIcon,
+		KafkaIcon,
+		MqttIcon,
+		AmqpIcon,
+		NatsIcon
+	} from '../icons'
 	import RunsSearch from './RunsSearch.svelte'
 	import AskAiButton from '../copilot/AskAiButton.svelte'
 
@@ -139,10 +147,24 @@
 			disabled: $userStore?.operator
 		},
 		{
+			search_id: 'nav:azure_event_grid',
+			label: 'Go to Azure Event Grid' + (!$enterpriseLicense ? '' : ' (EE)'),
+			action: (newtab: boolean = false) => gotoPage('/azure_triggers', newtab),
+			icon: AzureIcon,
+			disabled: $userStore?.operator
+		},
+		{
 			search_id: 'nav:mqtt_triggers',
 			label: 'Go to MQTT triggers',
 			action: (newtab: boolean = false) => gotoPage('/mqtt_triggers', newtab),
 			icon: MqttIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:amqp_triggers',
+			label: 'Go to AMQP triggers',
+			action: (newtab: boolean = false) => gotoPage('/amqp_triggers', newtab),
+			icon: AmqpIcon,
 			disabled: $userStore?.operator
 		},
 		{
@@ -465,7 +487,6 @@
 		type?: U
 		time?: number
 		starred?: boolean
-		has_draft?: boolean
 	}
 
 	// interface SelectableSearchMenuItem {
@@ -499,12 +520,16 @@
 				time: new Date(x.edited_at).getTime(),
 				search_id: x.path
 			})),
-			...scripts.map((x) => ({
-				...x,
-				type: 'script' as 'script',
-				time: new Date(x.created_at).getTime(),
-				search_id: x.path
-			})),
+			// Pipeline-member scripts (`auto_kind='pipeline'`) are reached through
+			// their pipeline, not searched individually.
+			...scripts
+				.filter((x) => x.auto_kind !== 'pipeline')
+				.map((x) => ({
+					...x,
+					type: 'script' as 'script',
+					time: new Date(x.created_at).getTime(),
+					search_id: x.path
+				})),
 			...apps.map((x) => ({
 				...x,
 				type: 'app' as 'app',

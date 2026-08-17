@@ -1,0 +1,74 @@
+{
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/evals/add_two_numbers",
+        "summary": "Add two numbers",
+        "description": "Returns the sum of two numeric inputs.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "a": {
+              "type": "number"
+            },
+            "b": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ]
+        },
+        "content": "export async function main(a: number, b: number) {\n  return a + b;\n}\n"
+      }
+    ],
+    "flows": [
+      {
+        "path": "f/evals/add_numbers_flow",
+        "summary": "Add two numbers in a reusable flow",
+        "description": "Takes two numeric inputs and returns their sum through a reusable subflow.",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "a": {
+              "type": "number"
+            },
+            "b": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ]
+        },
+        "value": {
+          "modules": [
+            {
+              "id": "sum_numbers",
+              "value": {
+                "type": "rawscript",
+                "language": "bun",
+                "content": "export async function main(a: number, b: number) {\n  return a + b;\n}",
+                "input_transforms": {
+                  "a": {
+                    "type": "javascript",
+                    "expr": "flow_input.a"
+                  },
+                  "b": {
+                    "type": "javascript",
+                    "expr": "flow_input.b"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

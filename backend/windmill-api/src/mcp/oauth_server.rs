@@ -18,6 +18,7 @@ use windmill_common::{
 };
 
 use crate::db::ApiAuthed;
+use windmill_mcp::parse_mcp_scopes;
 
 /// Token expiration for MCP OAuth tokens (1 week in seconds)
 const MCP_OAUTH_TOKEN_EXPIRATION_SECS: u64 = 7 * 24 * 60 * 60;
@@ -266,7 +267,7 @@ fn build_protected_resource_metadata(
 pub async fn workspaced_oauth_metadata(
     Path(workspace_id): Path<String>,
 ) -> Json<AuthorizationMetadata> {
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     let oauth_prefix = format!("/api/w/{}/mcp/oauth/server", workspace_id);
     Json(build_oauth_metadata(&oauth_prefix, &base_url))
 }
@@ -275,7 +276,7 @@ pub async fn workspaced_oauth_metadata(
 pub async fn protected_resource_metadata_by_path(
     Path(workspace_id): Path<String>,
 ) -> Json<ProtectedResourceMetadata> {
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     let resource_path = format!("/api/mcp/w/{}/mcp", workspace_id);
     let oauth_prefix = format!("/api/w/{}/mcp/oauth/server", workspace_id);
     Json(build_protected_resource_metadata(
@@ -283,6 +284,34 @@ pub async fn protected_resource_metadata_by_path(
         &oauth_prefix,
         &base_url,
     ))
+}
+
+/// Schemes that a browser executes as script or uses to read local content. The
+/// consent page navigates the user's browser to the registered redirect_uri
+/// (`window.location` / anchor `href`), so accepting any of these turns dynamic
+/// client registration into a stored-XSS / token-exfiltration primitive.
+const DISALLOWED_REDIRECT_URI_SCHEMES: &[&str] =
+    &["javascript", "data", "vbscript", "blob", "file"];
+
+/// Validate a dynamically-registered redirect_uri.
+///
+/// RFC 7591 dynamic client registration is intentionally unauthenticated for MCP
+/// interoperability, so the redirect_uri is the security boundary: it must be an
+/// absolute URI (RFC 6749 §3.1.2) and must not use a browser-executable scheme.
+fn validate_redirect_uri(uri: &str) -> Result<()> {
+    let parsed = url::Url::parse(uri).map_err(|_| {
+        Error::BadRequest(format!(
+            "Invalid redirect_uri (must be an absolute URI): {uri}"
+        ))
+    })?;
+    // `url` normalizes the scheme to lowercase ASCII.
+    if DISALLOWED_REDIRECT_URI_SCHEMES.contains(&parsed.scheme()) {
+        return Err(Error::BadRequest(format!(
+            "redirect_uri scheme '{}' is not allowed",
+            parsed.scheme()
+        )));
+    }
+    Ok(())
 }
 
 /// POST /api/mcp/oauth/server/register - dynamic client registration
@@ -294,6 +323,10 @@ pub async fn oauth_register(
         return Err(Error::BadRequest(
             "At least one redirect_uri is required".to_string(),
         ));
+    }
+
+    for uri in &req.redirect_uris {
+        validate_redirect_uri(uri)?;
     }
 
     let client_id = format!("mcp-client-{}", rd_string(16));
@@ -553,6 +586,8 @@ async fn handle_refresh_token_grant(
         Some(&new_access_token)
     };
     let new_refresh_token = rd_string(32);
+    // Re-issues the already-approved (hence already-contained) scopes verbatim;
+    // containment is enforced once at approval time, so no re-check here.
     let scopes = token_row.scopes;
 
     // Create new access token (rejects archived workspaces inline)
@@ -700,7 +735,7 @@ async fn oauth_authorize_inner(
         None => ("gateway", "true"),
     };
 
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     let frontend_url = format!(
         "{}/oauth/mcp_authorize?{}",
         base_url,
@@ -787,6 +822,40 @@ async fn oauth_approve_inner(
         .split_whitespace()
         .map(|s| s.to_string())
         .collect();
+
+    // The approver's own token bounds what it may grant: a scope-restricted MCP
+    // token must not approve a broader one (e.g. mcp:scripts:f/x -> mcp:all). An
+    // unrestricted approver (interactive session, scopes None) grants freely,
+    // which is the normal consent flow. This is the legitimate MCP-narrowing
+    // path, so it uses MCP-pattern containment rather than the byte-identical
+    // rule ensure_scopes_within_caller applies on the generic token endpoints.
+    let caller_restricted = authed
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    if caller_restricted {
+        // An empty grant would mint a token the auth layer treats as unscoped
+        // (full privileges), so a restricted approver must not produce one.
+        if scopes.is_empty() {
+            return Err(Error::NotAuthorized(
+                "A scope-restricted token cannot approve an empty scope grant".to_string(),
+            ));
+        }
+        if scopes.iter().any(|s| !s.starts_with("mcp:")) {
+            return Err(Error::NotAuthorized(
+                "A scope-restricted token can only approve MCP (mcp:*) scopes".to_string(),
+            ));
+        }
+        let caller_config = parse_mcp_scopes(authed.scopes.as_deref().unwrap_or(&[]))
+            .map_err(|e| Error::InternalErr(format!("Failed to parse caller MCP scopes: {e}")))?;
+        let requested_config = parse_mcp_scopes(&scopes)
+            .map_err(|e| Error::BadRequest(format!("Failed to parse requested MCP scopes: {e}")))?;
+        if !caller_config.contains(&requested_config) {
+            return Err(Error::NotAuthorized(
+                "Requested scopes exceed the approving token's own MCP scopes".to_string(),
+            ));
+        }
+    }
 
     sqlx::query!(
         "INSERT INTO mcp_oauth_server_code
@@ -897,7 +966,7 @@ impl IntoResponse for OAuthErrorRedirect {
 // Thin wrappers that delegate to the shared inner functions above.
 
 pub async fn gateway_oauth_metadata() -> Json<AuthorizationMetadata> {
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     Json(build_oauth_metadata(
         "/api/mcp/gateway/oauth/server",
         &base_url,
@@ -905,7 +974,7 @@ pub async fn gateway_oauth_metadata() -> Json<AuthorizationMetadata> {
 }
 
 pub async fn gateway_protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     Json(build_protected_resource_metadata(
         "/api/mcp/gateway",
         "/api/mcp/gateway/oauth/server",
@@ -991,4 +1060,47 @@ pub fn gateway_unauthed_service() -> Router {
 /// Mounted at /api/mcp/gateway/oauth/server (inside authenticated section)
 pub fn gateway_authed_service() -> Router {
     Router::new().route("/approve", post(gateway_oauth_approve))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_redirect_uri;
+
+    #[test]
+    fn accepts_legitimate_redirect_uris() {
+        for uri in [
+            "https://app.example.com/oauth/callback",
+            "http://localhost:9876/callback",
+            "http://127.0.0.1:33418/oauth/callback",
+            // Native/editor MCP clients use private-use URI schemes (RFC 8252).
+            "vscode://anthropic.claude/oauth/callback",
+            "cursor://anysphere.cursor/callback",
+        ] {
+            assert!(
+                validate_redirect_uri(uri).is_ok(),
+                "expected {uri} to be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_browser_executable_and_relative_redirect_uris() {
+        for uri in [
+            // GHSA-q9xg-f2v2-695g: stored-XSS / token exfiltration via consent page.
+            "javascript:fetch('/api/w/admins/tokens/create',{method:'POST'})//",
+            "JavaScript:alert(document.domain)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "blob:https://example.com/uuid",
+            "file:///etc/passwd",
+            // Not an absolute URI (RFC 6749 §3.1.2).
+            "/relative/callback",
+            "not a uri",
+        ] {
+            assert!(
+                validate_redirect_uri(uri).is_err(),
+                "expected {uri} to be rejected"
+            );
+        }
+    }
 }

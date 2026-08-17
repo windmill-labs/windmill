@@ -36,6 +36,7 @@
 	const cloudHosted = isCloudHosted()
 	let nextcloudAvailable = $state(false)
 	let googleAvailable = $state(false)
+	let githubAvailable = $state(false)
 
 	async function setNextcloudState() {
 		nextcloudAvailable = await isServiceAvailable('nextcloud', $workspaceStore!)
@@ -45,8 +46,13 @@
 		googleAvailable = await isServiceAvailable('google', $workspaceStore!)
 	}
 
+	async function setGithubState() {
+		githubAvailable = await isServiceAvailable('github', $workspaceStore!)
+	}
+
 	setNextcloudState()
 	setGoogleState()
+	setGithubState()
 
 	const addTriggerItems = $derived(
 		[
@@ -87,6 +93,12 @@
 				extra: cloudHosted ? extra : undefined
 			},
 			{
+				displayName: 'AMQP',
+				action: () => onAddDraftTrigger?.('amqp'),
+				icon: triggerIconMap.amqp,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
 				displayName: 'SQS',
 				action: () => onAddDraftTrigger?.('sqs'),
 				icon: triggerIconMap.sqs,
@@ -96,6 +108,12 @@
 				displayName: 'GCP Pub/Sub',
 				action: () => onAddDraftTrigger?.('gcp'),
 				icon: triggerIconMap.gcp,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
+				displayName: 'Azure Event Grid',
+				action: () => onAddDraftTrigger?.('azure'),
+				icon: triggerIconMap.azure,
 				extra: cloudHosted ? extra : undefined
 			},
 			{
@@ -124,6 +142,12 @@
 				action: () => onAddDraftTrigger?.('google'),
 				icon: triggerIconMap.google,
 				hidden: !googleAvailable
+			},
+			{
+				displayName: 'GitHub',
+				action: () => onAddDraftTrigger?.('github'),
+				icon: triggerIconMap.github,
+				hidden: !githubAvailable
 			}
 		].filter((item) => !item.hidden)
 	)

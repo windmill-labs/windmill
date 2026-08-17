@@ -13,8 +13,10 @@
 	import KafkaCapture from './kafka/KafkaCapture.svelte'
 	import NatsCapture from './nats/NatsCapture.svelte'
 	import MqttCapture from './mqtt/MqttCapture.svelte'
+	import AmqpCapture from './amqp/AmqpCapture.svelte'
 	import SqsCapture from './sqs/SqsCapture.svelte'
 	import GcpCapture from './gcp/GcpCapture.svelte'
+	import AzureCapture from './azure/AzureCapture.svelte'
 	import EmailCapture from './email/EmailCapture.svelte'
 
 	interface Props {
@@ -74,7 +76,20 @@
 		if (captureType === 'gcp' && args.delivery_type === 'push') {
 			return false
 		}
-		return ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp'].includes(captureType)
+		if (captureType === 'azure' && args.azure_mode !== 'namespace_pull') {
+			return false
+		}
+		return [
+			'mqtt',
+			'amqp',
+			'sqs',
+			'websocket',
+			'postgres',
+			'kafka',
+			'nats',
+			'gcp',
+			'azure'
+		].includes(captureType)
 	}
 
 	async function getCaptureConfigs() {
@@ -260,7 +275,7 @@
 				{hasPreprocessor}
 				{isFlow}
 				{captureLoading}
-				{triggerDeployed}
+				groupId={args?.group_id}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -283,6 +298,20 @@
 			/>
 		{:else if captureType === 'mqtt'}
 			<MqttCapture
+				{isValid}
+				{captureInfo}
+				{hasPreprocessor}
+				{isFlow}
+				{captureLoading}
+				{triggerDeployed}
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'amqp'}
+			<AmqpCapture
 				{isValid}
 				{captureInfo}
 				{hasPreprocessor}
@@ -318,6 +347,20 @@
 				{triggerDeployed}
 				deliveryType={args.delivery_type}
 				{captureLoading}
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'azure'}
+			<AzureCapture
+				{isValid}
+				{captureInfo}
+				{hasPreprocessor}
+				{isFlow}
+				{captureLoading}
+				subscriptionName={args.subscription_name}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor

@@ -16,11 +16,14 @@ pub enum TriggerKind {
     Email,
     Nats,
     Mqtt,
+    Amqp,
     Sqs,
     Postgres,
     Gcp,
+    Azure,
     Nextcloud,
     Google,
+    Github,
 }
 
 impl TriggerKind {
@@ -34,11 +37,14 @@ impl TriggerKind {
             TriggerKind::DefaultEmail => "email".to_string(),
             TriggerKind::Nats => "nats".to_string(),
             TriggerKind::Mqtt => "mqtt".to_string(),
+            TriggerKind::Amqp => "amqp".to_string(),
             TriggerKind::Sqs => "sqs".to_string(),
             TriggerKind::Postgres => "postgres".to_string(),
             TriggerKind::Gcp => "gcp".to_string(),
+            TriggerKind::Azure => "azure".to_string(),
             TriggerKind::Nextcloud => "nextcloud".to_string(),
             TriggerKind::Google => "google".to_string(),
+            TriggerKind::Github => "github".to_string(),
         }
     }
 }
@@ -54,11 +60,14 @@ impl fmt::Display for TriggerKind {
             TriggerKind::DefaultEmail => "default_email",
             TriggerKind::Nats => "nats",
             TriggerKind::Mqtt => "mqtt",
+            TriggerKind::Amqp => "amqp",
             TriggerKind::Sqs => "sqs",
             TriggerKind::Postgres => "postgres",
             TriggerKind::Gcp => "gcp",
+            TriggerKind::Azure => "azure",
             TriggerKind::Nextcloud => "nextcloud",
             TriggerKind::Google => "google",
+            TriggerKind::Github => "github",
         };
         write!(f, "{}", s)
     }

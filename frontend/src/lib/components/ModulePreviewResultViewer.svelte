@@ -8,6 +8,7 @@
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import type { FlowEditorContext, OutputViewerJob } from './flows/types'
+	import type { AgentTool } from './flows/agentToolUtils'
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
 	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
@@ -26,6 +27,9 @@
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		loadingJob?: boolean
 		tagLabel?: string
+		// A linked agent persists no tools of its own; its resolved resource tools are passed here so
+		// the log viewer can label each tool_call with the definition that ran.
+		linkedAgentTools?: AgentTool[]
 	}
 
 	let {
@@ -41,10 +45,11 @@
 		disableHistory = false,
 		onUpdateMock,
 		loadingJob = false,
-		tagLabel = undefined
+		tagLabel = undefined,
+		linkedAgentTools = undefined
 	}: Props = $props()
 
-	const { stepsInputArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { stepsInputArgs, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
 	export function getOutputPickerInner() {
@@ -98,7 +103,7 @@
 			/>
 		{:else if mod.value.type === 'aiagent' && logJob?.type === 'CompletedJob'}
 			<AiAgentLogViewer
-				tools={mod.value.tools}
+				tools={linkedAgentTools ?? mod.value.tools ?? []}
 				agentJob={{
 					...logJob,
 					type: 'CompletedJob'
@@ -115,6 +120,18 @@
 				isLoading={(testIsLoading && logJob?.['running'] == false) || loadingJob}
 				tag={logJob?.['tag']}
 				{tagLabel}
+				onLogsResolved={(logs) => {
+					if (
+						mod.id &&
+						flowStateStore?.val[mod.id] &&
+						flowStateStore.val[mod.id].previewJobId === logJob?.id
+					) {
+						flowStateStore.val[mod.id] = {
+							...flowStateStore.val[mod.id],
+							previewLogs: logs
+						}
+					}
+				}}
 			/>
 		{/if}
 	</Pane>

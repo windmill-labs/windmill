@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH capped AS (\n            SELECT timestamp, operation, resource, parameters\n            FROM audit_partitioned\n            WHERE workspace_id = 'admins'\n              AND operation = 'workspace_fairness.capped'\n            UNION ALL\n            SELECT timestamp, operation, resource, parameters\n            FROM audit\n            WHERE workspace_id = 'admins'\n              AND operation = 'workspace_fairness.capped'\n            ORDER BY timestamp DESC\n            LIMIT 200\n        ), uncapped AS (\n            SELECT timestamp, operation, resource, parameters\n            FROM audit_partitioned\n            WHERE workspace_id = 'admins'\n              AND operation = 'workspace_fairness.uncapped'\n            UNION ALL\n            SELECT timestamp, operation, resource, parameters\n            FROM audit\n            WHERE workspace_id = 'admins'\n              AND operation = 'workspace_fairness.uncapped'\n            ORDER BY timestamp DESC\n            LIMIT 200\n        )\n        SELECT timestamp AS \"timestamp!\",\n               operation::text AS \"operation!\",\n               resource AS workspace_id,\n               parameters\n        FROM (SELECT * FROM capped UNION ALL SELECT * FROM uncapped) e\n        ORDER BY timestamp DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "timestamp!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "operation!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "parameters",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6fcdb09cdd7fedd7e54fdc0e49203f453fc1b85272fe212c0e1bf0ebd28bf58a"
+}

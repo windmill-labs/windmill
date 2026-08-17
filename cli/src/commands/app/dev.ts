@@ -5,6 +5,7 @@ import { sep as SEP } from "node:path";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as getPort from "get-port";
+import { resolveBindPort } from "../../utils/port-probe.ts";
 import * as open from "open";
 import { GlobalOptions } from "../../types.ts";
 import * as http from "node:http";
@@ -13,7 +14,8 @@ import * as path from "node:path";
 import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { getHeaders, readTextFile } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   createFrameworkPlugins,
@@ -23,13 +25,20 @@ import {
 } from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import { logQueueStatus } from "../../utils/job_polling.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
-import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
+import {
+  getWmillYamlPath,
+  GLOBAL_CONFIG_OPT,
+  mergeConfigWithConfigFile,
+} from "../../core/conf.ts";
+import { listSyncCodebases } from "../../utils/codebase.ts";
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { Runnable } from "./metadata.ts";
 import {
   APP_BACKEND_FOLDER,
+  inferAllInlineSchemas,
   inferRunnableSchemaFromFile,
 } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
@@ -39,7 +48,21 @@ import {
   hasFolderSuffix,
   loadNonDottedPathsSetting,
 } from "../../utils/resource_folders.ts";
+import {
+  createRecorderShellHTML,
+  DEV_RECORDER_BUNDLE,
+  isOwnOrigin,
+  isRecordingFileName,
+  RECORDER_BUNDLE_PATH,
+  RECORDER_SAVE_PATH,
+  RECORDER_SHELL_PATH,
+  recordingFileName,
+  RECORDINGS_FOLDER,
+} from "./devRecorder.ts";
 
+// Resolved once per `wmill app dev` run from wmill.yaml; a bare `.ts` under
+// backend/ denotes this runtime, so readers must agree with the path assigner.
+let defaultTs: "bun" | "deno" = "bun";
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
 
@@ -51,13 +74,20 @@ const createHTML = (jsPath: string, cssPath: string) => `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Windmill App Dev Preview</title>
+  <style>
+    /* Declared before the user stylesheet so Tailwind's layers (theme, base,
+       components, utilities) are appended after wmill-shell and win the
+       cascade. Unlayered styles would override Tailwind utilities. */
+    @layer wmill-shell {
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+    }
+  </style>
   <link rel="stylesheet" href="${cssPath}">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
         'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
@@ -314,6 +344,7 @@ interface DevOptions extends GlobalOptions {
   host?: string;
   entry?: string;
   open?: boolean;
+  recording?: boolean;
 }
 
 async function dev(opts: DevOptions, appFolder?: string) {
@@ -375,6 +406,44 @@ async function dev(opts: DevOptions, appFolder?: string) {
   await requireLogin(opts);
   const workspaceId = workspace.workspaceId;
 
+  // Resolve relative imports in app inline scripts from local (not-yet-deployed)
+  // content so previews use locally-edited workspace libs instead of deployed.
+  // Computed here as a startup snapshot; re-run `wmill app dev` to pick up
+  // later edits to imported workspace scripts. Degrades gracefully (undefined)
+  // on older backends. The walk must run from the wmill.yaml root so that the
+  // supported `cd <app>__raw_app && wmill app dev` invocation (cwd is the
+  // raw_app folder) still sees sibling workspace scripts like `f/lib.ts`.
+  let appTempRefs: Record<string, string> | undefined = undefined;
+  {
+    const wmillYamlPath = getWmillYamlPath();
+    const workspaceRoot = wmillYamlPath
+      ? path.dirname(wmillYamlPath)
+      : originalCwd;
+    const relAppFolder = path.relative(workspaceRoot, targetDir) || ".";
+    const mergedOpts = await mergeConfigWithConfigFile(opts);
+    defaultTs = mergedOpts.defaultTs ?? "bun";
+    const codebases = await listSyncCodebases(mergedOpts);
+    const { buildPreviewTempScriptRefs } = await import(
+      "../generate-metadata/generate-metadata.ts"
+    );
+    const savedCwd = process.cwd();
+    if (workspaceRoot !== savedCwd) {
+      process.chdir(workspaceRoot);
+    }
+    try {
+      appTempRefs = await buildPreviewTempScriptRefs(
+        workspace,
+        mergedOpts as any,
+        codebases,
+        { kind: "app", folder: relAppFolder, rawApp: true },
+      );
+    } finally {
+      if (workspaceRoot !== savedCwd) {
+        process.chdir(savedCwd);
+      }
+    }
+  }
+
   // Change to target directory for the rest of the command
   if (appFolder) {
     process.chdir(targetDir);
@@ -384,14 +453,30 @@ async function dev(opts: DevOptions, appFolder?: string) {
   const rawApp = (await yamlParseFile(rawAppPath)) as any;
   const appPath = rawApp?.custom_path ?? "u/unknown/newapp";
 
-  // Dynamically import esbuild only when the dev command is called
+  // Dynamically import esbuild only when the dev command is called.
+  // Native-only here (no esbuild-wasm fallback via getEsbuild): dev is a local
+  // interactive command that relies on context()/watch, whose semantics under
+  // wasm are untested. The host/binary-mismatch fallback covers the bundling
+  // paths that run on workers/CI via `wmill sync push`.
   const esbuild = await import("esbuild");
 
-  const port = opts.port ??
-    (await getPort.default({
-      port: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => p + DEFAULT_PORT),
-    }));
   const host = opts.host ?? DEFAULT_HOST;
+  // Probe both IPv4 and IPv6 stacks only when binding to localhost — that's
+  // the case where the OS may route traffic to a leftover listener on the
+  // other stack (see cli/src/utils/port-probe.ts). For an explicit IP host
+  // there's only one stack to worry about, so don't move the user's
+  // requested port over a phantom v6 collision.
+  const probeBothStacks = host === DEFAULT_HOST;
+  const port = opts.port !== undefined
+    ? (probeBothStacks
+      ? await resolveBindPort(opts.port, "--port", {
+          info: (m) => log.info(m),
+          warn: (m) => log.warn(m),
+        })
+      : opts.port)
+    : await getPort.default({
+        port: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => p + DEFAULT_PORT),
+      });
   const shouldOpen = opts.open ?? true;
 
   // Detect frameworks to determine default entry point
@@ -417,15 +502,69 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   // In-memory cache of inferred schemas (runnableId -> schema)
   // Used to generate wmill.d.ts without modifying raw_app.yaml
+  // Seed with schemas inferred from every inline code file in the backend folder
+  // so the initial wmill.d.ts already has typed args (without waiting for a file
+  // change to trigger the watcher).
   const inferredSchemas: Record<string, any> = {};
+  try {
+    Object.assign(
+      inferredSchemas,
+      await inferAllInlineSchemas(process.cwd(), defaultTs),
+    );
+  } catch (err: any) {
+    log.warn(
+      colors.yellow(
+        `Could not seed inline schemas at startup: ${err.message}`,
+      ),
+    );
+  }
 
-  genRunnablesTs(inferredSchemas);
+  // In-memory cache of schemas for path-based runnables fetched from the API.
+  // Path-based runnables don't carry their schema in the local YAML (the script /
+  // flow at the path is the source of truth), so we fetch once at dev start and
+  // reuse for every wmill.d.ts regeneration.
+  const pathRunnableSchemas: Record<string, any> = {};
+  try {
+    const initialRunnables = await loadRunnablesFromBackend(
+      path.join(process.cwd(), APP_BACKEND_FOLDER),
+      defaultTs,
+    );
+    Object.assign(
+      pathRunnableSchemas,
+      await fetchPathRunnableSchemas(workspaceId, initialRunnables),
+    );
+  } catch (err: any) {
+    log.warn(
+      colors.yellow(
+        `Could not fetch schemas for path-based runnables: ${err.message}`,
+      ),
+    );
+  }
+
+  await genRunnablesTs(inferredSchemas, pathRunnableSchemas);
 
   // Ensure dist directory exists
   const distDir = path.join(process.cwd(), "dist");
   if (!fs.existsSync(distDir)) {
     fs.mkdirSync(distDir);
   }
+
+  // Session recording: the app moves into an iframe of a shell page holding the
+  // recorder toolbar, and finished recordings land in the app folder.
+  const recordingEnabled = opts.recording ?? false;
+  const recordingsDir = path.join(process.cwd(), RECORDINGS_FOLDER);
+  // The player is a page of the instance this app is developed against, so the
+  // recording it fetches from here crosses origins.
+  const playerBaseUrl = workspace.remote.endsWith("/")
+    ? workspace.remote
+    : `${workspace.remote}/`;
+  const playerOrigin = (() => {
+    try {
+      return new URL(playerBaseUrl).origin;
+    } catch {
+      return undefined;
+    }
+  })();
 
   // SSE clients for live reload
   const clients: http.ServerResponse[] = [];
@@ -436,7 +575,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     });
   }
 
-  const buildOptions = getDevBuildOptions(entryPoint);
+  const buildOptions = getDevBuildOptions(entryPoint, frameworks.svelte);
 
   // Load framework-specific plugins (svelte, vue) based on package.json
   const frameworkPlugins = await createFrameworkPlugins(appDir);
@@ -573,6 +712,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
           const result = await inferRunnableSchemaFromFile(
             process.cwd(),
             relativeToRunnables,
+            defaultTs,
           );
           if (result) {
             // Store inferred schema in memory
@@ -589,7 +729,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
               ),
             );
             // Regenerate wmill.d.ts with updated schema from memory
-            await genRunnablesTs(inferredSchemas);
+            await genRunnablesTs(inferredSchemas, pathRunnableSchemas);
           }
         } catch (error: any) {
           log.error(
@@ -610,9 +750,151 @@ async function dev(opts: DevOptions, appFolder?: string) {
     );
   }
 
+  // Same ceiling the player refuses to load past, so nothing is written here
+  // that could not be replayed.
+  const MAX_RECORDING_BYTES = 100 * 1024 * 1024;
+
+  function sendJson(res: http.ServerResponse, status: number, body: unknown) {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(body));
+  }
+
+  /** Write the recording under a name nothing else holds. `wx` is what makes
+   * this safe: two tabs stopping in the same millisecond both create, and the
+   * loser retries rather than overwriting the winner. */
+  async function writeRecording(body: string): Promise<string> {
+    const now = new Date();
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const file = recordingFileName(now, attempt);
+      try {
+        await fs.promises.writeFile(path.join(recordingsDir, file), body, {
+          flag: "wx",
+        });
+        return file;
+      } catch (error: any) {
+        if (error?.code !== "EEXIST") throw error;
+      }
+    }
+    throw new Error("Could not find a free recording file name");
+  }
+
+  function saveRecording(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (!isOwnOrigin(req.headers.origin, req.headers.host)) {
+      sendJson(res, 403, { error: "Cross-origin recording upload refused" });
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let refused = false;
+    // An upload cut short (by the refusal below, or by the browser) raises
+    // 'error' on the request, which unhandled takes the dev server down.
+    req.on("error", (error: Error) => {
+      if (!refused) {
+        log.warn(colors.yellow(`Recording upload failed: ${error.message}`));
+      }
+    });
+    req.on("data", (chunk: Buffer) => {
+      if (refused) return;
+      size += chunk.length;
+      if (size > MAX_RECORDING_BYTES) {
+        refused = true;
+        // Torn down only once the 413 is on the wire: destroying the socket
+        // first loses the response the browser is waiting to read.
+        res.on("finish", () => req.destroy());
+        sendJson(res, 413, {
+          error: `Recording exceeds ${MAX_RECORDING_BYTES} bytes`,
+        });
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", async () => {
+      if (refused) return;
+      const body = Buffer.concat(chunks).toString("utf-8");
+      try {
+        JSON.parse(body);
+      } catch {
+        sendJson(res, 400, { error: "Body is not valid JSON" });
+        return;
+      }
+      let file: string;
+      try {
+        await fs.promises.mkdir(recordingsDir, { recursive: true });
+        file = await writeRecording(body);
+      } catch (error: any) {
+        log.error(colors.red(`Failed to save recording: ${error.message}`));
+        sendJson(res, 500, { error: error.message });
+        return;
+      }
+      log.info(
+        colors.green(
+          `🎬 Recording saved to ${path.join(RECORDINGS_FOLDER, file)}`,
+        ),
+      );
+      log.info(
+        colors.gray(
+          `   Replay it at ${playerBaseUrl}replay (open the file, or use ?src=)`,
+        ),
+      );
+      sendJson(res, 200, { file });
+    });
+  }
+
+  function serveRecording(url: string, res: http.ServerResponse) {
+    const file = url.slice(RECORDER_SAVE_PATH.length + 1);
+    if (!isRecordingFileName(file)) {
+      sendJson(res, 400, { error: "Invalid recording name" });
+      return;
+    }
+    const filePath = path.join(recordingsDir, file);
+    if (!fs.existsSync(filePath)) {
+      sendJson(res, 404, { error: "Recording not found" });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      // The player runs on the instance, not on the dev server: without this it
+      // can fetch the recording but never read it.
+      ...(playerOrigin ? { "Access-Control-Allow-Origin": playerOrigin } : {}),
+    });
+    // Streamed: a recording is megabytes, and this server also carries the app,
+    // its live reload and every runnable call.
+    fs.createReadStream(filePath).on("error", () => res.end()).pipe(res);
+  }
+
   // Create HTTP server
   const server = http.createServer((req, res) => {
     const url = req.url || "/";
+
+    if (recordingEnabled) {
+      const pathname = url.split("?")[0];
+      if (pathname === RECORDER_BUNDLE_PATH) {
+        res.writeHead(200, { "Content-Type": "application/javascript" });
+        res.end(DEV_RECORDER_BUNDLE);
+        return;
+      }
+      if (pathname === RECORDER_SAVE_PATH && req.method === "POST") {
+        saveRecording(req, res);
+        return;
+      }
+      if (
+        pathname.startsWith(`${RECORDER_SAVE_PATH}/`) && req.method === "GET"
+      ) {
+        serveRecording(pathname, res);
+        return;
+      }
+      if (pathname === RECORDER_SHELL_PATH) {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(
+          createRecorderShellHTML({
+            appPath,
+            workspace: workspaceId,
+            playerBaseUrl,
+          }),
+        );
+        return;
+      }
+    }
 
     // SSE endpoint for live reload
     if (url === "/__events") {
@@ -765,7 +1047,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     const fileName = path.basename(filePath);
 
     try {
-      const sqlContent = await readFile(filePath, "utf-8");
+      const sqlContent = await readTextFile(filePath);
 
       if (!sqlContent.trim()) {
         log.info(colors.gray(`Skipping empty file: ${fileName}`));
@@ -821,7 +1103,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     // If there's a current SQL file being shown, send it to the new client
     if (currentSqlFile && fs.existsSync(currentSqlFile)) {
       try {
-        const sqlContent = await readFile(currentSqlFile, "utf-8");
+        const sqlContent = await readTextFile(currentSqlFile);
         const datatable = await getDatatableConfig();
         const fileName = path.basename(currentSqlFile);
 
@@ -885,6 +1167,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
             appPath,
             runnableId,
             args,
+            appTempRefs,
           );
           log.info(colors.gray(`[backend] Job started: ${uuid}`));
 
@@ -931,6 +1214,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
                 appPath,
                 runnable_id,
                 v,
+                appTempRefs,
               );
               log.info(colors.gray(`[backendAsync] Job started: ${uuid}`));
 
@@ -1246,18 +1530,29 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   server.listen(port, host, () => {
     const url = `http://${host}:${port}`;
+    // The toolbar lives beside the app, not in front of it, so recording mode
+    // is what the browser should land on.
+    const openUrl = recordingEnabled ? `${url}${RECORDER_SHELL_PATH}` : url;
     log.info(colors.bold.green(`🚀 Dev server running at ${url}`));
     log.info(
       colors.cyan(`🔌 WebSocket server running at ws://${host}:${port}`),
     );
     log.info(colors.gray(`📦 Serving files from: ${process.cwd()}`));
-    log.info(colors.gray(`🔄 Live reload enabled\n`));
+    log.info(colors.gray(`🔄 Live reload enabled`));
+    if (recordingEnabled) {
+      log.info(
+        colors.magenta(
+          `🎬 Session recording at ${openUrl} : press Record in the toolbar. Recordings are saved to ${RECORDINGS_FOLDER}/`,
+        ),
+      );
+    }
+    log.info("");
 
     // Open browser if requested
     if (shouldOpen) {
       try {
         open
-          .openApp(open.apps.browser, { arguments: [url] })
+          .openApp(open.apps.browser, { arguments: [openUrl] })
           .catch((error: any) => {
             log.error(
               colors.yellow(
@@ -1310,6 +1605,10 @@ const command = new Command()
     "Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)",
   )
   .option("--no-open", "Don't automatically open the browser")
+  .option(
+    "--recording",
+    "Frame the app in a shell with a Record button, to capture a replayable session recording of the app under development",
+  )
   .action(dev as any);
 
 export default command;
@@ -1320,16 +1619,20 @@ export default command;
  * or falls back to raw_app.yaml (old format).
  * Merges in-memory inferred schemas with runnables.
  *
- * @param schemaOverrides - In-memory schema overrides (runnableId -> schema)
+ * @param inlineSchemaOverrides - Inferred schemas for inline runnables (runnableId -> schema)
+ * @param pathSchemaOverrides - Schemas fetched from the API for path-based runnables (runnableId -> schema)
  */
-async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
+async function genRunnablesTs(
+  inlineSchemaOverrides: Record<string, any> = {},
+  pathSchemaOverrides: Record<string, any> = {},
+) {
   log.info(colors.blue("🔄 Generating wmill.d.ts..."));
 
   const localPath = process.cwd();
   const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
 
   // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
-  let runnables = await loadRunnablesFromBackend(backendPath);
+  let runnables = await loadRunnablesFromBackend(backendPath, defaultTs);
 
   if (Object.keys(runnables).length === 0) {
     // Fall back to old format
@@ -1343,22 +1646,104 @@ async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
     }
   }
 
-  // Apply schema overrides from in-memory cache
-  if (Object.keys(schemaOverrides).length > 0) {
-    for (const [runnableId, schema] of Object.entries(schemaOverrides)) {
-      if (runnables[runnableId]?.inlineScript) {
-        runnables[runnableId].inlineScript.schema = schema;
-        runnables[runnableId].type = "inline";
-      }
-    }
-  }
-
   try {
-    const newWmillTs = windmillUtils.genWmillTs(runnables);
+    const newWmillTs = buildWmillTs(
+      runnables,
+      inlineSchemaOverrides,
+      pathSchemaOverrides,
+    );
     writeFileSync(path.join(process.cwd(), "wmill.d.ts"), newWmillTs);
   } catch (error: any) {
     log.error(colors.red(`Failed to generate wmill.d.ts: ${error.message}`));
   }
+}
+
+/**
+ * Merges inline + path schema overrides into the runnables map and renders the
+ * wmill.d.ts source via shared-utils. Exported so unit tests can exercise the
+ * exact pipeline without touching disk.
+ */
+export function buildWmillTs(
+  runnables: Record<string, any>,
+  inlineSchemaOverrides: Record<string, any> = {},
+  pathSchemaOverrides: Record<string, any> = {},
+): string {
+  // Apply inline schema overrides (inferred locally from script content)
+  for (const [runnableId, schema] of Object.entries(inlineSchemaOverrides)) {
+    if (runnables[runnableId]?.inlineScript) {
+      runnables[runnableId].inlineScript.schema = schema;
+      runnables[runnableId].type = "inline";
+    }
+  }
+
+  // Apply path-based runnable schemas (fetched from the API)
+  for (const [runnableId, schema] of Object.entries(pathSchemaOverrides)) {
+    const runnable = runnables[runnableId];
+    if (runnable?.type === "path" && schema) {
+      runnable.schema = schema;
+    }
+  }
+
+  // Defensive: shared-utils' genWmillTs crashes on path runnables with an
+  // undefined schema (it calls removeStaticFields(undefined, ...)). Stamp an
+  // empty schema so the generated d.ts falls back cleanly to `args: {}`.
+  for (const runnable of Object.values(runnables)) {
+    if (runnable?.type === "path" && !runnable.schema) {
+      runnable.schema = {};
+    }
+  }
+
+  return windmillUtils.genWmillTs(runnables);
+}
+
+/**
+ * Fetches schemas from the Windmill API for path-based runnables (script / flow).
+ * Returns a map of runnableId -> schema. Path-based runnables don't store their
+ * schema locally (the script or flow at the path is the source of truth), so we
+ * fetch them once at dev start to type the args in wmill.d.ts.
+ *
+ * Failures (network, missing script) are logged but never thrown - the
+ * corresponding runnable will fall back to `args: {}` in the generated types.
+ *
+ * Exported for testing.
+ */
+export async function fetchPathRunnableSchemas(
+  workspaceId: string,
+  runnables: Record<string, any>,
+): Promise<Record<string, any>> {
+  const schemas: Record<string, any> = {};
+  for (const [runnableId, runnable] of Object.entries(runnables)) {
+    if (runnable?.type !== "path" || !runnable.path) continue;
+    if (runnable.schema) {
+      // Already populated locally - keep it (e.g. fixture / offline mode)
+      schemas[runnableId] = runnable.schema;
+      continue;
+    }
+    try {
+      if (runnable.runType === "script") {
+        const script = await wmill.getScriptByPath({
+          workspace: workspaceId,
+          path: runnable.path,
+        });
+        if (script.schema) schemas[runnableId] = script.schema;
+      } else if (runnable.runType === "flow") {
+        const flow = await wmill.getFlowByPath({
+          workspace: workspaceId,
+          path: runnable.path,
+        });
+        const flowSchema = (flow as any)?.value?.schema ?? (flow as any)?.schema;
+        if (flowSchema) schemas[runnableId] = flowSchema;
+      }
+      // hubscript schemas are not fetched (no scoped API); falls back to {}
+    } catch (err: any) {
+      log.warn(
+        colors.yellow(
+          `Failed to fetch schema for ${runnable.runType} ${runnable.path}: ${err.message}`,
+        ),
+      );
+    }
+  }
+  return schemas;
 }
 
 /**
@@ -1391,7 +1776,7 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
     const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
 
     // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
-    let runnables = await loadRunnablesFromBackend(backendPath);
+    let runnables = await loadRunnablesFromBackend(backendPath, defaultTs);
 
     if (Object.keys(runnables).length === 0) {
       // Fall back to old format
@@ -1421,6 +1806,7 @@ async function executeRunnable(
   appPath: string,
   runnableId: string,
   args: any,
+  tempScriptRefs?: Record<string, string>,
 ): Promise<string> {
   const requestBody: any = {
     component: runnableId,
@@ -1460,6 +1846,9 @@ async function executeRunnable(
       lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
       cache_ttl: inlineScript.cache_ttl,
     };
+    if (inlineScript.id === undefined && tempScriptRefs) {
+      requestBody.temp_script_refs = tempScriptRefs;
+    }
   } else if (
     (runnable.type === "path" || runnable.type === "runnableByPath") &&
     runnable.runType &&
@@ -1498,6 +1887,7 @@ async function executeRunnable(
 
 const ITERATIONS_BEFORE_SLOW_REFRESH = 10;
 const ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100;
+const QUEUE_LOG_INTERVAL_MS = 5000;
 
 async function waitForJob(workspace: string, jobId: string): Promise<any> {
   if (!jobId) {
@@ -1505,6 +1895,7 @@ async function waitForJob(workspace: string, jobId: string): Promise<any> {
   }
 
   let syncIteration = 0;
+  let lastQueueLogAt = Date.now();
 
   return new Promise((resolve, reject) => {
     async function checkJob() {
@@ -1530,6 +1921,11 @@ async function waitForJob(workspace: string, jobId: string): Promise<any> {
         }
       } catch (err: any) {
         log.error(colors.red(`Error checking job ${jobId}: ${err.message}`));
+      }
+
+      if (Date.now() - lastQueueLogAt >= QUEUE_LOG_INTERVAL_MS) {
+        lastQueueLogAt = Date.now();
+        await logQueueStatus(workspace, jobId);
       }
 
       syncIteration++;
@@ -1566,12 +1962,16 @@ async function streamJobWithSSE(
   const sseUrl =
     `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true`;
 
+  const extraHeaders = getHeaders();
   const response = await fetch(sseUrl, {
     headers: {
       Accept: "text/event-stream",
       Authorization: `Bearer ${token}`,
+      ...extraHeaders,
     },
   });
+
+  await detectAuthGatewayChallenge(response, sseUrl);
 
   if (!response.ok) {
     throw new Error(

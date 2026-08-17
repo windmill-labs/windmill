@@ -180,12 +180,13 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 		})
 		.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
 
-	return {
+	const next = {
 		...(currentPolicy ?? {}),
 		allowed_s3_keys: s3FileKeys,
 		s3_inputs,
 		triggerables_v2: ntriggerables
 	}
+	return next
 }
 
 export async function processRunnable(
@@ -210,7 +211,8 @@ export async function processRunnable(
 			{
 				static_inputs: staticInputs,
 				one_of_inputs: oneOfInputs,
-				allow_user_resources: allowUserResources
+				allow_user_resources: allowUserResources,
+				...(runnable.inlineScript?.tag ? { tag: runnable.inlineScript.tag } : {})
 			}
 		]
 	} else if (isRunnableByPath(runnable)) {

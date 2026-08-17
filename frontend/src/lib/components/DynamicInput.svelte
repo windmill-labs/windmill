@@ -25,6 +25,7 @@
 	import { type DynamicInput } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { untrack } from 'svelte'
+	import { getHelperEntrypointArgs } from '$lib/infer'
 
 	interface Props {
 		value?: any
@@ -32,9 +33,17 @@
 		format: string
 		otherArgs?: Record<string, any>
 		name: string
+		/** Workspace the helper script runs in; defaults to the nav workspace. */
+		workspace?: string
 	}
 
-	let { value = $bindable(), helperScript, format, otherArgs: otherArgs }: Props = $props()
+	let {
+		value = $bindable(),
+		helperScript,
+		format,
+		otherArgs: otherArgs,
+		workspace = undefined
+	}: Props = $props()
 
 	let [inputType, entrypoint] = $derived(format.includes('-') ? format.split('-', 2) : [format, ''])
 
@@ -48,7 +57,9 @@
 	})
 
 	let resultJobLoader: JobLoader | undefined = $state()
-	let _items = usePromise(getItemsFromOptions, { clearValueOnRefresh: false })
+	// loadInit:false — the $effect below owns the first refresh once
+	// resultJobLoader is bound; without this the promise is kicked off twice.
+	let _items = usePromise(getItemsFromOptions, { clearValueOnRefresh: false, loadInit: false })
 	let items = $derived(_items.value)
 
 	let filterText: string = $state('')
@@ -125,9 +136,43 @@
 		}, 1000)
 	})
 
+	// Parameter names declared by the helper function. When known, we restrict
+	// the change-detection to only those keys so typing in unrelated form fields
+	// no longer retriggers the dynselect job. `undefined` means we couldn't
+	// determine the signature → fall back to a full-args comparison.
+	let helperParams = $state<Set<string> | undefined>(undefined)
+
+	$effect(() => {
+		const script = helperScript
+		const ep = entrypoint
+		if (!script) {
+			helperParams = undefined
+			return
+		}
+		let cancelled = false
+		void getHelperEntrypointArgs(script, ep || undefined).then((params) => {
+			if (!cancelled) helperParams = params
+		})
+		return () => {
+			cancelled = true
+		}
+	})
+
+	function filterArgs(args: Record<string, any> | undefined) {
+		if (!args || !helperParams) return args
+		const filtered: Record<string, any> = {}
+		for (const k of helperParams) {
+			if (k in args) filtered[k] = args[k]
+		}
+		return filtered
+	}
+
 	$effect(() => {
 		;[filterText, entrypoint, helperScript]
-		if (resultJobLoader && (open || neverLoaded || !deepEqual(lastArgs, nargs))) {
+		if (
+			resultJobLoader &&
+			(open || neverLoaded || !deepEqual(filterArgs(lastArgs), filterArgs(nargs)))
+		) {
 			neverLoaded = false
 			lastArgs = $state.snapshot(otherArgs)
 			_items.refresh()
@@ -136,7 +181,7 @@
 </script>
 
 {#if helperScript}
-	<JobLoader onlyResult bind:this={resultJobLoader} />
+	<JobLoader onlyResult workspaceOverride={workspace} bind:this={resultJobLoader} />
 
 	<div class="w-full flex-col flex">
 		{#if inputType === 'dynmultiselect'}

@@ -93,6 +93,7 @@ jobs:
           push: true
           build-args: |
             features=ce
+            WM_BUILD_VERSION=${{ github.sha }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
@@ -155,6 +156,7 @@ jobs:
           push: true
           build-args: |
             features=ee
+            WM_BUILD_VERSION=${{ github.sha }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -254,6 +256,7 @@ jobs:
           target: debuginfo
           build-args: |
             features=ee
+            WM_BUILD_VERSION=${{ github.sha }}
           outputs: type=local,dest=./debuginfo
 
       - name: Rename debug file with corresponding architecture

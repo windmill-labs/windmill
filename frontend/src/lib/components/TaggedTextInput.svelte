@@ -6,6 +6,8 @@
 		highlights,
 		onCurrentTagChange,
 		onTextSegmentAtCursorChange,
+		onKeyDown,
+		autofocus,
 		class: className = ''
 	}: {
 		tags: { regex: RegExp; id: string; onClear?: () => void }[]
@@ -14,6 +16,8 @@
 		highlights?: { regex: RegExp; classes: string }[]
 		onCurrentTagChange?: (tag: { id: string } | null) => void
 		onTextSegmentAtCursorChange?: (segment: { text: string; start: number; end: number }) => void
+		onKeyDown?: (e: KeyboardEvent) => void
+		autofocus?: boolean
 		class?: string
 	} = $props()
 
@@ -332,6 +336,7 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		onKeyDown?.(e)
 		if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return
 		const cursorPos = getCursorPosition()
 		const text = getTextContent()
@@ -501,6 +506,7 @@
 	}
 </script>
 
+<!-- svelte-ignore a11y_autofocus -->
 <div
 	bind:this={contentEditableDiv}
 	contenteditable="true"
@@ -515,6 +521,7 @@
 	role="textbox"
 	tabindex="0"
 	spellcheck="false"
+	{autofocus}
 ></div>
 
 <style>

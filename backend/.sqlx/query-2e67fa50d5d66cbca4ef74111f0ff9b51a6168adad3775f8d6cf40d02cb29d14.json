@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO gcp_trigger (\n            gcp_resource_path, topic_id, subscription_id, delivery_type,\n            delivery_config, path, script_path, is_flow, workspace_id, edited_by,\n            edited_at, extra_perms, server_id, last_server_ping, error,\n            subscription_mode, error_handler_path, error_handler_args, retry,\n            auto_acknowledge_msg, ack_deadline, mode, permissioned_as, labels\n        )\n        SELECT\n            gcp_resource_path, topic_id, subscription_id, delivery_type,\n            delivery_config, path, script_path, is_flow, $1, edited_by,\n            edited_at, extra_perms, NULL, NULL, NULL,\n            subscription_mode, error_handler_path, error_handler_args, retry,\n            auto_acknowledge_msg, ack_deadline, 'disabled'::TRIGGER_MODE, permissioned_as, labels\n        FROM gcp_trigger WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2e67fa50d5d66cbca4ef74111f0ff9b51a6168adad3775f8d6cf40d02cb29d14"
+}

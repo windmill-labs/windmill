@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -55,6 +60,8 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -136,8 +143,17 @@
 	let hasChanged = $derived(!deepEqual(getRouteConfig(), originalConfig ?? {}))
 	let scopes = $derived(['http_triggers:read:' + path])
 
-	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_http',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => routeConfig,
+		applyCfg: (c) => loadTriggerConfig(c as Partial<HttpTrigger>),
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
@@ -213,21 +229,28 @@
 		}, 100) // if loading takes less than 100ms, we don't show the loader
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.http.path, ePath)
 			initialPath = ePath
 			path = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
 			dirtyRoutePath = false
-			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			originalConfig = structuredClone($state.snapshot(getRouteConfig())) as NewHttpTrigger
+			if (draftOverlay) loadTriggerConfig(draftOverlay as Partial<HttpTrigger>)
+			if (!defaultConfig) {
+				// If the route is loaded from the backend, we to set the initial config
+				initialConfig = structuredClone($state.snapshot(getRouteConfig())) as NewHttpTrigger
+			}
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
 		} finally {
-			if (!defaultConfig) {
-				// If the route is loaded from the backend, we to set the initial config
-				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
-			}
 			clearTimeout(loader)
 			drawerLoading = false
 			showLoader = false
@@ -278,6 +301,9 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
@@ -320,21 +346,30 @@
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg?.permissioned_as
+		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
+	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
+	async function loadTrigger(
+		defaultConfig?: Partial<HttpTrigger>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return
-		} else {
-			const s = await HttpTriggerService.getHttpTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-
-			loadTriggerConfig(s)
+			return { overlay: undefined, noDeployed: false }
+		}
+		const s = await HttpTriggerService.getHttpTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		loadTriggerConfig(deployedTrigger)
+		return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		}
 	}
 
@@ -344,6 +379,7 @@
 			drawer?.closeDrawer()
 		} else {
 			deploymentLoading = true
+			const previousPath = initialPath
 			const saveCfg = routeConfig
 			const isSaved = await saveHttpRouteFromCfg(
 				initialPath,
@@ -354,6 +390,7 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
+				draftSync.discard(previousPath, getRouteConfig())
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 				initialPath = saveCfg.path
@@ -406,6 +443,8 @@
 	async function handleToggleMode(newMode: TriggerMode) {
 		mode = newMode
 		if (!trigger?.draftConfig) {
+			// HTTP routes are always workspace-prefixed at runtime, so fork
+			// and parent live at distinct URLs — no fork-conflict warning.
 			await HttpTriggerService.setHttpTriggerMode({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -490,20 +529,19 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-8">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
 			{/if}
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-6">
 					<Label label="Summary" for="summary">
 						<!-- svelte-ignore a11y_autofocus -->
@@ -527,7 +565,6 @@
 							checkInitialPathExistence={!edit}
 							namePlaceholder="route"
 							kind="http_trigger"
-							hideUser
 							disableEditing={!can_write}
 						/>
 					</Label>
@@ -954,8 +991,10 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="http"
+			triggerPath={initialPath}
 			{trigger}
-			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
+			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{allowDraft}
 			{edit}
@@ -972,8 +1011,13 @@
 {/snippet}
 
 {#if useDrawer}
-	<Drawer size="700px" bind:this={drawer}>
+	<Drawer
+		size="700px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.http.path)}
+	>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit route ${initialPath}`
@@ -983,6 +1027,16 @@
 		>
 			{#snippet actions()}
 				{@render saveButton()}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>

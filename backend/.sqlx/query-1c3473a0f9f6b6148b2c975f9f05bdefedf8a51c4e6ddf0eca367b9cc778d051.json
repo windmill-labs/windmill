@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, conversation_id, message_type as \"message_type: MessageType\", content, job_id, created_at, created_seq, step_name, success\n             FROM (\n                SELECT id, conversation_id, message_type, content, job_id, created_at, created_seq, step_name, success\n                FROM flow_conversation_message\n                WHERE conversation_id = $1\n                ORDER BY created_seq DESC\n                LIMIT $2 OFFSET $3\n             ) AS messages\n             ORDER BY created_seq ASC\n             ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "conversation_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "message_type: MessageType",
+        "type_info": {
+          "Custom": {
+            "name": "message_type",
+            "kind": {
+              "Enum": [
+                "user",
+                "assistant",
+                "tool"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "content",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_seq",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "step_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "success",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "1c3473a0f9f6b6148b2c975f9f05bdefedf8a51c4e6ddf0eca367b9cc778d051"
+}

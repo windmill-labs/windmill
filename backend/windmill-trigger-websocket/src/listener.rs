@@ -1,4 +1,7 @@
-use super::{get_url_from_runnable_value, WebsocketConfig, WebsocketTrigger};
+use super::{
+    get_url_from_runnable_value, proxy::connect_async_with_proxy, validate_websocket_url_for_ssrf,
+    WebsocketConfig, WebsocketTrigger,
+};
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
@@ -8,7 +11,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use tokio::{net::TcpStream, sync::RwLock};
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{tungstenite, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     jobs::JobTriggerKind,
@@ -18,13 +21,30 @@ use windmill_common::{
     DB,
 };
 use windmill_queue::PushArgsOwned;
-use windmill_trigger::filter::{is_value_superset, Filter, JsonFilter};
-use windmill_trigger::listener::ListeningTrigger;
+use windmill_trigger::filter::CompiledFilters;
+use windmill_trigger::listener::{update_rw_lock, ListeningTrigger};
 use windmill_trigger::trigger_helpers::{
     trigger_runnable, trigger_runnable_and_wait_for_raw_result,
     trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
 };
 use windmill_trigger::Listener;
+
+const MAX_CONNECT_ATTEMPTS: u32 = 5;
+
+/// Whether a failed WebSocket connect is worth retrying: network-level IO
+/// errors and HTTP 5xx/429 handshake responses are typically transient (edge
+/// proxies like Cloudflare return 502/520 sporadically), while other errors
+/// (bad URL, protocol mismatch, other 4xx) point at configuration and would
+/// fail identically on every attempt.
+fn is_transient_connect_error(err: &tungstenite::Error) -> bool {
+    match err {
+        tungstenite::Error::Io(_) => true,
+        tungstenite::Error::Http(resp) => {
+            resp.status().is_server_error() || resp.status().as_u16() == 429
+        }
+        _ => false,
+    }
+}
 
 async fn send_initial_messages(
     listening_trigger: &ListeningTrigger<WebsocketConfig>,
@@ -171,12 +191,52 @@ impl Listener for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        let connection = connect_async(&*connect_url)
-            .await
-            .map(|conn| Some(conn))
-            .map_err(|err| to_anyhow(err).into());
+        let validated = validate_websocket_url_for_ssrf(&connect_url).await?;
 
-        connection
+        // Gateway endpoints are often fronted by an edge proxy (e.g. Cloudflare)
+        // that sporadically answers the upgrade request with a transient 5xx
+        // instead of `101 Switching Protocols`, and a `get_consumer` error
+        // disables the trigger until a human re-enables it — so retry transient
+        // failures with backoff before giving up. The caller runs `loop_ping`
+        // concurrently so `last_server_ping` stays alive across the sleeps, and
+        // killpill cancels this future between awaits.
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match connect_async_with_proxy(&*connect_url, validated.pinned_addrs()).await {
+                Ok(conn) => return Ok(Some(conn)),
+                // Only retry in trigger mode: a failed connect there disables the
+                // trigger until a human re-enables it, while capture mode is an
+                // interactive test where instant feedback beats resilience (an
+                // `Io` error can also be a permanent misconfiguration, e.g. a
+                // typo'd host, which should surface immediately when iterating).
+                Err(err)
+                    if listening_trigger.trigger_mode
+                        && attempt < MAX_CONNECT_ATTEMPTS
+                        && is_transient_connect_error(&err) =>
+                {
+                    let delay_secs = 1u64 << attempt;
+                    tracing::warn!(
+                        "Transient error connecting to WebSocket for trigger {} (attempt {}/{}), retrying in {}s: {}",
+                        listening_trigger.path,
+                        attempt,
+                        MAX_CONNECT_ATTEMPTS,
+                        delay_secs,
+                        err
+                    );
+                    update_rw_lock(
+                        err_message.clone(),
+                        Some(format!(
+                            "Connection attempt {}/{} failed ({}), retrying in {}s...",
+                            attempt, MAX_CONNECT_ATTEMPTS, err, delay_secs
+                        )),
+                    )
+                    .await;
+                    tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                }
+                Err(err) => return Err(to_anyhow(err).into()),
+            }
+        }
     }
     async fn consume(
         &self,
@@ -216,8 +276,10 @@ impl Listener for WebsocketTrigger {
             }
         }
 
+        let needs_sender = listening_trigger.trigger_config.can_return_message
+            || listening_trigger.trigger_config.heartbeat.is_some();
         let (return_message_channels, message_sender_handle) = if listening_trigger.trigger_mode
-            && listening_trigger.trigger_config.can_return_message
+            && needs_sender
         {
             let (send_message_tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
             let w_id = listening_trigger.workspace_id.clone();
@@ -243,22 +305,71 @@ impl Listener for WebsocketTrigger {
             (None, None)
         };
 
+        // Shared heartbeat state: tracks the latest value of the configured state_field
+        let heartbeat_state: Arc<RwLock<Option<serde_json::Value>>> = Arc::new(RwLock::new(None));
+
+        // Clone send channel for heartbeat use (only when heartbeat is configured)
+        let heartbeat_tx = if listening_trigger.trigger_config.heartbeat.is_some() {
+            return_message_channels
+                .as_ref()
+                .map(|c| c.send_message_tx.clone())
+        } else {
+            None
+        };
+
         tokio::select! {
             biased;
             _ = killpill_rx.recv() => {
             },
             _ = self.loop_ping(db, listening_trigger, err_message.clone(), None) => {
             },
+            // Heartbeat timer
             _ = async {
-                    let filters: Vec<Filter> = if listening_trigger.trigger_mode {
-                        listening_trigger
-                            .trigger_config
-                            .filters
-                            .iter()
-                            .filter_map(|m| serde_json::from_str(m.get()).ok())
-                            .collect_vec()
+                if let Some(ref hb) = listening_trigger.trigger_config.heartbeat {
+                    let interval_duration = std::time::Duration::from_secs(hb.interval_secs);
+                    let mut interval = tokio::time::interval(interval_duration);
+                    // Skip the first immediate tick
+                    interval.tick().await;
+
+                    loop {
+                        interval.tick().await;
+
+                        let msg = if hb.state_field.is_some() {
+                            let state_val = heartbeat_state.read().await;
+                            match &*state_val {
+                                Some(val) => hb.message.replace("{{state}}", &val.to_string()),
+                                None => hb.message.replace("{{state}}", "null"),
+                            }
+                        } else {
+                            hb.message.clone()
+                        };
+
+                        tracing::debug!("Sending heartbeat to WebSocket {}: {}", url, msg);
+
+                        if let Some(tx) = heartbeat_tx.as_ref() {
+                            if let Err(err) = tx.send(msg).await {
+                                tracing::error!("Failed to send heartbeat to WebSocket {}: {}", url, err);
+                                break;
+                            }
+                        } else {
+                            tracing::warn!("Heartbeat configured but no send channel available for WebSocket {}", url);
+                            break;
+                        }
+                    }
+                } else {
+                    futures::future::pending::<()>().await;
+                }
+            } => {},
+            // Message reader
+            _ = async {
+                    let filters = if listening_trigger.trigger_mode {
+                        CompiledFilters::parse(
+                            listening_trigger.trigger_config.filters.iter().map(|m| m.get()),
+                            listening_trigger.trigger_config.filter_logic == "or",
+                            &listening_trigger.path,
+                        )
                     } else {
-                        vec![]
+                        CompiledFilters::default()
                     };
                 loop {
                     if let Some(msg) = reader.next().await {
@@ -267,27 +378,19 @@ impl Listener for WebsocketTrigger {
                                 match msg {
                                     tokio_tungstenite::tungstenite::Message::Text(text) => {
                                         tracing::debug!("Received text message from WebSocket {}: {}", url, text);
-                                        let mut should_handle = true;
-                                        for filter in &filters {
-                                            match filter {
-                                                Filter::JsonFilter(JsonFilter { key, value }) => {
-                                                    let mut deserializer = serde_json::Deserializer::from_str(text.as_str());
-                                                    should_handle = match is_value_superset(&mut deserializer, key, &value) {
-                                                        Ok(filter_match) => {
-                                                            filter_match
-                                                        },
-                                                        Err(err) => {
-                                                            tracing::warn!("Error deserializing filter for WebSocket {}: {:?}", url, err);
-                                                            false
-                                                        }
-                                                    };
+
+                                        // Extract heartbeat state from every incoming message
+                                        if let Some(ref hb) = listening_trigger.trigger_config.heartbeat {
+                                            if let Some(ref field) = hb.state_field {
+                                                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
+                                                    if let Some(val) = parsed.get(field) {
+                                                        *heartbeat_state.write().await = Some(val.clone());
+                                                    }
                                                 }
                                             }
-                                            if !should_handle {
-                                                break;
-                                            }
                                         }
-                                        if should_handle {
+
+                                        if filters.matches(&text) {
                                             let trigger_info = HashMap::from([
                                                 ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
                                             ]);
@@ -367,7 +470,8 @@ impl Listener for WebsocketTrigger {
             None => (None, None, None),
         };
         let trigger = TriggerMetadata::new(Some(path.to_owned()), Self::JOB_TRIGGER_KIND);
-        if *suspended_mode || extra.is_none() {
+        let can_return_message = trigger_config.can_return_message;
+        if *suspended_mode || extra.is_none() || !can_return_message {
             trigger_runnable(
                 db,
                 None,
@@ -457,7 +561,7 @@ impl Clone for ReturnMessageChannels {
 }
 
 #[derive(Debug, Deserialize)]
-enum InitialMessage {
+pub(crate) enum InitialMessage {
     #[serde(rename = "raw_message")]
     RawMessage(String),
     #[serde(rename = "runnable_result")]

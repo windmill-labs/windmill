@@ -1,12 +1,19 @@
 <script lang="ts">
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -36,9 +43,13 @@
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 
 	let {
 		useDrawer = true,
@@ -92,6 +103,10 @@
 	let dynamicSkipPath: string | undefined = $state(undefined)
 	let script_path = $state('')
 	let initialScriptPath = $state('')
+	// When non-empty, the drawer was opened from the pipeline editor for an
+	// already-bound script. We swap the runnable ScriptPicker for a read-only
+	// viewer so the trigger can't be silently reassigned off the pipeline.
+	let fixedScriptPath = $state('')
 	let runnable: Script | Flow | undefined = $state()
 	let args: Record<string, any> = $state({})
 	let loading = $state(false)
@@ -105,6 +120,7 @@
 	let enabled: boolean = $state(false)
 	let pathError = $state('')
 	let summary = $state('')
+	let labels: string[] | undefined = $state(undefined)
 	let description = $state('')
 	let no_flow_overlap = $state(false)
 	let tag: string | undefined = $state(undefined)
@@ -125,24 +141,51 @@
 				emptyString(errorHandlerExtraArgs['channel'])) ||
 			!can_write
 	)
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	// Carry the acting workspace onto "create from template" routes when a
+	// session override is set, so the script is created in the session workspace.
+	const wsParam = $derived(triggerWs?.() ? `&workspace=${encodeURIComponent(wsId!)}` : '')
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
-	export async function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_schedule',
+		path: () => initialPath,
+		workspace: () => wsId,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => scheduleCfg,
+		applyCfg: loadScheduleCfg,
+		deployed: () => initialConfig
+	})
+
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultCfg?: Record<string, any>,
+		fixedScriptPath_?: string
+	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(SCHEDULES_PATH, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
-			await loadSchedule(defaultCfg)
-			edit = true
-		} finally {
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			const { overlay: draftOverlay, noDeployed } = await loadSchedule(defaultCfg)
+			// Draft-only schedules have no deployed row, so saving must CREATE (update 404s).
+			edit = !noDeployed
 			if (!defaultCfg) {
+				// Form holds DEPLOYED here; capture it as `initialConfig` so the
+				// dirty check / banner fires whenever a saved draft exists.
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
+			if (draftOverlay) await loadScheduleCfg(draftOverlay)
+			await draftSync.maybeRestore()
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -197,15 +240,15 @@
 			let defaultErrorHandlerMaybe = undefined
 			let defaultRecoveryHandlerMaybe = undefined
 			let defaultSuccessHandlerMaybe = undefined
-			if ($workspaceStore) {
+			if (wsId) {
 				defaultErrorHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_error_handler_' + $workspaceStore!
+					key: 'default_error_handler_' + wsId!
 				})) as any
 				defaultRecoveryHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_recovery_handler_' + $workspaceStore!
+					key: 'default_recovery_handler_' + wsId!
 				})) as any
 				defaultSuccessHandlerMaybe = (await SettingService.getGlobal({
-					key: 'default_success_handler_' + $workspaceStore!
+					key: 'default_success_handler_' + wsId!
 				})) as any
 			}
 
@@ -261,8 +304,11 @@
 		nis_flow: boolean,
 		initial_script_path?: string,
 		defaultValues?: Schedule,
-		schedule_path?: string
+		schedule_path?: string,
+		fixedScriptPath_?: string,
+		opts: { getDraft?: boolean } = {}
 	) {
+		const getDraft = opts.getDraft ?? true
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -270,10 +316,17 @@
 		try {
 			let s: Schedule | undefined
 			if (schedule_path) {
-				s = await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
-					path: schedule_path
+				const resp = await ScheduleService.getSchedule({
+					workspace: wsId!,
+					path: schedule_path,
+					getDraft
 				})
+				// `.draft` holds the saved Schedule; layer it over the deployed
+				// fields so the form assignments below see the last-saved state.
+				const { draft: draftFromBackend, ...deployedSchedule } = resp as any
+				s = draftFromBackend
+					? ({ ...deployedSchedule, ...draftFromBackend } as Schedule)
+					: (deployedSchedule as Schedule)
 				initNewPath = true
 			} else if (defaultValues) {
 				s = defaultValues
@@ -281,8 +334,14 @@
 			drawer?.openDrawer()
 			runnable = undefined
 			edit = false
+			// No deployed baseline for a brand-new schedule. The editor instance
+			// is reused across open() calls, so clear any baseline left by a prior
+			// openEdit — otherwise the "unsaved changes" banner / dirty check would
+			// compare against a stale config.
+			initialConfig = undefined
 			itemKind = (s?.is_flow ?? nis_flow) ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			path = initNewPath
 				? ''
 				: (defaultValues?.path ?? (trigger?.isPrimary ? initialScriptPath : ''))
@@ -296,6 +355,7 @@
 			paused_until = s?.paused_until ?? undefined
 			showPauseUntil = paused_until !== undefined
 			summary = s?.summary ?? ''
+			labels = s?.labels ?? undefined
 			description = s?.description ?? ''
 			script_path = s?.script_path ?? initialScriptPath
 			args = s?.args ?? {}
@@ -308,6 +368,9 @@
 			retry = s?.retry ?? undefined
 
 			await setScheduleHandler(s)
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -334,9 +397,9 @@
 			runnable = undefined
 			try {
 				if (is_flow) {
-					runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
+					runnable = await FlowService.getFlowByPath({ workspace: wsId!, path: p })
 				} else {
-					runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
+					runnable = await ScriptService.getScriptByPath({ workspace: wsId!, path: p })
 				}
 			} catch (err) {}
 		} else {
@@ -349,9 +412,9 @@
 			sendUserToast(`Setting default error handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore) {
+		if (wsId) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					handler_type: 'error',
 					override_existing: overrideExisting,
@@ -378,9 +441,9 @@
 			sendUserToast(`Setting default recovery handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore) {
+		if (wsId) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					handler_type: 'recovery',
 					override_existing: overrideExisting,
@@ -405,9 +468,9 @@
 			sendUserToast(`Setting default success handler is an enterprise edition feature`, true)
 			return
 		}
-		if ($workspaceStore) {
+		if (wsId) {
 			await ScheduleService.setDefaultErrorOrRecoveryHandler({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					handler_type: 'success',
 					override_existing: overrideExisting,
@@ -427,19 +490,36 @@
 		}
 	}
 
-	async function loadSchedule(defaultCfg?: Record<string, any>): Promise<void> {
-		if (!defaultCfg) {
-			try {
-				const s = await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
-					path: initialPath
-				})
-				await loadScheduleCfg(s)
-			} catch (err) {
-				sendUserToast(`Could not load schedule: ${err}`, true)
-			}
-		} else {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft overlay
+	 * so the caller captures `initialConfig` from the deployed-only form BEFORE
+	 * applying the draft, making the banner fire whenever a draft is present.
+	 */
+	async function loadSchedule(
+		defaultCfg?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
+		if (defaultCfg) {
 			await loadScheduleCfg(defaultCfg)
+			return { overlay: undefined, noDeployed: false }
+		}
+		try {
+			const s = await ScheduleService.getSchedule({
+				workspace: wsId!,
+				path: initialPath,
+				getDraft: true
+			})
+			const { draft: draftFromBackend, ...deployedSchedule } = s as any
+			await loadScheduleCfg(deployedSchedule)
+			return {
+				overlay: draftFromBackend
+					? ({ ...deployedSchedule, ...draftFromBackend } as Record<string, any>)
+					: undefined,
+				// Draft-only: synthesized stand-in, no row, so saving must CREATE.
+				noDeployed: !!(s as any).no_deployed
+			}
+		} catch (err) {
+			sendUserToast(`Could not load schedule: ${err}`, true)
+			return { overlay: undefined, noDeployed: false }
 		}
 	}
 
@@ -456,6 +536,7 @@
 		paused_until = cfg.paused_until
 		showPauseUntil = paused_until !== undefined
 		summary = cfg.summary ?? ''
+		labels = cfg.labels ?? undefined
 		description = cfg.description ?? ''
 		script_path = cfg.script_path ?? ''
 		await loadScript(script_path)
@@ -512,17 +593,19 @@
 		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
 		tag = cfg.tag
 		permissionedAs = cfg.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg.permissioned_as
+		preservePermissionedAs = !!cfg.permissioned_as
 
 		loading = false
 	}
 
 	async function scheduleScript(): Promise<void> {
+		const previousPath = initialPath
 		const scheduleCfg = getScheduleCfg()
 		deploymentLoading = true
-		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
+		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, wsId!)
 		if (isSaved) {
+			draftSync.discard(previousPath, scheduleCfg)
 			onUpdate?.(scheduleCfg.path)
 			drawer?.closeDrawer()
 		}
@@ -606,6 +689,7 @@
 			ws_error_handler_muted: wsErrorHandlerMuted,
 			retry: retry,
 			summary: summary != '' ? summary : undefined,
+			labels: labels,
 			description: description,
 			no_flow_overlap: no_flow_overlap,
 			tag: tag,
@@ -619,13 +703,22 @@
 	}
 
 	async function handleToggleEnabled(nEnabled: boolean) {
+		const previousEnabled = enabled
 		enabled = nEnabled
 		if (!trigger?.draftConfig) {
-			await ScheduleService.setScheduleEnabled({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: nEnabled }
-			})
+			const ok = await withForkConflictRetry(
+				(force) =>
+					ScheduleService.setScheduleEnabled({
+						path: initialPath,
+						workspace: wsId ?? '',
+						requestBody: { enabled: nEnabled, force }
+					}),
+				'schedule'
+			)
+			if (!ok) {
+				enabled = previousEnabled
+				return
+			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
 			onUpdate?.(initialPath)
 		}
@@ -642,6 +735,8 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerPath={initialPath}
+			triggerKind="schedule"
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
@@ -664,7 +759,7 @@
 							variant="default"
 							startIcon={{ icon: List }}
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-							href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
+							href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 						>
 							View runs
 						</Button>
@@ -673,7 +768,7 @@
 							variant="default"
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
 							on:click={() => {
-								runScheduleNow(script_path, path, is_flow, $workspaceStore!)
+								runScheduleNow(script_path, path, is_flow, wsId!)
 							}}
 						>
 							Run now
@@ -691,17 +786,16 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-8">
-			<Section label="Metadata">
+			<Section headless>
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-semibold text-emphasis">Summary</span>
@@ -727,11 +821,13 @@
 							bind:value={summary}
 						/>
 					</label>
+					<LabelsInput bind:labels class="-mt-4" />
 
 					<div class="flex flex-col gap-1">
 						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
 						{#if !edit && !trigger?.isPrimary}
 							<Path
+								workspaceOverride={wsId}
 								bind:dirty={dirtyPath}
 								bind:this={pathC}
 								checkInitialPathExistence={!edit}
@@ -842,11 +938,14 @@
 
 			<Section label="Runnable">
 				{#if !hideTarget}
-					{#if !edit}
+					{#if fixedScriptPath != ''}
+						<PipelineLockedRunnableInfo path={fixedScriptPath} />
+					{:else if !edit}
 						<p class="text-xs mb-1 text-secondary">
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
 						</p>
 						<ScriptPicker
+							workspace={wsId}
 							disabled={(initialScriptPath != '' && !initNewPath) || !can_write}
 							initialPath={initialScriptPath}
 							kinds={['script']}
@@ -866,6 +965,7 @@
 						</Alert>
 						<div class="my-2"></div>
 						<ScriptPicker
+							workspace={wsId}
 							disabled
 							initialPath={script_path}
 							scriptPath={script_path}
@@ -1002,6 +1102,7 @@
 					</div>
 
 					<ErrorOrRecoveryHandler
+						workspace={wsId}
 						isEditable={can_write}
 						errorOrRecovery="error"
 						showScriptHelpText={true}
@@ -1096,6 +1197,7 @@
 						</div>
 					{/snippet}
 					<ErrorOrRecoveryHandler
+						workspace={wsId}
 						isEditable={!disabled}
 						errorOrRecovery="recovery"
 						bind:handlerSelected={recoveryHandlerSelected}
@@ -1185,6 +1287,7 @@
 						</div>
 					{/snippet}
 					<ErrorOrRecoveryHandler
+						workspace={wsId}
 						isEditable={!disabled}
 						errorOrRecovery="success"
 						bind:handlerSelected={successHandlerSelected}
@@ -1254,6 +1357,7 @@
 						<Label label="Dynamic skip script">
 							<div class="flex flex-row">
 								<ScriptPicker
+									workspace={wsId}
 									disabled={!can_write}
 									bind:scriptPath={dynamicSkipPath}
 									kinds={['script']}
@@ -1265,7 +1369,7 @@
 										btnClasses="ml-4 whitespace-nowrap"
 										variant="default"
 										size="xs"
-										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template"
+										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template{wsParam}"
 										disabled={!can_write}
 										target="_blank"
 									>
@@ -1285,7 +1389,12 @@
 					label="Custom script tag"
 					tooltip="When set, the script tag will be overridden by this tag"
 				>
-					<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write} />
+					<WorkerTagPicker
+						bind:tag
+						workspaceId={wsId}
+						popupPlacement="top-end"
+						disabled={!can_write}
+					/>
 				</Section>
 			{/if}
 		{:else}
@@ -1295,8 +1404,9 @@
 {/snippet}
 
 {#if useDrawer}
-	<Drawer size="900px" bind:this={drawer}>
+	<Drawer size="900px" bind:this={drawer} on:close={() => clearPageDrawerAnchor(SCHEDULES_PATH)}>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit schedule ${initialPath}`
@@ -1308,6 +1418,16 @@
 				<div class="flex flex-row gap-4 items-center">
 					{@render saveButton()}
 				</div>
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render content()}
 		</DrawerContent>

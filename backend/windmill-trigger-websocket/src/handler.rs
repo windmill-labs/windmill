@@ -4,8 +4,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, PgConnection};
-use tokio_tungstenite::connect_async;
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
@@ -13,12 +12,41 @@ use windmill_common::{
     worker::to_raw_value,
 };
 use windmill_git_sync::DeployedObject;
-use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
+use windmill_trigger::{filter::CompiledFilters, Trigger, TriggerCrud, TriggerData};
 
 use super::{
-    get_url_from_runnable_value, TestWebsocketConfig, WebsocketConfig, WebsocketConfigRequest,
+    get_url_from_runnable_value, listener::InitialMessage, proxy::connect_async_with_proxy,
+    validate_websocket_url_for_ssrf, TestWebsocketConfig, WebsocketConfig, WebsocketConfigRequest,
     WebsocketTrigger,
 };
+
+/// A websocket_triggers:write token can configure secondary runnables that the
+/// listener later executes under the trigger owner's identity: a `$flow:`/
+/// `$script:` URL resolver and `initial_messages` of kind `runnable_result`.
+/// That execution happens in a background task where the reconstructed authed is
+/// scopeless (so its check_scopes is a no-op), so enforce run scope here, at
+/// create/update time, against the API caller's token.
+fn check_secondary_runnable_scopes(
+    authed: &ApiAuthed,
+    config: &WebsocketConfigRequest,
+) -> Result<()> {
+    if let Some(rest) = config.url.strip_prefix("$flow:") {
+        check_scopes(authed, || format!("jobs:run:flows:{}", rest))?;
+    } else if let Some(rest) = config.url.strip_prefix("$script:") {
+        check_scopes(authed, || format!("jobs:run:scripts:{}", rest))?;
+    }
+    if let Some(messages) = config.initial_messages.as_ref() {
+        for msg in messages {
+            if let Ok(InitialMessage::RunnableResult { path, is_flow, .. }) =
+                serde_json::from_value::<InitialMessage>(msg.clone())
+            {
+                let kind = if is_flow { "flows" } else { "scripts" };
+                check_scopes(authed, || format!("jobs:run:{}:{}", kind, path))?;
+            }
+        }
+    }
+    Ok(())
+}
 
 #[async_trait]
 impl TriggerCrud for WebsocketTrigger {
@@ -29,6 +57,8 @@ impl TriggerCrud for WebsocketTrigger {
 
     const TABLE_NAME: &'static str = "websocket_trigger";
     const TRIGGER_TYPE: &'static str = "websocket";
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind =
+        windmill_common::user_drafts::UserDraftItemKind::TriggerWebsocket;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/websocket_triggers";
@@ -36,10 +66,12 @@ impl TriggerCrud for WebsocketTrigger {
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
         "url",
         "filters",
+        "filter_logic",
         "initial_messages",
         "url_runnable_args",
         "can_return_message",
         "can_return_error_result",
+        "heartbeat",
     ];
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
@@ -59,10 +91,32 @@ impl TriggerCrud for WebsocketTrigger {
             ));
         }
 
+        // Reject SSRF targets at save time for static URLs. A `$flow:`/`$script:`
+        // URL is only known at runtime, so it is validated at connect time
+        // instead (in the listener and test handler).
+        if !config.url.starts_with('$') {
+            validate_websocket_url_for_ssrf(&config.url).await?;
+        }
+
         if let Some(args) = &config.url_runnable_args {
             if !args.is_object() {
                 return Err(Error::BadRequest(
                     "url_runnable_args must be an object".to_string(),
+                ));
+            }
+        }
+
+        CompiledFilters::validate(&config.filters)?;
+
+        if let Some(ref hb) = config.heartbeat {
+            if hb.interval_secs < 1 {
+                return Err(Error::BadRequest(
+                    "heartbeat interval_secs must be at least 1".to_string(),
+                ));
+            }
+            if hb.message.is_empty() {
+                return Err(Error::BadRequest(
+                    "heartbeat message cannot be empty".to_string(),
                 ));
             }
         }
@@ -78,6 +132,7 @@ impl TriggerCrud for WebsocketTrigger {
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        check_secondary_runnable_scopes(authed, &trigger.config)?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger
@@ -103,6 +158,7 @@ impl TriggerCrud for WebsocketTrigger {
                 is_flow,
                 mode,
                 filters,
+                filter_logic,
                 initial_messages,
                 url_runnable_args,
                 edited_by,
@@ -112,9 +168,10 @@ impl TriggerCrud for WebsocketTrigger {
                 edited_at,
                 error_handler_path,
                 error_handler_args,
-                retry
+                retry,
+                heartbeat
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15, $16
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17, $18
             )
             "#,
             w_id,
@@ -124,6 +181,7 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.base.is_flow,
             trigger.base.mode() as _,
             &filters as _,
+            trigger.config.filter_logic,
             &initial_messages as _,
             trigger
                 .config
@@ -135,7 +193,8 @@ impl TriggerCrud for WebsocketTrigger {
             resolved_permissioned_as,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            trigger.config.heartbeat.map(SqlxJson) as _
         )
         .execute(&mut *tx)
         .await?;
@@ -151,6 +210,7 @@ impl TriggerCrud for WebsocketTrigger {
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        check_secondary_runnable_scopes(authed, &trigger.config)?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger
@@ -178,26 +238,29 @@ impl TriggerCrud for WebsocketTrigger {
             path = $3,
             is_flow = $4,
             filters = $5,
-            initial_messages = $6,
-            url_runnable_args = $7,
-            edited_by = $8,
-            permissioned_as = $9,
-            can_return_message = $10,
-            can_return_error_result = $11,
+            filter_logic = $6,
+            initial_messages = $7,
+            url_runnable_args = $8,
+            edited_by = $9,
+            permissioned_as = $10,
+            can_return_message = $11,
+            can_return_error_result = $12,
             edited_at = now(),
             server_id = NULL,
             error = NULL,
-            error_handler_path = $14,
-            error_handler_args = $15,
-            retry = $16
+            error_handler_path = $15,
+            error_handler_args = $16,
+            retry = $17,
+            heartbeat = $18
         WHERE
-            workspace_id = $12 AND path = $13
+            workspace_id = $13 AND path = $14
     ",
             trigger.config.url,
             trigger.base.script_path,
             trigger.base.path,
             trigger.base.is_flow,
             filters.as_slice() as &[SqlxJson<Box<RawValue>>],
+            trigger.config.filter_logic,
             initial_messages.as_slice() as &[SqlxJson<Box<RawValue>>],
             trigger
                 .config
@@ -212,7 +275,8 @@ impl TriggerCrud for WebsocketTrigger {
             path,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            trigger.config.heartbeat.map(SqlxJson) as _
         )
         .execute(&mut *tx)
         .await?;
@@ -254,12 +318,16 @@ impl TriggerCrud for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        connect_async(&*connect_url).await.map_err(|err| {
-            Error::BadConfig(format!(
-                "Error connecting to WebSocket: {}",
-                err.to_string()
-            ))
-        })?;
+        let validated = validate_websocket_url_for_ssrf(&connect_url).await?;
+
+        connect_async_with_proxy(&*connect_url, validated.pinned_addrs())
+            .await
+            .map_err(|err| {
+                Error::BadConfig(format!(
+                    "Error connecting to WebSocket: {}",
+                    err.to_string()
+                ))
+            })?;
 
         Ok(())
     }

@@ -49,6 +49,7 @@
 		capturesTab?: import('svelte').Snippet
 		customResultPanel?: import('svelte').Snippet
 		showCustomResultPanel?: boolean
+		onTabChange?: (tab: string) => void
 	}
 
 	let {
@@ -65,7 +66,8 @@
 		children,
 		capturesTab,
 		customResultPanel,
-		showCustomResultPanel = false
+		showCustomResultPanel = false,
+		onTabChange
 	}: Props = $props()
 
 	type DContent = {
@@ -77,6 +79,10 @@
 	let selectedTab = $state('logs')
 	let drawerOpen: boolean = $state(false)
 	let drawerContent: DContent | undefined = $state(undefined)
+
+	$effect(() => {
+		onTabChange?.(selectedTab)
+	})
 
 	export function setFocusToLogs() {
 		selectedTab = 'logs'
@@ -106,6 +112,14 @@
 
 	let forceJson = $state(false)
 	let isWac = $derived(!!previewJob?.workflow_as_code_status)
+	// Hide the tab strip when only the "Logs & Result" tab would render —
+	// avoids a single-item bar in embedded contexts (e.g. asset graph pane).
+	let visibleTabCount = $derived(
+		1 +
+			(customUi?.disableHistory !== true ? 1 : 0) +
+			(showCaptures && customUi?.disableTriggerCaptures !== true ? 1 : 0) +
+			(customUi?.disableTracing !== true ? 1 : 0)
+	)
 	let wacDone = $derived(
 		previewJob?.type == 'CompletedJob' ||
 			(previewJob != undefined && !previewIsLoading && !!previewJob.workflow_as_code_status)
@@ -134,7 +148,11 @@
 	</DrawerContent>
 </Drawer>
 <div class="h-full flex flex-col">
-	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
+	<Tabs
+		bind:selected={selectedTab}
+		class="pt-1"
+		wrapperClass={visibleTabCount > 1 ? 'flex-none' : 'hidden'}
+	>
 		<Tab value="logs" label="Logs & Result" />
 		{#if customUi?.disableHistory !== true}
 			<Tab value="history" label="History" />
@@ -163,7 +181,7 @@
 						</div>
 					{:else}
 						<SplitPanesWrapper>
-							<Splitpanes horizontal>
+							<Splitpanes horizontal={customUi?.logsResultSideBySide !== true}>
 								<Pane class="relative">
 									<LogViewer
 										jobId={previewJob?.id}
@@ -205,9 +223,11 @@
 										</div>
 									{:else}
 										<div class="text-sm text-primary p-2 flex justify-between items-center">
-											<span>
+											<!-- min-h pins this to the text-sm line box, and tracks it across root font
+											     sizes, so swapping the text for the spinner does not resize the row -->
+											<span class="flex items-center min-h-5">
 												{#if previewIsLoading}
-													<Loader2 class="animate-spin" />
+													<Loader2 size={14} class="animate-spin" />
 												{:else}
 													Test to see the result here
 												{/if}

@@ -84,7 +84,7 @@ fi
 
 if [ "$REVERT" == "YES" ]; then
   backend_dirpath="${root_dirpath}/backend/"
-  for ce_file in $(find "${root_dirpath}/backend" -name "*_ee.rs"); do
+  for ce_file in $(find "${root_dirpath}/backend" \( -name "*_ee.rs" -o -name "ee.rs" \)); do
     if [ -L "${ce_file}" ]; then
       rm "${ce_file}"
       echo "Deleted symlink '${ce_file}'"

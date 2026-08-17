@@ -1,13 +1,19 @@
 <script lang="ts">
-	import type { FlowModule, FlowValue } from '$lib/gen'
+	import type { FlowModule, FlowValue, TriggersCount } from '$lib/gen'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, hasContext, setContext } from 'svelte'
+	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { dfs } from './flows/dfs'
 	import { workspaceStore } from '$lib/stores'
+	import { untrack } from 'svelte'
+	import { publishLinkedAgentTools } from './flows/flowState'
+	import { linkedToolsScope } from './flows/linkedAgentToolsStore.svelte'
 
 	interface Props {
 		flow: {
@@ -27,6 +33,8 @@
 		minHeight?: number
 		noBorder?: boolean
 		hideDefaultInputs?: boolean
+		provideTriggerContext?: boolean
+		fillAvailableHeight?: boolean
 	}
 
 	let {
@@ -40,28 +48,61 @@
 		workspace = $workspaceStore,
 		minHeight = 400,
 		noBorder = false,
-		hideDefaultInputs = false
+		hideDefaultInputs = false,
+		provideTriggerContext = false,
+		fillAvailableHeight = false
 	}: Props = $props()
 
+	let availableHeight = $state(0)
+
+	if (provideTriggerContext && !hasContext('TriggerContext')) {
+		const triggersCount = writable<TriggersCount | undefined>(undefined)
+		setContext<TriggerContext>('TriggerContext', {
+			triggersCount,
+			simplifiedPoll: writable(false),
+			showCaptureHint: writable(undefined),
+			triggersState: new Triggers()
+		})
+	}
+
 	const dispatch = createEventDispatcher()
+
+	// This read-only viewer doesn't run initFlowState, so linked agents' tools would otherwise never
+	// resolve. Resolve them for display, keyed by module id. Best-effort: publishLinkedAgentTools
+	// swallows access errors and publishes [], so an inaccessible agent simply shows no tool nodes
+	// (its label still names the link) — this never affects a run.
+	$effect(() => {
+		// Flow modules only: resource-imported tool ids are not flow-global, so publishing a nested
+		// linked agent under its bare id would supersede a top-level step that happens to share it.
+		const modules = dfs(flow?.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+		const ws = workspace
+		untrack(() => {
+			for (const m of modules) {
+				const value = m?.value as { type?: string; agent?: string } | undefined
+				if (value?.type === 'aiagent' && value.agent) {
+					publishLinkedAgentTools(value.agent, ws, linkedToolsScope(ws, flow?.path), m.id)
+				}
+			}
+		})
+	})
 </script>
 
-<div class="grid grid-cols-3 w-full h-full">
+<div bind:clientHeight={availableHeight} class="grid grid-cols-3 w-full h-full min-h-0">
 	{#if !noGraph}
 		<div
 			class="{noSide || (hideDefaultInputs && stepDetail == undefined)
 				? 'col-span-3'
-				: 'sm:col-span-2 col-span-3'} w-full max-h-full"
+				: 'sm:col-span-2 col-span-3'} w-full h-full min-h-0 max-h-full"
 			class:overflow-auto={overflowAuto}
 			class:border={!noBorder}
 		>
 			<FlowGraphV2
 				{triggerNode}
-				earlyStop={flow.value.skip_expr !== undefined}
-				cache={flow.value.cache_ttl !== undefined}
+				earlyStop={flow?.value?.skip_expr !== undefined}
+				cache={flow?.value?.cache_ttl !== undefined}
 				path={flow?.path}
 				{download}
-				{minHeight}
+				minHeight={fillAvailableHeight ? Math.max(minHeight, availableHeight) : minHeight}
 				{workspace}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
@@ -88,11 +129,13 @@
 	{#if !noSide && !(hideDefaultInputs && stepDetail == undefined)}
 		<div
 			class={twMerge(
-				'relative w-full h-full min-h-[150px] max-h-[90vh] border-r border-b border-t p-2 pt-0 overflow-auto hidden sm:flex flex-col gap-4',
+				fillAvailableHeight
+					? 'relative w-full h-full min-h-0 border-r border-b border-t p-2 pt-0 overflow-auto hidden sm:flex flex-col gap-4'
+					: 'relative w-full h-full min-h-[150px] max-h-[90vh] border-r border-b border-t p-2 pt-0 overflow-auto hidden sm:flex flex-col gap-4',
 				noGraph ? 'border-0 w-max' : ''
 			)}
 		>
-			<FlowGraphViewerStep schema={flow.schema} {stepDetail} {hideDefaultInputs} />
+			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} {workspace} />
 		</div>
 	{/if}
 </div>

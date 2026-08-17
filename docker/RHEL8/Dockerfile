@@ -1,6 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=registry.access.redhat.com/ubi8/ubi:latest
-ARG PYTHON_IMAGE=python:3.11.10-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
 
@@ -30,6 +29,7 @@ RUN npm ci
 COPY frontend .
 RUN mkdir /backend
 COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
+COPY /backend/oauth_connect.json /backend/oauth_connect.json
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
 COPY /system_prompts/auto-generated /system_prompts/auto-generated
@@ -41,6 +41,8 @@ COPY /python-client/docs/ /frontend/static/pydocs/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
+# Must be declared for the build-arg to reach the bundle. See frontend/svelte.config.js.
+ARG WM_BUILD_VERSION=""
 RUN npm run build
 
 
@@ -84,6 +86,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
     cd windmill-duckdb-ffi-internal && \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
 

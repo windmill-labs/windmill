@@ -94,6 +94,22 @@ wm_copy_dependencies() {
   fi
 }
 
+wm_copy_optional_env_files() {
+  local repo_root=$1
+  local main_repo_root=$2
+  local rel_path src_env dst_dir
+
+  for rel_path in "integration_tests/ai_agent_tests" "ai_evals"; do
+    src_env="${main_repo_root}/${rel_path}/.env"
+    dst_dir="${repo_root}/${rel_path}"
+    if [[ -f "$src_env" ]]; then
+      mkdir -p "$dst_dir"
+      cp "$src_env" "${dst_dir}/.env"
+      echo "Copied ${rel_path}/.env"
+    fi
+  done
+}
+
 wm_allow_direnv() {
   local repo_root=$1
   if command -v direnv >/dev/null 2>&1 && [[ -f "${repo_root}/.envrc" ]]; then
@@ -148,10 +164,20 @@ wm_find_ee_repo() {
   return 1
 }
 
+# The EE commit this CE checkout builds against. CI reads the same file, so basing a new EE
+# worktree on it keeps a local `cargo check --features private` on the tree CI compiles. Local
+# `main` in the EE repo is not a substitute: nothing fast-forwards it, so it drifts behind the pin.
+wm_ee_pinned_ref() {
+  local repo_root=$1 ref
+  ref="$(tr -d '[:space:]' < "${repo_root}/backend/ee-repo-ref.txt" 2>/dev/null)" || return 1
+  [[ -n "$ref" ]] || return 1
+  printf '%s' "$ref"
+}
+
 wm_setup_ee_worktree() {
   local repo_root=$1
   local main_repo_root=$2
-  local ee_repo branch wt_basename ee_worktree_dir ee_rel rust_plugin
+  local ee_repo branch wt_basename ee_worktree_dir ee_rel rust_plugin ee_ref
 
   if ! ee_repo="$(wm_find_ee_repo "$repo_root" "$main_repo_root")"; then
     return
@@ -165,10 +191,19 @@ wm_setup_ee_worktree() {
     mkdir -p "$(dirname "$ee_worktree_dir")"
     git -C "$ee_repo" fetch --quiet 2>/dev/null || true
 
-    if git -C "$ee_repo" worktree add "$ee_worktree_dir" "$branch" 2>/dev/null; then
-      echo "Created EE worktree at $ee_worktree_dir (branch: $branch)"
+    # Guard on refs/heads: without it, `worktree add` DWIMs a remote-only branch
+    # into a new local branch here, skipping the explicit --track arm below.
+    if git -C "$ee_repo" show-ref --verify --quiet "refs/heads/$branch" \
+         && git -C "$ee_repo" worktree add "$ee_worktree_dir" "$branch" 2>/dev/null; then
+      echo "Created EE worktree at $ee_worktree_dir (existing local branch: $branch)"
+    elif git -C "$ee_repo" show-ref --verify --quiet "refs/remotes/origin/$branch" \
+         && git -C "$ee_repo" worktree add --track -b "$branch" "$ee_worktree_dir" "origin/$branch" 2>/dev/null; then
+      echo "Created EE worktree at $ee_worktree_dir (tracking origin/$branch)"
+    elif ee_ref="$(wm_ee_pinned_ref "$repo_root")" \
+         && git -C "$ee_repo" worktree add -b "$branch" "$ee_worktree_dir" "$ee_ref" 2>/dev/null; then
+      echo "Created EE worktree at $ee_worktree_dir (new branch: $branch from pinned ${ee_ref:0:12})"
     elif git -C "$ee_repo" worktree add -b "$branch" "$ee_worktree_dir" main 2>/dev/null; then
-      echo "Created EE worktree at $ee_worktree_dir (new branch: $branch from main)"
+      echo "Created EE worktree at $ee_worktree_dir (new branch: $branch from main — pin unavailable)"
     else
       echo "Warning: Could not create EE worktree for branch $branch"
     fi
@@ -217,6 +252,7 @@ wm_shared_post_create() {
   wm_allow_direnv "$repo_root"
   wm_setup_database "$repo_root" "${repo_root}/.env.local"
   wm_copy_dependencies "$repo_root" "$main_repo_root"
+  wm_copy_optional_env_files "$repo_root" "$main_repo_root"
   wm_trust_claude "$repo_root"
   wm_setup_ee_worktree "$repo_root" "$main_repo_root"
 }

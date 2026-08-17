@@ -23,13 +23,15 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics,
-        DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::{self},
     is_sandboxing_enabled, read_ee_registry_url_list_with_workspace_override,
-    universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
+    universal_pkg_installer::{
+        par_install_language_dependencies_seq, InstallDeps, RequiredDependency,
+    },
     DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
     TRACING_PROXY_CA_CERT_PATH,
 };
@@ -617,8 +619,9 @@ async fn install<'a>(
         envs.clone(),
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?,
     );
+    let nsjail_tmp_mount_block = resolve_nsjail_tmp_mount_block(&job_dir).await;
     par_install_language_dependencies_seq(
-        deps.clone(),
+        InstallDeps::Flat(deps.clone()),
         "ruby",
         "gem",
         false,
@@ -636,6 +639,7 @@ async fn install<'a>(
                         .replace("{TARGET}", &dependency.path)
                         .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                         .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                        .replace("{TMP_MOUNT_BLOCK}", &nsjail_tmp_mount_block)
                         .replace("#{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
                 )?;
                 let mut cmd = Command::new(NSJAIL_PATH.as_str());
@@ -721,7 +725,7 @@ async fn install<'a>(
 
             Ok(cmd)
         },
-        // async move |_| Ok(()),
+        None,
         &job.id,
         &job.workspace_id,
         worker_name,
@@ -808,6 +812,10 @@ mount {{
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
@@ -820,8 +828,14 @@ mount {{
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Ruby, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Ruby,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .args(vec![
                 "--config",
@@ -862,8 +876,14 @@ mount {{
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Ruby, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Ruby,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .envs(envs);
 

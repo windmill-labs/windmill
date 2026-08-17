@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Button } from '$lib/components/common'
+	import { Alert, Badge, Button } from '$lib/components/common'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -8,27 +8,65 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { FlowService, FolderService, IntegrationService, ScriptService } from '$lib/gen'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
+	import {
+		endpointPathPolicy,
+		isEndpointExposed,
+		matchesAnyPattern,
+		parseMcpScopeState,
+		pruneEndpointSelection
+	} from '$lib/components/mcp/endpointScopePolicy'
 	import InfoIcon from 'lucide-svelte/icons/info'
 	import { SvelteMap } from 'svelte/reactivity'
 
 	interface Props {
 		workspaceId: string
 		scope: string
+		initialScope?: string
+		readOnly?: boolean
 	}
 
-	let { workspaceId, scope = $bindable() }: Props = $props()
+	let { workspaceId, scope = $bindable(), initialScope, readOnly = false }: Props = $props()
 
-	let selectedMode = $state<'favorites' | 'all' | 'folder' | 'custom'>('favorites')
-	let selectedFolders = $state<string[]>([])
+	// Mirrors ITEMS_FETCH_MAX_LIMIT in backend/windmill-api/src/mcp/utils.rs: the
+	// server exposes at most this many scripts and this many flows (per type) as
+	// MCP tools, taking the most recently created. A scope matching more than this
+	// silently drops the overflow, so we warn at configuration time.
+	const MCP_TOOL_FETCH_LIMIT = 100
+
+	// Endpoints we can actually advertise to a read-only MCP token. Mirrors the
+	// runner's filter (only GET endpoints).
+	const visibleEndpointTools = $derived(
+		readOnly ? mcpEndpointTools.filter((e) => e.method === 'GET') : mcpEndpointTools
+	)
+
+	// Endpoints the "API Endpoints" list actually governs. The run-by-path tools
+	// are gated by the script/flow selection instead, so listing them here would
+	// offer a checkbox the server ignores; they get their own section.
+	const selectableEndpointTools = $derived(
+		visibleEndpointTools.filter((e) => endpointPathPolicy(e.name)?.kind !== 'runByPath')
+	)
+
+	$effect(() => {
+		if (selectedEndpoints.length === 0) return
+		const filtered = pruneEndpointSelection(selectedEndpoints, readOnly)
+		if (filtered.length !== selectedEndpoints.length) {
+			selectedEndpoints = filtered
+		}
+	})
+
+	const parsedInitial = parseInitialScope(initialScope)
+
+	let selectedMode = $state<'favorites' | 'all' | 'folder' | 'custom'>(parsedInitial.mode)
+	let selectedFolders = $state<string[]>(parsedInitial.folders)
 	let allFolders = $state<string[]>([])
 	let loadingFolders = $state(false)
 	let folderNamesCache = new Map<string, string[]>()
-	let selectedScripts = $state<string[]>([])
-	let selectedFlows = $state<string[]>([])
-	let selectedEndpoints = $state<string[]>([])
-	let customScriptPatterns = $state<string>('')
-	let customFlowPatterns = $state<string>('')
-	let newMcpApps = $state<string[]>([])
+	let selectedScripts = $state<string[]>(parsedInitial.scripts)
+	let selectedFlows = $state<string[]>(parsedInitial.flows)
+	let selectedEndpoints = $state<string[]>(parsedInitial.endpoints)
+	let customScriptPatterns = $state<string>(parsedInitial.scriptPatterns)
+	let customFlowPatterns = $state<string>(parsedInitial.flowPatterns)
+	let newMcpApps = $state<string[]>(parsedInitial.hubApps)
 
 	let allScripts = $state<string[]>([])
 	let allFlows = $state<string[]>([])
@@ -38,7 +76,7 @@
 	let loadingRunnables = $state(false)
 	let includedRunnables = $state<string[]>([])
 
-	let runnablesCache = new SvelteMap<string, string[]>()
+	let runnablesCache = new SvelteMap<string, { scripts: string[]; flows: string[] }>()
 
 	function parsePatterns(input: string): string[] {
 		return input
@@ -47,8 +85,105 @@
 			.filter((p) => p.length > 0)
 	}
 
-	// Compute scope string from selections
-	$effect(() => {
+	type ParsedScope = {
+		mode: 'favorites' | 'all' | 'folder' | 'custom'
+		folders: string[]
+		scripts: string[]
+		flows: string[]
+		endpoints: string[]
+		scriptPatterns: string
+		flowPatterns: string
+		hubApps: string[]
+	}
+
+	function parseInitialScope(input: string | undefined): ParsedScope {
+		const empty: ParsedScope = {
+			mode: 'favorites',
+			folders: [],
+			scripts: [],
+			flows: [],
+			endpoints: [],
+			scriptPatterns: '',
+			flowPatterns: '',
+			hubApps: []
+		}
+		if (!input) return empty
+
+		const parts = input.split(/\s+/).filter((p) => p.length > 0)
+		if (parts.length === 0) return empty
+
+		const byKind: Record<string, string[]> = {}
+		let mode: ParsedScope['mode'] = 'custom'
+		const hubApps: string[] = []
+
+		for (const part of parts) {
+			if (part === 'mcp:favorites') {
+				mode = 'favorites'
+			} else if (part === 'mcp:all') {
+				mode = 'all'
+			} else if (part.startsWith('mcp:hub:')) {
+				hubApps.push(...parsePatterns(part.slice('mcp:hub:'.length)))
+			} else if (part.startsWith('mcp:scripts:')) {
+				byKind.scripts = parsePatterns(part.slice('mcp:scripts:'.length))
+			} else if (part.startsWith('mcp:flows:')) {
+				byKind.flows = parsePatterns(part.slice('mcp:flows:'.length))
+			} else if (part.startsWith('mcp:endpoints:')) {
+				byKind.endpoints = parsePatterns(part.slice('mcp:endpoints:'.length))
+			}
+		}
+
+		// Detect folder mode: scripts and flows are exclusively `f/X/*` patterns
+		// for the same set of folders, and endpoints is exactly `*`.
+		const folderRe = /^f\/([^/]+)\/\*$/
+		const scriptFolders = (byKind.scripts ?? []).map((p) => p.match(folderRe)?.[1])
+		const flowFolders = (byKind.flows ?? []).map((p) => p.match(folderRe)?.[1])
+		const allScriptsAreFolders = scriptFolders.length > 0 && scriptFolders.every((f) => !!f)
+		const allFlowsAreFolders = flowFolders.length > 0 && flowFolders.every((f) => !!f)
+		const sameFolders =
+			allScriptsAreFolders &&
+			allFlowsAreFolders &&
+			scriptFolders.length === flowFolders.length &&
+			scriptFolders.every((f, i) => f === flowFolders[i])
+		const endpointsIsAll = byKind.endpoints?.length === 1 && byKind.endpoints[0] === '*'
+
+		if (mode !== 'favorites' && mode !== 'all' && sameFolders && endpointsIsAll) {
+			return {
+				mode: 'folder',
+				folders: scriptFolders.filter((f): f is string => !!f),
+				scripts: [],
+				flows: [],
+				endpoints: [],
+				scriptPatterns: '',
+				flowPatterns: '',
+				hubApps
+			}
+		}
+
+		if (mode === 'favorites' || mode === 'all') {
+			return { ...empty, mode, hubApps }
+		}
+
+		// Custom mode: split each list into "selectable" entries (later filtered
+		// against allScripts/allFlows once loaded) and free-form patterns.
+		// We can't know yet which are real paths vs wildcard patterns, so pass
+		// everything as patterns; once allScripts/allFlows load, $effect will
+		// move matching entries into selectedScripts/selectedFlows.
+		return {
+			mode: 'custom',
+			folders: [],
+			scripts: [],
+			flows: [],
+			endpoints: byKind.endpoints ?? [],
+			scriptPatterns: (byKind.scripts ?? []).join(','),
+			flowPatterns: (byKind.flows ?? []).join(','),
+			hubApps
+		}
+	}
+
+	// Compute scope string from selections. Derived rather than assigned straight
+	// to `scope` so the exposure previews below can read it in the same pass as
+	// the selection that changed it.
+	const computedScope = $derived.by(() => {
 		let scopeParts: string[] = []
 
 		if (selectedMode === 'custom') {
@@ -84,7 +219,11 @@
 			scopeParts.push(`mcp:hub:${newMcpApps.join(',')}`)
 		}
 
-		scope = scopeParts.join(' ')
+		return scopeParts.join(' ')
+	})
+
+	$effect(() => {
+		scope = computedScope
 	})
 
 	// Clear pattern inputs when not in custom scope
@@ -112,9 +251,9 @@
 		try {
 			loadingFolders = true
 			const excludedFolders = ['app_groups', 'app_custom', 'app_themes']
-			const names = (
-				await FolderService.listFolderNames({ workspace })
-			).filter((x) => !excludedFolders.includes(x))
+			const names = (await FolderService.listFolderNames({ workspace })).filter(
+				(x) => !excludedFolders.includes(x)
+			)
 			folderNamesCache.set(workspace, names)
 			allFolders = names
 		} catch {
@@ -151,7 +290,11 @@
 		folder: string | undefined
 	) {
 		if (!workspace) return []
-		const pathStart = folder ? `f/${folder}` : undefined
+		// Trailing slash so the backend prefix (`o.path LIKE 'f/{folder}/%'`) is
+		// anchored at the folder boundary — otherwise a sibling like `f/team2`
+		// shares the `f/team` prefix and its newer rows can fill the page ahead
+		// of the target folder's rows.
+		const pathStart = folder ? `f/${folder}/` : undefined
 		const scripts = await ScriptService.listScripts({
 			starredOnly: favoriteOnly,
 			workspace,
@@ -167,7 +310,11 @@
 		folder: string | undefined
 	) {
 		if (!workspace) return []
-		const pathStart = folder ? `f/${folder}` : undefined
+		// Trailing slash so the backend prefix (`o.path LIKE 'f/{folder}/%'`) is
+		// anchored at the folder boundary — otherwise a sibling like `f/team2`
+		// shares the `f/team` prefix and its newer rows can fill the page ahead
+		// of the target folder's rows.
+		const pathStart = folder ? `f/${folder}/` : undefined
 		const flows = await FlowService.listFlows({
 			starredOnly: favoriteOnly,
 			workspace,
@@ -177,28 +324,31 @@
 		return flows.map((x) => x.path)
 	}
 
-	async function getScriptsAndFlows(
-		favoriteOnly: boolean = false,
+	// Fetch scripts+flows for a scope, cached and split by type so the same data
+	// feeds both the preview list and the truncation count (no duplicate fetch).
+	// The `f/{folder}/` fetch prefix already anchors at the folder boundary; the
+	// extra filter only guards a folder name whose LIKE wildcards (`_`, `%`) let
+	// the backend prefix over-match (e.g. `a_b` also matching `axb`).
+	async function fetchScriptsAndFlows(
 		workspace: string,
+		favoriteOnly: boolean,
 		folder: string | undefined
-	) {
+	): Promise<{ scripts: string[]; flows: string[] }> {
 		const cacheKey = `${workspace}-${favoriteOnly}${folder ? `-${folder}` : ''}`
-		if (runnablesCache.has(cacheKey)) {
-			includedRunnables = runnablesCache.get(cacheKey) || []
-			return
+		const cached = runnablesCache.get(cacheKey)
+		if (cached) return cached
+		let [scripts, flows] = await Promise.all([
+			getScripts(favoriteOnly, workspace, folder),
+			getFlows(favoriteOnly, workspace, folder)
+		])
+		if (folder) {
+			const pattern = [`f/${folder}/*`]
+			scripts = scripts.filter((p) => matchesAnyPattern(p, pattern))
+			flows = flows.filter((p) => matchesAnyPattern(p, pattern))
 		}
-		try {
-			loadingRunnables = true
-			const [scripts, flows] = await Promise.all([
-				getScripts(favoriteOnly, workspace, folder),
-				getFlows(favoriteOnly, workspace, folder)
-			])
-			const combined = [...scripts, ...flows]
-			runnablesCache.set(cacheKey, combined)
-			includedRunnables = combined
-		} finally {
-			loadingRunnables = false
-		}
+		const result = { scripts, flows }
+		runnablesCache.set(cacheKey, result)
+		return result
 	}
 
 	async function loadAllScriptsAndFlows(workspace: string) {
@@ -215,44 +365,51 @@
 		}
 	}
 
-	// Load runnables based on mode
-	$effect(() => {
-		if (workspaceId) {
-			if (selectedMode === 'folder') {
-				if (selectedFolders.length > 0) {
-					loadRunnablesForFolders(workspaceId, selectedFolders)
-				} else {
-					includedRunnables = []
-				}
-			} else {
-				getScriptsAndFlows(selectedMode === 'favorites', workspaceId, undefined)
-			}
+	// Load the preview list AND the exposed per-type counts for non-custom modes
+	// from a single (cached) fetch — no duplicate requests. A sequence guard drops
+	// stale async results when the scope changes faster than the fetches resolve.
+	let runnablesSeq = 0
+	async function loadRunnablesAndCounts() {
+		const seq = ++runnablesSeq
+		const ws = workspaceId
+		if (!ws || selectedMode === 'custom') return
+		if (selectedMode === 'folder' && selectedFolders.length === 0) {
+			includedRunnables = []
+			exposedScriptCount = 0
+			exposedFlowCount = 0
+			return
 		}
-	})
-
-	async function getCachedRunnables(workspace: string, folder: string): Promise<string[]> {
-		const cacheKey = `${workspace}-false-${folder}`
-		if (runnablesCache.has(cacheKey)) {
-			return runnablesCache.get(cacheKey) || []
-		}
-		const [scripts, flows] = await Promise.all([
-			getScripts(false, workspace, folder),
-			getFlows(false, workspace, folder)
-		])
-		const combined = [...scripts, ...flows]
-		runnablesCache.set(cacheKey, combined)
-		return combined
-	}
-
-	async function loadRunnablesForFolders(workspace: string, folders: string[]) {
+		loadingRunnables = true
 		try {
-			loadingRunnables = true
-			const results = await Promise.all(folders.map((f) => getCachedRunnables(workspace, f)))
-			includedRunnables = [...new Set(results.flat())]
+			let scripts: string[]
+			let flows: string[]
+			if (selectedMode === 'folder') {
+				const perFolder = await Promise.all(
+					selectedFolders.map((f) => fetchScriptsAndFlows(ws, false, f))
+				)
+				scripts = [...new Set(perFolder.flatMap((r) => r.scripts))]
+				flows = [...new Set(perFolder.flatMap((r) => r.flows))]
+			} else {
+				const r = await fetchScriptsAndFlows(ws, selectedMode === 'favorites', undefined)
+				scripts = r.scripts
+				flows = r.flows
+			}
+			if (seq !== runnablesSeq) return
+			includedRunnables = [...scripts, ...flows]
+			exposedScriptCount = scripts.length
+			exposedFlowCount = flows.length
 		} finally {
-			loadingRunnables = false
+			if (seq === runnablesSeq) loadingRunnables = false
 		}
 	}
+
+	$effect(() => {
+		// React to scope inputs (non-custom modes load list + counts together).
+		selectedMode
+		selectedFolders
+		workspaceId
+		loadRunnablesAndCounts()
+	})
 
 	// Load all scripts/flows for custom mode
 	$effect(() => {
@@ -261,12 +418,106 @@
 		}
 	})
 
+	// One-shot: once allScripts/allFlows are loaded, split the
+	// initial pattern text into known paths (selectedScripts/Flows) vs
+	// remaining wildcards/unknowns (kept in pattern textbox).
+	let initialSplitDone = $state(false)
+	$effect(() => {
+		if (initialSplitDone || selectedMode !== 'custom') return
+		if (allScripts.length === 0 && allFlows.length === 0) return
+
+		const scriptSet = new Set(allScripts)
+		const flowSet = new Set(allFlows)
+
+		const scriptParts = parsePatterns(customScriptPatterns)
+		const knownScripts = scriptParts.filter((p) => scriptSet.has(p))
+		const remainingScripts = scriptParts.filter((p) => !scriptSet.has(p))
+
+		const flowParts = parsePatterns(customFlowPatterns)
+		const knownFlows = flowParts.filter((p) => flowSet.has(p))
+		const remainingFlows = flowParts.filter((p) => !flowSet.has(p))
+
+		if (knownScripts.length > 0) {
+			selectedScripts = [...new Set([...selectedScripts, ...knownScripts])]
+			customScriptPatterns = remainingScripts.join(',')
+		}
+		if (knownFlows.length > 0) {
+			selectedFlows = [...new Set([...selectedFlows, ...knownFlows])]
+			customFlowPatterns = remainingFlows.join(',')
+		}
+		initialSplitDone = true
+	})
+
 	const warning = $derived(
 		selectedMode === 'all'
 			? 'Create your first scripts or flows to make them available via MCP.'
 			: selectedMode === 'favorites'
 				? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
 				: `You do not have any scripts or flows in the selected folder(s).`
+	)
+
+	// How many scripts / flows the current scope would expose, per type, so we can
+	// warn when it exceeds MCP_TOOL_FETCH_LIMIT (the server caps each type).
+	let exposedScriptCount = $state<number | undefined>(undefined)
+	let exposedFlowCount = $state<number | undefined>(undefined)
+
+	// Custom-mode counts are computed synchronously from the already-loaded
+	// allScripts/allFlows plus the current selections/patterns — no extra fetch.
+	$effect(() => {
+		if (selectedMode !== 'custom') return
+		const scriptPatterns = parsePatterns(customScriptPatterns)
+		const flowPatterns = parsePatterns(customFlowPatterns)
+		const scriptMatches = scriptPatterns.length
+			? allScripts.filter((p) => matchesAnyPattern(p, scriptPatterns))
+			: []
+		const flowMatches = flowPatterns.length
+			? allFlows.filter((p) => matchesAnyPattern(p, flowPatterns))
+			: []
+		exposedScriptCount = new Set([...selectedScripts, ...scriptMatches]).size
+		exposedFlowCount = new Set([...selectedFlows, ...flowMatches]).size
+	})
+
+	const truncationWarning = $derived.by(() => {
+		if (readOnly) return undefined
+		const parts: string[] = []
+		if ((exposedScriptCount ?? 0) > MCP_TOOL_FETCH_LIMIT)
+			parts.push(`${exposedScriptCount} scripts`)
+		if ((exposedFlowCount ?? 0) > MCP_TOOL_FETCH_LIMIT) parts.push(`${exposedFlowCount} flows`)
+		if (parts.length === 0) return undefined
+		return `This scope matches ${parts.join(' and ')}. Only the ${MCP_TOOL_FETCH_LIMIT} most recent of each type are exposed as MCP tools; the rest are omitted. Narrow the scope to avoid overloading the assistant's context.`
+	})
+
+	// Parsed from the emitted scope string rather than from the selections, so the
+	// previews below answer "what will the server expose for this token" with the
+	// same input the server gets.
+	const scopeState = $derived(
+		parseMcpScopeState(computedScope.split(/\s+/).filter((s) => s.length > 0))
+	)
+
+	const exposedEndpointTools = $derived(
+		visibleEndpointTools.filter((e) => isEndpointExposed(scopeState, e.name))
+	)
+
+	const runByPathTools = $derived(
+		visibleEndpointTools.flatMap((e) => {
+			const policy = endpointPathPolicy(e.name)
+			return policy?.kind === 'runByPath'
+				? [
+						{
+							name: e.name,
+							resource: policy.resource,
+							exposed: isEndpointExposed(scopeState, e.name)
+						}
+					]
+				: []
+		})
+	)
+
+	// Endpoints the user picked that the server will still withhold: the ones
+	// that cannot be confined to a path (run-preview, delete-by-hash) once the
+	// token is limited to specific script paths.
+	const withheldEndpoints = $derived(
+		selectedEndpoints.filter((name) => !isEndpointExposed(scopeState, name))
 	)
 
 	function selectAllScripts() {
@@ -282,7 +533,7 @@
 		selectedFlows = []
 	}
 	function selectAllEndpoints() {
-		selectedEndpoints = [...mcpEndpointTools.map((e) => e.name)]
+		selectedEndpoints = [...selectableEndpointTools.map((e) => e.name)]
 	}
 	function clearAllEndpoints() {
 		selectedEndpoints = []
@@ -321,6 +572,12 @@
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>
+
+	{#if truncationWarning}
+		<Alert type="warning" size="xs" title="Too many tools for this scope">
+			{truncationWarning}
+		</Alert>
+	{/if}
 
 	{#if selectedMode === 'folder'}
 		<div>
@@ -401,11 +658,46 @@
 				<div class="flex flex-col gap-2 mt-2">
 					{@render sectionHeader('API Endpoints', selectAllEndpoints, clearAllEndpoints)}
 					<MultiSelect
-						items={safeSelectItems(mcpEndpointTools.map((e) => e.name))}
+						items={safeSelectItems(selectableEndpointTools.map((e) => e.name))}
 						placeholder="Select endpoints"
 						bind:value={selectedEndpoints}
 					/>
 				</div>
+
+				{#if withheldEndpoints.length > 0}
+					<Alert type="warning" size="xs" title="Some selected endpoints will not be exposed">
+						<span class="text-xs">
+							Endpoints that cannot be limited to specific script paths are withheld from a token
+							restricted to a script selection: {withheldEndpoints.join(', ')}. Widening the script
+							wildcard pattern to <code>*</code> exposes them, and keeps the run tools below available.
+						</span>
+					</Alert>
+				{/if}
+
+				{#if runByPathTools.length > 0}
+					<div class="flex flex-col gap-2 mt-2">
+						<span class="block text-xs font-semibold">Run tools</span>
+						<p class="text-xs text-tertiary">
+							Running a script or flow by path is granted by the Scripts and Flows selections above,
+							not by the endpoint list, so a token can never run something outside its scope.
+						</p>
+						<div class="flex flex-col gap-1">
+							{#each runByPathTools as tool (tool.name)}
+								<div class="flex items-center gap-2">
+									<Badge rounded small color={tool.exposed ? 'green' : 'gray'}>{tool.name}</Badge>
+									<span class="text-xs text-tertiary">
+										{#if tool.exposed}
+											exposed
+										{:else}
+											not exposed — select at least one {tool.resource} above, or add a {tool.resource}
+											wildcard pattern
+										{/if}
+									</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 
 				<div class="text-xs text-primary mt-2">
 					Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows, {selectedEndpoints.length}
@@ -466,29 +758,35 @@
 			</div>
 		{:else}
 			<div class="flex flex-col gap-2">
-				<span class="block text-xs">Scripts & Flows that will be available via MCP</span>
-				<div class="flex flex-wrap gap-1">
-					{#if includedRunnables.length > 0 && includedRunnables.length <= 5}
-						{#each includedRunnables as scriptOrFlow (scriptOrFlow)}
-							<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-						{/each}
-					{:else if includedRunnables.length > 0}
-						{#each includedRunnables.slice(0, 3) as scriptOrFlow (scriptOrFlow)}
-							<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-						{/each}
-						<Badge rounded small color="dark-gray">
-							+{includedRunnables.length - 3} more
-						</Badge>
-					{:else}
-						<p class="text-xs text-primary">
-							{warning}
-						</p>
-					{/if}
-				</div>
+				{#if !readOnly}
+					<span class="block text-xs">Scripts & Flows that will be available via MCP</span>
+					<div class="flex flex-wrap gap-1">
+						{#if includedRunnables.length > 0 && includedRunnables.length <= 5}
+							{#each includedRunnables as scriptOrFlow (scriptOrFlow)}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+						{:else if includedRunnables.length > 0}
+							{#each includedRunnables.slice(0, 3) as scriptOrFlow (scriptOrFlow)}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+							<Badge rounded small color="dark-gray">
+								+{includedRunnables.length - 3} more
+							</Badge>
+						{:else}
+							<p class="text-xs text-primary">
+								{warning}
+							</p>
+						{/if}
+					</div>
+				{:else}
+					<p class="text-xs text-tertiary">
+						Scripts and flows are hidden because this token is read-only.
+					</p>
+				{/if}
 
 				<span class="block text-xs mt-2">API endpoint tools that will be available via MCP</span>
 				<div class="flex flex-wrap gap-1">
-					{#each mcpEndpointTools as endpoint (endpoint.name)}
+					{#each exposedEndpointTools as endpoint (endpoint.name)}
 						<Popover notClickable>
 							{#snippet text()}
 								<div class="flex flex-col gap-1">

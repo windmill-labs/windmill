@@ -40,6 +40,7 @@ use windmill_common::flow_status::JobResult;
 #[derive(Debug, Clone)]
 pub struct IdContext {
     pub flow_job: Uuid,
+    pub root_flow_job: Uuid,
     #[allow(dead_code)]
     pub steps_results: HashMap<String, JobResult>,
     pub previous_id: String,
@@ -56,12 +57,21 @@ const END_BRACKET_PATTERN: &str = "\"]";
 // ── Regex statics ─────────────────────────────────────────────────────
 
 lazy_static! {
+    // `results` is fetched lazily via the `__getResult` async proxy, so we
+    // wrap each `results.X` access with `(await ...)` to drive the proxy.
+    // `flow_env` used to be wrapped here too (it was an async Deno op-backed
+    // proxy in the deno_core era); QuickJS now exposes flow_env as a plain
+    // in-memory object, so no await is needed.
     static ref RE: Regex = Regex::new(
-        r#"(?m)(?P<r>(?:results|flow_env)(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#
+        r#"(?m)(?P<r>results(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#
     )
     .unwrap();
+    // SQL fast-path: simple `results.X.Y[i]...` accesses are dispatched to
+    // the API endpoint to fetch a specific result without spinning the eval
+    // engine. flow_env is no longer dispatched here because QuickJS reads
+    // it directly from the in-process global set up by `eval_quickjs_inner`.
     static ref RE_FULL: Regex = Regex::new(
-        r"(?m)^(results|flow_env)(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
+        r"(?m)^results(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
     )
     .unwrap();
 }
@@ -173,10 +183,9 @@ pub async fn handle_full_regex(
     by_id: &IdContext,
 ) -> Option<anyhow::Result<Box<RawValue>>> {
     if let Some(captures) = RE_FULL.captures(&expr) {
-        let obj_name = captures.get(1).unwrap().as_str();
-        let obj_key = captures.get(2).unwrap().as_str();
-        let idx_o = captures.get(3).map(|y| y.as_str());
-        let rest = captures.get(4).map(|y| y.as_str());
+        let obj_key = captures.get(1).unwrap().as_str();
+        let idx_o = captures.get(2).map(|y| y.as_str());
+        let rest = captures.get(3).map(|y| y.as_str());
 
         // Skip the SQL fast path when the expression accesses a JS runtime
         // property (e.g. .length) that the PostgreSQL #> operator can't resolve.
@@ -193,33 +202,19 @@ pub async fn handle_full_regex(
             rest.map(|x| x.trim_start_matches('.').to_string())
         };
 
-        let result = if obj_name == "results" {
-            let res = authed_client
-                .get_result_by_id::<Option<Box<RawValue>>>(
-                    &by_id.flow_job.to_string(),
-                    obj_key,
-                    query,
-                )
-                .await
-                .ok()
-                .flatten();
-            match res {
-                Some(v) => Ok(v),
-                None => serde_json::value::to_raw_value(&serde_json::Value::Null)
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize null: {}", e)),
-            }
-        } else if obj_name == "flow_env" {
-            authed_client
-                .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), obj_key, query)
-                .await
-        } else {
-            unreachable!();
+        let res = authed_client
+            .get_result_by_id::<Option<Box<RawValue>>>(&by_id.flow_job.to_string(), obj_key, query)
+            .await
+            .ok()
+            .flatten();
+        let result = match res {
+            Some(v) => Ok(v),
+            None => serde_json::value::to_raw_value(&serde_json::Value::Null)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize null: {}", e)),
         };
-
         return Some(result);
     }
-
-    return None;
+    None
 }
 
 #[cfg(feature = "quickjs")]
@@ -295,6 +290,7 @@ pub async fn eval_timeout_quickjs(
         .collect();
 
     let expr_clone = expr.clone();
+    let memory_limit = *QUICKJS_MEMORY_LIMIT_BYTES;
 
     // Run the QuickJS evaluation with a timeout.
     // Use the current runtime handle rather than creating an independent
@@ -318,6 +314,7 @@ pub async fn eval_timeout_quickjs(
                     by_id_clone,
                     ctx,
                     context_keys,
+                    memory_limit,
                 )
                 .await
             })
@@ -331,8 +328,97 @@ pub async fn eval_timeout_quickjs(
     })??
 }
 
+/// Default memory cap, in bytes, for a single flow step-input transform eval
+/// (`eval_timeout_quickjs`). Large enough for transforms that build sizeable
+/// arrays; genuinely large payloads raise it via `QUICKJS_MEMORY_LIMIT_MB`.
+///
+/// Sizing constraint: evals are authenticated and, within a worker process, run
+/// one at a time (`transform_input` awaits each transform sequentially and each
+/// eval drops its runtime before the next), so in the default one-worker-per-
+/// process deployment the peak is a single cap. Native / multi-worker-in-process
+/// mode runs up to `NUM_WORKERS` evals concurrently in one heap, so the peak is
+/// `NUM_WORKERS × cap` — hence a modest default rather than a large one.
 #[cfg(feature = "quickjs")]
-const QUICKJS_MEMORY_LIMIT: usize = 32 * 1024 * 1024;
+const DEFAULT_QUICKJS_MEMORY_LIMIT_BYTES: usize = 128 * 1024 * 1024;
+
+/// Memory cap, in bytes, for `eval_simple_js` (batch-rerun filter and `retry_if`
+/// boolean/arg expressions). Kept lower than the flow-transform cap and NOT tied
+/// to `QUICKJS_MEMORY_LIMIT_MB`: `eval_simple_js` runs in the API process, which
+/// serves concurrent requests with no per-process serialization, so its peak is
+/// `concurrent_requests × cap` and unbounded by worker count. These expressions
+/// only remap job args / return a boolean, so a small cap is ample.
+#[cfg(feature = "quickjs")]
+const EVAL_SIMPLE_JS_MEMORY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
+
+#[cfg(feature = "quickjs")]
+lazy_static! {
+    /// Flow-transform eval memory limit in bytes, resolved once at process start.
+    /// Overridable via the `QUICKJS_MEMORY_LIMIT_MB` env var (a positive integer
+    /// in MB); falls back to `DEFAULT_QUICKJS_MEMORY_LIMIT_BYTES` otherwise.
+    static ref QUICKJS_MEMORY_LIMIT_BYTES: usize = std::env::var("QUICKJS_MEMORY_LIMIT_MB")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|mb| *mb > 0)
+        .map(|mb| mb.saturating_mul(1024 * 1024))
+        .unwrap_or(DEFAULT_QUICKJS_MEMORY_LIMIT_BYTES);
+}
+
+/// Convert a caught QuickJS error into an `anyhow::Error`, turning heap
+/// exhaustion into a clear, actionable message instead of an opaque one.
+///
+/// QuickJS signals OOM two ways, neither meaningful to users: an `InternalError`
+/// whose message is exactly "out of memory", or — when it cannot even allocate
+/// that error — a bare `null`/`undefined` throw that rquickjs renders as
+/// "Exception generated by quickjs". Both are detected here from the caught value
+/// itself (its kind), which is reliable; a post-hoc heap check is not, because
+/// QuickJS ref-count frees the offending allocations as the JS stack unwinds.
+///
+/// The `InternalError` name is required (not just the message) so that a user's
+/// own `throw new Error("out of memory")` — a plain `Error` — is left as a normal
+/// error. The one irreducible ambiguity is an explicit `throw null` / `throw
+/// undefined`: QuickJS's own OOM null-throw is indistinguishable from it, so those
+/// rare user throws are intentionally absorbed into the OOM bucket rather than
+/// leaking the opaque error for the far more common genuine-OOM case.
+///
+/// `env_override` names the env var that tunes the cap for this eval path, or is
+/// `None` when the cap is fixed (so the message doesn't advise a setting that
+/// wouldn't help).
+#[cfg(feature = "quickjs")]
+fn map_quickjs_error(
+    err: rquickjs::CaughtError<'_>,
+    memory_limit: usize,
+    env_override: Option<&str>,
+) -> anyhow::Error {
+    let is_oom = match &err {
+        rquickjs::CaughtError::Exception(e) => {
+            e.as_object()
+                .get::<_, Option<String>>("name")
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some("InternalError")
+                && e.message().as_deref() == Some("out of memory")
+        }
+        rquickjs::CaughtError::Value(v) => v.is_null() || v.is_undefined(),
+        rquickjs::CaughtError::Error(_) => false,
+    };
+    if is_oom {
+        let remediation = match env_override {
+            Some(var) => format!(
+                "Reduce the amount of data handled in the expression, or raise the \
+                 cap via the {var} environment variable."
+            ),
+            None => "Reduce the amount of data handled in the expression.".to_string(),
+        };
+        anyhow::anyhow!(
+            "The expression evaluation exceeded the memory limit of {} MB. {}",
+            memory_limit / (1024 * 1024),
+            remediation
+        )
+    } else {
+        anyhow::anyhow!("QuickJS evaluation error: {}", err)
+    }
+}
 
 #[cfg(feature = "quickjs")]
 async fn eval_quickjs_inner(
@@ -344,9 +430,10 @@ async fn eval_quickjs_inner(
     by_id: Option<IdContext>,
     extra_ctx: Option<Vec<(String, String)>>,
     context_keys: Vec<String>,
+    memory_limit: usize,
 ) -> anyhow::Result<Box<RawValue>> {
     let runtime = AsyncRuntime::new()?;
-    runtime.set_memory_limit(QUICKJS_MEMORY_LIMIT).await;
+    runtime.set_memory_limit(memory_limit).await;
     let context = AsyncContext::full(&runtime).await?;
 
     // Create shared state for async ops if we have a client
@@ -356,7 +443,7 @@ async fn eval_quickjs_inner(
     let by_id_clone = by_id.clone();
 
     // Transform expression to add await for variable/resource/results access
-    let expr_with_funcs = ["variable", "resource"]
+    let expr_with_funcs = ["variable", "resource", "flow_user_state"]
         .into_iter()
         .fold(expr.to_string(), replace_with_await);
     let transformed_expr = replace_with_await_result(expr_with_funcs);
@@ -451,6 +538,19 @@ async fn eval_quickjs_inner(
             setup_results_proxy(&ctx, &globals, by_id, op_state_clone.clone())?;
         }
 
+        // The auto-await rewrite at the top of eval_timeout always rewrites
+        // `flow_user_state(...)` regardless of context, so install a stub if
+        // nothing above defined it (e.g. authed sleep transforms with no by_id).
+        ctx.eval::<(), _>(r#"
+            if (typeof flow_user_state === 'undefined') {
+                globalThis.flow_user_state = function(key) {
+                    return Promise.reject(new Error(`flow_user_state() is not available in this context`));
+                };
+            }
+        "#)
+        .catch(&ctx)
+        .map_err(quickjs_error_to_anyhow)?;
+
         // Determine if we need to add return statement.
         let code = if should_add_return_quickjs(&transformed_expr) {
             format!("(async function() {{ return {}; }})().then((x) => JSON.stringify(x ?? null))", transformed_expr)
@@ -459,10 +559,10 @@ async fn eval_quickjs_inner(
         };
 
         // Evaluate the expression (returns a Promise that resolves to a JSON string)
-        let promise: rquickjs::Promise = ctx.eval(code).catch(&ctx).map_err(quickjs_error_to_anyhow)?;
+        let promise: rquickjs::Promise = ctx.eval(code).catch(&ctx).map_err(|e| map_quickjs_error(e, memory_limit, Some("QUICKJS_MEMORY_LIMIT_MB")))?;
 
         // Await the promise
-        let result: Value = promise.into_future().await.catch(&ctx).map_err(quickjs_error_to_anyhow)?;
+        let result: Value = promise.into_future().await.catch(&ctx).map_err(|e| map_quickjs_error(e, memory_limit, Some("QUICKJS_MEMORY_LIMIT_MB")))?;
 
         let json_str = String::from_js(&ctx, result)
             .unwrap_or_else(|_| "null".to_string());
@@ -553,6 +653,10 @@ fn setup_stub_functions<'js>(
         function resource(path) {
             return Promise.reject(new Error(`resource() is not available without an authenticated client`));
         }
+
+        function flow_user_state(key) {
+            return Promise.reject(new Error(`flow_user_state() is not available without an authenticated client`));
+        }
     "#;
 
     ctx.eval::<(), _>(setup_code)
@@ -573,6 +677,8 @@ fn setup_results_proxy<'js>(
 
     if let Some(state) = op_state {
         let by_id_for_result = by_id.clone();
+        let state_for_user_state = state.clone();
+        let root_flow_job_id_for_state = by_id.root_flow_job.to_string();
         globals.set(
             "__fetchResult",
             Func::from(Async(MutFn::new(move |step_id: String| {
@@ -644,14 +750,38 @@ fn setup_results_proxy<'js>(
             }))),
         )?;
 
+        globals.set(
+            "__fetchFlowUserState",
+            Func::from(Async(MutFn::new(move |key: String| {
+                let client = state_for_user_state.client.clone();
+                let job_id = root_flow_job_id_for_state.clone();
+                async move {
+                    const ERR_PREFIX: &str = "\x00__WINDMILL_ERR__\x00";
+                    match client.get_flow_user_state(&job_id, &key).await {
+                        Ok(value) => {
+                            serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
+                        }
+                        Err(e) => format!("{}{}", ERR_PREFIX, e),
+                    }
+                }
+            }))),
+        )?;
+
         let wrapper_code = r#"
             const __RESULT_ERR_PREFIX = '\x00__WINDMILL_ERR__\x00';
-            async function __getResult(stepId) {
-                const result = await __fetchResult(stepId);
+            function __throwOrParse(result) {
                 if (typeof result === 'string' && result.startsWith(__RESULT_ERR_PREFIX)) {
                     throw new Error(result.substring(__RESULT_ERR_PREFIX.length));
                 }
                 return JSON.parse(result);
+            }
+
+            async function __getResult(stepId) {
+                return __throwOrParse(await __fetchResult(stepId));
+            }
+
+            async function flow_user_state(key) {
+                return __throwOrParse(await __fetchFlowUserState(key));
             }
         "#;
         ctx.eval::<(), _>(wrapper_code)
@@ -661,6 +791,10 @@ fn setup_results_proxy<'js>(
         let stub_code = r#"
             function __getResult(stepId) {
                 return Promise.reject(new Error('Result fetching not available without authenticated client'));
+            }
+
+            function flow_user_state(key) {
+                return Promise.reject(new Error(`flow_user_state() is not available without an authenticated client`));
             }
         "#;
         ctx.eval::<(), _>(stub_code)
@@ -814,40 +948,50 @@ pub async fn eval_simple_js(
     expr: String,
     globals: HashMap<String, serde_json::Value>,
 ) -> anyhow::Result<Box<RawValue>> {
+    let memory_limit = EVAL_SIMPLE_JS_MEMORY_LIMIT_BYTES;
     let handle = tokio::runtime::Handle::current();
     tokio::time::timeout(
         std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
         tokio::task::spawn_blocking(move || {
-            handle.block_on(async move {
-                let runtime = AsyncRuntime::new()?;
-                runtime.set_memory_limit(QUICKJS_MEMORY_LIMIT).await;
-                let context = AsyncContext::full(&runtime).await?;
-
-                async_with!(context => |ctx| {
-                    let js_globals = ctx.globals();
-
-                    // Set up each named global
-                    for (name, value) in &globals {
-                        let js_val = json_to_js(&ctx, value)?;
-                        js_globals.set(name.as_str(), js_val)?;
-                    }
-
-                    // Wrap expression to return JSON string
-                    let code = format!("JSON.stringify(({}) ?? null)", expr);
-                    let result: String = ctx.eval(code)
-                        .catch(&ctx)
-                        .map_err(quickjs_error_to_anyhow)?;
-
-                    Ok(unsafe_raw(result))
-                })
-                .await
-            })
+            handle
+                .block_on(async move { eval_simple_js_inner(&expr, &globals, memory_limit).await })
         }),
     )
     .await
     .map_err(|_| {
         anyhow::anyhow!("The expression evaluation took too long to execute (>{EVAL_TIMEOUT_MS}ms)")
     })??
+}
+
+#[cfg(feature = "quickjs")]
+async fn eval_simple_js_inner(
+    expr: &str,
+    globals: &HashMap<String, serde_json::Value>,
+    memory_limit: usize,
+) -> anyhow::Result<Box<RawValue>> {
+    let runtime = AsyncRuntime::new()?;
+    runtime.set_memory_limit(memory_limit).await;
+    let context = AsyncContext::full(&runtime).await?;
+
+    async_with!(context => |ctx| {
+        let js_globals = ctx.globals();
+
+        // Set up each named global
+        for (name, value) in globals {
+            let js_val = json_to_js(&ctx, value)?;
+            js_globals.set(name.as_str(), js_val)?;
+        }
+
+        // Wrap expression to return JSON string
+        let code = format!("JSON.stringify(({}) ?? null)", expr);
+        // Fixed cap (EVAL_SIMPLE_JS_MEMORY_LIMIT_BYTES): no env override to suggest.
+        let result: String = ctx.eval(code)
+            .catch(&ctx)
+            .map_err(|e| map_quickjs_error(e, memory_limit, None))?;
+
+        Ok(unsafe_raw(result))
+    })
+    .await
 }
 
 // ── Fallback stubs when quickjs is disabled ──────────────────────────
@@ -2672,5 +2816,169 @@ mod tests {
         // Invalid JS should return an error
         let result = eval_simple_js("this is not valid js @#$".to_string(), globals).await;
         assert!(result.is_err());
+    }
+
+    // =====================================================================
+    // MEMORY LIMIT
+    // =====================================================================
+
+    #[test]
+    fn test_quickjs_memory_limit_default() {
+        // Absent (or invalid) env var falls back to the compiled default.
+        if std::env::var("QUICKJS_MEMORY_LIMIT_MB").is_err() {
+            assert_eq!(
+                *QUICKJS_MEMORY_LIMIT_BYTES,
+                DEFAULT_QUICKJS_MEMORY_LIMIT_BYTES
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_eval_oom_error_reports_memory_limit() {
+        // A million-element array cannot fit in a 4MB heap. Here QuickJS has room
+        // to build a proper InternalError; it must surface as a clear memory-limit
+        // message. This is the fixed-cap eval_simple_js path, so it must NOT
+        // advise the env var (which does not tune this path).
+        let err = eval_simple_js_inner(
+            "Array.from({ length: 1000000 }, (_, i) => i)",
+            &HashMap::new(),
+            4 * 1024 * 1024,
+        )
+        .await
+        .expect_err("expected OOM to fail")
+        .to_string();
+        assert!(err.contains("memory limit"), "unexpected error: {err}");
+        assert!(
+            !err.contains("QUICKJS_MEMORY_LIMIT_MB"),
+            "fixed-cap path must not advise the env var: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_eval_flow_oom_reports_env_override() {
+        // The flow step-input transform path is env-tunable, so its OOM message
+        // must point at QUICKJS_MEMORY_LIMIT_MB.
+        let err = eval_quickjs_inner(
+            "Array.from({ length: 1000000 }, (_, i) => i)",
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+            4 * 1024 * 1024,
+        )
+        .await
+        .expect_err("expected OOM to fail")
+        .to_string();
+        assert!(err.contains("memory limit"), "unexpected error: {err}");
+        assert!(
+            err.contains("QUICKJS_MEMORY_LIMIT_MB"),
+            "no env hint: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_eval_opaque_oom_reports_memory_limit() {
+        // Under a cap too small to hold it, QuickJS runs out of memory while
+        // building the flattened array and cannot even allocate the Error object,
+        // so it throws a bare null that rquickjs renders as the opaque "Exception
+        // generated by quickjs". That must still be recognised as a memory-limit
+        // failure rather than surfaced opaquely (issue #8073).
+        let err = eval_simple_js_inner(
+            "Array.from({ length: 1000000 }, (_, i) => [i, i + 1, i + 2]).flat().length",
+            &HashMap::new(),
+            64 * 1024 * 1024,
+        )
+        .await
+        .expect_err("expected OOM to fail")
+        .to_string();
+        assert!(err.contains("memory limit"), "opaque OOM leaked: {err}");
+        assert!(
+            !err.contains("Exception generated by quickjs"),
+            "opaque OOM leaked: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_eval_user_throw_not_reported_as_oom() {
+        // A transform that throws a non-null value must NOT be misattributed to
+        // the memory limit — only OOM's null/undefined throw is. The Error cases
+        // guard the InternalError-kind check: a plain `Error`, even one whose
+        // message is exactly "out of memory", is a user error, not OOM.
+        for expr in [
+            "(() => { throw 'boom' })()",
+            "(() => { throw new Error('boom') })()",
+            "(() => { throw new Error('out of memory later') })()",
+            "(() => { throw new Error('out of memory') })()",
+        ] {
+            let err = eval_simple_js_inner(expr, &HashMap::new(), 64 * 1024 * 1024)
+                .await
+                .expect_err("expected user throw to fail")
+                .to_string();
+            assert!(
+                !err.contains("memory limit"),
+                "misreported as OOM ({expr}): {err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_eval_bare_null_throw_treated_as_oom() {
+        // Documents the accepted ambiguity: QuickJS reports OOM as a bare null
+        // throw, indistinguishable from a user `throw null` / `throw undefined`.
+        // Absorbing these rare user throws into the OOM bucket is the deliberate
+        // tradeoff for reliably catching the far more common OOM case.
+        for expr in ["(() => { throw null })()", "(() => { throw undefined })()"] {
+            let err = eval_simple_js_inner(expr, &HashMap::new(), 64 * 1024 * 1024)
+                .await
+                .expect_err("expected throw to fail")
+                .to_string();
+            assert!(
+                err.contains("memory limit"),
+                "expected OOM bucket ({expr}): {err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_eval_issue_payload_succeeds_with_raised_cap() {
+        // The exact #8073 payload exceeds the conservative default but succeeds
+        // once the cap is raised to 256MB (what the env override lets operators
+        // do), exercising the flow step-input transform path (eval_timeout_quickjs)
+        // via eval_quickjs_inner.
+        let result = eval_quickjs_inner(
+            "Array.from({ length: 1000000 }, (_, i) => [i, i + 1, i + 2]).flat().length",
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+            256 * 1024 * 1024,
+        )
+        .await
+        .expect("issue payload should evaluate once the cap is raised");
+        assert_eq!(result.get(), "3000000");
+    }
+
+    #[tokio::test]
+    async fn test_eval_moderately_large_array_under_default() {
+        // A ~48MB array: comfortably above the 32MB range yet under the 128MB
+        // default, evaluated through the flow step-input transform path.
+        let result = eval_timeout_quickjs(
+            "Array.from({ length: 3000000 }, (_, i) => i).length".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("moderately large array should evaluate under the default limit");
+        assert_eq!(result.get(), "3000000");
     }
 }

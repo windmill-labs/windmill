@@ -6,6 +6,7 @@
 		RotateCcw,
 		Settings,
 		Trash,
+		Power,
 		X,
 		ExternalLink,
 		FileCode
@@ -14,7 +15,13 @@
 	import Badge from './common/badge/Badge.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
+	import {
+		ConfigService,
+		SettingService,
+		WorkspaceService,
+		type WorkerPing,
+		type Workspace
+	} from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -191,6 +198,8 @@
 					priority_tags?: Record<string, number>
 					cache_clear?: number
 					init_bash?: string
+					env_vars_static?: Map<string, string>
+					env_vars_allowlist?: string[]
 					additional_python_paths?: string[]
 					pip_local_dependencies?: string[]
 					min_alive_workers_alert_threshold?: number
@@ -262,8 +271,28 @@
 			orderedJsonStringify(replaceFalseWithUndefined(cleaned2))
 		)
 	})
+
+	// Env var edits only mutate the local `customEnvVars` array; they aren't synced back into
+	// `nconfig.env_vars_*` until the Apply handler runs, so `hasChanges` can't see them. Detect
+	// those edits separately by reconstructing the original env vars from `config`.
+	let hasEnvVarChanges = $derived.by(() => {
+		let originalEnvVars: typeof customEnvVars = []
+		if (config?.env_vars_allowlist) {
+			for (const key of config.env_vars_allowlist) {
+				originalEnvVars.push({ key, type: 'dynamic' as const, value: undefined })
+			}
+		}
+		if (config?.env_vars_static) {
+			for (const [key, value] of Object.entries(config.env_vars_static)) {
+				originalEnvVars.push({ key, type: 'static' as const, value })
+			}
+		}
+		originalEnvVars.sort((a, b) => (a.key < b.key ? -1 : 1))
+		return JSON.stringify(customEnvVars) !== JSON.stringify(originalEnvVars)
+	})
 	let openDelete = $state(false)
 	let openClean = $state(false)
+	let openRestart = $state(false)
 
 	// Compute hashed tags for display (actual tags used by the worker)
 	let hashedDedicatedTags: Map<string, string> = $state(new Map())
@@ -361,6 +390,32 @@
 		<span
 			>Are you sure you want to clean the cache of all workers of this worker group (will also
 			restart the workers and expect supervisor to restart them) ?</span
+		>
+	</div>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={openRestart}
+	title="Restart workers"
+	confirmationText="Restart"
+	on:canceled={() => {
+		openRestart = false
+	}}
+	on:confirmed={async () => {
+		try {
+			await SettingService.restartWorkerGroup({ workerGroup: name })
+			sendUserToast(`Restart signal sent to worker group '${name}'`)
+			dispatch('reload')
+		} catch (e) {
+			sendUserToast(`Failed to restart worker group: ${e}`, true)
+		}
+		openRestart = false
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span
+			>Are you sure you want to restart all workers in worker group '{name}'? Workers will be
+			gracefully shut down and are expected to be restarted by their supervisor.</span
 		>
 	</div>
 </ConfirmationModal>
@@ -1131,7 +1186,10 @@
 								sendUserToast('Configuration set')
 								dispatch('reload')
 							}}
-							disabled={(!hasChanges && nconfig?.dedicated_worker == undefined) || !canEditConfig}
+							disabled={(!hasChanges &&
+								!hasEnvVarChanges &&
+								nconfig?.dedicated_worker == undefined) ||
+								!canEditConfig}
 						>
 							Apply changes
 						</Button>
@@ -1236,6 +1294,17 @@
 						>
 							Clean cache
 						</Button>
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => {
+								openRestart = true
+							}}
+							startIcon={{ icon: Power }}
+							destructive
+						>
+							Restart workers
+						</Button>
 					{:else}
 						<Dropdown
 							items={[
@@ -1246,6 +1315,13 @@
 										openClean = true
 									},
 									disabled: !config,
+									type: 'delete'
+								},
+								{
+									displayName: 'Restart workers',
+									action: () => {
+										openRestart = true
+									},
 									type: 'delete'
 								},
 								{

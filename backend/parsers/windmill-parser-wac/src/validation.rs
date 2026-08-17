@@ -12,23 +12,6 @@ impl std::fmt::Display for CompileError {
     }
 }
 
-pub fn error_step_in_try(line: usize) -> CompileError {
-    CompileError {
-        message:
-            "Task calls inside try/except are not allowed. Steps have built-in error handling."
-                .to_string(),
-        line,
-    }
-}
-
-pub fn error_step_in_while(line: usize) -> CompileError {
-    CompileError {
-        message: "Task calls inside while loops are not allowed. Use for loops instead."
-            .to_string(),
-        line,
-    }
-}
-
 pub fn error_step_in_nested_function(line: usize) -> CompileError {
     CompileError {
         message: "Task calls inside nested functions, closures, or lambdas are not allowed."
@@ -49,15 +32,6 @@ pub fn error_missing_await(line: usize) -> CompileError {
     CompileError {
         message:
             "Task calls must be awaited directly or used inside asyncio.gather()/Promise.all()."
-                .to_string(),
-        line,
-    }
-}
-
-pub fn error_step_in_catch(line: usize) -> CompileError {
-    CompileError {
-        message:
-            "Task calls inside catch blocks are not allowed. Steps have built-in error handling."
                 .to_string(),
         line,
     }

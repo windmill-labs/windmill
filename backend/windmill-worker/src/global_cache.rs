@@ -7,7 +7,6 @@ use windmill_object_store::object_store_reexports::ObjectStore;
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use std::sync::Arc;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub const TARGET: &str = const_format::concatcp!(std::env::consts::OS, "_", std::env::consts::ARCH);
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -41,6 +40,9 @@ pub async fn build_tar_and_push(
     let tar_file = std::fs::File::create(&tar_path)?;
     let mut tar = tar::Builder::new(tar_file);
     tar.append_dir_all(".", &folder)?;
+    // Write the trailing zero blocks and close the inner file BEFORE std::fs::read
+    // below. Without this, the bytes we upload to S3 are an unfinalized archive.
+    drop(tar.into_inner()?);
 
     let tar_metadata = tokio::fs::metadata(&tar_path).await;
     if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
@@ -157,7 +159,16 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bo
 
             if let Ok(mut x) = windmill_object_store::attempt_fetch_bytes(os, _remote_path).await {
                 if is_dir {
-                    if let Err(e) = windmill_common::worker::extract_tar(x, bin_path).await {
+                    // Extract into a sibling temp dir then atomically publish it,
+                    // so a concurrent cold-load gating on metadata(bin_path) never
+                    // observes a half-extracted cache directory.
+                    let tmp_dir = format!("{}.tmp.{}", bin_path, uuid::Uuid::new_v4());
+                    let res = match windmill_common::worker::extract_tar(x, &tmp_dir).await {
+                        Ok(()) => windmill_common::worker::atomic_publish_dir(&tmp_dir, bin_path),
+                        Err(e) => Err(e),
+                    };
+                    if let Err(e) = res {
+                        let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
                         tracing::error!("could not write tar archive locally: {e:?}");
                         return (
                             false,
@@ -187,6 +198,52 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bo
         let _ = is_dir;
         (false, "".to_string())
     }
+}
+
+/// Whether this worker can push to the instance object store at all — the features are
+/// compiled in and a store is loaded. False on builds without them, where `save_cache`
+/// only ever writes to the worker's own disk.
+pub async fn object_store_available() -> bool {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    {
+        windmill_object_store::get_object_store().await.is_some()
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    {
+        false
+    }
+}
+
+/// Whether a binary/bundle is in the instance object store, ignoring the local cache.
+///
+/// The deploy-time prebuild asks this rather than [`exists_in_cache`]: a copy on the
+/// building worker's own disk is exactly the state the prebuild exists to fix, so
+/// answering from it would latch a failed upload into a permanent skip.
+pub async fn exists_in_object_store(_remote_path: &str) -> bool {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = windmill_object_store::get_object_store().await {
+        return os
+            .head(&windmill_object_store::object_store_reexports::Path::from(
+                _remote_path,
+            ))
+            .await
+            .is_ok();
+    }
+    false
+}
+
+/// Fail a deploy-time prebuild whose artifact never reached the object store. `save_cache`
+/// logs and swallows a failed upload, which is right for a run that has the binary locally
+/// anyway — but for a prebuild the upload *is* the result, and a silent miss would be
+/// latched by the next build's existence check.
+pub async fn ensure_pushed_to_object_store(remote_path: &str) -> error::Result<()> {
+    if exists_in_object_store(remote_path).await {
+        return Ok(());
+    }
+    Err(error::Error::ExecutionErr(format!(
+        "the binary was built but did not reach the instance object store at {remote_path}, \
+         so no other worker can load it"
+    )))
 }
 
 /// Check whether a binary/bundle exists in local cache or instance object store.
@@ -232,6 +289,7 @@ pub async fn save_cache(
             let tar_file = std::fs::File::create(&tar_path)?;
             let mut tar = tar::Builder::new(tar_file);
             tar.append_dir_all(".", &origin)?;
+            drop(tar.into_inner()?);
             let tar_metadata = tokio::fs::metadata(&tar_path).await;
             if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
                 tracing::info!("Failed to tar cache: {origin}");
@@ -265,12 +323,21 @@ pub async fn save_cache(
 
     if true {
         if is_dir {
-            windmill_common::worker::copy_dir_recursively(
+            // Populate a sibling temp dir then atomically publish it, so a
+            // concurrent `load_cache`/`exists_in_cache` metadata() check never
+            // observes a half-copied cache directory.
+            let tmp_dir = format!("{}.tmp.{}", local_cache_path, uuid::Uuid::new_v4());
+            if let Err(e) = windmill_common::worker::copy_dir_recursively(
                 &PathBuf::from(origin),
-                &PathBuf::from(local_cache_path),
-            )?;
+                &PathBuf::from(&tmp_dir),
+            )
+            .and_then(|_| windmill_common::worker::atomic_publish_dir(&tmp_dir, local_cache_path))
+            {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err(e);
+            }
         } else {
-            std::fs::copy(origin, local_cache_path)?;
+            windmill_common::worker::atomic_copy_file(origin, local_cache_path)?;
         }
         Ok(format!(
             "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",

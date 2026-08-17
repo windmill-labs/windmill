@@ -8,10 +8,15 @@
 	import { sendUserToast } from '$lib/toast'
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
+	import LabelsInput from './LabelsInput.svelte'
+	import InheritedLabels from './InheritedLabels.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		summary?: string
 		path?: string
+		labels?: string[] | undefined
+		inheritedLabels?: string[] | undefined
 		editable?: boolean
 		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
@@ -20,6 +25,8 @@
 	let {
 		summary = $bindable(''),
 		path = $bindable(''),
+		labels = $bindable(),
+		inheritedLabels = undefined,
 		editable = false,
 		onSaved,
 		kind = 'flow'
@@ -32,12 +39,14 @@
 	let own = $state(false)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
-	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath))
+	let labelsDirty = $state(false)
+	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath) || labelsDirty)
 
 	$effect(() => {
 		if (popoverOpen && onSaved) {
 			editSummary = summary ?? ''
 			editPath = path ?? ''
+			labelsDirty = false
 			own = isOwner(path ?? '', $userStore, $workspaceStore)
 			onBehalfOfEmail = undefined
 			if (kind === 'flow' && $workspaceStore && path) {
@@ -58,9 +67,11 @@
 				kind,
 				initialPath,
 				newPath,
-				newSummary: editSummary
+				newSummary: editSummary,
+				labels
 			})
 			sendUserToast(`${kind === 'flow' ? 'Flow' : 'Script'} updated`)
+			labelsDirty = false
 			close()
 			onSaved?.(newPath)
 		} catch (e: any) {
@@ -90,13 +101,23 @@
 				<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
 					>{path}</span
 				>
-				<span
-					class="text-sm font-semibold truncate max-w-full {emptyString(summary)
-						? 'text-tertiary italic font-normal'
-						: 'text-emphasis'}"
-				>
-					{emptyString(summary) ? 'Add a summary...' : summary}
-				</span>
+				<div class="flex items-center gap-3 max-w-full">
+					<span
+						class="text-sm font-semibold truncate {emptyString(summary)
+							? 'text-tertiary italic font-normal'
+							: 'text-emphasis'}"
+					>
+						{emptyString(summary) ? 'Add a summary...' : summary}
+					</span>
+					{#if labels?.length}
+						<div class="flex items-center gap-0.5">
+							{#each labels as label}
+								<Badge color="blue" verySmall class="px-1" title="Label: {label}">{label}</Badge>
+							{/each}
+						</div>
+					{/if}
+					<InheritedLabels labels={inheritedLabels} />
+				</div>
 			</div>
 		{/snippet}
 		{#snippet content({ close })}
@@ -117,6 +138,22 @@
 							bind:value={editSummary}
 						/>
 					</Label>
+					<div class="-mt-4 flex items-center gap-2">
+						<LabelsInput
+							bind:labels
+							onchange={() => {
+								labelsDirty = true
+							}}
+						/>
+						{#if inheritedLabels?.length}
+							<InheritedLabels labels={inheritedLabels} />
+						{/if}
+					</div>
+					{#if inheritedLabels?.length}
+						<p class="-mt-5 text-2xs text-tertiary">
+							Gray labels are inherited from the folder and can only be edited there.
+						</p>
+					{/if}
 					<Label label="Path">
 						{#if own}
 							<Path
@@ -126,7 +163,6 @@
 								initialPath={path ?? ''}
 								namePlaceholder={kind}
 								{kind}
-								hideFullPath
 								size="sm"
 								drawerOffset={4000}
 							/>
@@ -175,7 +211,6 @@
 							initialPath={path ?? ''}
 							namePlaceholder={kind}
 							{kind}
-							hideFullPath
 							size="sm"
 							drawerOffset={4000}
 						/>

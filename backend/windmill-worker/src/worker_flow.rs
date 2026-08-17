@@ -15,8 +15,8 @@ use crate::common::{cached_result_path, get_root_job_id, save_in_cache, transfor
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
-    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, UpdateFlow,
-    KEEP_JOB_DIR,
+    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, StepFailureKind,
+    UpdateFlow, KEEP_JOB_DIR,
 };
 
 use anyhow::Context;
@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use sqlx::types::Json;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{Acquire, FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::auth::get_job_perms;
@@ -51,9 +51,8 @@ use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
 };
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
-use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
-use windmill_common::worker::{to_raw_value, Connection};
+use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
     ScriptHashInfo, DB,
@@ -70,7 +69,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key, interpolate_args,
+    insert_concurrency_key_capped, interpolate_args,
     report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job, CanceledBy,
     FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload,
     WrappedError,
@@ -81,16 +80,32 @@ use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_queue::{canceled_job_to_result, push};
 
-#[derive(Debug)]
-pub struct SchedulePushZombieError(pub String);
-
-impl std::fmt::Display for SchedulePushZombieError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+lazy_static::lazy_static! {
+    /// Per-worker LRU cache of resolved `flow_env` values, keyed by flow job id.
+    /// `update_flow_status_after_job_completion_internal` runs once per child-step
+    /// completion, and re-resolving `$var:`/`$res:` references each time was the
+    /// dominant heap-allocation source under flow-heavy load. The cache aligns
+    /// predicate evaluation with `handle_flow`'s input-transform path, which
+    /// already resolves once at flow entry — predicates were the only place still
+    /// re-resolving on every read.
+    ///
+    /// Per-worker scope (caveat): the cache lives in process memory, not the DB,
+    /// so different workers processing children of the same flow each compute
+    /// their own snapshot on first miss. If a `$var:`/`$res:` value mutates
+    /// mid-flow, predicate eval on different workers can observe different
+    /// values for the same flow run. For typical use (env values configured at
+    /// flow start, read-only during execution) this is invisible. Cross-worker
+    /// determinism would require persisting the resolved env in `v2_job_status`;
+    /// see follow-up notes.
+    ///
+    /// Entries become dead weight once a flow completes and are evicted by LRU
+    /// pressure. Bounded at 1024 entries; per-entry footprint depends on the
+    /// env's contents (literals are small but a single resolved `$res:` can be
+    /// tens of KB), so worst-case memory scales with workload mix rather than
+    /// being fixed.
+    static ref RESOLVED_FLOW_ENV_CACHE: quick_cache::sync::Cache<Uuid, Arc<HashMap<String, Box<RawValue>>>> =
+        quick_cache::sync::Cache::new(1024);
 }
-
-impl std::error::Error for SchedulePushZombieError {}
 
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
@@ -154,7 +169,7 @@ pub async fn update_flow_status_after_job_completion(
     canceled_by: Option<CanceledBy>,
     result: Arc<Box<RawValue>>,
     flow_job_duration: Option<FlowJobDuration>,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
@@ -177,7 +192,7 @@ pub async fn update_flow_status_after_job_completion(
         stop_early_override,
         has_triggered_error_handler: false,
     };
-    let mut unrecoverable = unrecoverable;
+    let mut step_failure = step_failure;
     loop {
         potentially_crash_for_testing();
         let nrec = match Box::pin(update_flow_status_after_job_completion_internal(
@@ -190,7 +205,7 @@ pub async fn update_flow_status_after_job_completion(
             rec.canceled_by,
             rec.flow_job_duration.clone(),
             rec.result,
-            unrecoverable,
+            step_failure,
             same_worker_tx,
             worker_dir,
             rec.stop_early_override,
@@ -219,7 +234,7 @@ pub async fn update_flow_status_after_job_completion(
                     Arc::new(to_raw_value(&Json(&WrappedError {
                         error: json!(e.to_string()),
                     }))),
-                    true,
+                    StepFailureKind::Unrecoverable,
                     same_worker_tx,
                     worker_dir,
                     rec.stop_early_override,
@@ -234,7 +249,7 @@ pub async fn update_flow_status_after_job_completion(
                 .await?
             }
         };
-        unrecoverable = false;
+        step_failure = StepFailureKind::Normal;
 
         match nrec {
             UpdateFlowStatusAfterJobCompletion::Done(job) => {
@@ -284,13 +299,14 @@ struct RecoveryObject {
     recover: Option<bool>,
 }
 
-fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>) {
+/// Returns `(skip_if_stopped, error_message, include_step_result)`.
+fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>, bool) {
     if let Some(stop_after_if) = stop_after_if {
         // skip_if_stopped and error_message are mutually exclusive:
         // skip_if_stopped=true means clean stop (mark remaining as skipped),
         // error_message means stop with error. skip_if_stopped takes precedence.
         if stop_after_if.skip_if_stopped {
-            return (true, None);
+            return (true, None, false);
         }
         let err_msg = stop_after_if.error_message.as_ref().and_then(|message| {
             if message.is_empty() {
@@ -299,19 +315,19 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
                 Some(message.clone())
             }
         });
-        return (false, err_msg);
+        return (false, err_msg, stop_after_if.error_include_result);
     }
-    return (false, None);
+    return (false, None, false);
 }
 
-async fn get_id_ctx_for_expr(
+async fn get_id_ctx_for_expr<'c>(
     expr: &str,
     flow: uuid::Uuid,
-    db: &DB,
+    e: impl sqlx::PgExecutor<'c>,
     status: &FlowStatus,
 ) -> error::Result<Option<IdContext>> {
     if expr.contains("results.") || expr.contains("results[") || expr.contains("results?.") {
-        let flow_job = get_mini_pulled_job(db, &flow).await?;
+        let flow_job = get_mini_pulled_job(e, &flow).await?;
         if let Some(flow_job) = flow_job {
             Ok(Some(get_transform_context(&flow_job, "", &status)))
         } else {
@@ -323,7 +339,7 @@ async fn get_id_ctx_for_expr(
 }
 
 async fn evaluate_stop_after_all_iters_if(
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
     stop_after_all_iters_if: &StopAfterIf,
     module_status: &FlowStatusModule,
     w_id: &str,
@@ -331,14 +347,27 @@ async fn evaluate_stop_after_all_iters_if(
     stop_early: &mut bool,
     skip_if_stop_early: &mut bool,
     stop_early_err_msg: &mut Option<String>,
+    stop_early_include_result: &mut bool,
     nresult: &mut Option<Arc<Box<RawValue>>>,
     args: HashMap<String, Box<RawValue>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     flow: uuid::Uuid,
     status: &FlowStatus,
 ) -> error::Result<()> {
+    // Test hook (see test_stop_after_all_iters_if_db_error_isolated_by_savepoint):
+    // run a query that aborts this (savepoint) transaction so the test can verify the
+    // caller's savepoint keeps the outer status-update transaction committable.
+    #[cfg(feature = "failpoints")]
+    if stop_after_all_iters_if.expr == "__wm_failpoint_abort_tx__" {
+        sqlx::query("SELECT 1/0")
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| Error::internal_err(format!("failpoint abort_tx: {e:#}")))?;
+    }
+
     let iters_result = match &module_status {
         FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. } => {
-            Arc::new(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?)
+            Arc::new(retrieve_flow_jobs_results(&mut **tx, w_id, flow_jobs).await?)
         }
         _ => {
             return Err(Error::internal_err(format!(
@@ -349,12 +378,13 @@ async fn evaluate_stop_after_all_iters_if(
 
     *nresult = Some(iters_result.clone()); // as an optimization, we store the result of all jobs as when stop_early_after_all_iters evaluates to false, it would have to be computed (finished loop/branchall)
 
-    let id_ctx = get_id_ctx_for_expr(&stop_after_all_iters_if.expr, flow, db, status).await?;
+    let id_ctx =
+        get_id_ctx_for_expr(&stop_after_all_iters_if.expr, flow, &mut **tx, status).await?;
 
     let stop_early_after_all_iters = compute_bool_from_expr(
         &stop_after_all_iters_if.expr,
         Marc::new(args),
-        None,
+        flow_env,
         iters_result.clone(),
         None,
         id_ctx.as_ref(),
@@ -366,8 +396,11 @@ async fn evaluate_stop_after_all_iters_if(
 
     if stop_early_after_all_iters {
         *stop_early = true;
-        (*skip_if_stop_early, *stop_early_err_msg) =
-            get_stop_after_if_data(Some(stop_after_all_iters_if));
+        (
+            *skip_if_stop_early,
+            *stop_early_err_msg,
+            *stop_early_include_result,
+        ) = get_stop_after_if_data(Some(stop_after_all_iters_if));
     }
     Ok(())
 }
@@ -388,7 +421,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     canceled_by: Option<CanceledBy>,
     mut flow_job_duration: Option<FlowJobDuration>,
     result: Arc<Box<RawValue>>,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
@@ -405,6 +438,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         chat_input_enabled: bool,
         conversation_id: Option<Uuid>,
         is_ai_agent_step: bool,
+        omit_output_from_conversation: bool,
     }
     let (
         should_continue_flow,
@@ -463,6 +497,59 @@ pub async fn update_flow_status_after_job_completion_internal(
         if current_module.is_some_and(|x| x.is_flow()) {
             has_triggered_error_handler = false;
         }
+
+        // Resolve flow_env for predicate evaluations (stop_after_if,
+        // stop_after_all_iters_if, retry_if). Two-level gate:
+        //   1. Structural — at least one such predicate is configured.
+        //   2. Textual — the predicate expression actually references
+        //      `flow_env`. Mirrors the existing `expr.contains("results.")`
+        //      check in `get_id_ctx_for_expr`. A substring match has false
+        //      positives (harmless — just runs an unneeded resolve) but no
+        //      false negatives, since `flow_env` must appear textually for the
+        //      expression engine to read it.
+        let expr_uses_flow_env = |expr: &str| expr.contains("flow_env");
+        let retry_if_uses_flow_env = |module: &FlowModule| {
+            module
+                .retry
+                .as_ref()
+                .and_then(|r| r.retry_if.as_ref())
+                .is_some_and(|r| expr_uses_flow_env(&r.expr))
+        };
+        let needs_flow_env = current_module.is_some_and(|m| {
+            m.stop_after_if
+                .as_ref()
+                .is_some_and(|s| expr_uses_flow_env(&s.expr))
+                || m.stop_after_all_iters_if
+                    .as_ref()
+                    .is_some_and(|s| expr_uses_flow_env(&s.expr))
+                || retry_if_uses_flow_env(m)
+        }) || flow_value
+            .failure_module
+            .as_ref()
+            .is_some_and(|fm| retry_if_uses_flow_env(fm));
+        // The resolved env is constant for a flow's lifetime, so cache it by flow
+        // job id and reuse across child-step completions. Cache miss falls back to
+        // the existing resolve+persist path; same-worker subsequent completions are
+        // a single Arc::clone away. Transient-failure fallbacks (`is_cacheable ==
+        // false`) bypass the insert so a single API blip doesn't poison the rest
+        // of the flow run.
+        let resolved_flow_env: Option<Arc<HashMap<String, Box<RawValue>>>> = if needs_flow_env {
+            if let Some(cached) = RESOLVED_FLOW_ENV_CACHE.get(&flow) {
+                Some(cached)
+            } else {
+                resolve_flow_env_for_status_update(db, client, flow, w_id, flow_value)
+                    .await
+                    .map(|(env, is_cacheable)| {
+                        let arc = Arc::new(env);
+                        if is_cacheable {
+                            RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
+                        }
+                        arc
+                    })
+            }
+        } else {
+            None
+        };
 
         let module_status = match module_step {
             Step::PreprocessorStep => old_status
@@ -573,19 +660,24 @@ pub async fn update_flow_status_after_job_completion_internal(
             false
         };
 
-        let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
-            if stop_early_override.is_some()
-                && !is_flow_stop_early_override
-                && !parallel_loop
-                && !parallel_branchall
-            {
-                // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
-                let se = stop_early_override.as_ref().unwrap();
-                (true, None, *se, false)
-            } else if is_failure_step || module_step.is_preprocessor_step() {
-                (false, None, false, false)
-            } else if let Some(current_module) = current_module {
-                let stop_early = success
+        let (
+            mut stop_early,
+            mut stop_early_err_msg,
+            mut skip_if_stop_early,
+            mut stop_early_include_result,
+            continue_on_error,
+        ) = if stop_early_override.is_some()
+            && !is_flow_stop_early_override
+            && !parallel_loop
+            && !parallel_branchall
+        {
+            // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
+            let se = stop_early_override.as_ref().unwrap();
+            (true, None, *se, false, false)
+        } else if is_failure_step || module_step.is_preprocessor_step() {
+            (false, None, false, false, false)
+        } else if let Some(current_module) = current_module {
+            let stop_early = success
                     && !is_branch_all // we don't support stop_early per branch
                     && !parallel_loop // we don't support anymore stop_early per iteration when parallel for loop (removed from frontend)
                     && !is_identity_job // don't evaluate stop_after_if for skipped (identity) steps
@@ -607,10 +699,10 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                         let id_ctx = get_id_ctx_for_expr(expr, flow, db, &old_status).await?;
 
-                        compute_bool_from_expr(
+                        let bool_res = compute_bool_from_expr(
                             &expr,
                             Marc::new(args),
-                            None,
+                            resolved_flow_env.as_deref(),
                             result.clone(),
                             all_iters,
                             id_ctx.as_ref(),
@@ -618,25 +710,39 @@ pub async fn update_flow_status_after_job_completion_internal(
                             None,
                             None,
                         )
-                        .await?
+                        .await;
+                        if let Err(e) = &bool_res {
+                            append_predicate_error_to_root_logs(
+                                db,
+                                fetch_root_flow_id(db, flow).await,
+                                w_id,
+                                Some(&current_module.id),
+                                "stop_after_if",
+                                expr,
+                                e,
+                            )
+                            .await;
+                        }
+                        bool_res?
                     } else {
                         false
                     };
-                let (skip_if_stopped, stop_early_err_msg) = if stop_early {
-                    get_stop_after_if_data(current_module.stop_after_if.as_ref())
-                } else {
-                    (false, None)
-                };
-
-                (
-                    stop_early,
-                    stop_early_err_msg,
-                    skip_if_stopped,
-                    current_module.continue_on_error.unwrap_or(false),
-                )
+            let (skip_if_stopped, stop_early_err_msg, include_result) = if stop_early {
+                get_stop_after_if_data(current_module.stop_after_if.as_ref())
             } else {
-                (false, None, false, false)
+                (false, None, false)
             };
+
+            (
+                stop_early,
+                stop_early_err_msg,
+                skip_if_stopped,
+                include_result,
+                current_module.continue_on_error.unwrap_or(false),
+            )
+        } else {
+            (false, None, false, false, false)
+        };
 
         let skip_seq_branch_failure = match module_status {
             FlowStatusModule::InProgress {
@@ -870,8 +976,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
-                        if let Err(e) = evaluate_stop_after_all_iters_if(
-                            db,
+                        // Isolate the reads in a savepoint on the same connection: the
+                        // caller below swallows our error and keeps using `tx`, so a DB
+                        // read failure must not leave the outer transaction aborted (that
+                        // would fail the later commit). On error we roll back to the
+                        // savepoint, matching the previous pool-read behaviour where a
+                        // failed read left `tx` usable and the iteration was marked failed.
+                        let mut sp = tx.begin().await?;
+                        let eval_res = evaluate_stop_after_all_iters_if(
+                            &mut sp,
                             stop_after_all_iters_if,
                             module_status,
                             w_id,
@@ -879,20 +992,26 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early,
                             &mut skip_if_stop_early,
                             &mut stop_early_err_msg,
+                            &mut stop_early_include_result,
                             &mut nresult,
                             args,
+                            resolved_flow_env.as_deref(),
                             flow,
                             &old_status,
                         )
-                        .await
-                        {
-                            tracing::error!("error evaluating stop_after_all_iters_if: {e:#}");
-                            stop_early = true;
-                            skip_if_stop_early = false;
-                            stop_early_err_msg = Some(format!(
-                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
-                                stop_after_all_iters_if.expr
-                            ));
+                        .await;
+                        match eval_res {
+                            Ok(()) => sp.commit().await?,
+                            Err(e) => {
+                                let _ = sp.rollback().await;
+                                tracing::error!("error evaluating stop_after_all_iters_if: {e:#}");
+                                stop_early = true;
+                                skip_if_stop_early = false;
+                                stop_early_err_msg = Some(format!(
+                                    "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                    stop_after_all_iters_if.expr
+                                ));
+                            }
                         }
                     }
 
@@ -946,7 +1065,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     let r = sqlx::query_scalar!(
                          "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 RETURNING last_ping",
                          flow,
-                     ).fetch_optional(db).await.map_err(|e| {
+                     ).fetch_optional(&mut *tx).await.map_err(|e| {
                          Error::internal_err(format!(
                              "error while deleting parallel_monitor_lock: {e:#}"
                          ))
@@ -1024,7 +1143,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     // backwards compatibility
                     itered.as_ref().map(|itered| itered.len()).unwrap_or(0)
                 };
-                (*while_loop || (*index + 1 < itered_len) && (success || skip_loop_failures))
+                (*while_loop || *index + 1 < itered_len)
+                    && (success || skip_loop_failures)
                     && !stop_early
             } =>
             {
@@ -1076,6 +1196,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     stop_early = false;
                     stop_early_err_msg = None;
                     skip_if_stop_early = false;
+                    stop_early_include_result = false;
                 }
 
                 if is_loop || (is_branch_all && !stop_early) {
@@ -1088,8 +1209,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
-                        if let Err(e) = evaluate_stop_after_all_iters_if(
-                            db,
+                        // See the matching savepoint comment above: isolate the reads so a
+                        // DB read failure (whose error the caller swallows) cannot abort
+                        // the outer transaction and break the later commit.
+                        let mut sp = tx.begin().await?;
+                        let eval_res = evaluate_stop_after_all_iters_if(
+                            &mut sp,
                             stop_after_all_iters_if,
                             module_status,
                             w_id,
@@ -1097,19 +1222,25 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early,
                             &mut skip_if_stop_early,
                             &mut stop_early_err_msg,
+                            &mut stop_early_include_result,
                             &mut nresult,
                             args,
+                            resolved_flow_env.as_deref(),
                             flow,
                             &old_status,
                         )
-                        .await
-                        {
-                            stop_early = true;
-                            skip_if_stop_early = false;
-                            stop_early_err_msg = Some(format!(
-                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
-                                stop_after_all_iters_if.expr
-                            ));
+                        .await;
+                        match eval_res {
+                            Ok(()) => sp.commit().await?,
+                            Err(e) => {
+                                let _ = sp.rollback().await;
+                                stop_early = true;
+                                skip_if_stop_early = false;
+                                stop_early_err_msg = Some(format!(
+                                    "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                    stop_after_all_iters_if.expr
+                                ));
+                            }
                         }
                     }
                 }
@@ -1167,7 +1298,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }),
                     )
                 } else {
-                    let inc = if continue_on_error {
+                    // A failure the module's error policy does not describe must reach the error
+                    // handler even on a continue_on_error step, so don't advance the step
+                    // counter past the failed module — otherwise the flow would silently
+                    // continue to the next step and hide it.
+                    let inc = if step_failure.honors_step_error_policy() && continue_on_error {
                         let retry = current_module
                             .as_ref()
                             .and_then(|x| x.retry.clone())
@@ -1181,7 +1316,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &old_status.retry,
                             result.clone(),
                             Marc::new(args),
-                            None,
+                            resolved_flow_env.as_deref(),
                             Some(client),
                         )
                         .await?
@@ -1212,12 +1347,22 @@ pub async fn update_flow_status_after_job_completion_internal(
         };
 
         if stop_early && stop_early_err_msg.is_some() {
-            nresult = Some(Arc::new(to_raw_value(&serde_json::json! ({
-                "error": {
-                    "name": "EarlyStopError",
-                    "message": stop_early_err_msg.as_ref().unwrap(),
-                }
-            }))));
+            let mut error = serde_json::json!({
+                "name": "EarlyStopError",
+                "message": stop_early_err_msg.as_ref().unwrap(),
+            });
+            if stop_early_include_result {
+                // Embed the stopping step's own result inside the error object instead
+                // of discarding it, keeping the top-level result shape `{ "error": .. }`
+                // unchanged. `nresult` is already set for loops/branchall (aggregated
+                // iteration results), otherwise fall back to the step result.
+                let step_result = nresult.clone().unwrap_or_else(|| result.clone());
+                error["result"] =
+                    serde_json::to_value(&step_result).unwrap_or(serde_json::Value::Null);
+            }
+            nresult = Some(Arc::new(to_raw_value(
+                &serde_json::json!({ "error": error }),
+            )));
         }
 
         let step_counter = if inc_step_counter {
@@ -1336,7 +1481,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             match &new_status {
                 Some(FlowStatusModule::Success { flow_jobs: Some(jobs), .. })
                 | Some(FlowStatusModule::Failure { flow_jobs: Some(jobs), .. }) => {
-                    Arc::new(retrieve_flow_jobs_results(db, w_id, jobs).await?)
+                    Arc::new(retrieve_flow_jobs_results(&mut *tx, w_id, jobs).await?)
                 }
                 _ => result.clone(),
             }
@@ -1376,12 +1521,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             });
             let require_args = concurrency_requires_args || has_debouncing;
             let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
+            // `$workspace` does not depend on the preprocessor's output, so it has to resolve even
+            // when nothing forced us to fetch args. Leaving it to the `$args` branch below writes a
+            // `$workspace`-only tag back verbatim, naming a queue no worker serves.
+            if let Some(t) = tag.as_ref().filter(|t| t.contains("$workspace")) {
+                let tag_ws =
+                    windmill_queue::tags::tag_workspace_id(&flow_job.workspace_id, db).await;
+                tag = Some(t.replace("$workspace", &tag_ws));
+            }
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_key.clone());
-            let concurrent_limit = tag_and_concurrency_key
-                .as_ref()
-                .and_then(|x| x.concurrent_limit);
+            // `concurrent_limit` here can come straight from the raw flow JSON (see
+            // get_tag_and_concurrency), bypassing the ConcurrencySettings deserialization guard,
+            // so a stored `0` must still be coerced to disabled before we register a key for it.
+            let concurrent_limit = windmill_common::runnable_settings::none_if_non_positive(
+                tag_and_concurrency_key
+                    .as_ref()
+                    .and_then(|x| x.concurrent_limit),
+            );
             let concurrency_time_window_s = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_time_window_s);
@@ -1406,27 +1564,30 @@ pub async fn update_flow_status_after_job_completion_internal(
             if concurrency_requires_args {
                 let args = PushArgs::from(fetched_args.as_ref().unwrap());
                 if let Some(ck) = concurrency_key {
-                    insert_concurrency_key(
+                    insert_concurrency_key_capped(
                         &flow_job.workspace_id,
                         &args,
                         &flow_job.runnable_path,
                         JobKind::Flow,
                         Some(ck),
+                        concurrent_limit,
                         db,
                         flow,
                     )
                     .await?;
                 }
                 if let Some(t) = tag {
+                    // `$workspace` is already resolved above; this fills in `$args`.
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
             } else if concurrent_limit.is_some() {
-                insert_concurrency_key(
+                insert_concurrency_key_capped(
                     &flow_job.workspace_id,
                     &PushArgs::from(&HashMap::new()),
                     &flow_job.runnable_path,
                     JobKind::Flow,
                     concurrency_key,
+                    concurrent_limit,
                     db,
                     flow,
                 )
@@ -1478,6 +1639,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     windmill_common::runnable_settings::RunnableSettings {
                         debouncing_settings: debouncing_hash,
                         concurrency_settings: None,
+                        retry_settings: None,
                     },
                     db,
                 )
@@ -1563,7 +1725,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 &old_status.retry,
                 result.clone(),
                 Marc::new(args),
-                None,
+                resolved_flow_env.as_deref(),
                 Some(client),
             )
             .await?
@@ -1572,11 +1734,31 @@ pub async fn update_flow_status_after_job_completion_internal(
             Ok(should_retry)
         };
 
+        // For a regular module with continue_on_error at the last position, nothing else
+        // overrides `success` — `flow_jobs` is None so the loop/branchall override above
+        // doesn't fire, and `should_continue_flow` resolves to `!is_last_step = false`,
+        // letting the flow complete with success=false and bubble the error up to the
+        // enclosing job/subflow. Detect that case and treat the flow as successful.
+        let recoverable_failure_at_last_step = !success
+            && is_last_step
+            && step_failure.honors_step_error_policy()
+            && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
+
         let should_continue_flow = match success {
             _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
             _ if flow_job.is_canceled() => false,
             true => !is_last_step,
-            false if unrecoverable => false,
+            // A failure the module's error policy does not describe (a worker crash/OOM
+            // surfaced by the zombie handler, an error raised while updating the flow status,
+            // a suspend gate that ended without approval) must not be retried or silently
+            // skipped, but it should still trigger the flow's error handler — that is
+            // precisely when the error handler is expected to run. Continue the flow only to
+            // reach the failure module, never to retry.
+            false if !step_failure.honors_step_error_policy() => {
+                !is_failure_step
+                    && !has_triggered_error_handler
+                    && flow_value.failure_module.is_some()
+            }
             false if skip_seq_branch_failure || skip_loop_failures || continue_on_error => {
                 !is_last_step
             }
@@ -1591,15 +1773,31 @@ pub async fn update_flow_status_after_job_completion_internal(
             false => false,
         };
 
-        tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, unrecoverable = %unrecoverable,
+        if recoverable_failure_at_last_step {
+            success = true;
+        }
+
+        tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, step_failure = ?step_failure,
              skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
+        let is_ai_agent_step = current_module.is_some_and(|m| m.is_ai_agent());
+        let omit_output_from_conversation = match (is_ai_agent_step, current_module) {
+            (true, Some(module)) => match module.get_value()? {
+                FlowModuleValue::AIAgent { omit_output_from_conversation, .. } => {
+                    omit_output_from_conversation
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+
         let chat_ai_info = ChatAiInfo {
             chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
             conversation_id: old_status.memory_id,
-            is_ai_agent_step: current_module.is_some_and(|m| m.is_ai_agent()),
+            is_ai_agent_step,
+            omit_output_from_conversation,
         };
         (
             should_continue_flow,
@@ -1651,13 +1849,33 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .warn_after_seconds(3)
                 .await?;
             }
+            if !_cleanup_module.flow_jobs_to_schedule_clean.is_empty() {
+                let entries_json = serde_json::to_value(
+                    &_cleanup_module.flow_jobs_to_schedule_clean,
+                )
+                .map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Unable to serialize scheduled clean entries: {e:#}"
+                    ))
+                })?;
+                sqlx::query!(
+                    "UPDATE v2_job_status
+                    SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_schedule_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_schedule_clean', '[]'::jsonb) || $1)
+                    WHERE id = $2",
+                    entries_json,
+                    parent_job
+                )
+                .execute(db)
+                .warn_after_seconds(3)
+                .await?;
+            }
         } else {
             // run the cleanup step only when the root job is complete
             if !_cleanup_module.flow_jobs_to_clean.is_empty() {
                 tracing::debug!(
-                     "Cleaning up jobs arguments, result and logs as they were marked as delete_after_use {:?}",
-                     _cleanup_module.flow_jobs_to_clean
-                 );
+                    "Cleaning up jobs arguments, result and logs as they were marked as delete_after_use {:?}",
+                    _cleanup_module.flow_jobs_to_clean
+                );
                 sqlx::query!(
                     "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
                     &_cleanup_module.flow_jobs_to_clean,
@@ -1676,6 +1894,92 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .map_err(|e| {
                     Error::internal_err(format!("error while cleaning up completed job: {e:#}"))
                 })?;
+            }
+
+            // Process scheduled deletions — insert into job_delete_schedule
+            if !_cleanup_module.flow_jobs_to_schedule_clean.is_empty() {
+                let w_id = &flow_job.workspace_id;
+                for entry in &_cleanup_module.flow_jobs_to_schedule_clean {
+                    windmill_common::jobs::schedule_job_deletion(
+                        db,
+                        entry.id,
+                        w_id,
+                        entry.delete_after_secs,
+                    )
+                    .await
+                    .map_err(|e| {
+                        Error::internal_err(format!(
+                            "error scheduling job deletion for {}: {e:#}",
+                            entry.id
+                        ))
+                    })?;
+                }
+            }
+
+            // Flow-level delete_after_secs: apply to ALL child jobs + the parent flow job
+            let flow_value = flow_data.value();
+            let flow_delete_secs = windmill_common::jobs::resolve_delete_after_secs(
+                flow_value.delete_after_use,
+                flow_value.delete_after_secs,
+            );
+            if let Some(secs) = flow_delete_secs {
+                let w_id = &flow_job.workspace_id;
+                let mut all_ids: Vec<Uuid> =
+                    sqlx::query_scalar!("SELECT id FROM v2_job WHERE root_job = $1", flow_job.id)
+                        .fetch_all(db)
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "error fetching child jobs for flow-level deletion: {e:#}"
+                            ))
+                        })?;
+                all_ids.push(flow_job.id);
+
+                if secs == 0 {
+                    sqlx::query!(
+                        "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
+                        &all_ids,
+                    )
+                    .execute(db)
+                    .await
+                    .map_err(|e| {
+                        Error::internal_err(format!(
+                            "error while cleaning up completed job args: {e:#}"
+                        ))
+                    })?;
+                    sqlx::query!(
+                        "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+                        &all_ids,
+                    )
+                    .execute(db)
+                    .await
+                    .map_err(|e| {
+                        Error::internal_err(format!(
+                            "error while cleaning up completed job results: {e:#}"
+                        ))
+                    })?;
+                    sqlx::query!(
+                        "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
+                        &all_ids,
+                    )
+                    .execute(db)
+                    .await
+                    .map_err(|e| {
+                        Error::internal_err(format!(
+                            "error while cleaning up completed job logs: {e:#}"
+                        ))
+                    })?;
+                } else {
+                    for id in &all_ids {
+                        windmill_common::jobs::schedule_job_deletion(db, *id, w_id, secs)
+                            .await
+                            .map_err(|e| {
+                                Error::internal_err(format!(
+                                    "error scheduling job deletion for {id}: {e:#}"
+                                ))
+                            })?;
+                    }
+                }
             }
         }
 
@@ -1724,6 +2028,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 success,
                 skipped,
                 chat_ai_info.is_ai_agent_step,
+                chat_ai_info.omit_output_from_conversation,
                 &nresult,
                 chat_ai_info.chat_input_enabled,
                 chat_ai_info.conversation_id,
@@ -1804,6 +2109,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_name,
             flow_runners,
             &killpill_rx,
+            step_failure,
         ))
         .warn_after_seconds(10)
         .await
@@ -1828,6 +2134,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                 )
                 .await;
+                // override prior child's success so the parent learns this flow failed
+                success = false;
                 true
             }
             Ok(_) => false,
@@ -1871,16 +2179,60 @@ fn find_flow_job_index(flow_jobs: &Vec<Uuid>, job_id_for_status: &Uuid) -> Optio
     flow_jobs.iter().position(|x| x == job_id_for_status)
 }
 
+fn format_chat_message_value(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(_) | Value::Number(_) => value.to_string(),
+        Value::String(text) => text.clone(),
+        Value::Array(_) | Value::Object(_) => serde_json::to_string_pretty(value)
+            .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+    }
+}
+
+/// Selects the assistant message persisted for the final non-AI step in a chat-enabled flow.
+/// `windmill_chat_answer` is the explicit override contract:
+/// - `null` suppresses the assistant message
+/// - any other JSON value is rendered as the chat message
+fn extract_chat_message_from_flow_result(result: &RawValue) -> error::Result<Option<String>> {
+    let value: Value = serde_json::from_str(result.get())
+        .map_err(|e| Error::internal_err(format!("Failed to parse flow result: {e}")))?;
+
+    match value {
+        Value::Object(map) => {
+            match map.get("windmill_chat_answer") {
+                Some(Value::Null) => return Ok(None),
+                Some(answer) => return Ok(Some(format_chat_message_value(answer))),
+                _ => {}
+            }
+
+            Ok(Some(
+                serde_json::to_string_pretty(&Value::Object(map))
+                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+            ))
+        }
+        Value::String(content) => Ok(Some(content)),
+        value => Ok(Some(
+            serde_json::to_string_pretty(&value)
+                .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+        )),
+    }
+}
+
 async fn add_tool_message_to_conversation(
     db: &DB,
     job_id: &Uuid,
     success: bool,
     skipped: bool,
     is_ai_agent_step: bool,
+    omit_output_from_conversation: bool,
     result: &Box<RawValue>,
     chat_input_enabled: bool,
     conversation_id: Option<Uuid>,
 ) -> error::Result<()> {
+    if is_ai_agent_step && omit_output_from_conversation {
+        return Ok(());
+    }
+
     // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
     if !skipped && chat_input_enabled {
         // Get conversation_id from flow_status.memory_id
@@ -1888,28 +2240,8 @@ async fn add_tool_message_to_conversation(
         if let Some(conversation_id) = conversation_id {
             // Only create assistant message if last module is NOT an AI agent, or there was an error
             if !is_ai_agent_step || success == false {
-                let value = serde_json::to_value(result.get())
-                    .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
-
-                let content = match value {
-                    // If it's an Object with "output" key AND the output is a String, return it
-                    serde_json::Value::Object(mut map)
-                        if map.contains_key("output")
-                            && matches!(map.get("output"), Some(serde_json::Value::String(_))) =>
-                    {
-                        if let Some(serde_json::Value::String(s)) = map.remove("output") {
-                            s
-                        } else {
-                            // prettify the whole result
-                            serde_json::to_string_pretty(&map)
-                                .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
-                        }
-                    }
-                    // Otherwise, if the whole value is a String, return it
-                    serde_json::Value::String(s) => s,
-                    // Otherwise, prettify the whole result
-                    v => serde_json::to_string_pretty(&v)
-                        .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+                let Some(content) = extract_chat_message_from_flow_result(result.as_ref())? else {
+                    return Ok(());
                 };
 
                 // Insert new assistant message
@@ -1978,8 +2310,8 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
     Ok(())
 }
 
-async fn retrieve_flow_jobs_results(
-    db: &DB,
+async fn retrieve_flow_jobs_results<'c>(
+    e: impl sqlx::PgExecutor<'c>,
     w_id: &str,
     job_uuids: &Vec<Uuid>,
 ) -> error::Result<Box<RawValue>> {
@@ -1990,7 +2322,7 @@ async fn retrieve_flow_jobs_results(
         job_uuids.as_slice(),
         w_id
     )
-    .fetch_all(db)
+    .fetch_all(e)
     .await?
     .into_iter()
     .map(|br| (br.id, br.result))
@@ -2150,6 +2482,188 @@ async fn compute_bool_from_expr(
     }
 }
 
+// Appends a predicate-evaluation error to the root flow job's logs so users can
+// see which boolean expression failed even when the failure is masked further up
+// the flow tree (e.g. by `skip_failures: true` on a surrounding forloop).
+async fn append_predicate_error_to_root_logs(
+    db: &DB,
+    root_flow_id: Uuid,
+    workspace_id: &str,
+    module_id: Option<&str>,
+    predicate: &str,
+    expr: &str,
+    err: &Error,
+) {
+    let module_part = module_id
+        .map(|id| format!(" of module '{id}'"))
+        .unwrap_or_default();
+    let log = format!("Error evaluating {predicate}{module_part} expression `{expr}`: {err:#}\n");
+    append_logs(&root_flow_id, workspace_id, log, &db.into()).await;
+}
+
+fn root_flow_id_for(flow_job: &MiniPulledJob) -> Uuid {
+    flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
+}
+
+async fn fetch_root_flow_id(db: &DB, flow_id: Uuid) -> Uuid {
+    sqlx::query_scalar!(
+        "SELECT flow_innermost_root_job FROM v2_job WHERE id = $1",
+        flow_id
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten()
+    .unwrap_or(flow_id)
+}
+
+// Resolve the flow_env to use for predicate evaluations in
+// `update_flow_status_after_job_completion_internal`: take the current flow's
+// `flow_env` if present, otherwise inherit from the root flow, then interpolate
+// any `$var:`/`$res:` references via `transform_json`.
+//
+// Returns `Some((env, is_cacheable))`. `is_cacheable` is `false` only when the
+// returned env is a partially-resolved fallback after a transient error (e.g.
+// `transform_json` failed mid-resolve, or the mini job fetch failed). Callers
+// must not cache `is_cacheable == false` results — doing so would freeze the
+// transient failure for the rest of the flow run.
+async fn resolve_flow_env_for_status_update(
+    db: &DB,
+    client: &AuthedClient,
+    flow_job_id: Uuid,
+    workspace_id: &str,
+    flow_value: &FlowValue,
+) -> Option<(HashMap<String, Box<RawValue>>, bool)> {
+    // Fetch the env source. For the inherited path, we first need to know whether the
+    // flow even has a parent — `fetch_root_flow_env` runs a recursive CTE on `v2_job`
+    // and is wasted work for top-level flows with no own `flow_env`. The mini job we
+    // pull here can be reused below if `transform_json` ends up needing it.
+    let (env, mini): (HashMap<String, Box<RawValue>>, Option<MiniPulledJob>) =
+        if let Some(ref e) = flow_value.flow_env {
+            (e.clone(), None)
+        } else {
+            let mini = match get_mini_pulled_job(db, &flow_job_id).await {
+                Ok(Some(j)) => j,
+                Ok(None) => return None,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch flow job to resolve flow_env: {e:#}");
+                    return None;
+                }
+            };
+            if mini.parent_job.is_none() {
+                // No own flow_env and no parent to inherit from — nothing to resolve.
+                return None;
+            }
+            let env = fetch_root_flow_env(db, flow_job_id, workspace_id).await?;
+            (env, Some(mini))
+        };
+    if env.is_empty() {
+        return Some((env, true));
+    }
+    // Skip the DB roundtrip + `transform_json` when nothing in env needs interpolation.
+    // This is the common case: a flow_env containing only literal values.
+    if !crate::common::map_needs_resolution(&env) {
+        return Some((env, true));
+    }
+    let mini = match mini {
+        Some(m) => m,
+        None => match get_mini_pulled_job(db, &flow_job_id).await {
+            Ok(Some(j)) => j,
+            // Don't cache: we couldn't fetch the job, so the env we'd return is the
+            // pre-interpolation literal — caching that would freeze the broken state.
+            Ok(None) => return Some((env, false)),
+            Err(e) => {
+                tracing::warn!("Failed to fetch flow job to resolve flow_env: {e:#}");
+                return Some((env, false));
+            }
+        },
+    };
+    match transform_json(
+        client,
+        workspace_id,
+        &env,
+        &mini,
+        &Connection::Sql(db.clone()),
+    )
+    .await
+    {
+        Ok(Some(resolved)) => Some((resolved, true)),
+        Ok(None) => Some((env, true)),
+        // Don't cache transient resolution failures: one variable/resource API blip
+        // would otherwise poison the literal-only env for the rest of the flow run.
+        Err(e) => {
+            tracing::warn!("Failed to resolve flow_env references in status update: {e:#}");
+            Some((env, false))
+        }
+    }
+}
+
+// Maximum number of ancestor jobs the flow_env walk will follow before bailing.
+// Bounds runtime cost and protects against pathological data.
+const MAX_FLOW_ENV_LOOKUP_DEPTH: i32 = 50;
+
+// Look up the nearest ancestor flow's `flow_env` for the given flow job.
+// Sub-flows spawned by branches/loops via `payload_from_modules` don't carry
+// `flow_env` in their own `FlowValue`, so any predicate evaluated against the
+// local flow_env would see `None`. We walk the ancestor chain via
+// `flow_innermost_root_job → parent_job` (one step at a time) and return the
+// CLOSEST ancestor whose persisted flow definition (`flow_version.value` or
+// `raw_flow`) carries `flow_env`.
+//
+// The walk deliberately does NOT use `root_job` (which would jump straight to
+// the topmost parent) because imported flows define their own `flow_env`
+// scope: a branch inside an imported flow must see the imported flow's env,
+// not the top parent's. `flow_innermost_root_job` walks one scope at a time
+// and resets to NULL on parallel-loop iterations and imported sub-flows, so
+// recursion is required to walk past those resets to the closest scope.
+async fn fetch_root_flow_env(
+    db: &DB,
+    flow_job_id: Uuid,
+    workspace_id: &str,
+) -> Option<HashMap<String, Box<RawValue>>> {
+    sqlx::query_scalar!(
+        r#"WITH RECURSIVE chain(id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, depth) AS (
+            SELECT id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, 0
+            FROM v2_job
+            WHERE id = $1 AND workspace_id = $2
+            UNION ALL
+            SELECT j.id, j.parent_job, j.flow_innermost_root_job, j.runnable_id, j.runnable_path, j.raw_flow, c.depth + 1
+            FROM v2_job j
+            JOIN chain c
+                ON j.id = COALESCE(c.flow_innermost_root_job, c.parent_job)
+            WHERE j.workspace_id = $2 AND c.depth < $3
+        )
+        SELECT
+            CASE
+                WHEN flow_version.id IS NOT NULL THEN
+                    flow_version.value -> 'flow_env'
+                ELSE
+                    chain.raw_flow -> 'flow_env'
+            END AS "flow_env: Json<HashMap<String, Box<RawValue>>>"
+         FROM chain
+         LEFT JOIN flow_version
+             ON flow_version.id = chain.runnable_id
+            AND flow_version.path = chain.runnable_path
+            AND flow_version.workspace_id = $2
+         WHERE (CASE
+                WHEN flow_version.id IS NOT NULL THEN flow_version.value -> 'flow_env'
+                ELSE chain.raw_flow -> 'flow_env'
+            END) IS NOT NULL
+         ORDER BY chain.depth ASC
+         LIMIT 1"#,
+        flow_job_id,
+        workspace_id,
+        MAX_FLOW_ENV_LOOKUP_DEPTH,
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten()
+    .map(|json| json.0)
+}
+
 struct FailureContext {
     started_at: Arc<Box<RawValue>>,
     flow_job_id: Uuid,
@@ -2286,14 +2800,33 @@ pub async fn handle_flow(
     worker_name: &str,
     flow_runners: Option<Arc<FlowRunners>>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+    // How the step this flow is resuming from failed, which bounds what may be pushed next:
+    // see [`StepFailureKind`].
+    step_failure: StepFailureKind,
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
+
+    // Sub-flows spawned by `payload_from_modules` for branches/loops don't
+    // carry the parent's `flow_env` in their own FlowValue. Fall back to the
+    // nearest enclosing scope's `flow_env` so predicates like `skip_if`,
+    // `stop_after_if`, and branch conditions see the same env as input
+    // transforms.
+    let inherited_env: Option<HashMap<String, Box<RawValue>>> =
+        if flow.flow_env.is_none() && flow_job.parent_job.is_some() {
+            fetch_root_flow_env(db, flow_job.id, &flow_job.workspace_id).await
+        } else {
+            None
+        };
+    let env_source = flow.flow_env.as_ref().or(inherited_env.as_ref());
 
     // Resolve $var: and $res: references in flow_env.
     // We resolve into a separate variable to avoid cloning the entire FlowValue
     // (which includes modules, failure_module, etc.) just to replace flow_env.
+    // `is_cacheable` is `false` only on a transient `transform_json` failure,
+    // matching `resolve_flow_env_for_status_update`'s contract — we must not
+    // freeze a partial resolution into the cache.
     let resolved_env;
-    let flow_env = if let Some(ref env) = flow.flow_env {
+    let (flow_env, is_cacheable) = if let Some(env) = env_source {
         match transform_json(
             client,
             &flow_job.workspace_id,
@@ -2305,17 +2838,30 @@ pub async fn handle_flow(
         {
             Ok(Some(resolved)) => {
                 resolved_env = resolved;
-                Some(&resolved_env)
+                (Some(&resolved_env), true)
             }
-            Ok(None) => flow.flow_env.as_ref(),
+            Ok(None) => (Some(env), true),
             Err(e) => {
                 tracing::warn!("Failed to resolve flow_env references: {e}");
-                flow.flow_env.as_ref()
+                (Some(env), false)
             }
         }
     } else {
-        None
+        (None, true)
     };
+
+    // Populate the per-flow resolved-env cache so subsequent predicate
+    // evaluations in `update_flow_status_after_job_completion_internal` skip
+    // the recursive CTE + transform_json. Costs one HashMap clone per
+    // sub-flow handle_flow entry; saves up to one CTE + one transform_json
+    // per flow execution that has predicates referencing flow_env.
+    if is_cacheable {
+        if let Some(env) = flow_env {
+            if !env.is_empty() {
+                RESOLVED_FLOW_ENV_CACHE.insert(flow_job.id, Arc::new(env.clone()));
+            }
+        }
+    }
 
     let status = flow_job
         .parse_flow_status()
@@ -2371,38 +2917,81 @@ pub async fn handle_flow(
             .sleep(tokio::time::sleep)
             .await;
 
-            // Non-retryable errors (QuotaExceeded, NotFound) are handled inside
-            // try_schedule_next_job (schedule disabled, returns None), so they never
-            // reach here. This handles only transient errors after retry exhaustion.
             if let Err(err) = schedule_push_result {
-                tracing::error!(
-                    "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
-                    schedule.path
-                );
-                if let Err(disable_err) = sqlx::query!(
-                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    err.to_string(),
-                    &flow_job.workspace_id,
-                    &schedule.path
-                )
-                .execute(db)
-                .await
-                {
+                if matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)) {
+                    // try_schedule_next_job disables on these, so reaching here means
+                    // its own disable write failed. Retry it: rearm_schedule turns
+                    // these into NoOp, so without disabling here the schedule would
+                    // stay enabled yet never run.
+                    // Contract on `record_in_disable_tx`. Worth knowing here:
+                    // this is the last chance to disable, because a flow
+                    // schedule arms its next occurrence when the flow *starts*,
+                    // so once the flow is gone nothing reaches this code again.
+                    let mut history_lost = None;
+                    let disable_result = async {
+                        let mut tx = db.begin().await?;
+                        let rows = sqlx::query!(
+                            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
+                            err.to_string(),
+                            &flow_job.workspace_id,
+                            &schedule.path
+                        )
+                        .execute(&mut *tx)
+                        .await?
+                        .rows_affected();
+                        if rows > 0 {
+                            history_lost = windmill_common::trigger_history::record_in_disable_tx(
+                                &mut tx,
+                                windmill_queue::jobs::schedule_auto_disable_event(
+                                    &flow_job.workspace_id,
+                                    &schedule.path,
+                                    &err.to_string(),
+                                ),
+                            )
+                            .await;
+                        }
+                        tx.commit().await?;
+                        Ok::<(), Error>(())
+                    }
+                    .await;
+
+                    if let Err(disable_err) = disable_result {
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            &mini_job,
+                            db,
+                            format!(
+                                "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                                schedule.path,
+                            ),
+                        )
+                        .await;
+                    }
+                    if let Some(history_err) = history_lost {
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            &mini_job,
+                            db,
+                            format!(
+                                "Disabled schedule {} but could not record it in the trigger history: {history_err}",
+                                schedule.path,
+                            ),
+                        )
+                        .await;
+                    }
+                } else {
+                    // Transient error (DB contention, timeout) after retry exhaustion:
+                    // not the schedule's fault. Report it but leave the schedule
+                    // enabled; the current occurrence runs to completion and the
+                    // unarmed-schedule reconciler re-arms the next one. Do not
+                    // fail/requeue: a same-worker zombie would be canceled, losing it.
                     report_error_to_workspace_handler_or_critical_side_channel(
                         &mini_job,
                         db,
                         format!(
-                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            "Could not push next scheduled job for {} after retries: {err}. Leaving it enabled for the unarmed-schedule reconciler to re-arm.",
                             schedule.path,
                         ),
                     )
                     .await;
-                    return Err(SchedulePushZombieError(
-                        format!(
-                            "Could not push or disable schedule {} after retries",
-                            schedule.path
-                        ),
-                    ).into());
                 }
             }
         } else {
@@ -2430,6 +3019,7 @@ pub async fn handle_flow(
             flow_runners.clone(),
             job_completed_tx.clone(),
             &killpill_rx,
+            step_failure,
         ))
         .warn_after_seconds(10)
         .await?;
@@ -2517,6 +3107,87 @@ struct PushNextFlowJobRec {
 
 // #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
+/// Resolve the worker tag for a flow's child job (step, nested sub-flow, preprocessor).
+///
+/// A child normally inherits the parent flow job's tag so the whole flow runs on one worker
+/// group. The exceptions, in order:
+/// - the preprocessor step, or a flow running on the generic `flow` / `flow-{workspace}` tag,
+///   always uses the child's own tag (`step_tag`);
+/// - when the flow opts into `preserve_step_tags` and the child declares its own non-empty tag,
+///   that tag is honored instead of being overridden by the flow tag;
+/// - otherwise the child inherits the parent flow job's tag.
+fn resolve_flow_step_tag(
+    is_preprocessor_step: bool,
+    flow_tag: &str,
+    workspace_id: &str,
+    preserve_step_tags: bool,
+    step_tag: Option<&str>,
+) -> Option<String> {
+    if is_preprocessor_step || flow_tag == "flow" || flow_tag == format!("flow-{}", workspace_id) {
+        step_tag.map(str::to_string)
+    } else if preserve_step_tags && step_tag.is_some_and(|t| !t.is_empty()) {
+        step_tag.map(str::to_string)
+    } else {
+        Some(flow_tag.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tag_resolution_tests {
+    use super::resolve_flow_step_tag;
+
+    #[test]
+    fn step_inherits_custom_flow_tag_by_default() {
+        // Parent flow on a custom tag, step declares its own tag, preserve disabled:
+        // the step inherits the flow tag (historical behavior).
+        assert_eq!(
+            resolve_flow_step_tag(false, "worker-group-A", "w1", false, Some("worker-group-B")),
+            Some("worker-group-A".to_string())
+        );
+    }
+
+    #[test]
+    fn step_keeps_own_tag_when_preserve_enabled() {
+        // The exact customer scenario: a sub-flow tagged worker-group-B run as a step of a
+        // flow tagged worker-group-A now runs on worker-group-B when preserve_step_tags is on.
+        assert_eq!(
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some("worker-group-B")),
+            Some("worker-group-B".to_string())
+        );
+    }
+
+    #[test]
+    fn untagged_step_inherits_flow_tag_even_when_preserve_enabled() {
+        assert_eq!(
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, None),
+            Some("worker-group-A".to_string())
+        );
+        // An empty tag counts as "no tag" and still inherits.
+        assert_eq!(
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some("")),
+            Some("worker-group-A".to_string())
+        );
+    }
+
+    #[test]
+    fn generic_flow_tag_always_uses_step_tag() {
+        for flow_tag in ["flow", "flow-w1"] {
+            assert_eq!(
+                resolve_flow_step_tag(false, flow_tag, "w1", false, Some("worker-group-B")),
+                Some("worker-group-B".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn preprocessor_step_uses_step_tag() {
+        assert_eq!(
+            resolve_flow_step_tag(true, "worker-group-A", "w1", false, Some("worker-group-B")),
+            Some("worker-group-B".to_string())
+        );
+    }
+}
+
 async fn push_next_flow_job(
     flow_job: Arc<MiniPulledJob>,
     mut status: FlowStatus,
@@ -2531,6 +3202,9 @@ async fn push_next_flow_job(
     flow_runners: Option<Arc<FlowRunners>>,
     job_completed_tx: JobCompletedSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+    // How the prior step failed, which bounds what may be pushed next: see
+    // [`StepFailureKind`].
+    step_failure: StepFailureKind,
 ) -> error::Result<PushNextFlowJob> {
     let job_root = flow_job
         .flow_innermost_root_job
@@ -2591,6 +3265,7 @@ async fn push_next_flow_job(
             w_id: flow_job.workspace_id.clone(),
             worker_dir: worker_dir.to_string(),
             token: client.token.clone(),
+            step_failure,
         })));
     }
 
@@ -2645,13 +3320,14 @@ async fn push_next_flow_job(
                             w_id: flow_job.workspace_id.clone(),
                             worker_dir: worker_dir.to_string(),
                             token: client.token.clone(),
+                            step_failure,
                         }
                     )));
                 }
             }
         }
         if let Some(skip_expr) = &flow.skip_expr {
-            let skip = compute_bool_from_expr(
+            let skip_res = compute_bool_from_expr(
                 &skip_expr,
                 arc_flow_job_args.clone(),
                 flow_env,
@@ -2666,7 +3342,20 @@ async fn push_next_flow_job(
                 )]),
             )
             .warn_after_seconds(3)
-            .await?;
+            .await;
+            if let Err(e) = &skip_res {
+                append_predicate_error_to_root_logs(
+                    db,
+                    root_flow_id_for(&flow_job),
+                    &flow_job.workspace_id,
+                    None,
+                    "flow skip_expr",
+                    skip_expr,
+                    e,
+                )
+                .await;
+            }
+            let skip = skip_res?;
             if skip {
                 return Ok(PushNextFlowJob::Done(Some(UpdateFlow {
                     flow: flow_job.id,
@@ -2676,13 +3365,14 @@ async fn push_next_flow_job(
                     w_id: flow_job.workspace_id.clone(),
                     worker_dir: worker_dir.to_string(),
                     token: client.token.clone(),
+                    step_failure,
                 })));
             }
         }
     }
 
     // Compute and initialize last_job_result
-    let arc_last_job_result = if status_module.is_failure() {
+    let mut arc_last_job_result = if status_module.is_failure() {
         // if job is being retried, pass the result of its previous failure
         last_job_result.unwrap_or_else(|| Arc::new(to_raw_value(&json!("{}"))))
     } else if matches!(step, Step::Step { idx: 0, .. }) || step.is_preprocessor_step() {
@@ -2758,10 +3448,16 @@ async fn push_next_flow_job(
             // Persist approval user groups conditions, if any. Requires runnning the InputTransform
             let required_events = suspend.required_events.unwrap() as u16;
             let user_auth_required = suspend.user_auth_required.unwrap_or(false);
-            if user_auth_required {
-                let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            // self_approval_disabled must be persisted even without user_auth_required, otherwise
+            // the resume boundary sees no approval_conditions and the restriction is silently
+            // dropped. user_groups_required only applies together with user_auth_required.
+            if user_auth_required || self_approval_disabled {
                 let user_groups_required: Vec<String>;
-                if let Some(user_groups_required_as_input_transform) = suspend.user_groups_required
+                if !user_auth_required {
+                    user_groups_required = Vec::new();
+                } else if let Some(user_groups_required_as_input_transform) =
+                    suspend.user_groups_required
                 {
                     match user_groups_required_as_input_transform {
                         InputTransform::Static { value } => {
@@ -2926,7 +3622,7 @@ async fn push_next_flow_job(
                         count: required_events,
                         job: last
                     }),
-                    (required_events - resume_messages.len() as u16) as i32,
+                    (required_events.saturating_sub(resume_messages.len() as u16)) as i32,
                     Duration::from_secs(
                         suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)
                     ) as Duration,
@@ -3002,6 +3698,7 @@ async fn push_next_flow_job(
                     w_id: flow_job.workspace_id.clone(),
                     worker_dir: worker_dir.to_string(),
                     token: client.token.clone(),
+                    step_failure: StepFailureKind::SuspendNotApproved,
                 })));
             }
         }
@@ -3071,7 +3768,11 @@ async fn push_next_flow_job(
         }
     };
 
-    let retry = if matches!(&status_module, FlowStatusModule::Failure { .. },) {
+    // Retry is a policy on the step's own execution: skip it for a failure the step did not
+    // produce by running, and fall straight through to the failure module below.
+    let retry = if step_failure.honors_step_error_policy()
+        && matches!(&status_module, FlowStatusModule::Failure { .. },)
+    {
         let retry = &module.retry.clone().unwrap_or_default();
         evaluate_retry(
             retry,
@@ -3086,8 +3787,13 @@ async fn push_next_flow_job(
         None
     };
     let get_args_from_id = match &status_module {
+        // `|| !honors_step_error_policy()`: such a failure routes to the failure module even
+        // on a continue_on_error step (whose failures are normally tolerated), matching the
+        // decision in update_flow_status_after_job_completion_internal.
         FlowStatusModule::Failure { job, .. }
-            if retry.as_ref().is_some() || !module.continue_on_error.is_some_and(|x| x) =>
+            if retry.as_ref().is_some()
+                || !module.continue_on_error.is_some_and(|x| x)
+                || !step_failure.honors_step_error_policy() =>
         {
             if let Some((fail_count, retry_in)) = retry {
                 tracing::debug!(
@@ -3113,6 +3819,30 @@ async fn push_next_flow_job(
                  .context("update flow retry")?;
 
                 status_module = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
+
+                // The failed attempt's error has already been consumed by `evaluate_retry`
+                // above. Restore `previous_result` to the preceding step's result (or the
+                // flow args for the first step) so that predicates re-evaluated for the
+                // retry (skip_if, loop iterator expressions, ...) don't see the failed
+                // attempt's error instead. Like the suspend/restart path above, this
+                // falls back to `"{}"` when the preceding step has no Success status
+                // (e.g. it failed with continue_on_error).
+                if !matches!(step, Step::FailureStep) {
+                    arc_last_job_result = if matches!(step, Step::Step { idx: 0, .. })
+                        || step.is_preprocessor_step()
+                    {
+                        Arc::new(to_raw_value(&flow_job.args))
+                    } else {
+                        match get_previous_job_result(db, flow_job.workspace_id.as_str(), &status)
+                            .warn_after_seconds(3)
+                            .await?
+                        {
+                            None => Arc::new(to_raw_value(&json!("{}"))),
+                            Some(previous_job_result) => Arc::new(previous_job_result),
+                        }
+                    };
+                }
+
                 // we get the args from the last failed job
                 status.retry.failed_jobs.last()
             /* Start the failure module ... */
@@ -3163,7 +3893,7 @@ async fn push_next_flow_job(
 
     let is_skipped = if let Some(skip_if) = &module.skip_if {
         let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status);
-        compute_bool_from_expr(
+        let skip_if_res = compute_bool_from_expr(
             &skip_if.expr,
             arc_flow_job_args.clone(),
             flow_env,
@@ -3175,7 +3905,20 @@ async fn push_next_flow_job(
             None,
         )
         .warn_after_seconds(3)
-        .await?
+        .await;
+        if let Err(e) = &skip_if_res {
+            append_predicate_error_to_root_logs(
+                db,
+                root_flow_id_for(&flow_job),
+                &flow_job.workspace_id,
+                Some(&module.id),
+                "skip_if",
+                &skip_if.expr,
+                e,
+            )
+            .await;
+        }
+        skip_if_res?
     } else {
         false
     };
@@ -3359,6 +4102,32 @@ async fn push_next_flow_job(
                 ));
             }
         }
+        NextFlowTransform::StepFailure { error } => {
+            let result = Arc::new(to_raw_value(&WrappedError { error }));
+            update_flow_status_after_job_completion(
+                db,
+                client,
+                flow_job.id,
+                &Uuid::nil(),
+                &flow_job.workspace_id,
+                false,
+                None,
+                result,
+                None,
+                StepFailureKind::Normal,
+                same_worker_tx,
+                worker_dir,
+                None,
+                worker_name,
+                job_completed_tx,
+                flow_runners,
+                killpill_rx,
+                #[cfg(feature = "benchmark")]
+                &mut BenchmarkIter::new(),
+            )
+            .await?;
+            return Ok(PushNextFlowJob::Done(None));
+        }
     };
 
     // only start runners if we're not already in a squash for loop
@@ -3373,7 +4142,8 @@ async fn push_next_flow_job(
             .as_ref()
             .is_some_and(|fr| fr.job_id == flow_job.id);
 
-    let continue_with_runners = (start_runners || (flow_runners.is_some() && !do_not_pass_runners))
+    let continue_with_runners = step_failure.keeps_worker_pin()
+        && (start_runners || (flow_runners.is_some() && !do_not_pass_runners))
         && module.suspend.is_none()
         && module.sleep.is_none();
 
@@ -3382,8 +4152,13 @@ async fn push_next_flow_job(
     let job_same_worker = flow_job.same_worker
         && matches!(flow_job.kind, JobKind::Flow)
         && flow_job.runnable_id.is_some();
-    let continue_on_same_worker =
-        (flow.same_worker || job_same_worker) && module.suspend.is_none() && module.sleep.is_none();
+    // Without a worker worth pinning to, the error handler step is pushed as a regular queued
+    // job (any live worker can pick it up) instead of being signaled via same_worker to a
+    // worker that may be dead — which would strand it forever.
+    let continue_on_same_worker = step_failure.keeps_worker_pin()
+        && (flow.same_worker || job_same_worker)
+        && module.suspend.is_none()
+        && module.sleep.is_none();
 
     /* Finally, push the job into the queue */
     let mut uuids = vec![];
@@ -3399,11 +4174,14 @@ async fn push_next_flow_job(
     for (i, payload_tag) in job_payloads.into_iter().enumerate() {
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
+            // Ping on the pool, outside `tx`, so the zombie flow monitor sees it before the
+            // push transaction commits — otherwise large parallel pushes can be flagged as
+            // zombie and trigger a cancel/push deadlock.
             sqlx::query!(
-                "UPDATE v2_job_runtime SET ping = now() WHERE id = $1 AND ping < now()",
+                "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
                 flow_job.id,
             )
-            .execute(&mut *tx)
+            .execute(db)
             .warn_after_seconds(3)
             .await?;
         }
@@ -3538,7 +4316,7 @@ async fn push_next_flow_job(
             _ => nargs,
         };
 
-        let push_args;
+        let mut push_args;
         let err;
         let ov;
 
@@ -3553,6 +4331,37 @@ async fn push_next_flow_job(
                 err = Some(e);
             }
         };
+
+        // Propagate temp script refs from the flow preview job to each step so
+        // relative imports in inline scripts resolve from not-yet-deployed local
+        // content (uploaded to raw_script_temp) instead of the deployed script.
+        // Gated on JobKind::FlowPreview because flow_job.args includes
+        // caller-controlled request args; honoring this key on deployed flow
+        // runs would let a caller swap import resolution targets in deployed
+        // step code.
+        if matches!(flow_job.kind, JobKind::FlowPreview) {
+            if let Some(temp_script_refs) = arc_flow_job_args.as_ref().get("_TEMP_SCRIPT_REFS") {
+                push_args
+                    .extra
+                    .get_or_insert_with(HashMap::new)
+                    .insert("_TEMP_SCRIPT_REFS".to_string(), temp_script_refs.clone());
+            }
+        }
+
+        // Propagate the inbound W3C traceparent captured at enqueue to each step
+        // so the whole flow shares the originating distributed trace (the trace
+        // identity is otherwise derived from the root job UUID). Observability
+        // only — no security impact — so unlike _TEMP_SCRIPT_REFS it is not
+        // gated to previews.
+        if let Some(traceparent) = arc_flow_job_args
+            .as_ref()
+            .get(windmill_common::jobs::WM_TRACEPARENT)
+        {
+            push_args.extra.get_or_insert_with(HashMap::new).insert(
+                windmill_common::jobs::WM_TRACEPARENT.to_string(),
+                traceparent.clone(),
+            );
+        }
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed args for job {i} of {len}");
 
@@ -3573,19 +4382,26 @@ async fn push_next_flow_job(
         let flow_root_job = get_root_job_id(&flow_job);
 
         // forward root job permissions to the new job
-        let job_perms: Option<Authed> =
-            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id)
-                .await?
-                .map(|x| x.into());
+        let root_job_perms =
+            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id).await?;
+        // The end user is a property of whoever triggered the root run, so every step (and
+        // transitively every subflow's step) must see the same WM_END_USER_EMAIL as the run.
+        // It is read from the root's `job_perms` rather than off `flow_job`: only a freshly
+        // pulled job carries `permissioned_as_end_user_email`, and every step past the first
+        // is pushed from a flow job re-fetched by `get_mini_pulled_job`, which does not.
+        let end_user_email = root_job_perms
+            .as_ref()
+            .and_then(|x| x.end_user_email.clone());
+        let job_perms: Option<Authed> = root_job_perms.map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-        let tag = if step.is_preprocessor_step()
-            || (flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id))
-        {
-            payload_tag.tag.clone()
-        } else {
-            Some(flow_job.tag.clone())
-        };
+        let tag = resolve_flow_step_tag(
+            step.is_preprocessor_step(),
+            &flow_job.tag,
+            &flow_job.workspace_id,
+            flow.preserve_step_tags,
+            payload_tag.tag.as_deref(),
+        );
 
         let (email, permissioned_as) = if let Some(on_behalf_of) = payload_tag.on_behalf_of.as_ref()
         {
@@ -3597,10 +4413,16 @@ async fn push_next_flow_job(
             )
         };
 
-        // Check tag availability for flow substeps to prevent abuse
-        if let Some(tag_str) = tag.as_deref().filter(|t| !t.is_empty()) {
+        // Check tag availability for flow substeps to prevent abuse.
+        // Skip when the substep inherits the parent flow's tag: that tag was already
+        // validated at flow push time, and for dedicated flows it is the auto-generated
+        // `{workspace_id}:flow/{path}` tag which is never in CUSTOM_TAGS.
+        if let Some(tag_str) = tag
+            .as_deref()
+            .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
+        {
             check_tag_available_for_workspace_internal(
-                &db,
+                db,
                 &flow_job.workspace_id,
                 tag_str,
                 email,
@@ -3626,13 +4448,10 @@ async fn push_next_flow_job(
             )
             .await?;
 
-            if timeout_value < 0 {
-                return Err(Error::ExecutionErr(
-                    "Timeout value cannot be negative".to_string(),
-                ));
-            }
-
-            Some(timeout_value)
+            // A `<= 0` step timeout (including a negative eval) means "no override": fall back
+            // to the referenced runnable's own timeout rather than a 0-second/negative timeout
+            // that would kill the step instantly.
+            effective_flow_step_timeout(Some(timeout_value), payload_tag.timeout)
         } else {
             payload_tag.timeout
         };
@@ -3651,6 +4470,7 @@ async fn push_next_flow_job(
                 "job-span-{}",
                 flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
             )),
+            None,
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),
@@ -3667,7 +4487,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
             continue_with_runners,
-            None,
+            end_user_email,
             None,
             None,
         )
@@ -3753,21 +4573,54 @@ async fn push_next_flow_job(
             }
         }
 
-        if payload_tag.delete_after_use {
-            let uuid_singleton_json = serde_json::to_value(&[uuid]).map_err(|e| {
-                error::Error::internal_err(format!("Unable to serialize uuid: {e:#}"))
-            })?;
-
-            sqlx::query!(
-                 "UPDATE v2_job_status
-                 SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_clean', '[]'::jsonb) || $1)
-                 WHERE id = $2",
-                 uuid_singleton_json,
-                 flow_innermost_root_job.unwrap_or(flow_job.id)
-             )
-             .execute(&mut *inner_tx)
-             .warn_after_seconds(3)
-             .await?;
+        {
+            use windmill_common::jobs::resolve_delete_after_secs;
+            let resolved = resolve_delete_after_secs(
+                payload_tag.delete_after_use.then_some(true),
+                payload_tag.delete_after_secs,
+            );
+            let root_id = flow_innermost_root_job.unwrap_or(flow_job.id);
+            match resolved {
+                Some(0) => {
+                    // Immediate deletion: track in flow_jobs_to_clean (existing behavior)
+                    let uuid_singleton_json = serde_json::to_value(&[uuid]).map_err(|e| {
+                        error::Error::internal_err(format!("Unable to serialize uuid: {e:#}"))
+                    })?;
+                    sqlx::query!(
+                        "UPDATE v2_job_status
+                         SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_clean', '[]'::jsonb) || $1)
+                         WHERE id = $2",
+                        uuid_singleton_json,
+                        root_id
+                    )
+                    .execute(&mut *inner_tx)
+                    .warn_after_seconds(3)
+                    .await?;
+                }
+                Some(secs) => {
+                    // Scheduled deletion: track in flow_jobs_to_schedule_clean
+                    let entry = windmill_types::flow_status::FlowJobScheduledClean {
+                        id: uuid,
+                        delete_after_secs: secs,
+                    };
+                    let entry_json = serde_json::to_value(&[entry]).map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Unable to serialize scheduled clean entry: {e:#}"
+                        ))
+                    })?;
+                    sqlx::query!(
+                        "UPDATE v2_job_status
+                         SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_schedule_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_schedule_clean', '[]'::jsonb) || $1)
+                         WHERE id = $2",
+                        entry_json,
+                        root_id
+                    )
+                    .execute(&mut *inner_tx)
+                    .warn_after_seconds(3)
+                    .await?;
+                }
+                None => {}
+            }
         }
 
         tx = inner_tx;
@@ -4162,6 +5015,7 @@ pub struct JobPayloadWithTag {
     pub payload: JobPayload,
     pub tag: Option<String>,
     pub delete_after_use: bool,
+    pub delete_after_secs: Option<i32>,
     pub timeout: Option<i32>,
     pub on_behalf_of: Option<OnBehalfOf>,
 }
@@ -4175,6 +5029,10 @@ enum ContinuePayload {
 enum NextFlowTransform {
     EmptyInnerFlows { branch_chosen: Option<BranchChosen> },
     Continue(ContinuePayload, NextStatus),
+    // The current module failed in-place (e.g. a BranchOne predicate threw).
+    // The error is reported as the step's result so the normal flow machinery
+    // (including `failure_module` and surrounding `skip_failures`) applies.
+    StepFailure { error: serde_json::Value },
 }
 
 fn insert_iter_arg(
@@ -4196,11 +5054,50 @@ fn insert_iter_arg(
     args.insert(desired_key, value);
 }
 
+/// If the parent flow is a restart whose `nested` chain applies to the child about
+/// to be spawned for `module_id` at iteration/branch `iter_index` (None for non-loop
+/// containers), returns a `RestartedFlow` payload to use instead of the freshly-built
+/// one. The semantics:
+/// - `restarted_from.step_id` must equal `module_id`
+/// - For loop/branchall containers, `restarted_from.branch_or_iteration_n` is the
+///   0-based index of the iteration to restart at, and must equal `iter_index`
+/// - For BranchOne / Subflow (single-child), `iter_index` is None and
+///   `branch_or_iteration_n` is None or 0
+fn nested_restart_payload(
+    flow_status: &FlowStatus,
+    module_id: &str,
+    iter_index: Option<usize>,
+) -> Option<JobPayload> {
+    let restarted_from = flow_status.restarted_from.as_ref()?;
+    if restarted_from.step_id != module_id {
+        return None;
+    }
+    let n = restarted_from.branch_or_iteration_n.unwrap_or(0);
+    let matches = match iter_index {
+        Some(i) => i == n,
+        None => n == 0,
+    };
+    if !matches {
+        return None;
+    }
+    let nested = restarted_from.nested.as_ref()?;
+    let nested = (**nested).clone();
+    Some(JobPayload::RestartedFlow {
+        completed_job_id: nested.flow_job_id,
+        step_id: nested.step_id,
+        branch_or_iteration_n: nested.branch_or_iteration_n,
+        flow_version: nested.flow_version,
+        branch_chosen: nested.branch_chosen,
+        nested: nested.nested,
+    })
+}
+
 fn payload_from_modules<'a>(
     mut modules: Vec<FlowModule>,
     modules_node: Option<FlowNodeId>,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
+    preserve_step_tags: bool,
     id: impl FnOnce() -> String,
     path: impl FnOnce() -> String,
     opt_empty_inner_flows: bool,
@@ -4221,7 +5118,13 @@ fn payload_from_modules<'a>(
     }
 
     Some(JobPayload::RawFlow {
-        value: FlowValue { modules, failure_module, same_worker, ..Default::default() },
+        value: FlowValue {
+            modules,
+            failure_module,
+            same_worker,
+            preserve_step_tags,
+            ..Default::default()
+        },
         path: Some(path()),
         restarted_from: None,
     })
@@ -4263,6 +5166,7 @@ async fn compute_next_flow_transform(
                 payload: JobPayload::Identity,
                 tag: None,
                 delete_after_use: false,
+                delete_after_secs: None,
                 timeout: None,
                 on_behalf_of: None,
             }),
@@ -4275,6 +5179,7 @@ async fn compute_next_flow_transform(
                 payload,
                 tag: None,
                 delete_after_use: false,
+                delete_after_secs: None,
                 timeout: None,
                 on_behalf_of: None,
             }),
@@ -4282,6 +5187,7 @@ async fn compute_next_flow_transform(
         ))
     };
     let delete_after_use = module.delete_after_use.unwrap_or(false);
+    let delete_after_secs = module.delete_after_secs;
 
     tracing::debug!(id = %flow_job.id, "computing next flow transform for {:?}", &module.value);
     if is_skipped {
@@ -4291,21 +5197,31 @@ async fn compute_next_flow_transform(
     match module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {
-            let payload =
-                flow_to_payload(path, delete_after_use, &flow_job.workspace_id, db).await?;
+            let mut payload = flow_to_payload(
+                path,
+                delete_after_use,
+                delete_after_secs,
+                &flow_job.workspace_id,
+                db,
+            )
+            .await?;
+            if let Some(nested) = nested_restart_payload(status, &module.id, None) {
+                payload.payload = nested;
+            }
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::AIAgent { .. } => {
+        FlowModuleValue::AIAgent { tag, .. } => {
             let path = get_path(flow_job, status, module);
             let payload = JobPayload::AIAgent { path };
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,
-                    tag: None,
+                    tag: tag.filter(|t| !t.trim().is_empty()),
                     delete_after_use,
+                    delete_after_secs,
                     timeout: None,
                     on_behalf_of: None,
                 }),
@@ -4348,6 +5264,7 @@ async fn compute_next_flow_transform(
                 module,
                 tag,
                 delete_after_use,
+                delete_after_secs,
             );
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
@@ -4375,6 +5292,7 @@ async fn compute_next_flow_transform(
                 },
                 tag: tag.clone(),
                 delete_after_use,
+                delete_after_secs,
                 timeout: None,
                 on_behalf_of: None,
             };
@@ -4508,6 +5426,7 @@ async fn compute_next_flow_transform(
                                 modules_node,
                                 flow.failure_module.as_ref(),
                                 flow.same_worker,
+                                flow.preserve_step_tags,
                                 || format!("{}-{i}", status.step),
                                 || format!("{}/forloop-{i}", flow_job.runnable_path()),
                                 true,
@@ -4518,6 +5437,7 @@ async fn compute_next_flow_transform(
                                 payload,
                                 tag: None,
                                 delete_after_use,
+                                delete_after_secs,
                                 timeout: None,
                                 on_behalf_of: None,
                             })
@@ -4553,36 +5473,76 @@ async fn compute_next_flow_transform(
             }
         }
         FlowModuleValue::BranchOne { branches, default, default_node } => {
-            let branch = match status_module {
-                FlowStatusModule::WaitingForPriorSteps { .. }
-                | FlowStatusModule::WaitingForEvents { .. }
-                | FlowStatusModule::WaitingForExecutor { .. } => {
-                    let mut branch_chosen = BranchChosen::Default;
-                    let idcontext = get_transform_context(&flow_job, previous_id, &status);
-                    for (i, b) in branches.iter().enumerate() {
-                        let pred = compute_bool_from_expr(
-                            &b.expr,
-                            arc_flow_job_args.clone(),
-                            flow_env,
-                            arc_last_job_result.clone(),
-                            None,
-                            Some(&idcontext),
-                            Some(client),
-                            Some((resumes.clone(), resume.clone(), approvers.clone())),
-                            None,
-                        )
-                        .await?;
-
-                        if pred {
-                            branch_chosen = BranchChosen::Branch { branch: i };
-                            break;
-                        }
-                    }
-                    branch_chosen
+            // Branch lock for nested restart: if this BranchOne is the target of a
+            // nested restart, reuse the branch that was originally chosen instead of
+            // re-evaluating predicates. The lock is opt-in via `restarted_from.nested`
+            // being set, so plain top-level "restart at this BranchOne" still re-evaluates.
+            let locked_branch = status.restarted_from.as_ref().and_then(|rf| {
+                if rf.step_id == module.id && rf.nested.is_some() {
+                    rf.branch_chosen.clone()
+                } else {
+                    None
                 }
-                _ => Err(Error::BadRequest(format!(
-                    "Unrecognized module status for BranchOne {status_module:?}"
-                )))?,
+            });
+            let branch = if let Some(branch) = locked_branch {
+                branch
+            } else {
+                match status_module {
+                    FlowStatusModule::WaitingForPriorSteps { .. }
+                    | FlowStatusModule::WaitingForEvents { .. }
+                    | FlowStatusModule::WaitingForExecutor { .. } => {
+                        let mut branch_chosen = BranchChosen::Default;
+                        let idcontext = get_transform_context(&flow_job, previous_id, &status);
+                        let mut predicate_err: Option<Error> = None;
+                        for (i, b) in branches.iter().enumerate() {
+                            let pred_res = compute_bool_from_expr(
+                                &b.expr,
+                                arc_flow_job_args.clone(),
+                                flow_env,
+                                arc_last_job_result.clone(),
+                                None,
+                                Some(&idcontext),
+                                Some(client),
+                                Some((resumes.clone(), resume.clone(), approvers.clone())),
+                                None,
+                            )
+                            .await;
+                            if let Err(e) = &pred_res {
+                                append_predicate_error_to_root_logs(
+                                    db,
+                                    root_flow_id_for(flow_job),
+                                    &flow_job.workspace_id,
+                                    Some(&module.id),
+                                    &format!("branchone branch {i}"),
+                                    &b.expr,
+                                    e,
+                                )
+                                .await;
+                            }
+                            let pred = match pred_res {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    predicate_err = Some(e);
+                                    break;
+                                }
+                            };
+
+                            if pred {
+                                branch_chosen = BranchChosen::Branch { branch: i };
+                                break;
+                            }
+                        }
+                        if let Some(e) = predicate_err {
+                            return Ok(NextFlowTransform::StepFailure {
+                                error: error_to_value(&e),
+                            });
+                        }
+                        branch_chosen
+                    }
+                    _ => Err(Error::BadRequest(format!(
+                        "Unrecognized module status for BranchOne {status_module:?}"
+                    )))?,
+                }
             };
 
             let (modules, modules_node, branch_idx) = match branch {
@@ -4598,23 +5558,28 @@ async fn compute_next_flow_transform(
                     })?,
             };
 
-            let Some(payload) = payload_from_modules(
+            let Some(mut payload) = payload_from_modules(
                 modules,
                 modules_node,
                 flow.failure_module.as_ref(),
                 flow.same_worker,
+                flow.preserve_step_tags,
                 || status.step.to_string(),
                 || format!("{}/branchone-{}", flow_job.runnable_path(), branch_idx),
                 true,
             ) else {
                 return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: Some(branch) });
             };
+            if let Some(nested) = nested_restart_payload(status, &module.id, None) {
+                payload = nested;
+            }
 
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,
                     tag: None,
                     delete_after_use,
+                    delete_after_secs,
                     timeout: None,
                     on_behalf_of: None,
                 }),
@@ -4640,6 +5605,7 @@ async fn compute_next_flow_transform(
                                         modules_node,
                                         flow.failure_module.as_ref(),
                                         flow.same_worker,
+                                        flow.preserve_step_tags,
                                         || format!("{}-{i}", status.step),
                                         || format!("{}/branchall-{}", flow_job.runnable_path(), i),
                                         false,
@@ -4650,6 +5616,7 @@ async fn compute_next_flow_transform(
                                         payload,
                                         tag: None,
                                         delete_after_use,
+                                        delete_after_secs,
                                         timeout: None,
                                         on_behalf_of: None,
                                     })
@@ -4709,6 +5676,7 @@ async fn compute_next_flow_transform(
                 modules_node,
                 flow.failure_module.as_ref(),
                 flow.same_worker,
+                flow.preserve_step_tags,
                 || format!("{}-{}", status.step, branch_status.branch),
                 || {
                     format!(
@@ -4728,6 +5696,7 @@ async fn compute_next_flow_transform(
                     payload,
                     tag: None,
                     delete_after_use,
+                    delete_after_secs,
                     timeout: None,
                     on_behalf_of: None,
                 }),
@@ -4757,6 +5726,16 @@ async fn next_loop_iteration(
 ) -> Result<NextFlowTransform, Error> {
     let inner_path = || format!("{}/loop-{}", flow_job.runnable_path(), ns.index);
     if is_simple {
+        // Note on nested-restart and the is_simple fast path: the swap that the
+        // non-simple path applies (see below) is intentionally NOT mirrored here.
+        // `is_simple_modules` requires the body to be a single `script` /
+        // `rawscript` / `flowscript` module (see `FlowModule::is_simple`); none of
+        // those produce a flow-kind child job. Any nested-restart chain targeting
+        // a leaf inside such an iteration is rejected by `resolve_nested_restart`
+        // at the API layer (the leaf's container isn't a flow). Even if a chain
+        // reached here via direct `JobPayload::RawFlow.restarted_from` use, the
+        // resulting `JobPayload::RestartedFlow` would fail to resolve at push time
+        // (script kind isn't a flow kind). So no swap is meaningful here.
         let mut value = modules[0].get_value()?;
         let simple_input_transforms = match &mut value {
             FlowModuleValue::Script { input_transforms, .. }
@@ -4775,23 +5754,28 @@ async fn next_loop_iteration(
         ));
     }
 
-    let Some(payload) = payload_from_modules(
+    let Some(mut payload) = payload_from_modules(
         modules,
         modules_node,
         flow.failure_module.as_ref(),
         flow.same_worker,
+        flow.preserve_step_tags,
         || format!("{}-{}", status.step, ns.index),
         inner_path,
         true,
     ) else {
         return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
     };
+    if let Some(nested) = nested_restart_payload(status, &module.id, Some(ns.index)) {
+        payload = nested;
+    }
 
     Ok(NextFlowTransform::Continue(
         ContinuePayload::SingleJob(JobPayloadWithTag {
             payload,
             tag: None,
             delete_after_use,
+            delete_after_secs: None,
             timeout: None,
             on_behalf_of: None,
         }),
@@ -4986,9 +5970,17 @@ async fn payload_from_simple_module(
     inner_path: String,
 ) -> Result<JobPayloadWithTag, Error> {
     let delete_after_use = module.delete_after_use.unwrap_or(false);
+    let delete_after_secs = module.delete_after_secs;
     Ok(match value {
         FlowModuleValue::Flow { path, .. } => {
-            flow_to_payload(path, delete_after_use, &flow_job.workspace_id, db).await?
+            flow_to_payload(
+                path,
+                delete_after_use,
+                delete_after_secs,
+                &flow_job.workspace_id,
+                db,
+            )
+            .await?
         }
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
             script_to_payload(
@@ -5019,6 +6011,7 @@ async fn payload_from_simple_module(
             module,
             tag,
             delete_after_use,
+            delete_after_secs,
         ),
         FlowModuleValue::FlowScript {
             id, // flow_node(id).
@@ -5038,6 +6031,7 @@ async fn payload_from_simple_module(
             },
             tag,
             delete_after_use,
+            delete_after_secs,
             timeout: None, // timeout evaluation handled at higher level
             on_behalf_of: None,
         },
@@ -5054,6 +6048,7 @@ pub fn raw_script_to_payload(
     module: &FlowModule,
     tag: Option<String>,
     delete_after_use: bool,
+    delete_after_secs: Option<i32>,
 ) -> JobPayloadWithTag {
     JobPayloadWithTag {
         payload: JobPayload::Code(RawCode {
@@ -5069,9 +6064,11 @@ pub fn raw_script_to_payload(
             // TODO: Should this have debouncing?
             debouncing_settings: DebouncingSettings::default(),
             modules: None,
+            tag: None,
         }),
         tag,
         delete_after_use,
+        delete_after_secs,
         timeout: None, // timeout evaluation handled at higher level
         on_behalf_of: None,
     }
@@ -5080,19 +6077,40 @@ pub fn raw_script_to_payload(
 async fn flow_to_payload(
     path: String,
     delete_after_use: bool,
+    delete_after_secs: Option<i32>,
     w_id: &str,
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
-    let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
-        get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
-    let on_behalf_of = if let Some(email) = on_behalf_of_email {
-        Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
-    } else {
-        None
+    let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+    let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
+    let FlowVersionInfo { version, tag, .. } = flow_info;
+    let payload = JobPayload::Flow {
+        path,
+        dedicated_worker: None,
+        apply_preprocessor: false,
+        version,
+        labels: None,
     };
-    let payload =
-        JobPayload::Flow { path, dedicated_worker: None, apply_preprocessor: false, version };
-    Ok(JobPayloadWithTag { payload, tag, delete_after_use, timeout: None, on_behalf_of })
+    Ok(JobPayloadWithTag {
+        payload,
+        tag,
+        delete_after_use,
+        delete_after_secs,
+        timeout: None,
+        on_behalf_of,
+    })
+}
+
+/// Effective timeout for a flow step given the module's (already-evaluated) timeout override and
+/// the timeout inherited from the referenced runnable. A `<= 0` override — or none — means "no
+/// override": fall back to the inherited value (which is itself `None` when unset, i.e. the
+/// instance default). A positive override wins. This keeps a step `timeout: 0` equivalent to an
+/// omitted one rather than a 0-second, instant-kill timeout.
+pub(crate) fn effective_flow_step_timeout(
+    module_override: Option<i32>,
+    inherited: Option<i32>,
+) -> Option<i32> {
+    windmill_common::runnable_settings::none_if_non_positive(module_override).or(inherited)
 }
 
 pub async fn script_to_payload(
@@ -5109,84 +6127,86 @@ pub async fn script_to_payload(
     } else {
         tag_override
     };
-    let (payload, tag, delete_after_use, script_timeout, on_behalf_of) = if script_hash.is_none() {
-        let (jp, tag, delete_after_use, script_timeout, on_behalf_of) = script_path_to_payload(
-            &script_path,
-            None,
-            db.clone(),
-            &flow_job.workspace_id,
-            Some(true),
-        )
-        .await?;
-        (
-            jp,
-            tag_override.to_owned().or(tag),
-            delete_after_use,
-            script_timeout,
-            on_behalf_of,
-        )
-    } else {
-        let hash = script_hash.unwrap();
-
-        let ScriptHashInfo {
-            tag,
-            cache_ttl,
-            language,
-            dedicated_worker,
-            priority,
-            delete_after_use,
-            timeout,
-            on_behalf_of_email,
-            created_by,
-            runnable_settings:
-                ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
-            ..
-        } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
-            .await?
-            .prefetch_cached(&db)
-            .await?;
-
-        let on_behalf_of = if let Some(email) = on_behalf_of_email {
-            Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&created_by) })
+    let (payload, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
+        if script_hash.is_none() {
+            let (jp, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
+                script_path_to_payload(
+                    &script_path,
+                    None,
+                    db.clone(),
+                    &flow_job.workspace_id,
+                    Some(true),
+                )
+                .await?;
+            (
+                jp,
+                tag_override.to_owned().or(tag),
+                delete_after_use,
+                delete_after_secs,
+                script_timeout,
+                on_behalf_of,
+            )
         } else {
-            None
-        };
-        (
-            // We only apply the preprocessor if it's explicitly set to true in the module,
-            // which can only happen if the the flow is a SingleStepFlow triggered by a trigger with retries or error handling.
-            // In that case, apply_preprocessor is still only set to true if the script has a preprocesor.
-            // We only check for script hash because SingleStepFlow triggers specifies the script hash
-            JobPayload::ScriptHash {
-                hash,
-                path: script_path,
-                concurrency_settings,
-                debouncing_settings,
-                cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
-                cache_ignore_s3_path: module.cache_ignore_s3_path,
+            let hash = script_hash.unwrap();
+
+            let script_info = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
+                .await?
+                .prefetch_cached(&db)
+                .await?;
+            let on_behalf_of = script_info
+                .on_behalf_of(&flow_job.workspace_id, db)
+                .await?;
+            let ScriptHashInfo {
+                tag,
+                cache_ttl,
                 language,
                 dedicated_worker,
                 priority,
-                apply_preprocessor: apply_preprocessor.unwrap_or(false),
-            },
-            tag_override.to_owned().or(tag),
-            delete_after_use,
-            timeout,
-            on_behalf_of,
-        )
-    };
-    // the module value overrides the value set at the script level. Defaults to false if both are unset.
-    let final_delete_after_user =
+                delete_after_use,
+                delete_after_secs,
+                timeout,
+                runnable_settings:
+                    ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
+                ..
+            } = script_info;
+            (
+                JobPayload::ScriptHash {
+                    hash,
+                    path: script_path,
+                    concurrency_settings,
+                    debouncing_settings,
+                    cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
+                    cache_ignore_s3_path: module.cache_ignore_s3_path,
+                    language,
+                    dedicated_worker,
+                    priority,
+                    apply_preprocessor: apply_preprocessor.unwrap_or(false),
+                    labels: None,
+                },
+                tag_override.to_owned().or(tag),
+                delete_after_use,
+                delete_after_secs,
+                timeout,
+                on_behalf_of,
+            )
+        };
+    // Module-level delete_after_secs takes precedence over script-level, then fall back to booleans
+    let final_delete_after_use =
         module.delete_after_use.unwrap_or(false) || delete_after_use.unwrap_or(false);
+    let final_delete_after_secs = module.delete_after_secs.or(delete_after_secs);
 
-    let flow_step_timeout = if module.timeout.is_some() {
-        None
-    } else {
-        script_timeout
-    };
+    // Always carry the referenced script's own timeout as the inherited fallback. The module's
+    // timeout override (if any) is selected at the push site, where a `<= 0` override is treated
+    // as "no override" and falls back to this value — so `timeout: 0` on a step means "use the
+    // script's timeout", not a 0-second (immediate-kill) timeout. Normalize the inherited value
+    // too, so a legacy `0` script timeout resolves to the default rather than a zero-second kill.
+    let flow_step_timeout =
+        windmill_common::runnable_settings::none_if_non_positive(script_timeout);
     Ok(JobPayloadWithTag {
         payload,
         tag,
-        delete_after_use: final_delete_after_user,
+        delete_after_use: final_delete_after_use,
+        delete_after_secs: final_delete_after_secs,
         timeout: flow_step_timeout,
         on_behalf_of,
     })
@@ -5203,7 +6223,12 @@ pub fn get_transform_context(
         .filter_map(|x| x.job_result().map(|y| (x.id(), y)))
         .collect();
 
-    IdContext { flow_job: flow_job.id, steps_results, previous_id: previous_id.to_string() }
+    IdContext {
+        flow_job: flow_job.id,
+        root_flow_job: get_root_job_id(flow_job),
+        steps_results,
+        previous_id: previous_id.to_string(),
+    }
 }
 
 // trait IntoArray: Sized {
@@ -5251,8 +6276,15 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
         return None;
     }
 
-    if let &FlowStatusModule::Success { job, .. } = status.modules.get(prev)? {
-        Some((suspend.unwrap(), job))
+    if let &FlowStatusModule::Success { job, skipped, .. } = status.modules.get(prev)? {
+        // A step skipped via skip_if never ran, so its suspend/approval was never
+        // armed and no resume event will ever arrive. Gating the next step on it
+        // would park the flow forever.
+        if skipped {
+            None
+        } else {
+            Some((suspend.unwrap(), job))
+        }
     } else {
         None
     }
@@ -5289,5 +6321,102 @@ pub async fn get_previous_job_result(
             .0,
         )),
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{effective_flow_step_timeout, extract_chat_message_from_flow_result};
+    use serde_json::{json, value::to_raw_value};
+
+    // A `<= 0` step timeout override must behave as "no override" and inherit the referenced
+    // script's timeout, not collapse to a 0-second (instant-kill) timeout. A positive override
+    // still wins. Guards the flow-step timeout footgun.
+    #[test]
+    fn flow_step_timeout_zero_or_negative_inherits_script_timeout() {
+        // zero / negative override -> inherited script timeout
+        assert_eq!(effective_flow_step_timeout(Some(0), Some(300)), Some(300));
+        assert_eq!(effective_flow_step_timeout(Some(-5), Some(300)), Some(300));
+        // no inherited timeout either -> None (falls through to the instance default)
+        assert_eq!(effective_flow_step_timeout(Some(0), None), None);
+        // positive override wins over the inherited value
+        assert_eq!(effective_flow_step_timeout(Some(120), Some(300)), Some(120));
+        // no override -> inherited
+        assert_eq!(effective_flow_step_timeout(None, Some(300)), Some(300));
+    }
+
+    #[test]
+    fn pretty_prints_full_result_when_no_override_is_present() {
+        let value = json!({
+            "output": "final answer",
+            "metadata": { "foo": "bar" }
+        });
+        let result = to_raw_value(&value).unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, Some(serde_json::to_string_pretty(&value).unwrap()));
+    }
+
+    #[test]
+    fn uses_windmill_chat_answer_when_it_is_a_string() {
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": "chat-visible answer",
+            "output": "ignored output",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, Some("chat-visible answer".to_string()));
+    }
+
+    #[test]
+    fn skips_persisting_when_windmill_chat_answer_is_null() {
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": null,
+            "output": "should not be stored"
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, None);
+    }
+
+    #[test]
+    fn coerces_scalar_windmill_chat_answer_to_a_string() {
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": 42,
+            "output": "ignored output",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, Some("42".to_string()));
+    }
+
+    #[test]
+    fn pretty_prints_structured_windmill_chat_answer_only() {
+        let override_value = json!({
+            "text": "chat-visible answer",
+            "meta": ["a", "b"]
+        });
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": override_value,
+            "output": "ignored output",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(
+            message,
+            Some(serde_json::to_string_pretty(&override_value).unwrap())
+        );
     }
 }

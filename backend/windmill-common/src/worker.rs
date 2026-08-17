@@ -17,12 +17,12 @@ use std::{
     panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
-    sync::{atomic::AtomicBool, Arc},
+    sync::atomic::{AtomicBool, AtomicI64, AtomicU32},
     time::Duration,
 };
 #[cfg(windows)]
 use sysinfo::System;
-use tokio::{sync::RwLock, time::timeout};
+use tokio::time::timeout;
 use uuid::Uuid;
 use windmill_macros::annotations;
 
@@ -30,6 +30,7 @@ use crate::{
     agent_workers::PingJobStatusResponse,
     cache::{unwrap_or_error, RawNode, RawScript},
     error::{self, to_anyhow},
+    external_ip::UNKNOWN_IP,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
@@ -52,10 +53,10 @@ impl CustomTags {
                 let tag_name = cap.get(1).unwrap().as_str().to_string();
                 let workspace_str = cap.get(2).unwrap().as_str();
                 let tag_type = SpecificTagType::from_regex_string(workspace_str);
-                let workspaces: Vec<String> = workspace_str
+                let workspaces: Vec<WorkspaceMatcher> = workspace_str
                     .split(tag_type.corresponding_separator())
                     .filter(|s| !s.is_empty())
-                    .map(str::to_string)
+                    .map(WorkspaceMatcher::parse)
                     .collect();
                 if workspaces.is_empty() {
                     tracing::warn!("Ignoring tag `{}` with empty exclusion/inclusion list", e);
@@ -70,11 +71,13 @@ impl CustomTags {
         Self { global, specific }
     }
 
-    pub fn to_string_vec(&self, filter_with_workspace: Option<String>) -> Vec<String> {
-        let specific = if let Some(workspace) = filter_with_workspace {
+    /// `filter_with_workspace` is the workspace's id chain (see [`SpecificTagData::applies_to_workspace`]);
+    /// `None` re-emits the authored `tag(ws1+ws2)` strings for the settings editor.
+    pub fn to_string_vec(&self, filter_with_workspace: Option<&[String]>) -> Vec<String> {
+        let specific = if let Some(chain) = filter_with_workspace {
             self.specific
                 .iter()
-                .filter(|(_, tag_data)| tag_data.applies_to_workspace(&workspace))
+                .filter(|(_, tag_data)| tag_data.applies_to_workspace(chain))
                 .map(|(tag, _)| tag.clone())
                 .collect::<Vec<String>>()
         } else {
@@ -82,7 +85,12 @@ impl CustomTags {
                 .iter()
                 .map(|(tag, tag_data)| {
                     let separator = tag_data.tag_type.corresponding_separator();
-                    let mut workspaces = tag_data.workspaces.join(&*separator.to_string());
+                    let mut workspaces = tag_data
+                        .workspaces
+                        .iter()
+                        .map(|w| w.to_string())
+                        .collect::<Vec<_>>()
+                        .join(&*separator.to_string());
                     if tag_data.tag_type == SpecificTagType::AllExcluding {
                         // the AllExcluding tag syntax has a leading separator
                         workspaces.insert(0, separator);
@@ -95,18 +103,85 @@ impl CustomTags {
         all_tags.into_iter().chain(specific.into_iter()).collect()
     }
 }
+
+/// Marker suffixed to a workspace id inside a custom tag's scope (`mytag(prod*)`) to extend the
+/// entry to that workspace's forks. `*` cannot appear in a workspace id (the `proper_id` check
+/// constraint restricts them to `^\w+(-\w+)*$`), so it can never collide with a real id.
+pub const FORK_SCOPE_MARKER: char = '*';
+
+/// One workspace entry in a custom tag's scope. Bare (`prod`) matches that workspace only;
+/// with the [`FORK_SCOPE_MARKER`] (`prod*`) it also matches its forks, transitively.
+///
+/// The marker is opt-in in BOTH scope forms so that no existing tag string changes meaning:
+/// `sensitive(^prod)` keeps excluding only `prod` itself, and `sensitive(^prod*)` is how you
+/// exclude its forks too.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkspaceMatcher {
+    pub id: String,
+    pub include_forks: bool,
+}
+
+impl WorkspaceMatcher {
+    fn parse(entry: &str) -> Self {
+        match entry.strip_suffix(FORK_SCOPE_MARKER) {
+            Some(id) => Self { id: id.to_string(), include_forks: true },
+            None => Self { id: entry.to_string(), include_forks: false },
+        }
+    }
+
+    fn matches(&self, workspace_id: &str, fork_ancestors: &[String]) -> bool {
+        workspace_id == self.id
+            || (self.include_forks && fork_ancestors.iter().any(|a| *a == self.id))
+    }
+}
+
+impl std::fmt::Display for WorkspaceMatcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.id)?;
+        if self.include_forks {
+            f.write_str(FORK_SCOPE_MARKER.encode_utf8(&mut [0u8; 4]))?;
+        }
+        Ok(())
+    }
+}
+
+/// Renders the authored `prod` / `prod*` form rather than the struct fields: `CustomTags` is
+/// `{:?}`-dumped into the "tag is not in the allowed CUSTOM_TAGS" error operators see.
+impl std::fmt::Debug for WorkspaceMatcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.to_string(), f)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SpecificTagData {
     pub tag_type: SpecificTagType,
-    pub workspaces: Vec<String>,
+    pub workspaces: Vec<WorkspaceMatcher>,
 }
 
 impl SpecificTagData {
-    pub fn applies_to_workspace(&self, workspace_id: &str) -> bool {
+    /// `chain` is the workspace itself followed by its fork ancestors, nearest-first, as built by
+    /// `workspaces::workspace_with_fork_ancestors`. Pass a single-element slice when
+    /// [`Self::is_fork_scoped`] is false: the ancestors cannot affect the outcome then.
+    pub fn applies_to_workspace(&self, chain: &[String]) -> bool {
+        let Some((workspace_id, fork_ancestors)) = chain.split_first() else {
+            return false;
+        };
+        let matched = self
+            .workspaces
+            .iter()
+            .any(|w| w.matches(workspace_id, fork_ancestors));
         match self.tag_type {
-            SpecificTagType::AllExcluding => !self.workspaces.contains(&workspace_id.to_string()),
-            SpecificTagType::NoneExcept => self.workspaces.contains(&workspace_id.to_string()),
+            SpecificTagType::AllExcluding => !matched,
+            SpecificTagType::NoneExcept => matched,
         }
+    }
+
+    /// Whether any entry carries the fork marker, i.e. whether resolving the workspace's fork
+    /// lineage can change what [`Self::applies_to_workspace`] returns. Lets hot callers skip the
+    /// lineage lookup for the (overwhelmingly common) fork-agnostic tag.
+    pub fn is_fork_scoped(&self) -> bool {
+        self.workspaces.iter().any(|w| w.include_forks)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -136,6 +211,40 @@ impl SpecificTagType {
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
+/// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
+/// the setting is cleared or malformed.
+pub const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
+/// Default for [`WORKSPACE_MAX_QUEUED_JOBS`]; also the value the setting loader restores when
+/// the setting is cleared or malformed. A workspace spans many keys, so this sits well above
+/// the per-key cap.
+pub const WORKSPACE_MAX_QUEUED_JOBS_DEFAULT: u32 = 20_000;
+/// Default for [`JOB_OOM_SCORE_ADJ`]; also the value used when the env var is out of range or
+/// unparseable.
+pub const JOB_OOM_SCORE_ADJ_DEFAULT: i32 = 1000;
+
+/// procfs accepts -1000..=1000, but a job must never be *less* killable than the worker that
+/// supervises it, so negative adjustments are rejected rather than clamped.
+fn parse_job_oom_score_adj(raw: Option<&str>) -> i32 {
+    let Some(raw) = raw else {
+        return JOB_OOM_SCORE_ADJ_DEFAULT;
+    };
+    match raw.trim().parse::<i32>() {
+        Ok(v) if (0..=1000).contains(&v) => v,
+        Ok(v) => {
+            tracing::warn!(
+                "JOB_OOM_SCORE_ADJ={v} is outside the accepted 0..=1000 range, \
+                using {JOB_OOM_SCORE_ADJ_DEFAULT}"
+            );
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Could not parse JOB_OOM_SCORE_ADJ='{raw}': {e}, using {JOB_OOM_SCORE_ADJ_DEFAULT}"
+            );
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        }
+    }
+}
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -155,7 +264,43 @@ lazy_static::lazy_static! {
 
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 
+    /// Shut the worker process down once it has executed this many jobs, so a supervisor
+    /// (docker restart policy, kubernetes, systemd, ...) restarts it on a pristine
+    /// environment. Meant for deployments that cannot sandbox jobs with nsjail and rely on
+    /// the process/container lifetime to isolate one execution from the next. `0` (or unset)
+    /// disables it. Only the jobs the worker's own main loop ran count: ones handed off to a
+    /// dedicated worker or a flow runner are executed by another task and never counted.
+    /// Workers of one process share that environment, so with `NUM_WORKERS > 1` the first of
+    /// them to reach the limit takes the whole process down, cancelling whatever the others
+    /// still run in a container or a dedicated worker. Run one worker per process.
+    /// A value that does not parse is rejected at startup by [`validate_worker_lifecycle_env`]
+    /// rather than read as "disabled" here: a deployment that isolates executions this way
+    /// would otherwise keep running with no isolation at all.
+    pub static ref EXIT_AFTER_N_JOBS: Option<u64> = std::env::var("EXIT_AFTER_N_JOBS")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .filter(|x| *x > 0);
+
+    /// Replaces the random part of the worker name, which is what makes a restarted process
+    /// reclaim its `worker_ping` row rather than register as a new worker. Two worker
+    /// processes must never share it: it is only needed when several of them run on one host
+    /// under the same worker group, since the name is otherwise derived from the hostname.
+    pub static ref WORKER_SUFFIX: Option<String> = std::env::var("WORKER_SUFFIX")
+        .ok()
+        .filter(|x| !x.is_empty());
+
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
+
+    pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
+
+    /// `oom_score_adj` applied to job subprocesses. The kernel adds it to the process's memory
+    /// use expressed in permille of host RAM, so the job only reliably outranks the worker once
+    /// the gap between their two adjustments exceeds the worker's own footprint in permille; the
+    /// default maximizes that margin. Userspace OOM daemons (earlyoom, systemd-oomd, nohang) rank
+    /// every process on the host by the same score, so at 1000 a tiny job outranks multi-GB
+    /// processes and gets killed first. Lowering this trades margin over the worker for a fairer
+    /// ranking against everything else on the host.
+    pub static ref JOB_OOM_SCORE_ADJ: i32 = parse_job_oom_score_adj(std::env::var("JOB_OOM_SCORE_ADJ").ok().as_deref());
 
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
     pub static ref CGROUP_V2_CPU_RE: Regex = Regex::new(r#"(?m)^(\d+) \S+$"#).unwrap();
@@ -184,7 +329,9 @@ lazy_static::lazy_static! {
         "nu".to_string(),
         "java".to_string(),
         "ruby".to_string(),
+        "rlang".to_string(),
         "duckdb".to_string(),
+        "dbt".to_string(),
         // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
         "flow".to_string(),
@@ -204,7 +351,9 @@ lazy_static::lazy_static! {
     ];
 
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
-    pub static ref DEFAULT_TAGS_WORKSPACES: Arc<RwLock<Option<Vec<String>>>> = Arc::new(RwLock::new(None));
+    pub static ref DEFAULT_TAGS_WORKSPACES: arc_swap::ArcSwap<Option<Vec<String>>> = arc_swap::ArcSwap::from_pointee(None);
+    pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
+    pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -216,7 +365,7 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or(*MAX_TIMEOUT);
 
-    pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
+    pub static ref WORKER_CONFIG: arc_swap::ArcSwap<WorkerConfig> = arc_swap::ArcSwap::from_pointee(WorkerConfig {
         worker_tags: Default::default(),
         priority_tags_sorted: Default::default(),
         dedicated_worker: Default::default(),
@@ -229,38 +378,88 @@ lazy_static::lazy_static! {
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
         native_mode: false,
-    }));
+    });
 
-    pub static ref WORKER_PULL_QUERIES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
-    pub static ref WORKER_SUSPENDED_PULL_QUERY: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
+    pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref WORKER_PULL_QUERIES_FAIRNESS: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref WORKER_SUSPENDED_PULL_QUERY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
+
+    // Workspace fairness (cloud-only). When enabled, a workspace whose footprint over the rolling
+    // `WORKSPACE_FAIRNESS_DURATION_SECS` window represents >= `WORKSPACE_FAIRNESS_MAX_PERCENT`% of
+    // all worker activity gets excluded from the pull query, freeing slots for other workspaces.
+    // The list of overloaded workspaces is computed cluster-wide via a single coordinated UPDATE
+    // on `background_task_state` so only one process per refresh interval runs the aggregation.
+    pub static ref WORKSPACE_FAIRNESS_ENABLED: AtomicBool = AtomicBool::new(false);
+    pub static ref WORKSPACE_FAIRNESS_MAX_PERCENT: AtomicU32 = AtomicU32::new(50);
+    pub static ref WORKSPACE_FAIRNESS_DURATION_SECS: AtomicU32 = AtomicU32::new(10);
+    pub static ref WORKSPACE_FAIRNESS_MIN_TOTAL: AtomicU32 = AtomicU32::new(4);
+    pub static ref WORKSPACE_FAIRNESS_OVERLOADED: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref WORKSPACE_FAIRNESS_LAST_REFRESH_MICROS: AtomicI64 = AtomicI64::new(0);
+
+    /// Stochastic admission probability for capped workspaces, expressed in
+    /// parts per 10_000 (so `420` = 4.2%). The refresh computes this from the
+    /// observed worker-second distribution and the configured cap so that
+    /// admission converges to the target *worker-second* share — independent
+    /// of how the capped vs uncapped workspaces compare on per-job durations.
+    /// See `workspace_fairness_ee::refresh_overloaded` for the derivation.
+    /// `10_000` (= admit all) is the default until the first refresh
+    /// classifies an overloaded set — before that, no workspace is capped so
+    /// `should_admit_capped` is moot and "admit all" is the correct no-op.
+    pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
+
+    /// Cloud-only ceiling on the number of jobs queued behind a single concurrency key.
+    /// A concurrency-limited key drains at most `concurrent_limit` jobs per window, so a
+    /// producer pushing faster than that grows an unbounded backlog that no amount of
+    /// spare worker capacity can absorb. `0` disables the cap.
+    pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 =
+        AtomicU32::new(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
+
+    /// Cloud-only ceiling on the total number of jobs a workspace may have queued at once,
+    /// across every concurrency key and script. Guards against a workspace flooding the queue
+    /// generally (not just behind one key), including from parallel for-loops. `0` disables it.
+    pub static ref WORKSPACE_MAX_QUEUED_JOBS: AtomicU32 =
+        AtomicU32::new(WORKSPACE_MAX_QUEUED_JOBS_DEFAULT);
 
 
-    pub static ref SMTP_CONFIG: Arc<RwLock<Option<Smtp>>> = Arc::new(RwLock::new(None));
-    pub static ref INDEXER_CONFIG: Arc<RwLock<TantivyIndexerSettings>> = Arc::new(RwLock::new(TantivyIndexerSettings::default()));
+    pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
+    pub static ref INDEXER_CONFIG: arc_swap::ArcSwap<TantivyIndexerSettings> = arc_swap::ArcSwap::from_pointee(TantivyIndexerSettings::default());
 
 
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
+    /// Host used to gate cloud-only features that must only ever run on the
+    /// production `app.windmill.dev` cluster, not on staging or self-hosted.
+    pub static ref CLOUD_PRODUCTION_HOST: &'static str = "app.windmill.dev";
+
+    /// `--no-auth` mode: when set, every API request is treated as
+    /// authenticated as the `admin@windmill.dev` superadmin and no login is
+    /// ever required. Meant for self-hosted deployments that front Windmill
+    /// with their own authenticating gateway. Never honored on the managed
+    /// cloud (`CLOUD_HOSTED`), which must always enforce real authentication.
+    pub static ref NO_AUTH: bool = !*CLOUD_HOSTED
+        && std::env::var("NO_AUTH").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
 
 
-    pub static ref CUSTOM_TAGS_PER_WORKSPACE: Arc<RwLock<CustomTags>> = Arc::new(RwLock::new(CustomTags::default()));
+    pub static ref CUSTOM_TAGS_PER_WORKSPACE: arc_swap::ArcSwap<CustomTags> = arc_swap::ArcSwap::from_pointee(CustomTags::default());
 
-    pub static ref ALL_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
+    pub static ref ALL_TAGS: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
 
 
 
     //    ^([\w-]+)         # Group 1: tag name
     //    \(                # Literal '('
     //    (                 # Group 2: the full workspace list
-    //      (?:[\w-]+\+)*[\w-]+     # NoneExcept pattern: ws1+ws2
-    //      |                      # OR
-    //      (?:\^[\w-]+)+          # AllExcluding pattern: ^ws1^ws2
+    //      (?:[\w-]+\*?\+)*[\w-]+\*?   # NoneExcept pattern: ws1+ws2*
+    //      |                          # OR
+    //      (?:\^[\w-]+\*?)+           # AllExcluding pattern: ^ws1^ws2*
     //    )
     //    \)$               # Closing ')'
-    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\+)*[\w-]+|(?:\^[\w-]+)+)\)$").unwrap();
+    //
+    // The optional `*` after each workspace id is the fork marker, see [`WorkspaceMatcher`].
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -277,11 +476,51 @@ lazy_static::lazy_static! {
     pub static ref ROOT_CACHE_NOMOUNT_DIR: String = format!("{}/cache_nomount/", *WINDMILL_DIR);
 }
 
+/// Refuses to start on an `EXIT_AFTER_N_JOBS` that does not parse. Silently ignoring it
+/// would leave a worker meant to recycle its environment running forever without doing so,
+/// which is exactly the guarantee the deployment set it for.
+pub fn validate_worker_lifecycle_env() -> anyhow::Result<()> {
+    match std::env::var("EXIT_AFTER_N_JOBS") {
+        Ok(v) if !v.is_empty() && v.parse::<u64>().is_err() => Err(anyhow::anyhow!(
+            "EXIT_AFTER_N_JOBS must be a positive integer (or 0 to disable), got '{v}'"
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Whether native mode is forced by the environment (NATIVE_MODE=true env var or WORKER_GROUP=native).
 /// This does NOT account for native_mode set in the DB worker group config — for that, read
 /// `WORKER_CONFIG.native_mode` which combines all sources.
 pub fn is_native_mode_from_env() -> bool {
     *NATIVE_MODE || *WORKER_GROUP == "native"
+}
+
+/// True iff this process is configured to act as the production cloud cluster:
+/// `CLOUD_HOSTED=true` AND `BASE_URL`'s host matches `CLOUD_PRODUCTION_HOST`.
+/// Centralized so the API setter, the runtime pull path, and any future cloud-
+/// only feature share one canonical check (rather than re-implementing the
+/// scheme/host parser at each call site).
+pub fn is_cloud_production_host() -> bool {
+    if !*CLOUD_HOSTED {
+        return false;
+    }
+    let base = crate::BASE_URL.load();
+    let s = base.as_str();
+    if s.is_empty() {
+        return false;
+    }
+    let after_scheme = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
+    let host = after_scheme
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    host == *CLOUD_PRODUCTION_HOST
 }
 
 /// Cached resolved native mode flag, updated when worker config is reloaded.
@@ -499,8 +738,7 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
         return;
     }
     let query = make_suspended_pull_query(&wc.worker_tags);
-    let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
-    *l = query;
+    WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
@@ -516,18 +754,43 @@ pub fn make_pull_query(tags: &[String]) -> String {
     query
 }
 
+// Variant of `make_pull_query` that additionally excludes jobs whose workspace_id is in the
+// overloaded-list bind parameter ($2::text[]). Built as a separate string (rather than reusing
+// `make_pull_query` with an always-bound array) so the planner can keep using the same indexes
+// when fairness is off — the default `make_pull_query` text stays bit-identical to today's.
+//
+// `pub(crate)` because only `store_pull_query` consumes it; the resulting query string is what
+// crosses crate boundaries via `WORKER_PULL_QUERIES_FAIRNESS`.
+pub(crate) fn make_pull_query_fairness(tags: &[String]) -> String {
+    let query = format_pull_query(format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
+          AND workspace_id <> ALL($2::text[])
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1",
+        tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ));
+    query
+}
+
 pub async fn store_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
+    let mut fairness_queries = vec![];
+    let fairness_enabled = WORKSPACE_FAIRNESS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
     for tags in wc.priority_tags_sorted.iter() {
         if tags.tags.len() == 0 {
             tracing::error!("Empty tags in priority tags, skipping");
             continue;
         }
-        let query = make_pull_query(&tags.tags);
-        queries.push(query);
+        queries.push(make_pull_query(&tags.tags));
+        if fairness_enabled {
+            fairness_queries.push(make_pull_query_fairness(&tags.tags));
+        }
     }
-    let mut l = WORKER_PULL_QUERIES.write().await;
-    *l = queries;
+    WORKER_PULL_QUERIES.store(std::sync::Arc::new(queries));
+    WORKER_PULL_QUERIES_FAIRNESS.store(std::sync::Arc::new(fairness_queries));
 }
 
 lazy_static::lazy_static! {
@@ -609,8 +872,6 @@ pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error
 
     let full_path = job_dir.join(&user_path);
 
-    // let normalized_job_dir = std::fs::canonicalize(job_dir)?;
-    // let normalized_full_path = std::fs::canonicalize(&full_path)?;
     let normalized_job_dir = normalize_path(job_dir);
     let normalized_full_path = normalize_path(&full_path);
 
@@ -620,6 +881,36 @@ pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error
             "Path is outside the allowed job directory.",
         )
         .into());
+    }
+
+    // The lexical check above cannot see symlinks: a symlink planted inside the
+    // job dir - e.g. by an earlier Ansible `git_repos` clone whose tracked
+    // content includes one - would let a later `git clone` or file write follow
+    // it out of the job dir while still passing the textual `starts_with` check.
+    // Walk the *normalized* relative path (`..`/`.` already collapsed) so each
+    // step matches the real on-disk resolution, and reject any existing component
+    // that is a symlink. Walking the raw user path would drift on an in-bounds
+    // `..` (e.g. `foo/../link`, which normalizes back inside the job dir) and miss
+    // the real symlinked component. Not-yet-existing components are safe: a path
+    // that does not exist cannot itself be a symlink.
+    let relative = normalized_full_path
+        .strip_prefix(&normalized_job_dir)
+        .unwrap_or(&normalized_full_path);
+    let mut current = normalized_job_dir.clone();
+    for component in relative.components() {
+        if let Component::Normal(c) = component {
+            current.push(c);
+            if std::fs::symlink_metadata(&current)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "Path traverses a symlink, which is not allowed.",
+                )
+                .into());
+            }
+        }
     }
 
     Ok(normalized_full_path)
@@ -658,20 +949,22 @@ pub fn write_file_at_user_defined_location(
 }
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
-    let q = sqlx::query!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        CUSTOM_TAGS_SETTING
-    )
-    .fetch_optional(db)
-    .await?;
+    let q =
+        crate::global_settings::load_value_from_global_settings(db, CUSTOM_TAGS_SETTING).await?;
+    apply_custom_tags_setting(q);
+    Ok(())
+}
 
+/// The half of [`reload_custom_tags_setting`] after the read, so a batched settings pass can
+/// apply a value it already fetched.
+pub fn apply_custom_tags_setting(q: Option<serde_json::Value>) {
     let tags = if let Some(q) = q {
-        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.value.clone()) {
+        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.clone()) {
             v
         } else {
             tracing::error!(
                 "Could not parse custom tags setting as vec of strings, found: {:#?}",
-                &q.value
+                &q
             );
             vec![]
         }
@@ -687,13 +980,9 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
         custom_tags.specific,
     );
 
-    {
-        let mut l = CUSTOM_TAGS_PER_WORKSPACE.write().await;
-        *l = custom_tags.clone()
-    }
-    {
-        let mut l = ALL_TAGS.write().await;
-        *l = [
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(custom_tags.clone()));
+    ALL_TAGS.store(std::sync::Arc::new(
+        [
             custom_tags.global.clone(),
             custom_tags
                 .specific
@@ -701,9 +990,8 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
                 .map(|x| x.to_string())
                 .collect_vec(),
         ]
-        .concat();
-    }
-    Ok(())
+        .concat(),
+    ));
 }
 
 #[cfg(not(windows))]
@@ -725,6 +1013,13 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 #[annotations("#")]
 pub struct RubyAnnotations {
     pub verbose: bool,
+}
+
+#[annotations("#")]
+pub struct RlangAnnotations {
+    pub renv_verbose: bool,
+    pub renv_install_verbose: bool,
+    pub sandbox: bool,
 }
 
 #[annotations("#")]
@@ -759,12 +1054,89 @@ pub struct SqlAnnotations {
     pub return_last_result: bool, // deprecated, use result_collection instead
     pub result_collection: SqlResultCollectionStrategy,
     pub prepare: bool, // Used to prepare datatable queries without executing
+    // Emit {columns: [{name, oid, type_name}], rows: [[text|null]]} from the
+    // last statement instead of the default `[{col: val}]` JSON shape. Used by
+    // `wmill datatable serve` to map Postgres results onto the wire protocol
+    // without re-stringifying every JSON value.
+    pub raw_output: bool,
 }
 
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
     pub sandbox: bool,
+}
+
+impl BashAnnotations {
+    /// If the script declares `# sandbox <image>` (an image ref after the sandbox
+    /// annotation), returns that image ref. This selects the daemonless, sandboxed
+    /// container runtime: extract the image's rootfs and run it inside the job's
+    /// nsjail sandbox.
+    ///
+    /// A bare `# sandbox` (no image argument) returns `None` and keeps the plain
+    /// nsjail-sandboxed-bash behavior (the `sandbox` boolean modifier). `# docker`
+    /// is unaffected and keeps the legacy v1 (dind/daemon) path.
+    pub fn sandbox_image(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            // Mirror the annotation parser: stop at the first non-comment line.
+            if !line.starts_with('#') {
+                break;
+            }
+            let mut tokens = line[1..].split_whitespace();
+            if tokens.next() == Some("sandbox") {
+                // `# sandbox <image>` -> container; bare `# sandbox` -> nsjail bash.
+                if let Some(image) = tokens.next() {
+                    return Some(image.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// If the script declares `#ssh <resource_path>` (a resource path after the
+    /// ssh annotation), returns that path. This reroutes execution to a remote
+    /// host over SSH (enterprise feature): the script runs on the host described
+    /// by the `ssh_target` resource at `<resource_path>` instead of on the worker.
+    /// The `#ssh $<arg_name>` form returns the `$`-prefixed token verbatim; the
+    /// executor resolves it from the job argument of that name at run time.
+    ///
+    /// Mirrors `sandbox_image`: only leading comment lines are scanned, stopping
+    /// at the first non-comment line. A bare `#ssh` with no path returns `None`.
+    /// Only an exact `#ssh <target>` line triggers the reroute — the target must
+    /// be a resource path (`u/...`/`f/...`) or a `$arg` reference (a valid
+    /// identifier), with nothing else on the line — so prose comments like
+    /// `# ssh into the box`, `# ssh tunnel/proxy setup is below` or
+    /// `# ssh $HOST manually first` never match.
+    pub fn ssh_target(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with('#') {
+                break;
+            }
+            let mut tokens = line[1..].split_whitespace();
+            if tokens.next() == Some("ssh") {
+                if let Some(path) = tokens.next() {
+                    let is_path = path.starts_with("u/") || path.starts_with("f/");
+                    let is_arg = path.strip_prefix('$').is_some_and(|a| {
+                        !a.is_empty()
+                            && !a.starts_with(|c: char| c.is_ascii_digit())
+                            && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    });
+                    if (is_path || is_arg) && tokens.next().is_none() {
+                        return Some(path.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -964,6 +1336,106 @@ pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
     Ok(())
 }
 
+/// Write `bytes` to `final_path` atomically: write to a sibling temp file then
+/// `rename` into place. A concurrent reader that gates on `metadata(final_path)`
+/// therefore only ever observes a fully-written file (`rename` is atomic on a
+/// POSIX same-filesystem path). Safe under a thundering herd: concurrent renames
+/// to the same path are last-writer-wins and every writer produces identical
+/// bytes. This prevents the cold-load race where a parallel for-loop spawns N
+/// `//native` sandboxes that each observe a partially-written bundle.
+pub fn atomic_write_file_bytes(
+    final_path: &str,
+    bytes: &[u8],
+    executable: bool,
+) -> error::Result<()> {
+    #[cfg(not(unix))]
+    let _ = executable;
+    let tmp_path = format!("{}.tmp.{}", final_path, Uuid::new_v4());
+    let write = || -> error::Result<()> {
+        let mut file = File::create(&tmp_path)?;
+        file.write_all(bytes)?;
+        #[cfg(unix)]
+        if executable {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+        }
+        file.flush()?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+    if let Err(e) = fs::rename(&tmp_path, final_path) {
+        let _ = fs::remove_file(&tmp_path);
+        // Content-addressed cache: if the destination now exists, a concurrent
+        // publisher already wrote byte-identical content via its own
+        // tmp+rename, so the cache is correct. This also covers Windows, where
+        // `rename` can refuse to replace a destination that an in-flight reader
+        // has open even though that destination is already valid.
+        if Path::new(final_path).exists() {
+            return Ok(());
+        }
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// Copy `origin` to `final_path` atomically via a sibling temp file + `rename`,
+/// preserving `std::fs::copy` permission semantics. Same atomicity guarantee as
+/// [`atomic_write_file_bytes`].
+pub fn atomic_copy_file(origin: &str, final_path: &str) -> error::Result<()> {
+    let tmp_path = format!("{}.tmp.{}", final_path, Uuid::new_v4());
+    if let Err(e) = fs::copy(origin, &tmp_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
+    if let Err(e) = fs::rename(&tmp_path, final_path) {
+        let _ = fs::remove_file(&tmp_path);
+        // See `atomic_write_file_bytes`: a content-addressed destination that
+        // now exists is already correct (peer publish / Windows open-file).
+        if Path::new(final_path).exists() {
+            return Ok(());
+        }
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// Publish a fully-populated `tmp_dir` to `final_dir` via a single atomic
+/// `rename`, so a concurrent reader gating on `metadata(final_dir)` never
+/// observes a half-populated directory: `final_dir` is only ever absent or
+/// complete (we never extract/copy in place).
+///
+/// These dir caches are content-addressed (PHP `vendor/{hash}`, Java deps —
+/// the path embeds a hash of the inputs), so every concurrent publisher builds
+/// byte-identical content. If `rename` fails and `final_dir` already exists, a
+/// peer published the identical content (or, on Windows, `rename` refused to
+/// replace an existing directory that is nonetheless already valid): treat the
+/// existing dir as the correct cache.
+///
+/// Deliberately simple — no destroy-then-recreate swap. The accepted residual
+/// is that a *stale partial* `final_dir` left by a populate hard-killed on a
+/// pre-atomic binary is trusted rather than rebuilt. That is a finite,
+/// self-draining migration hazard (post-fix code only ever renames a complete
+/// `tmp_dir` into place, so it cannot create that state), it is confined to the
+/// PHP/Java dependency caches (never the `//native` path this PR targets), and
+/// it clears on cache eviction. A swap that rebuilds it introduces
+/// concurrent-publisher edge cases that are a worse trade on a critical path.
+pub fn atomic_publish_dir(tmp_dir: &str, final_dir: &str) -> error::Result<()> {
+    match fs::rename(tmp_dir, final_dir) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = fs::remove_dir_all(tmp_dir);
+            if Path::new(final_dir).exists() {
+                Ok(())
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}
+
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     use std::time::Instant;
@@ -991,19 +1463,7 @@ pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
 }
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
-    use std::fs::File;
-    use std::io::Write;
-
-    let mut file = File::create(main_path)?;
-    file.write_all(byts)?;
-    #[cfg(unix)]
-    {
-        use std::fs::Permissions;
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(Permissions::from_mode(0o755))?;
-    }
-    file.flush()?;
-    Ok(())
+    atomic_write_file_bytes(main_path, byts, true)
 }
 
 #[cfg(not(windows))]
@@ -1043,9 +1503,79 @@ pub fn get_vcpus() -> Option<i64> {
 
 #[cfg(windows)]
 pub fn get_vcpus() -> Option<i64> {
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(100000); // 1 vCPU
+    }
     let mut sys = System::new();
     sys.refresh_cpu_all();
     (sys.cpus().len() * 100000).try_into().ok()
+}
+
+/// The window `get_vcpus`'s quota is spent over, in the same microseconds. Only
+/// their ratio is a number of CPUs, and the window is configurable — 100ms is
+/// merely its usual value.
+#[cfg(not(windows))]
+pub fn get_cpu_period() -> Option<i64> {
+    if Path::new("/sys/fs/cgroup/cpu/cpu.cfs_period_us").exists() {
+        // cgroup v1
+        parse_file("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    } else {
+        // cgroup v2: `cpu.max` is "<quota|max> <period>"
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_file::<String>(&format!("{cgroup_path}/cpu.max"))?
+            .split_whitespace()
+            .nth(1)?
+            .parse()
+            .ok()
+    }
+    .filter(|period| *period > 0)
+}
+
+#[cfg(windows)]
+pub fn get_cpu_period() -> Option<i64> {
+    Some(100000)
+}
+
+/// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
+/// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
+/// the quota in, so a fraction of a CPU makes it report a single-core machine.
+#[cfg(not(windows))]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // "Cpus_allowed_list:\t0-7,16-23"
+    let status = parse_file::<String>("/proc/self/status")?;
+    let list = status
+        .split("Cpus_allowed_list:")
+        .nth(1)?
+        .lines()
+        .next()?
+        .trim();
+
+    let cpus = list
+        .split(',')
+        .map(|range| {
+            let (first, last) = range.split_once('-').unwrap_or((range, range));
+            let (first, last) = (first.trim().parse::<usize>(), last.trim().parse::<usize>());
+            match (first, last) {
+                (Ok(first), Ok(last)) if last >= first => Some(last - first + 1),
+                _ => None,
+            }
+        })
+        .sum::<Option<usize>>()?;
+
+    (cpus > 0).then_some(cpus)
+}
+
+#[cfg(windows)]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // The 1CU cap is a policy rather than a bandwidth quota, so it is the whole
+    // answer here as it is for `get_vcpus` and `get_memory` — a consumer that reads
+    // this as the hardware count would raise the worker back above the cap.
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(1);
+    }
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    Some(sys.cpus().len()).filter(|cpus| *cpus > 0)
 }
 
 #[cfg(not(windows))]
@@ -1092,6 +1622,9 @@ pub fn get_memory() -> Option<i64> {
 
 #[cfg(windows)]
 pub fn get_memory() -> Option<i64> {
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(2 * 1024 * 1024 * 1024); // 2 GB
+    }
     let mut sys = System::new();
     sys.refresh_memory();
     Some(sys.total_memory() as i64)
@@ -1218,25 +1751,23 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.ip.as_deref(),
                 db,
             )
             .await?
         }
         PingType::Initial => {
-            if insert_ping.worker_instance.is_none()
-                || insert_ping.version.is_none()
-                || insert_ping.ip.is_none()
-            {
-                return Err(anyhow::anyhow!(
-                    "Worker instance, version and ip are required"
-                ));
+            if insert_ping.worker_instance.is_none() || insert_ping.version.is_none() {
+                return Err(anyhow::anyhow!("Worker instance and version are required"));
             }
 
             insert_ping_query(
                 &insert_ping.worker_instance.unwrap(),
                 &worker_name,
                 worker_group,
-                &insert_ping.ip.unwrap(),
+                // An agent worker sends the sentinel rather than nothing, to stay acceptable to
+                // servers that still require an IP here; both mean "not resolved yet".
+                insert_ping.ip.as_deref().filter(|ip| *ip != UNKNOWN_IP),
                 insert_ping.tags.unwrap_or_default().as_slice(),
                 insert_ping.dw,
                 insert_ping.dws.as_deref(),
@@ -1364,11 +1895,22 @@ pub async fn fetch_raw_script_from_app_query(
     .map(|r| RawScript { content: r.code, lock: r.lock, meta: None, modules: None })
 }
 
+/// Returns the number of jobs the row already accounted for: non-zero when a worker of the
+/// same name pinged before, i.e. when this process is a restart of an earlier one (see
+/// [`crate::utils::resolve_worker_suffix`]) and its counter is meant to keep climbing.
+///
+/// Everything else describing the process is overwritten on such a restart — a row left
+/// reporting the version or the isolation mode of the process that died would, for
+/// `wm_version`, hold the instance-wide `MIN_VERSION` back forever, and one still naming the
+/// job that process was killed mid-way through skews the zombie/OOM diagnostics that read it.
+/// `started_at` and `jobs_executed` are the only two columns carried over, being the
+/// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
+/// lookup has not resolved yet and the predecessor's address is still the best guess.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
     worker_group: &str,
-    ip: &str,
+    ip: Option<&str>,
     tags: &[String],
     dw: Option<String>,
     dws: Option<&[String]>,
@@ -1378,10 +1920,15 @@ pub async fn insert_ping_query(
     job_isolation: Option<String>,
     native_mode: bool,
     db: &DB,
-) -> anyhow::Result<()> {
-    sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers, native_mode = EXCLUDED.native_mode",
+) -> anyhow::Result<i32> {
+    // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
+    // meanwhile the value a previous process wrote to a reclaimed row is the best guess we have. A
+    // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
+    // literal below must stay equal to `external_ip::UNKNOWN_IP`.
+    let previous_jobs_executed = sqlx::query_scalar!(
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        RETURNING jobs_executed",
         worker_instance,
         worker_name,
         ip,
@@ -1395,9 +1942,9 @@ pub async fn insert_ping_query(
         job_isolation.as_deref(),
         native_mode,
         )
-        .execute(db)
+        .fetch_one(db)
         .await?;
-    Ok(())
+    Ok(previous_jobs_executed)
 }
 
 pub async fn update_worker_ping_from_job_query(
@@ -1485,12 +2032,13 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
+    ip: Option<&str>,
     db: &DB,
 ) -> anyhow::Result<()> {
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12 WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -1503,6 +2051,7 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_5m,
         occupancy_rate_30m,
         native_mode,
+        ip,
     )
         .execute(db))
     .await??;
@@ -2038,6 +2587,121 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    fn matcher(id: &str) -> WorkspaceMatcher {
+        WorkspaceMatcher { id: id.to_string(), include_forks: false }
+    }
+
+    fn fork_matcher(id: &str) -> WorkspaceMatcher {
+        WorkspaceMatcher { id: id.to_string(), include_forks: true }
+    }
+
+    /// A workspace id chain: the workspace itself, then its fork ancestors nearest-first.
+    fn chain(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_parse_job_oom_score_adj() {
+        assert_eq!(parse_job_oom_score_adj(Some("300")), 300);
+        assert_eq!(parse_job_oom_score_adj(Some(" 0\n")), 0);
+        assert_eq!(parse_job_oom_score_adj(None), JOB_OOM_SCORE_ADJ_DEFAULT);
+        // Out of range and unparseable both fall back rather than weaken the worker's protection.
+        assert_eq!(
+            parse_job_oom_score_adj(Some("-500")),
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        );
+        assert_eq!(
+            parse_job_oom_score_adj(Some("1001")),
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        );
+        assert_eq!(
+            parse_job_oom_score_adj(Some("high")),
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        );
+    }
+
+    #[test]
+    fn test_bash_sandbox_image_annotation() {
+        // `# sandbox <image>` selects the container runtime and returns the image.
+        assert_eq!(
+            BashAnnotations::sandbox_image("# sandbox alpine:latest\necho hi"),
+            Some("alpine:latest".to_string())
+        );
+        // Extra whitespace and a leading non-spaced `#` still work.
+        assert_eq!(
+            BashAnnotations::sandbox_image("#sandbox   python:3.12-slim\n"),
+            Some("python:3.12-slim".to_string())
+        );
+        // A bare `# sandbox` (no image) keeps the nsjail-bash modifier -> None.
+        assert_eq!(BashAnnotations::sandbox_image("# sandbox\necho hi"), None);
+        // `sandbox` must be its own token, not a prefix.
+        assert_eq!(BashAnnotations::sandbox_image("# sandboxed foo"), None);
+        // Stops at the first non-comment line (image declared too late is ignored).
+        assert_eq!(
+            BashAnnotations::sandbox_image("echo hi\n# sandbox alpine"),
+            None
+        );
+        // `# docker` is a different annotation -> not a sandbox image.
+        assert_eq!(
+            BashAnnotations::sandbox_image("# docker alpine\necho hi"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_bash_ssh_target_annotation() {
+        // `#ssh <path>` returns the resource path (reroutes to remote execution).
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh f/infra/jump_node\nset -e\ndf -h"),
+            Some("f/infra/jump_node".to_string())
+        );
+        // `# ssh <path>` with a space after `#` also works.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh u/me/box\n"),
+            Some("u/me/box".to_string())
+        );
+        // `#ssh $arg` (dynamic target from a job argument) is returned verbatim.
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh $jump_host\necho hi"),
+            Some("$jump_host".to_string())
+        );
+        // A bare `#ssh` with no path -> None.
+        assert_eq!(BashAnnotations::ssh_target("#ssh\necho hi"), None);
+        // `ssh` must be its own token, not a prefix.
+        assert_eq!(BashAnnotations::ssh_target("# sshd restart"), None);
+        // Prose comments mentioning ssh must not trigger the reroute: the line
+        // must be exactly `#ssh <target>` with a `u/`/`f/` path or `$identifier`.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh into the box and restart nginx\necho hi"),
+            None
+        );
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh tunnel/proxy setup is below\necho hi"),
+            None
+        );
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh $HOST manually first\necho hi"),
+            None
+        );
+        // Trailing tokens after a real-looking target also disqualify the line.
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh f/infra/box then reboot\necho hi"),
+            None
+        );
+        // ...but a real directive on a later comment line is still found.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh into the box\n#ssh f/infra/box\necho hi"),
+            Some("f/infra/box".to_string())
+        );
+        // Stops at the first non-comment line (declared too late is ignored).
+        assert_eq!(
+            BashAnnotations::ssh_target("echo hi\n#ssh f/infra/box"),
+            None
+        );
+        // No annotation -> None (normal local bash).
+        assert_eq!(BashAnnotations::ssh_target("echo hello"), None);
+    }
+
     #[test]
     fn test_mixed_tags() {
         let input = vec![
@@ -2054,14 +2718,14 @@ mod tests {
             "feat".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::NoneExcept,
-                workspaces: vec!["ws1".to_string(), "ws2".to_string()],
+                workspaces: vec![matcher("ws1"), matcher("ws2")],
             },
         );
         expected.insert(
             "hotfix".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::AllExcluding,
-                workspaces: vec!["ws3".to_string(), "ws4".to_string()],
+                workspaces: vec![matcher("ws3"), matcher("ws4")],
             },
         );
 
@@ -2104,7 +2768,7 @@ mod tests {
 
         let data = tags.specific.get("urgent").unwrap();
         assert_eq!(data.tag_type, SpecificTagType::NoneExcept);
-        assert_eq!(data.workspaces, vec!["ws1", "ws2"]);
+        assert_eq!(data.workspaces, vec![matcher("ws1"), matcher("ws2")]);
     }
 
     #[test]
@@ -2117,7 +2781,7 @@ mod tests {
 
         let data = tags.specific.get("legacy").unwrap();
         assert_eq!(data.tag_type, SpecificTagType::AllExcluding);
-        assert_eq!(data.workspaces, vec!["ws1", "ws2"]);
+        assert_eq!(data.workspaces, vec![matcher("ws1"), matcher("ws2")]);
     }
 
     #[test]
@@ -2134,10 +2798,10 @@ mod tests {
         let input = vec!["urgent(ws1+ws2)".to_string()];
         let tags = CustomTags::from(input);
 
-        let output = tags.to_string_vec(Some("ws1".to_string()));
+        let output = tags.to_string_vec(Some(&chain(&["ws1"])));
         assert_eq!(output, vec!["urgent"]);
 
-        let output_none = tags.to_string_vec(Some("ws3".to_string()));
+        let output_none = tags.to_string_vec(Some(&chain(&["ws3"])));
         assert!(output_none.is_empty());
     }
 
@@ -2146,10 +2810,10 @@ mod tests {
         let input = vec!["legacy(^ws1^ws2)".to_string()];
         let tags = CustomTags::from(input);
 
-        let output = tags.to_string_vec(Some("ws3".to_string()));
+        let output = tags.to_string_vec(Some(&chain(&["ws3"])));
         assert_eq!(output, vec!["legacy"]);
 
-        let output_excluded = tags.to_string_vec(Some("ws1".to_string()));
+        let output_excluded = tags.to_string_vec(Some(&chain(&["ws1"])));
         assert!(output_excluded.is_empty());
     }
 
@@ -2165,6 +2829,68 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_fork_marker_parses_and_round_trips() {
+        let tags = CustomTags::from(vec![
+            "urgent(prod*+ws2)".to_string(),
+            "legacy(^prod*)".to_string(),
+        ]);
+
+        let urgent = tags.specific.get("urgent").unwrap();
+        assert_eq!(
+            urgent.workspaces,
+            vec![fork_matcher("prod"), matcher("ws2")]
+        );
+        assert!(urgent.is_fork_scoped());
+
+        let legacy = tags.specific.get("legacy").unwrap();
+        assert_eq!(legacy.workspaces, vec![fork_matcher("prod")]);
+
+        // The settings editor re-emits what it parsed; dropping `*` here would silently widen
+        // an excluding tag / narrow an including one on every save.
+        let mut result = tags.to_string_vec(None);
+        result.sort();
+        assert_eq!(result, vec!["legacy(^prod*)", "urgent(prod*+ws2)"]);
+    }
+
+    #[test]
+    fn test_fork_marker_extends_none_except_to_forks_only_when_present() {
+        let fork = chain(&["wm-fork-x", "prod"]);
+        let nested = chain(&["wm-fork-y", "wm-fork-x", "prod"]);
+
+        let marked = CustomTags::from(vec!["urgent(prod*)".to_string()]);
+        let marked = marked.specific.get("urgent").unwrap();
+        assert!(marked.applies_to_workspace(&chain(&["prod"])));
+        assert!(marked.applies_to_workspace(&fork));
+        assert!(marked.applies_to_workspace(&nested));
+        assert!(!marked.applies_to_workspace(&chain(&["wm-fork-z", "other"])));
+
+        // Without the marker a fork must NOT inherit the parent's tag.
+        let unmarked = CustomTags::from(vec!["urgent(prod)".to_string()]);
+        let unmarked = unmarked.specific.get("urgent").unwrap();
+        assert!(unmarked.applies_to_workspace(&chain(&["prod"])));
+        assert!(!unmarked.applies_to_workspace(&fork));
+        // Gates the ancestor lookup, so a wrong answer here silently disables the marker.
+        assert!(!unmarked.is_fork_scoped());
+    }
+
+    #[test]
+    fn test_fork_marker_extends_all_excluding_to_forks_only_when_present() {
+        let fork = chain(&["wm-fork-x", "prod"]);
+
+        // Pre-existing exclusions keep their exact meaning: only `prod` itself is excluded.
+        let unmarked = CustomTags::from(vec!["legacy(^prod)".to_string()]);
+        let unmarked = unmarked.specific.get("legacy").unwrap();
+        assert!(!unmarked.applies_to_workspace(&chain(&["prod"])));
+        assert!(unmarked.applies_to_workspace(&fork));
+
+        let marked = CustomTags::from(vec!["legacy(^prod*)".to_string()]);
+        let marked = marked.specific.get("legacy").unwrap();
+        assert!(!marked.applies_to_workspace(&chain(&["prod"])));
+        assert!(!marked.applies_to_workspace(&fork));
+        assert!(marked.applies_to_workspace(&chain(&["other"])));
     }
 
     #[test]
@@ -2229,6 +2955,20 @@ mod tests {
     }
 
     #[test]
+    fn test_sql_raw_output_annotation() {
+        let with_flag = SqlAnnotations::parse("-- raw_output\nSELECT 1");
+        assert!(with_flag.raw_output);
+        assert!(!with_flag.prepare);
+
+        let without_flag = SqlAnnotations::parse("SELECT 1");
+        assert!(!without_flag.raw_output);
+
+        let combined = SqlAnnotations::parse("-- prepare\n-- raw_output\nSELECT 1");
+        assert!(combined.raw_output);
+        assert!(combined.prepare);
+    }
+
+    #[test]
     fn test_python_sandbox_annotation_with_other_annotations() {
         let content = "# no_cache\n# sandbox\ndef main():\n    pass";
         let annotations = PythonAnnotations::parse(content);
@@ -2277,5 +3017,268 @@ mod tests {
         let content = "//sandbox\nexport function main() {}";
         let annotations = TypeScriptAnnotations::parse(content);
         assert!(annotations.sandbox);
+    }
+
+    // Regression: a parallel for-loop cold-loading a //native bundle spawns
+    // many sandboxes that each gate on `metadata(bundle).is_ok()` then read it.
+    // The pre-fix non-atomic `File::create + write_all` made the path visible
+    // while still empty/truncated, so concurrent readers saw a stub bundle
+    // (`module.main is not a function`) or a truncated one (`Unexpected end of
+    // input`). With atomic temp+rename publish, a visible path is always a
+    // complete file. This test fails against the old non-atomic implementation.
+    #[test]
+    fn test_atomic_write_file_bytes_concurrent_cold_load() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+
+        let dir =
+            std::env::temp_dir().join(format!("wm_atomic_write_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let final_path = dir.join("bundle.js");
+        let final_path_str = final_path.to_str().unwrap().to_string();
+
+        // Wide payload so a hypothetical non-atomic writer has a large
+        // partial-read window for the reader to catch.
+        let payload = vec![b'x'; 4 * 1024 * 1024];
+        let expected_len = payload.len();
+
+        for _ in 0..12 {
+            let _ = std::fs::remove_file(&final_path);
+
+            let stop = Arc::new(AtomicBool::new(false));
+            let partial_reads = Arc::new(AtomicUsize::new(0));
+            let barrier = Arc::new(Barrier::new(2));
+
+            let reader = {
+                let stop = stop.clone();
+                let partial_reads = partial_reads.clone();
+                let barrier = barrier.clone();
+                let path = final_path_str.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    while !stop.load(Ordering::Relaxed) {
+                        if std::fs::metadata(&path).is_ok() {
+                            if let Ok(content) = std::fs::read(&path) {
+                                if content.len() != expected_len {
+                                    partial_reads.fetch_add(1, Ordering::Relaxed);
+                                }
+                            }
+                        }
+                        std::thread::yield_now();
+                    }
+                })
+            };
+
+            barrier.wait();
+            atomic_write_file_bytes(&final_path_str, &payload, false).unwrap();
+            stop.store(true, Ordering::Relaxed);
+            reader.join().unwrap();
+
+            assert_eq!(
+                partial_reads.load(Ordering::Relaxed),
+                0,
+                "a concurrent reader observed a partially-written bundle"
+            );
+            assert_eq!(std::fs::read(&final_path).unwrap().len(), expected_len);
+
+            let leftovers: Vec<_> = std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+                .map(|e| e.path())
+                .collect();
+            assert!(leftovers.is_empty(), "temp files leaked: {:?}", leftovers);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Under a thundering herd of cold-loads, N populators each build their own
+    // temp dir and publish to the same final dir. Every publish must succeed
+    // (loser-of-the-race discards its byte-identical copy), the final dir must
+    // be complete, and no temp dirs may leak.
+    #[test]
+    fn test_atomic_publish_dir_thundering_herd() {
+        use std::sync::{Arc, Barrier};
+
+        let base =
+            std::env::temp_dir().join(format!("wm_atomic_dir_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        let final_dir = base.join("cache_dir");
+        let final_dir_str = final_dir.to_str().unwrap().to_string();
+
+        let n = 8;
+        let barrier = Arc::new(Barrier::new(n));
+        let mut handles = vec![];
+        for _ in 0..n {
+            let barrier = barrier.clone();
+            let final_dir_str = final_dir_str.clone();
+            let base = base.clone();
+            handles.push(std::thread::spawn(move || {
+                let tmp = base.join(format!("cache_dir.tmp.{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir_all(&tmp).unwrap();
+                std::fs::write(tmp.join("main.js"), b"export function main() {}").unwrap();
+                std::fs::write(tmp.join("meta.txt"), b"v1").unwrap();
+                barrier.wait();
+                atomic_publish_dir(tmp.to_str().unwrap(), &final_dir_str).unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert!(final_dir.join("main.js").is_file());
+        assert!(final_dir.join("meta.txt").is_file());
+        let leftovers: Vec<_> = std::fs::read_dir(&base)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let n = e.file_name();
+                let n = n.to_string_lossy();
+                n.contains(".tmp.") || n.contains(".bak.")
+            })
+            .map(|e| e.path())
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp/bak dirs leaked: {:?}",
+            leftovers
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // Contract guard: when `final_dir` ALREADY exists (a complete prior/peer
+    // publish — content-addressed, so identical bytes), concurrent publishers
+    // must all return Ok via the exists-fallback and must never corrupt or
+    // partially-overwrite the existing dir. Covers the preexisting+concurrent
+    // case; documents the accepted simple-form behavior (an existing dir is
+    // trusted, not rebuilt).
+    #[test]
+    fn test_atomic_publish_dir_existing_is_trusted_not_corrupted() {
+        use std::sync::{Arc, Barrier};
+
+        let base =
+            std::env::temp_dir().join(format!("wm_atomic_exist_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        let final_dir = base.join("cache_dir");
+        let final_dir_str = final_dir.to_str().unwrap().to_string();
+
+        // A complete dir already published at the final path.
+        std::fs::create_dir_all(&final_dir).unwrap();
+        std::fs::write(final_dir.join("main.js"), b"export function main() {}").unwrap();
+        std::fs::write(final_dir.join("meta.txt"), b"v1").unwrap();
+
+        let n = 8;
+        let barrier = Arc::new(Barrier::new(n));
+        let mut handles = vec![];
+        for _ in 0..n {
+            let barrier = barrier.clone();
+            let final_dir_str = final_dir_str.clone();
+            let base = base.clone();
+            handles.push(std::thread::spawn(move || {
+                let tmp = base.join(format!("cache_dir.tmp.{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir_all(&tmp).unwrap();
+                std::fs::write(tmp.join("main.js"), b"export function main() {}").unwrap();
+                std::fs::write(tmp.join("meta.txt"), b"v1").unwrap();
+                barrier.wait();
+                // Every publisher must succeed (exists-fallback), none error.
+                atomic_publish_dir(tmp.to_str().unwrap(), &final_dir_str).unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Existing dir intact and complete — never partially overwritten.
+        assert_eq!(
+            std::fs::read(final_dir.join("main.js")).unwrap(),
+            b"export function main() {}"
+        );
+        assert_eq!(std::fs::read(final_dir.join("meta.txt")).unwrap(), b"v1");
+        let leftovers: Vec<_> = std::fs::read_dir(&base)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let n = e.file_name();
+                let n = n.to_string_lossy();
+                n.contains(".tmp.") || n.contains(".bak.")
+            })
+            .map(|e| e.path())
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp/bak dirs leaked: {:?}",
+            leftovers
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_is_allowed_file_location_allows_plain_relative() {
+        let base = std::env::temp_dir().join(format!("wm_allowed_loc_ok_{}", uuid::Uuid::new_v4()));
+        let job_dir = base.join("job");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let job_dir_str = job_dir.to_str().unwrap();
+
+        let out = is_allowed_file_location(job_dir_str, "repo/sub/playbook.yml").unwrap();
+        assert_eq!(out, normalize_path(&job_dir.join("repo/sub/playbook.yml")));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_is_allowed_file_location_rejects_parent_and_absolute() {
+        let base =
+            std::env::temp_dir().join(format!("wm_allowed_loc_esc_{}", uuid::Uuid::new_v4()));
+        let job_dir = base.join("job");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let job_dir_str = job_dir.to_str().unwrap();
+
+        assert!(is_allowed_file_location(job_dir_str, "../escape").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "a/../../escape").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "/etc/passwd").is_err());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // Regression for GHSA-v934-cvpf-6fjw: a symlink planted inside the job dir
+    // (e.g. by an earlier `git_repos` clone) must not let a later target traverse
+    // it out of the job dir, even though the lexical path stays "inside".
+    #[cfg(unix)]
+    #[test]
+    fn test_is_allowed_file_location_rejects_symlink_traversal() {
+        let base =
+            std::env::temp_dir().join(format!("wm_allowed_loc_symlink_{}", uuid::Uuid::new_v4()));
+        let job_dir = base.join("job");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        // Stand-in for the shared cache dir living outside the job dir.
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let job_dir_str = job_dir.to_str().unwrap();
+
+        // Plant `job/repo` -> `../outside`, as a malicious first clone would.
+        let planted = job_dir.join("repo");
+        std::os::unix::fs::symlink(&outside, &planted).unwrap();
+
+        // Both the symlink itself and any path traversing it are rejected.
+        assert!(is_allowed_file_location(job_dir_str, "repo").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "repo/payload").is_err());
+        assert!(is_allowed_file_location(job_dir_str, "repo/sub/payload").is_err());
+
+        // An in-bounds `..` must not bypass the check: `foo/../repo/payload`
+        // normalizes back to `repo/payload` and still traverses the symlink.
+        assert!(is_allowed_file_location(job_dir_str, "foo/../repo/payload").is_err());
+        std::fs::create_dir(job_dir.join("real")).unwrap();
+        assert!(is_allowed_file_location(job_dir_str, "real/../repo/payload").is_err());
+
+        // A dangling symlink (target does not exist yet) is still caught:
+        // `symlink_metadata` does not follow the link.
+        let dangling = job_dir.join("dangling");
+        std::os::unix::fs::symlink(base.join("nonexistent"), &dangling).unwrap();
+        assert!(is_allowed_file_location(job_dir_str, "dangling/payload").is_err());
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

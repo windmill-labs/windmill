@@ -1,0 +1,14 @@
+summary: Raw HTML app
+value:
+  files:
+    app.js: '!inline_fileset app.js'
+    index.html: '!inline_fileset index.html'
+  runnables:
+    fetch_data:
+      fields: {}
+      kind: runnableByPath
+      path: f/lib/fetch_data
+policy:
+  execution_mode: viewer
+  on_behalf_of_email: admin@windmill.dev
+  triggerables_v2: {}

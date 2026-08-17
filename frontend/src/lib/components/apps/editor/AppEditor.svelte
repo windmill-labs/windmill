@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { onMount, setContext, untrack } from 'svelte'
+	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -29,11 +29,12 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		classNames,
-		encodeState,
 		getModifierKey,
+		readFieldsRecursively,
 		sendUserToast,
 		urlParamsToObject
 	} from '$lib/utils'
+	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -68,6 +69,8 @@
 		path,
 		policy,
 		summary,
+		labels,
+		deployedBaseline = undefined,
 		fromHub = false,
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
@@ -76,14 +79,73 @@
 		newPath = undefined,
 		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
-		unsavedConfirmationModal,
-		onSavedNewAppPath
+		onSavedNewAppPath,
+		onNavigate,
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts,
+		onRestore
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
 
-	const stateApp = $state(untrack(() => app))
+	// Migrated clone of the deployed baseline for the autosave `discardIf`. The
+	// live `stateApp` is `migrateApp`'d on mount, so the baseline must be too or
+	// an unedited draft would never compare equal. Captured once per mount (the
+	// route remounts AppEditor on path change), `undefined` for draft-only paths.
+	const migratedDeployedBaseline = untrack(() => {
+		if (!deployedBaseline) return undefined
+		const clone = structuredClone($state.snapshot(deployedBaseline)) as App
+		migrateApp(clone)
+		return clone
+	})
+
+	// Inside a session pane the AIChatManager is injected via context. Sessions
+	// have their own state machinery (sessionRuntime + per-fork backend), and
+	// the user-facing $workspaceStore stays on the main workspace even when
+	// the session is editing in a fork — so a UserDraft handle here would
+	// share its LS key with the regular /apps/edit route and clobber both
+	// sides' autosaves. Skip UserDraft entirely in that case.
+	const inSessionPane = !!getContext('aiChatManager')
+
+	// Autosave keys on the URL path so a refresh of `.../draft_{uuid}` finds the
+	// saved draft and the listing's draft-only branch picks it up.
+	const appDraftPath = path ?? ''
+	const appDraftHandle = inSessionPane
+		? undefined
+		: // `canBeDisabled`: page editor's AutosaveIndicator carries the toggle.
+			// `discardIf`: an autosave reverting to the deployed app deletes the
+			// draft instead of persisting a no-op copy.
+			UserDraft.use<App>('app', appDraftPath, {
+				canBeDisabled: true,
+				discardIf: (val) =>
+					migratedDeployedBaseline !== undefined && draftValuesEqual(val, migratedDeployedBaseline)
+			})
+	// Suspend autosave around mount so the `firstMirror` seed write isn't POSTed
+	// as the user's first edit; `onMount`-then-`tick` resumes once effects settle.
+	if (appDraftHandle) UserDraft.stopSync('app', appDraftPath)
+	// Prefer a prior-session autosave over the prop (the route seeds an empty
+	// template on `new_draft=true`; it calls `UserDraft.remove` to force a reset).
+	// A draft is a stored value that can predate any schema migration, so whichever
+	// value is adopted needs the same normalization as the prop above.
+	const stateApp = $state(
+		untrack(() => {
+			const adopted = appDraftHandle?.draft ?? app
+			migrateApp(adopted)
+			return adopted
+		})
+	)
 	const appStore = writable<App>(stateApp)
+	// Mirror `stateApp` mutations into the autosave cell. The first mirror is the
+	// seed — `acquireEntry`'s `skipNextWrite` swallows it; later writes POST.
+	$effect(() => {
+		readFieldsRecursively(stateApp)
+		if (!appDraftHandle) return
+		untrack(() => {
+			appDraftHandle.draft = stateApp
+		})
+	})
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
 	// $: selectedComponent.subscribe((s) => {
@@ -122,7 +184,7 @@
 		groups: $userStore?.groups,
 		username: $userStore?.username,
 		name: $userStore?.name,
-		query: urlParamsToObject(new URL(window.location.href).searchParams),
+		query: urlParamsToObject(new URL(window.location.href).searchParams, { stripReserved: true }),
 		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,
 		mode: 'editor',
@@ -166,7 +228,7 @@
 		runnableComponents: writable({}),
 		appPath: writablePath,
 		workspace: $workspaceStore ?? '',
-		onchange: () => saveFrontendDraft(),
+		onchange: undefined,
 		isEditor: true,
 		jobs: writable([]),
 		staticExporter: writable({}),
@@ -218,19 +280,6 @@
 		scale,
 		stylePanel: () => StylePanel
 	})
-
-	let timeout: number | undefined = undefined
-
-	function saveFrontendDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			try {
-				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
-			} catch (err) {
-				console.error('Error storing frontend draft in localStorage', err)
-			}
-		}, 500)
-	}
 
 	function hashchange(e: HashChangeEvent) {
 		context.hash = e.newURL.split('#')[1]
@@ -442,6 +491,11 @@
 	let mounted = false
 	onMount(() => {
 		mounted = true
+		// Resume autosave after mount-time effects run; `tick` lets the sync
+		// effect observe and drop the post-suspend seed writes first.
+		if (appDraftHandle) {
+			tick().then(() => UserDraft.restartSync('app', appDraftPath))
+		}
 
 		setTimeout(() => {
 			if ($initialized?.initialized === false) {
@@ -755,9 +809,6 @@
 		path && untrack(() => onPathChange())
 	})
 	$effect(() => {
-		$appStore && untrack(() => saveFrontendDraft())
-	})
-	$effect(() => {
 		context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
 	})
 	let width = $derived(
@@ -821,8 +872,6 @@
 		;[!!$connectingInput.opened, !$panzoomActive]
 		untrack(() => updateCursorStyle(!!$connectingInput.opened && !$panzoomActive))
 	})
-
-	const unsavedConfirmationModal_render = $derived(unsavedConfirmationModal)
 </script>
 
 <svelte:head></svelte:head>
@@ -846,7 +895,13 @@
 		<AppEditorHeader
 			{newPath}
 			{newApp}
-			on:restore
+			{labels}
+			userDraftPath={appDraftPath}
+			{onResetToDeployed}
+			{loadedFromDraft}
+			{othersDraftsCount}
+			{onOpenOthersDrafts}
+			{onRestore}
 			{policy}
 			{fromHub}
 			bind:this={appEditorHeader}
@@ -857,27 +912,16 @@
 			rightPanelHidden={rightPanelSize === 0}
 			bottomPanelHidden={runnablePanelSize === 0}
 			{onSavedNewAppPath}
+			{onNavigate}
 			onShowLeftPanel={() => showLeftPanel()}
 			onShowRightPanel={() => showRightPanel()}
 			onShowBottomPanel={() => showBottomPanel()}
 			onHideLeftPanel={() => hideLeftPanel()}
 			onHideRightPanel={() => hideRightPanel()}
 			onHideBottomPanel={() => hideBottomPanel()}
-		>
-			{#snippet unsavedConfirmationModal({
-				diffDrawer,
-				additionalExitAction,
-				getInitialAndModifiedValues
-			})}
-				{@render unsavedConfirmationModal_render?.({
-					diffDrawer,
-					additionalExitAction,
-					getInitialAndModifiedValues
-				})}
-			{/snippet}
-		</AppEditorHeader>
+		/>
 		{#if $mode === 'preview'}
-			<SplitPanesWrapper>
+			<SplitPanesWrapper class="border-t">
 				<div
 					class={twMerge(
 						'h-full w-full relative',
@@ -922,7 +966,7 @@
 				</div>
 			{/if}
 
-			<SplitPanesWrapper>
+			<SplitPanesWrapper class="border-t">
 				<Splitpanes id="o1" class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<div

@@ -61,7 +61,9 @@
 	})
 
 	let datatables = resource([], () =>
-		WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' }).then((d) =>
+			d.map((d) => d.name)
+		)
 	)
 	let ducklakes = resource([], () =>
 		WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })

@@ -1,15 +1,31 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Select from './select/Select.svelte'
-	import { ArrowLeft, Expand, LoaderCircle, Minimize, RefreshCcw } from 'lucide-svelte'
+	import {
+		ArrowLeft,
+		Copy,
+		Download,
+		Expand,
+		LoaderCircle,
+		Minimize,
+		RefreshCcw,
+		Upload
+	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
+	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
+	import ResourcePicker from './ResourcePicker.svelte'
+	import Alert from './common/alert/Alert.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { isCloudHosted } from '$lib/cloud'
+	import { useDbManagerTag } from './dbManagerTag.svelte'
+	import DbWorkerTagButton from './DbWorkerTagButton.svelte'
 
 	interface Props {
 		uriState: DbManagerUriState
@@ -21,11 +37,15 @@
 
 	let open = $derived(uriState.open)
 
+	// The workspace the drawer's DB operations run against — the acting workspace of
+	// the editor that opened it (set via openDrawer), else the nav workspace.
+	let ws = $derived(uriState.workspace ?? $workspaceStore)
+
 	// Load available datatables when drawer opens with datatable input
 	const datatables = resource<string[]>([], async () => {
-		if (!$workspaceStore) return []
+		if (!ws) return []
 		try {
-			return await WorkspaceService.listDataTables({ workspace: $workspaceStore })
+			return (await WorkspaceService.listDataTables({ workspace: ws })).map((d) => d.name)
 		} catch (e) {
 			console.error('Failed to load datatables:', e)
 			return []
@@ -63,7 +83,82 @@
 
 	let dbManagerContent: DBManagerContent | undefined = $state()
 
+	// Per-database worker tag override, remembered across drawer opens.
+	const workerTag = useDbManagerTag(
+		() => ws,
+		() => uriState.effectiveInput
+	)
+
 	let hasReplResult = $state(false)
+
+	// Export/Import state
+	let exportDrawerOpen = $state(false)
+	let exportResult = $state('')
+	let importDrawerOpen = $state(false)
+	let importLoading = $state(false)
+	let importSource = $state<string | undefined>(undefined)
+	let importBehavior = $state<'schema_only' | 'schema_and_data'>('schema_only')
+
+	let isPostgresqlInput = $derived(
+		uriState.isDatatableInput ||
+			(uriState.input?.type === 'database' && uriState.input.resourceType === 'postgresql')
+	)
+	let enableImportExport = $derived(isPostgresqlInput)
+
+	function toSourceIdentifier(raw: string): string {
+		if (raw.startsWith('datatable://') || raw.startsWith('$res:')) return raw
+		return `$res:${raw}`
+	}
+
+	function currentSourceIdentifier(): string | undefined {
+		const input = uriState.effectiveInput
+		if (!input || input.type !== 'database') return undefined
+		return toSourceIdentifier(input.resourcePath)
+	}
+
+	function refreshManager() {
+		dbManagerContent?.refresh()
+		dbManagerContent?.dbManager()?.dbTable()?.refresh()
+	}
+
+	async function handleExportSchema() {
+		const source = currentSourceIdentifier()
+		if (!source || !ws) return
+		try {
+			exportResult = await WorkspaceService.exportPgSchema({
+				workspace: ws,
+				requestBody: { source }
+			})
+			exportDrawerOpen = true
+		} catch (e) {
+			sendUserToast(`Failed to export schema: ${e}`, true)
+		}
+	}
+
+	async function handleImportDatabase() {
+		if (!importSource || !ws) return
+		const target = currentSourceIdentifier()
+		if (!target) return
+		importLoading = true
+		try {
+			await WorkspaceService.importPgDatabase({
+				workspace: ws,
+				requestBody: {
+					source: toSourceIdentifier(importSource),
+					target,
+					fork_behavior: importBehavior
+				}
+			})
+			sendUserToast('Database import completed successfully')
+			importDrawerOpen = false
+			importSource = undefined
+			dbManagerContent?.refresh()
+		} catch (e) {
+			sendUserToast(`Failed to import database: ${e}`, true)
+		} finally {
+			importLoading = false
+		}
+	}
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} />
@@ -88,14 +183,19 @@
 		noPadding
 		id="db-manager-drawer"
 	>
-		{#if uriState.effectiveInput && $workspaceStore}
+		{#if uriState.effectiveInput && ws}
 			{#key uriState.selectedDatatable}
 				<DBManagerContent
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}
+					workspace={uriState.workspace}
+					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
 					bind:selectedSchemaKey={uriState.selectedSchema}
 					bind:selectedTableKey={uriState.selectedTable}
+					onImport={enableImportExport
+						? (mode) => ((importDrawerOpen = true), (importBehavior = mode))
+						: undefined}
 				>
 					{#snippet dbSelector()}
 						{#if uriState.isDatatableInput}
@@ -119,18 +219,36 @@
 			{/key}
 		{/if}
 		{#snippet actions()}
+			{#if uriState.isDatatableInput && uriState.selectedDatatable && ws}
+				<DataTableMigrationsButton
+					workspace={ws}
+					datatable={uriState.selectedDatatable}
+					onSchemaChanged={refreshManager}
+				/>
+			{/if}
+			{#if enableImportExport}
+				<Button startIcon={{ icon: Download }} onClick={handleExportSchema}>Export</Button>
+				<Button startIcon={{ icon: Upload }} onClick={() => (importDrawerOpen = true)}>
+					Import
+				</Button>
+			{/if}
+			{#if uriState.effectiveInput && ws}
+				<DbWorkerTagButton
+					bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+					input={uriState.effectiveInput}
+					workspace={ws}
+				/>
+			{/if}
+
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
-				on:click={() => {
-					dbManagerContent?.refresh()
-					dbManagerContent?.dbManager()?.dbTable()?.refresh()
-				}}
+				on:click={refreshManager}
 				startIcon={{ icon: RefreshCcw }}
+				iconOnly
+				title="Refresh"
 				size="xs"
 				color="light"
-			>
-				Refresh
-			</Button>
+			/>
 
 			<Button
 				on:click={() => (expand = !expand)}
@@ -139,5 +257,77 @@
 				color="light"
 			/>
 		{/snippet}
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={exportDrawerOpen} size="800px" offset={offset + 1}>
+	<DrawerContent title="Export Schemas" on:close={() => (exportDrawerOpen = false)}>
+		{#if exportResult}
+			<div class="flex flex-col gap-2 h-full relative">
+				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1"
+					>{exportResult}</pre
+				>
+				<Button
+					size="xs"
+					color="light"
+					startIcon={{ icon: Copy }}
+					wrapperClasses="absolute top-2 right-2"
+					btnClasses="bg-surface-tertiary"
+					on:click={() => {
+						navigator.clipboard.writeText(exportResult)
+						sendUserToast('Copied to clipboard')
+					}}
+				>
+					Copy
+				</Button>
+			</div>
+		{/if}
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={importDrawerOpen} size="600px" offset={offset + 1}>
+	<DrawerContent title="Import Database" on:close={() => (importDrawerOpen = false)}>
+		<div class="flex flex-col gap-4">
+			<Alert type="warning" title="Warning">
+				This will import the schemas from the selected source into the current database. Existing
+				tables with the same names may be affected.
+			</Alert>
+			<div class="flex flex-col gap-2">
+				<span class="text-sm font-medium">Source database</span>
+				<ResourcePicker
+					datatableAsPgResource
+					bind:value={importSource}
+					resourceType="postgresql"
+					workspace={ws}
+				/>
+			</div>
+			<div class="flex flex-col gap-2">
+				<span class="text-sm font-medium">Import mode</span>
+				<Select
+					items={[
+						{ value: 'schema_only', label: 'Schema only' },
+						...(isCloudHosted() || (!$superadmin && !$userStore?.is_admin)
+							? []
+							: [{ value: 'schema_and_data', label: 'Schema and data' }])
+					]}
+					bind:value={importBehavior}
+				/>
+			</div>
+			{#if importBehavior === 'schema_and_data'}
+				<Alert type="warning" title="Heavy operation">
+					Importing schema and data will copy all rows from every table in the source database. This
+					may take a long time and use significant storage space depending on the size of the
+					source.
+				</Alert>
+			{/if}
+			<Button
+				disabled={!importSource}
+				loading={importLoading}
+				color="red"
+				on:click={handleImportDatabase}
+			>
+				Import {importBehavior === 'schema_and_data' ? 'schemas and data' : 'schemas'} into current database
+			</Button>
+		</div>
 	</DrawerContent>
 </Drawer>

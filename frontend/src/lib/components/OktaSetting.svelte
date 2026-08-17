@@ -5,6 +5,7 @@
 	import Toggle from './Toggle.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import Password from './Password.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
@@ -18,17 +19,18 @@
 	function changeDomain(domain, custom) {
 		if (value) {
 			let baseUrl = custom ? `https://${domain}` : `https://${domain}.okta.com`
+			let authPath = custom ? '/v1' : '/oauth2/v1'
 			value = {
 				...value,
 				login_config: {
-					auth_url: `${baseUrl}/oauth2/v1/authorize`,
-					token_url: `${baseUrl}/oauth2/v1/token`,
-					userinfo_url: `${baseUrl}/oauth2/v1/userinfo`,
+					auth_url: `${baseUrl}${authPath}/authorize`,
+					token_url: `${baseUrl}${authPath}/token`,
+					userinfo_url: `${baseUrl}${authPath}/userinfo`,
 					scopes: ['openid', 'profile', 'email']
 				},
 				connect_config: {
-					auth_url: `${baseUrl}/oauth2/v1/authorize`,
-					token_url: `${baseUrl}/oauth2/v1/token`,
+					auth_url: `${baseUrl}${authPath}/authorize`,
+					token_url: `${baseUrl}${authPath}/token`,
 					scopes: ['openid', 'profile', 'email']
 				}
 			}
@@ -94,12 +96,16 @@
 				>
 				<input type="text" placeholder="Client Id" bind:value={value['id']} />
 			</label>
-			<label class="flex flex-col gap-1">
+			<label for="okta_client_secret" class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
 				<span class="text-secondary font-normal text-xs"
 					>from the CLIENT SECRETS section of the okta service configuration</span
 				>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<Password
+					id="okta_client_secret"
+					placeholder="Client Secret"
+					bind:password={value['secret']}
+				/>
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4 space-y-3">

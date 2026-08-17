@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
+import { readTextFile } from "./utils.ts";
+import { getEsbuild } from "./esbuild_loader.ts";
 import type { SyncCodebase } from "./codebase.ts";
 import { parseMetadataFileIfExists } from "./metadata.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
@@ -16,7 +18,7 @@ export class UnsupportedLocalPathScriptPreviewError extends Error {
 
 async function readOptionalLock(scriptPath: string): Promise<string | undefined> {
   try {
-    return await readFile(scriptPath + ".script.lock", "utf-8");
+    return await readTextFile(scriptPath + ".script.lock");
   } catch {
     return undefined;
   }
@@ -42,7 +44,7 @@ async function bundleSingleFileCodebaseScript(
     ).toString();
   }
 
-  const esbuild = await import("esbuild");
+  const esbuild = await getEsbuild();
   const out = await esbuild.build({
     entryPoints: [filePath],
     // Inline rawscripts are executed through the standard module wrapper,
@@ -138,7 +140,7 @@ export async function resolvePreviewLocalScriptState(
 
     return {
       filePath,
-      content: await readFile(filePath, "utf-8"),
+      content: await readTextFile(filePath),
       language,
       lock: normalizeOptionalLock(rawLock),
       tag: metadata?.payload?.tag,
