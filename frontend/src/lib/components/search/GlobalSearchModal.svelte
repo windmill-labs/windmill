@@ -40,15 +40,13 @@
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
 	import Logs from 'lucide-svelte/icons/logs'
-	import {
-		AwsIcon,
-		AzureIcon,
-		GoogleCloudIcon,
-		KafkaIcon,
-		MqttIcon,
-		AmqpIcon,
-		NatsIcon
-	} from '../icons'
+	import AwsIcon from '../icons/triggers/AwsIcon.svelte'
+	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
+	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
+	import KafkaIcon from '../icons/triggers/KafkaIcon.svelte'
+	import MqttIcon from '../icons/triggers/MqttIcon.svelte'
+	import AmqpIcon from '../icons/triggers/AmqpIcon.svelte'
+	import NatsIcon from '../icons/triggers/NatsIcon.svelte'
 	import RunsSearch from './RunsSearch.svelte'
 	import AskAiButton from '../copilot/AskAiButton.svelte'
 

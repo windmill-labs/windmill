@@ -47,7 +47,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import NatsIcon from '$lib/components/icons/triggers/NatsIcon.svelte'
 	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
