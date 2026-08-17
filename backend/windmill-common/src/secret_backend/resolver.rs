@@ -16,8 +16,9 @@
 //! ciphertext, so decrypting it directly fails — reads must go through the
 //! backend instead.
 //!
-//! Note: external backends require Enterprise Edition. The OSS version only
-//! supports the database backend.
+//! Note: most external backends require Enterprise Edition. Without it the
+//! database and, when built with the `keychain` feature, Apple Keychain are
+//! available.
 
 use std::sync::Arc;
 
@@ -82,16 +83,24 @@ lazy_static::lazy_static! {
 
 /// Get the current secret backend based on global settings
 ///
-/// OSS: Always returns DatabaseBackend
-/// EE: Returns configured backend (Database or Vault)
+/// Returns the configured backend, failing closed: a backend that is not part
+/// of this build is reported rather than replaced by the database.
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
     // Read the configured backend rather than assuming the database. Only
     // backends that exist in this build are accepted; the Enterprise ones
     // report that plainly instead of being silently downgraded to the database,
     // which would put plaintext where the operator asked for none.
+    // An unparsable setting is an error, not a reason to fall back. Defaulting
+    // to the database here would store plaintext-equivalent ciphertext in the
+    // very place the operator configured an external backend to avoid, and it
+    // would do so silently — existing external secrets would merely look absent.
     let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
-        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
+        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).map_err(|e| {
+            Error::internal_err(format!(
+                "the {SECRET_BACKEND_SETTING} instance setting could not be read: {e}"
+            ))
+        })?,
         None => SecretBackendConfig::default(),
     };
 
@@ -108,8 +117,8 @@ pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
                 .to_string(),
         )),
         other => Err(Error::internal_err(format!(
-            "secret backend {:?} requires Windmill Enterprise Edition",
-            std::mem::discriminant(&other)
+            "the {} secret backend requires Windmill Enterprise Edition",
+            other.name()
         ))),
     }
 }
@@ -132,6 +141,15 @@ pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
         SecretBackendConfig::AwsSecretsManager(settings) => {
             get_or_create_aws_sm_backend(db, settings).await
         }
+        #[cfg(feature = "keychain")]
+        SecretBackendConfig::AppleKeychain(settings) => Ok(Arc::new(
+            crate::secret_backend::keychain::KeychainBackend::new(settings),
+        )),
+        #[cfg(not(feature = "keychain"))]
+        SecretBackendConfig::AppleKeychain(_) => Err(Error::internal_err(
+            "the Apple Keychain secret backend is configured but this build was made \
+             without the `keychain` feature",
+        )),
     }
 }
 

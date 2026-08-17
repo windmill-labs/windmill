@@ -114,6 +114,21 @@ pub enum SecretBackendConfig {
     AppleKeychain(KeychainSettings),
 }
 
+impl SecretBackendConfig {
+    /// Stable, non-sensitive name of the configured backend. Used in operator
+    /// facing errors; the config itself is never printed, since it may gain
+    /// sensitive fields.
+    pub fn name(&self) -> &'static str {
+        match self {
+            SecretBackendConfig::Database => "database",
+            SecretBackendConfig::HashiCorpVault(_) => "HashiCorp Vault",
+            SecretBackendConfig::AzureKeyVault(_) => "Azure Key Vault",
+            SecretBackendConfig::AwsSecretsManager(_) => "AWS Secrets Manager",
+            SecretBackendConfig::AppleKeychain(_) => "Apple Keychain",
+        }
+    }
+}
+
 impl Default for SecretBackendConfig {
     fn default() -> Self {
         SecretBackendConfig::Database
@@ -205,9 +220,13 @@ pub struct AwsSecretsManagerSettings {
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum KeychainTransport {
     /// Call the Security framework directly. Requires Windmill itself to run on
-    /// macOS, and requires the keychain to be unlocked: a locked keychain fails
-    /// the request rather than prompting, since there is nobody to answer a
-    /// prompt on a server.
+    /// macOS and the keychain to be unlocked.
+    ///
+    /// Note that this path does not suppress the system authentication dialog:
+    /// the high-level `security-framework` helpers do not set
+    /// `kSecUseAuthenticationUI`, so on a locked keychain the call may wait on a
+    /// prompt nobody is there to answer. For an unattended server prefer
+    /// `helper`, where the operator controls that behaviour.
     Native,
     /// Run an operator-provided command. Two arguments are appended to it, the
     /// operation (`get`, `set`, `delete`) and the service name; a value is

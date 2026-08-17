@@ -31,8 +31,9 @@
 //! <helper...> delete <service>           -> exit 0, also 0 when already absent
 //! ```
 //!
-//! Anything else on exit is an error and its stderr is surfaced verbatim, so a
-//! locked keychain is distinguishable from a missing item.
+//! Anything else on exit is an error. The helper's stderr is deliberately not
+//! propagated: a faulty helper may echo the value it was handed, and error text
+//! reaches both the log and the API client.
 
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
@@ -45,6 +46,15 @@ use super::{KeychainSettings, KeychainTransport, SecretBackend};
 /// is an error: conflating the two would let a locked keychain look like an
 /// empty one, and callers would silently read nothing instead of failing.
 const HELPER_NOT_FOUND: i32 = 44;
+
+/// Upper bound for one operation. A helper that hangs — waiting for interactive
+/// input, or on a keychain that never answers — must not hold a request open
+/// indefinitely.
+const HELPER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Upper bound on what a helper may return. Without it a helper that prints
+/// without end is collected into memory in full.
+const MAX_SECRET_BYTES: usize = 1 << 20;
 
 pub struct KeychainBackend {
     settings: KeychainSettings,
@@ -69,11 +79,25 @@ impl KeychainBackend {
         self.settings.account.as_deref().unwrap_or("windmill")
     }
 
-    async fn helper(&self, cmd: &[String], op: &str, service: &str, value: Option<&str>)
-        -> Result<Option<String>> {
+    /// Run the helper for one operation.
+    ///
+    /// `Ok(None)` means the helper reported "no such item" and is only produced
+    /// for `get`: treating exit 44 as a benign outcome of `set` would turn a
+    /// failed write into a reported success.
+    ///
+    /// stdout is returned byte-for-byte. The protocol adds no delimiter on the
+    /// way in, so the backend must not remove one on the way out — a secret that
+    /// legitimately ends in a newline would otherwise come back changed.
+    async fn helper(
+        &self,
+        cmd: &[String],
+        op: &str,
+        service: &str,
+        value: Option<&str>,
+    ) -> Result<Option<String>> {
         let (program, rest) = cmd
             .split_first()
-            .ok_or_else(|| Error::internal_err("keychain helper command is empty".to_string()))?;
+            .ok_or_else(|| Error::internal_err("keychain helper command is empty"))?;
 
         let mut command = tokio::process::Command::new(program);
         command
@@ -82,52 +106,82 @@ impl KeychainBackend {
             .arg(service)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
+            .stderr(std::process::Stdio::piped())
+            // A cancelled request must not leave a live process holding the
+            // secret; Tokio does not kill children on drop by default.
+            .kill_on_drop(true);
 
         let mut child = command
             .spawn()
-            .map_err(|e| Error::internal_err(format!("keychain helper {program}: {e}")))?;
+            .map_err(|_| Error::internal_err(format!("keychain helper {program} failed to start")))?;
 
-        // stdin is always closed, even with nothing to send: a helper that reads
-        // to EOF would otherwise wait forever on a get.
-        if let Some(stdin) = child.stdin.as_mut() {
-            if let Some(value) = value {
-                stdin
-                    .write_all(value.as_bytes())
-                    .await
-                    .map_err(|e| Error::internal_err(format!("keychain helper stdin: {e}")))?;
+        // stdin is written by a separate task while the output pipes are being
+        // drained. Doing it in sequence deadlocks: a helper that fills its
+        // stdout or stderr pipe before reading stdin waits for us to read while
+        // we wait for it to read, and neither ever proceeds.
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| Error::internal_err("keychain helper has no stdin"))?;
+        let payload = value.map(|v| v.as_bytes().to_vec());
+        let writer = tokio::spawn(async move {
+            if let Some(bytes) = payload {
+                stdin.write_all(&bytes).await?;
             }
-        }
-        drop(child.stdin.take());
+            // Closing stdin is not optional: a helper that reads to EOF would
+            // wait forever on a get, where there is nothing to send.
+            stdin.shutdown().await
+        });
 
-        let out = child
-            .wait_with_output()
+        let out = tokio::time::timeout(HELPER_TIMEOUT, child.wait_with_output())
             .await
-            .map_err(|e| Error::internal_err(format!("keychain helper {program}: {e}")))?;
+            .map_err(|_| {
+                Error::internal_err(format!(
+                    "keychain helper timed out after {}s on {op} {service}",
+                    HELPER_TIMEOUT.as_secs()
+                ))
+            })?
+            .map_err(|_| Error::internal_err(format!("keychain helper {program} failed")))?;
 
-        if out.status.code() == Some(HELPER_NOT_FOUND) {
-            return Ok(None);
-        }
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr);
+        // A write error is reported, but only after the process has been reaped:
+        // a helper that legitimately ignores stdin closes it early, and that is
+        // not a failure of the operation.
+        let wrote = writer.await;
+
+        let code = out.status.code();
+        if code == Some(HELPER_NOT_FOUND) {
+            if op == "get" {
+                return Ok(None);
+            }
             return Err(Error::internal_err(format!(
-                "keychain helper {op} {service} failed ({}): {}",
-                out.status,
-                stderr.trim()
+                "keychain helper reported no-such-item ({HELPER_NOT_FOUND}) for \
+                 {op} {service}, which is only meaningful for get"
             )));
         }
-        // A trailing newline is an artifact of writing to a pipe, not part of
-        // the secret. Only one is trimmed: a secret may legitimately end in a
-        // blank line and we would otherwise corrupt it.
-        let mut value = String::from_utf8(out.stdout)
-            .map_err(|_| Error::internal_err("keychain helper returned non-UTF-8".to_string()))?;
-        if value.ends_with('\n') {
-            value.pop();
-            if value.ends_with('\r') {
-                value.pop();
-            }
+        if !out.status.success() {
+            // The helper's stderr is deliberately not included. A faulty helper
+            // may echo the value it was given, and this message reaches both the
+            // log and the API client.
+            return Err(Error::internal_err(format!(
+                "keychain helper failed on {op} {service}: {}",
+                out.status
+            )));
         }
-        Ok(Some(value))
+        if let Ok(Err(_)) = wrote {
+            return Err(Error::internal_err(format!(
+                "keychain helper exited successfully but its stdin could not be \
+                 written for {op} {service}"
+            )));
+        }
+        if out.stdout.len() > MAX_SECRET_BYTES {
+            return Err(Error::internal_err(format!(
+                "keychain helper returned more than {MAX_SECRET_BYTES} bytes for {op} {service}"
+            )));
+        }
+
+        String::from_utf8(out.stdout)
+            .map(Some)
+            .map_err(|_| Error::internal_err("keychain helper returned non-UTF-8"))
     }
 }
 
@@ -286,9 +340,9 @@ mod tests {
             service_prefix: "windmill".to_string(),
             account: None,
             transport: KeychainTransport::Helper {
-                // Заполнитель после скрипта не косметика: `sh -c script a b`
-                // кладёт первый аргумент в $0, а не в $1. Без него операция и
-                // имя службы съезжали бы на одну позицию.
+                // The placeholder after the script is not cosmetic: `sh -c script
+                // a b` puts the first argument in $0, not $1, so the operation
+                // and the service name would otherwise be off by one.
                 command: vec![
                     "/bin/sh".to_string(),
                     "-c".to_string(),
@@ -300,29 +354,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_trims_one_trailing_newline() {
-        // Writing to a pipe adds the newline; the secret does not contain it.
-        let b = backend("printf 'hunter2\\n'");
-        assert_eq!(b.get_secret("ws", "u/admin/token").await.unwrap(), "hunter2");
-    }
-
-    #[tokio::test]
-    async fn get_keeps_a_deliberate_blank_line() {
-        // Only one newline is an artifact. Trimming more would corrupt a secret
-        // that legitimately ends in a blank line.
-        let b = backend("printf 'multi\\nline\\n\\n'");
-        assert_eq!(
-            b.get_secret("ws", "u/admin/token").await.unwrap(),
-            "multi\nline\n"
-        );
+    async fn get_returns_stdout_byte_for_byte() {
+        // The protocol adds no delimiter on the way in, so nothing may be
+        // removed on the way out. Trimming here silently changed any secret that
+        // legitimately ends in a newline — a PEM block, for one.
+        for (script, want) in [
+            (r"printf 'hunter2'", "hunter2"),
+            (r"printf 'hunter2\n'", "hunter2\n"),
+            (r"printf 'hunter2\r\n'", "hunter2\r\n"),
+            (r"printf 'multi\nline\n\n'", "multi\nline\n\n"),
+        ] {
+            let got = backend(script).get_secret("ws", "u/admin/token").await;
+            assert_eq!(got.unwrap(), want, "round trip changed the value");
+        }
     }
 
     #[tokio::test]
     async fn absent_item_is_not_found_rather_than_empty() {
         // The distinction matters: an empty string would be accepted by callers
         // as a valid secret and fail much later, somewhere unrelated.
-        let b = backend("exit 44");
-        let err = b.get_secret("ws", "u/admin/token").await.unwrap_err();
+        let err = backend("exit 44")
+            .get_secret("ws", "u/admin/token")
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, Error::NotFound(_)),
             "expected NotFound, got {err:?}"
@@ -330,13 +384,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn other_failures_surface_stderr() {
-        // A locked keychain must be distinguishable from a missing item, so the
-        // helper's own words are carried through instead of being flattened.
-        let b = backend("echo 'keychain is locked' >&2; exit 1");
-        let err = b.get_secret("ws", "u/admin/token").await.unwrap_err();
+    async fn not_found_code_does_not_excuse_a_failed_set() {
+        // Exit 44 means "no such item", which says nothing useful about a write.
+        // Accepting it as success reported a stored secret that was never stored.
+        let err = backend("exit 44")
+            .set_secret("ws", "u/admin/token", "sekret")
+            .await
+            .unwrap_err();
+        assert!(
+            !matches!(err, Error::NotFound(_)),
+            "a failed set must not be NotFound"
+        );
+    }
+
+    #[tokio::test]
+    async fn failures_are_errors_but_do_not_carry_the_helper_stderr() {
+        // A faulty helper may echo the value it was handed to stderr, and error
+        // text reaches both the log and the API client. So the failure must be
+        // reported without repeating whatever the helper said.
+        let err = backend("cat >&2; exit 1")
+            .set_secret("ws", "u/admin/token", "sekret")
+            .await
+            .unwrap_err();
         let text = err.to_string();
-        assert!(text.contains("keychain is locked"), "got: {text}");
+        assert!(!text.contains("sekret"), "the value leaked into the error: {text}");
+        assert!(text.contains("u/admin/token"), "the error names no secret: {text}");
         assert!(!matches!(err, Error::NotFound(_)));
     }
 
@@ -344,20 +416,65 @@ mod tests {
     async fn set_passes_the_value_on_stdin_and_the_service_in_argv() {
         // Both halves of the contract at once: the value must not appear in argv
         // (any process can read argv) and the service name must.
-        let b = backend(
-            "read -r got; \
-             test \"$got\" = 'sekret' || { echo 'value not on stdin' >&2; exit 1; }; \
-             case \"$2\" in windmill/ws/u/admin/token) exit 0 ;; \
-               *) echo \"unexpected service: $2\" >&2; exit 1 ;; esac",
+        let script = concat!(
+            "read -r got; ",
+            "test \"$got\" = 'sekret' || { echo 'value not on stdin' >&2; exit 1; }; ",
+            "case \"$2\" in windmill/ws/u/admin/token) exit 0 ;; ",
+            "*) echo 'unexpected service' >&2; exit 1 ;; esac"
         );
-        b.set_secret("ws", "u/admin/token", "sekret").await.unwrap();
+        backend(script)
+            .set_secret("ws", "u/admin/token", "sekret")
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn get_does_not_hang_when_the_helper_reads_stdin() {
         // stdin is closed even with nothing to send; a helper that reads to EOF
         // would otherwise wait forever and take the request with it.
-        let b = backend("cat >/dev/null; printf 'value'");
-        assert_eq!(b.get_secret("ws", "u/admin/token").await.unwrap(), "value");
+        let got = backend("cat >/dev/null; printf 'value'")
+            .get_secret("ws", "u/admin/token")
+            .await;
+        assert_eq!(got.unwrap(), "value");
+    }
+
+    #[tokio::test]
+    async fn helper_filling_its_output_pipe_before_reading_stdin_does_not_deadlock() {
+        // The regression this guards: writing all of stdin before reading any
+        // output. A helper that fills its stdout pipe first waits for us to read
+        // while we wait for it to read, and neither ever proceeds. Both sides are
+        // deliberately larger than a pipe buffer.
+        let b = backend("dd if=/dev/zero bs=1024 count=300 2>/dev/null | tr '\\0' 'x'; cat >/dev/null");
+        let big = "s".repeat(300 * 1024);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            b.set_secret("ws", "u/admin/token", &big),
+        )
+        .await
+        .expect("set deadlocked on the helper's pipes")
+        .expect("set failed");
+    }
+
+    #[tokio::test]
+    async fn a_hanging_helper_is_not_waited_on_forever() {
+        // Without a bound a helper that waits for interactive input holds the
+        // request open until something else gives up.
+        let b = KeychainBackend::new(KeychainSettings {
+            service_prefix: "windmill".to_string(),
+            account: None,
+            transport: KeychainTransport::Helper {
+                command: vec!["/bin/sh".to_string(), "-c".to_string(),
+                              "sleep 600".to_string(), "helper".to_string()],
+            },
+        });
+        // The real timeout is 30s; this only checks the bound exists and that the
+        // call returns an error rather than never returning.
+        let outcome = tokio::time::timeout(
+            HELPER_TIMEOUT + std::time::Duration::from_secs(15),
+            b.get_secret("ws", "u/admin/token"),
+        )
+        .await;
+        assert!(outcome.is_ok(), "the helper was waited on past its own timeout");
+        assert!(outcome.unwrap().is_err(), "a timed-out helper must be an error");
     }
 }
