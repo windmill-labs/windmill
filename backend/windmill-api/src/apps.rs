@@ -1897,16 +1897,18 @@ async fn store_raw_app_file<'a>(
 
     Ok(())
 }
-/// Runs on every app write by an operator with builder rights, from inside the create/update
-/// internals so both raw-app endpoints are covered by one check.
+/// The half of the builder-app check that needs no DB.
 ///
 /// A raw app's behaviour lives in a bundle the browser built, which no server-side check can read,
 /// so isolation is what makes it safe to let an operator publish one: `sandbox` renders it in an
 /// opaque-origin iframe instead of handing it the viewer's Windmill session. Inline scripts are
 /// the low-code side's way of carrying code and must not appear either.
-/// The value-and-policy half: everything decidable without the DB. Returns the workspace
-/// runnables the policy authorizes the app to invoke, as `(is_flow, path)`, for
-/// [`validate_operator_composed_app`] to authorize against the builder's permissions.
+///
+/// Returns every workspace runnable the app can end up invoking, as `(is_flow, path)`, for
+/// [`validate_operator_composed_app`] to authorize. That comes from two surfaces, not one: the
+/// policy's triggerables, and the value's `runnableByPath` entries, which is what the deployed
+/// bundle resolves a `runnable_id` against and sends. An app with an empty triggerables map still
+/// reaches the second.
 fn check_operator_composed_app(
     raw_app: bool,
     value: Option<&RawValue>,
@@ -1999,9 +2001,9 @@ fn check_operator_composed_app(
 /// Runs on every app write by an operator with builder rights, from inside the create/update
 /// internals so both raw-app endpoints are covered by one check.
 ///
-/// `execute_component` resolves the runnable it picks with the root DB handle, so an unreadable
-/// path in the policy means an admin who merely opens the app runs code the builder could not
-/// see, as themselves. RLS on this transaction is the check.
+/// `execute_component` resolves the runnable it picks with the root DB handle, so a path the
+/// builder cannot read would still run, and in a `Viewer` app it would run as whoever opened it.
+/// RLS on this transaction is the check; refusing `Viewer` above is what makes it exhaustive.
 async fn validate_operator_composed_app(
     authed: &ApiAuthed,
     user_db: &UserDB,
