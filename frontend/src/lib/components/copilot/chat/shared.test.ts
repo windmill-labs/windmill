@@ -1068,6 +1068,62 @@ describe('processToolCall plan-mode gate', () => {
 		expect(fn).not.toHaveBeenCalled()
 		expect(result.content).toContain('plan mode is active')
 	})
+
+	it('refuses only the arguments a tagged tool names, in its own words', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const setToolStatus = vi.fn()
+		const tool = {
+			def: createToolDef(z.object({ id: z.string() }), 'update_doc', 'Update a doc'),
+			planModeSafe: true,
+			refuseInPlanMode: ({ args }: { args: any }) =>
+				args.id === 'the-plan'
+					? { label: 'Not that one', result: 'Write anything but the plan.' }
+					: undefined,
+			fn
+		}
+
+		const refused = await runToolCall(
+			tool,
+			{ isPlanModeActive: () => true, setToolStatus },
+			{
+				id: 'the-plan'
+			}
+		)
+		expect(fn).not.toHaveBeenCalled()
+		expect(refused.content).toBe('Write anything but the plan.')
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_plan',
+			expect.objectContaining({ content: 'Not that one', blockedByPlanMode: true })
+		)
+
+		const allowed = await runToolCall(tool, { isPlanModeActive: () => true }, { id: 'a-note' })
+		expect(fn).toHaveBeenCalled()
+		expect(allowed.content).toBe('ran')
+	})
+
+	it('never asks a tool which arguments it refuses once plan mode is over', async () => {
+		// The posture is the only thing that makes this hook relevant: consulted outside it, a
+		// tool that narrows itself for planning would narrow itself for every other mode too.
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const refuseInPlanMode = vi.fn().mockReturnValue('refused')
+
+		const result = await runToolCall(
+			{
+				def: createToolDef(z.object({ id: z.string() }), 'update_doc', 'Update a doc'),
+				planModeSafe: true,
+				refuseInPlanMode,
+				fn
+			},
+			{ isPlanModeActive: () => false },
+			{ id: 'the-plan' }
+		)
+
+		expect(refuseInPlanMode).not.toHaveBeenCalled()
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('ran')
+	})
 })
 
 describe('isActiveUserQuestion', () => {
