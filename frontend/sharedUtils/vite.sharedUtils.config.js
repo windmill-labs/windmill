@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite'
-import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { resolve } from 'path'
 import { writeFileSync } from 'fs'
 import { exec } from 'child_process'
@@ -25,7 +24,6 @@ export default defineConfig({
 		}
 	},
 	plugins: [
-		svelte(),
 		{
 			name: 'bundle-types',
 			async closeBundle() {
