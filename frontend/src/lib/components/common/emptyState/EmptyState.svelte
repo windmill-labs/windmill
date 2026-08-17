@@ -32,9 +32,11 @@
 		{/if}
 	</div>
 	{#if action}
+		<!-- `default`, not `accent`: the page header already carries the accent CTA for
+			 this same action, and one accent per view is the rule. -->
 		<Button
 			unifiedSize="md"
-			variant="accent"
+			variant="default"
 			startIcon={action.icon ? { icon: action.icon } : undefined}
 			onClick={action.onClick}
 			aiId={action.aiId}

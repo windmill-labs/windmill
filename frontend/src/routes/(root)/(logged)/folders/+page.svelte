@@ -85,15 +85,17 @@
 	}
 </script>
 
-{#snippet newFolderPopover(label: string, placement: 'bottom' | 'bottom-end')}
+{#snippet newFolderPopover(
+	label: string,
+	placement: 'bottom' | 'bottom-end',
+	variant: 'accent' | 'default'
+)}
 	<Popover
 		floatingConfig={{ strategy: 'absolute', placement }}
 		contentClasses="flex flex-col gap-2 p-4"
 	>
 		{#snippet trigger()}
-			<Button variant="accent" unifiedSize="md" startIcon={{ icon: Plus }} nonCaptureEvent
-				>{label}</Button
-			>
+			<Button {variant} unifiedSize="md" startIcon={{ icon: Plus }} nonCaptureEvent>{label}</Button>
 		{/snippet}
 		{#snippet content({ close })}
 			<input
@@ -166,7 +168,7 @@
 						New folder
 					</Button>
 				{:else}
-					{@render newFolderPopover('New folder', 'bottom-end')}
+					{@render newFolderPopover('New folder', 'bottom-end', 'accent')}
 				{/if}
 			</div>
 		</PageHeader>
@@ -179,7 +181,7 @@
 					description="Folders are how you grant permissions: make a user or group viewer, writer or admin on a folder and that access applies to every script, flow, app, resource and schedule inside it."
 				>
 					{#if !restricted}
-						{@render newFolderPopover('Add a folder', 'bottom')}
+						{@render newFolderPopover('Add a folder', 'bottom', 'default')}
 					{/if}
 				</EmptyState>
 			{:else}
