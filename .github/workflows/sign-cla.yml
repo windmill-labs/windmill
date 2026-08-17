@@ -27,7 +27,7 @@ jobs:
           custom-notsigned-prcomment: |
             Thank you for taking the time to open this PR.
 
-            Please note that **we are not seeking outside contribution at this time**. Small, trivially-verified PRs that fix a problem are still accepted, but low-value PRs (e.g. typo fixes) and PRs longer than a dozen or so lines will be closed. If you have a bigger idea, please open a [discussion](https://github.com/windmill-labs/windmill/discussions) instead. See [CONTRIBUTING.md](https://github.com/windmill-labs/windmill/blob/main/CONTRIBUTING.md) for the full policy.
+            Please note that **we are not seeking outside contribution at this time**. Small, trivially-verified PRs that fix a problem are still accepted, but low-value PRs (e.g. typo fixes) and PRs longer than a dozen or so lines will be closed. If you have a bigger idea, please open a [feature request](https://github.com/windmill-labs/windmill/issues/new?template=feature_request.md) instead. See [CONTRIBUTING.md](https://github.com/windmill-labs/windmill/blob/main/CONTRIBUTING.md) for the full policy.
 
             If your PR falls within that scope, we ask that you sign our [Contributor License Agreement](https://github.com/windmill-labs/windmill/blob/main/CLA.md) before we can accept it. You can sign the CLA by just posting a Pull Request Comment same as the below format.
 

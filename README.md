@@ -332,9 +332,9 @@ running options.
 
 ## Contributing
 
-At this time, we are not seeking outside contribution. Bug reports, feature requests and
-discussions remain very welcome, and small, trivially-verified PRs that fix a problem are still
-accepted. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full policy.
+At this time, we are not seeking outside contribution. Bug reports and feature requests remain very
+welcome, and small, trivially-verified PRs that fix a problem are still accepted. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the full policy.
 
 ## Contributors
 
