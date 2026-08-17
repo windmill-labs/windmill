@@ -1,11 +1,12 @@
 import { defineConfig } from 'vite'
+import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { resolve } from 'path'
 import { writeFileSync } from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
-const VERSION = '1.0.12'
+const VERSION = '1.0.13'
 
 export default defineConfig({
 	build: {
@@ -24,6 +25,7 @@ export default defineConfig({
 		}
 	},
 	plugins: [
+		svelte(),
 		{
 			name: 'bundle-types',
 			async closeBundle() {
