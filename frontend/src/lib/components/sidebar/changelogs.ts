@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Reasoning effort for AI agent steps',
+		href: 'https://www.windmill.dev/changelog/ai-agent-reasoning-effort',
+		date: '2026-07-04'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
