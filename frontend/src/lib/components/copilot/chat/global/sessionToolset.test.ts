@@ -105,8 +105,17 @@ describe('session tool policies', () => {
 		const readOnly = accessWith(['deploy'])
 		expect(sessionToolAllowed('get_instructions', readOnly)).toBe(false)
 		expect(sessionToolAllowed('search_npm_packages', readOnly)).toBe(false)
-		expect(sessionToolAllowed('create_folder', readOnly)).toBe(false)
 		expect(sessionToolAllowed('search_docs', readOnly)).toBe(true)
+	})
+
+	// create_folder carries both axes: the backend runs it through check_deploy_rules,
+	// so drafting alone is not enough to make it usable.
+	it('withholds create_folder from a session that cannot deploy', () => {
+		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'run_preview']))).toBe(
+			false
+		)
+		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'deploy']))).toBe(true)
+		expect(sessionToolAllowed('create_folder', accessWith(['deploy']))).toBe(false)
 	})
 
 	// The prompt is documentation OF the toolset, so it must never name a tool the same

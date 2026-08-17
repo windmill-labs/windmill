@@ -92,9 +92,11 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	get_trigger_schema: AUTHORING_AID,
 	get_schedule_schema: AUTHORING_AID,
 	get_db_schema: AUTHORING_AID,
-	// An operator's token may create a folder, but a folder exists to hold
-	// authored items, so it goes with them rather than with the reads.
-	create_folder: AUTHORING_AID,
+	// Folder creation runs through the backend's `check_deploy_rules` (folders.rs
+	// `create_folder`), so a workspace that blocks deploys refuses it too — hence
+	// `deploy`, even though a folder is not a deployed item. It is also useless
+	// without something to put in it, hence the authoring relevance.
+	create_folder: { requires: ['deploy'], relevance: 'authoring' },
 	// Ungated on purpose, for two reasons. Plan mode's deliverable is a plan artifact,
 	// which is worth producing for someone else to execute even when this user can
 	// change nothing themselves. And it is a posture the USER selects, so withholding
