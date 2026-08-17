@@ -107,7 +107,6 @@
 				itemKind: 'app',
 				path
 			})
-			// `publisher` is the default authoring mode.
 			const emptyPolicy = { execution_mode: 'publisher' } as any
 			// One-shot import handoff via $importStore (YAML/JSON or "Build app").
 			// Wrapped exports carry { summary, value, policy }; bare ones are the App value.
@@ -260,7 +259,6 @@
 				summary: savedDraftApp?.summary ?? '',
 				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
-				// Matches the new-app seed above.
 				policy: { execution_mode: 'publisher' } as any,
 				custom_path: undefined,
 				versions: undefined as any,

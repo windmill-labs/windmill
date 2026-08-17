@@ -17,7 +17,6 @@ import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
 import bundleCommand from "./bundle_command.ts";
-import generatePolicyCommand from "./generate_policy_command.ts";
 import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
@@ -439,7 +438,6 @@ const command = new Command()
   .command("dev", devCommand)
   .command("lint", lintCommand)
   .command("bundle", bundleCommand)
-  .command("generate-policy", generatePolicyCommand)
   .command("new", newCommand)
   .command("generate-agents", generateAgentsCommand)
   .command(

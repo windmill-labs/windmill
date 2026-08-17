@@ -9,6 +9,13 @@
  * and the Svelte/Vue plugins included. Reimplementing any of that here would be
  * a third bundler to keep in step with the other two.
  */
+declare const __wmillAppPolicy: {
+	updateRawAppPolicy: (
+		runnables: Record<string, unknown>,
+		current: undefined
+	) => Promise<{ triggerables_v2: Record<string, unknown> }>
+}
+
 export async function main(
 	files: Record<string, string>,
 	shared_ui: Record<string, string> | undefined,
@@ -16,10 +23,8 @@ export async function main(
 	// Set unless the server was told to build with a specific command.
 	prefer_installed_cli: boolean | undefined,
 	// The app's `value.runnables`, whose policy is derived here for the same
-	// reason the bundle is built here: `wmill app generate-policy` is the one
-	// implementation of the key format, shared with the editor.
-	runnables: Record<string, unknown> | undefined,
-	policy_cli_command: string[]
+	// reason the bundle is built here: it has to match what the editor writes.
+	runnables: Record<string, unknown> | undefined
 ): Promise<{ js_gz: string; css_gz: string; triggerables_v2: Record<string, unknown> }> {
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
@@ -120,51 +125,33 @@ export async function main(
 	}
 
 	// The policy's `triggerables_v2` is the allowlist the server matches every run
-	// against, keyed by a hash of each inline runnable's code. Derived by the CLI,
-	// not here and not by the server, so the keys are the ones the editor and
-	// `wmill app push` write — anything else leaves the app's runnables
-	// "forbidden by policy". An app with no runnables needs no grants, and
-	// skipping the spawn keeps the common case off this path entirely.
-	let triggerables_v2: Record<string, unknown> = {}
-	if (runnables && Object.keys(runnables).length > 0) {
-		const runnablesFile = path.join(dir, 'wm_runnables.json')
-		const policyFile = path.join(dir, 'wm_policy.json')
-		await fs.writeFile(runnablesFile, JSON.stringify(runnables))
-
-		// Same fallback as the build above: an installed CLI predating the command
-		// exits with cliffy's usage text, and only that sends us to the CLI for
-		// this server's release.
-		let generated = false
-		if (installed) {
-			const attempt = spawn([
-				installed,
-				'app',
-				'generate-policy',
-				runnablesFile,
-				'--out',
-				policyFile
-			])
-			const plain = attempt.output.replace(/\x1b\[[0-9;]*m/g, '')
-			if (attempt.ok) {
-				generated = true
-			} else if (!/Unknown command|Usage:\s+wmill app\b/.test(plain)) {
-				throw new Error(`generate-policy failed:\n${attempt.output}`)
-			}
-		}
-		if (!generated) {
-			run([...policy_cli_command, runnablesFile, '--out', policyFile], 'generate-policy')
-		}
-
-		// Never fall back to an empty policy: that deploys an app whose every
-		// runnable is refused at run time, which looks like a broken app rather
-		// than a failed deploy.
-		let policyRaw: string
-		try {
-			policyRaw = await fs.readFile(policyFile, 'utf8')
-		} catch {
-			throw new Error('generate-policy produced no policy file')
-		}
-		triggerables_v2 = JSON.parse(policyRaw).triggerables_v2 ?? {}
+	// against, keyed by a hash of each inline runnable's code. Derived by the
+	// frontend's own code, bundled into this script by cli/generate-app-policy.ts,
+	// so the keys are the ones the app editor writes: anything else leaves the
+	// app's runnables "forbidden by policy".
+	// Prepended above as a plain `var`, so it is in this module's scope rather
+	// than on `globalThis` (a module's top-level `var` is not a global).
+	const { triggerables_v2 } = await __wmillAppPolicy.updateRawAppPolicy(
+		runnables ?? {},
+		undefined
+	)
+	const keyById = Object.fromEntries(
+		Object.keys(triggerables_v2).map((k) => [k.slice(0, k.indexOf(':') + 1), true])
+	)
+	// A runnable the derivation can't classify yields no key and is dropped, so
+	// the deploy would succeed and that runnable would then be refused on every
+	// run. The discriminator is easy to leave out (the on-disk format has none;
+	// `wmill app push` adds it), and the tool schema describes `runnables` only
+	// as an object, so say which ones rather than ship the dud. An explicitly
+	// empty entry is a runnable that isn't configured yet, and needs no grant.
+	const ungranted = Object.entries(runnables ?? {})
+		.filter(([id, r]) => r != null && typeof r === 'object' && !(`${id}:` in keyById))
+		.map(([id]) => id)
+	if (ungranted.length > 0) {
+		throw new Error(
+			`no policy could be derived for runnable(s) ${ungranted.join(', ')}: each needs a ` +
+				`\`type\` of "inline" (with \`inlineScript.content\`) or "path" (with \`runType\` and \`path\`)`
+		)
 	}
 
 	// Gzipped so a large app's bundle stays well inside MAX_RESULT_SIZE_MB, which

@@ -34,6 +34,18 @@ use crate::db::ApiAuthed;
 /// The bundle job's script, as its own file so it stays readable TypeScript.
 const BUNDLER_TS: &str = include_str!("apps_raw_bundler.ts");
 
+/// The frontend's policy derivation, bundled by `cli/generate-app-policy.ts` and
+/// prepended to the job so it runs there. Carried in the binary rather than
+/// invoked through the job's `wmill`: the images install the CLI unpinned, so an
+/// image can hold one older than its server, and reaching for a pinned release
+/// off npm is what the installed-CLI branch below exists to avoid.
+const POLICY_JS: &str = include_str!("apps_raw_policy.gen.js");
+
+/// What the job runs: the derivation, then the bundler that calls it.
+fn bundle_job_script() -> String {
+    format!("{POLICY_JS}\n{BUNDLER_TS}")
+}
+
 /// Cap the job so a pathological `package.json` can't sit on a worker forever.
 /// This bounds the *run*, not the wait: see `wait_for_bundle`.
 const BUNDLE_TIMEOUT_SECS: i32 = 300;
@@ -64,22 +76,16 @@ fn release_version() -> String {
     format!("{}.{}.{}", v.major, v.minor, v.patch)
 }
 
-/// A `wmill app <subcommand>` the job falls back to when the worker has no
-/// usable `wmill` installed: the CLI for this server's release, fetched on the
-/// spot. A dev server is off-tag and so asks for the last release; to build with
-/// an unreleased CLI set `WM_RAW_APP_BUNDLER_CLI` to the whole bundle command,
-/// e.g. `bun run /path/to/cli/src/main.ts app bundle`, which also stops the job
-/// from preferring an installed `wmill`. The override names `bundle` because
-/// that is the command it existed for; the others sit next to it.
-fn bundler_cli_command(subcommand: &str) -> Vec<String> {
+/// The build command the job falls back to when the worker has no usable `wmill`
+/// installed: the CLI for this server's release, fetched on the spot. A dev
+/// server is off-tag and so asks for the last release; to build with an
+/// unreleased CLI set `WM_RAW_APP_BUNDLER_CLI` to the whole command, e.g.
+/// `bun run /path/to/cli/src/main.ts app bundle`, which also stops the job from
+/// preferring an installed `wmill`.
+fn bundler_cli_command() -> Vec<String> {
     match std::env::var("WM_RAW_APP_BUNDLER_CLI") {
         Ok(cmd) if !cmd.trim().is_empty() => {
-            let mut parts: Vec<String> = cmd.split_whitespace().map(|s| s.to_string()).collect();
-            if parts.last().is_some_and(|s| s == "bundle") {
-                parts.pop();
-            }
-            parts.push(subcommand.to_string());
-            parts
+            cmd.split_whitespace().map(|s| s.to_string()).collect()
         }
         // `bun x`, not `bunx`: the images copy the `bun` binary alone, so the
         // `bunx` entry point isn't on a worker's PATH.
@@ -89,7 +95,7 @@ fn bundler_cli_command(subcommand: &str) -> Vec<String> {
             "--bun".to_string(),
             format!("windmill-cli@{}", release_version()),
             "app".to_string(),
-            subcommand.to_string(),
+            "bundle".to_string(),
         ],
     }
 }
@@ -133,17 +139,13 @@ pub(crate) async fn bundle_raw_app_sources(
     let overridden = std::env::var("WM_RAW_APP_BUNDLER_CLI").is_ok_and(|c| !c.trim().is_empty());
     args.insert(
         "cli_command".to_string(),
-        to_raw_value(&bundler_cli_command("bundle")),
+        to_raw_value(&bundler_cli_command()),
     );
     args.insert(
         "prefer_installed_cli".to_string(),
         to_raw_value(&!overridden),
     );
     args.insert("runnables".to_string(), runnables.to_owned());
-    args.insert(
-        "policy_cli_command".to_string(),
-        to_raw_value(&bundler_cli_command("generate-policy")),
-    );
 
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
     let (uuid, tx) = push(
@@ -152,7 +154,7 @@ pub(crate) async fn bundle_raw_app_sources(
         w_id,
         JobPayload::Code(RawCode {
             hash: None,
-            content: BUNDLER_TS.to_string(),
+            content: bundle_job_script(),
             path: Some("bundle raw app".to_string()),
             language: ScriptLang::Bun,
             lock: None,

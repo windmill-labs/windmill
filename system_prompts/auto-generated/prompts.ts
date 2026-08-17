@@ -2946,8 +2946,6 @@ app related commands
 - \`app bundle [app_folder:string]\` - Bundle a raw app folder to js/css without deploying it
   - \`--out <dir:string>\` - Directory to write bundle.js and bundle.css into (default: <app_folder>/dist)
   - \`--no-minify\` - Skip minification
-- \`app generate-policy <runnables_file:string>\` - Derive a raw app's policy from its runnables without deploying it
-  - \`--out <file:string>\` - File to write the policy JSON into (default: policy.json)
 - \`app new\` - create a new raw app from a template
   - \`--summary <summary:string>\` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
   - \`--path <path:string>\` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
