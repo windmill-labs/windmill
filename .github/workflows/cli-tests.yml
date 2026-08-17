@@ -9,6 +9,10 @@ on:
       - "windmill-yaml-validator/**"
       - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
+      # The bundles cli/ vendors from the frontend: their drift guards live in
+      # cli/test but the edits that break them land here.
+      - "frontend/src/lib/components/raw_apps/**"
+      - "frontend/src/lib/components/recording/**"
   pull_request:
     branches: [main]
     paths:
@@ -16,6 +20,10 @@ on:
       - "windmill-yaml-validator/**"
       - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
+      # The bundles cli/ vendors from the frontend: their drift guards live in
+      # cli/test but the edits that break them land here.
+      - "frontend/src/lib/components/raw_apps/**"
+      - "frontend/src/lib/components/recording/**"
 
 env:
   CARGO_TERM_COLOR: always

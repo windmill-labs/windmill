@@ -124,35 +124,45 @@ export async function main(
 		throw new Error('bundle produced no javascript:\n' + buildOutput)
 	}
 
+	// A runnable the derivation can't fully classify still yields a key, just an
+	// unusable one (`r:undefined/undefined`, or the hash of an absent script), and
+	// the deploy would then succeed with grants no run can ever match. The tool
+	// schema describes `runnables` only as an object and the on-disk format has no
+	// discriminator at all (`wmill app push` adds it), so these shapes are all
+	// reachable: check them before deriving and name the ones at fault. An
+	// explicitly empty entry is a runnable nobody configured yet, and needs no
+	// grant.
+	const nonEmpty = (v: unknown) => typeof v === 'string' && v.length > 0
+	const malformed = Object.entries(runnables ?? {})
+		.filter(([, r]) => r != null && typeof r === 'object')
+		.filter(([, r]) => {
+			const run = r as Record<string, any>
+			if (run.type === 'inline' || run.type === 'runnableByName') {
+				return !nonEmpty(run.inlineScript?.content)
+			}
+			if (run.type === 'path' || run.type === 'runnableByPath') {
+				return !nonEmpty(run.runType) || !nonEmpty(run.path)
+			}
+			return true
+		})
+		.map(([id]) => id)
+	if (malformed.length > 0) {
+		throw new Error(
+			`no policy could be derived for runnable(s) ${malformed.join(', ')}: each needs a ` +
+				`\`type\` of "inline" (with \`inlineScript.content\`) or "path" (with \`runType\` and \`path\`)`
+		)
+	}
+
 	// The policy's `triggerables_v2` is the allowlist the server matches every run
 	// against, keyed by a hash of each inline runnable's code. Derived by the
 	// frontend's own code, bundled into this script by cli/generate-app-policy.ts,
 	// so the keys are the ones the app editor writes: anything else leaves the
-	// app's runnables "forbidden by policy".
-	// Prepended above as a plain `var`, so it is in this module's scope rather
-	// than on `globalThis` (a module's top-level `var` is not a global).
+	// app's runnables "forbidden by policy". Prepended above as a plain `var`, so
+	// it is in this module's scope (a module's top-level `var` is not a global).
 	const { triggerables_v2 } = await __wmillAppPolicy.updateRawAppPolicy(
 		runnables ?? {},
 		undefined
 	)
-	const keyById = Object.fromEntries(
-		Object.keys(triggerables_v2).map((k) => [k.slice(0, k.indexOf(':') + 1), true])
-	)
-	// A runnable the derivation can't classify yields no key and is dropped, so
-	// the deploy would succeed and that runnable would then be refused on every
-	// run. The discriminator is easy to leave out (the on-disk format has none;
-	// `wmill app push` adds it), and the tool schema describes `runnables` only
-	// as an object, so say which ones rather than ship the dud. An explicitly
-	// empty entry is a runnable that isn't configured yet, and needs no grant.
-	const ungranted = Object.entries(runnables ?? {})
-		.filter(([id, r]) => r != null && typeof r === 'object' && !(`${id}:` in keyById))
-		.map(([id]) => id)
-	if (ungranted.length > 0) {
-		throw new Error(
-			`no policy could be derived for runnable(s) ${ungranted.join(', ')}: each needs a ` +
-				`\`type\` of "inline" (with \`inlineScript.content\`) or "path" (with \`runType\` and \`path\`)`
-		)
-	}
 
 	// Gzipped so a large app's bundle stays well inside MAX_RESULT_SIZE_MB, which
 	// a deployment can set far below the 500MB default.
