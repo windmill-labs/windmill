@@ -306,3 +306,57 @@ describe('runSetup writing over a resource', () => {
 		expect(result.error).toContain('f/team/db')
 	})
 })
+
+describe('runSetup writing over its own secret', () => {
+	const ownDb = (): WizardState => {
+		const state = newWizardState({ name: 'main', projectName: 'x', folder: 'f/team' })
+		state.provider = 'resource'
+		state.own.creating = true
+		state.review.resourceName = 'db'
+		state.own.fields = {
+			host: 'h',
+			port: 5432,
+			dbname: 'd',
+			user: 'u',
+			password: 'p',
+			sslmode: 'require'
+		}
+		return state
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		getResourceMock.mockRejectedValue(new Error('not found'))
+		getSettingsMock.mockResolvedValue({ datatable: { datatables: {} } })
+		editDataTableConfigMock.mockResolvedValue(undefined)
+		testDataTableConnectionMock.mockResolvedValue({ can_create_table: true })
+	})
+
+	// The same person editing the variable in another tab leaves `edited_by` unchanged, so an
+	// author is not enough to tell that write from none.
+	it('refuses a secret edited since this run claimed it, even by the same user', async () => {
+		getVariableMock.mockResolvedValue({ edited_by: 'alice', edited_at: '2026-01-02T00:00:00Z' })
+		const result = await runSetup(ownDb(), {
+			workspace: 'w',
+			onProgress: () => {},
+			claims: [{ kind: 'secret' as const, path: 'f/team/db', mark: '2026-01-01T00:00:00Z' }],
+			username: 'alice'
+		} as any)
+		expect(result.ok).toBe(false)
+		expect(result.error).toContain('f/team/db')
+	})
+
+	// A create whose confirmation also failed records the project name pessimistically. The
+	// variable it wrote is still its own, and a retry has to be able to reuse the path.
+	it('reuses the variable a previous attempt wrote when its project was never confirmed', async () => {
+		getVariableMock.mockResolvedValue({ edited_by: 'alice', edited_at: '2026-01-01T00:00:00Z' })
+		listSupabaseProjectsMock.mockResolvedValue([])
+		createSupabaseProjectMock.mockResolvedValue({ id: '2', name: 'later' })
+		const state = creating()
+		const result = await runSetup(state, {
+			...deps('later'),
+			claims: [{ kind: 'secret' as const, path: MINTED_PATH, mark: '2026-01-01T00:00:00Z' }]
+		} as any)
+		expect(result.error ?? '').not.toContain('was created at')
+	})
+})

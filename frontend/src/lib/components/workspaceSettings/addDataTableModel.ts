@@ -18,7 +18,7 @@ import {
 } from '$lib/gen'
 import type { SetupStep } from '../wizards/SetupChecklist.svelte'
 import { instanceSetupSteps } from './instanceDbSteps'
-import { claim, release, stillOurs, type Claims } from './setupClaims'
+import { claim, stillOurs, type Claims } from './setupClaims'
 import { DEFAULT_SSLMODE, type PostgresConnectionParts } from '$lib/utils/postgresConnectionString'
 import {
 	createSupabaseProject,
@@ -468,12 +468,9 @@ async function writeSecret(
 	value: string,
 	description: string
 ): Promise<Claims> {
-	const held = await VariableService.getVariable({ workspace: deps.workspace, path }).catch(
-		() => undefined
-	)
+	const held = await secretMark(deps, path)
 	if (held) {
-		if (!stillOurs(claims, 'secret', path, held.edited_by))
-			throw new Error(pathTakenLate('variable', path))
+		if (!stillOurs(claims, 'secret', path, held)) throw new Error(pathTakenLate('variable', path))
 		await VariableService.updateVariable({
 			workspace: deps.workspace,
 			path,
@@ -485,7 +482,19 @@ async function writeSecret(
 			requestBody: { path, value, is_secret: true, description, is_oauth: false }
 		})
 	}
-	return claim(claims, 'secret', path, deps.username)
+	return claim(claims, 'secret', path, (await secretMark(deps, path)) ?? deps.username)
+}
+
+/**
+ * A revision, not an author: the same person editing the variable in another tab leaves
+ * `edited_by` unchanged, and that write is no more ours to discard than a stranger's.
+ * `undefined` when nothing is there.
+ */
+async function secretMark(deps: RunDeps, path: string): Promise<string | undefined> {
+	const held = await VariableService.getVariable({ workspace: deps.workspace, path }).catch(
+		() => undefined
+	)
+	return held ? (held.edited_at ?? held.edited_by ?? '') : undefined
 }
 
 function pathTakenLate(kind: 'variable' | 'resource', path: string): string {
@@ -579,9 +588,6 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 	 */
 	const guardsCreatedSecret = !!deps.createdProjectPath && deps.createdProjectPath === path
 	const instanceName = state.instance.dbName?.trim() ?? ''
-	// A created project's password is the one thing a claim does not authorise replacing: it is
-	// the only copy, so the run refuses rather than upserts even over its own.
-	if (deps.createdProjectPath === path) claims = release(claims, 'secret', path)
 
 	let project = state.supabase.project
 	let resourcePath =
