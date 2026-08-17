@@ -1,6 +1,6 @@
 import { ResourceService, JobService } from '$lib/gen/services.gen'
 import type { AIProvider, AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, isObject, toCamel } from '$lib/utils'
+import { capitalize, toCamel } from '$lib/utils'
 import { compile, phpCompile, pythonCompile } from '../../utils'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -41,16 +41,13 @@ export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
 	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets' | 'bunnative'
 ) {
-	const resourceTypes = allResourceTypes.filter(
-		(rt) => isObject(rt.schema) && 'properties' in rt.schema && isObject(rt.schema.properties)
-	)
 	if (lang === 'python3') {
-		const result = resourceTypes.map((resourceType) => {
+		const result = allResourceTypes.map((resourceType) => {
 			return `class ${resourceType.name}(TypedDict):\n${pythonCompile(resourceType.schema as any)}`
 		})
 		return '\n**Make sure to rename conflicting imported modules**\n' + result.join('\n\n')
 	} else if (lang === 'php') {
-		const result = resourceTypes.map((resourceType) => {
+		const result = allResourceTypes.map((resourceType) => {
 			return `class ${toCamel(capitalize(resourceType.name))} {\n${phpCompile(
 				resourceType.schema as any
 			)}\n}`
@@ -58,7 +55,7 @@ export function formatResourceTypes(
 		return '\n' + result.join('\n\n')
 	} else {
 		let resultStr = 'namespace RT {\n'
-		const result = resourceTypes.map((resourceType) => {
+		const result = allResourceTypes.map((resourceType) => {
 			return `  type ${toCamel(capitalize(resourceType.name))} = ${compile(
 				resourceType.schema as any
 			).replaceAll('\n', '\n  ')}`
