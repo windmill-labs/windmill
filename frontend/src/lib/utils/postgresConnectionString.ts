@@ -65,23 +65,33 @@ export function parsePostgresConnectionString(
 	}
 }
 
-/**
- * Parameters that decide what the connection *means* rather than how it is dressed:
- * `options=-csearch_path=…` chooses the schema tables are created in. The resource has no field
- * to carry them, so a string naming one cannot be honoured — and dropping it silently would
- * create the data table somewhere the user did not choose, behind a probe that reports success.
- * Cosmetic parameters (`application_name`, `connect_timeout`, …) change nothing and are ignored.
- *
- * Returns the offending parameter's name.
- */
-const UNSUPPORTED_PARAMS = ['options', 'search_path']
+/** The only query parameter the `postgresql` resource has a field for. */
+const REPRESENTABLE_PARAMS = ['sslmode']
 
+/**
+ * Parameters that change nothing about what the connection reaches or how it is secured, so
+ * losing them costs the user nothing.
+ */
+const COSMETIC_PARAMS = ['application_name', 'connect_timeout']
+
+/**
+ * The name of a parameter this string carries that the resource cannot honour.
+ *
+ * An allowlist rather than a list of known-bad names: libpq keeps adding parameters, and the
+ * ones that matter most are the ones that would be missed. `sslrootcert=system` demands full
+ * certificate verification, `channel_binding=require` demands SCRAM binding,
+ * `target_session_attrs=read-write` decides which node is acceptable, `options=-csearch_path=…`
+ * decides which schema tables land in. Dropping any of them saves a connection weaker or
+ * simply other than the one that was pasted, behind a probe that reports success.
+ */
 export function unsupportedConnectionParam(connectionString: string): string | undefined {
 	const query = connectionString.split('?').slice(1).join('?')
 	if (!query) return undefined
 	let found: string | undefined = undefined
 	new URLSearchParams(query).forEach((_value, name) => {
-		if (!found && UNSUPPORTED_PARAMS.includes(name.toLowerCase())) found = name
+		const known = REPRESENTABLE_PARAMS.includes(name.toLowerCase())
+		const harmless = COSMETIC_PARAMS.includes(name.toLowerCase())
+		if (!found && !known && !harmless) found = name
 	})
 	return found
 }

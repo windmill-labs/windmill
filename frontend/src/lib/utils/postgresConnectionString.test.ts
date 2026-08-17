@@ -99,18 +99,29 @@ describe('composePostgresConnectionString', () => {
 	})
 })
 
-// A parameter the resource has no field for is not a preference we can drop: `options` picks
-// the schema tables are created in, so ignoring it puts the data table somewhere else while
-// the probe still reports success.
+// A parameter the resource has no field for is not a preference that can be dropped: it decides
+// where data lands, or how the connection is verified. The check is an allowlist because the
+// dangerous ones are precisely the ones a hand-written denylist would miss.
 describe('unsupportedConnectionParam', () => {
-	it('names a parameter that would change where data lands', () => {
+	it('names a parameter that decides where data lands', () => {
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?options=-csearch_path%3Dtenant')).toBe(
 			'options'
 		)
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?search_path=tenant')).toBe('search_path')
 	})
 
-	it('ignores parameters that change nothing about the connection', () => {
+	// Dropping these saves a *weaker* connection than the one pasted.
+	it('names a parameter that decides how the connection is secured or routed', () => {
+		expect(unsupportedConnectionParam('postgres://u:p@h/db?sslrootcert=system')).toBe('sslrootcert')
+		expect(unsupportedConnectionParam('postgres://u:p@h/db?channel_binding=require')).toBe(
+			'channel_binding'
+		)
+		expect(unsupportedConnectionParam('postgres://u:p@h/db?target_session_attrs=read-write')).toBe(
+			'target_session_attrs'
+		)
+	})
+
+	it('ignores the one it can store, and the ones that cost nothing', () => {
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?sslmode=require')).toBeUndefined()
 		expect(
 			unsupportedConnectionParam('postgres://u:p@h/db?application_name=wm&connect_timeout=5')

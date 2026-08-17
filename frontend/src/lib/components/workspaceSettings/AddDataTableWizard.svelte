@@ -206,7 +206,7 @@
 		if (!parsePostgresConnectionString(text)) return 'That is not a Postgres connection string.'
 		const unsupported = unsupportedConnectionParam(text)
 		return unsupported
-			? `Windmill cannot store ${unsupported} on a Postgres resource, and ignoring it would put the data table in a different schema. Remove it from the string.`
+			? `Windmill cannot store ${unsupported} on a Postgres resource, and ignoring it would connect differently from what this string asks for. Remove it, or set the connection with the fields.`
 			: undefined
 	})
 	let resourcePath = $derived(resourcePathOf(wiz))
