@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-// The toolset pulls in the script/flow editor tools, hence monaco. Same stand-ins
-// as global/core.test.ts — this suite only ever reads `def.function.name`.
+// The toolset pulls in the script/flow editor tools, hence monaco. Same stand-ins as
+// global/core.test.ts; nothing here executes a tool, so bare shapes are enough.
 vi.mock('monaco-editor', () => ({
 	editor: {},
 	languages: {},
@@ -109,8 +109,6 @@ describe('session tool policies', () => {
 		expect(sessionToolAllowed('search_docs', readOnly)).toBe(true)
 	})
 
-	// Draft writes survive without `deploy`, and vice versa: the two are separate
-	// backend gates (drafts.rs vs. the deploy protection rules), not one ladder.
 	// The prompt is documentation OF the toolset, so it must never name a tool the same
 	// profile withheld — an instruction to call a tool the model was not given is what
 	// produces invented calls and promises the chat cannot keep.
@@ -143,7 +141,7 @@ describe('session tool policies', () => {
 						...msg,
 						content: (msg.content as string) + getSessionContextPromptSection(ctx, access)
 					}
-					// The escalation variant names exit_plan_mode a second time.
+					// Both decoration variants: the escalation one adds its own tool mentions.
 					for (const blocks of [0, 9]) {
 						const full = appendPlanModeInstructions(msg, blocks).content as string
 						expect(withheld.filter((n) => full.includes(n))).toEqual([])
@@ -153,8 +151,9 @@ describe('session tool policies', () => {
 		}
 	)
 
-	// Full access must reproduce the pre-capabilities prompt exactly, or every
-	// existing session's cached prefix and the ai_evals baseline move underneath us.
+	// A full-access profile must gate nothing at all: the text has to match the ungated
+	// build byte for byte, or every session's cached prefix and the ai_evals baseline
+	// move underneath us.
 	it('builds an unchanged prompt when every capability is present', () => {
 		const user = { username: 'alex', folders: ['shared'], folders_read: ['shared'] }
 		for (const previewTools of [false, true]) {
@@ -168,6 +167,8 @@ describe('session tool policies', () => {
 		}
 	})
 
+	// Draft writes survive without `deploy`, and vice versa: the two are separate
+	// backend gates (drafts.rs vs. the deploy protection rules), not one ladder.
 	it('treats write_draft and deploy as independent', () => {
 		const draftsOnly = accessWith(['write_draft'])
 		expect(sessionToolAllowed('write_script', draftsOnly)).toBe(true)

@@ -2272,9 +2272,9 @@ export function getSessionContextPromptSection(
 	ctx: SessionPromptContext,
 	access?: SessionAccess
 ): string {
-	// This section is concatenated onto an already capability-gated prompt, so it has to
-	// honour the same profile: naming a tool the toolset withheld is what makes the model
-	// invent calls. Each branch keeps its "where work lands" fact either way.
+	// Concatenated onto an already capability-gated prompt, so it has to honour the same
+	// profile rather than assume the gating happened upstream. Each branch keeps its
+	// "where work lands" fact either way.
 	const canDeploy = !access || access.capabilities.has('deploy')
 	const canWriteDraft = !access || access.capabilities.has('write_draft')
 	const canRunPreview = !access || access.capabilities.has('run_preview')

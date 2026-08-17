@@ -580,10 +580,8 @@ export class AIChatManager {
 	// needs the preview pane; the global side-panel chat leaves it false. Reactive because
 	// `planModeAvailable` derives from it.
 	isSessionChat = $state(false)
-	// What the user may do in this session's operating workspace, resolved in the
-	// send pre-flight (see `resolveSessionAccessForSend`) and applied to the toolset
-	// handed to the chat loop. Undefined until the first send resolves it, and on the
-	// global side-panel chat, where it stays unfiltered.
+	// What the user may do in this session's operating workspace. Undefined until the
+	// first send resolves it — see `resolveSessionAccessForSend`.
 	private sessionAccess: SessionAccess | undefined = undefined
 	private sessionAccessGeneration = 0
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
@@ -1974,8 +1972,9 @@ export class AIChatManager {
 	// stale resolves so workspace changes cannot overwrite newer skills.
 	// Build the global-mode system message, tools, and helpers, layering on the
 	// pipeline surface when a /pipeline editor has registered helpers. Centralized
-	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
-	// each rebuild would otherwise drop the pipeline augmentation the others added.
+	// so changeMode, refreshGlobalSkills, setPipelineHelpers and the send pre-flight stay
+	// consistent — each rebuild would otherwise drop the pipeline augmentation the
+	// others added.
 	private configureGlobalMode = () => {
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,

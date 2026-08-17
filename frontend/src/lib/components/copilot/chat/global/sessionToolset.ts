@@ -27,8 +27,7 @@ const RUN_PREVIEW: SessionToolPolicy = { requires: ['run_preview'] }
  * built by factories in other modules: a field on `globalTools` alone would look
  * exhaustive while silently missing them.
  *
- * Completeness is enforced by a test that assembles the full session toolset and
- * asserts every name resolves here — add the entry with the tool, not after.
+ * A tool with no entry here is withheld, so add the entry with the tool.
  */
 export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	// ── Reads, docs and conversation ────────────────────────────────────────
@@ -60,8 +59,9 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	exec_datatable_sql: RUN_PREVIEW,
 
 	// ── API catalog and MCP ─────────────────────────────────────────────────
-	// The wrapper tools themselves need nothing; the endpoint a call names is
-	// policed per-endpoint at call time (see apiCatalogTools).
+	// No capability needed: every endpoint these can reach is a read or a run-by-path.
+	// The authoring and delete endpoints are refused for everyone by COVERED_ENDPOINTS
+	// in apiCatalogTools, so there is no per-role cut left to make here.
 	search_api_endpoints: NONE,
 	call_api_get: NONE,
 	call_api_endpoint: NONE,
@@ -147,9 +147,8 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 
 export function sessionToolAllowed(name: string, access: SessionAccess): boolean {
 	const policy = SESSION_TOOL_POLICIES[name]
-	// An unregistered tool is withheld rather than advertised: the completeness
-	// test is what keeps this branch unreachable, so reaching it means a tool
-	// shipped without anyone deciding what it needs.
+	// Fails closed, so a tool that ships without a policy disappears from restricted
+	// sessions rather than leaking into them.
 	if (!policy) return false
 	if (policy.relevance === 'authoring' && !access.capabilities.has('write_draft')) {
 		return false

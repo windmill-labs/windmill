@@ -9,10 +9,9 @@ import { checkDeployPermission } from '$lib/utils_workspace_deploy'
  * point (the token is); this exists so the model is never handed a tool whose every
  * invocation would 401.
  *
- * The rules below are NOT a role ladder. The backend's precedence between "admin"
- * and "operator" differs per capability, and each rule cites the site it mirrors —
- * copying the ladder instead would get `write_draft` wrong for a superadmin whose
- * workspace role is operator.
+ * The rules below are NOT a role ladder: the backend's precedence between "admin"
+ * and "operator" differs per capability. Collapsing them into one ordering would get
+ * `write_draft` wrong for a superadmin whose workspace role is operator.
  */
 export type SessionCapability = 'write_draft' | 'run_preview' | 'deploy'
 
@@ -61,14 +60,12 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 
 	// windmill-api/src/drafts.rs `require_can_write_path`: `authed.is_admin` returns Ok
 	// BEFORE the operator branch, so an admin who is also an operator may still save
-	// drafts. Every chat write tool funnels through the draft lifecycle, which is why
-	// this single capability covers scripts, flows, apps, resources, variables,
-	// schedules and triggers alike.
+	// drafts.
 	if (isAuthedAdmin(me) || !me.operator) {
 		capabilities.add('write_draft')
 	}
 
-	// windmill-api/src/jobs.rs `run_preview_script` / `run_dynamic_select`: the operator
+	// windmill-api/src/jobs.rs `run_preview_script` / `run_preview_flow_job`: the operator
 	// check comes first and has no admin escape — the opposite precedence to drafts.
 	if (!me.operator) {
 		capabilities.add('run_preview')
