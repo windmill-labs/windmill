@@ -121,27 +121,21 @@ import type { WorkspaceMutationTarget } from './workspaceTools'
 import { resolveSessionAccess, type SessionAccess } from './global/sessionAccess'
 import { filterSessionTools } from './global/sessionToolset'
 import {
-	globalToolsFor,
 	loadWorkspaceSkills,
-	prepareGlobalSystemMessage,
 	resolveGlobalPromptIdentity,
 	type GlobalPromptIdentity,
 	prepareGlobalUserMessage,
 	type AiSkillListItem,
 	type ChatCommandItem,
 	type SessionPromptContext,
-	getSessionContextPromptSection,
 	type GlobalToolHelpers,
 	type GlobalActivePreviewContext
 } from './global/core'
+import { assembleGlobalSystemMessage, assembleGlobalTools } from './global/sessionAssembly'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
-import { createMcpTools, loadMcpServers, type McpServer } from './global/mcpTools'
-import {
-	pipelineTools,
-	getPipelinePromptSection,
-	type PipelineAIChatHelpers
-} from './pipeline/core'
+import { loadMcpServers, type McpServer } from './global/mcpTools'
+import { type PipelineAIChatHelpers } from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
@@ -2135,17 +2129,16 @@ export class AIChatManager {
 	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
 	// fires the three network refreshes.
 	configureGlobalMode = () => {
-		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+		const pipelineCtx = this.pipelineAiChatHelpers?.getPipelineContext()
+		const systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			user: this.globalIdentity,
 			skills: this.globalSkills,
 			mcpServers: this.mcpServers,
-			access: this.sessionAccess
+			access: this.sessionAccess,
+			sessionContext: this.sessionContextResolver?.(),
+			pipelineContext: pipelineCtx
 		})
-		const sessionCtx = this.sessionContextResolver?.()
-		if (sessionCtx) {
-			systemMessage.content += getSessionContextPromptSection(sessionCtx, this.sessionAccess)
-		}
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
 			// permission gating. The global side-panel chat follows the live navigation
@@ -2175,25 +2168,12 @@ export class AIChatManager {
 			}
 		}
 		const pipeline = this.pipelineAiChatHelpers
-		const mcpTools = createMcpTools(this.mcpServers)
-		// Every tool source assembled below needs an entry in SESSION_TOOL_POLICIES: the
-		// session filter fails closed, so a source added here without one is withheld from
-		// restricted sessions. sessionToolset.test.ts enumerates these sources to catch it.
-		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(
-				pipeline.getPipelineContext(),
-				this.sessionAccess
-			)
-			this.tools = [
-				...globalToolsFor({ sessionPreview: this.isSessionChat }),
-				...pipelineTools,
-				...mcpTools
-			]
-			this.helpers = { ...baseHelpers, pipeline }
-		} else {
-			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...mcpTools]
-			this.helpers = baseHelpers
-		}
+		this.tools = assembleGlobalTools({
+			sessionPreview: this.isSessionChat,
+			pipeline: !!pipeline,
+			mcpServers: this.mcpServers
+		})
+		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
 		this.systemMessage = systemMessage
 		this.syncArtifactsSession()
 	}
@@ -2288,28 +2268,15 @@ export class AIChatManager {
 		if (this.mode !== AIMode.GLOBAL) {
 			return
 		}
-		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			user: this.globalIdentity,
 			skills: this.globalSkills,
 			mcpServers: this.mcpServers,
-			access: this.sessionAccess
+			access: this.sessionAccess,
+			sessionContext: this.sessionContextResolver?.(),
+			pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
 		})
-		// Preserve the session-state and active pipeline-editor augmentations that
-		// configureGlobalMode adds — otherwise update_user_instructions (which calls
-		// this) would drop them mid-session.
-		const sessionCtx = this.sessionContextResolver?.()
-		if (sessionCtx) {
-			systemMessage.content += getSessionContextPromptSection(sessionCtx, this.sessionAccess)
-		}
-		const pipeline = this.pipelineAiChatHelpers
-		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(
-				pipeline.getPipelineContext(),
-				this.sessionAccess
-			)
-		}
-		this.systemMessage = systemMessage
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {
