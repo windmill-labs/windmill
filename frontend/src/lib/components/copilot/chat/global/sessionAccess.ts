@@ -1,5 +1,9 @@
 import { UserService, type User } from '$lib/gen'
 import { checkDeployPermission } from '$lib/utils_workspace_deploy'
+import {
+	canUserBypassRuleKindInRulesets,
+	fetchProtectionRulesForWorkspace
+} from '$lib/workspaceProtectionRules.svelte'
 
 /**
  * What a user may do in ONE workspace, as the AI session toolset needs to know it.
@@ -80,7 +84,24 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 	// rule it mirrors receives `authed.is_admin` — superadmin included. Without this a
 	// superadmin who is a plain member of a workspace under `RestrictDeployToDeployers`
 	// would lose the deploy tools the backend grants them.
-	if ((await checkDeployPermission(workspace, { ...me, is_admin: isAuthedAdmin(me) })).ok) {
+	//
+	// `DisableDirectDeployment` is checked on top because `checkDeployPermission` covers
+	// only the operator and `RestrictDeployToDeployers` halves, while the endpoints the
+	// deploy tools call go through the backend's `check_deploy_rules`, which gates on both.
+	const authedAdmin = isAuthedAdmin(me)
+	// An admin bypasses every rule, so the rulesets are only worth fetching for everyone
+	// else. `wm_deployers` membership does not help here: it satisfies
+	// `RestrictDeployToDeployers` alone, never `DisableDirectDeployment`.
+	const rulesets = authedAdmin ? undefined : await fetchProtectionRulesForWorkspace(workspace)
+	const deployAllowed =
+		(await checkDeployPermission(workspace, { ...me, is_admin: authedAdmin })).ok &&
+		(authedAdmin ||
+			canUserBypassRuleKindInRulesets(rulesets ?? [], 'DisableDirectDeployment', {
+				is_admin: false,
+				username: me.username,
+				groups: me.groups ?? []
+			}))
+	if (deployAllowed) {
 		capabilities.add('deploy')
 	}
 
