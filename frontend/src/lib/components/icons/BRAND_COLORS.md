@@ -56,6 +56,7 @@ repeatedly — check the brand's own page.
 | `BaremetricsIcon` | `baremetrics` | fixed | #5386FF | #5386FF | 3.27 | 3.70 | the mark in baremetrics.com's header logo (baremetrics-logo.svg), the asset this path is taken from |
 | `BaserowIcon` | `baserow`, `baserow_table` | fixed | #2BC3F1 | #2BC3F1 | 4.96 | 6.05 | the baserow.io favicon and horizontal logo |
 | `BasisTheoryIcon` | `basis_theory` | pair | #1D2032 | #EBEDFF | 15.57 | 10.74 | developers.basistheory.com/img/bt-logo-light.svg and bt-logo-dark.svg, which ship the same mark geometry in the two theme colours |
+| `BeamerIcon` | `beamer` | pair | #1C1E21 | #FFFFFF | 16.16 | 12.47 | the getbeamer.com header logo (g#isotype) and their webclip app icon, which sets the same mark in white on #1C1E21 |
 | `BigQueryIcon` | `bigquery` | fixed | #34A853 | #34A853 | 3.80 | 7.30 | Google Cloud's official icon library (cloud.google.com/icons, core-products-icons.zip) |
 | `BitbucketIcon` | `bitbucket` | pair | #1868DB | #FFFFFF | 5.03 | 12.47 | atlassian.design/foundations/logos (Bitbucket mark, brand and inverse) |
 | `BitlyIcon` | `bitly` | fixed | #F36600 | #F36600 | 3.03 | 3.99 | bitly.com/pages/bitly-logo-usage-guidelines-for-media (Bitly-MediaKit glyph_bitly_orange_RGB.svg) |
@@ -73,6 +74,7 @@ repeatedly — check the brand's own page.
 | `CSharpIcon` | — | fixed | #927BE5 | #927BE5 | 7.68 | 12.47 | dotnet/brand logo/language-icons/csharp-72.svg (CC0) |
 | `CalcomIcon` | `calcom` | pair | #292929 | #FAFAFA | 14.08 | 11.95 | design.cal.com |
 | `CalendlyIcon` | `calendly` | pair | #006BFF | #FFFFFF | 4.47 | 12.47 | Calendly's 2024 External Brand Guidelines and calendly_brand mark_white.svg (media kit on calendly.com/newsroom) |
+| `CampaynIcon` | `campayn` | fixed | #008AFF | #008AFF | 3.34 | 12.47 | app.campayn.com/images/campayn/favicons/safari-pinned-tab.svg (colours sampled from android-chrome-512x512.png in the same directory) |
 | `CertopusIcon` | `certopus` | fixed | #FF6E30 | #FF6E30 | 12.07 | 12.47 | https://certopus.com/images/logo/logo_circle.svg |
 | `ChromaIcon` | `chromadb` | fixed | #FFDE2D | #FFDE2D | 3.65 | 9.35 | Chroma's own logo SVG served by trychroma.com (chroma-wordmark.svg) |
 | `CircleCiIcon` | `circleci` | pair | #161616 | #FFFFFF | 17.51 | 12.47 | brand.circleci.com |
@@ -87,9 +89,11 @@ repeatedly — check the brand's own page.
 | `CloudinaryIcon` | `cloudinary` | pair | #3448C5 | #FFFFFF | 7.06 | 12.47 | cloudinary_logo_for_white_bg.svg and cloudinary_logo_for_black_bg.svg on cloudinary-res.cloudinary.com |
 | `CockroachDbIcon` | `cockroachdb` | pair | #6933FF | #FFFFFF | 5.78 | 12.47 | cockroachlabs.com (electric-purple-500, also the CockroachDB docs primaryColor) and the docs light/dark logo pair |
 | `CodaIcon` | `coda` | fixed | #F46A54 | #F46A54 | 2.89 | 4.18 | Coda's own app icon, https://cdn.coda.io/icons/png/color/coda-192.png (single-colour mark, no dark variant published) |
+| `CodatIcon` | `codat` | fixed | #D1E100 | #D1E100 | 17.31 | 8.60 | codat.io (logo-white.svg glyph outlines, colours from the site palette); framing matches their 300x300 favicon exactly |
 | `CohereIcon` | `cohere` | fixed | #355146 | #355146 | 8.41 | 12.47 | https://cohere.com/logo.svg |
 | `CoinMarketCapIcon` | `coinmarketcap` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | coinmarketcap.com |
 | `CoinbaseIcon` | `coinbase` | pair | #0052FF | — | 5.57 | — | Coinbase's own light/dark logo files (mintcdn.com/coinbase-prod/.../logos/wordmark-light.svg and wordmark-dark.svg, served by docs.cdp.coinbase.com) |
+| `ComapeoIcon` | `comapeo_server` | pair | #022199 | #0066FF | 12.09 | 2.58 | the CoMapeo Cloud mark shipped as public/favicon.svg in digidem/comapeo-cloud-app (the server this resource connects to) |
 | `ConfluenceIcon` | `confluence` | fixed | #1868DB | #1868DB | 5.03 | 12.47 | Atlassian's @atlaskit/logo (atlassian.design logo library) |
 | `ContentfulIcon` | `contentful` | fixed | #1773EB | #1773EB | 4.33 | 9.08 | Contentful's Forma 36 design system (ContentfulLogoIcon) |
 | `ContiguityIcon` | `contiguity` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | contiguity.com/assets/icon-white.png and icon-black.png (docs.contiguity.com likewise ships logo/black.svg for light and logo/white.svg for dark) |
@@ -173,6 +177,7 @@ repeatedly — check the brand's own page.
 | `KafkaIcon` | `kafka` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | apache/kafka |
 | `KanidmIcon` | `kanidm` | fixed | #B1DEF4 | #B1DEF4 | 20.32 | 12.47 | artwork/logo-square.svg in github.com/kanidm/kanidm (full palette: #FF6600 #803300 #D45500 #2A3455 #B1B3B8 #CCCCCC) |
 | `KeycloakIcon` | `keycloak` | fixed | #00B8E3 | #00B8E3 | 8.18 | 10.65 | keycloak.org's own mark, https://www.keycloak.org/resources/images/icon.svg (cyan #00B8E3/#33C6E9/#008AAA over greys #4D4D4D–#EDEDED, single theme) |
+| `KlaviyoIcon` | `klaviyo` | pair | #1D1E20 | #FFFFFF | 16.14 | 12.47 | klaviyo.com --color-core-charcoal; the flag mark is the standalone logomark the site header collapses to, and the shape of klaviyo.com/icons/icon-512x512.png |
 | `KoboToolboxIcon` | `kobotoolbox` | fixed | #2095F3 | #2095F3 | 3.05 | 3.95 | the kobotoolbox.org header logo and $kobo-blue in kobotoolbox/kpi jsapp/scss/colors.scss |
 | `KustomerIcon` | `kustomer` | fixed | #FBEC2A | #FBEC2A | 14.08 | 12.47 | kustomer.com/images/kustomer/Kusty.svg |
 | `LangfuseIcon` | `langfuse` | fixed | #FF5D5F | #FF5D5F | 2.91 | 4.47 | langfuse.com/brand "Icon - Color (SVG)", used unmodified |
@@ -194,6 +199,7 @@ repeatedly — check the brand's own page.
 | `MarkdownIcon` | — | pair | #000000 | #FFFFFF | 20.32 | 12.47 | dcurtis/markdown-mark (public domain) |
 | `MastodonIcon` | `mastodon` | mixed | #6364FF | #6364FF | 7.07 | 12.47 | https://joinmastodon.org/branding |
 | `MatrixIcon` | `matrix` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | matrix.org/branding |
+| `MatteroomIcon` | `matteroom` | fixed | #134A81 | #134A81 | 8.74 | 12.47 | the MATTEROOM logomark vector at login.matteroom.com/images/login_logo.svg; square tile proportions taken from their own app icon at matteroom.com/favicon.ico |
 | `MauticIcon` | `mautic` | pair | #4E5E9E | #FFFFFF | 5.94 | 12.47 | mautic.org/about/brand-logos-graphics (Mautic_Logo_LB.svg / Mautic_Logo_DB.svg); the "M" stays Sunglow #FDB933 in both, as the trademark policy requires the mark in its exact published form without alteration in colour |
 | `McpIcon` | `mcp` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | modelcontextprotocol/modelcontextprotocol |
 | `MediumIcon` | `medium` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | medium.design |
@@ -203,8 +209,10 @@ repeatedly — check the brand's own page.
 | `MiroIcon` | `miro` | fixed | #FFDD33 | #FFDD33 | 16.46 | 9.29 | the Miro logo on miro.com |
 | `MistralIcon` | `mistral` | inherits | #718096 | #A9B0BA | 3.88 | 5.71 | mistral.ai/favicon.svg (mid-band of the #FFAF01 -> #C4001D ramp); drawn here in currentColor, the monochrome variant mistral.ai/brand ships |
 | `MixpanelIcon` | `mixpanel` | pair | #7856FF | #FFFFFF | 4.44 | 12.47 | brand.mixpanel.com/logo and /color (Purple 100); mixpanel.com ships the same pair as its light/dark favicons |
+| `MollieIcon` | `mollie` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | Mollie's app icon (my.mollie.com/assets/images/favicons/apple-touch-icon-180x180.png): a full-bleed disc with the lowercase m knocked out |
 | `MondayIcon` | `monday` | fixed | #FB275D | #FB275D | 3.66 | 8.25 | monday.com's official logo pack (brand-monday.com/logo) |
 | `MongodbIcon` | `mongodb` | pair | #00684A | #00ED64 | 6.60 | 7.90 | MongoDB brand resources and their LeafyGreen palette |
+| `MotimateIcon` | `motimate` | fixed | #2DC89C | #2DC89C | 2.06 | 5.85 | motimateapp.com theme assets |
 | `MqttIcon` | `mqtt` | pair | #660066 | #FFFFFF | 11.57 | 12.47 | mqtt/mqttorg-graphics |
 | `Mysql` | `mysql` | inherits | #718096 | #A9B0BA | 3.88 | 5.71 | — |
 | `NatsIcon` | `nats` | pair | #375C93 | #27AAE1 | 6.52 | 4.71 | cncf/artwork |
@@ -228,6 +236,7 @@ repeatedly — check the brand's own page.
 | `PHPIcon` | — | fixed | #AEB2D5 | #AEB2D5 | 20.32 | 12.47 | php.net/images/logos/new-php-logo.svg (php.net/download-logos.php) |
 | `PagerDutyIcon` | `pagerduty` | pair | #048A24 | #FFFFFF | 4.35 | 12.47 | pagerduty.com/brand "P icon" pack (P-GreenRGB.svg / P-WhiteRGB.svg) |
 | `PandaDocIcon` | `pandadoc` | fixed | #248567 | #248567 | 4.39 | 12.47 | the PandaDoc logo shipped on pandadoc.com (header logo SVG and favicon); white monogram on the green tile in both themes |
+| `PaychexIcon` | `paychex` | fixed | #004B8D | #004B8D | 8.50 | **1.42** | paychex.com's own logo SVG (themes/custom/paychex2/images/svg/logo-paychex.svg, .st0) |
 | `PaylocityIcon` | `paylocity` | fixed | #ED2024 | #ED2024 | 4.20 | 12.47 | paylocity.com design-system CSS (.styleBGBrandGradient) |
 | `PaypalIcon` | `paypal` | fixed | #002991 | #002991 | 11.77 | 6.93 | PayPal's own paypal-mark-color_new.svg (site header logo on paypal.com) |
 | `PersonaIcon` | `persona` | fixed | #7379FD | #7379FD | 3.45 | 3.49 | https://withpersona.com/favicon.svg (Persona, identity verification) |
@@ -293,6 +302,7 @@ repeatedly — check the brand's own page.
 | `TaskadeIcon` | `taskade` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | taskade.com/press (Mascot Mark light = agent_taskade.svg, Genesis Icon dark = taskade-icon-dark.svg) |
 | `TelegramIcon` | `telegram` | fixed | #2AABEE | #2AABEE | 2.92 | 12.47 | Telegram's press-kit Logo.svg (telegram.org/press) |
 | `TelnyxIcon` | `telnyx` | pair | #000000 | #00E3AA | 20.32 | 12.47 | telnyx.com |
+| `TerraIcon` | `terra` | fixed | #008AFF | #008AFF | 20.32 | 10.43 | tryterra.co/providers/terra_icon.svg, the only vector square mark Terra ships (the site logo is a "TERRA API" wordmark, the favicon a raster .ico) |
 | `TheirStackIcon` | `their_stack` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | theirstack.com/en/docs/brand, which lists both as core brand colours |
 | `ThreadsIcon` | `threads` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | Meta's Threads Brand Resource Center logo pack (meta.com/brand/resources/threads) |
 | `TodoistIcon` | `todoist` | fixed | #E44232 | #E44232 | 3.97 | 3.04 | Todoist Brand Guidelines (doist.com/brand-assets/todoist-logo.zip), "Red — the primary brand color for Todoist" |
@@ -307,6 +317,7 @@ repeatedly — check the brand's own page.
 | `TwitterIcon` | `twitter` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | about.x.com |
 | `TypeformIcon` | `typeform` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | typeform.com/brand |
 | `UltravoxIcon` | `ultravox` | fixed | #BB3B57 | #BB3B57 | 6.67 | 7.65 | the ultravox.ai favicon (framerusercontent.com/images/hzAEdihxJ11mv3l4trNh2WprE.svg) |
+| `VectaraIcon` | `vectara` | fixed | #7E00FF | #7E00FF | 7.00 | 9.80 | — |
 | `VercelIcon` | `vercel` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | vercel.com |
 | `VismaIcon` | `visma` | pair | #131313 | #FFFFFF | 17.98 | 12.47 | design.visma.com/logo (VA symbol from the official Visma Logopack) |
 | `VueIcon` | — | fixed | #42B883 | #42B883 | 8.97 | 5.00 | vuejs/art logo.svg |
@@ -350,6 +361,7 @@ Constraints that would otherwise be broken by a well-meaning change.
 - **AwsEcrIcon** — AWS ships one flat fill for both themes; the gradient tile was retired in the 2023 accessibility refresh.
 - **AwsIcon** — aws.amazon.com/trademark-guidelines forbids altering the logo's colour, so only these two published variants may be used.
 - **BaserowIcon** — The mark keeps these three colours on light and dark; only the wordmark reverses to white.
+- **BeamerIcon** — The isotype is monochrome in all first-party artwork.
 - **BigQueryIcon** — Google publishes no reversed variant, so the same mark is used on both themes.
 - **BitbucketIcon** — Atlassian ships brand/neutral/inverse only: "don't use unapproved color combinations".
 - **BitlyIcon** — Bitly's reversed logomark is white over orange, not over neutral dark, so the orange mark is used on both.
@@ -374,6 +386,7 @@ Constraints that would otherwise be broken by a well-meaning change.
 - **CloudinaryIcon** — Cloudinary Blue is reserved for the logo; no other recolouring is permitted.
 - **CockroachDbIcon** — The full-colour mark is a cyan-to-purple gradient; Cockroach Labs reduces it to solid white on dark backgrounds.
 - **CoinbaseIcon** — Coinbase asks that the mark not be altered or recoloured, so only these two published variants are used.
+- **ComapeoIcon** — Awana Digital publishes no reversed variant, so dark mode uses the brand's own accent blue #0066FF from CoMapeoLogo.svg (digidem/comapeo-mobile); the navy is 1.3:1 on dark surfaces.
 - **ConfluenceIcon** — Atlassian requires the logo be used without modification, and its brand appearance is identical in light and dark.
 - **ContentfulIcon** — Same full-colour mark on light and dark.
 - **ContiguityIcon** — The `>_` glyph is knocked out to the opposite colour, so it carries its own fill- utilities.
@@ -430,6 +443,7 @@ Constraints that would otherwise be broken by a well-meaning change.
 - **JotformIcon** — The other three bars keep their fixed brand colours in both themes.
 - **JsonIcon** — JSON itself has no brand owner or published colours — json.org states none — so this is a Material palette pick, not a brand colour.
 - **KanidmIcon** — Kanidm's artwork is CC-BY-NC-ND — no recolouring or other derivatives.
+- **KlaviyoIcon** — Klaviyo draws it in currentColor, hence the white swap on dark.
 - **LangfuseIcon** — Langfuse's trademark terms forbid modifying the assets.
 - **LineIcon** — LINE forbids any change to the logo's colour, so there is no reversed variant.
 - **LinearIcon** — Guidelines ship a light/dark logomark pair and forbid altering the assets in any other way.
@@ -450,8 +464,10 @@ Constraints that would otherwise be broken by a well-meaning change.
 - **MicrosoftIcon** — Microsoft forbids recolouring the symbol, so it stays full-colour on both themes.
 - **MistralIcon** — Brand forbids any other recolouring.
 - **MixpanelIcon** — "The Mixpanel logo is only ever used in three colors: black, white and the primary brand purple."
+- **MollieIcon** — The m is the glyph from Mollie-Logo-Black-2023.svg (Mollie logo pack, mollie.com/resources), scaled and placed to match that icon pixel for pixel; the logo pack itself ships only the 320x94 wordmark. Mollie publishes black and white variants, so the pair flips for dark mode.
 - **MondayIcon** — All three colours are required; the brand forbids monochrome or recoloured versions, so no dark-theme variant.
 - **MongodbIcon** — MongoDB permits only four logo colours, chosen for contrast with the background, and forbids any other recolour.
+- **MotimateIcon** — Motimate is a registered trademark of Motimate AS (Kahoot!).
 - **Mysql** — Used under Fair Use: https://fr.wikipedia.org/wiki/Fichier:MySQL.svg
 - **NeonDbIcon** — Neon forbids recolouring, so only these published variants may be used.
 - **NetlifyIcon** — Two colours per theme, so the "n" carries its own fill- utilities: #014847 on light, #FFFFFF on dark.
@@ -465,6 +481,7 @@ Constraints that would otherwise be broken by a well-meaning change.
 - **OpenaiIcon** — The guidelines state "DON'T add any colors to the Blossom" — black or white only.
 - **OracleDBIcon** — Oracle reserves its logo for licensees.
 - **PHPIcon** — Official logo, CC BY-SA 4.0: keep it verbatim and credit Colin Viebrock rather than recolouring.
+- **PaychexIcon** — The isolated P is the square mark Paychex ships as its own 192x192 app icon. Paychex requires prior approval for any use of its marks.
 - **PaypalIcon** — The third fill is the deep/bright blue overlap: a two-colour or flat fill loses it.
 - **PersonioIcon** — Black on light, white on dark or coloured backgrounds.
 - **PhraseIcon** — The green wedge stays #03EAB3 in both — Phrase forbids altering the logo mark colour.
@@ -515,6 +532,7 @@ Constraints that would otherwise be broken by a well-meaning change.
 - **SvelteIcon** — Its guidelines count the official colour scheme as part of the mark — do not recolour.
 - **TaskadeIcon** — Brand forbids recolouring, so only those two published variants are used.
 - **TelegramIcon** — The shaded-plane drawing is Telegram's retired Logo_old.
+- **TerraIcon** — The outlines are part of the artwork and stay black in both themes; the blue T carries the mark on dark backgrounds.
 - **TheirStackIcon** — The mark ships black-only, but the same brand rules forbid placing it on low-contrast backgrounds; on a dark surface black is 1.68:1, so it is tinted to the brand's own white.
 - **ThreadsIcon** — The pack ships the mark in black and white only, so it must never be tinted.
 - **TogglIcon** — Toggl requires the mark be used as is, unmodified.
@@ -526,6 +544,7 @@ Constraints that would otherwise be broken by a well-meaning change.
 - **TwitterIcon** — The component draws the X glyph, not the legacy bird.
 - **TypeformIcon** — Default brand colours are "Paper (white) and Ink (black)".
 - **UltravoxIcon** — Gradient mark; ultravox.ai links that same asset for both prefers-color-scheme light and dark, so there is no per-theme variant.
+- **VectaraIcon** — #7E00FF → #07FEEE iridescent sweep, sampled from the logo mark on vectara.com (no brand kit is published). Vectara reserves its trademarks: do not recolour.
 - **VercelIcon** — Vercel ships only light-theme (black) and dark-theme (white) triangle marks and explicitly forbids modifying or recoloring the trademarks.
 - **VismaIcon** — Positive black on light, negative white on dark; the logo may not be given any other colour.
 - **VueIcon** — Vue's dark-background variant is separate outlined artwork rather than a recolour, so the two-tone mark is used in both themes.
@@ -553,8 +572,8 @@ Not brands. These inherit `currentColor` on purpose and must not be given a pair
 
 ## Coverage
 
-- brand icons: **304**, of which **301** carry a recorded source
-- per-theme pairs applied: **127**
+- brand icons: **315**, of which **311** carry a recorded source
+- per-theme pairs applied: **131**
 - concept icons: **34**
 - effectively invisible on light: **1** (AbstractApiIcon)
-- effectively invisible on dark: **1** (TripadvisorIcon)
+- effectively invisible on dark: **2** (PaychexIcon, TripadvisorIcon)

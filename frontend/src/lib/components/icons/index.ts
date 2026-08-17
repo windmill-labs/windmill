@@ -298,6 +298,17 @@ import DbtIcon from './DbtIcon.svelte'
 import ShutterstockIcon from './ShutterstockIcon.svelte'
 import TaskadeIcon from './TaskadeIcon.svelte'
 import OauthIcon from './OauthIcon.svelte'
+import BeamerIcon from './BeamerIcon.svelte'
+import CampaynIcon from './CampaynIcon.svelte'
+import CodatIcon from './CodatIcon.svelte'
+import ComapeoIcon from './ComapeoIcon.svelte'
+import KlaviyoIcon from './KlaviyoIcon.svelte'
+import MatteroomIcon from './MatteroomIcon.svelte'
+import MollieIcon from './MollieIcon.svelte'
+import MotimateIcon from './MotimateIcon.svelte'
+import PaychexIcon from './PaychexIcon.svelte'
+import TerraIcon from './TerraIcon.svelte'
+import VectaraIcon from './VectaraIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -609,6 +620,17 @@ export const APP_TO_ICON_COMPONENT = {
 	dbt_profile: DbtIcon,
 	shutterstock: ShutterstockIcon,
 	taskade: TaskadeIcon,
+	beamer: BeamerIcon,
+	campayn: CampaynIcon,
+	codat: CodatIcon,
+	comapeo_server: ComapeoIcon,
+	klaviyo: KlaviyoIcon,
+	matteroom: MatteroomIcon,
+	mollie: MollieIcon,
+	motimate: MotimateIcon,
+	paychex: PaychexIcon,
+	terra: TerraIcon,
+	vectara: VectaraIcon,
 	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
@@ -857,6 +879,17 @@ export {
 	BotifyIcon,
 	SensorTowerIcon,
 	ZuploIcon,
+	BeamerIcon,
+	CampaynIcon,
+	CodatIcon,
+	ComapeoIcon,
+	KlaviyoIcon,
+	MatteroomIcon,
+	MollieIcon,
+	MotimateIcon,
+	PaychexIcon,
+	TerraIcon,
+	VectaraIcon,
 	TomorrowIoIcon,
 	AcceloIcon,
 	EnodeIcon,
