@@ -114,7 +114,7 @@
 	<SettingCard
 		label="Model pricing"
 		description="Rates in USD per million tokens, used to cost AI chat usage. Built-in list prices are a best-effort snapshot you can adjust."
-		tooltip="A model with no built-in price starts empty, and its usage is reported without a cost until you set one. A cache rate left empty uses the figure shown in the field. A rate of 0 prices those tokens as free."
+		tooltip="Rates apply only where the provider returned no cost of its own; a cost it returned is used as is. A model with no built-in price starts empty and reports usage without a cost until you set one. An empty cache rate uses the figure shown in the field, and a rate of 0 prices those tokens as free."
 	>
 		<div class="flex flex-col gap-3">
 			{#each Object.entries(modelsByProvider).filter(([_, models]) => models.length > 0) as [provider, models]}

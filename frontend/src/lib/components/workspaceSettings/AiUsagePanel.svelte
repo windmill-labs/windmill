@@ -183,8 +183,9 @@
 								<Tooltip small placement="left">
 									{#snippet text()}
 										A cost marked ~ is estimated from this workspace's model rates. A cost
-										without one is what the provider charged for those requests. "no rate" means
-										the model has no price set, so its spend stays out of the total.
+										without one was returned by the provider's API for those requests, and is used
+										as is. "no rate" means the model has no price set, so its spend stays out of
+										the total.
 									{/snippet}
 								</Tooltip>
 							</span>
