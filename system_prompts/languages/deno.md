@@ -2,6 +2,8 @@
 
 Deno runtime with npm support via `npm:` prefix and native Deno libraries.
 
+**Prefer Bun (`write-script-bun`) for TypeScript.** Only use Deno when the script specifically requires the Deno runtime — Deno's standard library or `deno.land` URL imports that have no npm equivalent. For all other TypeScript, use Bun instead.
+
 ## Structure
 
 Export a single **async** function called `main`:
@@ -50,7 +52,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 ```
 
-See the SDK documentation for available methods.
+**Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 

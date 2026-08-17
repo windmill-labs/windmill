@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -22,6 +23,8 @@
 	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import SupabaseConnect from '$lib/components/SupabaseConnect.svelte'
@@ -120,6 +123,7 @@
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
+	let deletePath = $state('')
 	let loading = $state({
 		resources: true,
 		types: true
@@ -216,11 +220,16 @@
 	): Promise<ResourceW[]> {
 		const currentFilters = filters.val
 
-		// Build API parameters from filters
+		// Build API parameters from filters.
+		// `includeDraftOnly` surfaces per-user drafts at paths that have
+		// no deployed resource — appended server-side when no narrowing
+		// filter is set, so the user sees AI-agent-created drafts on
+		// the home page.
 		const apiParams: any = {
 			workspace: $workspaceStore!,
 			resourceTypeExclude,
-			resourceType: resourceType || (currentFilters.resource_type as string | undefined)
+			resourceType: resourceType || (currentFilters.resource_type as string | undefined),
+			includeDraftOnly: true
 		}
 
 		if (currentFilters.path) {
@@ -260,7 +269,9 @@
 		allOwners = Array.from(
 			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
 		).sort()
-		allLabels = Array.from(new Set(result.flatMap((x) => x.labels ?? []))).sort()
+		allLabels = Array.from(
+			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
+		).sort()
 
 		return result
 	}
@@ -439,6 +450,8 @@
 			await loadCache()
 		} else if (tab == 'states') {
 			await loadState()
+		} else if (tab == 'theme') {
+			await loadTheme()
 		} else {
 			await loadResources()
 		}
@@ -593,13 +606,22 @@
 		}
 	})
 
-	onMount(() => {
-		let hash = page.url.hash
-		if (hash.startsWith('#/resource/')) {
-			console.log('hash', hash)
-			let path = hash.slice(11)
-			resourceEditor?.initEdit(path)
+	// Deep link: #/resource/<path> opens that resource's edit drawer. Reactive
+	// rather than onMount so a hash change on the already-mounted page (e.g. the
+	// AI session preview re-pointing its tab) opens the drawer too. Row links
+	// pre-set handledHash: their onclick already opens the drawer.
+	let handledHash = ''
+	$effect(() => {
+		const hash = page.url.hash
+		if (!hash.startsWith('#/resource/')) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same item later would be skipped as already handled.
+			handledHash = ''
+			return
 		}
+		if (hash === handledHash || !resourceEditor) return
+		handledHash = hash
+		resourceEditor.initEdit(hash.slice(11))
 	})
 
 	let showTable = $derived(
@@ -623,7 +645,10 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove this resource?</span>
+		<span
+			>Are you sure you want to remove <span class="font-semibold break-all">{deletePath}</span
+			>?</span
+		>
 		{#if deleteIsLinked}
 			<Alert type="warning" title="Linked variable">
 				This resource is linked with a variable of the same path. The linked variable will also be
@@ -892,6 +917,9 @@
 					} else if (e.detail == 'states') {
 						loading.resources = true
 						loadState()
+					} else if (e.detail == 'theme') {
+						loading.resources = true
+						loadTheme()
 					}
 				}}
 			>
@@ -984,12 +1012,14 @@
 								<Cell head>Resource type</Cell>
 								<Cell head>Description</Cell>
 								<Cell head />
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</Row>
 						</Head>
 						<tbody class="divide-y bg-surface">
 							{#if filteredItems}
-								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, ws_specific }}
+								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{@const hasDraft =
+										getLocalDraftHint($workspaceStore, 'resource', path) ?? is_draft}
 									<Row>
 										<Cell first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -999,9 +1029,13 @@
 												<a
 													class="break-all"
 													href="#/resource/{path}"
-													onclick={() => resourceEditor?.initEdit?.(path)}
-													>{#if marked}{@html marked}{:else}{path}{/if}</a
+													onclick={() => {
+														handledHash = `#/resource/${path}`
+														resourceEditor?.initEdit?.(path)
+													}}
+													>{#if marked}{@html marked}{:else}{path}{/if}{hasDraft ? '*' : ''}</a
 												>
+												<DraftBadge {draft_only} is_draft={hasDraft} />
 												{#if labels?.length}
 													<div class="flex items-center gap-0.5">
 														{#each labels as label}
@@ -1025,6 +1059,7 @@
 														{/each}
 													</div>
 												{/if}
+												<InheritedLabels labels={inherited_labels} />
 											</div>
 										</Cell>
 										<Cell>
@@ -1139,83 +1174,86 @@
 												{/if}
 											</div>
 										</Cell>
-										<Cell class="flex justify-end">
-											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
-												<ExploreAssetButton
-													asset={{ kind: 'resource', path }}
-													_resourceMetadata={{ resource_type }}
-													class="w-24"
-												/>
-											{/if}
-											<Dropdown
-												class="w-fit"
-												items={[
-													{
-														displayName: 'Permissions',
-														icon: Shield,
-														action: () => {
-															shareModal?.openDrawer?.(path, 'resource')
-														}
-													},
-													{
-														displayName: 'Edit',
-														icon: Pen,
-														disabled: !canWrite || !showCreateButtons,
-														action: () => {
-															resourceEditor?.initEdit?.(path)
-														}
-													},
-													...(!ws_specific && isDeployable('resource', path, deployUiSettings)
-														? [
-																{
-																	displayName: 'Deploy to prod/staging',
-																	icon: FileUp,
-																	action: () => {
-																		deploymentDrawer?.openDrawer(path, 'resource')
+										<Cell last stickyEnd>
+											<div class="flex justify-end">
+												{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
+													<ExploreAssetButton
+														asset={{ kind: 'resource', path }}
+														_resourceMetadata={{ resource_type }}
+														class="w-24"
+													/>
+												{/if}
+												<Dropdown
+													class="w-fit"
+													items={[
+														{
+															displayName: 'Permissions',
+															icon: Shield,
+															action: () => {
+																shareModal?.openDrawer?.(path, 'resource')
+															}
+														},
+														{
+															displayName: 'Edit',
+															icon: Pen,
+															disabled: !canWrite || !showCreateButtons,
+															action: () => {
+																resourceEditor?.initEdit?.(path)
+															}
+														},
+														...(!ws_specific && isDeployable('resource', path, deployUiSettings)
+															? [
+																	{
+																		displayName: 'Deploy to prod/staging',
+																		icon: FileUp,
+																		action: () => {
+																			deploymentDrawer?.openDrawer(path, 'resource')
+																		}
 																	}
-																}
-															]
-														: []),
-													{
-														displayName: 'Delete',
-														disabled: !canWrite || !showCreateButtons,
-														icon: Trash,
-														type: 'delete',
-														action: (event) => {
-															// TODO
-															// @ts-ignore
-															if (event?.shiftKey) {
-																deleteResource(path, account)
-															} else {
-																deleteIsLinked = is_linked ?? false
-																deleteConfirmedCallback = () => {
+																]
+															: []),
+														{
+															displayName: 'Delete',
+															disabled: !canWrite || !showCreateButtons,
+															icon: Trash,
+															type: 'delete',
+															action: (event) => {
+																// TODO
+																// @ts-ignore
+																if (event?.shiftKey) {
 																	deleteResource(path, account)
+																} else {
+																	deleteIsLinked = is_linked ?? false
+																	deletePath = path
+																	deleteConfirmedCallback = () => {
+																		deleteResource(path, account)
+																	}
 																}
 															}
-														}
-													},
-													...(account != undefined
-														? [
-																{
-																	displayName: 'Refresh token',
-																	icon: RotateCw,
-																	action: async () => {
-																		await OauthService.refreshToken({
-																			workspace: $workspaceStore ?? '',
-																			id: account ?? 0,
-																			requestBody: {
-																				path
-																			}
-																		})
-																		sendUserToast('Token refreshed')
-																		loadResources()
+														},
+														...(account != undefined
+															? [
+																	{
+																		displayName: 'Refresh token',
+																		icon: RotateCw,
+																		action: async () => {
+																			await OauthService.refreshToken({
+																				workspace: $workspaceStore ?? '',
+																				id: account ?? 0,
+																				requestBody: {
+																					path
+																				}
+																			})
+																			sendUserToast('Token refreshed')
+																			loadResources()
+																		}
 																	}
-																}
-															]
-														: [])
-												]}
-											/>
-										</Cell>
+																]
+															: [])
+													]}
+												/>
+											</div></Cell
+										>
 									</Row>
 								{/each}
 							{/if}
@@ -1243,7 +1281,7 @@
 							<Row>
 								<Cell head first>Name</Cell>
 								<Cell head>Description</Cell>
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</Row>
 						</Head>
 						<tbody class="divide-y bg-surface">
@@ -1279,7 +1317,7 @@
 												{removeMarkdown(truncate(description ?? '', 200))}
 											</span>
 										</Cell>
-										<Cell last>
+										<Cell last stickyEnd>
 											{#if !canWrite}
 												<Badge>
 													Shared globally
@@ -1334,7 +1372,11 @@
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
+<ResourceEditorDrawer
+	bind:this={resourceEditor}
+	on:refresh={loadResources}
+	onRestored={loadResources}
+/>
 
 <ShareModal
 	bind:this={shareModal}

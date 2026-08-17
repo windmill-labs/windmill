@@ -23,6 +23,26 @@ pub struct McpScopeConfig {
 }
 
 impl McpScopeConfig {
+    /// Whether the token grants access to *any* concrete resource of this type by
+    /// path. Used to decide whether to advertise the run-by-path tools in
+    /// multi-workspace mode (a `mcp:scripts:*`-only token should see
+    /// `runScriptByPath` even without an endpoint scope). `mcp:all` grants
+    /// everything; `mcp:favorites` does NOT — favorites are an enumerated set the
+    /// caller can only reach through the per-item tools, not by naming an
+    /// arbitrary path, so it grants nothing here (mirrors `is_allowed`, which
+    /// returns false for a favorites token).
+    pub fn has_any(&self, resource_type: &str) -> bool {
+        if self.all {
+            return true;
+        }
+        match resource_type {
+            "script" => !self.scripts.is_empty(),
+            "flow" => !self.flows.is_empty(),
+            "endpoint" => !self.endpoints.is_empty(),
+            _ => false,
+        }
+    }
+
     /// Check if a resource is allowed based on its type and path
     pub fn is_allowed(&self, resource_type: &str, path: &str) -> bool {
         if self.all {
@@ -38,6 +58,71 @@ impl McpScopeConfig {
 
         is_resource_allowed(path, patterns)
     }
+
+    /// Directional subset check: does this config grant at least everything
+    /// `requested` grants? Used to enforce monotonic containment when an MCP
+    /// OAuth approval mints a token (the granted scopes must be within the
+    /// approving token's own scopes).
+    ///
+    /// Unlike `is_allowed` (which tests a single concrete path with OR
+    /// semantics), this requires every requested pattern to be covered by some
+    /// caller pattern — so `mcp:scripts:f/x` cannot widen into `mcp:scripts:*`.
+    pub fn contains(&self, requested: &McpScopeConfig) -> bool {
+        if self.all {
+            return true;
+        }
+        if requested.all {
+            return false;
+        }
+        if requested.favorites && !self.favorites {
+            return false;
+        }
+        if let Some(req_hub) = requested.hub_apps.as_ref() {
+            match self.hub_apps.as_ref() {
+                Some(caller_hub) => {
+                    let caller_apps: std::collections::HashSet<&str> =
+                        caller_hub.split(',').map(|s| s.trim()).collect();
+                    if !req_hub
+                        .split(',')
+                        .map(|s| s.trim())
+                        .all(|a| caller_apps.contains(a))
+                    {
+                        return false;
+                    }
+                }
+                None => return false,
+            }
+        }
+        resource_list_covers(&self.scripts, &requested.scripts)
+            && resource_list_covers(&self.flows, &requested.flows)
+            && resource_list_covers(&self.endpoints, &requested.endpoints)
+    }
+}
+
+/// Every requested pattern must be covered by some caller pattern.
+fn resource_list_covers(caller: &[String], requested: &[String]) -> bool {
+    requested
+        .iter()
+        .all(|req| caller.iter().any(|c| pattern_covers(c, req)))
+}
+
+/// Directional: does the single caller pattern cover `requested`? `caller` may
+/// be `*`, an exact path/name, or a `<prefix>/*` subtree; `requested` may itself
+/// be a subtree wildcard, in which case the whole requested subtree must fall
+/// within the caller's. Mirrors the route-scope containment in windmill-api-auth.
+fn pattern_covers(caller: &str, requested: &str) -> bool {
+    if caller == "*" || caller == requested {
+        return true;
+    }
+    // An exact caller pattern only covers itself (handled above); a wildcard
+    // requested can never be covered by a non-`*` exact caller.
+    let Some(prefix) = caller.strip_suffix("/*") else {
+        return false;
+    };
+    let requested_base = requested.strip_suffix("/*").unwrap_or(requested);
+    requested_base == prefix
+        || (requested_base.starts_with(prefix)
+            && requested_base.as_bytes().get(prefix.len()) == Some(&b'/'))
 }
 
 /// Parse MCP scopes from token scope strings
@@ -253,5 +338,75 @@ mod tests {
         assert!(!config.is_allowed("script", "u/other/test"));
         assert!(config.is_allowed("flow", "f/automation/test"));
         assert!(!config.is_allowed("flow", "f/other/test"));
+    }
+
+    fn cfg(scopes: &[&str]) -> McpScopeConfig {
+        parse_mcp_scopes(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+    }
+
+    #[test]
+    fn test_has_any() {
+        // mcp:all grants everything by path.
+        assert!(cfg(&["mcp:all"]).has_any("script"));
+
+        // mcp:favorites grants NO arbitrary-path access (favorites are reached
+        // via per-item tools, not by naming a path) — matches is_allowed.
+        let fav = cfg(&["mcp:favorites"]);
+        assert!(!fav.has_any("script"));
+        assert!(!fav.has_any("flow"));
+        assert!(!fav.is_allowed("script", "f/anything/x"));
+
+        // Granular: only the resource types with at least one pattern.
+        let scripts_only = cfg(&["mcp:scripts:f/team/*"]);
+        assert!(scripts_only.has_any("script"));
+        assert!(!scripts_only.has_any("flow"));
+        assert!(!scripts_only.has_any("endpoint"));
+
+        let endpoints_only = cfg(&["mcp:endpoints:runScriptByPath"]);
+        assert!(!endpoints_only.has_any("script"));
+        assert!(endpoints_only.has_any("endpoint"));
+    }
+
+    #[test]
+    fn test_contains_subset_and_widening() {
+        // mcp:all contains anything.
+        assert!(cfg(&["mcp:all"]).contains(&cfg(&["mcp:scripts:f/x"])));
+        assert!(cfg(&["mcp:all"]).contains(&cfg(&["mcp:all"])));
+
+        // A wildcard caller covers narrower requests, but not other domains/all.
+        let star = cfg(&["mcp:scripts:*"]);
+        assert!(star.contains(&cfg(&["mcp:scripts:f/x"])));
+        assert!(star.contains(&cfg(&["mcp:scripts:*"])));
+        assert!(!star.contains(&cfg(&["mcp:all"])));
+        assert!(!star.contains(&cfg(&["mcp:flows:f/x"])));
+
+        // The core regression: a single-path caller must NOT widen into `*` or
+        // into another path.
+        let narrow = cfg(&["mcp:scripts:f/x"]);
+        assert!(narrow.contains(&cfg(&["mcp:scripts:f/x"])));
+        assert!(!narrow.contains(&cfg(&["mcp:scripts:*"])));
+        assert!(!narrow.contains(&cfg(&["mcp:scripts:f/y"])));
+        assert!(!narrow.contains(&cfg(&["mcp:all"])));
+
+        // Subtree wildcard covers paths within it but not a sibling subtree.
+        let subtree = cfg(&["mcp:scripts:f/team/*"]);
+        assert!(subtree.contains(&cfg(&["mcp:scripts:f/team/sub"])));
+        assert!(subtree.contains(&cfg(&["mcp:scripts:f/team/sub/*"])));
+        assert!(!subtree.contains(&cfg(&["mcp:scripts:f/other/x"])));
+    }
+
+    #[test]
+    fn test_contains_favorites_and_endpoints() {
+        assert!(cfg(&["mcp:favorites"]).contains(&cfg(&["mcp:favorites"])));
+        // A caller without favorites cannot grant favorites.
+        assert!(!cfg(&["mcp:scripts:*"]).contains(&cfg(&["mcp:favorites"])));
+
+        // Endpoint names match exactly (or via `*`).
+        let ep = cfg(&["mcp:endpoints:getVariable"]);
+        assert!(ep.contains(&cfg(&["mcp:endpoints:getVariable"])));
+        assert!(!ep.contains(&cfg(&["mcp:endpoints:getResource"])));
+        assert!(!ep.contains(&cfg(&["mcp:all"])));
+        // mcp:all grants all endpoints.
+        assert!(cfg(&["mcp:all"]).contains(&cfg(&["mcp:endpoints:getResource"])));
     }
 }

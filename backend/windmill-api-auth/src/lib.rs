@@ -23,6 +23,8 @@ use windmill_common::{
     },
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
+    jobs::JobTriggerKind,
+    triggers::TriggerMetadata,
     users::username_to_permissioned_as,
     DB,
 };
@@ -31,11 +33,16 @@ use scopes::ScopeDefinition;
 
 // Re-export key auth types and functions
 pub use auth::{
-    get_end_user_email, invalidate_token_from_cache, AuthCache, ExpiringAuthCache, OptTokened,
-    Tokened, TruncatedTokenWithEmail, AUTH_CACHE,
+    get_end_user_email, invalidate_token_from_cache, is_no_auth, AuthCache, ExpiringAuthCache,
+    OptTokened, Tokened, TruncatedTokenWithEmail, AUTH_CACHE,
 };
 
 // ------------ ApiAuthed & OptJobAuthed types ------------
+
+/// Prefix `username_override_from_label` puts on the label of a generic user token. The
+/// override keeps this form even though `display_username` skips it: `require_job_read_access`
+/// matches it against `created_by` to let a token re-read the jobs it launched.
+pub const GENERIC_TOKEN_LABEL_PREFIX: &str = "label-";
 
 #[derive(Default, Clone, Debug)]
 pub struct OptJobAuthed {
@@ -54,6 +61,16 @@ pub struct ApiAuthed {
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
     pub username_override: Option<String>,
+    /// Whether `username_override` is a generic user-token label rather than a name that
+    /// identifies the requester. It cannot be recovered from the value: the ephemeral
+    /// end-user override passes a `created_by` through verbatim, and that may itself be a
+    /// `label-*` string. Only `username_override_from_label` sets it.
+    pub username_override_is_token_label: bool,
+    /// Whether the request authenticated with the session token minted at browser login.
+    /// Read by `trigger_or_fallback` and by `TriggerSource::of_request` (which attributes a
+    /// trigger mutation to the UI) — see `is_session_label` for why it attributes rather than
+    /// proves, and must not gate authority.
+    pub is_session_token: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,
 }
@@ -72,8 +89,43 @@ impl ApiAuthed {
         }
     }
 
+    /// The name a run triggered by this principal is credited to (`v2_job.created_by`). A
+    /// trigger-token override names the entity that fired the request and wins; a generic
+    /// token label does not, so the token owner is credited and stays traceable even when
+    /// `permissioned_as` is an on-behalf-of identity. The audit `end_user` is the override
+    /// itself, label included, so the two diverge for a labeled token.
     pub fn display_username(&self) -> &str {
-        self.username_override.as_ref().unwrap_or(&self.username)
+        match self.username_override.as_deref() {
+            Some(o) if !self.username_override_is_token_label => o,
+            _ => &self.username,
+        }
+    }
+
+    /// Set an override that names the entity acting, e.g. a trigger. Assigning
+    /// `username_override` on its own would keep the provenance flag of whatever this authed
+    /// was built from, and a stale `true` makes `display_username` ignore the new value.
+    pub fn set_acting_username_override(&mut self, username_override: Option<String>) {
+        self.username_override = username_override;
+        self.username_override_is_token_label = false;
+    }
+
+    /// The `trigger_kind` a run started through a `/jobs/run*` route is stamped with: a trigger
+    /// that built its own metadata always wins, and a run driven by any other token — webhooks,
+    /// the CLI, the SDKs — is `webhook`, matching the `wm_trigger.kind` the preprocessor already
+    /// reports for these routes. Derived from the token, never from the request, because the
+    /// column is authority-bearing for other kinds (`app` marks a file as app-produced).
+    ///
+    /// A browser session is left unstamped rather than marked [`JobTriggerKind::Ui`]: that label
+    /// is one a worker built before this release cannot decode, and it would strand the jobs
+    /// carrying it. `webhook` has always been decodable, so it is safe to write today.
+    pub fn trigger_or_fallback(&self, trigger: Option<TriggerMetadata>) -> Option<TriggerMetadata> {
+        if trigger.is_some() {
+            return trigger;
+        }
+        if self.is_session_token {
+            return None;
+        }
+        Some(TriggerMetadata::new(None, JobTriggerKind::Webhook))
     }
 }
 
@@ -103,6 +155,8 @@ impl From<Authed> for ApiAuthed {
             folders: value.folders,
             scopes: value.scopes,
             username_override: None,
+            username_override_is_token_label: false,
+            is_session_token: false,
             token_prefix: value.token_prefix,
             read_only: false,
         }
@@ -205,6 +259,33 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     }
 }
 
+/// Forbid sensitive global user/token management when authenticated as a
+/// superadmin *via a job token* (`WM_TOKEN`).
+///
+/// A `WM_TOKEN`'s identity is derived from an app/flow `on_behalf_of`, which a
+/// non-admin `wm_deployers` member can point at a superadmin. Trusting it for
+/// these operations would let them establish *persistent* superadmin (promote a
+/// user, reset a superadmin's password, mint a superadmin token, ...). `job_id`
+/// is set only for `WM_TOKEN`s; regular session/API tokens have it `None`, so a
+/// real superadmin who needs this from a script uses a dedicated superadmin API
+/// token (which only a real superadmin can create) instead of `$WM_TOKEN`.
+pub async fn forbid_superadmin_job_token(
+    db: &DB,
+    email: &str,
+    job_id: Option<uuid::Uuid>,
+) -> error::Result<()> {
+    if job_id.is_some() && is_super_admin_email(db, email).await? {
+        return Err(Error::NotAuthorized(
+            "This operation cannot be performed with a job token ($WM_TOKEN) that runs as a \
+             superadmin. If a script genuinely needs to do this, create a dedicated superadmin \
+             token from the User settings drawer (the 'Tokens' section), store it as a secret, \
+             and use that token explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
 where
     F: FnOnce() -> String,
@@ -246,6 +327,15 @@ fn scope_restrictions(scopes: Option<&[String]>) -> Option<Vec<&String>> {
         .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
         .collect();
     (!restrictions.is_empty()).then_some(restrictions)
+}
+
+/// True when the token carries no real scope restriction — unscoped, an empty scope
+/// list, or only `if_jobs:filter_tags:` filters — so it holds the full privileges of
+/// its user and can reach any non-job route they are authorized for (mirrors
+/// `check_scopes` / `check_route_access`). A `false` result means the token is
+/// genuinely scope-restricted.
+pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
+    scope_restrictions(scopes).is_none()
 }
 
 /// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
@@ -378,6 +468,9 @@ fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool
     // write subsumes read; otherwise the action must match exactly.
     match (caller.action.as_str(), requested.action.as_str()) {
         (c, r) if c == r || (c == "write" && r == "read") => {}
+        // Apps only: `write` covers `run` (see `ScopeDefinition::includes`), so an
+        // app-editor token can mint the narrower run-only credential.
+        ("write", "run") if caller.domain == "apps" => {}
         _ => return false,
     }
 
@@ -475,6 +568,89 @@ pub fn build_scope_path_predicate(
     }
 }
 
+/// The same `domain:action` path grant as [`build_scope_path_predicate`], decomposed
+/// into what a SQL `WHERE` clause needs so the filtering happens IN the query.
+///
+/// Filtering in SQL rather than dropping rows after the fetch is mandatory wherever
+/// the result is paginated: a post-fetch filter makes a page's size — and any
+/// continuation cursor derived from it — reveal the count of rows the caller cannot
+/// see. `ScopePathFilter::allows` mirrors the emitted SQL, and a cross-check test
+/// pins both to the predicate.
+pub enum ScopePathFilter {
+    /// Unscoped token, or a grant that covers every path: no restriction.
+    AllowAll,
+    /// A path is granted iff it equals an `exact` entry or sits at or under a
+    /// `prefix` (from a `prefix/*` grant, matched on the `/` boundary). Both empty
+    /// grants nothing.
+    Restricted { exact: Vec<String>, prefix: Vec<String> },
+}
+
+impl ScopePathFilter {
+    /// Whether `path` is granted. Mirrors the SQL a caller builds from this filter,
+    /// and the matching rule in `resource_matches_pattern`.
+    pub fn allows(&self, path: &str) -> bool {
+        match self {
+            ScopePathFilter::AllowAll => true,
+            ScopePathFilter::Restricted { exact, prefix } => {
+                exact.iter().any(|e| e == path)
+                    || prefix.iter().any(|p| {
+                        path == p || path.strip_prefix(p).is_some_and(|r| r.starts_with('/'))
+                    })
+            }
+        }
+    }
+}
+
+/// Restrictions equivalent to `build_scope_path_predicate(authed, domain, action)`,
+/// but pushable into SQL. See [`ScopePathFilter`]. Not for `jobs:run` scopes (whose
+/// `kind` dimension this ignores), matching the predicate's path-domain use.
+pub fn build_scope_path_filter(authed: &ApiAuthed, domain: &str, action: &str) -> ScopePathFilter {
+    let (is_scoped_token, parsed): (bool, Vec<ScopeDefinition>) = match authed.scopes.as_ref() {
+        Some(scopes) => {
+            let mut is_scoped = false;
+            let parsed = scopes
+                .iter()
+                .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+                .inspect(|_| is_scoped = true)
+                .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
+                .collect();
+            (is_scoped, parsed)
+        }
+        None => (false, Vec::new()),
+    };
+    if !is_scoped_token {
+        return ScopePathFilter::AllowAll;
+    }
+    let mut exact = Vec::new();
+    let mut prefix = Vec::new();
+    for s in &parsed {
+        if s.domain != domain {
+            continue;
+        }
+        // `write` covers `read`, mirroring ScopeDefinition::includes' action rule.
+        if !(s.action == action || (s.action == "write" && action == "read")) {
+            continue;
+        }
+        match &s.resource {
+            // A domain:action scope with no path part grants every path.
+            None => return ScopePathFilter::AllowAll,
+            Some(resources) => {
+                for r in resources {
+                    // `*` grants every path (resources_match's wildcard short-circuit).
+                    if r == "*" {
+                        return ScopePathFilter::AllowAll;
+                    }
+                    match r.strip_suffix("/*") {
+                        Some(p) => prefix.push(p.to_string()),
+                        None => exact.push(r.clone()),
+                    }
+                }
+            }
+        }
+    }
+    ScopePathFilter::Restricted { exact, prefix }
+}
+
 pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
     let is_devops = is_devops_email(db, email).await?;
 
@@ -514,6 +690,16 @@ pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
     }
     if !path.is_empty() {
         let splitted = path.split("/").collect::<Vec<&str>>();
+        // A valid path is at least `<kind>/<name>` (e.g. `u/alice/...`,
+        // `f/folder/...`). Guard the `splitted[1]` accesses below so a
+        // malformed single-segment path returns a clear error instead of
+        // panicking with an out-of-bounds index.
+        if splitted.len() < 2 {
+            return Err(Error::BadRequest(format!(
+                "Invalid path '{}': a valid path starts with 'u/<user>/' or 'f/<folder>/'",
+                path
+            )));
+        }
         if splitted[0] == "u" {
             if splitted[1] == authed.username {
                 Ok(())
@@ -723,6 +909,8 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 folders: authed.folders,
                 scopes: authed.scopes,
                 username_override: None,
+                username_override_is_token_label: false,
+                is_session_token: false,
                 token_prefix: authed.token_prefix,
                 read_only: false,
             };
@@ -740,7 +928,8 @@ pub async fn fetch_api_authed_from_permissioned_as(
         }
     };
 
-    api_authed.username_override = username_override;
+    // Callers pass a trigger or app identity here, never a token label.
+    api_authed.set_acting_username_override(username_override);
     Ok(api_authed)
 }
 
@@ -996,6 +1185,18 @@ pub fn require_path_read_access_for_preview(
         return Ok(());
     };
 
+    // Reject path traversal before any privilege-based short-circuit. A Preview's
+    // path is request-supplied and bypasses the DB `proper_id` CHECK that deployed
+    // runnables get; it then flows to the worker where it builds on-disk module
+    // directories. A `..` segment or an absolute path could let a write escape the
+    // per-job dir.
+    if path.starts_with('/') || path.split('/').any(|seg| seg == "..") || path.contains('\0') {
+        return Err(Error::BadRequest(format!(
+            "Invalid path for preview job: {}",
+            path
+        )));
+    }
+
     if authed.is_admin {
         return Ok(());
     }
@@ -1053,6 +1254,173 @@ mod tests {
         }
     }
 
+    /// `display_username` is what `push` credits a run to, so a token label standing in for
+    /// it erases the caller from `created_by` and from the audit trail — irrecoverably when
+    /// `permissioned_as` is an on-behalf-of identity that also takes the `username` slot.
+    #[test]
+    fn generic_token_label_credits_the_token_owner() {
+        let owner_of = |label: &str| {
+            let (username_override, username_override_is_token_label) =
+                auth::username_override_from_label(Some(label.to_string()));
+            ApiAuthed {
+                username: "alice".into(),
+                username_override,
+                username_override_is_token_label,
+                ..Default::default()
+            }
+        };
+
+        // Arbitrary user-chosen labels, and the auto-generated MCP OAuth one.
+        assert_eq!(owner_of("my-personal-token").display_username(), "alice");
+        assert_eq!(
+            owner_of("mcp-oauth-mcp-client-9f3a1c").display_username(),
+            "alice"
+        );
+
+        // A trigger-*shaped* label is just as user-settable as any other, so it is credited
+        // the same way. Its value is still kept as the override, for `require_job_read_access`.
+        let webhookish = owner_of("webhook-f/svc/my_script");
+        assert_eq!(webhookish.display_username(), "alice");
+        assert_eq!(
+            webhookish.username_override.as_deref(),
+            Some("webhook-f/svc/my_script")
+        );
+
+        // Only labels `create_token` refuses to mint name the entity that fired the request.
+        assert_eq!(
+            owner_of("ephemeral-webhook-google-abc12").display_username(),
+            "ephemeral-webhook-google-abc12"
+        );
+
+        // Minted by the editor through the public handler, so it names no principal either.
+        assert_eq!(owner_of("Ephemeral lsp token").display_username(), "alice");
+
+        // The SMTP trigger sets its `email-*` identity server-side rather than through a
+        // label, so a token carrying that prefix is just a user token.
+        assert_eq!(owner_of("email-f/team/inbox").display_username(), "alice");
+        assert_eq!(
+            owner_of("ephemeral-script-end-user-enduser42").display_username(),
+            "enduser42"
+        );
+
+        // The end-user token forwards a `created_by` verbatim, and `created_by` is not
+        // constrained to a username — a job launched before the owner was credited still
+        // carries `label-*`. That is an end user, not this token's label, so it stands.
+        assert_eq!(
+            owner_of("ephemeral-script-end-user-label-alice").display_username(),
+            "label-alice"
+        );
+    }
+
+    /// A browser session is the one shape left unstamped, so the Runs page can say "a token
+    /// started this" without claiming the converse. Every other label — every shape a member
+    /// can pass to `create_token` — is `webhook`.
+    #[test]
+    fn only_a_browser_session_is_left_unstamped() {
+        let kind_of = |label: Option<&str>| {
+            ApiAuthed {
+                is_session_token: windmill_common::auth::is_session_label(label),
+                ..Default::default()
+            }
+            .trigger_or_fallback(None)
+            .map(|t| t.trigger_kind.to_string())
+        };
+
+        assert_eq!(kind_of(Some("session")), None);
+
+        for label in [
+            Some("my-personal-token"),
+            Some("webhook-f/svc/my_script"),
+            Some("Ephemeral lsp token"),
+            Some("ephemeral-script"),
+            Some("ephemeral-webhook-google-abc12"),
+            Some("mcp-oauth-mcp-client-9f3a1c"),
+            Some(""),
+            // A label-less token: the job WM_TOKEN, and any token created without one.
+            None,
+        ] {
+            assert_eq!(
+                kind_of(label).as_deref(),
+                Some("webhook"),
+                "label {label:?}"
+            );
+        }
+    }
+
+    /// A trigger that built its own metadata must survive the fallback, or a scheduled or
+    /// routed run started under a personal token would be re-attributed to a webhook.
+    #[test]
+    fn a_real_trigger_wins_over_the_token_fallback() {
+        let authed = ApiAuthed::default();
+        let schedule = TriggerMetadata::new(
+            Some("u/alice/nightly".to_string()),
+            JobTriggerKind::Schedule,
+        );
+
+        let kept = authed.trigger_or_fallback(Some(schedule)).unwrap();
+        assert_eq!(kept.trigger_kind.to_string(), "schedule");
+        assert_eq!(kept.trigger_path.as_deref(), Some("u/alice/nightly"));
+    }
+
+    // Regression tests for the Preview path traversal: a Preview's path skips the
+    // DB `proper_id` CHECK and reaches the worker, where it builds on-disk module
+    // dirs. Traversal must be rejected even for admins, who otherwise bypass the
+    // namespace/folder access check.
+    #[test]
+    fn preview_path_rejects_traversal() {
+        let admin = ApiAuthed { is_admin: true, username: "admin".into(), ..Default::default() };
+        for path in [
+            "u/admin/../../../../../../tmp/evil/payload",
+            "../../tmp/evil",
+            "/tmp/evil",
+            "u/admin/ok/../../../../etc/cron.d/x",
+        ] {
+            assert!(
+                require_path_read_access_for_preview(&admin, &Some(path.to_string())).is_err(),
+                "expected traversal path to be rejected: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn preview_path_allows_legitimate_paths() {
+        let alice = ApiAuthed { username: "alice".into(), ..Default::default() };
+        assert!(require_path_read_access_for_preview(&alice, &None).is_ok());
+        assert!(require_path_read_access_for_preview(&alice, &Some(String::new())).is_ok());
+        assert!(
+            require_path_read_access_for_preview(&alice, &Some("u/alice/my_script".into())).is_ok()
+        );
+
+        let admin = ApiAuthed { is_admin: true, username: "admin".into(), ..Default::default() };
+        assert!(
+            require_path_read_access_for_preview(&admin, &Some("hub/foo/bar/baz".into())).is_ok()
+        );
+        // `..` only as a substring of a segment is a valid name, not traversal.
+        assert!(
+            require_path_read_access_for_preview(&admin, &Some("f/team/my..script".into())).is_ok()
+        );
+    }
+
+    // Regression for WIN-2157: a malformed single-segment path (e.g. a draft
+    // saved at a bare `u`) must return a clear error, not panic on the
+    // `splitted[1]` index. Non-admins reach this branch (admins short-circuit).
+    #[test]
+    fn require_owner_of_path_rejects_malformed_path_without_panicking() {
+        let alice = ApiAuthed { username: "alice".into(), ..Default::default() };
+        for path in ["u", "f", "g", "nonsense"] {
+            let err =
+                require_owner_of_path(&alice, path).expect_err("malformed path must be rejected");
+            assert!(
+                matches!(err, Error::BadRequest(_)),
+                "expected BadRequest for '{path}', got {err:?}"
+            );
+        }
+        // A well-formed foreign path returns the owner error, not a malformed one.
+        assert!(require_owner_of_path(&alice, "u/bob/script").is_err());
+        // The user's own namespace resolves.
+        assert!(require_owner_of_path(&alice, "u/alice/script").is_ok());
+    }
+
     #[test]
     fn predicate_no_scopes_allows_all() {
         let authed = authed_with_scopes(None);
@@ -1101,6 +1469,48 @@ mod tests {
         let allowed = build_scope_path_predicate(&authed, "resources", "read");
         assert!(allowed("u/alice/foo"));
         assert!(!allowed("u/alice/bar"));
+    }
+
+    // The SQL-pushable filter must grant exactly what the post-fetch predicate does:
+    // any divergence either leaks/over-grants (filter looser) or hides authorized
+    // rows (filter tighter). Cross-check both over a matrix of scope sets and paths.
+    #[test]
+    fn scope_path_filter_agrees_with_predicate() {
+        let scope_sets: Vec<Option<Vec<&str>>> = vec![
+            None,
+            Some(vec![]),
+            Some(vec!["if_jobs:filter_tags:default"]),
+            Some(vec!["resources:read"]),
+            Some(vec!["resources:read:*"]),
+            Some(vec!["resources:read:u/alice/foo"]),
+            Some(vec!["resources:read:f/team/*"]),
+            Some(vec!["resources:write:f/team/*"]),
+            Some(vec!["resources:read:u/alice/foo,f/team/*"]),
+            Some(vec!["variables:read:f/team/*"]),
+            Some(vec!["resources:read:f/team", "resources:read:f/team2/*"]),
+        ];
+        let paths = [
+            "u/alice/foo",
+            "u/alice/foobar",
+            "u/bob/foo",
+            "f/team",
+            "f/team/db",
+            "f/team/sub/nested",
+            "f/team2",
+            "f/other/db",
+        ];
+        for scopes in &scope_sets {
+            let authed = authed_with_scopes(scopes.clone());
+            let predicate = build_scope_path_predicate(&authed, "resources", "read");
+            let filter = build_scope_path_filter(&authed, "resources", "read");
+            for path in paths {
+                assert_eq!(
+                    filter.allows(path),
+                    predicate(path),
+                    "mismatch for scopes {scopes:?} path {path}"
+                );
+            }
+        }
     }
 
     fn opt_scopes(scopes: Option<Vec<&str>>) -> Option<Vec<String>> {
@@ -1242,6 +1652,25 @@ mod tests {
             opt_scopes(Some(vec!["users:read", "if_jobs:filter_tags:default"])).as_deref()
         )
         .is_ok());
+        // Apps `write` covers `run`, so an app-editor token can mint the run-only
+        // credential for the same app — but only within its own resource subtree,
+        // and the equivalence stays Apps-only.
+        let app_editor = authed_with_scopes(Some(vec!["apps:write:u/me/a", "jobs:write"]));
+        assert!(ensure_scopes_within_caller(
+            &app_editor,
+            opt_scopes(Some(vec!["apps:run:u/me/a"])).as_deref()
+        )
+        .is_ok());
+        assert!(ensure_scopes_within_caller(
+            &app_editor,
+            opt_scopes(Some(vec!["apps:run:u/me/b"])).as_deref()
+        )
+        .is_err());
+        assert!(ensure_scopes_within_caller(
+            &app_editor,
+            opt_scopes(Some(vec!["jobs:run"])).as_deref()
+        )
+        .is_err());
     }
 
     #[test]

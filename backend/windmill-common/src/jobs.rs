@@ -17,9 +17,9 @@ use crate::{
     flows::get_full_hub_flow_by_path,
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
+    workspaces::workspace_with_fork_ancestors,
     FlowVersionInfo, ScriptHashInfo, Tag,
 };
 
@@ -113,6 +113,12 @@ pub async fn script_path_to_payload<'e>(
                 None,
             )
         } else {
+            let script_info =
+                get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
+                    .await?
+                    .prefetch_cached(&db)
+                    .await?;
+            let on_behalf_of = script_info.on_behalf_of(w_id, &db).await?;
             let ScriptHashInfo {
                 hash,
                 tag,
@@ -130,23 +136,9 @@ pub async fn script_path_to_payload<'e>(
                 delete_after_secs,
                 timeout,
                 has_preprocessor,
-                on_behalf_of_email,
-                created_by,
                 labels,
                 ..
-            } = get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
-                .await?
-                .prefetch_cached(&db)
-                .await?;
-
-            let on_behalf_of = if let Some(email) = on_behalf_of_email {
-                Some(OnBehalfOf {
-                    email,
-                    permissioned_as: username_to_permissioned_as(created_by.as_str()),
-                })
-            } else {
-                None
-            };
+            } = script_info;
 
             (
                 JobPayload::ScriptHash {
@@ -283,6 +275,19 @@ pub fn format_completed_job_result(mut cj: CompletedJob) -> CompletedJob {
     cj
 }
 
+/// `log_file_index` is normally written by the worker as job-id-scoped relative
+/// paths under the windmill log directory. Any code path that lets a request
+/// control this value (e.g. job import) must reject entries that could escape
+/// that directory, otherwise the log-reading endpoints become an arbitrary file
+/// read primitive. Rejects path traversal (`..`) and absolute paths; on-disk
+/// readers additionally refuse symlinks (see `get_logs_from_disk`).
+pub fn is_safe_log_file_path(file_p: &str) -> bool {
+    !file_p.is_empty()
+        && !file_p.starts_with('/')
+        && !file_p.starts_with('\\')
+        && !file_p.split(['/', '\\']).any(|c| c == "..")
+}
+
 pub async fn get_logs_from_disk(
     log_offset: i32,
     logs: &str,
@@ -291,11 +296,16 @@ pub async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
-                    .await
-                    .is_ok()
-                {
+                if !is_safe_log_file_path(file_p) {
                     return None;
+                }
+                let local_file = format!("{}/{file_p}", *WINDMILL_DIR);
+                // Defense in depth: refuse to read through a symlink so a planted
+                // symlink under the log directory cannot exfiltrate arbitrary files.
+                match tokio::fs::symlink_metadata(&local_file).await {
+                    Ok(meta) if meta.file_type().is_symlink() => return None,
+                    Ok(_) => {}
+                    Err(_) => return None,
                 }
             }
 
@@ -343,7 +353,14 @@ pub async fn check_tag_available_for_workspace_internal(
     if custom_tags_per_w.global.contains(&tag.to_string()) {
         is_tag_in_workspace_custom_tags = true;
     } else if let Some(specific_tag) = custom_tags_per_w.specific.get(tag) {
-        is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(w_id);
+        // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
+        // ancestor lookup off the push path entirely.
+        let chain = if specific_tag.is_fork_scoped() {
+            workspace_with_fork_ancestors(db, w_id).await?
+        } else {
+            vec![w_id.to_string()]
+        };
+        is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(&chain);
     }
 
     match is_tag_in_scope_tags {
@@ -439,3 +456,74 @@ pub struct WorkerInternalServerInlineUtils {
 // The server cannot call the worker functions directly because they are independent crates
 pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInlineUtils> =
     OnceCell::new();
+
+/// Deletes the given jobs from `v2_job` together with the side tables that reference it
+/// without an `ON DELETE CASCADE` foreign key.
+///
+/// **Authorization contract:** this helper does NO authorization and NO workspace scoping —
+/// it deletes exactly the `ids` passed, regardless of which workspace they belong to. Callers
+/// MUST ensure `ids` only contains jobs the caller is allowed to delete (either a trusted
+/// internal id set, e.g. a retention batch, or ids already filtered by `workspace_id`).
+/// Passing user-supplied, unvalidated ids would reintroduce the cross-workspace side-row
+/// deletion this centralizes. It is deliberately not workspace-scoped at the signature level
+/// because its primary caller — retention — deletes expired jobs across every workspace at
+/// once; a `workspace_id` parameter cannot express that. (This is the same trust model as the
+/// `ON DELETE CASCADE` FK it replaces: given a job id, the row and its side rows go.)
+///
+/// Those FKs were removed (migration `drop_v2_job_side_table_cascades`) because they turned
+/// every bulk retention delete into a per-row RI trigger; for the unindexed
+/// `flow_conversation_message.job_id` that was a sequential scan per deleted row. The
+/// set-based deletes below cost one scan per table per call instead. Because the cascade no
+/// longer fires, every code path that deletes from `v2_job` by id must go through this helper
+/// (or delete these tables itself) or it will leave orphan rows behind.
+pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> error::Result<()> {
+    sqlx::query!(
+        "DELETE FROM dispatch_event WHERE producer_job_id = ANY($1)",
+        ids
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM flow_conversation_message WHERE job_id = ANY($1)",
+        ids
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!("DELETE FROM zombie_job_counter WHERE job_id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query!("DELETE FROM job_resolution WHERE job_id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_safe_log_file_path;
+
+    #[test]
+    fn safe_log_file_paths_are_accepted() {
+        // Legit worker-written entries are job-id-scoped relative paths.
+        assert!(is_safe_log_file_path(
+            "0190d3e2-0000-7000-8000-000000000000/0.txt"
+        ));
+        assert!(is_safe_log_file_path("logs/abc/chunk1.log"));
+        assert!(is_safe_log_file_path("file..with..dots.txt"));
+    }
+
+    #[test]
+    fn traversal_and_absolute_paths_are_rejected() {
+        assert!(!is_safe_log_file_path(""));
+        assert!(!is_safe_log_file_path("../../../../etc/passwd"));
+        assert!(!is_safe_log_file_path("a/../../etc/passwd"));
+        assert!(!is_safe_log_file_path(".."));
+        assert!(!is_safe_log_file_path("/etc/passwd"));
+        assert!(!is_safe_log_file_path("/proc/self/environ"));
+        assert!(!is_safe_log_file_path("\\windows\\path"));
+        assert!(!is_safe_log_file_path("a\\..\\..\\b"));
+    }
+}

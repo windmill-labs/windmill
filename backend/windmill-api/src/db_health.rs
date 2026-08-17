@@ -15,6 +15,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use windmill_common::error::JsonResult;
+use windmill_common::{JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED};
 
 use crate::db::{ApiAuthed, DB};
 use crate::utils::require_super_admin;
@@ -96,7 +97,34 @@ pub struct ConnectionPoolInfo {
     pub pg_total_connections: i64,
     pub pg_active_connections: i64,
     pub pg_idle_connections: i64,
+    pub pg_superuser_reserved_connections: i64,
     pub status: HealthLevel,
+    pub message: String,
+    /// Connection sizing guidance derived from the live Windmill fleet.
+    pub sizing: ConnectionSizingInfo,
+}
+
+#[derive(Serialize)]
+pub struct ConnectionSizingInfo {
+    /// Live DB-connected worker processes (distinct worker_instance pinged recently).
+    pub live_worker_instances: i64,
+    /// Live individual DB-connected workers across all instances.
+    pub live_workers: i64,
+    /// Live agent workers (HTTP-only, hold no postgres connections; excluded from the estimate).
+    pub live_agent_workers: i64,
+    /// Effective per-server pool ceiling: DATABASE_CONNECTIONS if set, else DEFAULT_MAX_CONNECTIONS_SERVER.
+    pub server_pool_size: i64,
+    /// Effective per-worker-instance pool ceiling (single-worker baseline; grows +1 per extra worker unless DATABASE_CONNECTIONS is set).
+    pub worker_pool_size: i64,
+    /// The DATABASE_CONNECTIONS override, if this server has one set (caps every process's pool).
+    pub database_connections_override: Option<i64>,
+    /// Estimated peak connections opened by all live worker instances.
+    pub estimated_worker_connections: i64,
+    /// Recommended max_connections floor (workers + one server + headroom).
+    pub recommended_max_connections: i64,
+    /// Per-additional-server increment to add to the recommendation.
+    pub per_server_increment: i64,
+    /// Human-readable sizing explanation.
     pub message: String,
 }
 
@@ -264,10 +292,50 @@ async fn fetch_database_size(db: &DB) -> windmill_common::error::Result<Database
 }
 
 async fn fetch_job_retention(db: &DB) -> windmill_common::error::Result<JobRetentionInfo> {
-    let job_row =
-        sqlx::query!("SELECT MIN(completed_at) as oldest, COUNT(*) as total FROM v2_job_completed")
-            .fetch_one(db)
-            .await?;
+    // Per-workspace retention overrides (EE) make "oldest completed job vs the instance retention"
+    // wrong as a single global signal: each override workspace has its own effective window, so its
+    // intentionally-retained jobs must be judged against that window — not the instance one. We
+    // therefore compute the ratio per scope and report the worst:
+    //  - global scope: oldest job across all non-override workspaces vs the instance retention;
+    //  - each override workspace with a *positive* window: its own oldest job vs its own window;
+    //  - keep-forever (0) overrides: excluded entirely — their jobs are retained forever by design,
+    //    so there is no window to fall behind on.
+    // The majority (no-override) path keeps the original index-driven `MIN(completed_at)` with no
+    // performance change; the override paths use the completed_at / (workspace_id, completed_at)
+    // indexes and only run when overrides exist.
+    let overrides = JOB_RETENTION_SECS_OVERRIDES.load_full();
+    let overrides_active = !overrides.is_empty()
+        && JOB_RETENTION_SECS_OVERRIDES_LOADED.load(std::sync::atomic::Ordering::Relaxed);
+
+    // `true_oldest` is the real table minimum across every workspace — reported verbatim in the
+    // public `oldest_completed_at` field so the UI's "Oldest job" label stays honest. `global_oldest`
+    // excludes override workspaces and drives only the global health ratio (override workspaces are
+    // judged against their own window below).
+    type OptTs = Option<chrono::DateTime<chrono::Utc>>;
+    let (true_oldest, global_oldest, total): (OptTs, OptTs, i64) = if !overrides_active {
+        let r = sqlx::query!(
+            "SELECT MIN(completed_at) as oldest, COUNT(*) as total FROM v2_job_completed"
+        )
+        .fetch_one(db)
+        .await?;
+        (r.oldest, r.oldest, r.total.unwrap_or(0))
+    } else {
+        // `MIN(...) WHERE workspace_id <> ALL(...)` is still driven by the completed_at index
+        // (ascending scan, early-stop at the first non-override row); the plain `MIN(...)` is an
+        // index-only scan. Both are cheap.
+        let override_ids: Vec<String> = overrides.keys().cloned().collect();
+        let r = sqlx::query!(
+            "SELECT
+                (SELECT MIN(completed_at) FROM v2_job_completed) as true_oldest,
+                (SELECT MIN(completed_at) FROM v2_job_completed
+                 WHERE workspace_id <> ALL($1::text[])) as global_oldest,
+                (SELECT COUNT(*) FROM v2_job_completed) as total",
+            &override_ids,
+        )
+        .fetch_one(db)
+        .await?;
+        (r.true_oldest, r.global_oldest, r.total.unwrap_or(0))
+    };
 
     let retention_row =
         sqlx::query!("SELECT value FROM global_settings WHERE name = 'retention_period_secs'")
@@ -277,48 +345,103 @@ async fn fetch_job_retention(db: &DB) -> windmill_common::error::Result<JobReten
     let retention_period_secs: Option<i64> =
         retention_row.map(|r| r.value).and_then(|v| v.as_i64());
 
-    let oldest = job_row.oldest;
-    let total = job_row.total.unwrap_or(0);
+    // Oldest job per positive-window override workspace (one grouped seek on the
+    // `(workspace_id, completed_at)` index; only workspaces that actually have rows come back).
+    let positive_override_ids: Vec<String> = if overrides_active {
+        overrides
+            .iter()
+            .filter(|(_, &secs)| secs > 0)
+            .map(|(ws, _)| ws.clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let mut per_workspace_oldest: Vec<(String, chrono::DateTime<chrono::Utc>)> = Vec::new();
+    if !positive_override_ids.is_empty() {
+        let rows = sqlx::query!(
+            "SELECT workspace_id as \"workspace_id!\", MIN(completed_at) as oldest
+             FROM v2_job_completed
+             WHERE workspace_id = ANY($1::text[])
+             GROUP BY workspace_id",
+            &positive_override_ids,
+        )
+        .fetch_all(db)
+        .await?;
+        for r in rows {
+            if let Some(oldest) = r.oldest {
+                per_workspace_oldest.push((r.workspace_id, oldest));
+            }
+        }
+    }
 
-    let (status, message) = if let (Some(oldest_ts), Some(retention_secs)) =
-        (oldest, retention_period_secs)
-    {
-        let age_secs: i64 = (chrono::Utc::now() - oldest_ts).num_seconds();
-        let ratio = if retention_secs > 0 {
-            age_secs as f64 / retention_secs as f64
-        } else {
-            0.0
-        };
+    // Evaluate each scope independently and report the WORST. Each scope contributes a candidate
+    // (severity, level, message); the max-severity candidate wins. This keeps the global scope's
+    // "no retention configured" warning visible even when a healthy override would otherwise mask it.
+    let now = chrono::Utc::now();
+    let ratio_status = |scope: String, ratio: f64| -> (u8, HealthLevel, String) {
         if ratio <= 2.0 {
             (
+                0,
                 HealthLevel::Green,
-                format!(
-                    "Oldest job is {:.1}x the retention period. Cleanup is keeping up.",
-                    ratio
-                ),
+                format!("{scope} is {ratio:.1}x the retention period. Cleanup is keeping up."),
             )
         } else if ratio <= 5.0 {
             (
+                1,
                 HealthLevel::Yellow,
                 format!(
-                    "Oldest job is {:.1}x the retention period. Cleanup may be falling behind.",
-                    ratio
+                    "{scope} is {ratio:.1}x the retention period. Cleanup may be falling behind."
                 ),
             )
         } else {
-            (HealthLevel::Red, format!("Oldest job is {:.1}x the retention period. Consider reducing retention or investigating cleanup.", ratio))
+            (2, HealthLevel::Red, format!("{scope} is {ratio:.1}x the retention period. Consider reducing retention or investigating cleanup."))
         }
-    } else if oldest.is_some() && retention_period_secs.is_none() {
-        (
+    };
+
+    let mut candidates: Vec<(u8, HealthLevel, String)> = Vec::new();
+    // Global scope: judged against the instance retention, or flagged when non-override jobs exist
+    // (`global_oldest` is `Some`) but no positive instance retention is configured. A `0` instance
+    // retention means keep-forever globally, so it contributes no candidate.
+    match (global_oldest, retention_period_secs) {
+        (Some(oldest_ts), Some(retention_secs)) if retention_secs > 0 => {
+            let ratio = (now - oldest_ts).num_seconds() as f64 / retention_secs as f64;
+            candidates.push(ratio_status("Oldest job".to_string(), ratio));
+        }
+        (Some(_), None) => candidates.push((
+            1,
             HealthLevel::Yellow,
             "No retention_period_secs configured. Old jobs will accumulate.".to_string(),
+        )),
+        _ => {}
+    }
+    // Each positive-window override, judged against its own window.
+    for (ws, oldest_ts) in &per_workspace_oldest {
+        if let Some(&window) = overrides.get(ws) {
+            if window > 0 {
+                let ratio = (now - *oldest_ts).num_seconds() as f64 / window as f64;
+                candidates.push(ratio_status(format!("Workspace {ws} oldest job"), ratio));
+            }
+        }
+    }
+
+    let (status, message) = if let Some((_, level, message)) = candidates
+        .into_iter()
+        .max_by_key(|(severity, _, _)| *severity)
+    {
+        (level, message)
+    } else if total > 0 {
+        // Jobs exist but none produced a candidate: every completed job lives in a keep-forever
+        // scope (instance or override), so it is retained by design rather than overdue.
+        (
+            HealthLevel::Green,
+            "Completed jobs are within their configured retention windows.".to_string(),
         )
     } else {
         (HealthLevel::Green, "No completed jobs found.".to_string())
     };
 
     Ok(JobRetentionInfo {
-        oldest_completed_at: oldest,
+        oldest_completed_at: true_oldest,
         total_completed_jobs: total,
         retention_period_secs,
         status,
@@ -379,6 +502,13 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
     .fetch_one(db)
     .await?;
 
+    let reserved = sqlx::query_scalar!(
+        r#"SELECT setting::bigint as "v!" FROM pg_settings WHERE name = 'superuser_reserved_connections'"#
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(0);
+
     let stats_row = sqlx::query!(
         r#"SELECT
             COUNT(*) as "total!",
@@ -389,6 +519,41 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
     )
     .fetch_one(db)
     .await?;
+
+    // Live Windmill worker fleet: each worker pings worker_ping every ~5s; a
+    // window of 30s tolerates a missed ping without counting dead workers.
+    // Agent workers (name prefix "ag-") talk to the API over HTTP and hold no
+    // postgres pool, so they're excluded from the connection estimate and only
+    // reported for context; regular DB-connected workers use the "wk-" prefix.
+    let db_worker_pattern = format!("{}-%", windmill_common::utils::WORKER_NAME_PREFIX);
+    let agent_worker_pattern = format!("{}-%", windmill_common::utils::AGENT_WORKER_NAME_PREFIX);
+    let fleet = sqlx::query!(
+        r#"SELECT
+            COUNT(*) FILTER (WHERE worker LIKE $1) as "live_workers!",
+            COUNT(DISTINCT worker_instance) FILTER (WHERE worker LIKE $1) as "live_instances!",
+            COUNT(*) FILTER (WHERE worker LIKE $2) as "live_agent_workers!"
+        FROM worker_ping
+        WHERE ping_at > now() - interval '30 seconds'"#,
+        db_worker_pattern,
+        agent_worker_pattern,
+    )
+    .fetch_one(db)
+    .await?;
+
+    // Matches how db_connect.rs reads it: when DATABASE_CONNECTIONS is set it caps
+    // every process's pool (server, indexer, worker) regardless of worker count.
+    let database_connections_override = std::env::var("DATABASE_CONNECTIONS")
+        .ok()
+        .and_then(|n| n.parse::<i64>().ok())
+        .filter(|n| *n > 0);
+
+    let sizing = compute_connection_sizing(
+        fleet.live_workers,
+        fleet.live_instances,
+        fleet.live_agent_workers,
+        reserved,
+        database_connections_override,
+    );
 
     let pg_max = max_row;
     let pg_total = stats_row.total;
@@ -438,9 +603,103 @@ async fn fetch_connection_pool(db: &DB) -> windmill_common::error::Result<Connec
         pg_total_connections: pg_total,
         pg_active_connections: pg_active,
         pg_idle_connections: pg_idle,
+        pg_superuser_reserved_connections: reserved,
         status,
         message,
+        sizing,
     })
+}
+
+/// Estimate how many postgres connections the live Windmill fleet can open and
+/// derive a recommended `max_connections` floor.
+///
+/// Pool sizing mirrors `db_connect.rs`: when `DATABASE_CONNECTIONS` is set it
+/// caps *every* process's pool (server, indexer, worker) at that value, so each
+/// worker instance opens up to that many connections. Otherwise each worker
+/// instance shares a pool of `DEFAULT_MAX_CONNECTIONS_WORKER + (workers - 1)`
+/// (fleet ceiling `(worker_pool - 1) * instances + workers`) and each server
+/// opens up to `DEFAULT_MAX_CONNECTIONS_SERVER`.
+///
+/// `database_connections_override` is this server's `DATABASE_CONNECTIONS`, our
+/// best proxy for the fleet's config. Servers do not ping `worker_ping`, so we
+/// can't count them — the recommendation assumes one server and exposes the
+/// per-server increment so the operator can add capacity for the rest.
+///
+/// `live_agent_workers` is reported for context only: agent workers reach the
+/// API over HTTP and open no postgres connections, so they never contribute to
+/// the estimate.
+fn compute_connection_sizing(
+    live_workers: i64,
+    live_instances: i64,
+    live_agent_workers: i64,
+    reserved: i64,
+    database_connections_override: Option<i64>,
+) -> ConnectionSizingInfo {
+    // Never recommend below this floor: postgres defaults to 100 and headroom
+    // for growth/bursts/psql is cheap, so 200 is a safe baseline for any fleet.
+    const MIN_RECOMMENDED_MAX_CONNECTIONS: i64 = 200;
+
+    let default_server_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_SERVER as i64;
+    let default_worker_pool = windmill_common::DEFAULT_MAX_CONNECTIONS_WORKER as i64;
+
+    let (server_pool, worker_pool_size, estimated_worker_connections) =
+        match database_connections_override {
+            // Override caps every process identically; per-instance pool is the override.
+            Some(n) => (n, n, n * live_instances),
+            None => (
+                default_server_pool,
+                default_worker_pool,
+                (default_worker_pool - 1) * live_instances + live_workers,
+            ),
+        };
+
+    // Workers + one server, plus 20% headroom and the superuser reserve, so the
+    // recommendation leaves room for psql/monitoring sessions and bursts, then
+    // floored at MIN_RECOMMENDED_MAX_CONNECTIONS.
+    let base = estimated_worker_connections + server_pool;
+    let recommended = ((((base as f64) * 1.20).ceil() as i64) + reserved.max(3))
+        .max(MIN_RECOMMENDED_MAX_CONNECTIONS);
+
+    let pool_source = if database_connections_override.is_some() {
+        format!("DATABASE_CONNECTIONS={server_pool}")
+    } else {
+        "defaults, configurable via DATABASE_CONNECTIONS".to_string()
+    };
+
+    let message = if live_instances == 0 {
+        format!(
+            "No live workers detected. Each Windmill server and worker instance opens up to {server_pool} connections ({pool_source}). Size max_connections as (servers + worker instances) × {server_pool} + ~20% headroom, and at least {MIN_RECOMMENDED_MAX_CONNECTIONS}."
+        )
+    } else {
+        let per_instance = if database_connections_override.is_some() {
+            format!("each instance up to {worker_pool_size}")
+        } else {
+            format!("each instance up to {worker_pool_size}, +1 per extra worker")
+        };
+        let agent_note = if live_agent_workers > 0 {
+            format!(
+                " ({live_agent_workers} agent worker(s) excluded — they use HTTP, not postgres connections.)"
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            "{live_workers} live worker(s) across {live_instances} instance(s) can open up to ~{estimated_worker_connections} connections ({per_instance}; {pool_source}). Each Windmill server adds up to {server_pool}. Recommended max_connections ≥ {recommended} for a single server; add {server_pool} per additional server.{agent_note}"
+        )
+    };
+
+    ConnectionSizingInfo {
+        live_worker_instances: live_instances,
+        live_workers,
+        live_agent_workers,
+        server_pool_size: server_pool,
+        worker_pool_size,
+        database_connections_override,
+        estimated_worker_connections,
+        recommended_max_connections: recommended,
+        per_server_increment: server_pool,
+        message,
+    }
 }
 
 async fn fetch_table_maintenance(
@@ -637,4 +896,92 @@ async fn fetch_datatables(db: &DB) -> windmill_common::error::Result<Vec<Datatab
     // Sort by size descending
     result.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_connection_sizing;
+
+    #[test]
+    fn no_workers_reports_defaults_and_floors_at_200() {
+        let s = compute_connection_sizing(0, 0, 0, 3, None);
+        assert_eq!(s.live_workers, 0);
+        assert_eq!(s.live_worker_instances, 0);
+        assert_eq!(s.live_agent_workers, 0);
+        assert_eq!(s.estimated_worker_connections, 0);
+        assert_eq!(s.server_pool_size, 50);
+        assert_eq!(s.worker_pool_size, 5);
+        assert_eq!(s.database_connections_override, None);
+        assert_eq!(s.per_server_increment, 50);
+        // ceil((0 + 50) * 1.20) + 3 = 63, floored up to 200.
+        assert_eq!(s.recommended_max_connections, 200);
+        assert!(s.message.contains("No live workers"));
+    }
+
+    #[test]
+    fn single_worker_single_instance_floors_at_200() {
+        let s = compute_connection_sizing(1, 1, 0, 3, None);
+        // (5 - 1) * 1 instance + 1 worker = 5
+        assert_eq!(s.estimated_worker_connections, 5);
+        // ceil((5 + 50) * 1.20) + 3 = 66 + 3 = 69, floored up to 200.
+        assert_eq!(s.recommended_max_connections, 200);
+    }
+
+    #[test]
+    fn multi_worker_instances_sum_per_instance_pools() {
+        // Two instances, 5 workers total: pools are (4 + w_i) summed = 4*2 + 5 = 13.
+        let s = compute_connection_sizing(5, 2, 0, 3, None);
+        assert_eq!(s.estimated_worker_connections, 13);
+    }
+
+    #[test]
+    fn large_fleet_exceeds_floor_with_margin_and_reserve() {
+        // 300 workers across 10 instances: (5-1)*10 + 300 = 340 worker connections.
+        let s = compute_connection_sizing(300, 10, 0, 3, None);
+        assert_eq!(s.estimated_worker_connections, 340);
+        // ceil((340 + 50) * 1.20) + 3 = ceil(468.0) + 3 = 471, above the 200 floor.
+        assert_eq!(s.recommended_max_connections, 471);
+    }
+
+    #[test]
+    fn reserved_above_default_widens_recommendation() {
+        // Big enough fleet that the floor doesn't mask the reserved contribution.
+        let base = compute_connection_sizing(300, 10, 0, 3, None);
+        let high = compute_connection_sizing(300, 10, 0, 20, None);
+        assert_eq!(
+            high.recommended_max_connections - base.recommended_max_connections,
+            17
+        );
+    }
+
+    #[test]
+    fn database_connections_override_caps_every_process() {
+        // DATABASE_CONNECTIONS=100 means each instance opens up to 100, not the
+        // default 5-based estimate. 5 instances -> 500 worker connections.
+        let s = compute_connection_sizing(20, 5, 0, 3, Some(100));
+        assert_eq!(s.server_pool_size, 100);
+        assert_eq!(s.worker_pool_size, 100);
+        assert_eq!(s.database_connections_override, Some(100));
+        assert_eq!(s.estimated_worker_connections, 500);
+        assert_eq!(s.per_server_increment, 100);
+        // ceil((500 + 100) * 1.20) + 3 = 720 + 3 = 723.
+        assert_eq!(s.recommended_max_connections, 723);
+        assert!(s.message.contains("DATABASE_CONNECTIONS=100"));
+    }
+
+    #[test]
+    fn agent_workers_are_excluded_from_the_estimate() {
+        // 50 agent workers alongside 2 DB workers/2 instances: only the DB
+        // workers count toward connections; the agent count is reported.
+        let s = compute_connection_sizing(2, 2, 50, 3, None);
+        assert_eq!(s.live_agent_workers, 50);
+        // (5 - 1) * 2 + 2 = 10, agent workers contribute nothing.
+        assert_eq!(s.estimated_worker_connections, 10);
+        let without_agents = compute_connection_sizing(2, 2, 0, 3, None);
+        assert_eq!(
+            s.recommended_max_connections,
+            without_agents.recommended_max_connections
+        );
+        assert!(s.message.contains("50 agent worker(s) excluded"));
+    }
 }

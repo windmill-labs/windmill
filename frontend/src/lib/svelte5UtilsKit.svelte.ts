@@ -9,7 +9,7 @@ export type SearchParamsResult<S extends z.ZodType> =
 		: z.infer<S> & Record<string, unknown>
 
 /** Serialize a value to a URL search param string. Primitives are written as-is; anything else is JSON. */
-function serializeParam(value: unknown): string {
+export function serializeParam(value: unknown): string {
 	if (typeof value === 'string') return value
 	if (typeof value === 'number') return String(value)
 	if (typeof value === 'boolean') return String(value)

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n            SELECT 1 FROM workspace\n            WHERE id = $1 AND parent_workspace_id = $2 AND is_dev_workspace\n        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bfa4fb5998dec9baf89a2d950186e2dc9c0aecf7831ce66082a40f17cc5ac0de"
+}

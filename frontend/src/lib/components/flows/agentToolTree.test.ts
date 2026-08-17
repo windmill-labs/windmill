@@ -11,6 +11,7 @@ vi.mock('./flowInfers', () => ({
 import type { FlowModule } from '$lib/gen'
 import {
 	collectFlowNodeIds,
+	collectProviderlessAgentIds,
 	findAgentToolOwner,
 	removeAgentToolOwner
 } from './agentToolTree'
@@ -101,5 +102,39 @@ describe('collectFlowNodeIds', () => {
 			'support_agent',
 			'create_ticket'
 		])
+	})
+})
+
+describe('collectProviderlessAgentIds', () => {
+	const provider = { type: 'static', value: { kind: 'openai', model: 'gpt-4o' } }
+	const agent = (id: string, value: Record<string, unknown>) => ({
+		id,
+		value: { type: 'aiagent', input_transforms: {}, ...value }
+	})
+
+	it('a linked agent needs no provider of its own', () => {
+		expect(collectProviderlessAgentIds([agent('a', { agent: 'f/team/my_agent' })])).toEqual([])
+	})
+
+	it('a standalone agent with a provider is fine', () => {
+		expect(
+			collectProviderlessAgentIds([agent('a', { input_transforms: { provider }, tools: [] })])
+		).toEqual([])
+	})
+
+	it('a standalone agent without a provider is reported', () => {
+		expect(collectProviderlessAgentIds([agent('a', { tools: [] })])).toEqual(['a'])
+	})
+
+	it('nested agent tools and branches are traversed', () => {
+		const nested = agent('parent', {
+			input_transforms: { provider },
+			tools: [agent('nested', { tools: [] })]
+		})
+		expect(
+			collectProviderlessAgentIds([
+				{ id: 'b', value: { type: 'branchall', branches: [{ modules: [nested] }] } }
+			])
+		).toEqual(['nested'])
 	})
 })

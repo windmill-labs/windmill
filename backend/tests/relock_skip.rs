@@ -14,6 +14,7 @@ mod relock_skip {
         parent_hash: Option<String>,
     ) -> NewScript {
         NewScript {
+            draft_only: None,
             content: content.into(),
             language,
             lock,
@@ -24,7 +25,6 @@ mod relock_skip {
             cache_ttl: None,
             dedicated_worker: None,
             description: "".to_string(),
-            draft_only: None,
             envs: vec![],
             is_template: None,
             kind: None,

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT inflight_bytes, target_existing_size FROM workspace_multipart_inflight\n         WHERE workspace_id = $1 AND upload_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "inflight_bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "target_existing_size",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a8019c47b15baa9497ae44935456fea272ac289fc17ea9fc5aa237f77778b58f"
+}

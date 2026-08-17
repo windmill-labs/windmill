@@ -1,139 +1,68 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { tick } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
+	import type { HTMLInputAttributes } from 'svelte/elements'
+
 	let {
 		prefix = '',
-		value = $bindable(''),
+		value = $bindable(),
 		placeholder = '',
+		error = false,
+		autofocus = false,
 		class: className = '',
 		...restProps
-	} = $props()
+	}: {
+		prefix?: string
+		value: string
+		placeholder?: string
+		// Red border, matching TextInput's error styling.
+		error?: boolean
+		autofocus?: boolean
+		class?: string
+	} & Omit<
+		HTMLInputAttributes,
+		'prefix' | 'value' | 'placeholder' | 'autofocus' | 'class'
+	> = $props()
 
-	let inputElement: HTMLInputElement = $state(null!)
-	let internalValue = $state(untrack(() => prefix) + value)
+	let inputElement: HTMLInputElement | undefined = $state()
 
-	// Update internal value when prop changes
+	// Programmatic focus: the native autofocus attribute is unreliable on content
+	// mounted after page load (e.g. inside a modal).
 	$effect(() => {
-		internalValue = prefix + value
+		if (!autofocus) return
+		void tick().then(() => {
+			inputElement?.focus()
+			inputElement?.select()
+		})
 	})
 
-	function handleInput(e) {
-		const newValue = e.target.value
-
-		// Ensure the value always starts with the prefix
-		if (newValue.startsWith(prefix)) {
-			internalValue = newValue
-			value = newValue.slice(prefix.length)
-		} else {
-			internalValue = prefix
-			value = ''
-			// Reset cursor position
-			if (inputElement) {
-				inputElement.value = prefix
-				inputElement.setSelectionRange(prefix.length, prefix.length)
-			}
-		}
-	}
-
-	function handleKeyDown(e) {
-		const cursorPos = e.target.selectionStart
-		const selectionEnd = e.target.selectionEnd
-
-		// Prevent backspace if cursor is at or before prefix end
-		if (e.key === 'Backspace') {
-			if (cursorPos <= prefix.length && selectionEnd <= prefix.length) {
-				e.preventDefault()
-			} else if (cursorPos <= prefix.length && selectionEnd > prefix.length) {
-				// If selection spans across prefix, only delete after prefix
-				e.preventDefault()
-				const newValue = prefix + internalValue.slice(selectionEnd)
-				internalValue = newValue
-				value = newValue.slice(prefix.length)
-				// Set cursor position after prefix
-				setTimeout(() => {
-					inputElement.setSelectionRange(prefix.length, prefix.length)
-				}, 0)
-			}
-		}
-
-		// Prevent delete key within prefix
-		if (e.key === 'Delete' && cursorPos < prefix.length) {
-			e.preventDefault()
-		}
-
-		// Prevent selecting all (Ctrl+A) from selecting the prefix
-		if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-			e.preventDefault()
-			inputElement.setSelectionRange(prefix.length, internalValue.length)
-		}
-	}
-
-	function handleClick() {
-		// Prevent cursor from being placed within prefix
-		if ((inputElement.selectionStart ?? 0) < prefix.length) {
-			inputElement.setSelectionRange(prefix.length, prefix.length)
-		}
-	}
-
-	function handleFocus() {
-		// Ensure cursor starts after prefix when focusing
-		if ((inputElement.selectionStart ?? 0) < prefix.length) {
-			inputElement.setSelectionRange(prefix.length, prefix.length)
-		}
-	}
-
-	function handlePaste(e) {
-		e.preventDefault()
-		const pasteData = e.clipboardData.getData('text')
-		const cursorPos = inputElement.selectionStart ?? 0
-		const selectionEnd = inputElement.selectionEnd ?? 0
-
-		if (cursorPos < prefix.length) {
-			// Paste at the end of prefix
-			internalValue = prefix + pasteData + internalValue.slice(prefix.length)
-		} else {
-			// Normal paste
-			internalValue =
-				internalValue.slice(0, cursorPos) + pasteData + internalValue.slice(selectionEnd)
-		}
-
-		value = internalValue.slice(prefix.length)
-
-		// Set cursor position after pasted content
-		const newCursorPos = Math.max(prefix.length, cursorPos) + pasteData.length
-		setTimeout(() => {
-			inputElement.setSelectionRange(newCursorPos, newCursorPos)
-		}, 0)
-	}
+	const borderClasses = $derived(
+		error
+			? 'border !border-red-300 dark:!border-red-400/45 focus-within:!border-red-400 hover:!border-red-500 dark:hover:!border-red-400/75'
+			: 'border border-border-light hover:border-border-selected/50 focus-within:border-border-selected'
+	)
 </script>
 
-<input
-	bind:this={inputElement}
-	type="text"
-	{placeholder}
-	class="prefixed-input {className}"
-	value={internalValue}
-	oninput={handleInput}
-	onkeydown={handleKeyDown}
-	onclick={handleClick}
-	onfocus={handleFocus}
-	onpaste={handlePaste}
-	{...restProps}
-/>
-
-<style>
-	.prefixed-input {
-		/* Default styles - can be overridden by class prop */
-		padding: 8px 12px;
-		border: 1px solid #ccc;
-		border-radius: 4px;
-		font-size: 14px;
-		width: 100%;
-		box-sizing: border-box;
-	}
-
-	.prefixed-input:focus {
-		outline: none;
-		border-color: #4caf50;
-		box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
-	}
-</style>
+<!-- The prefix renders outside the <input> (non-editable) while the wrapper
+     carries the input look, so the two read as a single field. The bound value
+     is only the editable part after the prefix. The prefix is text-tertiary:
+     lighter than typed text but darker than the hint-colored placeholder, so
+     the fixed prefix doesn't read as placeholder. -->
+<div
+	class={twMerge(
+		'flex items-center w-full min-h-8 px-2 rounded-md text-xs font-normal cursor-text',
+		'bg-surface-input transition-colors',
+		borderClasses,
+		className
+	)}
+>
+	<span class="text-tertiary select-none shrink-0" aria-hidden="true">{prefix}</span>
+	<input
+		bind:this={inputElement}
+		type="text"
+		{placeholder}
+		bind:value
+		class="no-default-style grow min-w-0 !p-0 !border-none !outline-none focus:!ring-0 !bg-transparent text-xs text-primary !placeholder-hint"
+		{...restProps}
+	/>
+</div>

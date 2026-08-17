@@ -31,12 +31,21 @@ this component just proposes new values.
 		/** Shown when `value` is empty, in both idle and editing modes. */
 		placeholder?: string
 		/**
-		 * Called when the user commits a changed value (Enter or blur). Fires
-		 * with the trimmed draft, including `''` if the user cleared the field.
-		 * Not called on Escape, or on blur when the trimmed draft matches the
-		 * prior `value`. Guard against empty in your handler if needed.
+		 * Called when the user commits a changed value (Enter or blur, or every
+		 * keystroke when {@link commitOnInput} is set). Fires with the trimmed
+		 * draft, including `''` if the user cleared the field. Not called on
+		 * Escape, or when the trimmed draft matches the prior `value`. Guard
+		 * against empty in your handler if needed.
 		 */
 		onSave?: (newValue: string) => void
+		/**
+		 * Fire `onSave` on every keystroke (still trimmed, still de-duped against
+		 * the prior `value`) instead of only on Enter/blur. Use when the parent
+		 * autosaves the field and the user expects edits to land live rather than
+		 * on focus-out. Escape no longer discards (live commits already
+		 * propagated). Off by default to preserve the commit-on-blur contract.
+		 */
+		commitOnInput?: boolean
 		/** When false, the component renders as plain text (not clickable). Default true. */
 		editable?: boolean
 		/** TextInput size in editing mode. Idle mode is unaffected (text only). */
@@ -57,6 +66,7 @@ this component just proposes new values.
 		value,
 		placeholder = '',
 		onSave,
+		commitOnInput = false,
 		editable = true,
 		size = 'sm',
 		class: className = '',
@@ -104,6 +114,15 @@ this component just proposes new values.
 		if (e.key === 'Enter') save()
 		else if (e.key === 'Escape') editing = false
 	}
+
+	// Live commit: propagate each keystroke to the parent (trimmed, de-duped)
+	// so an autosaving field updates as you type instead of only on focus-out.
+	// Reads the DOM value directly so it's correct regardless of the `bind:value`
+	// update order.
+	function handleLiveInput(e: Event) {
+		const next = (e.currentTarget as HTMLInputElement).value.trim()
+		if (next !== (value ?? '')) onSave?.(next)
+	}
 </script>
 
 {#if editing}
@@ -120,6 +139,7 @@ this component just proposes new values.
 				placeholder,
 				onblur: save,
 				onkeydown: handleKeydown,
+				oninput: commitOnInput ? handleLiveInput : undefined,
 				spellcheck: false,
 				size: 1,
 				style: 'padding: 2px !important; grid-area: 1 / 1'

@@ -1,205 +1,30 @@
-<script module lang="ts">
-	import type {
-		TableEditorValues,
-		TableEditorValuesColumn,
-		TableEditorForeignKey
-	} from '$lib/components/apps/components/display/dbtable/tableEditor'
-	import {
-		diffTableEditorValues,
-		type AlterTableValues,
-		makeAlterTableQueries
-	} from '$lib/components/apps/components/display/dbtable/queries/alterTable'
-	import { renderForeignKey } from '$lib/components/apps/components/display/dbtable/queries/dbQueriesUtils'
-	import type { GetDatatableFullSchemaResponse } from '$lib/gen'
-
-	export type DatabaseSchema = Record<string, Record<string, TableEditorValues>>
-
-	export function apiSchemaToEditorSchema(
-		apiSchema: GetDatatableFullSchemaResponse
-	): DatabaseSchema {
-		const result: DatabaseSchema = {}
-		for (const [schemaName, tables] of Object.entries(apiSchema)) {
-			result[schemaName] = {}
-			for (const [tableName, table] of Object.entries(tables as Record<string, any>)) {
-				if (!table || typeof table !== 'object') continue
-				result[schemaName][tableName] = {
-					name: table.name ?? tableName,
-					columns: (table.columns ?? []).map(
-						(c: any): TableEditorValuesColumn => ({
-							name: c.name,
-							datatype: c.datatype,
-							primaryKey: c.primary_key ?? c.primaryKey,
-							defaultValue: c.default_value ?? c.defaultValue,
-							nullable: c.nullable
-						})
-					),
-					foreignKeys: (table.foreign_keys ?? table.foreignKeys ?? []).map(
-						(fk: any): TableEditorForeignKey => ({
-							targetTable: fk.target_table ?? fk.targetTable,
-							columns: (fk.columns ?? []).map((col: any) => ({
-								sourceColumn: col.source_column ?? col.sourceColumn,
-								targetColumn: col.target_column ?? col.targetColumn
-							})),
-							onDelete: (fk.on_delete ?? fk.onDelete ?? 'NO ACTION') as
-								| 'CASCADE'
-								| 'SET NULL'
-								| 'NO ACTION',
-							onUpdate: (fk.on_update ?? fk.onUpdate ?? 'NO ACTION') as
-								| 'CASCADE'
-								| 'SET NULL'
-								| 'NO ACTION',
-							fk_constraint_name: fk.fk_constraint_name
-						})
-					),
-					pk_constraint_name: table.pk_constraint_name
-				}
-			}
-		}
-		return result
-	}
-
-	export type TableDiff = {
-		schemaName: string
-		tableName: string
-		kind: 'added' | 'removed' | 'modified'
-		operations?: AlterTableValues
-	}
-
-	export type DatatableDiff = {
-		datatableName: string
-		aheadChanges: TableDiff[]
-		behindChanges: TableDiff[]
-		originalSchema: DatabaseSchema
-		parentSchema: DatabaseSchema
-		forkSchema: DatabaseSchema
-	}
-
-	export function diffDatabaseSchemas(
-		original: DatabaseSchema,
-		current: DatabaseSchema
-	): TableDiff[] {
-		const diffs: TableDiff[] = []
-		const allSchemas = new Set([...Object.keys(original), ...Object.keys(current)])
-		for (const schemaName of allSchemas) {
-			const origTables = original[schemaName] ?? {}
-			const currTables = current[schemaName] ?? {}
-			const allTables = new Set([...Object.keys(origTables), ...Object.keys(currTables)])
-			for (const tableName of allTables) {
-				const origTable = origTables[tableName]
-				const currTable = currTables[tableName]
-				if (!origTable && currTable) {
-					diffs.push({ schemaName, tableName, kind: 'added' })
-				} else if (origTable && !currTable) {
-					diffs.push({ schemaName, tableName, kind: 'removed' })
-				} else if (origTable && currTable) {
-					const currWithInitial: TableEditorValues = {
-						...currTable,
-						columns: currTable.columns.map((col) => ({
-							...col,
-							initialName: col.name,
-							defaultValue: col.defaultValue ? `{${col.defaultValue}}` : undefined
-						}))
-					}
-					const origTableTransformed: TableEditorValues = {
-						...origTable,
-						columns: origTable.columns.map((col) => ({
-							...col,
-							defaultValue: col.defaultValue ? `{${col.defaultValue}}` : undefined
-						}))
-					}
-					const diff = diffTableEditorValues(origTableTransformed, currWithInitial)
-					if (diff.operations.length > 0) {
-						diffs.push({ schemaName, tableName, kind: 'modified', operations: diff })
-					}
-				}
-			}
-		}
-		return diffs
-	}
-
-	export function computeDatatableDiff(
-		datatableName: string,
-		originalSchema: DatabaseSchema,
-		parentSchema: DatabaseSchema,
-		forkSchema: DatabaseSchema
-	): DatatableDiff {
-		return {
-			datatableName,
-			behindChanges: diffDatabaseSchemas(originalSchema, parentSchema),
-			aheadChanges: diffDatabaseSchemas(originalSchema, forkSchema),
-			originalSchema,
-			parentSchema,
-			forkSchema
-		}
-	}
-
-	/** Detect PostgreSQL auto-increment columns and return the serial type + cleaned props.
-	 *  e.g. bigint + nextval('seq'::regclass) → BIGSERIAL (no DEFAULT needed) */
-	function resolveColumnType(c: TableEditorValuesColumn): {
-		datatype: string
-		defaultValue: string | undefined
-	} {
-		const dv = c.defaultValue ?? ''
-		if (/^{?nextval\(/.test(dv)) {
-			const dt = c.datatype?.toLowerCase() ?? ''
-			if (dt === 'bigint') return { datatype: 'BIGSERIAL', defaultValue: undefined }
-			if (dt === 'integer' || dt === 'int') return { datatype: 'SERIAL', defaultValue: undefined }
-			if (dt === 'smallint') return { datatype: 'SMALLSERIAL', defaultValue: undefined }
-		}
-		return { datatype: c.datatype, defaultValue: c.defaultValue }
-	}
-
-	export function generateMigrationSql(change: TableDiff, sourceSchema: DatabaseSchema): string {
-		if (change.kind === 'modified' && change.operations) {
-			const queries = makeAlterTableQueries(change.operations, 'postgresql', change.schemaName)
-			if (queries.length === 0) return ''
-			return 'BEGIN;\n' + queries.join('\n') + '\nCOMMIT;'
-		}
-		if (change.kind === 'added') {
-			const table = sourceSchema[change.schemaName]?.[change.tableName]
-			if (!table) return ''
-			const colDefs = table.columns
-				.map((c) => {
-					const { datatype, defaultValue } = resolveColumnType(c)
-					let def = `"${c.name}" ${datatype}`
-					if (c.nullable === false) def += ' NOT NULL'
-					if (defaultValue) def += ` DEFAULT ${defaultValue}`
-					return def
-				})
-				.join(',\n  ')
-			const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => `"${c.name}"`)
-			const pkLine = pkCols.length > 0 ? `,\n  PRIMARY KEY (${pkCols.join(', ')})` : ''
-			const qualifiedName = `"${change.schemaName}"."${change.tableName}"`
-			let sql = `BEGIN;\nCREATE TABLE ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
-			for (const fk of table.foreignKeys ?? []) {
-				const fkSql = renderForeignKey(fk, {
-					useSchema: true,
-					dbType: 'postgresql',
-					tableName: change.tableName
-				})
-				sql += `\nALTER TABLE ${qualifiedName} ADD ${fkSql};`
-			}
-			sql += '\nCOMMIT;'
-			return sql
-		}
-		if (change.kind === 'removed') {
-			return `BEGIN;\nDROP TABLE IF EXISTS "${change.schemaName}"."${change.tableName}";\nCOMMIT;`
-		}
-		return ''
-	}
-</script>
-
 <script lang="ts">
+	import {
+		apiSchemaToEditorSchema,
+		computeDatatableDiff,
+		generateMigrationSql,
+		type DatatableDiff,
+		type TableDiff
+	} from './datatableSchemaSql'
 	import { WorkspaceService } from '$lib/gen'
 	import { Loader2, ChevronDown, ChevronRight, Plus, Minus, Pencil, Eye } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { userWorkspaces } from '$lib/stores'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
+	import { writingJobOptions } from '$lib/components/jobs/writingJob'
 	import YAML from 'yaml'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from './common/confirmationModal/asyncConfirmationModal.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import {
+		pendingMigrations,
+		outOfOrderRunMessage
+	} from './workspaceSettings/datatableMigrationUtils'
 	import Alert from './common/alert/Alert.svelte'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 
@@ -210,9 +35,19 @@
 
 	let { currentWorkspaceId, parentWorkspaceId }: Props = $props()
 
+	let currentNoun = $derived(
+		childWorkspaceNoun($userWorkspaces.find((w) => w.id === currentWorkspaceId))
+	)
+	let currentNounCap = $derived(currentNoun.charAt(0).toUpperCase() + currentNoun.slice(1))
+
 	let loading = $state(true)
 	let error: string | undefined = $state(undefined)
 	let diffs: DatatableDiff[] = $state([])
+	// Number of forked datatables this schema-diff section applies to: those that
+	// have NOT opted in to the migrations feature. When a datatable enables
+	// migrations, its changes flow through the normal item diff instead, so it is
+	// excluded here and the whole section hides once none remain.
+	let applicableCount = $state(0)
 	let expandedDatatables: Set<string> = $state(new Set())
 
 	// Drawer state
@@ -223,6 +58,7 @@
 	let migrationSql = $state('')
 	let migrationRunning = $state(false)
 	let confirmDeployOpen = $state(false)
+	const outOfOrderModal = createAsyncConfirmationModal()
 
 	async function loadDiffs() {
 		loading = true
@@ -233,7 +69,10 @@
 				workspace: currentWorkspaceId
 			})
 			const datatables = forkSettings.datatable?.datatables ?? {}
-			const forkedEntries = Object.entries(datatables).filter(([_, dt]) => dt.forked_from != null)
+			const forkedEntries = Object.entries(datatables).filter(
+				([_, dt]) => dt.forked_from != null && dt.migrations_enabled !== true
+			)
+			applicableCount = forkedEntries.length
 			if (forkedEntries.length === 0) {
 				loading = false
 				return
@@ -343,14 +182,71 @@
 		const dtName = drawerDiff.datatableName
 
 		try {
-			await runScriptAndPollResult({
+			// If the target data table opted in to migrations, record this merge as a
+			// tracked migration (named after the fork) and run it, instead of applying
+			// raw SQL that would bypass the target's migration history.
+			// Don't swallow a status-check failure by defaulting to raw apply: that
+			// would apply the DDL untracked (schema drift) — exactly what this feature
+			// prevents. Let the error propagate (fail closed, handled by the outer
+			// catch); only fall back to raw apply when the API explicitly returns
+			// enabled === false.
+			const status = await WorkspaceService.getDatatableMigrationsStatus({
 				workspace: targetWorkspace,
-				requestBody: {
-					args: { database: `datatable://${dtName}` },
-					language: 'postgresql',
-					content: migrationSql
-				}
+				datatableName: dtName
 			})
+
+			if (status.enabled) {
+				// The merge migration gets the highest timestamp, so any still-pending
+				// migration on the target is earlier: running only the merge applies it
+				// out of order. Warn like the row-level Run action does.
+				const pending = pendingMigrations(status.migrations)
+				if (pending.length > 0) {
+					const confirmed = await outOfOrderModal.ask({
+						title: 'Run migration out of order',
+						confirmationText: 'Run anyway',
+						children: outOfOrderRunMessage(pending.length)
+					})
+					if (!confirmed) {
+						migrationRunning = false
+						return
+					}
+				}
+				const forkName =
+					$userWorkspaces.find((w) => w.id === currentWorkspaceId)?.name || currentWorkspaceId
+				const migName = `merge_${forkName}`.replace(/[^a-zA-Z0-9_-]+/g, '_')
+				const created = await WorkspaceService.createDatatableMigration({
+					workspace: targetWorkspace,
+					datatableName: dtName,
+					requestBody: { name: migName, code_up: migrationSql }
+				})
+				try {
+					await WorkspaceService.runDatatableMigrations({
+						workspace: targetWorkspace,
+						datatableName: dtName,
+						only: created.timestamp
+					})
+				} catch (runErr: any) {
+					// Undo the insertion so the user can fix and retry from a clean state.
+					await WorkspaceService.deleteDatatableMigration({
+						workspace: targetWorkspace,
+						datatableName: dtName,
+						timestamp: created.timestamp
+					}).catch(() => {})
+					throw runErr
+				}
+			} else {
+				await runScriptAndPollResult(
+					{
+						workspace: targetWorkspace,
+						requestBody: {
+							args: { database: `datatable://${dtName}` },
+							language: 'postgresql',
+							content: migrationSql
+						}
+					},
+					writingJobOptions
+				)
+			}
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 			migrationRunning = false
@@ -394,102 +290,108 @@
 	}
 </script>
 
-<h3 class="text-sm font-semibold">Datatable schema changes</h3>
-{#if loading}
-	<div class="flex items-center gap-2 text-xs text-tertiary py-2">
-		<Loader2 class="w-4 h-4 animate-spin" /> Loading datatable diffs...
-	</div>
-{:else if error}
-	<div class="text-xs text-red-500 py-2">Failed to load datatable diffs: {error}</div>
-{:else if diffs.length > 0}
-	<div class="flex flex-col gap-2 mt-3 mb-1">
-		{#each diffs as diff}
-			<ResizeTransitionWrapper class="border rounded-md" innerClass="w-full" vertical>
-				<button
-					class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-hover"
-					onclick={() => toggleExpanded(diff.datatableName)}
-				>
-					<span class="text-xs font-medium">{diff.datatableName}</span>
-					<div class="flex items-center gap-2 text-2xs text-tertiary">
-						{#if diff.aheadChanges.length > 0}
-							<span class="text-blue-500">{diff.aheadChanges.length} ahead</span>
-						{/if}
-						{#if diff.behindChanges.length > 0}
-							<span class="text-orange-500">{diff.behindChanges.length} behind</span>
-						{/if}
-						{#if expandedDatatables.has(diff.datatableName)}
-							<ChevronDown class="w-3 h-3" />
-						{:else}
-							<ChevronRight class="w-3 h-3" />
-						{/if}
-					</div>
-				</button>
+{#if applicableCount > 0}
+	<div class="bg-surface-tertiary p-4 rounded-md border">
+		<h3 class="text-sm font-semibold">Datatable schema changes</h3>
+		{#if loading}
+			<div class="flex items-center gap-2 text-xs text-tertiary py-2">
+				<Loader2 class="w-4 h-4 animate-spin" /> Loading datatable diffs...
+			</div>
+		{:else if error}
+			<div class="text-xs text-red-500 py-2">Failed to load datatable diffs: {error}</div>
+		{:else if diffs.length > 0}
+			<div class="flex flex-col gap-2 mt-3 mb-1">
+				{#each diffs as diff}
+					<ResizeTransitionWrapper class="border rounded-md" innerClass="w-full" vertical>
+						<button
+							class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-hover"
+							onclick={() => toggleExpanded(diff.datatableName)}
+						>
+							<span class="text-xs font-medium">{diff.datatableName}</span>
+							<div class="flex items-center gap-2 text-2xs text-tertiary">
+								{#if diff.aheadChanges.length > 0}
+									<span class="text-blue-500">{diff.aheadChanges.length} ahead</span>
+								{/if}
+								{#if diff.behindChanges.length > 0}
+									<span class="text-orange-500">{diff.behindChanges.length} behind</span>
+								{/if}
+								{#if expandedDatatables.has(diff.datatableName)}
+									<ChevronDown class="w-3 h-3" />
+								{:else}
+									<ChevronRight class="w-3 h-3" />
+								{/if}
+							</div>
+						</button>
 
-				{#if expandedDatatables.has(diff.datatableName)}
-					<div class="border-t divide-y">
-						{#if diff.aheadChanges.length > 0}
-							<div class="px-3 py-1.5">
-								<div class="text-2xs font-semibold text-blue-500 mb-1">Fork changes (ahead)</div>
-								{#each diff.aheadChanges as change}
-									<div class="flex items-center gap-2 text-xs py-0.5">
-										{#if change.kind === 'added'}
-											<Plus class="w-3 h-3 text-green-500 shrink-0" />
-										{:else if change.kind === 'removed'}
-											<Minus class="w-3 h-3 text-red-500 shrink-0" />
-										{:else}
-											<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
-										{/if}
-										<span class="text-tertiary">{change.schemaName}.</span>
-										<span class="font-medium">{change.tableName}</span>
-										<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
-										<Button
-											size="xs"
-											variant="subtle"
-											startIcon={{ icon: Eye }}
-											onclick={() => openReview(change, diff, 'ahead')}
-										>
-											Review
-										</Button>
+						{#if expandedDatatables.has(diff.datatableName)}
+							<div class="border-t divide-y">
+								{#if diff.aheadChanges.length > 0}
+									<div class="px-3 py-1.5">
+										<div class="text-2xs font-semibold text-blue-500 mb-1">
+											{currentNounCap} changes (ahead)
+										</div>
+										{#each diff.aheadChanges as change}
+											<div class="flex items-center gap-2 text-xs py-0.5">
+												{#if change.kind === 'added'}
+													<Plus class="w-3 h-3 text-green-500 shrink-0" />
+												{:else if change.kind === 'removed'}
+													<Minus class="w-3 h-3 text-red-500 shrink-0" />
+												{:else}
+													<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
+												{/if}
+												<span class="text-tertiary">{change.schemaName}.</span>
+												<span class="font-medium">{change.tableName}</span>
+												<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
+												<Button
+													size="xs"
+													variant="subtle"
+													startIcon={{ icon: Eye }}
+													onclick={() => openReview(change, diff, 'ahead')}
+												>
+													Review
+												</Button>
+											</div>
+										{/each}
 									</div>
-								{/each}
+								{/if}
+								{#if diff.behindChanges.length > 0}
+									<div class="px-3 py-1.5">
+										<div class="text-2xs font-semibold text-orange-500 mb-1">
+											Parent changes (behind)
+										</div>
+										{#each diff.behindChanges as change}
+											<div class="flex items-center gap-2 text-xs py-0.5">
+												{#if change.kind === 'added'}
+													<Plus class="w-3 h-3 text-green-500 shrink-0" />
+												{:else if change.kind === 'removed'}
+													<Minus class="w-3 h-3 text-red-500 shrink-0" />
+												{:else}
+													<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
+												{/if}
+												<span class="text-tertiary">{change.schemaName}.</span>
+												<span class="font-medium">{change.tableName}</span>
+												<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
+												<Button
+													size="xs"
+													variant="subtle"
+													startIcon={{ icon: Eye }}
+													onclick={() => openReview(change, diff, 'behind')}
+												>
+													Review
+												</Button>
+											</div>
+										{/each}
+									</div>
+								{/if}
 							</div>
 						{/if}
-						{#if diff.behindChanges.length > 0}
-							<div class="px-3 py-1.5">
-								<div class="text-2xs font-semibold text-orange-500 mb-1">
-									Parent changes (behind)
-								</div>
-								{#each diff.behindChanges as change}
-									<div class="flex items-center gap-2 text-xs py-0.5">
-										{#if change.kind === 'added'}
-											<Plus class="w-3 h-3 text-green-500 shrink-0" />
-										{:else if change.kind === 'removed'}
-											<Minus class="w-3 h-3 text-red-500 shrink-0" />
-										{:else}
-											<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
-										{/if}
-										<span class="text-tertiary">{change.schemaName}.</span>
-										<span class="font-medium">{change.tableName}</span>
-										<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
-										<Button
-											size="xs"
-											variant="subtle"
-											startIcon={{ icon: Eye }}
-											onclick={() => openReview(change, diff, 'behind')}
-										>
-											Review
-										</Button>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/if}
-			</ResizeTransitionWrapper>
-		{/each}
+					</ResizeTransitionWrapper>
+				{/each}
+			</div>
+		{:else}
+			<span class="text-xs text-secondary"> No changes detected </span>
+		{/if}
 	</div>
-{:else}
-	<span class="text-xs text-secondary"> No changes detected </span>
 {/if}
 
 <Drawer bind:open={drawerOpen} size="900px">
@@ -498,8 +400,8 @@
 		<DrawerContent
 			on:close={() => (drawerOpen = false)}
 			title="{drawerChange.schemaName}.{drawerChange.tableName} ({drawerDirection === 'ahead'
-				? 'Fork → Parent'
-				: 'Parent → Fork'})"
+				? `${currentNounCap} → Parent`
+				: `Parent → ${currentNounCap}`})"
 		>
 			{#snippet actions()}
 				<Button
@@ -527,7 +429,7 @@
 				<!-- Diff section -->
 				<div style="height: 45%;">
 					<div class="py-1.5 text-2xs font-semibold text-secondary">
-						Schema diff (parent ↔ fork)
+						Schema diff (parent ↔ {currentNoun})
 					</div>
 					<div class="h-[calc(100%-28px)] border rounded-md overflow-clip">
 						{#await import('$lib/components/DiffEditor.svelte')}
@@ -580,3 +482,7 @@
 		>{migrationSql}</pre
 	>
 </ConfirmationModal>
+
+<Portal>
+	<ConfirmationModal {...outOfOrderModal.props} />
+</Portal>

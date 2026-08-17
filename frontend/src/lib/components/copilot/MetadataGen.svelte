@@ -118,6 +118,7 @@ Generate a tool name for the script below:
 		class?: string
 		onChange?: (content: string) => void
 		siblingToolNames?: string[]
+		hideError?: boolean
 	}
 
 	let {
@@ -132,7 +133,8 @@ Generate a tool name for the script below:
 		elementProps = {},
 		class: clazz = '',
 		onChange = undefined,
-		siblingToolNames = undefined
+		siblingToolNames = undefined,
+		hideError = false
 	}: Props = $props()
 
 	let toolNameError = $derived(
@@ -364,7 +366,7 @@ Generate a tool name for the script below:
 			onfocus={() => (focused = true)}
 			onblur={() => (focused = false)}
 		/>
-		{#if toolNameError}
+		{#if toolNameError && !hideError}
 			<p class="text-3xs text-red-400 leading-tight mt-0.5">
 				{toolNameError}
 			</p>

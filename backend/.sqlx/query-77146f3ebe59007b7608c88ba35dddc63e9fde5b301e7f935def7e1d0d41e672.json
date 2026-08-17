@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT label, expiration, scopes FROM token WHERE token_hash = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "expiration",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "scopes",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "77146f3ebe59007b7608c88ba35dddc63e9fde5b301e7f935def7e1d0d41e672"
+}

@@ -162,7 +162,13 @@
 		if (!selected.schemaKey && schemaKeys.length) {
 			let schemaKey =
 				initialSchemaKey ??
-				('public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0])
+				('public' in dbSchema.schema
+					? 'public'
+					: 'dbo' in dbSchema.schema
+						? 'dbo'
+						: 'main' in dbSchema.schema
+							? 'main'
+							: schemaKeys[0])
 			let tableKey =
 				initialTableKey && dbSchema.schema?.[schemaKey]?.[initialTableKey]
 					? initialTableKey
@@ -364,7 +370,7 @@
 											refresh?.()
 											sendUserToast(`Schema '${schemaKey}' deleted successfully`)
 										} catch (e) {
-											let msg: string | undefined = (e as Error).message
+											let msg: string | undefined = (e as any).body ?? (e as Error).message
 											if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
 											sendUserToast(msg ?? 'Action failed!', true)
 										}
@@ -430,7 +436,7 @@
 												refresh?.()
 												sendUserToast(`Table '${tableKey}' deleted successfully`)
 											} catch (e) {
-												let msg: string | undefined = (e as Error).message
+												let msg: string | undefined = (e as any).body ?? (e as Error).message
 												if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
 												sendUserToast(msg ?? 'Action failed!', true)
 											}
@@ -496,7 +502,7 @@
 													refresh?.()
 													sendUserToast(`Table '${tableKey}' deleted successfully`)
 												} catch (e) {
-													let msg: string | undefined = (e as Error).message
+													let msg: string | undefined = (e as any).body ?? (e as Error).message
 													if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
 													sendUserToast(msg ?? 'Action failed!', true)
 												}
@@ -599,7 +605,9 @@
 					onConfirm={async ({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
 							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
-							await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff })
+							// Reverse diff (new → old) so the migration's down undoes the alter.
+							let reverse = diffTableEditorValues(values, dbTableEditorAlterTableData.current)
+							await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff, reverse })
 						} else {
 							await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
 						}

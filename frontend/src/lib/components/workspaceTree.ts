@@ -4,6 +4,7 @@ import {
 	KIND_LABEL,
 	kindKey,
 	leafKeyFor,
+	workspaceItemDisplayPath,
 	type WorkspaceItem,
 	type WorkspaceItemKind
 } from './workspacePicker'
@@ -21,11 +22,13 @@ type DirNode = {
 	leaves: WorkspaceItem[]
 }
 
-/** Build the path-hierarchy from a flat list of workspace items. */
+/** Build the path-hierarchy from a flat list of workspace items. Items are
+ * placed by their display path, so a draft-only item shows up under its
+ * friendly folder rather than the `u/<user>/draft_<uuid>` storage location. */
 function buildDirForest(items: WorkspaceItem[]): DirNode[] {
 	const scopeRoots = new Map<string, DirNode>()
 	for (const it of items) {
-		const parts = it.path.split('/')
+		const parts = workspaceItemDisplayPath(it).split('/')
 		if (parts.length < 3) continue
 		const scopeFp = parts.slice(0, 2).join('/')
 		let node = scopeRoots.get(scopeFp)
@@ -48,19 +51,27 @@ function buildDirForest(items: WorkspaceItem[]): DirNode[] {
 		cur.leaves.push(it)
 	}
 	const scopes = Array.from(scopeRoots.values()).sort((a, b) => {
-		// `f/` (folder) scopes before `u/` (user) scopes; alphabetical within.
-		const af = a.fullPath.startsWith('f/') ? 0 : 1
-		const bf = b.fullPath.startsWith('f/') ? 0 : 1
-		if (af !== bf) return af - bf
+		// `u/` (user) scopes before `f/` (folder) scopes; alphabetical within.
+		const au = a.fullPath.startsWith('u/') ? 0 : 1
+		const bu = b.fullPath.startsWith('u/') ? 0 : 1
+		if (au !== bu) return au - bu
 		return a.fullPath.localeCompare(b.fullPath)
 	})
 	const sortNode = (n: DirNode) => {
 		n.children.sort((a, b) => a.name.localeCompare(b.name))
-		n.leaves.sort((a, b) => a.path.localeCompare(b.path))
+		n.leaves.sort((a, b) => workspaceItemDisplayPath(a).localeCompare(workspaceItemDisplayPath(b)))
 		n.children.forEach(sortNode)
 	}
 	scopes.forEach(sortNode)
 	return scopes
+}
+
+/** True when `p` names this item — its storage path or its friendly draft
+ * path. A draft-only editor's live/saved paths are the friendly path while
+ * the loaded row sits at the storage path, so matching on `path` alone would
+ * treat them as two different items. */
+function itemMatchesPath(it: WorkspaceItem, p: string | undefined): boolean {
+	return p !== undefined && (it.path === p || it.draftPath === p)
 }
 
 /** Inject the currently-edited item at its live path, dropping the saved
@@ -74,9 +85,9 @@ function withCurrent(
 	if (!currentItem || currentItem.kind !== k) return items
 	const drafted =
 		currentItem.savedPath && currentItem.savedPath !== currentItem.path
-			? items.filter((it) => it.path !== currentItem.savedPath)
+			? items.filter((it) => !itemMatchesPath(it, currentItem.savedPath))
 			: items
-	if (drafted.some((it) => it.path === currentItem.path)) return drafted
+	if (drafted.some((it) => itemMatchesPath(it, currentItem.path))) return drafted
 	return [
 		...drafted,
 		{
@@ -92,12 +103,14 @@ function itemToLeaf(
 	it: WorkspaceItem,
 	currentItem: (WorkspaceItem & { savedPath?: string }) | undefined
 ): DrillLeaf<WorkspaceItem> {
-	const isCurrent = !!currentItem && currentItem.kind === it.kind && currentItem.path === it.path
+	const isCurrent =
+		!!currentItem && currentItem.kind === it.kind && itemMatchesPath(it, currentItem.path)
+	const display = workspaceItemDisplayPath(it)
 	return {
 		type: 'leaf',
 		key: leafKeyFor(it.kind, it.path),
-		label: it.summary || it.path,
-		secondary: it.summary ? it.path : undefined,
+		label: it.summary || display,
+		secondary: it.summary ? display : undefined,
 		data: it,
 		current: isCurrent
 	}
@@ -126,8 +139,10 @@ function dirToBranch(
 /** Merge AI-created in-memory drafts (or any caller-provided extras) into a
  * kind's loaded list. The chat tools / session previews scaffold items via
  * `UserDraft` before the user deploys; those should be navigable from the
- * picker. Existing items (same path) win so backend metadata (summary etc.)
- * isn't clobbered. */
+ * picker. An extra matching a loaded item (by storage or friendly path — else
+ * one draft renders as two leaves) is folded into it: the loaded row wins on
+ * backend metadata (summary etc.), but the extra's `draftPath` is overlaid
+ * when set — a live editor cell knows a rename before the backend list does. */
 function withExtras(
 	items: WorkspaceItem[],
 	k: WorkspaceItemKind,
@@ -135,12 +150,21 @@ function withExtras(
 ): WorkspaceItem[] {
 	const extras = extraItemsByKind?.[k]
 	if (!extras || extras.length === 0) return items
-	const known = new Set(items.map((it) => it.path))
-	return items.concat(extras.filter((d) => !known.has(d.path)))
+	const leftover = new Set(extras)
+	const merged = items.map((it) => {
+		const ex = extras.find((d) => itemMatchesPath(it, d.path) || itemMatchesPath(it, d.draftPath))
+		if (!ex) return it
+		leftover.delete(ex)
+		return ex.draftPath !== undefined && ex.draftPath !== it.draftPath
+			? { ...it, draftPath: ex.draftPath }
+			: it
+	})
+	return leftover.size > 0 ? merged.concat([...leftover]) : merged
 }
 
 /** Build the workspace drill tree.
  *
+ *  Default `by-kind` layout:
  *  - One branch per kind in `kinds` (`Flows` / `Scripts` / `Apps`),
  *    each containing the kind's path hierarchy.
  *  - When `kinds.length > 1`, prepend an `All` branch that merges items
@@ -148,6 +172,12 @@ function withExtras(
  *    leaves don't appear twice in global-search results.
  *  - When `kinds.length === 1`, return the single kind branch's children
  *    directly so the user lands on folders without a redundant level.
+ *
+ *  `flat` layout:
+ *  - No kind grouping — the root IS the workspace home's first level: the
+ *    `f/<folder>` / `u/<user>` scope dirs of the cross-kind merge, mixing
+ *    every kind's items inside. Callers must eager-load all kinds (there is
+ *    no per-kind drill step left to lazy-load from).
  */
 export function buildWorkspaceTree(opts: {
 	loaded: Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>
@@ -160,9 +190,11 @@ export function buildWorkspaceTree(opts: {
 	 * (e.g. AI-created localStorage drafts surfaced by the workspace adapter).
 	 * Extras whose path matches an already-loaded item are dropped. */
 	extraItemsByKind?: Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>
+	layout?: 'by-kind' | 'flat'
 }): DrillNode<WorkspaceItem>[] {
 	const { loaded, kinds, currentItem, extraItemsByKind } = opts
 	const loadingKind = opts.loadingKind ?? {}
+	const layout = opts.layout ?? 'by-kind'
 
 	function kindBranch(k: WorkspaceItemKind): DrillBranch<WorkspaceItem> {
 		const raw = withExtras(loaded[k] ?? [], k, extraItemsByKind)
@@ -182,14 +214,23 @@ export function buildWorkspaceTree(opts: {
 
 	if (kinds.length === 0) return []
 
+	const mergedItems = () =>
+		kinds.flatMap((k) =>
+			withCurrent(withExtras(loaded[k] ?? [], k, extraItemsByKind), k, currentItem)
+		)
+
+	if (layout === 'flat') {
+		const items = mergedItems()
+		const dirs = items.length > 0 ? buildDirForest(items) : []
+		return dirs.map((d) => dirToBranch(d, 'all', currentItem))
+	}
+
 	if (kinds.length === 1) {
 		return kindBranch(kinds[0]).children
 	}
 
 	// Cross-kind 'all' branch — flagged so search doesn't double-count leaves.
-	const allItems = kinds.flatMap((k) =>
-		withCurrent(withExtras(loaded[k] ?? [], k, extraItemsByKind), k, currentItem)
-	)
+	const allItems = mergedItems()
 	const allDirs = allItems.length > 0 ? buildDirForest(allItems) : []
 	const allBranch: DrillBranch<WorkspaceItem> = {
 		type: 'branch',
@@ -208,9 +249,15 @@ export function buildWorkspaceTree(opts: {
  * (BreadcrumbSegment / EditorHeader) onto the new generic `string[]` path. */
 export function legacyScopeToPath(
 	scope: { kind: WorkspaceItemKind | 'all'; dir?: string } | undefined,
-	kinds: WorkspaceItemKind[]
+	kinds: WorkspaceItemKind[],
+	layout: 'by-kind' | 'flat' = 'by-kind'
 ): string[] {
 	if (!scope) return []
+	// Flat layout: no kind branches at all — scope dirs live at root and are
+	// always keyed under the cross-kind 'all' namespace.
+	if (layout === 'flat') {
+		return scope.dir ? [dirKey('all', scope.dir)] : []
+	}
 	// Single-kind mode: there's no kind branch at root; scope's `kind` is
 	// implicit. Only the dir (if any) makes it to the path.
 	if (kinds.length === 1) {

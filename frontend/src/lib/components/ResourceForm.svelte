@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { Resource, ResourceType } from '$lib/gen'
+	import { onDestroy } from 'svelte'
+	import { setEditorUnparseable } from './pendingEditorFlush'
 	import { emptyString, isOwner, urlize } from '$lib/utils'
 	import { Alert, Skeleton } from './common'
 	import Path from './Path.svelte'
@@ -42,6 +44,9 @@
 		loadingSchema: boolean
 		resourceToEdit: Resource | undefined
 		onLoadResourceType?: () => void
+		/** Workspace the path is validated against and the connection is tested in;
+		 * defaults to the nav workspace. */
+		workspace?: string | undefined
 	}
 
 	let {
@@ -62,12 +67,21 @@
 		resourceSchema,
 		loadingSchema,
 		resourceToEdit,
-		onLoadResourceType
+		onLoadResourceType,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let editDescription = $state(false)
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')
+
+	// This field is a bare SimpleEditor parsed here, so it never passes through JsonEditor —
+	// it has to register itself, or a caller persisting what is on screen would save the
+	// last value that parsed and leave without the text in front of the user.
+	const unparseableKey = {}
+	onDestroy(() => setEditorUnparseable(unparseableKey, false))
 
 	function parseJson() {
 		try {
@@ -82,12 +96,37 @@
 		args = { content: textFileContent }
 	}
 
+	// The raw JSON editor is the active input whenever the "As JSON" toggle is on,
+	// or no schema-based form can be rendered (e.g. the resource type is missing
+	// from the workspace). In both cases rawCode must be seeded from args.
+	let usesRawEditor = $derived(
+		!loadingSchema &&
+			(viewJsonSchema ||
+				(!resourceTypeInfo?.is_fileset && !(resourceSchema && resourceSchema.properties)))
+	)
+
 	$effect(() => {
 		if (rawCode !== undefined) parseJson()
 	})
 
+	// Both halves, and from the current parse rather than from a transition: `rawCode`
+	// outlives the raw editor, so text that does not parse is the user's to fix exactly
+	// while that editor is the active input — which the schema loading and the resource
+	// type flip as well as the toggle, and only the toggle reseeds `rawCode`.
 	$effect(() => {
-		if (viewJsonSchema && rawCode === undefined) {
+		setEditorUnparseable(unparseableKey, usesRawEditor && jsonError !== '')
+	})
+
+	$effect(() => {
+		if (usesRawEditor && rawCode === undefined) {
+			rawCode = JSON.stringify(args, null, 2)
+		}
+	})
+
+	// Seed the JSON editor when the resource type schema is missing
+	// (restores the old ResourceEditor's catch-block behavior)
+	$effect(() => {
+		if (resource_type && !loadingSchema && !resourceSchema && rawCode === undefined) {
 			rawCode = JSON.stringify(args, null, 2)
 		}
 	})
@@ -114,11 +153,12 @@
 		{/if}
 		<Label label="Path">
 			<Path
-				disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
+				disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
 				bind:path
 				{initialPath}
 				namePlaceholder="resource"
 				kind="resource"
+				workspaceOverride={workspace}
 			/>
 		</Label>
 	</div>
@@ -201,7 +241,11 @@
 		{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
 			<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
 		{:else}
-			<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
+			<TestConnection
+				resourceType={resourceToEdit?.resource_type}
+				{args}
+				workspaceOverride={workspace}
+			/>
 		{/if}
 		{#if resource_type === 'git_repository' && $workspaceStore && ($userStore?.is_admin || $userStore?.is_super_admin)}
 			<GitHubAppIntegration
@@ -257,17 +301,18 @@
 					schema={resourceSchema}
 					bind:args
 					bind:isValid
+					{workspace}
 				/>
 			{/if}
 		{:else if !can_write}
 			<input type="text" disabled value={rawCode} />
 		{:else}
-			{#if !viewJsonSchema}
+			{#if !viewJsonSchema && !resourceSchema}
 				<div class="flex flex-col gap-2 mb-4">
 					<p class="text-red-500 dark:text-red-400 text-xs">
 						Resource type '{resource_type}' not found in your workspace
 					</p>
-					<SyncResourceTypes onSynced={() => onLoadResourceType?.()} />
+					<SyncResourceTypes resourceType={resource_type} onSynced={() => onLoadResourceType?.()} />
 					<p class="italic text-secondary text-xs"> Define the value in JSON directly </p>
 				</div>
 			{/if}

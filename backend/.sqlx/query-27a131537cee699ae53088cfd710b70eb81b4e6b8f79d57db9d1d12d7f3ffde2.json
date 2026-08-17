@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE chain AS (\n                SELECT id, parent_workspace_id, 0 AS depth\n                FROM workspace WHERE id = $1\n                UNION ALL\n                SELECT w.id, w.parent_workspace_id, chain.depth + 1\n                FROM workspace w\n                JOIN chain ON w.id = chain.parent_workspace_id\n                WHERE chain.depth < 20\n            )\n            SELECT COALESCE(MAX(depth), 0)::bigint AS \"depth!\" FROM chain\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "depth!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "27a131537cee699ae53088cfd710b70eb81b4e6b8f79d57db9d1d12d7f3ffde2"
+}

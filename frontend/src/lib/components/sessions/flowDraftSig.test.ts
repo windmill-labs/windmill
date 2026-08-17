@@ -19,4 +19,15 @@ describe('flowDraftSig', () => {
 			flowDraftSig({ value: { modules: [1] }, summary: 's' })
 		)
 	})
+
+	it('changes when only draft_path changes (path rename triggers a save)', () => {
+		const base = { value: { modules: [] }, summary: 's', draft_path: 'u/admin/draft_abc' }
+		const renamed = { ...base, draft_path: 'u/admin/friendly' }
+		expect(flowDraftSig(base)).not.toBe(flowDraftSig(renamed))
+	})
+
+	it('changes when only path changes', () => {
+		const base = { value: { modules: [] }, summary: 's', path: 'u/admin/a' }
+		expect(flowDraftSig(base)).not.toBe(flowDraftSig({ ...base, path: 'u/admin/b' }))
+	})
 })

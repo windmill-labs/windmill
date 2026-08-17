@@ -6,12 +6,14 @@ on:
     branches: [main]
     paths:
       - "cli/**"
+      - "windmill-yaml-validator/**"
       - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
   pull_request:
     branches: [main]
     paths:
       - "cli/**"
+      - "windmill-yaml-validator/**"
       - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
 

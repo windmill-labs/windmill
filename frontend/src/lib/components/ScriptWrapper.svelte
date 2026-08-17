@@ -3,12 +3,48 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import AiChatLayout from './copilot/chat/AiChatLayout.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
+	import { usePageDraftSync } from './usePageDraftSync.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import { selectDraftStoragePath } from '$lib/mintDraftPath'
 
-	let { script: oldScript, disableAi, ...props }: ScriptBuilderProps = $props()
+	let { script: oldScript, disableAi, newScript, ...props }: ScriptBuilderProps = $props()
 
-	let script = $state(untrack(() => oldScript))
+	// Stable per-user draft storage key. Mirrors the full-page editor keying on
+	// the URL path; falls back through the SDK's path inputs. For a brand-new
+	// script with no caller path this mints a `u/<user>/draft_<uuid>` key — the
+	// SDK equivalent of the `/scripts/add` redirect — so autosave attaches instead
+	// of the handle detaching (local-only, never POSTs). Captured once (untrack)
+	// so editing the path field can't re-key and orphan the draft.
+	const draftStoragePath = untrack(() =>
+		selectDraftStoragePath({
+			providedPaths: [props.initialPath, oldScript?.path],
+			isNewItem: !!newScript
+		})
+	)
+
+	// Reuse the full-page script editor's draft orchestration (same as the flow
+	// SDK) so the SDK gets autosave + the AutosaveIndicator (gated by ScriptBuilder
+	// on `userDraftPath`) from one code path. `defaultValue` seeds the handle from
+	// the consumer's script on first acquire (swallowed by the syncer's seed guard,
+	// never POSTs). `useReactive` tolerates mounting before login (detached
+	// local-only handle, no throw); the builder is gated on the workspace below so
+	// edits aren't made into that detached handle and lost when it re-keys.
+	const initialScript = untrack(() => oldScript)
+	const draftSync = usePageDraftSync<ScriptBuilderProps['script']>({
+		itemKind: 'script',
+		path: () => draftStoragePath,
+		workspace: () => $workspaceStore,
+		defaultValue: initialScript
+	})
 </script>
 
-<AiChatLayout noPadding {disableAi}>
-	<ScriptBuilder bind:script {disableAi} {...props} />
+<AiChatLayout noPadding {disableAi} loadAiConfig={!disableAi}>
+	{#if $workspaceStore && draftSync.draft}
+		<ScriptBuilder
+			bind:script={draftSync.draft}
+			userDraftPath={draftStoragePath}
+			{disableAi}
+			{...props}
+		/>
+	{/if}
 </AiChatLayout>

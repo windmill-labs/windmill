@@ -13,13 +13,14 @@
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 	import { pointerDownOutside } from '$lib/utils'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { untrack } from 'svelte'
-	import { fly } from 'svelte/transition'
+	import { placementFly } from '$lib/utils/placementFly'
 	import { ButtonType } from './common/button/model'
 
 	interface Props {
@@ -30,6 +31,10 @@
 		placement?: Placement
 		usePointerDownOutside?: boolean
 		closeOnOtherDropdownOpen?: boolean
+		// When false the menu stays open after an item is selected (melt's closeOnItemClick).
+		// Consumers that keep the menu open must close it themselves where appropriate.
+		// Read once at menu creation (like `placement`); changing it after mount has no effect.
+		closeOnItemClick?: boolean
 		fixedHeight?: boolean
 		hidePopup?: boolean
 		open?: boolean
@@ -41,10 +46,18 @@
 		size?: ButtonType.UnifiedSize
 		btnText?: string
 		buttonReplacement?: import('svelte').Snippet
-		// In customMenu mode the snippet receives the melt-ui `item` action
-		// store so consumers can wrap their own rows in <MenuItem> (or
-		// `use:melt={$item}`) and get arrow-key navigation + aria wiring.
-		menu?: import('svelte').Snippet<[{ item: MenubarMenuElements['item']; close: () => void }]>
+		// In customMenu mode the snippet receives the melt-ui `item` action store
+		// (so consumers can wrap rows in <MenuItem> for arrow-key navigation + aria)
+		// and `builders` (so they can compose melt submenus, e.g. via DropdownSubmenuItem).
+		menu?: import('svelte').Snippet<
+			[
+				{
+					item: MenubarMenuElements['item']
+					close: () => void
+					builders: ReturnType<typeof createDropdownMenu>['builders']
+				}
+			]
+		>
 		maxHeight?: string | undefined
 	}
 
@@ -56,6 +69,7 @@
 		placement = 'bottom-end',
 		usePointerDownOutside = false,
 		closeOnOtherDropdownOpen = true,
+		closeOnItemClick = true,
 		fixedHeight = true,
 		hidePopup = false,
 		open = $bindable(false),
@@ -73,15 +87,21 @@
 
 	let buttonEl: HTMLButtonElement | undefined = $state(undefined)
 
+	// Overlays belong to the enclosing pane when there is one — see overlayHost.
+	const hostPortal = overlayPortalTarget('body')
+
 	const {
 		elements: { menu: menuEl, item, trigger },
 		builders,
 		states,
+		options: { portal: portalOption },
 		ids: { menu: dropdownId }
 	} = createDropdownMenu({
+		portal: untrack(() => hostPortal()),
 		positioning: {
 			placement: untrack(() => placement)
 		},
+		closeOnItemClick: untrack(() => closeOnItemClick),
 		loop: true,
 		onOpenChange: ({ next }) => {
 			if (closeOnOtherDropdownOpen) {
@@ -98,6 +118,10 @@
 			}
 			return next
 		}
+	})
+
+	$effect(() => {
+		$portalOption = hostPortal()
 	})
 
 	const sync = createSync(states)
@@ -173,10 +197,10 @@
 		use:melt={$menuEl}
 		data-menu
 		class="z-[6000] transition-all duration-100"
-		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
+		transition:placementFly={{ duration: enableFlyTransition ? 100 : 0, placement }}
 	>
 		{#if customMenu}
-			{@render menu?.({ item, close })}
+			{@render menu?.({ item, close, builders })}
 		{:else}
 			<div
 				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"

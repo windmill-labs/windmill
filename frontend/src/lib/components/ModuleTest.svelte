@@ -32,8 +32,19 @@
 		onJobDone
 	}: Props = $props()
 
-	const { flowStore, flowStateStore, pathStore, stepsInputArgs, previewArgs, modulesTestStates } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		flowStore,
+		flowStateStore,
+		pathStore,
+		stepsInputArgs,
+		previewArgs,
+		modulesTestStates,
+		devTempScriptRefs,
+		opWorkspace
+	} = getContext<FlowEditorContext>('FlowEditorContext')
+
+	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let jobProgressReset: () => void = () => {}
@@ -49,6 +60,16 @@
 		runTestWithStepArgs()
 	}
 
+	// A step's timeout is an InputTransform. Only a static numeric value can be applied
+	// to a single-step preview; dynamic expressions are evaluated server-side and only
+	// take effect when running the full flow.
+	function staticTimeout(timeout: FlowModule['timeout']): number | undefined {
+		if (timeout?.type === 'static' && typeof timeout.value === 'number') {
+			return timeout.value
+		}
+		return undefined
+	}
+
 	export async function runTest(args: any) {
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
@@ -61,6 +82,7 @@
 		}
 
 		const val = mod.value
+		const timeout = staticTimeout(mod.timeout)
 		// let jobId: string | undefined = undefined
 		let callbacks: Callbacks = {
 			done: (x) => {
@@ -77,12 +99,15 @@
 				undefined,
 				undefined,
 				callbacks,
-				$pathStore
+				$pathStore,
+				undefined,
+				devTempScriptRefs?.(),
+				timeout
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
-				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash: val.hash })
-				: await getScriptByPath(val.path)
+				? await ScriptService.getScriptByHash({ workspace: opWs!, hash: val.hash })
+				: await getScriptByPath(val.path, opWs)
 			await jobLoader?.runPreview(
 				val.path,
 				script.content,
@@ -92,12 +117,15 @@
 				script.lock,
 				val.hash ?? script.hash,
 				callbacks,
-				$pathStore
+				$pathStore,
+				undefined,
+				undefined,
+				timeout
 			)
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)
 		} else if (val.type == 'aiagent') {
-			const { schema } = await loadSchemaFromModule(mod)
+			const { schema } = await loadSchemaFromModule(mod, opWs)
 
 			const inputTransforms: { [key: string]: JavascriptTransform } = Object.fromEntries(
 				Object.keys(args).map((key) => [
@@ -109,6 +137,8 @@
 				])
 			)
 
+			const agentVal = val
+
 			await jobLoader?.runFlowPreview(
 				args,
 				{
@@ -116,11 +146,16 @@
 						modules: [
 							{
 								id: mod.id,
+								// A linked step has no tools of its own: the resource's tools are resolved
+								// server-side from `agent`. `tool_inputs` goes in either way — a step forked
+								// for editing has no `agent` yet still carries the flow's bindings, which the
+								// runtime overlays, so the preview must test against them too.
 								value: {
 									type: 'aiagent',
-									tools: mod.value.type == 'aiagent' ? mod.value.tools : [],
+									...(agentVal.agent ? { agent: agentVal.agent } : { tools: agentVal.tools ?? [] }),
+									tool_inputs: agentVal.tool_inputs,
 									input_transforms: inputTransforms as AiAgent['input_transforms']
-								}
+								} as Extract<FlowModule['value'], { type: 'aiagent' }>
 							}
 						]
 					},
@@ -178,6 +213,7 @@
 <JobLoader
 	noCode={true}
 	toastError={noEditor}
+	workspaceOverride={opWs}
 	bind:scriptProgress
 	bind:this={jobLoader}
 	bind:isLoading={

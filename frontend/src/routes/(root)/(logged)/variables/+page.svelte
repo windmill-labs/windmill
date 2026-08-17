@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -14,6 +15,8 @@
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildVariablesFilterSchema } from '$lib/components/variables/variablesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -40,7 +43,7 @@
 		EyeOff,
 		Circle
 	} from 'lucide-svelte'
-	import { onMount, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { page } from '$app/stores'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
@@ -125,9 +128,14 @@
 	async function loadVariables(): Promise<void> {
 		const currentFilters = filters.val
 
-		// Build API parameters from filters
+		// Build API parameters from filters.
+		// `includeDraftOnly` surfaces per-user drafts at paths that have
+		// no deployed variable — appended server-side when no narrowing
+		// filter is set, so the user sees AI-agent-created drafts on
+		// the home page.
 		const apiParams: any = {
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			includeDraftOnly: true
 		}
 
 		if (currentFilters.path) {
@@ -164,7 +172,9 @@
 		allOwners = Array.from(
 			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
 		).sort()
-		allLabels = Array.from(new Set(result.flatMap((x) => x.labels ?? []))).sort()
+		allLabels = Array.from(
+			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
+		).sort()
 
 		variables = result
 	}
@@ -234,12 +244,22 @@
 		}, 5000)
 	}
 
-	onMount(() => {
-		let hash = $page.url.hash
-		if (hash.length > 1) {
-			let path = hash.slice(1)
-			variableEditor?.editVariable(path)
+	// Deep link: #<path> opens that variable's edit drawer. Reactive rather than
+	// onMount so a hash change on the already-mounted page (e.g. the AI session
+	// preview re-pointing its tab) opens the drawer too. Row links pre-set
+	// handledHash: their onclick already opens the drawer.
+	let handledHash = ''
+	$effect(() => {
+		const hash = $page.url.hash
+		if (hash.length <= 1) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same item later would be skipped as already handled.
+			handledHash = ''
+			return
 		}
+		if (hash === handledHash || !variableEditor) return
+		handledHash = hash
+		variableEditor.editVariable(hash.slice(1))
 	})
 </script>
 
@@ -342,11 +362,12 @@
 								<Cell head>Value</Cell>
 								<Cell head>Description</Cell>
 								<Cell head />
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</tr>
 						</Head>
 						<tbody class="divide-y">
-							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, ws_specific }}
+							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+								{@const hasDraft = getLocalDraftHint($workspaceStore, 'variable', path) ?? is_draft}
 								<Row>
 									<Cell class="!px-0 text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -356,11 +377,15 @@
 											<a
 												class="break-all"
 												id="edit-{path}"
-												onclick={() => variableEditor?.editVariable(path)}
+												onclick={() => {
+													handledHash = `#${path}`
+													variableEditor?.editVariable(path)
+												}}
 												href="#{path}"
 											>
-												{path}
+												{path}{hasDraft ? '*' : ''}
 											</a>
+											<DraftBadge {draft_only} is_draft={hasDraft} />
 											{#if labels?.length}
 												{#each labels as label}
 													<Badge
@@ -382,11 +407,12 @@
 													>
 												{/each}
 											{/if}
+											<InheritedLabels labels={inherited_labels} />
 										</div>
 									</Cell>
 									<Cell>
 										<span class="inline-flex flex-row items-center gap-2">
-											<div class="text-sm break-words">
+											<div class="text-xs break-words">
 												{#if value}
 													{truncate(value, 20)}
 												{:else}
@@ -436,7 +462,11 @@
 												<div class="">
 													{#if refresh_error}
 														<Popover notClickable>
-															<div class="relative inline-flex justify-center items-center w-4 h-4">
+															<!-- isolate: confine the ping indicator's z-50 to a local stacking context
+											     so it can't paint over a sticky-pinned actions column scrolling past it -->
+															<div
+																class="relative inline-flex justify-center items-center w-4 h-4 isolate"
+															>
 																<Circle
 																	class="text-red-600 animate-ping absolute z-50 w-4 h-4 fill-current"
 																	size={12}
@@ -485,7 +515,7 @@
 											{/if}
 										</div>
 									</Cell>
-									<Cell last shouldStopPropagation>
+									<Cell last stickyEnd shouldStopPropagation>
 										<Dropdown
 											items={() => {
 												let owner = isOwner(path, $userStore, $workspaceStore)

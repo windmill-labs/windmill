@@ -4,7 +4,7 @@ use crate::{
         openai_tools_to_gemini, parse_gemini_response, parse_gemini_sse_event,
         sanitize_schema_for_google, GeminiFunctionDeclaration, GeminiGenerationConfig,
         GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
-        GeminiPredictContent, GeminiTextRequest, GeminiTool,
+        GeminiPredictContent, GeminiTextRequest, GeminiThinkingConfig, GeminiTool,
     },
     image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     proxy::{ProxyBuildArgs, ProxyRequest},
@@ -153,11 +153,18 @@ impl GoogleAIQueryBuilder {
             (None, None)
         };
 
+        // Map the effort token onto Gemini's native thinking controls; without
+        // one, leave provider defaults untouched.
+        let thinking_config = args
+            .reasoning_effort
+            .map(|effort| gemini_thinking_config(args.model, effort));
+
         build_gemini_generation_config(
             args.temperature,
             args.max_tokens,
             response_mime_type,
             response_schema,
+            thinking_config,
         )
     }
 }
@@ -187,20 +194,70 @@ fn build_gemini_generation_config(
     max_tokens: Option<u32>,
     response_mime_type: Option<String>,
     response_schema: Option<serde_json::Value>,
+    thinking_config: Option<GeminiThinkingConfig>,
 ) -> Option<GeminiGenerationConfig> {
     if temperature.is_some()
         || max_tokens.is_some()
         || response_mime_type.is_some()
         || response_schema.is_some()
+        || thinking_config.is_some()
     {
         Some(GeminiGenerationConfig {
             temperature,
             max_output_tokens: max_tokens,
             response_mime_type,
             response_schema,
+            thinking_config,
         })
     } else {
         None
+    }
+}
+
+/// Map an OpenAI-style `reasoning_effort` token onto Gemini's native thinking
+/// controls. Gemini models think by default, so this is what makes the chat
+/// effort setting (including explicit `none`) actually change model behavior.
+///
+/// - Gemini 3+: `thinkingLevel` takes the token verbatim (provider-native open
+///   vocabulary: `low`/`medium`/`high`, plus `minimal` on Flash). `none` maps to
+///   the lowest supported level — thinking cannot be fully disabled on Pro.
+/// - Gemini 2.5: `thinkingBudget` in tokens, using the same tiering as Google's
+///   own OpenAI-compatibility layer. 2.5 Pro cannot disable thinking and has a
+///   minimum budget of 128; Flash accepts 0 (off). Unknown tokens fall back to
+///   `-1` (dynamic, the provider default).
+fn gemini_thinking_config(model: &str, effort: &str) -> GeminiThinkingConfig {
+    let model = model.to_lowercase();
+    let is_flash = model.contains("flash");
+    let is_gemini_2_5 = model.contains("gemini-2.5");
+    // Thought summaries are free to return (thinking tokens are billed either
+    // way); skip them only when the user explicitly turned reasoning off.
+    let include_thoughts = (effort != "none").then_some(true);
+
+    if is_gemini_2_5 {
+        let budget = match effort {
+            "none" if is_flash => 0,
+            "none" => 128,
+            "low" => 1024,
+            "medium" => 8192,
+            "high" => 24576,
+            _ => -1,
+        };
+        GeminiThinkingConfig {
+            thinking_level: None,
+            thinking_budget: Some(budget),
+            include_thoughts,
+        }
+    } else {
+        let level = match effort {
+            "none" if is_flash => "minimal".to_string(),
+            "none" => "low".to_string(),
+            other => other.to_string(),
+        };
+        GeminiThinkingConfig {
+            thinking_level: Some(level),
+            thinking_budget: None,
+            include_thoughts,
+        }
     }
 }
 
@@ -214,6 +271,11 @@ struct GoogleAIProxyChatRequest {
     temperature: Option<f32>,
     #[serde(default)]
     max_tokens: Option<u32>,
+    /// OpenAI-style effort token from the chat reasoning setting (e.g. `low`,
+    /// `high`, or `none` for an explicit off). Mapped to Gemini's native
+    /// `thinkingConfig` — see [`gemini_thinking_config`].
+    #[serde(default)]
+    reasoning_effort: Option<String>,
     #[serde(default)]
     tools: Option<Vec<GoogleAIProxyChatTool>>,
 }
@@ -344,10 +406,20 @@ fn build_google_ai_chat_proxy_request(
         vec![GeminiTool { function_declarations: Some(declarations), google_search: None }]
     });
 
+    let thinking_config = request
+        .reasoning_effort
+        .as_deref()
+        .map(|effort| gemini_thinking_config(&request.model, effort));
     let body = build_gemini_text_request_body(
         &request.messages,
         gemini_tools,
-        build_gemini_generation_config(request.temperature, request.max_tokens, None, None),
+        build_gemini_generation_config(
+            request.temperature,
+            request.max_tokens,
+            None,
+            None,
+            thinking_config,
+        ),
     )?
     .into_bytes();
 
@@ -707,7 +779,6 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             platform,
-            enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
     }
@@ -752,7 +823,106 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&request.request.body).unwrap();
         assert_eq!(body["generationConfig"]["maxOutputTokens"], 123);
         assert_eq!(body["generationConfig"]["temperature"], 0.2);
+        // No reasoning_effort in the request -> no thinkingConfig (provider defaults).
+        assert!(body["generationConfig"].get("thinkingConfig").is_none());
         assert!(body["contents"].is_array());
+    }
+
+    fn proxy_body_for(model: &str, reasoning_effort: &str) -> serde_json::Value {
+        let credentials = credentials(
+            "https://generativelanguage.googleapis.com/v1beta/",
+            AIPlatform::Standard,
+        );
+        let method = Method::POST;
+        let headers = HeaderMap::new();
+        let body = format!(
+            r#"{{
+                "model": "{model}",
+                "messages": [{{"role": "user", "content": "hello"}}],
+                "reasoning_effort": "{reasoning_effort}",
+                "stream": false
+            }}"#
+        );
+
+        let request = build_google_ai_chat_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: "chat/completions",
+            headers: &headers,
+            body: body.as_bytes(),
+            credentials: &credentials,
+        })
+        .unwrap();
+
+        serde_json::from_slice(&request.request.body).unwrap()
+    }
+
+    #[test]
+    fn maps_reasoning_effort_to_thinking_level_on_gemini_3() {
+        let body = proxy_body_for("gemini-3-pro-preview", "low");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "low"
+        );
+        // Thought summaries are requested whenever reasoning is on...
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["includeThoughts"],
+            true
+        );
+        // ...but not when the user explicitly turned it off.
+        let body = proxy_body_for("gemini-3-pro-preview", "none");
+        assert!(body["generationConfig"]["thinkingConfig"]
+            .get("includeThoughts")
+            .is_none());
+        assert!(body["generationConfig"]["thinkingConfig"]
+            .get("thinkingBudget")
+            .is_none());
+    }
+
+    #[test]
+    fn maps_reasoning_effort_none_per_gemini_3_model() {
+        // Pro cannot disable thinking -> lowest level.
+        let body = proxy_body_for("gemini-3-pro-preview", "none");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "low"
+        );
+        // Flash supports `minimal`.
+        let body = proxy_body_for("gemini-3-flash-preview", "none");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "minimal"
+        );
+    }
+
+    #[test]
+    fn maps_reasoning_effort_to_thinking_budget_on_gemini_2_5() {
+        let body = proxy_body_for("gemini-2.5-flash", "medium");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            8192
+        );
+        assert!(body["generationConfig"]["thinkingConfig"]
+            .get("thinkingLevel")
+            .is_none());
+
+        // Off: Flash can fully disable; Pro has a 128-token minimum.
+        let body = proxy_body_for("gemini-2.5-flash", "none");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            0
+        );
+        let body = proxy_body_for("gemini-2.5-pro", "none");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            128
+        );
+
+        // Unknown token -> dynamic budget (provider default behavior).
+        let body = proxy_body_for("gemini-2.5-pro", "custom-level");
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            -1
+        );
     }
 
     #[test]

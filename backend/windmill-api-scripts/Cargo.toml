@@ -10,12 +10,14 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-common/enterprise"]
+enterprise = ["windmill-common/enterprise", "windmill-native-triggers?/enterprise"]
 private = ["windmill-common/private", "windmill-dep-map/private"]
-python = ["dep:windmill-parser-py"]
+python = ["dep:windmill-parser-py", "dep:windmill-parser-py-asset"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
+native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger"]
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
+windmill-native-triggers = { workspace = true, optional = true }
 windmill-object-store.workspace = true
 windmill-api-auth.workspace = true
 windmill-queue.workspace = true
@@ -23,6 +25,11 @@ windmill-audit.workspace = true
 windmill-git-sync.workspace = true
 windmill-dep-map.workspace = true
 windmill-parser-ts.workspace = true
+windmill-parser.workspace = true
+windmill-parser-ts-asset.workspace = true
+windmill-parser-sql-asset.workspace = true
+windmill-parser-sql.workspace = true
+windmill-parser-yaml.workspace = true
 
 axum.workspace = true
 futures.workspace = true
@@ -41,3 +48,4 @@ lazy_static.workspace = true
 tokio.workspace = true
 prometheus = { workspace = true, optional = true }
 windmill-parser-py = { workspace = true, optional = true }
+windmill-parser-py-asset = { workspace = true, optional = true }

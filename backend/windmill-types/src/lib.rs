@@ -19,6 +19,8 @@ pub mod schedule;
 pub mod scripts;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod triggers;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod user_drafts;
 
 /// Duplicated from windmill-common::worker::to_raw_value.
 /// windmill-types cannot depend on windmill-common (it would be circular).

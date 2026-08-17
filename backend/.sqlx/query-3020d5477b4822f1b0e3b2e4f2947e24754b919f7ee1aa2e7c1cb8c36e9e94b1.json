@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ws_specific (workspace_id, item_kind, path)\n                 SELECT $1::varchar, 'resource', $2::varchar\n                 WHERE EXISTS (SELECT 1 FROM resource WHERE workspace_id = $1::varchar AND path = $2::varchar)\n                 ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3020d5477b4822f1b0e3b2e4f2947e24754b919f7ee1aa2e7c1cb8c36e9e94b1"
+}

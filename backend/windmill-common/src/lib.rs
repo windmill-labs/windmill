@@ -29,18 +29,22 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 pub mod apps;
 pub mod assets;
+pub mod azure_workload_identity;
+pub mod dbt_manifest;
 pub mod audit;
 pub mod auth;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;
 pub mod client;
+pub mod data_metrics;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
 pub mod db_params;
+pub mod deploy_origin;
 #[cfg(feature = "private")]
 pub mod deployment_requests_ee;
 pub mod deployment_requests_oss;
@@ -52,6 +56,13 @@ pub mod email_ee;
 pub mod email_oss;
 pub mod error;
 pub mod external_ip;
+#[cfg(feature = "private")]
+pub mod feature_usage_ee;
+pub mod feature_usage_oss;
+#[cfg(feature = "private")]
+pub use feature_usage_ee as feature_usage;
+#[cfg(not(feature = "private"))]
+pub use feature_usage_oss as feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
@@ -61,9 +72,11 @@ pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
 pub mod log_context;
+pub mod materialization;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
+pub mod schema_contracts;
 pub mod workspace_dependencies;
 
 #[cfg(feature = "private")]
@@ -81,6 +94,21 @@ pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
+#[cfg(feature = "private")]
+pub mod partition_ee;
+pub mod partition_oss;
+pub mod per_minute_counter;
+#[cfg(feature = "private")]
+pub use partition_ee as partition;
+#[cfg(not(feature = "private"))]
+pub use partition_oss as partition;
+#[cfg(feature = "private")]
+pub mod pipeline_advanced_ee;
+pub mod pipeline_advanced_oss;
+#[cfg(feature = "private")]
+pub use pipeline_advanced_ee as pipeline_advanced;
+#[cfg(not(feature = "private"))]
+pub use pipeline_advanced_oss as pipeline_advanced;
 pub mod query_builders;
 pub mod queue;
 pub mod result_stream;
@@ -101,7 +129,9 @@ pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
 pub mod trashbin;
+pub mod trigger_history;
 pub mod triggers;
+pub mod user_drafts;
 pub mod usernames;
 pub mod users;
 pub mod utils;
@@ -174,24 +204,111 @@ pub fn check_on_behalf_of_preservation(
     None
 }
 
-/// Determines the on_behalf_of_email value to use when creating/updating a flow or script.
-/// - If `on_behalf_of_email` is None, returns None
-/// - If `preserve` is true and the user is admin or in the deployers group, returns the original value
-/// - Otherwise, returns the authenticated user's email
-pub fn resolve_on_behalf_of_email<'a>(
-    on_behalf_of_email: Option<&'a str>,
+/// Resolves the identity to store when creating/updating a flow or script.
+///
+/// The permissioned_as is the only stored identity — it decides what the job may access,
+/// and the address is derived from it at read time — so the two can never name different
+/// accounts. Callers may supply either: a bare email (every client written before the
+/// principal existed) is resolved to the principal it names, and an email that names
+/// nobody is rejected rather than recorded, since it could only produce a runnable that
+/// cannot authenticate.
+///
+/// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
+/// identity when they are not allowed to preserve someone else's.
+///
+/// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
+/// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
+/// Callers must already be authorized for the workspace they pass.
+pub async fn resolve_on_behalf_of(
+    on_behalf_of_email: Option<&str>,
+    on_behalf_of: Option<&str>,
     preserve: bool,
-    authed: &'a impl db::Authable,
-) -> Option<&'a str> {
-    if on_behalf_of_email.is_some() {
-        if preserve && can_preserve_on_behalf_of(authed) {
-            on_behalf_of_email
-        } else {
-            Some(authed.email())
-        }
-    } else {
-        None
+    authed: &impl db::Authable,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+) -> error::Result<Option<String>> {
+    if on_behalf_of_email.is_none() && on_behalf_of.is_none() {
+        return Ok(None);
     }
+    // Through the same width check as every other branch: the caller's own identity is
+    // address-shaped when they act without a `usr` row, and one too wide for a job row is no
+    // more enqueueable for naming themselves.
+    if !(preserve && can_preserve_on_behalf_of(authed)) {
+        return reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
+    }
+    let permissioned_as = match on_behalf_of {
+        Some(permissioned_as) => {
+            // The principal wins, but a caller that also names a contradictory address has a
+            // bug worth surfacing: that is exactly how a workspace deploy once shipped one
+            // workspace's principal beside another's address.
+            if let Some(email) = on_behalf_of_email {
+                let named =
+                    users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+                        .await?;
+                if named != email {
+                    return Err(Error::BadRequest(format!(
+                        "on_behalf_of '{permissioned_as}' resolves to '{named}', \
+                         not to on_behalf_of_email '{email}'. Both must name the same account."
+                    )));
+                }
+            }
+            // A bare address is canonical only for an account whose username is that address,
+            // or for a superadmin acting outside their workspaces. Sent for an ordinary member
+            // — which is what a folder rule naming an address produces — it is canonicalized to
+            // `u/{username}`: the bare branch of `fetch_authed_from_permissioned_as` grants
+            // neither their groups nor their folders, so storing it verbatim would run the job
+            // with less access than the account it names.
+            let canonical = if permissioned_as.starts_with(users::PERMISSIONED_AS_USER_PREFIX)
+                || permissioned_as.starts_with(users::PERMISSIONED_AS_GROUP_PREFIX)
+            {
+                None
+            } else {
+                users::permissioned_as_from_email(w_id, permissioned_as, db).await?
+            };
+            match canonical {
+                Some(canonical) => canonical,
+                None => {
+                    // Symmetric with the address branch below: an identity that names nobody
+                    // would only produce a runnable that cannot authenticate, and an unknown
+                    // prefix takes the least-privileged branch of
+                    // `fetch_authed_from_permissioned_as` rather than failing.
+                    if !users::permissioned_as_exists(w_id, permissioned_as, db).await? {
+                        return Err(Error::BadRequest(format!(
+                            "on_behalf_of '{permissioned_as}' names no user or \
+                             group in this workspace."
+                        )));
+                    }
+                    permissioned_as.to_string()
+                }
+            }
+        }
+        None => {
+            let email = on_behalf_of_email.unwrap_or_default();
+            users::permissioned_as_from_email(w_id, email, db)
+                .await?
+                .ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "on_behalf_of_email '{email}' names no user or group in this workspace, so \
+                         there is no identity to run as. Pass on_behalf_of, or use \
+                         the address of a workspace member."
+                    ))
+                })?
+        }
+    };
+    reject_unenqueueable(permissioned_as)
+}
+
+/// Every principal ends up on `v2_job.permissioned_as`, which is narrower than the columns it is
+/// stored in, so an identity that cannot be enqueued is refused at the deploy that records it
+/// rather than at the first run of a runnable that looks fine.
+fn reject_unenqueueable(permissioned_as: String) -> error::Result<Option<String>> {
+    if permissioned_as.chars().count() > users::PERMISSIONED_AS_MAX_LEN {
+        return Err(Error::BadRequest(format!(
+            "the identity '{permissioned_as}' is longer than the {} characters a job can carry",
+            users::PERMISSIONED_AS_MAX_LEN
+        )));
+    }
+    Ok(Some(permissioned_as))
 }
 
 #[macro_export]
@@ -243,6 +360,16 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: arc_swap::ArcSwap<Option<f32>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref JOB_RETENTION_SECS: AtomicI64 = AtomicI64::new(0);
+    /// Per-workspace overrides of `JOB_RETENTION_SECS` (EE-only), keyed by workspace_id, in seconds.
+    /// Sourced from the `retention_period_secs_overrides` global setting and cached here so the
+    /// cleanup sweep reads it without a per-tick DB query. A workspace may be given a longer OR
+    /// shorter window than the instance-wide value; `0` means "keep forever" for that workspace.
+    pub static ref JOB_RETENTION_SECS_OVERRIDES: arc_swap::ArcSwap<std::collections::HashMap<String, i64>> = arc_swap::ArcSwap::from_pointee(std::collections::HashMap::new());
+    /// Whether `JOB_RETENTION_SECS_OVERRIDES` has ever been loaded successfully (a valid map, an
+    /// explicit unset, or CE's no-op). Until then the empty cache is "unknown, not confirmed empty",
+    /// so the retention sweep must NOT run globally — that would delete jobs a longer-retention
+    /// workspace configured before its override could be read.
+    pub static ref JOB_RETENTION_SECS_OVERRIDES_LOADED: AtomicBool = AtomicBool::new(false);
     pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
@@ -252,6 +379,10 @@ lazy_static::lazy_static! {
     pub static ref INSTANCE_NAME: String = rd_string(5);
 
     pub static ref DEPLOYED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
+    // Latest non-archived version per (workspace, path) for bundle cache keying —
+    // looser predicate than DEPLOYED_SCRIPT_HASH_CACHE (no lock requirement), so
+    // the two must not share entries. See get_latest_script_hash_for_import_cached.
+    pub static ref IMPORTED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref FLOW_VERSION_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref DYNAMIC_INPUT_CACHE: Cache<String, Arc<jobs::DynamicInput>> = Cache::new(1000);
     pub static ref DEPLOYED_SCRIPT_INFO_CACHE: Cache<(String, i64), ScriptHashInfo<ScriptRunnableSettingsHandle>> = Cache::new(1000);
@@ -268,6 +399,16 @@ lazy_static::lazy_static! {
 }
 
 const LATEST_VERSION_ID_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Test hook: disables the process-global deployed-script hash/info caches so
+/// every resolution reads the current DB. Integration tests use `#[sqlx::test]`
+/// isolated DBs that share one workspace id and reuse script paths, so a cache
+/// keyed by `(workspace, path)`/`(workspace, hash)` resolves a path to a hash
+/// that lives in a *different* test's DB — and when the info cache misses for
+/// that foreign hash the lookup 404s in the wrong DB. Always `false` in
+/// production (the caches are TTL/LRU-bounded against real deploys).
+pub static DEPLOYED_SCRIPT_CACHE_DISABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 pub async fn shutdown_signal(
     tx: KillpillSender,
@@ -513,6 +654,174 @@ mod classify_python_logging_line_tests {
     }
 }
 
+#[cfg(test)]
+mod validate_dbname_tests {
+    use super::validate_dbname;
+
+    #[test]
+    fn accepts_letters_digits_underscores_and_hyphens() {
+        assert!(validate_dbname("mydb").is_ok());
+        assert!(validate_dbname("my_db").is_ok());
+        assert!(validate_dbname("my-database").is_ok());
+        assert!(validate_dbname("My-Db_1").is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_names() {
+        // Must start with a letter (hyphen/digit/underscore leads are rejected).
+        assert!(validate_dbname("-db").is_err());
+        assert!(validate_dbname("1db").is_err());
+        assert!(validate_dbname("_db").is_err());
+        // No other special characters or whitespace.
+        assert!(validate_dbname("my db").is_err());
+        assert!(validate_dbname("my;db").is_err());
+        assert!(validate_dbname("").is_err());
+    }
+}
+
+#[cfg(test)]
+mod pg_tls_tests {
+    use super::PgDatabase;
+
+    // A syntactically valid (self-signed) certificate, used only to exercise the
+    // "root certificate supplied" branch — its contents are never validated here.
+    const VALID_PEM: &str = "-----BEGIN CERTIFICATE-----\n\
+MIIDETCCAfmgAwIBAgIUX/yHsMoWBljFzJr5Xh7V2I6ykMEwDQYJKoZIhvcNAQEL\n\
+BQAwGDEWMBQGA1UEAwwNd2luZG1pbGwtdGVzdDAeFw0yNjA2MjkwOTUwNTlaFw0z\n\
+NjA2MjYwOTUwNTlaMBgxFjAUBgNVBAMMDXdpbmRtaWxsLXRlc3QwggEiMA0GCSqG\n\
+SIb3DQEBAQUAA4IBDwAwggEKAoIBAQCvF2hMw8adQGG6EnDk8GsOIoHT+kLN1W0F\n\
+yYFwH1wGVmzVP1YNfUts8aQfMtl/ZjW7SQlvKeK+18id4fVNYvZpbFhj66IsKMOU\n\
+MnJHcC6X/IAdhANyhM1fcrS6YupanAKOhLPk4HYRD5tGI4Y1vzTnQKGffIZ0bof7\n\
+3GtCiJLv8wrJKszeoKPtdFazdW+CYePbFq3Owc7HMo8CwA7A5TsgcowELhCfYwZv\n\
+Pn/9v+NDHQO0jJclH7qK221RkbqZGD+nPJ4rUm7oRi0vfApBQZ0FFJZjiki/Kg2+\n\
+RACb6Ud/LOeRBerKQHbN8KeYnGafCaIC4s/XytVwxAz+kgK1qyl7AgMBAAGjUzBR\n\
+MB0GA1UdDgQWBBRo2Jby4SZlrwMNbhA4bswZcBNRyjAfBgNVHSMEGDAWgBRo2Jby\n\
+4SZlrwMNbhA4bswZcBNRyjAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUA\n\
+A4IBAQBlED+FQW3GB3Wa1NdVN252vihuFNnbq81yvhf4T7dfAxwkxI9jiM+ZWCw2\n\
+g59FbLupj8Rwun5gE2H/9M8ZunISdlwaMH5nyDJlbRjttPfY1cEoyGEY+UXIslfg\n\
+BoiI5rOtz9R2qurxEic1VtEVfXhEuWwCG86vCBDdHrL/qqqUJEx/P8qyC7uVc8XC\n\
+uclnJVL7x1ax0jTmEPur9K+DQn2ws01mzpq2QwSunibpDL5D5xM1oYekv0tQFEkT\n\
+ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
++hOq1qpWD7yPVyycx/KCilICOKVf\n\
+-----END CERTIFICATE-----\n";
+
+    fn pg(sslmode: Option<&str>, root_cert: Option<&str>) -> PgDatabase {
+        PgDatabase {
+            host: "db.example.com".to_string(),
+            user: Some("u".to_string()),
+            password: Some("p".to_string()),
+            port: Some(5432),
+            sslmode: sslmode.map(|s| s.to_string()),
+            dbname: "mydb".to_string(),
+            root_certificate_pem: root_cert.map(|s| s.to_string()),
+            accept_invalid_certs: None,
+            use_iam_auth: None,
+            region: None,
+        }
+    }
+
+    /// Whether the connector enforces certificate verification for the given config.
+    fn verifies(
+        sslmode: Option<&str>,
+        root_cert: Option<&str>,
+        accept_invalid_certs: Option<bool>,
+    ) -> bool {
+        let mut builder = native_tls::TlsConnector::builder();
+        PgDatabase::configure_pg_tls_verification(
+            &mut builder,
+            sslmode,
+            root_cert,
+            accept_invalid_certs,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn verify_modes_enforce_verification_when_explicitly_requested() {
+        // accept_invalid_certs=Some(false) is what newly created resources carry: it
+        // verifies even with no custom cert (against the OS trust store).
+        assert!(verifies(Some("verify-full"), None, Some(false)));
+        assert!(verifies(Some("verify-ca"), None, Some(false)));
+        assert!(verifies(Some("verify-full"), Some(""), Some(false)));
+        assert!(verifies(Some("verify-full"), Some(VALID_PEM), Some(false)));
+        assert!(verifies(Some("verify-ca"), Some(VALID_PEM), Some(false)));
+    }
+
+    #[test]
+    fn verify_modes_unset_fall_back_to_legacy_behavior() {
+        // Unset (None): verify iff a root cert is present — preserves the behavior of
+        // resources that predate the flag (incl. git-synced), so upgrades don't break.
+        assert!(!verifies(Some("verify-full"), None, None));
+        assert!(!verifies(Some("verify-ca"), None, None));
+        assert!(!verifies(Some("verify-full"), Some(""), None));
+        assert!(verifies(Some("verify-full"), Some(VALID_PEM), None));
+        assert!(verifies(Some("verify-ca"), Some(VALID_PEM), None));
+    }
+
+    #[test]
+    fn accept_invalid_certs_true_disables_verification_for_verify_modes() {
+        assert!(!verifies(Some("verify-full"), Some(VALID_PEM), Some(true)));
+        assert!(!verifies(Some("verify-ca"), None, Some(true)));
+    }
+
+    #[test]
+    fn accept_invalid_certs_is_ignored_outside_verify_modes() {
+        // require never consults the flag: it verifies iff a cert is present, and
+        // encrypts-without-verifying otherwise, regardless of accept_invalid_certs.
+        assert!(!verifies(Some("require"), None, Some(false)));
+        assert!(!verifies(Some("require"), None, Some(true)));
+        assert!(!verifies(None, None, Some(true)));
+        assert!(verifies(Some("require"), Some(VALID_PEM), Some(true)));
+        assert!(verifies(Some("require"), Some(VALID_PEM), None));
+    }
+
+    #[test]
+    fn invalid_pem_is_rejected() {
+        let mut builder = native_tls::TlsConnector::builder();
+        let err = PgDatabase::configure_pg_tls_verification(
+            &mut builder,
+            Some("verify-full"),
+            Some("not a certificate"),
+            Some(false),
+        );
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn to_uri_collapses_verify_modes_for_tokio_postgres() {
+        // to_uri() feeds tokio-postgres, which only parses disable/prefer/require;
+        // verify-* therefore map to require there (verification is connector-driven).
+        for mode in ["require", "verify-ca", "verify-full"] {
+            assert!(
+                pg(Some(mode), None).to_uri().contains("sslmode=require"),
+                "{mode} should map to sslmode=require in to_uri()"
+            );
+        }
+        assert!(pg(Some("disable"), None)
+            .to_uri()
+            .contains("sslmode=disable"));
+        assert!(pg(Some("allow"), None).to_uri().contains("sslmode=prefer"));
+        assert!(pg(None, None).to_uri().contains("sslmode=prefer"));
+    }
+
+    /// The other paths default a missing login to `postgres`; Entra must not, or the
+    /// server rejects a role the resource never named.
+    #[test]
+    fn entra_login_rejects_a_missing_user() {
+        let mut db = pg(None, None);
+        assert_eq!(db.entra_login().unwrap(), "u");
+        assert_eq!(db.login_name(), "u");
+
+        db.user = None;
+        assert_eq!(db.login_name(), "postgres");
+
+        for blank in [None, Some(""), Some("  ")] {
+            db.user = blank.map(|u: &str| u.to_string());
+            assert!(db.entra_login().is_err(), "{blank:?} is not a login");
+        }
+    }
+}
+
 #[derive(Serialize, Debug)]
 pub struct PrepareQueryColumnInfo {
     pub name: String,
@@ -537,6 +846,12 @@ pub struct PgDatabase {
     pub sslmode: Option<String>,
     pub dbname: String,
     pub root_certificate_pem: Option<String>,
+    /// Only meaningful for sslmode verify-ca/verify-full. `Some(true)` accepts any
+    /// server certificate (no chain or hostname check); `Some(false)` enforces
+    /// verification. `None` falls back to legacy behavior — verify only when a root
+    /// certificate is present — so resources that predate this flag (including
+    /// git-synced ones, whose source never sets it) keep working unchanged.
+    pub accept_invalid_certs: Option<bool>,
     pub use_iam_auth: Option<bool>,
     pub region: Option<String>,
 }
@@ -571,6 +886,11 @@ impl Future for TokioPgConnection {
 }
 
 impl PgDatabase {
+    /// The role the connection logs in as, whichever way it authenticates.
+    pub fn login_name(&self) -> &str {
+        self.user.as_deref().unwrap_or("postgres")
+    }
+
     pub fn to_uri(&self) -> String {
         let sslmode = match self.sslmode.as_deref() {
             Some("allow") => "prefer".to_string(),
@@ -578,13 +898,22 @@ impl PgDatabase {
             Some(s) => s.to_string(),
             None => "prefer".to_string(),
         };
+        // Encode host/dbname too: an unencoded '@', '/', '?' or '&' would otherwise
+        // reshape the parsed URI (inject libpq params / alter host). Bracketed IPv6
+        // literals ([::1]) are passed through unencoded — percent-encoding their
+        // '['/']'/':' would stop them parsing as a host.
+        let host = if self.host.starts_with('[') && self.host.ends_with(']') {
+            self.host.clone()
+        } else {
+            urlencoding::encode(&self.host).into_owned()
+        };
         format!(
             "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-            user = urlencoding::encode(&self.user.as_deref().unwrap_or("postgres")),
+            user = urlencoding::encode(self.login_name()),
             password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
-            host = &self.host,
+            host = host,
             port = self.port.unwrap_or(5432),
-            dbname = self.dbname,
+            dbname = urlencoding::encode(&self.dbname),
             sslmode = sslmode
         )
     }
@@ -616,10 +945,94 @@ impl PgDatabase {
         }
     }
 
+    /// True when sslmode requests verification (verify-ca/verify-full) but the
+    /// effective configuration disables it, so the server's identity is not
+    /// checked. Mirrors the verify-* decision in `configure_pg_tls_verification`.
+    pub fn verify_mode_skips_verification(&self) -> bool {
+        matches!(
+            self.sslmode.as_deref(),
+            Some("verify-ca") | Some("verify-full")
+        ) && self.accept_invalid_certs.unwrap_or(
+            self.root_certificate_pem
+                .as_deref()
+                .unwrap_or("")
+                .is_empty(),
+        )
+    }
+
+    /// Configure certificate and hostname verification on a native-tls connector
+    /// according to the requested Postgres `sslmode`. The crates.io tokio-postgres
+    /// build only parses disable/prefer/require, so verify-ca and verify-full are
+    /// enforced here, on the connector, rather than through the connection URI.
+    ///
+    ///   verify-full — verify the certificate chain AND that it matches the host.
+    ///   verify-ca   — verify the chain only; libpq does not check the hostname.
+    ///   require / other — encrypt without verifying identity, unless a root
+    ///                     certificate is supplied (then verify the chain).
+    ///
+    /// `accept_invalid_certs` only applies to verify-ca/verify-full: `Some(true)`
+    /// accepts any certificate, `Some(false)` enforces verification, and `None`
+    /// falls back to the legacy behavior — verify only when a root certificate is
+    /// present — so resources predating the flag (including git-synced ones, whose
+    /// source never sets it) keep working unchanged. Verification uses the OS trust
+    /// store plus any supplied root certificate. Returns false when the connector
+    /// was set to accept any certificate, so callers can surface that an unverified
+    /// connection is being made.
+    fn configure_pg_tls_verification(
+        builder: &mut native_tls::TlsConnectorBuilder,
+        sslmode: Option<&str>,
+        root_certificate_pem: Option<&str>,
+        accept_invalid_certs: Option<bool>,
+    ) -> Result<bool, error::Error> {
+        use native_tls::Certificate;
+
+        let custom_root = match root_certificate_pem {
+            Some(pem) if !pem.is_empty() => Some(
+                Certificate::from_pem(pem.as_bytes())
+                    .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
+            ),
+            _ => None,
+        };
+
+        match sslmode {
+            Some("verify-full") | Some("verify-ca") => {
+                // Unset falls back to the legacy behavior: verify iff a cert is present.
+                if accept_invalid_certs.unwrap_or(custom_root.is_none()) {
+                    builder
+                        .danger_accept_invalid_certs(true)
+                        .danger_accept_invalid_hostnames(true);
+                    return Ok(false);
+                }
+                if let Some(cert) = custom_root {
+                    builder.add_root_certificate(cert);
+                }
+                if sslmode == Some("verify-ca") {
+                    // verify-ca verifies the chain but, per libpq, not the hostname.
+                    builder.danger_accept_invalid_hostnames(true);
+                }
+                Ok(true)
+            }
+            _ => {
+                // "require": accept_invalid_certs does not apply. Encrypt but do not
+                // verify identity, unless an explicit root certificate was supplied
+                // (then verify the chain).
+                if let Some(cert) = custom_root {
+                    builder.add_root_certificate(cert);
+                    Ok(true)
+                } else {
+                    builder
+                        .danger_accept_invalid_certs(true)
+                        .danger_accept_invalid_hostnames(true);
+                    Ok(false)
+                }
+            }
+        }
+    }
+
     async fn connect_inner(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
-        use native_tls::{Certificate, TlsConnector};
+        use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
         use tokio_postgres::tls::NoTls;
         let ssl_mode_is_require = matches!(
@@ -630,21 +1043,17 @@ impl PgDatabase {
         if ssl_mode_is_require {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
-            if let Some(root_certificate_pem) = &self.root_certificate_pem {
-                if !root_certificate_pem.is_empty() {
-                    connector.add_root_certificate(
-                        Certificate::from_pem(root_certificate_pem.as_bytes()).map_err(|e| {
-                            error::Error::BadConfig(format!("Invalid Certs: {e:#}"))
-                        })?,
-                    );
-                } else {
-                    connector.danger_accept_invalid_certs(true);
-                    connector.danger_accept_invalid_hostnames(true);
-                }
-            } else {
-                connector
-                    .danger_accept_invalid_certs(true)
-                    .danger_accept_invalid_hostnames(true);
+            Self::configure_pg_tls_verification(
+                &mut connector,
+                self.sslmode.as_deref(),
+                self.root_certificate_pem.as_deref(),
+                self.accept_invalid_certs,
+            )?;
+            if self.verify_mode_skips_verification() {
+                tracing::warn!(
+                    "Postgres connection with sslmode={} is not verifying the server certificate (accept_invalid_certs is set, or no root certificate is configured and the resource predates that flag). Set accept_invalid_certs=false or provide root_certificate_pem to enforce verification.",
+                    self.sslmode.as_deref().unwrap_or("")
+                );
             }
 
             let (client, connection) = tokio::time::timeout(
@@ -677,9 +1086,6 @@ impl PgDatabase {
     pub async fn connect_with_iam(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
-        use native_tls::TlsConnector;
-        use postgres_native_tls::MakeTlsConnector;
-
         // Resolve region: resource field takes priority, then env var
         let region = match self.region.as_deref() {
             Some(r) => r.to_string(),
@@ -691,7 +1097,7 @@ impl PgDatabase {
         };
 
         let port = self.port.unwrap_or(5432);
-        let user = self.user.as_deref().unwrap_or("postgres");
+        let user = self.login_name();
 
         let token = db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
             .await
@@ -699,35 +1105,85 @@ impl PgDatabase {
                 error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
             })?;
 
-        // RDS IAM auth requires SSL
+        self.connect_with_token("IAM RDS", user, &token).await
+    }
+
+    /// The role an Entra-authenticated connection logs in as. Azure maps each Entra
+    /// principal to a role of its own (`pgaadauth_create_principal`), so unlike the
+    /// other paths this one has no sensible default: `postgres` would send the server a
+    /// role name the resource never mentions, and the rejection then names a value the
+    /// user never configured.
+    pub fn entra_login(&self) -> error::Result<&str> {
+        self.user
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .ok_or_else(|| {
+                error::Error::BadRequest(
+                    "Azure workload identity authentication requires `user` on the resource. \
+                     Set it to the Postgres role the worker's Entra principal is mapped to, \
+                     as created by pgaadauth_create_principal."
+                        .to_string(),
+                )
+            })
+    }
+
+    /// Connect to Azure Database for PostgreSQL as the worker's federated identity.
+    /// The Entra ID access token replaces the password.
+    #[cfg(feature = "enterprise")]
+    pub async fn connect_with_workload_identity(
+        &self,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        // Before the token exchange: a missing login is worth reporting without first
+        // spending a round trip to Entra ID on it.
+        let user = self.entra_login()?;
+
+        let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve()?;
+        let token = workload_identity
+            .access_token(azure_workload_identity::AZURE_OSSRDBMS_SCOPE)
+            .await?;
+
+        self.connect_with_token("Azure workload identity", user, &token)
+            .await
+    }
+
+    /// Connect with an externally issued access token in place of the password.
+    /// Both issuers (AWS IAM, Entra ID) mandate TLS, so encryption is forced on
+    /// regardless of the resource's sslmode; the sslmode still selects how far the
+    /// server's certificate is verified.
+    #[cfg(feature = "enterprise")]
+    async fn connect_with_token(
+        &self,
+        auth_kind: &str,
+        user: &str,
+        token: &str,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        let port = self.port.unwrap_or(5432);
+
         let mut connector = TlsConnector::builder();
-        if let Some(root_certificate_pem) = &self.root_certificate_pem {
-            if !root_certificate_pem.is_empty() {
-                connector.add_root_certificate(
-                    native_tls::Certificate::from_pem(root_certificate_pem.as_bytes())
-                        .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
-                );
-            } else {
-                connector.danger_accept_invalid_certs(true);
-                connector.danger_accept_invalid_hostnames(true);
-            }
-        } else {
-            tracing::warn!("IAM RDS auth without root certificate: TLS certificate verification is disabled. Consider providing root_certificate_pem for production use.");
-            connector
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true);
+        let verified = Self::configure_pg_tls_verification(
+            &mut connector,
+            self.sslmode.as_deref(),
+            self.root_certificate_pem.as_deref(),
+            self.accept_invalid_certs,
+        )?;
+        if !verified {
+            tracing::warn!("{auth_kind} auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
         }
 
-        tracing::info!("Creating new IAM RDS connection to {}", &self.host);
+        tracing::info!("Creating new {auth_kind} connection to {}", &self.host);
 
-        // Use Config builder directly to pass the IAM token as the password.
+        // Use Config builder directly to pass the token as the password.
         // This avoids needing to URL-encode the token into a connection string.
         let mut config = tokio_postgres::Config::new();
         config
             .host(&self.host)
             .port(port as u16)
             .user(user)
-            .password(&token)
+            .password(token)
             .dbname(&self.dbname)
             .ssl_mode(tokio_postgres::config::SslMode::Require);
 
@@ -780,14 +1236,58 @@ impl PgDatabase {
             dbname,
             sslmode,
             root_certificate_pem: None,
+            accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
         })
     }
 }
 
+/// How long a `tokio_postgres` connection task gets to wind down once its `Client` is dropped.
+const PG_CONNECTION_SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Wind down the task driving a `tokio_postgres` connection after its `Client` has been dropped,
+/// surfacing whatever error the connection ended with. A teardown that has to be aborted is
+/// reported as success — the work the client did is already done and complete.
+///
+/// The task only finishes once the exchange the client left behind (its Terminate, and any
+/// still-unanswered request) has been settled by the peer. A connection proxy that stops
+/// replying leaves that pending forever, so waiting on the task without a deadline pins the
+/// caller and the socket for the lifetime of the process. Aborting past the grace period drops
+/// the stream, which is the only cleanup the task owes.
+pub async fn shutdown_pg_connection(
+    join_handle: tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>,
+) -> error::Result<()> {
+    let abort_handle = join_handle.abort_handle();
+    match tokio::time::timeout(PG_CONNECTION_SHUTDOWN_GRACE, join_handle).await {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(e))) => Err(error::Error::internal_err(format!(
+            "tokio_postgres error: {}",
+            e
+        ))),
+        Ok(Err(e)) => Err(error::Error::internal_err(format!("join error: {}", e))),
+        Err(_) => {
+            tracing::warn!(
+                "Postgres connection did not close within {}s of its client being dropped, aborting it",
+                PG_CONNECTION_SHUTDOWN_GRACE.as_secs()
+            );
+            abort_handle.abort();
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod pg_connection_shutdown_tests {
+    #[tokio::test(start_paused = true)]
+    async fn gives_up_on_a_connection_task_that_never_finishes() {
+        let never_finishes = tokio::spawn(std::future::pending());
+        assert!(super::shutdown_pg_connection(never_finishes).await.is_ok());
+    }
+}
+
 /// Validate a database name to prevent SQL injection.
-/// Must start with a letter, contain only alphanumeric characters or underscores, and be <= 63 chars.
+/// Must start with a letter, contain only alphanumeric characters, underscores, or hyphens, and be <= 63 chars.
 pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     let dbname = dbname.trim();
     if dbname.is_empty() {
@@ -811,10 +1311,11 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     }
     if !dbname
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
         return Err(error::Error::BadRequest(
-            "Database name must contain only alphanumeric characters or underscores".to_string(),
+            "Database name must contain only alphanumeric characters, underscores, or hyphens"
+                .to_string(),
         ));
     }
     Ok(())
@@ -931,15 +1432,12 @@ pub async fn create_custom_instance_database(
         tracing::warn!(
             "Failed to grant permissions on '{}': {}. Continuing.",
             dbname,
-            e
+            crate::error::pg_error_message(&e)
         );
     }
 
     drop(client);
-    join_handle
-        .await
-        .map_err(|e| error::Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| error::Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    shutdown_pg_connection(join_handle).await?;
 
     // Register in global_settings
     let status_json = serde_json::json!({
@@ -1197,11 +1695,72 @@ pub struct ScriptHashInfo<SR> {
     pub delete_after_secs: Option<i32>,
     pub timeout: Option<i32>,
     pub has_preprocessor: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
+}
+
+impl<SR> ScriptHashInfo<SR> {
+    /// The identity this script runs as, or `None` when it runs as its caller. The address
+    /// is derived from the principal rather than stored, so the two cannot disagree.
+    ///
+    /// Reads through the non-RLS pool and authorizes nothing: callers must already be
+    /// authorized for `w_id` and for this script.
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
+    }
+}
+
+/// The address to store beside the principal, or `None` once no worker needs it.
+///
+/// A worker predating [`MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL`] reads `on_behalf_of_email`
+/// and nothing else, so a deploy has to keep filling it while one may still be live — otherwise
+/// a runnable deployed mid-upgrade runs as its deployer there. Once every worker is new the
+/// column is dead weight and a later release drops it.
+///
+/// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
+/// for `w_id`.
+pub async fn legacy_on_behalf_of_email(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<String>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    if min_version::MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL.met_conservatively() {
+        return Ok(None);
+    }
+    Ok(Some(
+        users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?,
+    ))
+}
+
+/// Shared by [`ScriptHashInfo::on_behalf_of`] and [`FlowVersionInfo::on_behalf_of`].
+///
+/// Reads identity data through the non-RLS pool and enforces nothing itself: it answers who a
+/// row already says it runs as. Callers must have authorized `w_id` — and the row they read it
+/// from — before dispatching a job with what it returns.
+pub async fn on_behalf_of_from_permissioned_as(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<jobs::OnBehalfOf>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    // Uncached: the address is copied onto the job row, where it stays for the life of the run
+    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
+    // processes, so a cached read would keep minting jobs under an address the account no longer
+    // holds for up to a minute after it moves.
+    let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
+    Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
 }
 
 impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
@@ -1228,7 +1787,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             has_preprocessor: self.has_preprocessor,
-            on_behalf_of_email: self.on_behalf_of_email,
+            on_behalf_of: self.on_behalf_of,
             created_by: self.created_by,
             labels: self.labels,
             runnable_settings: ScriptRunnableSettingsInline {
@@ -1254,8 +1813,12 @@ pub fn get_latest_deployed_hash_for_path<'e>(
 ) -> impl Future<Output = error::Result<ScriptHashInfo<ScriptRunnableSettingsHandle>>> + Send + 'e {
     async move {
         let cache_key = (w_id.to_string(), script_path.to_string());
+        let use_cache = !DEPLOYED_SCRIPT_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
         let mut computed_hash = None;
-        let hash = match DEPLOYED_SCRIPT_HASH_CACHE.get(&cache_key) {
+        let hash = match DEPLOYED_SCRIPT_HASH_CACHE
+            .get(&cache_key)
+            .filter(|_| use_cache)
+        {
             Some(cached_hash)
                 if cached_hash.expires_at > std::time::Instant::now()
                     && db.as_ref().is_none_or(|x| {
@@ -1298,13 +1861,15 @@ pub fn get_latest_deployed_hash_for_path<'e>(
                 };
 
                 let hash = utils::not_found_if_none(hash, "script", script_path)?;
-                DEPLOYED_SCRIPT_HASH_CACHE.insert(
-                    cache_key,
-                    ExpiringLatestVersionId {
-                        id: hash,
-                        expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
-                    },
-                );
+                if use_cache {
+                    DEPLOYED_SCRIPT_HASH_CACHE.insert(
+                        cache_key,
+                        ExpiringLatestVersionId {
+                            id: hash,
+                            expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
+                        },
+                    );
+                }
 
                 hash
             }
@@ -1329,6 +1894,46 @@ pub async fn get_latest_script_hash<'e, E: sqlx::PgExecutor<'e>>(
     return Ok(hash);
 }
 
+/// Latest non-archived hash for an imported `path`, for bundle cache keying.
+/// MUST select the same row as the bundler's content endpoint
+/// (`raw_script_by_path_internal`: `archived = false ORDER BY created_at DESC`,
+/// no lock predicate) — a stricter filter here would let the key point at an
+/// older version than the content that gets inlined. Cached with the same
+/// freshness contract as that endpoint's `RAW_SCRIPT_LATEST_HASH_CACHE`:
+/// evicted by `notify_runnable_version_change` events, 60s TTL fallback.
+pub async fn get_latest_script_hash_for_import_cached(
+    db: &DB,
+    w_id: &str,
+    script_path: &str,
+) -> error::Result<Option<i64>> {
+    let use_cache = !DEPLOYED_SCRIPT_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+    let cache_key = (w_id.to_string(), script_path.to_string());
+    if use_cache {
+        if let Some(cached) = IMPORTED_SCRIPT_HASH_CACHE.get(&cache_key) {
+            if cached.expires_at > std::time::Instant::now() {
+                return Ok(Some(cached.id));
+            }
+        }
+    }
+    let hash = sqlx::query_scalar!(
+        "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
+        script_path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    if let (true, Some(hash)) = (use_cache, hash) {
+        IMPORTED_SCRIPT_HASH_CACHE.insert(
+            cache_key,
+            ExpiringLatestVersionId {
+                id: hash,
+                expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
+            },
+        );
+    }
+    Ok(hash)
+}
+
 pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: E,
@@ -1336,9 +1941,10 @@ pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
     hash: i64,
 ) -> error::Result<ScriptHashInfo<ScriptRunnableSettingsHandle>> {
     let key = (w_id.to_string(), hash);
+    let use_cache = !DEPLOYED_SCRIPT_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
 
     let mut computed_hash = None;
-    match DEPLOYED_SCRIPT_INFO_CACHE.get(&key) {
+    match DEPLOYED_SCRIPT_INFO_CACHE.get(&key).filter(|_| use_cache) {
         Some(info)
             if db_authed.as_ref().is_none_or(|x| {
                 let r = HASH_PERMS_CACHE.check_perms_in_cache(x.authed, scripts::ScriptHash(hash));
@@ -1367,7 +1973,9 @@ pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
 
             let info = utils::not_found_if_none(info, "script", &hash.to_string())?;
 
-            DEPLOYED_SCRIPT_INFO_CACHE.insert(key, info.clone());
+            if use_cache {
+                DEPLOYED_SCRIPT_INFO_CACHE.insert(key, info.clone());
+            }
 
             Ok(info)
         }
@@ -1398,7 +2006,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 delete_after_secs,
                 timeout,
                 has_preprocessor,
-                on_behalf_of_email,
+                on_behalf_of,
                 created_by,
                 labels,
                 path
@@ -1418,10 +2026,24 @@ pub struct FlowVersionInfo {
     pub has_preprocessor: Option<bool>,
     pub has_failure_module: Option<bool>,
     pub chat_input_enabled: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
     pub labels: Option<Vec<String>>,
+}
+
+impl FlowVersionInfo {
+    /// The identity this flow runs as, or `None` when it runs as its caller.
+    ///
+    /// Same contract as [`ScriptHashInfo::on_behalf_of`]: callers must already be authorized
+    /// for `w_id` and for this flow.
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
+    }
 }
 
 struct CachedFlowPath(String);
@@ -1549,7 +2171,7 @@ pub fn get_flow_version_info_from_version<
                                     (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled,
                                     flow.tag,
                                     flow.dedicated_worker,
-                                    flow.on_behalf_of_email,
+                                    flow.on_behalf_of,
                                     flow.edited_by,
                                     flow.labels
                                 FROM
@@ -1665,6 +2287,7 @@ async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
 
 pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
+    db2: &DB,
     w_id: &str,
     script_path: &str,
     require_locked: bool,
@@ -1682,13 +2305,12 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<bool>,
     Option<i16>,
     Option<i32>,
-    Option<String>,
-    String,
+    Option<jobs::OnBehalfOf>,
     Option<i64>,
     Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -1699,6 +2321,9 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
+
+    let on_behalf_of =
+        on_behalf_of_from_permissioned_as(script.on_behalf_of.as_deref(), w_id, db2).await?;
 
     Ok((
         scripts::ScriptHash(script.hash),
@@ -1714,8 +2339,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         script.dedicated_worker,
         script.priority,
         script.timeout,
-        script.on_behalf_of_email,
-        script.created_by,
+        on_behalf_of,
         script.runnable_settings_handle,
         script.labels,
     ))

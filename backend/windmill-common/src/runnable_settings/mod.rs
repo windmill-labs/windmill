@@ -52,13 +52,10 @@ pub trait RunnableSettingsTrait:
 
     /// get [[Self]] from cache or fetch from db
     /// if not found, returns Error
-    fn get<'a>(
+    fn get<'e>(
         hash: i64,
-        db: &'a Pool<Postgres>,
-    ) -> impl Future<Output = Result<Self, error::Error>>
-    where
-        Self: 'a,
-    {
+        db: impl sqlx::PgExecutor<'e>,
+    ) -> impl Future<Output = Result<Self, error::Error>> {
         async move {
             let v = RUNNABLE_INDIVIDUAL_SETTINGS
                 .get_or_insert_async(hash, async {

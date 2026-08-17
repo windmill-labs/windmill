@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) FROM v2_job_completed\n         WHERE workspace_id = $1 AND id = ANY($2) AND status = 'success'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "387e135bf363533089493c35eb39dd4864f4e0aa0093df47df7d444ee748dbb2"
+}

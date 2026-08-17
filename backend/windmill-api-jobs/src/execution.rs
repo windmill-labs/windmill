@@ -12,6 +12,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use base64::Engine as _;
 use http::{HeaderMap, HeaderName, HeaderValue};
 use hyper::StatusCode;
 use serde::Deserialize;
@@ -55,7 +56,7 @@ pub async fn check_tag_available_for_workspace(
 ) -> error::Result<()> {
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         let tags = get_scope_tags(authed);
-        check_tag_available_for_workspace_internal(&db, w_id, tag, &authed.email, tags).await
+        check_tag_available_for_workspace_internal(db, w_id, tag, &authed.email, tags).await
     } else {
         Ok(())
     }
@@ -254,6 +255,8 @@ pub struct WindmillCompositeResult {
     windmill_content_type: Option<String>,
     #[serde(alias = "wm_headers")]
     windmill_headers: Option<HashMap<String, String>>,
+    #[serde(alias = "wm_content_transfer_encoding")]
+    windmill_content_transfer_encoding: Option<String>,
     result: Option<Box<RawValue>>,
 }
 
@@ -375,11 +378,13 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
             windmill_status_code,
             windmill_content_type,
             windmill_headers,
+            windmill_content_transfer_encoding,
             result: result_value,
         }) => {
             if windmill_content_type.is_none()
                 && windmill_status_code.is_none()
                 && windmill_headers.is_none()
+                && windmill_content_transfer_encoding.is_none()
             {
                 return Ok((
                     if success {
@@ -425,17 +430,53 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
                 let serialized_json_result = result_value
                     .map(|val| val.get().to_owned())
                     .unwrap_or_else(String::new);
-                let serialized_result =
-                    serde_json::from_str::<String>(serialized_json_result.as_str())
-                        .ok()
-                        .unwrap_or(serialized_json_result);
+                let parsed_string =
+                    serde_json::from_str::<String>(serialized_json_result.as_str()).ok();
+                let result_is_json_string = parsed_string.is_some();
+                let serialized_result = parsed_string.unwrap_or(serialized_json_result);
                 headers.insert(
                     http::header::CONTENT_TYPE,
                     HeaderValue::from_str(content_type.as_str()).map_err(|err| {
                         Error::internal_err(format!("Invalid content type {content_type}: {err}"))
                     })?,
                 );
+                // Invalid base64 is a hard error, never a silent fallback to the encoded text.
+                match windmill_content_transfer_encoding.as_deref() {
+                    Some("base64") => {
+                        // Only a JSON string carries base64; a number/bool/null/array/object
+                        // must not have its raw JSON text decoded into arbitrary bytes.
+                        if !result_is_json_string {
+                            return Err(Error::ExecutionErr(
+                                "windmill_content_transfer_encoding \"base64\" requires result \
+                                 to be a base64-encoded string"
+                                    .to_string(),
+                            ));
+                        }
+                        let decoded = base64::engine::general_purpose::STANDARD
+                            .decode(serialized_result.as_bytes())
+                            .map_err(|err| {
+                                Error::ExecutionErr(format!(
+                                    "windmill_content_transfer_encoding is \"base64\" but the \
+                                     result is not valid base64: {err}"
+                                ))
+                            })?;
+                        return Ok((status_code_or_default, headers, decoded).into_response());
+                    }
+                    Some(other) => {
+                        return Err(Error::ExecutionErr(format!(
+                            "Unsupported windmill_content_transfer_encoding \"{other}\" \
+                             (only \"base64\" is supported)"
+                        )));
+                    }
+                    None => {}
+                }
                 return Ok((status_code_or_default, headers, serialized_result).into_response());
+            }
+            if windmill_content_transfer_encoding.is_some() {
+                return Err(Error::ExecutionErr(
+                    "windmill_content_transfer_encoding requires windmill_content_type to be set"
+                        .to_string(),
+                ));
             }
             if let Some(result_value) = result_value {
                 return Ok((status_code_or_default, headers, Json(result_value)).into_response());
@@ -650,6 +691,7 @@ pub async fn run_flow<'c>(
     bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
+    let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
         tag,
@@ -657,8 +699,6 @@ pub async fn run_flow<'c>(
         has_preprocessor,
         has_failure_module,
         chat_input_enabled,
-        on_behalf_of_email,
-        edited_by,
         early_return,
         labels,
         ..
@@ -678,10 +718,10 @@ pub async fn run_flow<'c>(
             Some(authed.clone().into()),
             PushIsolationLevel::Transaction(tx),
         )
-    } else if let Some(on_behalf_of_email) = on_behalf_of_email.as_ref() {
+    } else if let Some(obo) = on_behalf_of.as_ref() {
         (
-            on_behalf_of_email,
-            username_to_permissioned_as(&edited_by),
+            &obo.email,
+            obo.permissioned_as.clone(),
             None,
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
@@ -711,6 +751,7 @@ pub async fn run_flow<'c>(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -728,7 +769,7 @@ pub async fn run_flow<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger,
+        authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
     )
     .await?;
@@ -925,6 +966,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -947,7 +989,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger,
+        authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
     )
     .await?;
@@ -958,5 +1000,108 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     } else {
         tx.commit().await?;
         Ok((uuid, resolved_delete_secs, None))
+    }
+}
+
+#[cfg(test)]
+mod result_to_response_tests {
+    use super::*;
+
+    fn raw(json: &str) -> Box<RawValue> {
+        serde_json::from_str(json).expect("valid json")
+    }
+
+    async fn body_bytes(resp: Response) -> Vec<u8> {
+        axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("read body")
+            .to_vec()
+    }
+
+    #[tokio::test]
+    async fn base64_result_is_decoded_to_raw_bytes() {
+        // 0x00 0x01 0x02 0xFF is not valid UTF-8, so it can only survive as bytes.
+        let bytes = vec![0u8, 1, 2, 255];
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let resp = result_to_response(
+            raw(&format!(
+                r#"{{"wm_content_type":"application/pdf","wm_content_transfer_encoding":"base64","result":"{b64}"}}"#
+            )),
+            true,
+        )
+        .expect("response");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
+            "application/pdf"
+        );
+        assert_eq!(body_bytes(resp).await, bytes);
+    }
+
+    #[tokio::test]
+    async fn invalid_base64_is_a_hard_error() {
+        let res = result_to_response(
+            raw(
+                r#"{"wm_content_type":"application/pdf","wm_content_transfer_encoding":"base64","result":"not valid base64!!"}"#,
+            ),
+            true,
+        );
+        assert!(res.is_err(), "invalid base64 must not silently fall back");
+    }
+
+    #[tokio::test]
+    async fn base64_mode_rejects_non_string_results() {
+        // A number/bool whose raw JSON text happens to be valid base64 (right length,
+        // base64 alphabet) must not be decoded into bytes — it must be a hard error.
+        for result in ["12345678", "true", "null", "[1,2,3]"] {
+            let res = result_to_response(
+                raw(&format!(
+                    r#"{{"wm_content_type":"application/octet-stream","wm_content_transfer_encoding":"base64","result":{result}}}"#
+                )),
+                true,
+            );
+            assert!(
+                res.is_err(),
+                "base64 mode must reject non-string result: {result}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn unsupported_transfer_encoding_is_rejected() {
+        let res = result_to_response(
+            raw(
+                r#"{"wm_content_type":"text/plain","wm_content_transfer_encoding":"gzip","result":"x"}"#,
+            ),
+            true,
+        );
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn transfer_encoding_without_content_type_is_rejected() {
+        let res = result_to_response(
+            raw(r#"{"wm_content_transfer_encoding":"base64","result":"aGk="}"#),
+            true,
+        );
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn string_result_is_still_served_verbatim() {
+        // Regression: without a transfer encoding, a string result is sent as-is
+        // (quotes stripped), not base64-decoded.
+        let resp = result_to_response(
+            raw(r#"{"wm_content_type":"text/html","result":"<h1>hi</h1>"}"#),
+            true,
+        )
+        .expect("response");
+
+        assert_eq!(
+            resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
+            "text/html"
+        );
+        assert_eq!(body_bytes(resp).await, b"<h1>hi</h1>");
     }
 }

@@ -3,8 +3,9 @@
     Create a draft Bun script at `f/evals/global/greet_user`.
     It should take a string `name` input and return `Hello, ${name}!`.
     Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
   runtime:
-    maxTurns: 8
+    maxTurns: 10
   validate:
     draftCountExactly: 1
     requiredDrafts:
@@ -566,6 +567,40 @@
     - passes dry_run as true
     - leaves only the schedule draft for review
 
+- id: global-test29-schedule-with-retry-and-error-handler
+  prompt: |-
+    The workspace already has a report digest helper.
+    Schedule it every morning at 6am UTC with `dry_run` on, and have it retry twice
+    if it fails. Run it on our `nightly` worker group.
+    Draft only, I'll review before deploying.
+  initial: ai_evals/fixtures/frontend/global/initial/report_digest_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: schedule
+        pathIncludes:
+          - digest
+        valueIncludes:
+          - f/evals/global/send_report_digest
+          - attempts
+          - nightly
+  toolExpect:
+    requiredToolsUsed:
+      - write_schedule
+      - get_schedule_schema
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+  judgeChecklist:
+    - finds the existing report digest helper rather than creating a new script or flow
+    - creates one schedule draft for that helper running daily around 06:00 UTC
+    - configures a retry policy with two attempts
+    - routes the schedule to the nightly worker tag
+    - leaves the schedule as a draft without deploying
+
 - id: global-test18-human-slack-resource-with-secret
   prompt: |-
     I'm preparing Slack notifications for eval failures.
@@ -870,3 +905,1266 @@
   judgeChecklist:
     - fetches the logs for the requested job id
     - explains the failure from the returned logs (connection refused to the upstream API)
+
+# --- Page navigation (open_page) ---
+# The assistant should take the user to a Windmill page (Runs/Schedules) with the
+# right filters via open_page, rather than describing where to click or dumping the
+# data. No draft is produced, so the global judge is skipped and we validate the
+# tool call and its arguments.
+
+- id: global-openpage1-runs-failed-of-script
+  prompt: |-
+    Take me to the failed runs of the script at f/evals/global/greet_user so I can see what's going wrong.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - runs
+      - tool: open_page
+        field: status
+        stringIncludesAnyOf:
+          - failure
+      - tool: open_page
+        field: path
+        stringIncludesAnyOf:
+          - f/evals/global/greet_user
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page filtered to the failed runs of f/evals/global/greet_user
+    - applies both the failure status and the script path as filters
+    - does not write, deploy, or delete anything
+
+- id: global-openpage2-runs-of-schedule
+  prompt: |-
+    Open the runs page filtered to the jobs triggered by the schedule f/evals/global/nightly_digest.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - runs
+      - tool: open_page
+        field: schedule_path
+        stringIncludesAnyOf:
+          - f/evals/global/nightly_digest
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page filtered to jobs triggered by the f/evals/global/nightly_digest schedule
+    - passes the schedule path as the filter
+    - does not write, deploy, or delete anything
+
+- id: global-openpage3-open-schedule
+  prompt: |-
+    Open the schedule f/evals/global/nightly_digest so I can review and edit it.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - write_schedule
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - schedules
+      - tool: open_page
+        field: open
+        stringIncludesAnyOf:
+          - f/evals/global/nightly_digest
+  skipJudge: true
+  judgeChecklist:
+    - opens the Schedules page and targets the f/evals/global/nightly_digest schedule for editing
+    - passes the schedule path so the editor opens on it
+    - does not write, deploy, or delete anything
+
+- id: global-openpage4-workspace-settings-tab
+  prompt: |-
+    Take me to the Git sync configuration for this workspace.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - workspace_settings
+      - tool: open_page
+        field: tab
+        stringIncludesAnyOf:
+          - git_sync
+  skipJudge: true
+  judgeChecklist:
+    - opens the Workspace settings page on the git_sync tab
+    - does not write, deploy, or delete anything
+
+- id: global-openpage5-audit-logs-user
+  prompt: |-
+    Open the audit logs filtered to actions performed by the user admin.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - audit_logs
+      - tool: open_page
+        field: username
+        stringIncludesAnyOf:
+          - admin
+  skipJudge: true
+  judgeChecklist:
+    - opens the Audit logs page filtered to the admin user
+    - does not write, deploy, or delete anything
+
+- id: global-openpage6-triggers-kind
+  prompt: |-
+    Take me to the Kafka triggers for this workspace.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - triggers
+      - tool: open_page
+        field: trigger_kind
+        stringIncludesAnyOf:
+          - kafka
+  skipJudge: true
+  judgeChecklist:
+    - opens the Kafka triggers page
+    - does not write, deploy, or delete anything
+
+- id: global-openpage7-compare-review
+  prompt: |-
+    Create a TypeScript script draft at f/evals/global/compare_review_demo that returns the string "ok" (no need to test it), then open the review page so I can look over the pending change and deploy it myself.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - compare
+      # The eval chat is untracked (no modified-items mask), so the model must scope
+      # the review by passing the item it changed explicitly — an omitted mask would
+      # preselect every pending change in the workspace.
+      - tool: open_page
+        field: items
+        stringIncludesAnyOf:
+          - f/evals/global/compare_review_demo
+  skipJudge: true
+  judgeChecklist:
+    - creates the script draft, then opens the Compare & Deploy review page instead of deploying itself
+    - preselects only the created script on the review page
+    - does not deploy or delete anything
+
+- id: global-openpage8-runs-label-and-worker
+  prompt: |-
+    Show me the runs carrying the label nightly-digest that ran on the worker wk-eval-1.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    # One page carrying both filters — two pages each carrying one is not the ask.
+    toolCallArgsSameCall:
+      - tool: open_page
+        args:
+          - field: page
+            stringIncludesAnyOf:
+              - runs
+          - field: label
+            stringIncludesAnyOf:
+              - nightly-digest
+          - field: worker
+            stringIncludesAnyOf:
+              - wk-eval-1
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page filtered to the nightly-digest label on worker wk-eval-1
+    - does not write, deploy, or delete anything
+
+# Exclusion is the filter shape most easily lost in translation: the page encodes it as
+# a `!`-prefixed value, and a model that only knows the positive form silently opens a
+# page showing exactly what the user asked to hide.
+- id: global-openpage9-runs-exclude-schedules
+  prompt: |-
+    Open the runs page but hide everything a schedule kicked off — I only care about the rest.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgsSameCall:
+      - tool: open_page
+        args:
+          - field: page
+            stringIncludesAnyOf:
+              - runs
+          - field: job_trigger_kind
+            stringIncludesAnyOf:
+              - '!schedule'
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page with schedule-triggered jobs excluded
+    - does not write, deploy, or delete anything
+
+- id: global-closepage1-close-runs-tab
+  prompt: |-
+    You just opened the runs page for me in the side panel. Close that tab, I'm done looking at it.
+  initial: ai_evals/fixtures/frontend/global/initial/preview_runs_tab.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - close_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: close_page
+        field: match
+        stringIncludesAnyOf:
+          - runs
+  skipJudge: true
+  judgeChecklist:
+    - closes the runs preview tab in the side panel
+    - does not write, deploy, or delete anything
+
+# --- Artifact version history ---
+# Every content change to an artifact is snapshotted, and update_artifact requires a
+# change_note that the user reads in the version picker. A blank note makes the history
+# unreadable, so pin that the model fills it on every edit.
+
+- id: global-artifact-note-on-each-edit
+  prompt: |-
+    Write up a short rollout plan for me as a doc I can come back to, covering a staged
+    rollout in three phases. Then add a rollback section to it, and after that tighten
+    the wording of phase 2.
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - create_artifact
+      - update_artifact
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # The note is what the version picker shows; a blank one makes history unreadable.
+      - tool: update_artifact
+        field: change_note
+        nonEmpty: true
+  skipJudge: true
+  judgeChecklist:
+    - creates one artifact and revises it rather than creating a second artifact
+    - each revision carries a short description of what changed
+
+# A reader who pins an older version in the artifact's picker is looking at something the
+# artifact tools never report: an artifact tab carries no ACTIVE PREVIEW section, so the pin
+# reaches the chat through get_preview_status alone. Asked what is on screen, the model has
+# to read the panel instead of answering from the artifact's own history.
+
+- id: global-artifact-pinned-version-question
+  prompt: |-
+    Which version of the onboarding plan am I looking at right now?
+  initial: ai_evals/fixtures/frontend/global/initial/artifact_onboarding_plan_pinned_v2.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_preview_status
+    forbiddenToolsUsed:
+      - create_artifact
+      - update_artifact
+      - deploy_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - answers that the panel is showing version 2, not the latest version 5
+    - does not edit or re-create the artifact
+
+# --- Documentation search (search_docs) ---
+# Pure product-knowledge questions: the assistant should consult the docs via
+# search_docs and answer conversationally, not draft or mutate anything. No
+# draft is produced, so the global judge is skipped and we validate tool use.
+
+- id: global-docs-ai-agent-step
+  prompt: |-
+    Does Windmill support a flow step where an LLM decides which of my scripts to call based on the input?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-retry-step
+  prompt: |-
+    How does automatic retry work for a flow step that calls a flaky API?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-key-value-store
+  prompt: |-
+    Can I use a Redis-style key-value store from my Windmill scripts, and how?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-cron-schedule-format
+  prompt: |-
+    How do Windmill's cron schedules work, and what format does the schedule expression use?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+# --- Raw app on a large project (context-usage benchmark) ---
+# These cases run against the deliberately large `analytics_dashboard` raw-app
+# fixture (~20 frontend files incl. a 5k-line data module, plus backend runnables).
+# They exist to measure how much context the global chat consumes when working in a
+# big raw app: test29 is a read-heavy debugging hunt, test30 is a small edit baseline.
+# tokenUsage is recorded per run, so the same cases re-run after a read-tool change
+# (the read_app_file cap + offset/limit paging) quantify the optimization. skipJudge:
+# the judge only sees the drafts artifact and cannot run the app, so we validate
+# deterministically.
+
+- id: global-test29-raw-app-debug-large
+  prompt: |-
+    The analytics dashboard app at `f/evals/global/analytics_dashboard` has a bug:
+    the Revenue Summary tile shows a total that is lower than the per-order line
+    totals and the per-region breakdown. Track down what is computing revenue
+    incorrectly and fix it. Keep the change as an AI draft only; do not deploy or
+    save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 20
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by either reading them directly
+      # or grepping for the revenue calculation.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the dashboard app's files to locate the revenue calculation
+    - fixes the per-order revenue so it multiplies unit price by quantity
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test30-raw-app-small-edit-large
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, change the main
+    page heading from "Operations Console" to "Revenue Overview". Leave everything
+    else unchanged. Keep it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "Revenue Overview"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the main page heading to Revenue Overview
+    - does not change other dashboard behavior
+    - leaves the result as an AI draft only
+
+- id: global-test31-raw-app-debug-inspect-data
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` is reporting
+    revenue totals that look too low. Inspect the app's files — both the sample
+    order data module and the revenue calculation — to work out whether the bug is
+    in the data or in the calculation, then fix the actual cause. Keep the change as
+    an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects both the sample order data module and the revenue aggregation logic
+    - identifies the per-order revenue bug and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only
+
+- id: global-test32-raw-app-cross-file-consistency
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` shows revenue
+    totals that disagree between the Revenue Summary tile, the orders table, and the
+    regional breakdown. Investigate how each of those computes revenue, work out
+    which calculation is wrong, and fix it. Keep the change as an AI draft only; do
+    not deploy or save it.
+  # Cross-file investigation: forces the model through several overlapping files
+  # (the summary's aggregation helper, the orders table, the regional breakdown) —
+  # a realistic multi-file read load that exercises the read_app_file cap.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 24
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the revenue calculation behind the summary tile, the orders table, and the regional breakdown
+    - identifies that the per-order revenue helper omits quantity and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only
+
+- id: global-test33-raw-app-rename-across-files
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, rename the
+    `formatCurrency` helper to `formatMoney` everywhere it is defined, imported, and
+    called. Leave the separate `formatCurrencyPrecise` helper exactly as it is. Keep
+    the change as an AI draft only; do not deploy or save it.
+  # Find-all-usages rename: formatCurrency is defined once and called in 6 places
+  # spread across 4 component files (and imported in 4). Locating every usage is the
+  # exact task search_app is meant to make cheap — one grep returns all file:line
+  # rows instead of reading each component whole. valueExcludes "formatCurrency("
+  # asserts the definition and all call sites were renamed while tolerating the
+  # preserved formatCurrencyPrecise (which is never followed by "(").
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "export function formatMoney"
+          - "formatMoney("
+        valueExcludes:
+          - "formatCurrency("
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the formatCurrency definition, imports, and all call sites to formatMoney
+    - leaves the unrelated formatCurrencyPrecise helper unchanged
+    - leaves the result as an AI draft only
+
+# --- Path selection (u/<user> vs f/<folder>) ---
+# These cases assert how the assistant picks a workspace path when the user gives
+# none: a bare name defaults to the personal scope `u/<user>/`, an existing folder
+# whose purpose matches is used, a non-admin targets a writable folder and never a
+# read-only one, and shared intent with no matching folder asks rather than invents.
+# Each depends on the seeded `user` fixture (username / is_admin / folders /
+# folders_read) so the prompt's folder guidance and `u/{username}` are well-formed.
+
+- id: global-path1-bare-name-defaults-to-personal
+  prompt: |-
+    Stage a quick draft helper that takes a string and returns it trimmed of
+    leading and trailing whitespace. Just keep it as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        pathStartsWith: u/admin/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - stages a single script draft for a trim helper
+    - defaults the path to the current user's personal scope (u/admin/...) since no path or folder was given
+    - does not invent an f/<folder> path
+    - leaves the result as a draft only
+
+- id: global-path2-match-existing-folder
+  prompt: |-
+    Draft a flow for the marketing team's weekly campaign report.
+    It should take a week number and return a short summary string.
+    Keep it as a draft only.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_folders.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        pathStartsWith: f/marketing/
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - drafts a flow for the marketing campaign report
+    - places it in the existing marketing folder (f/marketing/...) rather than the personal scope or an invented folder
+    - leaves the result as a draft only
+
+- id: global-path3-shared-intent-unknown-folder-asks
+  prompt: |-
+    Put together a draft onboarding checklist flow for the People Ops team to use
+    when a new hire joins. Keep it as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_folders.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - askUserQuestion
+    forbiddenToolsUsed:
+      - write_flow
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - recognizes the request implies shared/team work but names no existing folder (none of marketing/data_engineering/shared_utils fit People Ops)
+    - asks which folder to use instead of guessing or inventing one
+    - does not create a draft until the folder is known
+
+- id: global-path4-nonadmin-avoids-readonly-folder
+  prompt: |-
+    Draft a small flow that returns today's date as an ISO string, and stage it in
+    one of our shared team folders. Keep it as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_bob_nonadmin_teams.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        pathStartsWith: f/team_a/
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/team_b/
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - drafts a flow that returns the current date as an ISO string
+    - places it in team_a (writable by this non-admin user) and not team_b (read-only)
+    - leaves the result as a draft only
+
+- id: global-test-pipeline-create-node
+  prompt: |-
+    Set up the first step of a data pipeline at `f/evals/global/orders_ingest`.
+    On a schedule, it should pull raw orders and land them in a managed DuckLake
+    table so later steps can build on it. Keep it as an AI draft only — don't
+    deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/orders_ingest
+        valueIncludes:
+          - pipeline
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    # A pipeline node is DECLARATIVE: triggers are declared by `-- on <ref>`
+    # annotations (the trigger row is created separately) and a `-- materialize`
+    # output is a MANAGED write where the body is a bare SELECT that the runtime
+    # wraps in the create/replace. Do not expect a separate trigger config or a
+    # hand-written CREATE TABLE / INSERT — those would be wrong for a materialize node.
+    - builds a data pipeline node as a script (not a flow)
+    - marks the script as a pipeline member with the pipeline annotation in the script's comment syntax (`-- pipeline` for a DuckDB/SQL node, not `// pipeline`)
+    - declares the schedule trigger with the `-- on schedule` annotation comment (this annotation is the correct and complete way a pipeline node binds a schedule; no separate trigger configuration is expected)
+    - declares the managed DuckLake output with `-- materialize ducklake://<table>` and writes the body as a bare SELECT (materialize is a managed write, so the node correctly does NOT hand-write its own CREATE TABLE / INSERT)
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test-pipeline-two-node-chain
+  prompt: |-
+    Build a small data pipeline in the `f/evals/global` folder: one step that
+    ingests orders into a DuckLake table, and a second step that reads that table
+    and writes a daily order-count rollup table. Wire the second step to run off
+    the first step's output. Keep everything as drafts — don't deploy.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 14
+  validate:
+    draftCountAtLeast: 2
+    requiredDrafts:
+      - type: script
+        pathStartsWith: f/evals/global/
+        valueIncludes:
+          - pipeline
+          - ducklake
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    # Pipeline nodes are declarative: `-- on <ref>` binds inputs/triggers and
+    # `-- materialize ducklake://<table>` is a managed write whose body is a bare
+    # SELECT. Do not expect hand-written CREATE TABLE / INSERT on a materialize node.
+    - creates two data pipeline nodes as scripts (not a flow) in f/evals/global
+    - both scripts carry the pipeline annotation in their comment syntax (`-- pipeline` for DuckDB/SQL nodes, not `// pipeline`)
+    - the first ingests orders into a DuckLake table (a `-- materialize ducklake://<table>` output with a bare SELECT body is correct; no hand-written CREATE TABLE / INSERT is expected)
+    - the second reads that same table via `-- on ducklake://<that-table>` and materializes a daily rollup table, wiring it to the first step's output asset
+    - leaves both as AI drafts without deploying
+
+- id: global-test-pipeline-complex-incremental
+  prompt: |-
+    Build a data pipeline in the `f/evals/global` folder for our web shop's
+    orders. It has three steps:
+    1. On a schedule, ingest the raw order CSVs under `s3://raw/orders/` into a
+       managed DuckLake table.
+    2. An incremental daily rollup: read that raw orders table and, on each run,
+       append just the current day's order count and total revenue into a second
+       DuckLake table. It should process one day at a time, not rebuild the whole
+       table every run.
+    3. A final step that reads the daily rollup table and exports the latest data
+       as a Parquet file to `s3://reports/` for the BI team.
+    Wire each step to the previous step's output so they form one pipeline. Keep
+    everything as AI drafts — don't deploy or save.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 18
+  validate:
+    draftCountAtLeast: 3
+    requiredDrafts:
+      - type: script
+        pathStartsWith: f/evals/global/
+        valueIncludes:
+          - pipeline
+          - ducklake
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/evals/global/
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    # Pipeline nodes are declarative: `-- on <ref>` binds inputs/triggers, and a
+    # DuckLake `-- materialize` output is a managed write whose body is a bare SELECT
+    # (the runtime performs the create/replace/append/merge). Do not expect a
+    # separate trigger config or hand-written CREATE TABLE / INSERT on a
+    # materialize node. S3/Parquet output is NOT materialize: the body writes it.
+    - builds the pipeline as three independent scripts (not a flow) in f/evals/global
+    - every node carries the pipeline annotation in its own comment syntax (`-- pipeline` for DuckDB/SQL nodes, not `// pipeline`)
+    - step 1 binds a schedule with `-- on schedule` and declares a managed DuckLake output with `-- materialize ducklake://<table>` and a bare SELECT body (no separate trigger config or hand-written CREATE TABLE is expected)
+    - "step 2 is incremental: each run adds only that day's rows to a second DuckLake table rather than rebuilding the whole table every run (e.g. an `append` or `key=<col>` merge materialize mode, not a full replace). Selecting the day via the `-- partitioned daily` + `{partition}` / `wm_partition(...)` idiom is the idiomatic form, but an equivalent current-day filter also satisfies this; a full-refresh/replace of the whole table does not"
+    - step 2 reads the same DuckLake table step 1 writes (via `-- on ducklake://<that-table>`), wiring it to step 1's output asset
+    - step 3 reads the daily rollup table and exports it as a Parquet file to S3
+    - does not misuse `-- materialize` for the S3 Parquet export (materialize is DuckLake-only; the S3 output is written by the script body, e.g. a DuckDB COPY or an SDK write)
+    - leaves all three nodes as AI drafts without deploying or saving
+
+- id: global-path5-create-folder-then-draft
+  prompt: |-
+    Create a new shared folder called "analytics" for our data work, then draft a
+    script in it that returns the current timestamp as an ISO string. Keep the
+    script as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        pathStartsWith: f/analytics/
+  toolExpect:
+    requiredToolsUsed:
+      - create_folder
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - creates a new shared folder named "analytics" via create_folder
+    - drafts a script placed in that folder (f/analytics/...) returning an ISO timestamp
+    - leaves the script as a draft only
+
+- id: global-artifact-plan-create
+  prompt: |-
+    I'm about to build a customer onboarding flow, but first I want a short written plan I can review and iterate on before any code.
+    Draft a markdown plan with a title, a one-sentence summary, and three or four bullet steps.
+    Keep it as something I can reopen and revise later — don't build the flow itself yet.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - create_artifact
+    forbiddenToolsUsed:
+      - write_flow
+      - write_script
+      - deploy_workspace_item
+  judgeChecklist:
+    - saves the plan as a markdown artifact via create_artifact rather than only replying inline
+    - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
+    - the artifact is registered as the session's plan (role "plan"), not as an ordinary note - the user asked for the plan they will come back to and revise
+    - does not create a flow or script draft yet
+
+- id: global-planmode1-hands-over-a-plan
+  prompt: |-
+    Our support inbox is a mess. I want incoming emails triaged by urgency and routed to the
+    right team, with anything urgent also posted to Slack.
+    Work out how you'd build this in Windmill.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+    planMode: true
+  # No draft assertion: approving the plan opens the gate mid-run, and building from there is
+  # what production asks for, so a draft is not a failure. The gate itself is covered by
+  # shared.test.ts; what only a real model can show is whether it researches and hands over a
+  # usable plan instead of guessing at one.
+  toolExpect:
+    requiredToolsUsed:
+      - exit_plan_mode
+  # Not "saves the plan as an artifact": exit_plan_mode writes it, so the harness would
+  # satisfy that on every run the tool is called at all — it grades itself, not the model.
+  judgeChecklist:
+    - the plan covers classifying an incoming email by urgency, routing it to a team, and posting urgent ones to Slack
+    - the plan is specific about what would be built in Windmill (a flow and its steps, or the scripts involved)
+
+- id: global-npm1-script-search-package
+  prompt: |-
+    Find a good npm package for parsing RSS/Atom feeds and use it to create a draft Bun script
+    at `f/evals/global/fetch_feed`. The script should take a string `url` input and return the
+    feed title along with the titles of the 5 most recent items. Tell me which package you
+    picked and link its documentation. Leave it as an AI draft only; do not deploy.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/fetch_feed
+        language: bun
+        valueIncludes:
+          - url
+  toolExpect:
+    requiredToolsUsed:
+      - search_npm_packages
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - searches npm for a feed-parsing package before writing the code
+    - the draft Bun script imports the chosen npm package rather than hand-rolling an XML/RSS parser
+    - the script takes a url input and returns the feed title plus the recent item titles
+    - the reply names the chosen package and links its documentation
+    - the result stays as an AI draft and is not deployed
+
+- id: global-dbschema1-postgres-resource-tables
+  prompt: |-
+    I have a postgres resource at f/data/reports_pg in this workspace.
+    What tables does that database have?
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_db_schema
+    forbiddenToolsUsed:
+      - write_script
+      - write_resource
+      - test_run_script
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: get_db_schema
+        field: resourcePath
+        stringIncludesAnyOf:
+          - f/data/reports_pg
+  skipJudge: true
+  judgeChecklist:
+    - fetches the schema through get_db_schema with the resource path f/data/reports_pg
+    - when the lookup fails, tells the user instead of inventing table names
+    - does not write scripts or resources to answer a read-only question
+
+# --- API catalog (search_api_endpoints / call_api_get / call_api_endpoint) ---
+# The harness serves the catalog and the executed calls itself (mock
+# listMcpTools + benchmark fetch handlers in adapters/frontend), so these cases
+# do not require an mcp-enabled eval backend.
+
+- id: global-test30-api-catalog-workers
+  prompt: |-
+    Are any workers online right now? Give me a quick summary of the workers and when they last pinged.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_api_endpoints
+      - call_api_get
+    forbiddenToolsUsed:
+      - call_api_endpoint
+      - write_script
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: call_api_get
+        field: name
+        stringIncludesAnyOf:
+          - listWorkers
+  # Read-only workspace inspection produces no draft; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - discovers the workers endpoint through the API catalog instead of guessing or fabricating
+    - reports worker status from the returned data
+
+- id: global-test31-draft-test-run-not-deployed
+  prompt: |-
+    Update `f/evals/global/format_greeting` so the provided name is uppercased in the greeting, then run it with name "ada" to check it works.
+    Keep it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+        language: bun
+        valueIncludes:
+          - toUpperCase
+  toolExpect:
+    requiredToolsUsed:
+      - test_run_script
+    forbiddenToolsUsed:
+      - call_api_endpoint
+      - deploy_workspace_item
+      - delete_workspace_item
+  # The judge only sees the drafts artifact and cannot observe runs, so it always
+  # docks the prompt's "run it" requirement — validate deterministically instead:
+  # draft content via valueIncludes, the test run via toolExpect (test_run_script
+  # required, call_api_endpoint forbidden).
+  skipJudge: true
+  judgeChecklist:
+    - creates an AI draft of f/evals/global/format_greeting with the name uppercased in the greeting
+    - does not deploy or save the draft
+
+- id: global-test32-delete-via-dedicated-tool
+  prompt: |-
+    Delete the deployed script `f/evals/global/send_report_digest` from the workspace — we don't use it anymore.
+  initial: ai_evals/fixtures/frontend/global/initial/report_digest_script.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - delete_workspace_item
+    forbiddenToolsUsed:
+      - call_api_endpoint
+      - search_api_endpoints
+      - write_script
+  # Deletion produces no draft; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - deletes the deployed script via delete_workspace_item rather than a raw API endpoint
+
+- id: global-undo-created-draft
+  prompt: |-
+    Create a draft Postgres resource at `u/admin/scratch_db` for host db.example.com port 5432, database `orders`, user `app`, and tell me what fields it ended up with.
+    Once you've shown me that, delete it from the workspace again — I only wanted to see the shape of it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - write_resource
+      - discard_local_draft
+    forbiddenToolsUsed:
+      - delete_workspace_item
+      - deploy_workspace_item
+  # Undoing a draft leaves no draft behind; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - undoes its own never-deployed resource with discard_local_draft rather than delete_workspace_item
+
+- id: global-draft-diff-report
+  prompt: |-
+    Update the existing workspace script at `f/evals/global/format_greeting` so the returned message ends with an exclamation mark, keeping everything else the same.
+    Then show me exactly what your draft changes compared to the deployed version.
+    Leave the result as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+        language: bun
+        valueIncludes:
+          - "!"
+  toolExpect:
+    requiredToolsUsed:
+      - diff
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: diff
+        field: path
+        stringIncludesAnyOf:
+          - f/evals/global/format_greeting
+  judgeChecklist:
+    - creates an AI draft for the existing f/evals/global/format_greeting script with the exclamation-mark change
+    - the draft changes only the returned message's punctuation — summary, language, path, and the rest of the code are untouched
+    - does not deploy or save the draft to the workspace
+
+- id: global-resource-manual-credentials
+  prompt: |-
+    Set up a resource for our production Postgres database at `f/evals/global/prod_db` (host db.internal.example.com, port 5432, database `orders`, user `app`).
+    I don't want to paste the password into this chat — prepare everything so I can enter it myself.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountAtLeast: 1
+    requiredDrafts:
+      - type: resource
+        path: f/evals/global/prod_db
+        valueIncludes:
+          - db.internal.example.com
+          - orders
+  toolExpect:
+    requiredToolsUsed:
+      - write_resource
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # The model may land the user in the resource's drawer or in the drawer of
+      # the secret variable it created for the password — both are correct.
+      - tool: open_page
+        field: page
+        stringIncludesAnyOf:
+          - resources
+          - variables
+      - tool: open_page
+        field: open
+        stringIncludesAnyOf:
+          - prod_db
+          - password
+  judgeChecklist:
+    - creates a postgres resource draft at f/evals/global/prod_db with the provided host, port, database, and user
+    - the password is left for the user to provide (empty, a placeholder, or a secret variable reference) — no invented password value presented as real
+    - does not deploy or save anything to the workspace
+
+- id: global-test29-email-trigger-draft
+  prompt: |-
+    Set up a draft auto-reply job.
+    Create a Bun script at `f/evals/global/email_pong` that returns the string "pong".
+    Then set it up so it runs whenever an email is received at the inbox `pong`.
+    Leave everything as AI drafts only; do not deploy or save anything to the workspace.
+  runtime:
+    maxTurns: 10
+  validate:
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/email_pong
+        language: bun
+        valueIncludes:
+          - pong
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+      - write_trigger
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # "Runs when an email is received" must resolve to the native email trigger kind,
+      # never a faked HTTP webhook. Assert the recorded tool-call kind (not the draft):
+      # it holds even on a CE backend where email trigger routes (smtp+private) 404.
+      - tool: write_trigger
+        field: kind
+        stringIncludesAnyOf:
+          - email
+  skipJudge: true
+
+# --- Windmill Hub reuse (search_hub_scripts + read_workspace_item on a hub/ path) ---
+# Holded's API is obscure enough that a model writing from memory cannot reproduce
+# its endpoint and `key` auth header — so the draft's fidelity to the published
+# script is what proves the hub content was actually fetched, not guessed.
+- id: global-hub1-reuse-hub-script
+  prompt: |-
+    I want to email one of my Holded invoices to a customer from Windmill.
+    There is already a script for that on the Windmill hub — reuse it instead of writing
+    your own, and save it as a draft script at `f/evals/global/holded_send_document`.
+    Leave it as an AI draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/holded_send_document
+        language: bun
+        valueIncludes:
+          - api.holded.com/api/invoicing/v1/documents
+          # `mailTemplateId` is an optional field of the published script's body
+          # that a model writing from memory does not invent, so it is what
+          # separates reusing the hub script from re-deriving one that merely
+          # hits the same endpoint.
+          - mailTemplateId
+  toolExpect:
+    requiredToolsUsed:
+      - search_hub_scripts
+      - read_workspace_item
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: read_workspace_item
+        field: path
+        stringIncludesAnyOf:
+          - hub/
+  judgeChecklist:
+    - the draft sends an existing Holded document by email rather than creating one
+    - the request targets Holded's document send endpoint, not an invented URL
+    - authentication uses Holded's own key header rather than a bearer token
+    - the document type, document id, and recipient emails are inputs to the script
+    - the result stays an AI draft and is not deployed
+
+# The value of a secret variable is unreadable, so a metadata-only edit must leave
+# it untouched: passing any `value` here means inventing one, which silently
+# replaces the real secret at deploy.
+- id: global-secret-variable-description-only-edit
+  prompt: |-
+    The variable `f/evals/global/stripe_api_token` has a confusing description.
+    Change it to say it is the Stripe key used by the nightly billing sync, and leave
+    everything else about the variable alone. Keep it as an AI draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/secret_api_token_variable.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: variable
+        path: f/evals/global/stripe_api_token
+        valueIncludes:
+          # "billing" is already in the seeded description and labels, so it would pass
+          # without any edit; "nightly" can only come from the new description.
+          - nightly
+          - '"is_secret": true'
+        valueExcludes:
+          # The draft must not carry an invented value, a self-reference, or the
+          # real secret it was never shown.
+          - '$var:'
+          - sk_live_do_not_leak_me
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # Restating `is_secret: true` is fine; supplying a value is not.
+      - tool: write_variable
+        field: value
+        fieldMustBeAbsent: true
+  judgeChecklist:
+    - updates the description of f/evals/global/stripe_api_token to mention Stripe and the nightly billing sync
+    - keeps the variable secret
+    - does not invent, guess, or restate a value for the variable
+    # A secret draft stores "" when it stages no new value, and this case must not stage
+    # one — the judge has to be told, or it reads the "" as the value having been cleared.
+    - 'the draft''s empty value string is expected and correct: a secret variable draft stores "" when no new value is staged, which is exactly right for a description-only edit, so it does NOT mean the value was cleared or changed'
+    - leaves the result as an AI draft and does not deploy it

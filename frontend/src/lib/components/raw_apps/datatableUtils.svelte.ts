@@ -25,22 +25,29 @@ export function createDatatablesResource(getWorkspace: () => string | undefined)
  * Creates a resource that loads schemas for a given datatable.
  * The getDatatable getter is used as a reactive dependency - when it changes, schemas are refetched.
  */
-export function createSchemasResource(getDatatable: () => string | undefined) {
-	return resource<string[]>([() => getDatatable() ?? ''], async () => {
+export function createSchemasResource(
+	getDatatable: () => string | undefined,
+	getWorkspace: () => string | undefined = () => get(workspaceStore)
+) {
+	return resource<string[]>([() => getDatatable() ?? '', () => getWorkspace() ?? ''], async () => {
 		const datatable = getDatatable()
-		const workspace = get(workspaceStore)
+		const workspace = getWorkspace()
 		if (!datatable || !workspace) return []
 
 		const resourcePath = `datatable://${datatable}`
+		// Key the schema cache by workspace too: a datatable of the same name can
+		// exist in both the nav and the acting workspace, so `datatable://<name>`
+		// alone would let one workspace's schema be reused for the other.
+		const cacheKey = `${workspace}:${resourcePath}`
 		const schemas = get(dbSchemas)
-		let dbSchema = schemas[resourcePath]
+		let dbSchema = schemas[cacheKey]
 
 		if (!dbSchema) {
 			try {
-				schemas[resourcePath] = await getDbSchemas('postgresql', resourcePath, workspace, (msg) =>
+				schemas[cacheKey] = await getDbSchemas('postgresql', resourcePath, workspace, (msg) =>
 					console.error('Schema error:', msg)
 				)
-				dbSchema = get(dbSchemas)[resourcePath]
+				dbSchema = get(dbSchemas)[cacheKey]
 			} catch (e) {
 				console.error(`Failed to load schema for ${datatable}:`, e)
 				return []

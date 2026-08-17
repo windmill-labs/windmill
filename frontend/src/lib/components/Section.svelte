@@ -104,7 +104,7 @@
 			{#if description}
 				<div class="text-xs text-primary mt-1 mb-2">{@html description}</div>
 			{/if}
-			<div class="flex flex-col gap-6 grow min-h-0 mt-4">
+			<div class={twMerge('flex flex-col gap-6 grow min-h-0', headless ? '' : 'mt-4')}>
 				<div class={twMerge('grow min-h-0', clazz)}>
 					{@render children?.()}
 				</div>

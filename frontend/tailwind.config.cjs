@@ -4,10 +4,18 @@ const {
 } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
 const { zIndexes } = require('./src/lib/zIndexes')
 
-const figmaTokens = makeRgb(require('./src/lib/assets/tokens/tokens.json'))
+const rawTokens = require('./src/lib/assets/tokens/tokens.json')
+// `github-dark` is a hand-authored variant kept out of the Figma-generated
+// tokens.json (a re-export would drop it); merge it in before the rgb pass.
+rawTokens.tokens['github-dark'] = require('./src/lib/assets/tokens/githubDark.json')
+const figmaTokens = makeRgb(rawTokens)
 const { darkModeName, lightModeName } = require('./src/lib/assets/tokens/colorTokensConfig')
 
-const tokens = { dark: figmaTokens.tokens[darkModeName], light: figmaTokens.tokens[lightModeName] }
+const tokens = {
+	dark: figmaTokens.tokens[darkModeName],
+	light: figmaTokens.tokens[lightModeName],
+	githubDark: figmaTokens.tokens['github-dark']
+}
 const primitives = figmaTokens.primitives.light
 
 // Helper function to create color definition based on whether the value contains alpha
@@ -295,7 +303,8 @@ const config = {
 				600: '#d97706',
 				700: '#b45309',
 				800: '#92400e',
-				900: '#78350f'
+				900: '#78350f',
+				950: '#451a03'
 			},
 			emerald: {
 				50: '#ecfdf5',
@@ -442,7 +451,9 @@ const config = {
 		},
 		fontFamily: {
 			// add double quotes if there is space in font name
-			main: ['Inter', 'sans-serif'],
+			// 'Noto Color Emoji' sits after Inter so it only ever picks up codepoints Inter
+			// lacks. See the @font-face block in src/lib/assets/app.css for why it is bundled.
+			main: ['Inter', '"Noto Color Emoji"', 'sans-serif'],
 			mono: [
 				'ui-monospace',
 				'SFMono-Regular',
@@ -455,6 +466,49 @@ const config = {
 			]
 		},
 		extend: {
+			// Tailwind Typography hardcodes every `prose` color (body, headings,
+			// borders, code, ...) to fixed gray shades. Our `.prose` usages mostly
+			// render without `dark:prose-invert`, so in dark mode those light-mode
+			// grays stay put and text/borders/code render near-black on a dark
+			// surface. Point the whole palette at our theme tokens — which already
+			// flip with the active theme — for BOTH the default and inverted sets, so
+			// bare `.prose` and `dark:prose-invert` usages both track the theme.
+			typography: {
+				DEFAULT: {
+					css: {
+						'--tw-prose-body': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-headings': 'rgb(var(--color-text-primary))',
+						'--tw-prose-lead': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-bold': 'rgb(var(--color-text-primary))',
+						'--tw-prose-counters': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-bullets': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-hr': 'rgb(var(--color-border-light))',
+						'--tw-prose-quotes': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-quote-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-captions': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-code': 'rgb(var(--color-text-primary))',
+						'--tw-prose-pre-code': 'rgb(var(--color-text-primary))',
+						'--tw-prose-pre-bg': 'rgb(var(--color-surface-secondary))',
+						'--tw-prose-th-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-td-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-invert-body': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-invert-headings': 'rgb(var(--color-text-primary))',
+						'--tw-prose-invert-lead': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-invert-bold': 'rgb(var(--color-text-primary))',
+						'--tw-prose-invert-counters': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-invert-bullets': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-invert-hr': 'rgb(var(--color-border-light))',
+						'--tw-prose-invert-quotes': 'rgb(var(--color-text-secondary))',
+						'--tw-prose-invert-quote-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-invert-captions': 'rgb(var(--color-text-tertiary))',
+						'--tw-prose-invert-code': 'rgb(var(--color-text-primary))',
+						'--tw-prose-invert-pre-code': 'rgb(var(--color-text-primary))',
+						'--tw-prose-invert-pre-bg': 'rgb(var(--color-surface-secondary))',
+						'--tw-prose-invert-th-borders': 'rgb(var(--color-border-light))',
+						'--tw-prose-invert-td-borders': 'rgb(var(--color-border-light))'
+					}
+				}
+			},
 			border: {
 				color: 'red'
 			},
@@ -527,6 +581,12 @@ const config = {
 				...Object.entries(tokens.dark).map(([key, value]) => [`--color-${key}`, value]),
 				...Object.entries(tokens.light).map(([key, value]) => [`--color-${key}-inverse`, value])
 			])
+			// GitHub dark variant: overrides the default dark variables when the
+			// `github-dark` class is present alongside `dark` (see html.&.dark.github-dark below).
+			let githubDarkColorVariables = Object.fromEntries([
+				...Object.entries(tokens.githubDark).map(([key, value]) => [`--color-${key}`, value]),
+				...Object.entries(tokens.light).map(([key, value]) => [`--color-${key}-inverse`, value])
+			])
 
 			addBase({
 				html: {
@@ -556,10 +616,31 @@ const config = {
 
 						...darkColorVariables,
 
+						// Sidebar rail chrome — consumed via var(--sidebar-bg-dark) (see sidebarChrome.ts).
+						'--sidebar-bg-dark': '#1e232e',
+
 						'--vscode-editorSuggestWidget-background': '#252526',
 						'--vscode-editorHoverWidget-foreground': '#cccccc',
 						'--vscode-editorHoverWidget-border': '#454545',
 						'--vscode-editorHoverWidget-statusBarBackground': '#2c2c2d'
+					},
+					'&.dark.github-dark': {
+						backgroundColor: `rgb(${tokens.githubDark['surface-primary']})`,
+						color: `rgb(${tokens.githubDark['text-primary']})`,
+
+						...githubDarkColorVariables,
+
+						// GitHub's canvas.inset — the authentic recessed surface, sitting below
+						// the canvas (#0d1117) like the sidebar-vs-primary relationship in the
+						// default dark theme.
+						'--sidebar-bg-dark': '#010409',
+
+						// Monaco popup chrome — the &.dark defaults above are VS Code's greys;
+						// override so the widgets match the GitHub Dark palette in this variant.
+						'--vscode-editorSuggestWidget-background': '#1c2128',
+						'--vscode-editorHoverWidget-foreground': '#c9d1d9',
+						'--vscode-editorHoverWidget-border': '#30363d',
+						'--vscode-editorHoverWidget-statusBarBackground': '#1c2128'
 					}
 				},
 				h1: {
@@ -640,6 +721,16 @@ const config = {
 				},
 				".dark [type='checkbox']:checked": {
 					backgroundImage: `url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e")`
+				},
+				// @tailwindcss/forms draws the indeterminate dash white-on-currentColor,
+				// but the checkbox theme above keeps a white/dark background — so restyle
+				// the dash to match the checkmark's fill in each mode.
+				"[type='checkbox']:indeterminate": {
+					backgroundColor: 'transparent',
+					backgroundImage: `url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='black' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M4 8a1 1 0 011-1h6a1 1 0 110 2H5a1 1 0 01-1-1z'/%3e%3c/svg%3e")`
+				},
+				".dark [type='checkbox']:indeterminate": {
+					backgroundImage: `url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M4 8a1 1 0 011-1h6a1 1 0 110 2H5a1 1 0 01-1-1z'/%3e%3c/svg%3e")`
 				},
 				'input:not(.windmillapp):not(.no-default-style),input[type="text"]:not(.windmillapp):not(.no-default-style),input[type="email"]:not(.windmillapp):not(.no-default-style),input[type="url"]:not(.windmillapp):not(.no-default-style),input[type="password"]:not(.windmillapp):not(.no-default-style),input[type="number"]:not(.windmillapp):not(.no-default-style),input[type="date"]:not(.windmillapp):not(.no-default-style),input[type="datetime-local"]:not(.windmillapp):not(.no-default-style),input[type="month"]:not(.windmillapp):not(.no-default-style),input[type="search"]:not(.windmillapp):not(.no-default-style),input[type="tel"]:not(.windmillapp):not(.no-default-style),input[type="time"]:not(.windmillapp):not(.no-default-style),input[type="week"]:not(.windmillapp):not(.no-default-style),textarea:not(.windmillapp):not(.no-default-style):not(.monaco-mouse-cursor-text),select:not(.windmillapp):not(.no-default-style)':
 					{
@@ -788,20 +879,20 @@ const config = {
 						'colors.gray.600'
 					)})`
 				},
+				// Drive pane/splitter chrome off the theme CSS variables (not literal token
+				// values) so every theme — light, dark, and the GitHub dark variant — is
+				// covered by a single rule. A `.dark`-specific literal here would freeze the
+				// default dark color and ignore the variant.
 				'.splitpanes__pane': {
-					backgroundColor: `rgb(${tokens.light['surface-primary']})` + ' !important',
-					overflow: 'auto !important'
-				},
-				'.dark .splitpanes__pane': {
-					backgroundColor: `rgb(${tokens.dark['surface-primary']})` + ' !important',
+					backgroundColor: 'rgb(var(--color-surface-primary)) !important',
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
-					backgroundColor: `rgb(${tokens.light['border-light']})` + ' !important',
+					backgroundColor: 'rgb(var(--color-border-light)) !important',
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {
-						backgroundColor: `rgb(${tokens.light['border-light']})` + ' !important',
+						backgroundColor: 'rgb(var(--color-border-light)) !important',
 						margin: '0 !important',
 						transform: 'none !important',
 						transition: 'opacity 200ms !important',
@@ -812,12 +903,6 @@ const config = {
 					'&:hover::after': {
 						opacity: '1',
 						zIndex: '1001 !important'
-					}
-				},
-				'.dark .splitpanes__splitter': {
-					backgroundColor: `rgb(${tokens.dark['border-light']})` + ' !important',
-					'&::after': {
-						backgroundColor: `rgb(${tokens.dark['border-light']})` + ' !important'
 					}
 				},
 				'.splitpanes--vertical>.splitpanes__splitter': {

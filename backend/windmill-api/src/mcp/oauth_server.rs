@@ -18,6 +18,7 @@ use windmill_common::{
 };
 
 use crate::db::ApiAuthed;
+use windmill_mcp::parse_mcp_scopes;
 
 /// Token expiration for MCP OAuth tokens (1 week in seconds)
 const MCP_OAUTH_TOKEN_EXPIRATION_SECS: u64 = 7 * 24 * 60 * 60;
@@ -585,6 +586,8 @@ async fn handle_refresh_token_grant(
         Some(&new_access_token)
     };
     let new_refresh_token = rd_string(32);
+    // Re-issues the already-approved (hence already-contained) scopes verbatim;
+    // containment is enforced once at approval time, so no re-check here.
     let scopes = token_row.scopes;
 
     // Create new access token (rejects archived workspaces inline)
@@ -819,6 +822,40 @@ async fn oauth_approve_inner(
         .split_whitespace()
         .map(|s| s.to_string())
         .collect();
+
+    // The approver's own token bounds what it may grant: a scope-restricted MCP
+    // token must not approve a broader one (e.g. mcp:scripts:f/x -> mcp:all). An
+    // unrestricted approver (interactive session, scopes None) grants freely,
+    // which is the normal consent flow. This is the legitimate MCP-narrowing
+    // path, so it uses MCP-pattern containment rather than the byte-identical
+    // rule ensure_scopes_within_caller applies on the generic token endpoints.
+    let caller_restricted = authed
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    if caller_restricted {
+        // An empty grant would mint a token the auth layer treats as unscoped
+        // (full privileges), so a restricted approver must not produce one.
+        if scopes.is_empty() {
+            return Err(Error::NotAuthorized(
+                "A scope-restricted token cannot approve an empty scope grant".to_string(),
+            ));
+        }
+        if scopes.iter().any(|s| !s.starts_with("mcp:")) {
+            return Err(Error::NotAuthorized(
+                "A scope-restricted token can only approve MCP (mcp:*) scopes".to_string(),
+            ));
+        }
+        let caller_config = parse_mcp_scopes(authed.scopes.as_deref().unwrap_or(&[]))
+            .map_err(|e| Error::InternalErr(format!("Failed to parse caller MCP scopes: {e}")))?;
+        let requested_config = parse_mcp_scopes(&scopes)
+            .map_err(|e| Error::BadRequest(format!("Failed to parse requested MCP scopes: {e}")))?;
+        if !caller_config.contains(&requested_config) {
+            return Err(Error::NotAuthorized(
+                "Requested scopes exceed the approving token's own MCP scopes".to_string(),
+            ));
+        }
+    }
 
     sqlx::query!(
         "INSERT INTO mcp_oauth_server_code

@@ -29,6 +29,7 @@ impl TriggerCrud for KafkaTrigger {
 
     const TABLE_NAME: &'static str = "";
     const TRIGGER_TYPE: &'static str = "";
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind = windmill_common::user_drafts::UserDraftItemKind::TriggerKafka;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/kafka_triggers";

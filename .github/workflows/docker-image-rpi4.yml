@@ -68,6 +68,7 @@ jobs:
           push: true
           build-args: |
             features=ce_rpi
+            WM_BUILD_VERSION=${{ github.sha }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
             ${{ steps.meta-public.outputs.tags }}

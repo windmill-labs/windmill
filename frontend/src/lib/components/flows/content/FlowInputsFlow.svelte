@@ -6,7 +6,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import { emptyString } from '$lib/utils'
 
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 	import { flip } from 'svelte/animate'
 	import { fade } from 'svelte/transition'
 	interface Props {
@@ -14,6 +15,9 @@
 	}
 
 	let { children }: Props = $props()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	// export let failureModule: boolean
 	const dispatch = createEventDispatcher()
@@ -25,10 +29,10 @@
 	let ownerFilter: string | undefined = $state(undefined)
 
 	async function loadFlows() {
-		items = await FlowService.listFlows({ workspace: $workspaceStore!, withoutDescription: true })
+		items = await FlowService.listFlows({ workspace: opWs!, withoutDescription: true })
 	}
 	$effect(() => {
-		$workspaceStore && untrack(() => loadFlows())
+		opWs && untrack(() => loadFlows())
 	})
 	let prefilteredItems = $derived(
 		ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items

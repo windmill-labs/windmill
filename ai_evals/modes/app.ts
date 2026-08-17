@@ -48,6 +48,7 @@ export function createAppModeRunner(
         toolsUsed: result.toolsUsed,
         skillsInvoked: [],
         tokenUsage: result.tokenUsage,
+        finalContextTokens: result.finalContextTokens,
       };
     },
     validate({ evalCase, actual, initial, expected, run }) {

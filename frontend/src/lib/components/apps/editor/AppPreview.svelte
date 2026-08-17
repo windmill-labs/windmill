@@ -78,7 +78,8 @@
 		workspace: untrack(() => workspace),
 		mode: 'viewer',
 		summary: untrack(() => summary),
-		author: untrack(() => policy).on_behalf_of_email
+		author: untrack(() => policy).on_behalf_of_email,
+		app_path: untrack(() => appPath)
 	}
 
 	function resizeWindow() {

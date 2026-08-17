@@ -613,19 +613,21 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
     // the parser's "text" fallback, so the executor can later distinguish
     // "user committed to text" from "no info, use a placeholder".
     let mut hm: HashMap<i32, (String, bool)> = HashMap::new();
-    for cap in RE_CODE_PGSQL.captures_iter(code) {
-        let idx = cap
-            .get(1)
-            .and_then(|x| x.as_str().parse::<i32>().ok())
-            .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?;
-
+    // Walk placeholders with the same tokenizer the executor uses so `$N`
+    // inside comments, string literals, or dollar-quoted blocks (e.g. the
+    // commented-out examples in the default postgres template) doesn't
+    // produce a spurious arg. `range` covers the digits of a real `$N`, so
+    // anchoring the regex at the preceding `$` only extracts the `::TYPE` cast.
+    for (idx, range) in parse_pg_statement_arg_positions(code) {
         // Skip if this arg was explicitly typed in declaration
         if explicitly_typed_args.contains(&idx) {
             continue;
         }
 
-        let cast = cap
-            .get(2)
+        let cast = RE_CODE_PGSQL
+            .captures_at(code, range.start - 1)
+            .filter(|c| c.get(0).is_some_and(|m| m.start() == range.start - 1))
+            .and_then(|c| c.get(2))
             .map(|cap| transform_types_with_spaces(&cap, &code));
         let inferred_default = cast.is_none();
         let typ: std::borrow::Cow<str> = cast.unwrap_or(std::borrow::Cow::Borrowed("text"));
@@ -826,6 +828,29 @@ fn parse_duckdb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     }
 
     args.append(&mut parse_sql_sanitized_interpolation(code));
+
+    // A `// partitioned` script receives its resolved partition as a job arg
+    // named `partition` (windmill_common::partition::PARTITION_ARG), and duckdb
+    // binds named parameters only when they appear in the parsed signature —
+    // so auto-declare it (as `-- $partition (text)` would) to make `$partition`
+    // usable without a manual declaration. An explicit declaration wins.
+    // `has_default` keeps the field optional: the platform resolves the value
+    // at run start when it is not passed explicitly.
+    if !args.iter().any(|arg| arg.name == "partition")
+        && windmill_parser::asset_parser::parse_pipeline_annotations(code)
+            .partition
+            .is_some()
+    {
+        args.push(Arg {
+            name: "partition".to_string(),
+            typ: Typ::Str(None),
+            default: None,
+            otyp: Some("text".to_string()),
+            has_default: true,
+            oidx: None,
+            otyp_inferred: false,
+        });
+    }
     Ok(Some(args))
 }
 
@@ -1083,6 +1108,31 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_sig_ignores_placeholders_in_comments_and_strings() -> anyhow::Result<()> {
+        // Mirrors the default postgres template: the commented-out s3object
+        // example mentions `$5`, which must not surface as an argument.
+        let code = r#"-- result_collection=last_statement_all_rows
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- $5 input_file (s3object)
+--   INSERT INTO demo SELECT * FROM jsonb_to_recordset($5::jsonb) AS x(id INT, name TEXT);
+-- $1 name1 = default arg
+-- $2 name2
+INSERT INTO demo VALUES ($1::TEXT, $2::INT) RETURNING *;
+/* also not an arg: $6::int */
+SELECT 'literal $7', "col $8" FROM demo;
+"#;
+        let sig = parse_pgsql_sig(code)?;
+        assert_eq!(
+            sig.args
+                .iter()
+                .map(|a| (a.oidx, a.name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(Some(1), "name1"), (Some(2), "name2")]
+        );
         Ok(())
     }
 
@@ -1983,6 +2033,65 @@ SELECT x
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_duckdb_partitioned_auto_declares_partition() -> anyhow::Result<()> {
+        let code = r#"// partitioned daily
+// materialize ducklake://main/sales_daily
+SELECT $partition AS day, count(*) AS n FROM sales WHERE day = $partition
+"#;
+        let args = parse_duckdb_sig(code)?.args;
+        assert_eq!(
+            args,
+            vec![Arg {
+                otyp: Some("text".to_string()),
+                name: "partition".to_string(),
+                typ: Typ::Str(None),
+                default: None,
+                has_default: true,
+                oidx: None,
+                otyp_inferred: false,
+            }]
+        );
+
+        // `--`-style annotation headers auto-declare too.
+        let dash_code = "-- partitioned hourly\nSELECT $partition AS h\n";
+        assert_eq!(parse_duckdb_sig(dash_code)?.args, args);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_duckdb_partitioned_explicit_declaration_wins() -> anyhow::Result<()> {
+        let code = r#"// partitioned daily
+-- $partition (text)
+-- $limit (int) = 10
+SELECT * FROM sales WHERE day = $partition LIMIT $limit
+"#;
+        let args = parse_duckdb_sig(code)?.args;
+        // No duplicate: the explicit (required) declaration is kept as-is.
+        assert_eq!(args.iter().filter(|a| a.name == "partition").count(), 1);
+        assert_eq!(
+            args[0],
+            Arg {
+                otyp: Some("text".to_string()),
+                name: "partition".to_string(),
+                typ: Typ::Str(None),
+                default: None,
+                has_default: false,
+                oidx: None,
+                otyp_inferred: false,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_duckdb_unpartitioned_does_not_declare_partition() -> anyhow::Result<()> {
+        let code = "SELECT 1 AS partition_count\n";
+        assert_eq!(parse_duckdb_sig(code)?.args, vec![]);
         Ok(())
     }
 }

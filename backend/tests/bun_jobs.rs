@@ -1,3 +1,4 @@
+use futures::StreamExt;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
 use uuid::Uuid;
@@ -815,6 +816,126 @@ export function main() {
         assert_eq!(result, serde_json::json!("level1 -> level2 -> level3"));
     }
 
+    Ok(())
+}
+
+// ============================================================================
+// Bundle cache invalidation on transitive relative-import change
+// ============================================================================
+
+async fn insert_deployed_bun_script(db: &Pool<Postgres>, path: &str, hash: i64, content: &str) {
+    // What gen_bun_lockfile stores for a script with no npm dependencies; a
+    // bare '' lock fails split_lockfile when the script is run directly.
+    const EMPTY_BUN_LOCK: &str = "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>";
+    // Runtime query to avoid touching the sqlx offline cache.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock)
+         VALUES ('test-workspace', 'test-user', $1, '{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{},\"required\":[],\"type\":\"object\"}', '', '', $2, $3, 'bun', $4)",
+    )
+    .bind(content)
+    .bind(path)
+    .bind(hash)
+    .bind(EMPTY_BUN_LOCK)
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+fn run_main_script_job(hash: i64) -> RunJob {
+    RunJob::from(JobPayload::ScriptHash {
+        path: "f/stale_bundle/main_script".to_string(),
+        hash: windmill_common::scripts::ScriptHash(hash),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        language: ScriptLang::Bun,
+        priority: None,
+        apply_preprocessor: false,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        labels: None,
+    })
+}
+
+/// Editing a script that a runnable imports only TRANSITIVELY (main -> mid ->
+/// leaf) must invalidate the runnable's cached bundle: the leaf's code is
+/// inlined in the bundle, so the cache key has to cover the whole closure, not
+/// just direct imports.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_transitive_import_change_rebundles(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Hashes/paths unique across this test binary: the script/hash caches are
+    // process-global while parallel tests each run in their own DB.
+    const LEAF_V1: i64 = 41230001;
+    const MID: i64 = 41230002;
+    const MAIN: i64 = 41230003;
+    const LEAF_V2: i64 = 41230004;
+
+    insert_deployed_bun_script(
+        &db,
+        "f/stale_bundle/leaf",
+        LEAF_V1,
+        r#"export function leafValue() { return "V1_FROM_LEAF"; }"#,
+    )
+    .await;
+    insert_deployed_bun_script(
+        &db,
+        "f/stale_bundle/mid",
+        MID,
+        r#"import { leafValue } from "./leaf";
+export function midValue() { return `M(${leafValue()})`; }"#,
+    )
+    .await;
+    insert_deployed_bun_script(
+        &db,
+        "f/stale_bundle/main_script",
+        MAIN,
+        r#"import { midValue } from "./mid";
+export function main() { return midValue(); }"#,
+    )
+    .await;
+
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let db2 = db.clone();
+    in_test_worker(
+        &db,
+        async move {
+            let job = run_main_script_job(MAIN).push(&db2).await;
+            completed.next().await;
+            let result = completed_job(job, &db2).await.json_result().unwrap();
+            assert_eq!(result, serde_json::json!("M(V1_FROM_LEAF)"));
+
+            // Deploy a new version of ONLY the leaf; main_script and mid keep
+            // their hash, content, and lock byte-identical.
+            insert_deployed_bun_script(
+                &db2,
+                "f/stale_bundle/leaf",
+                LEAF_V2,
+                r#"export function leafValue() { return "V2_FROM_LEAF"; }"#,
+            )
+            .await;
+
+            // Tests don't run the notify_event poll loop, so replay what its
+            // `notify_runnable_version_change` handler (main.rs) does on deploy:
+            // evict the leaf's latest-hash cache entries.
+            windmill_common::IMPORTED_SCRIPT_HASH_CACHE.remove(&(
+                "test-workspace".to_string(),
+                "f/stale_bundle/leaf".to_string(),
+            ));
+            windmill_api_scripts::scripts::RAW_SCRIPT_LATEST_HASH_CACHE
+                .remove(&format!("test-workspace:f/stale_bundle/leaf"));
+
+            let job = run_main_script_job(MAIN).push(&db2).await;
+            completed.next().await;
+            let result = completed_job(job, &db2).await.json_result().unwrap();
+            assert_eq!(result, serde_json::json!("M(V2_FROM_LEAF)"));
+        },
+        port,
+    )
+    .await;
     Ok(())
 }
 

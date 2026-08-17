@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_graph_snapshot (workspace_id, script_path, script_hash, job_id, digest)\n         VALUES ($1, $2, NULL, $3, 'd')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fddab529cbb59c1dd621113a1018457546eeeaba57f5dd3abac948d60ecd952f"
+}

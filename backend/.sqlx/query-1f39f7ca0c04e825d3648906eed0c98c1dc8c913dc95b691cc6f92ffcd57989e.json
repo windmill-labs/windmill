@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE script SET archived = true WHERE workspace_id = $1 AND hash = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f39f7ca0c04e825d3648906eed0c98c1dc8c913dc95b691cc6f92ffcd57989e"
+}

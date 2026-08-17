@@ -184,18 +184,43 @@
 						<strong>Homepage URL</strong>: your Windmill instance URL
 					</li>
 					<li>
+						<strong>Setup URL</strong> (under "Post installation"):
+						<code>&lt;your-windmill-url&gt;/gh_success</code> with "Redirect on update" checked.
+						Required for installing the app from workspace Git sync settings — GitHub redirects
+						here after installation to link it to the workspace. Without it, installations can
+						still be linked manually from the Workspace assignments table that appears below
+						once the app details are saved.
+					</li>
+					<li>
 						<strong>Callback URL</strong>: <code>&lt;your-windmill-url&gt;/gh_success</code>
 					</li>
 					<li>
-						<strong>Setup URL</strong> (optional):
-						<code>&lt;your-windmill-url&gt;/gh_success</code> with "Redirect on update" checked
+						Uncheck <strong>Active</strong> under Webhook. Windmill registers the webhooks it
+						needs per repository, so the app-level webhook stays unused.
 					</li>
-					<li>Uncheck <strong>Active</strong> under Webhook (not needed)</li>
 				</ul>
 				<p><strong>3.</strong> Set repository permissions:</p>
 				<ul class="list-disc ml-4 space-y-1">
 					<li><strong>Contents</strong>: Read &amp; write</li>
 					<li><strong>Metadata</strong>: Read-only</li>
+				</ul>
+				<p>
+					Those two are the minimum, for the push direction (Windmill &rarr; git). Add these for
+					the pull direction (git &rarr; Windmill), all read &amp; write:
+				</p>
+				<ul class="list-disc ml-4 space-y-1">
+					<li>
+						<strong>Repository webhooks</strong>: deploy commits within seconds instead of
+						polling the repository
+					</li>
+					<li>
+						<strong>Pull requests</strong>: open pull requests for the branches Windmill pushes,
+						and maintain the deploy-preview comment
+					</li>
+					<li>
+						<strong>Checks</strong>: post the "Windmill diff" and deploy status checks on commits
+						and pull requests
+					</li>
 				</ul>
 				<p>
 					<strong>4.</strong> Under "Where can this GitHub App be installed?", choose
@@ -215,7 +240,18 @@
 				</p>
 				<p>
 					<strong>8.</strong> The <strong>Base URL</strong> is your GitHub instance root (e.g.
-					<code>https://github.com</code> or <code>https://github.mycompany.com</code>).
+					<code>https://github.com</code>, <code>https://mycompany.ghe.com</code> or
+					<code>https://github.mycompany.com</code>). On GHE Cloud (<code>*.ghe.com</code>), also
+					set <strong>App owner</strong> to the organization or user that owns the app: its
+					installation urls carry the owner.
+				</p>
+				<p>
+					Full setup guide: <a
+						href="https://www.windmill.dev/docs/integrations/git_repository#self-managed-github-app"
+						target="_blank"
+						rel="noreferrer"
+						class="underline">Self-managed GitHub App</a
+					>.
 				</p>
 			</div>
 		</details>

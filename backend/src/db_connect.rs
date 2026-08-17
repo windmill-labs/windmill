@@ -3,9 +3,11 @@ use windmill_common::{
     get_database_url, DatabaseUrl,
 };
 
-pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
-pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
-pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
+// Single source of truth in windmill_common so the DB-health sizing guidance
+// (windmill-api/src/db_health.rs) and the actual pool sizing here can't drift.
+pub use windmill_common::{
+    DEFAULT_MAX_CONNECTIONS_INDEXER, DEFAULT_MAX_CONNECTIONS_SERVER, DEFAULT_MAX_CONNECTIONS_WORKER,
+};
 #[cfg(feature = "operator")]
 pub const DEFAULT_MAX_CONNECTIONS_OPERATOR: u32 = 2;
 

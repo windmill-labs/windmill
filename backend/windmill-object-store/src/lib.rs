@@ -52,6 +52,8 @@ use tokio::task;
 #[cfg(feature = "parquet")]
 use windmill_common::error::to_anyhow;
 #[cfg(feature = "parquet")]
+use windmill_common::jobs::is_safe_log_file_path;
+#[cfg(feature = "parquet")]
 use windmill_common::utils::rd_string;
 #[cfg(all(feature = "parquet", feature = "private"))]
 pub mod job_s3_helpers_ee;
@@ -353,18 +355,44 @@ pub async fn attempt_fetch_bytes(
     return Ok(bytes);
 }
 
+/// Whether an S3 resource carries static credentials. When it does not, the
+/// ambient AWS chain (env, profile, ECS/EC2 instance role) is used instead.
+/// Shared so callers that sign requests by hand resolve credentials on exactly the
+/// same condition as `build_s3_client`.
+#[cfg(feature = "parquet")]
+pub fn s3_resource_has_static_credentials(s3_resource: &S3Resource) -> bool {
+    s3_resource.access_key.as_ref().is_some_and(|x| x != "")
+        || s3_resource.secret_key.as_ref().is_some_and(|x| x != "")
+}
+
+/// Ambient AWS credentials from the shared, cached provider backing
+/// `build_s3_client`. Callers that sign their own requests must go through this
+/// rather than resolving the default chain themselves: the cache is what keeps a
+/// burst of requests from hitting the instance metadata service once each.
+///
+/// These are the **instance's own** credentials, not any caller's, and they are
+/// returned in the clear. A caller therefore MUST:
+/// - authorize the request target itself — reaching this function implies no
+///   permission check, and the credentials typically outrank the requesting user;
+/// - use them only to sign a request it has already authorized, never surface them
+///   in a response, log, or error message, and never hand them to a caller-supplied
+///   endpoint.
+///
+/// Prefer `build_s3_client`, which confines them to the object-store client; reach
+/// for this only where a request must be signed by hand.
+#[cfg(feature = "parquet")]
+pub async fn ambient_aws_credentials(
+    region: &str,
+) -> anyhow::Result<aws_sdk_sts::config::Credentials> {
+    ambient_aws_credentials_provider(region).await.get().await
+}
+
 #[cfg(feature = "parquet")]
 pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn ObjectStore>> {
-    let static_creds = s3_resource_ref.access_key.as_ref().is_some_and(|x| x != "")
-        || s3_resource_ref.secret_key.as_ref().is_some_and(|x| x != "");
+    let static_creds = s3_resource_has_static_credentials(s3_resource_ref);
 
     let credentials_provider = if !static_creds {
-        Some(
-            DefaultCredentialsChain::builder()
-                .region(Region::new(s3_resource_ref.region.clone()))
-                .build()
-                .await,
-        )
+        Some(ambient_aws_credentials_provider(&s3_resource_ref.region).await)
     } else {
         None
     };
@@ -492,6 +520,23 @@ fn build_azure_blob_client(
     return Ok(Arc::new(store));
 }
 
+/// Whether a GCS `service_account_key` carries no static credentials, in which case the client
+/// should fall back to the instance's ambient credentials (GKE Workload Identity / metadata server)
+/// instead of being handed an unparseable key. Besides an empty/whitespace string, the settings UI
+/// stores "no key" as an empty JSON object `{}` (and `serde_json` may yield `null`), so treat those
+/// as absent too. Shared with the connectivity-test SSRF guard so both agree on what "no key" means.
+pub fn gcs_service_account_key_is_blank(service_account_key: &str) -> bool {
+    let trimmed = service_account_key.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    match serde_json::from_str::<serde_json::Value>(trimmed) {
+        Ok(serde_json::Value::Null) => true,
+        Ok(serde_json::Value::Object(map)) => map.is_empty(),
+        _ => false,
+    }
+}
+
 #[cfg(feature = "parquet")]
 async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<dyn ObjectStore>> {
     let gcs_resource = gcs_resource_ref.clone();
@@ -507,7 +552,12 @@ async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<d
         )
         .with_bucket_name(gcs_resource.bucket);
 
-    store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    // A blank key means no static credentials: let the builder fall back to the metadata server
+    // (InstanceCredentialProvider) so GKE Workload Identity / ambient credentials work. Passing a
+    // blank/`{}` key to `with_service_account_key` would instead fail to parse.
+    if !gcs_service_account_key_is_blank(&gcs_resource.service_account_key) {
+        store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    }
 
     let store = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store_builder.build()))
         .map_err(|panic_info| {
@@ -533,7 +583,134 @@ pub fn build_filesystem_client(root_path: &str) -> error::Result<Arc<dyn ObjectS
     let store = object_store::local::LocalFileSystem::new_with_prefix(root_path).map_err(|e| {
         error::Error::internal_err(format!("Error building filesystem object store: {:?}", e))
     })?;
-    Ok(Arc::new(store))
+    Ok(Arc::new(FilesystemStoreIgnoringAttributes(store)))
+}
+
+/// `LocalFileSystem` rejects put/multipart uploads whose options carry
+/// attributes (content-type, content-disposition, ...) with `NotImplemented`.
+/// Attributes are advisory metadata a plain filesystem cannot persist, so
+/// drop them instead of failing the upload.
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct FilesystemStoreIgnoringAttributes(object_store::local::LocalFileSystem);
+
+#[cfg(feature = "parquet")]
+impl std::fmt::Display for FilesystemStoreIgnoringAttributes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[cfg(feature = "parquet")]
+#[async_trait]
+impl ObjectStore for FilesystemStoreIgnoringAttributes {
+    async fn put_opts(
+        &self,
+        location: &object_store::path::Path,
+        payload: object_store::PutPayload,
+        mut opts: object_store::PutOptions,
+    ) -> object_store::Result<object_store::PutResult> {
+        opts.attributes = Default::default();
+        self.0.put_opts(location, payload, opts).await
+    }
+
+    async fn put_multipart_opts(
+        &self,
+        location: &object_store::path::Path,
+        mut opts: object_store::PutMultipartOpts,
+    ) -> object_store::Result<Box<dyn object_store::MultipartUpload>> {
+        opts.attributes = Default::default();
+        self.0.put_multipart_opts(location, opts).await
+    }
+
+    async fn get_opts(
+        &self,
+        location: &object_store::path::Path,
+        options: object_store::GetOptions,
+    ) -> object_store::Result<object_store::GetResult> {
+        self.0.get_opts(location, options).await
+    }
+
+    async fn get_range(
+        &self,
+        location: &object_store::path::Path,
+        range: std::ops::Range<u64>,
+    ) -> object_store::Result<Bytes> {
+        self.0.get_range(location, range).await
+    }
+
+    async fn get_ranges(
+        &self,
+        location: &object_store::path::Path,
+        ranges: &[std::ops::Range<u64>],
+    ) -> object_store::Result<Vec<Bytes>> {
+        self.0.get_ranges(location, ranges).await
+    }
+
+    async fn head(
+        &self,
+        location: &object_store::path::Path,
+    ) -> object_store::Result<object_store::ObjectMeta> {
+        self.0.head(location).await
+    }
+
+    async fn delete(&self, location: &object_store::path::Path) -> object_store::Result<()> {
+        self.0.delete(location).await
+    }
+
+    fn list(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
+        self.0.list(prefix)
+    }
+
+    fn list_with_offset(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+        offset: &object_store::path::Path,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
+        self.0.list_with_offset(prefix, offset)
+    }
+
+    async fn list_with_delimiter(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+    ) -> object_store::Result<object_store::ListResult> {
+        self.0.list_with_delimiter(prefix).await
+    }
+
+    async fn copy(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.copy(from, to).await
+    }
+
+    async fn rename(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.rename(from, to).await
+    }
+
+    async fn copy_if_not_exists(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.copy_if_not_exists(from, to).await
+    }
+
+    async fn rename_if_not_exists(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.rename_if_not_exists(from, to).await
+    }
 }
 
 #[cfg(feature = "parquet")]
@@ -613,10 +790,92 @@ pub async fn build_s3_client_from_settings(
     build_s3_client(&s3_resource).await
 }
 
+// Resolving the default chain goes over the network (ECS/IMDS) on instances relying on an
+// instance role, and object_store asks its CredentialProvider on every request — so resolved
+// credentials must be cached and only re-fetched when close to expiring.
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct AmbientAwsCredentials {
+    chain: DefaultCredentialsChain,
+    cached: RwLock<Option<(aws_sdk_sts::config::Credentials, std::time::Instant)>>,
+}
+
+#[cfg(feature = "parquet")]
+impl AmbientAwsCredentials {
+    // Credentials without an expiry (env vars, static profile) are still re-resolved
+    // periodically so runtime changes to the environment are eventually picked up.
+    const NO_EXPIRY_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+    const EXPIRY_MARGIN: std::time::Duration = std::time::Duration::from_secs(120);
+
+    fn still_valid(creds: &aws_sdk_sts::config::Credentials, age: std::time::Duration) -> bool {
+        match creds.expiry() {
+            Some(expiry) => std::time::SystemTime::now() + Self::EXPIRY_MARGIN < expiry,
+            None => age < Self::NO_EXPIRY_TTL,
+        }
+    }
+
+    async fn get(&self) -> anyhow::Result<aws_sdk_sts::config::Credentials> {
+        if let Some((creds, fetched_at)) = self.cached.read().await.as_ref() {
+            if Self::still_valid(creds, fetched_at.elapsed()) {
+                return Ok(creds.clone());
+            }
+        }
+        // The write lock is held across the chain resolution so concurrent requests don't all
+        // hit the metadata service at once.
+        let mut guard = self.cached.write().await;
+        if let Some((creds, fetched_at)) = guard.as_ref() {
+            if Self::still_valid(creds, fetched_at.elapsed()) {
+                return Ok(creds.clone());
+            }
+        }
+        let creds = self.chain.provide_credentials().await.map_err(|e| {
+            anyhow::anyhow!(
+                "no S3 access key/secret key is configured and no ambient AWS credentials could \
+                 be loaded through the AWS SDK default chain (env vars, profile, ECS/EC2 instance \
+                 role): {cause}. If an EC2/ECS instance role is expected to be used, the instance \
+                 metadata service must be reachable from the process running Windmill — on EC2 the \
+                 AWS Rust SDK only supports IMDSv2, so when Windmill runs in a Docker container \
+                 the instance metadata hop limit (HttpPutResponseHopLimit) must be at least 2",
+                cause = format!("{:#}", anyhow::Error::new(e))
+            )
+        })?;
+        *guard = Some((creds.clone(), std::time::Instant::now()));
+        Ok(creds)
+    }
+}
+
+#[cfg(feature = "parquet")]
+lazy_static::lazy_static! {
+    static ref AMBIENT_AWS_CREDS_PROVIDERS: Cache<String, Arc<AmbientAwsCredentials>> =
+        Cache::new(20);
+}
+
+#[cfg(feature = "parquet")]
+async fn ambient_aws_credentials_provider(region: &str) -> Arc<AmbientAwsCredentials> {
+    // Single-flight: concurrent cold misses for the same region must share one provider,
+    // otherwise each gets its own instance and their per-instance refresh locks can't serialize
+    // the initial credential resolution — every caller would hit the metadata service.
+    match AMBIENT_AWS_CREDS_PROVIDERS
+        .get_value_or_guard_async(region)
+        .await
+    {
+        Ok(provider) => provider,
+        Err(guard) => {
+            let chain = DefaultCredentialsChain::builder()
+                .region(Region::new(region.to_string()))
+                .build()
+                .await;
+            let provider = Arc::new(AmbientAwsCredentials { chain, cached: RwLock::new(None) });
+            let _ = guard.insert(provider.clone());
+            provider
+        }
+    }
+}
+
 #[cfg(feature = "parquet")]
 #[derive(Debug)]
 struct AwsCredentialAdapter {
-    pub inner: DefaultCredentialsChain,
+    pub inner: Arc<AmbientAwsCredentials>,
 }
 
 #[cfg(feature = "parquet")]
@@ -624,9 +883,9 @@ struct AwsCredentialAdapter {
 impl CredentialProvider for AwsCredentialAdapter {
     type Credential = AwsCredential;
     async fn get_credential(&self) -> object_store::Result<Arc<Self::Credential>> {
-        let creds = self.inner.provide_credentials().await.map_err(|e| {
-            tracing::error!("Error getting credentials: {:?}", e);
-            object_store::Error::Generic { store: "AWS", source: Box::new(e) }
+        let creds = self.inner.get().await.map_err(|e| {
+            tracing::error!("Error getting AWS credentials: {e:#}");
+            object_store::Error::Generic { store: "AWS", source: e.into() }
         })?;
         Ok(Arc::new(Self::Credential {
             key_id: creds.access_key_id().to_string(),
@@ -1296,6 +1555,9 @@ pub async fn get_logs_from_store(
 ) -> Option<impl futures::Stream<Item = Result<bytes::Bytes, object_store::Error>>> {
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
+            if file_index.iter().any(|p| !is_safe_log_file_path(p)) {
+                return None;
+            }
             if let Some(os) = get_object_store().await {
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
@@ -1326,6 +1588,45 @@ pub async fn get_logs_from_store(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- ambient credentials cache tests ---
+
+    #[cfg(feature = "parquet")]
+    #[test]
+    fn test_ambient_credentials_still_valid() {
+        use std::time::{Duration, SystemTime};
+
+        fn creds(expiry: Option<SystemTime>) -> aws_sdk_sts::config::Credentials {
+            let mut builder = aws_sdk_sts::config::Credentials::builder()
+                .access_key_id("AK")
+                .secret_access_key("SK")
+                .provider_name("test");
+            if let Some(expiry) = expiry {
+                builder = builder.expiry(expiry);
+            }
+            builder.build()
+        }
+
+        // Expiry far in the future: valid regardless of fetch time
+        assert!(AmbientAwsCredentials::still_valid(
+            &creds(Some(SystemTime::now() + Duration::from_secs(3600))),
+            Duration::ZERO
+        ));
+        // Expiry within the refresh margin: must be re-fetched
+        assert!(!AmbientAwsCredentials::still_valid(
+            &creds(Some(SystemTime::now() + Duration::from_secs(30))),
+            Duration::ZERO
+        ));
+        // No expiry: valid while fresh, re-fetched after the TTL
+        assert!(AmbientAwsCredentials::still_valid(
+            &creds(None),
+            Duration::ZERO
+        ));
+        assert!(!AmbientAwsCredentials::still_valid(
+            &creds(None),
+            AmbientAwsCredentials::NO_EXPIRY_TTL + Duration::from_secs(1)
+        ));
+    }
 
     // --- render_endpoint tests ---
 
@@ -1569,6 +1870,40 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("GCS is not supported"));
+    }
+
+    #[test]
+    fn test_gcs_service_account_key_is_blank() {
+        for blank in ["", "   ", "\n\t", "{}", "  {}  ", "null"] {
+            assert!(
+                gcs_service_account_key_is_blank(blank),
+                "{blank:?} should be treated as no key"
+            );
+        }
+        for present in ["{\"client_email\":\"x@y.z\"}", "not json"] {
+            assert!(
+                !gcs_service_account_key_is_blank(present),
+                "{present:?} should be treated as a key"
+            );
+        }
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_build_gcs_client_blank_key_uses_instance_credentials() {
+        // A blank service account key must not be passed to `with_service_account_key`
+        // (which would fail to parse): the builder should fall back to instance credentials
+        // (GKE Workload Identity / metadata server) and construct successfully. `{}` is the
+        // settings UI's representation of "no key".
+        for key in ["", "   ", "{}"] {
+            let resource =
+                GcsResource { bucket: "bucket".to_string(), service_account_key: key.to_string() };
+            assert!(
+                build_gcs_client(&resource).await.is_ok(),
+                "blank key {:?} should build via instance credentials",
+                key
+            );
+        }
     }
 
     #[test]

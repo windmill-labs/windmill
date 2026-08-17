@@ -12,7 +12,10 @@ export function schemaToTsType(schema: Schema | SchemaProperty): string {
 		.map((key: string) => {
 			const prop = schemaProperties[key]
 			const isOptional = !schemaRequired?.includes(key)
-			const prefix = `${key}${isOptional ? '?' : ''}`
+			// Flow inputs allow names TS cannot use bare, e.g. `user-name`, which
+			// would emit an unparseable member. A quoted key means the same thing.
+			const name = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key)
+			const prefix = `${name}${isOptional ? '?' : ''}`
 			let type: string = 'any'
 			if (prop.type === 'string') {
 				type = 'string'

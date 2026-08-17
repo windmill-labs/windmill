@@ -51,15 +51,23 @@ function datatableProvider(name: string, schema?: string): SqlProvider {
   };
 }
 
-function ducklakeProvider(name: string): SqlProvider {
+function ducklakeProvider(name: string, schema?: string): SqlProvider {
   return {
     providerName: "ducklake",
     language: "duckdb",
     extraArgs: {},
     formatArgDecl: (argNum, argType) => `-- $arg${argNum} (${argType})`,
     formatArgUsage: (argNum) => `$arg${argNum}`,
-    preamble: () => `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`,
+    preamble: () =>
+      `ATTACH 'ducklake://${name}' AS dl;USE dl${schema ? `."${schema}"` : ""};\n`,
   };
+}
+
+function parseName(name: string | undefined): { name: string; schema?: string } {
+  if (!name) return { name: "main" };
+  let [assetName, schemaName] = name.split(":");
+  if (schemaName) return { name: assetName || "main", schema: schemaName };
+  return { name };
 }
 
 function inferSqlType(value: any): string {
@@ -231,7 +239,10 @@ function templateTag(provider: SqlProvider) {
 }
 
 const dt = (name = "main") => templateTag(datatableProvider(name));
-const dl = (name = "main") => templateTag(ducklakeProvider(name));
+const dl = (name = "main") => {
+  const { name: n, schema } = parseName(name);
+  return templateTag(ducklakeProvider(n, schema));
+};
 const datatableQuery = (name = "main") => {
   const provider = datatableProvider(name);
   return (sql: string, ...params: any[]) =>
@@ -603,6 +614,21 @@ describe("ducklake() — DuckDB shape", () => {
     const sql = dl();
     const out = sql`SELECT 1`;
     expect(out.args).not.toHaveProperty("database");
+  });
+
+  test("name:schema sets the active schema via USE dl.<schema>", () => {
+    const sql = dl("my_lake:analytics");
+    const out = sql`SELECT 1`;
+    expect(out.content).toContain(
+      `ATTACH 'ducklake://my_lake' AS dl;USE dl."analytics";`
+    );
+  });
+
+  test("no schema keeps the bare USE dl preamble", () => {
+    const sql = dl("my_lake");
+    const out = sql`SELECT 1`;
+    expect(out.content).toContain("ATTACH 'ducklake://my_lake' AS dl;USE dl;");
+    expect(out.content).not.toContain("USE dl.");
   });
 });
 

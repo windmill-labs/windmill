@@ -287,6 +287,7 @@
 							noText
 							buttonVariant="accent"
 							s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
+							workspace={flowGraphAssetsCtx?.val.workspace}
 							_resourceMetadata={cachedResourceMetadata}
 						/>
 					</div>

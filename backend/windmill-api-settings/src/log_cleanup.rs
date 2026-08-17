@@ -27,11 +27,17 @@ use uuid::Uuid;
 
 use crate::background_task;
 use windmill_common::error::{self};
+use windmill_common::jobs::delete_jobs;
 use windmill_common::tracing_init::{LOGS_SERVICE, TMP_WINDMILL_LOGS_SERVICE};
 use windmill_common::worker::WINDMILL_DIR;
-use windmill_common::{DB, INSTANCE_NAME, JOB_RETENTION_SECS, SERVICE_LOG_RETENTION_SECS};
+use windmill_common::{
+    DB, INSTANCE_NAME, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
+    JOB_RETENTION_SECS_OVERRIDES_LOADED, SERVICE_LOG_RETENTION_SECS,
+};
 
-use windmill_object_store::object_store_reexports::{ObjectStore, Path as ObjectPath};
+use windmill_object_store::object_store_reexports::{
+    ObjectStore, ObjectStoreError, Path as ObjectPath,
+};
 
 pub const TASK_NAME: &str = "log_cleanup";
 
@@ -61,6 +67,10 @@ pub struct LogCleanupProgress {
     pub total_jobs: u64,
     pub processed_jobs: u64,
     pub s3_deleted: u64,
+    /// Number of delete calls that returned 404 (object already absent — a no-op
+    /// success). GCS returns 404 per missing key where S3's DeleteObjects stays silent.
+    #[serde(default)]
+    pub s3_not_found: u64,
     /// Number of S3 objects inspected during the orphan scan phase.
     pub orphans_scanned: u64,
     /// Number of orphan S3 objects deleted (no corresponding DB row).
@@ -81,6 +91,7 @@ impl LogCleanupProgress {
             total_jobs: 0,
             processed_jobs: 0,
             s3_deleted: 0,
+            s3_not_found: 0,
             orphans_scanned: 0,
             orphans_deleted: 0,
             errors: 0,
@@ -132,6 +143,13 @@ impl Session {
             p.phase = "done".to_string();
             p.clone()
         };
+        tracing::info!(
+            "log cleanup finished: {} object(s) deleted from object store, {} already absent (404), {} orphans deleted, {} error(s)",
+            snapshot.s3_deleted,
+            snapshot.s3_not_found,
+            snapshot.orphans_deleted,
+            snapshot.errors
+        );
         if let Err(e) = background_task::release(&self.db, TASK_NAME, &self.owner, &snapshot).await
         {
             tracing::warn!("log cleanup: failed to release lease: {e:#}");
@@ -179,21 +197,32 @@ pub async fn get_status(db: &DB) -> error::Result<Option<LogCleanupProgress>> {
 async fn s3_bulk_delete(
     store: &Arc<dyn ObjectStore>,
     paths: Vec<ObjectPath>,
-) -> (u64 /* deleted */, u64 /* errors */) {
+) -> (
+    u64, /* deleted */
+    u64, /* not_found */
+    u64, /* errors */
+) {
     let stream = futures::stream::iter(paths.into_iter().map(Ok)).boxed();
     let mut deleted = 0u64;
+    let mut not_found = 0u64;
     let mut errors = 0u64;
     let mut res = store.delete_stream(stream);
     while let Some(r) = res.next().await {
         match r {
             Ok(_) => deleted += 1,
+            // Deleting a non-existent object is a successful no-op. S3's DeleteObjects
+            // ignores missing keys, but GCS returns 404 per delete, surfacing as
+            // NotFound — track it separately so it isn't reported as an error.
+            Err(ObjectStoreError::NotFound { .. }) => {
+                not_found += 1;
+            }
             Err(e) => {
                 errors += 1;
                 tracing::warn!("log cleanup: failed to delete object: {e:#}");
             }
         }
     }
-    (deleted, errors)
+    (deleted, not_found, errors)
 }
 
 /// Delete the given relative paths from the local filesystem under `base_dir`.
@@ -265,7 +294,7 @@ async fn cleanup_service_logs(
             .iter()
             .map(|p| ObjectPath::from(format!("{}{}", LOGS_SERVICE, p)))
             .collect();
-        let (deleted, errors) = s3_bulk_delete(store, s3_paths).await;
+        let (deleted, not_found, errors) = s3_bulk_delete(store, s3_paths).await;
         disk_bulk_delete(&*TMP_WINDMILL_LOGS_SERVICE, &rel_paths).await;
 
         session
@@ -275,6 +304,7 @@ async fn cleanup_service_logs(
                     p.total_service = p.processed_service;
                 }
                 p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+                p.s3_not_found = p.s3_not_found.saturating_add(not_found);
                 p.errors = p.errors.saturating_add(errors);
             })
             .await;
@@ -294,38 +324,114 @@ async fn cleanup_job_logs(
     store: &Arc<dyn ObjectStore>,
 ) -> error::Result<()> {
     let retention_secs = JOB_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
-    if retention_secs <= 0 {
+
+    // Per-workspace retention overrides (EE). Honor them exactly like the periodic monitor sweep:
+    // Phase 1 deletes on the instance window but EXCLUDES override workspaces, Phase 2 deletes each
+    // override workspace on its own window. Fail closed if the override set was never loaded (e.g.
+    // manual cleanup triggered right after startup) — sweeping globally with an unknown override set
+    // would delete jobs a longer-retention workspace asked to keep.
+    if !JOB_RETENTION_SECS_OVERRIDES_LOADED.load(std::sync::atomic::Ordering::Relaxed) {
+        tracing::warn!(
+            "log cleanup: per-workspace retention overrides not yet loaded; skipping job log cleanup this run"
+        );
         return Ok(());
     }
+    let overrides = JOB_RETENTION_SECS_OVERRIDES.load_full();
+    let override_ids: Vec<String> = overrides.keys().cloned().collect();
+    let exclude: Option<&[String]> = if override_ids.is_empty() {
+        None
+    } else {
+        Some(&override_ids)
+    };
 
-    let total: i64 = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM v2_job_completed
-         WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval",
-        retention_secs,
-    )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(0);
+    // Upfront total for the progress bar: Phase-1 candidates (instance window, excluding overrides)
+    // plus Phase-2 candidates (each override on its own window). Collapsed to `processed` at the end.
+    let mut total: i64 = if retention_secs > 0 {
+        sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM v2_job_completed
+             WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
+               AND ($2::text[] IS NULL OR workspace_id NOT IN (
+                   SELECT u FROM unnest($2::text[]) AS u WHERE u IS NOT NULL
+               ))",
+            retention_secs,
+            exclude,
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(0)
+    } else {
+        0
+    };
+    for (w_id, secs) in overrides.iter() {
+        if *secs > 0 {
+            total += sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM v2_job_completed
+                 WHERE workspace_id = $1
+                   AND completed_at <= now() - ($2::bigint::text || ' s')::interval",
+                w_id,
+                secs,
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(0);
+        }
+    }
 
     session.update(|p| p.total_jobs = total as u64).await;
-
     if total <= 0 {
         return Ok(());
     }
 
+    // Phase 1: instance window, excluding override workspaces.
+    if retention_secs > 0 {
+        run_job_log_cleanup_phase(session, db, store, retention_secs, None, exclude).await?;
+    }
+    // Phase 2: each override workspace on its own window (0 = keep forever, skipped).
+    for (w_id, secs) in overrides.iter() {
+        if *secs > 0 {
+            run_job_log_cleanup_phase(session, db, store, *secs, Some(w_id), None).await?;
+        }
+    }
+
+    // Collapse the total to what we actually processed — the upfront count includes jobs whose root
+    // is still active (protected from deletion), so without this the progress bar would get stuck.
+    session.update(|p| p.total_jobs = p.processed_jobs).await;
+
+    Ok(())
+}
+
+/// Runs the batched job+log delete loop for one retention scope (`only_workspace` / `exclude`),
+/// deleting the returned log blobs from storage and updating progress. See `cleanup_job_logs`.
+async fn run_job_log_cleanup_phase(
+    session: &Session,
+    db: &DB,
+    store: &Arc<dyn ObjectStore>,
+    retention_secs: i64,
+    only_workspace: Option<&str>,
+    exclude_workspaces: Option<&[String]>,
+) -> error::Result<()> {
+    let mut completed_at_floor: Option<DateTime<Utc>> = None;
     loop {
-        let (deleted_count, rel_paths) =
-            delete_expired_jobs_batch(db, retention_secs, JOB_BATCH).await?;
+        let (deleted_count, rel_paths, max_completed_at) = delete_expired_jobs_batch(
+            db,
+            retention_secs,
+            JOB_BATCH,
+            completed_at_floor,
+            only_workspace,
+            exclude_workspaces,
+        )
+        .await?;
 
         if deleted_count == 0 {
             break;
         }
+        completed_at_floor = max_completed_at.or(completed_at_floor);
 
         let s3_paths: Vec<ObjectPath> = rel_paths
             .iter()
             .map(|p| ObjectPath::from(p.clone()))
             .collect();
-        let (deleted, errors) = s3_bulk_delete(store, s3_paths).await;
+        let (deleted, not_found, errors) = s3_bulk_delete(store, s3_paths).await;
         disk_bulk_delete(&*WINDMILL_DIR, &rel_paths).await;
 
         session
@@ -335,16 +441,11 @@ async fn cleanup_job_logs(
                     p.total_jobs = p.processed_jobs;
                 }
                 p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+                p.s3_not_found = p.s3_not_found.saturating_add(not_found);
                 p.errors = p.errors.saturating_add(errors);
             })
             .await;
     }
-
-    // Collapse the total to what we actually processed — the upfront count
-    // includes jobs whose root is still active (protected from deletion), so
-    // without this the progress bar would get stuck at e.g. 3/44.
-    session.update(|p| p.total_jobs = p.processed_jobs).await;
-
     Ok(())
 }
 
@@ -355,7 +456,10 @@ async fn delete_expired_jobs_batch(
     db: &DB,
     job_retention_secs: i64,
     batch_size: i64,
-) -> error::Result<(usize, Vec<String>)> {
+    completed_at_floor: Option<DateTime<Utc>>,
+    only_workspace: Option<&str>,
+    exclude_workspaces: Option<&[String]>,
+) -> error::Result<(usize, Vec<String>, Option<DateTime<Utc>>)> {
     let mut tx = db.begin().await?;
 
     let active_root_job_ids: Vec<Uuid> = sqlx::query_scalar!(
@@ -368,29 +472,127 @@ async fn delete_expired_jobs_batch(
     .fetch_all(&mut *tx)
     .await?;
 
-    let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
-        "DELETE FROM v2_job_completed
-         WHERE id IN (
-             SELECT jc.id FROM v2_job_completed jc
-             LEFT JOIN v2_job j ON j.id = jc.id
-             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
-             ORDER BY jc.completed_at ASC
-             LIMIT $2
-             FOR UPDATE OF jc SKIP LOCKED
-         )
-         RETURNING id",
-        job_retention_secs,
-        batch_size,
-        &active_root_job_ids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    // `completed_at_floor` carries a watermark across batches so each one resumes after the rows
+    // the previous batch processed instead of re-scanning the (potentially undeletable) oldest
+    // prefix; the empty-active-roots branch skips the v2_job join entirely. Applied as
+    // `completed_at >= COALESCE($floor, '-infinity')` — the `$floor IS NULL OR ...` form is
+    // non-sargable and forces a Seq Scan. `only_workspace` / `exclude_workspaces` scope the sweep for
+    // the per-workspace retention override (Phase 1 global excluding override workspaces, Phase 2
+    // per-override) — same 4-arm shape and index rationale as
+    // backend/src/monitor.rs::delete_expired_jobs_batch (see there for the full rationale).
+    let (deleted_jobs, max_completed_at) = match only_workspace {
+        Some(w_id) if active_root_job_ids.is_empty() => {
+            let rows = sqlx::query!(
+                "DELETE FROM v2_job_completed
+                 WHERE id IN (
+                     SELECT id FROM v2_job_completed
+                     WHERE workspace_id = $4
+                       AND completed_at <= now() - ($1::bigint::text || ' s')::interval
+                       AND completed_at >= COALESCE($3::timestamptz, '-infinity'::timestamptz)
+                     ORDER BY completed_at ASC
+                     LIMIT $2
+                     FOR UPDATE SKIP LOCKED
+                 )
+                 RETURNING id, completed_at",
+                job_retention_secs,
+                batch_size,
+                completed_at_floor,
+                w_id,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            let max = rows.iter().map(|r| r.completed_at).max();
+            (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+        }
+        Some(w_id) => {
+            let rows = sqlx::query!(
+                "DELETE FROM v2_job_completed
+                 WHERE id IN (
+                     SELECT jc.id FROM v2_job_completed jc
+                     LEFT JOIN v2_job j ON j.id = jc.id
+                     WHERE jc.workspace_id = $5
+                       AND jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                       AND jc.completed_at >= COALESCE($4::timestamptz, '-infinity'::timestamptz)
+                       AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                           SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+                       )
+                     ORDER BY jc.completed_at ASC
+                     LIMIT $2
+                     FOR UPDATE OF jc SKIP LOCKED
+                 )
+                 RETURNING id, completed_at",
+                job_retention_secs,
+                batch_size,
+                &active_root_job_ids,
+                completed_at_floor,
+                w_id,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            let max = rows.iter().map(|r| r.completed_at).max();
+            (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+        }
+        None if active_root_job_ids.is_empty() => {
+            let rows = sqlx::query!(
+                "DELETE FROM v2_job_completed
+                 WHERE id IN (
+                     SELECT id FROM v2_job_completed
+                     WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
+                       AND completed_at >= COALESCE($3::timestamptz, '-infinity'::timestamptz)
+                       AND ($4::text[] IS NULL OR workspace_id NOT IN (
+                           SELECT u FROM unnest($4::text[]) AS u WHERE u IS NOT NULL
+                       ))
+                     ORDER BY completed_at ASC
+                     LIMIT $2
+                     FOR UPDATE SKIP LOCKED
+                 )
+                 RETURNING id, completed_at",
+                job_retention_secs,
+                batch_size,
+                completed_at_floor,
+                exclude_workspaces,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            let max = rows.iter().map(|r| r.completed_at).max();
+            (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+        }
+        None => {
+            let rows = sqlx::query!(
+                "DELETE FROM v2_job_completed
+                 WHERE id IN (
+                     SELECT jc.id FROM v2_job_completed jc
+                     LEFT JOIN v2_job j ON j.id = jc.id
+                     WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                       AND jc.completed_at >= COALESCE($4::timestamptz, '-infinity'::timestamptz)
+                       AND ($5::text[] IS NULL OR jc.workspace_id NOT IN (
+                           SELECT u FROM unnest($5::text[]) AS u WHERE u IS NOT NULL
+                       ))
+                       AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                           SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+                       )
+                     ORDER BY jc.completed_at ASC
+                     LIMIT $2
+                     FOR UPDATE OF jc SKIP LOCKED
+                 )
+                 RETURNING id, completed_at",
+                job_retention_secs,
+                batch_size,
+                &active_root_job_ids,
+                completed_at_floor,
+                exclude_workspaces,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            let max = rows.iter().map(|r| r.completed_at).max();
+            (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+        }
+    };
 
     let deleted_count = deleted_jobs.len();
     if deleted_count == 0 {
         tx.commit().await?;
-        return Ok((0, Vec::new()));
+        return Ok((0, Vec::new(), max_completed_at));
     }
 
     if let Err(e) = sqlx::query!(
@@ -421,10 +623,21 @@ async fn delete_expired_jobs_batch(
         }
     };
 
-    if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
-        .execute(&mut *tx)
-        .await
+    // Native retry markers have no FK (to keep this bulk delete cheap) — sweep
+    // them with their jobs here, same as the other side tables above. The table
+    // is created by a startup migration, so it always exists by the time cleanup
+    // runs.
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM native_retry_attempt WHERE job_id = ANY($1)",
+        &deleted_jobs
+    )
+    .execute(&mut *tx)
+    .await
     {
+        tracing::error!("log cleanup: error deleting native retry markers: {e:?}");
+    }
+
+    if let Err(e) = delete_jobs(&mut *tx, &deleted_jobs).await {
         tracing::error!("log cleanup: error deleting job: {e:?}");
     }
 
@@ -440,7 +653,7 @@ async fn delete_expired_jobs_batch(
 
     tx.commit().await?;
 
-    Ok((deleted_count, log_paths))
+    Ok((deleted_count, log_paths, max_completed_at))
 }
 
 /// Scan S3 under the `logs/` prefix for orphan log files and delete them.
@@ -468,15 +681,28 @@ async fn cleanup_s3_orphans(
     let job_retention_secs = JOB_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
     let now = Utc::now();
     // Service logs always have a retention (hardcoded SERVICE_LOG_RETENTION_SECS),
-    // so we scan for service-log orphans regardless of JOB_RETENTION_SECS. Job-log
-    // orphans, by contrast, can only be considered expired relative to
-    // JOB_RETENTION_SECS; when that is disabled we skip the job branch entirely.
+    // so we scan for service-log orphans regardless of JOB_RETENTION_SECS.
     let service_cutoff = now - chrono::Duration::seconds(SERVICE_LOG_RETENTION_SECS);
-    let job_cutoff = if job_retention_secs > 0 {
-        Some(now - chrono::Duration::seconds(job_retention_secs))
-    } else {
-        None
-    };
+
+    // Job-log orphans are only considered once past a job's effective retention window. That window
+    // is the instance one OR, for an override workspace (EE), its own — and jobs orphan their logs as
+    // soon as the SHORTEST applicable window elapses. Since this scan applies a single cutoff (the S3
+    // path carries only the job id, not the workspace), use the MINIMUM positive window across the
+    // instance window and every positive override so no window's orphans are missed. Crucially this
+    // also covers a `0` (keep-forever) instance window that still has positive overrides — the case
+    // where a plain global-only cutoff would skip the job branch entirely and orphan those logs
+    // forever. Keep-forever windows (0) contribute nothing: their jobs are never deleted. Overrides
+    // are folded in only once the cache is a known state; otherwise we fall back to the instance
+    // window alone and the next run picks up any override-only orphans once the cache loads.
+    let mut min_positive_window = (job_retention_secs > 0).then_some(job_retention_secs);
+    if JOB_RETENTION_SECS_OVERRIDES_LOADED.load(std::sync::atomic::Ordering::Relaxed) {
+        for w in JOB_RETENTION_SECS_OVERRIDES.load_full().values().copied() {
+            if w > 0 {
+                min_positive_window = Some(min_positive_window.map_or(w, |m| m.min(w)));
+            }
+        }
+    }
+    let job_cutoff = min_positive_window.map(|w| now - chrono::Duration::seconds(w));
 
     let logs_prefix = ObjectPath::from("logs/");
     let mut stream = store.list(Some(&logs_prefix));
@@ -561,11 +787,12 @@ async fn flush_service_orphans(
     batch: &mut Vec<ObjectPath>,
 ) {
     let paths = std::mem::take(batch);
-    let (deleted, errors) = s3_bulk_delete(store, paths).await;
+    let (deleted, not_found, errors) = s3_bulk_delete(store, paths).await;
     session
         .update(|p| {
             p.orphans_deleted = p.orphans_deleted.saturating_add(deleted);
             p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+            p.s3_not_found = p.s3_not_found.saturating_add(not_found);
             p.errors = p.errors.saturating_add(errors);
         })
         .await;
@@ -616,11 +843,12 @@ async fn flush_job_orphans(
         return;
     }
 
-    let (deleted, errors) = s3_bulk_delete(store, to_delete).await;
+    let (deleted, not_found, errors) = s3_bulk_delete(store, to_delete).await;
     session
         .update(|p| {
             p.orphans_deleted = p.orphans_deleted.saturating_add(deleted);
             p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+            p.s3_not_found = p.s3_not_found.saturating_add(not_found);
             p.errors = p.errors.saturating_add(errors);
         })
         .await;

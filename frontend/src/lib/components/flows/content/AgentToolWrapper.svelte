@@ -45,11 +45,12 @@
 		forceTestTab={forceTestTab?.[tool.id]}
 		highlightArg={highlightArg?.[tool.id]}
 		isAgentTool={true}
+		bind:toolDescription={tool.description}
 		{siblingToolNames}
 	/>
 {:else if isMcpTool(tool)}
 	<!-- MCP tool - use McpToolEditor -->
-	<McpToolEditor bind:tool />
+	<McpToolEditor bind:tool {noEditor} />
 {:else if isWebsearchTool(tool)}
-	<WebsearchToolDisplay />
+	<WebsearchToolDisplay {noEditor} />
 {/if}

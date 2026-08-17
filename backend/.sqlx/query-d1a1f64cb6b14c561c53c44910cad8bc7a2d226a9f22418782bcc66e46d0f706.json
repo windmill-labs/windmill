@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pipeline_freshness_state (workspace_id, script_path) VALUES ($1, $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d1a1f64cb6b14c561c53c44910cad8bc7a2d226a9f22418782bcc66e46d0f706"
+}

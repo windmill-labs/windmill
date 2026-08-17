@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT ON (path)\n                      path,\n                      value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\",\n                      created_at,\n                      typ::text as \"typ!\"\n               FROM draft\n               WHERE workspace_id = $1\n                 AND typ IN ('app', 'raw_app')\n                 AND (email = $2 OR email IS NULL)\n                 AND NOT EXISTS (\n                     SELECT 1 FROM app a\n                     WHERE a.workspace_id = draft.workspace_id\n                       AND a.path = draft.path\n                 )\n               ORDER BY path, (email IS NULL), created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "typ!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "1860c102a5309a8e1bb7288d0616f48e4330af7fbe61426e999c6073f630d88f"
+}

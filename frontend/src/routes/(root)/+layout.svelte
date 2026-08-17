@@ -3,15 +3,23 @@
 	import { page } from '$app/state'
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logoutKit'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import {
+		clearWorkspaceFromStorage,
+		userStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
+	import { switchWorkspace } from '$lib/storeUtils'
+	import { forgetForkParent, getRememberedForkParent } from '$lib/forkParentMemory'
 	import { onDestroy, onMount } from 'svelte'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
 	import { setLicense } from '$lib/enterpriseUtils'
+	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { deepEqual } from 'fast-equals'
 	interface Props {
 		children?: import('svelte').Snippet
@@ -32,8 +40,83 @@
 		"Client got disposed and can't be restarted."
 	]
 
+	// The only load of the workspace list for the whole session, and an empty `$userWorkspaces`
+	// degrades silently rather than erroring — the edit-in-dev affordance, the no-direct-deploy
+	// alert and the fork banner all quietly lose their dev workspace. Retry rather than strand
+	// the tab in that state.
+	const WORKSPACE_LIST_RETRY_DELAYS_MS = [1000, 3000, 8000]
 	async function setUserWorkspaceStore() {
-		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+		for (let attempt = 0; ; attempt++) {
+			try {
+				$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+				return
+			} catch (e) {
+				if (attempt >= WORKSPACE_LIST_RETRY_DELAYS_MS.length) throw e
+				console.error('could not load workspace list, retrying', e)
+				await new Promise((r) => setTimeout(r, WORKSPACE_LIST_RETRY_DELAYS_MS[attempt]))
+			}
+		}
+	}
+
+	// A fork deleted remotely while the tab was open leaves the client pointing at a
+	// dead workspace id: every request 404s and members get logged out. The fork's
+	// parent linkage lived only in its own (now deleted) row, so we mirror it to
+	// localStorage while the fork is reachable (see forkParentMemory) and use it here
+	// to send the user back to the parent. Returns true when it handled the situation
+	// so the caller skips normal loading.
+	async function tryRecoverFromDeletedWorkspace(workspaceId: string): Promise<boolean> {
+		// Only forks are recoverable, identified two ways: the `wm-fork-` id prefix, or
+		// a remembered parent. Neither alone is sufficient — dev-workspace forks carry
+		// no prefix (only a remembered parent), while a non-member superadmin's fork has
+		// the prefix but no remembered parent (the recorder only sees the user's own
+		// membership-gated list). A workspace that is neither is left to normal loading.
+		const parentId = getRememberedForkParent(workspaceId)
+		if (parentId == undefined && !workspaceId.startsWith('wm-fork-')) return false
+
+		// `exists` is not membership-gated, so it settles "is this workspace gone?"
+		// identically for members, non-members and superadmins, and it requires a valid
+		// session. Only a conclusive `false` means deleted: any rejection (expired
+		// session, transient failure) is inconclusive and must leave the normal loading
+		// path — including its genuine auth handling — untouched.
+		let exists: boolean
+		try {
+			exists = await WorkspaceService.existsWorkspace({ requestBody: { id: workspaceId } })
+		} catch {
+			return false
+		}
+		if (exists) return false
+
+		forgetForkParent(workspaceId)
+
+		// Send the user to the remembered parent when we have one; otherwise (unknown or
+		// inaccessible parent) fall back to the picker rather than the forced-logout path
+		// this recovery exists to avoid.
+		if (parentId != undefined) {
+			switchWorkspace(parentId)
+			const parentUser = await getUserExt(parentId)
+			if (parentUser) {
+				$userStore = parentUser
+				sendUserToast(
+					`Workspace ${workspaceId} not found, switched to parent workspace ${parentId}.`,
+					'warning'
+				)
+				await goto('/')
+				return true
+			}
+		}
+
+		try {
+			clearWorkspaceFromStorage()
+		} catch (e) {
+			console.error('Could not clear workspace storage during deleted-workspace recovery', e)
+		}
+		workspaceStore.set(undefined)
+		sendUserToast(
+			`Workspace ${workspaceId} is no longer available, please pick a workspace.`,
+			'warning'
+		)
+		await goto('/user/workspaces')
+		return true
 	}
 
 	async function loadUser() {
@@ -41,13 +124,24 @@
 			await refreshSuperadmin()
 
 			if ($workspaceStore) {
+				if (await tryRecoverFromDeletedWorkspace($workspaceStore)) {
+					return
+				}
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
 				} else {
-					$userStore = await getUserExt($workspaceStore)
-					if (!$userStore) {
+					const ws = $workspaceStore
+					const user = await getUserExt(ws)
+					// A switch mid-flight means this answers for the workspace we left, and
+					// that switch has already started the fetch answering for the active
+					// one: neither this role nor its failure describes where we are now.
+					if ($workspaceStore !== ws) {
+						return
+					}
+					if (!user) {
 						throw Error('Not logged in')
 					}
+					$userStore = user
 				}
 			} else {
 				if (
@@ -131,7 +225,7 @@
 		computeDrift()
 
 		if (page.url.pathname != '/user/login') {
-			setUserWorkspaceStore()
+			setUserWorkspaceStore().catch((e) => console.error('could not load workspace list', e))
 			loadUser()
 			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 		}
@@ -154,7 +248,11 @@
 
 					if (workspace && user) {
 						const newUser = await getUserExt(workspace)
-						if (!deepEqual(newUser, $userStore)) {
+						// Refreshes the workspace that was active when the tick started; a
+						// switch mid-flight makes this answer describe the one we left.
+						if ($workspaceStore !== workspace) {
+							console.debug('workspace changed during user refresh, dropping')
+						} else if (!deepEqual(newUser, $userStore)) {
 							userStore.set(newUser)
 							console.info('refreshed user')
 						} else {
@@ -182,6 +280,8 @@
 	} else {
 		document.documentElement.classList.remove('dark')
 	}
+
+	applyDarkModeVariant()
 </script>
 
 {@render children?.()}

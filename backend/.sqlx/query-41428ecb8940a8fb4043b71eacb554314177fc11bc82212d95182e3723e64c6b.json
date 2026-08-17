@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dbt_run_progress\n          WHERE workspace_id = $1 AND updated_at < now() - make_interval(days => $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "41428ecb8940a8fb4043b71eacb554314177fc11bc82212d95182e3723e64c6b"
+}

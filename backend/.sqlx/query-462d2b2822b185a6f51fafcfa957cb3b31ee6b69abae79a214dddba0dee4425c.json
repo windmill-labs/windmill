@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM flow_conversation_message m\n         USING flow_conversation c\n         WHERE m.conversation_id = c.id AND c.workspace_id = $1 AND m.job_id = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "462d2b2822b185a6f51fafcfa957cb3b31ee6b69abae79a214dddba0dee4425c"
+}

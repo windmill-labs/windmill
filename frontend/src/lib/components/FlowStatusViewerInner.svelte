@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import FlowStatusViewerInner from './FlowStatusViewerInner.svelte'
 
 	import {
@@ -49,6 +50,7 @@
 		AI_TOOL_MESSAGE_PREFIX,
 		AI_MCP_TOOL_CALL_PREFIX,
 		AI_WEBSEARCH_PREFIX,
+		getAgentActionStateId,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
@@ -60,7 +62,14 @@
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { useThrottle } from 'runed'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
-	import { getActiveReplay } from './recording/flowRecording.svelte'
+	import { getActiveReplay } from './recording/replay.svelte'
+	import { publishLinkedAgentTools } from './flows/flowState'
+	import {
+		getLinkedAgentTools,
+		linkedToolsScope,
+		releaseLinkedToolsScope,
+		retainLinkedToolsScope
+	} from './flows/linkedAgentToolsStore.svelte'
 
 	let {
 		flowState: flowStateStore,
@@ -248,6 +257,48 @@
 		})
 	})
 
+	// A linked agent persists no tools on the module, so this read-only viewer resolves them from the
+	// resource. Keyed by job rather than flow path: it also renders in the editor's preview pane,
+	// where sharing the editor's `${ws}:${flow path}` bucket would let an older run's agent overwrite
+	// the tool nodes of the flow being edited.
+	let linkedToolsViewScope = $derived(linkedToolsScope(workspace, `job:${job?.id ?? ''}`))
+	// Flattened to a string so polling a running flow — which replaces `job` every tick — only
+	// re-fetches when the set of linked steps actually changes.
+	let linkedAgentRefs = $derived(
+		// Flow modules only: resource-imported tool ids are not flow-global, so publishing a nested
+		// linked agent under its bare id would supersede a top-level step that happens to share it.
+		dfs(job?.raw_flow?.modules ?? [], (m) => m, { skipToolNodes: true })
+			.map((m) => {
+				const value = m?.value as { type?: string; agent?: string } | undefined
+				return value?.type === 'aiagent' && value.agent ? `${m.id}\u0000${value.agent}` : undefined
+			})
+			.filter((x): x is string => x !== undefined)
+			.join('\u0001')
+	)
+	// Session and fork previews render this viewer against another workspace, passed as `workspaceId`;
+	// resolving in the navigation one finds nothing, or an unrelated resource sharing the path. The
+	// store scope stays keyed on `workspace` to match what FlowGraphV2 reads — the job id in the key
+	// already makes the bucket unique.
+	let agentFetchWorkspace = $derived(workspaceId ?? job?.workspace_id ?? $workspaceStore)
+	// Hold this scope for as long as the viewer is mounted, so the store's cap can't drop tools the
+	// run still needs (nothing would refetch them — the set of linked steps hasn't changed).
+	$effect(() => {
+		const scope = linkedToolsViewScope
+		retainLinkedToolsScope(scope)
+		return () => releaseLinkedToolsScope(scope)
+	})
+	$effect(() => {
+		const refs = linkedAgentRefs
+		const ws = agentFetchWorkspace
+		const scope = linkedToolsViewScope
+		untrack(() => {
+			for (const entry of refs ? refs.split('\u0001') : []) {
+				const [moduleId, agentPath] = entry.split('\u0000')
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
+			}
+		})
+	})
+
 	let jobResults: any[] = $state(
 		untrack(() => flowJobIds)?.flowJobs?.map(
 			(x, id) => `iter #${id + 1} not loaded by frontend yet`
@@ -413,7 +464,12 @@
 	function updateRecursiveRefresh(jobId: string) {
 		if (jobId) {
 			updateRecursiveRefreshFn?.(jobId, async (clear, root) => {
-				if (globalModuleStates.length > 0 || isSubflow) {
+				// During a clear pass we must descend into children even when this
+				// subtree is currently deselected (globalModuleStates empty): clearing
+				// the parent loop's selection deselects its iteration viewers before the
+				// recursion reaches them, and their stale branch-step states would leak
+				// into the newly selected iteration otherwise.
+				if (clear || globalModuleStates.length > 0 || isSubflow) {
 					await refresh(clear, root)
 				}
 			})
@@ -707,34 +763,28 @@
 
 				if (mod.agent_actions && mod.id) {
 					setModuleState(mod.id, {
-						agent_actions: mod.agent_actions
+						agent_actions: mod.agent_actions,
+						agent_actions_success: mod.agent_actions_success
 					})
 					mod.agent_actions.forEach((action, idx) => {
-						if (mod.id) {
-							if (action.type == 'tool_call') {
-								const toolCallId = getToolCallId(idx, mod.id, action.module_id)
-								const success = mod.agent_actions_success?.[idx]
-								setModuleState(toolCallId, {
-									job_id: action.job_id,
-									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
-								})
-							} else if (action.type == 'mcp_tool_call') {
-								const mcpToolCallId = AI_MCP_TOOL_CALL_PREFIX + '-' + mod.id + '-' + idx
-								const success = mod.agent_actions_success?.[idx]
-								setModuleState(mcpToolCallId, {
-									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
-								})
-							} else if (action.type == 'web_search') {
-								const websearchId = AI_WEBSEARCH_PREFIX + '-' + mod.id + '-' + idx
-								setModuleState(websearchId, {
-									type: 'Success'
-								})
-							} else if (action.type == 'message') {
-								const toolCallId = getToolCallId(idx, mod.id)
-								setModuleState(toolCallId, {
-									type: 'Success'
-								})
-							}
+						if (!mod.id) {
+							return
+						}
+						const stateId = getAgentActionStateId(idx, mod.id, action)
+						const success = mod.agent_actions_success?.[idx]
+						if (action.type == 'tool_call') {
+							setModuleState(stateId, {
+								job_id: action.job_id,
+								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+							})
+						} else if (action.type == 'mcp_tool_call') {
+							setModuleState(stateId, {
+								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+							})
+						} else {
+							setModuleState(stateId, {
+								type: 'Success'
+							})
 						}
 					})
 				}
@@ -1175,15 +1225,25 @@
 	export type FlowModuleForTimeline = {
 		id: string
 		type: FlowModuleValue['type']
+		suspend?: boolean
 	}
 
 	function allModulesForTimeline(
 		modules: FlowModule[],
 		expandedSubflows: Record<string, { modules: FlowModule[]; groups?: any[] }>
 	): FlowModuleForTimeline[] {
-		const ids = dfs(modules, (x) => ({ id: x.id, type: x.value.type }) as FlowModuleForTimeline, {
-			skipToolNodes: true
-		})
+		const ids = dfs(
+			modules,
+			(x) =>
+				({
+					id: x.id,
+					type: x.value.type,
+					suspend: x.suspend != undefined
+				}) as FlowModuleForTimeline,
+			{
+				skipToolNodes: true
+			}
+		)
 
 		function rec(
 			ids: FlowModuleForTimeline[],
@@ -1203,7 +1263,8 @@
 									fms,
 									(x) => ({
 										id: x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix),
-										type: x.value.type
+										type: x.value.type,
+										suspend: x.suspend != undefined
 									}),
 									{ skipToolNodes: true }
 								),
@@ -1457,7 +1518,11 @@
 		{/if}
 		{#if render}
 			{#if innerModules && innerModules.length > 0 && !isListJob}
-				<Tabs class="mx-auto pt-2 {wideResults ? '' : 'max-w-7xl'}" bind:selected>
+				<Tabs
+					class="mx-auto pt-2 {wideResults ? '' : 'max-w-7xl'}"
+					bind:selected
+					on:selected={(e) => logFeatureUsage('flow_run', 'tab', { key: e.detail })}
+				>
 					<Tab value="graph" label="Graph" />
 					<Tab
 						value="logs"
@@ -1955,6 +2020,7 @@
 									earlyStop={job.raw_flow?.skip_expr !== undefined}
 									cache={job.raw_flow?.cache_ttl !== undefined}
 									modules={job.raw_flow?.modules ?? []}
+									linkedToolsPath={`job:${job?.id ?? ''}`}
 									notes={notesProp ?? job.raw_flow?.notes ?? []}
 									groups={groupsProp ?? job.raw_flow?.groups}
 									failureModule={job.raw_flow?.failure_module}
@@ -2078,7 +2144,9 @@
 														stepDetail && typeof stepDetail !== 'string' ? stepDetail : undefined}
 													{@const agentTools =
 														module && module.value.type === 'aiagent'
-															? module.value.tools
+															? module.value.agent
+																? getLinkedAgentTools(linkedToolsViewScope, module.id)
+																: (module.value.tools ?? [])
 															: undefined}
 													{@const parentLoopsPrefix = getParentLoopsPrefix(module?.id ?? '')}
 													{#if node.flow_jobs_results}

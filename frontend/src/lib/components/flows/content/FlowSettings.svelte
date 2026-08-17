@@ -30,6 +30,7 @@
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
+	import { modulesWithRetryOrSleep, SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -45,7 +46,9 @@
 		pathStore,
 		customUi,
 		preserveOnBehalfOf,
-		savedOnBehalfOfEmail
+		savedOnBehalfOfEmail,
+		savedOnBehalfOfPermissionedAs,
+		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
@@ -53,6 +56,7 @@
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
+	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
 	function asSchema(x: any) {
 		return x as Schema
@@ -61,6 +65,11 @@
 	let dirtyPath = $state(false)
 
 	let displayWorkerTagPicker = $state(false)
+
+	// Only block turning it on: a flow deployed with both (CLI, YAML editor) must stay fixable.
+	let conflictingModuleIds = $derived(
+		flowStore.val.value.same_worker ? [] : modulesWithRetryOrSleep(flowStore.val.value)
+	)
 
 	run(() => {
 		if (flowStore.val.tag) {
@@ -107,7 +116,7 @@
 
 <div class="h-full flex flex-col">
 	<FlowCard {noEditor} title="Settings">
-		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6">
+		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6 overflow-y-auto">
 			<!-- Metadata Section -->
 			<div class="gap-6 flex flex-col">
 				<Label label="Summary">
@@ -136,7 +145,7 @@
 				<!-- prettier-ignore -->
 				<LabelsInput bind:labels={(flowStore.val as any).labels} class="-mt-4" />
 
-				{#if !noEditor}
+				{#if !noEditor && customUi?.topBar?.editablePath != false}
 					<Label label="Path">
 						<Path
 							autofocus={false}
@@ -146,6 +155,7 @@
 							initialPath={$initialPathStore}
 							namePlaceholder="flow"
 							kind="flow"
+							workspaceOverride={opWorkspace?.()}
 						/>
 						{#if $initialPathStore && $pathStore && $pathStore !== $initialPathStore}
 							<Alert
@@ -178,7 +188,7 @@
 				label="Advanced"
 				collapsable={true}
 				small={true}
-				class="h-full grow mt-2 min-h-0 flex flex-col gap-6"
+				class="h-full grow mt-2 min-h-0 flex flex-col gap-6 pb-2"
 			>
 				<!-- Worker Group Section -->
 				{#if customUi?.settingsTabs?.workerGroup != false}
@@ -205,7 +215,11 @@
 
 						{#if displayWorkerTagPicker}
 							<div transition:slide={{ duration: 120 }} class="mt-2">
-								<WorkerTagPicker bind:tag={flowStore.val.tag} popupPlacement="top-end" />
+								<WorkerTagPicker
+									bind:tag={flowStore.val.tag}
+									popupPlacement="top-end"
+									workspaceId={opWorkspace?.()}
+								/>
 							</div>
 							{#if flowStore.val.tag}
 								<div
@@ -388,20 +402,31 @@
 
 				<!-- Shared Directory Section -->
 				{#if customUi?.settingsTabs?.sharedDiretory != false}
-					<Toggle
-						textClass="font-medium"
-						size="xs"
-						bind:checked={flowStore.val.value.same_worker}
-						options={{
-							right: 'Same Worker + Shared directory on `./shared`',
-							rightTooltip:
-								'Steps will share a folder at `./shared` in which they can store heavier data and ' +
-								'pass them to the next step. Beware that the `./shared` folder is not ' +
-								'preserved across suspends and sleeps.',
-							rightDocumentationLink:
-								'https://www.windmill.dev/docs/core_concepts/persistent_storage/within_windmill#shared-directory'
-						}}
-					/>
+					<div class="flex flex-col gap-1">
+						<Toggle
+							textClass="font-medium"
+							size="xs"
+							disabled={conflictingModuleIds.length > 0}
+							bind:checked={flowStore.val.value.same_worker}
+							options={{
+								right: 'Same Worker + Shared directory on `./shared`',
+								rightTooltip:
+									'Steps will share a folder at `./shared` in which they can store heavier data and ' +
+									'pass them to the next step. Beware that the `./shared` folder is not ' +
+									'preserved across suspends and sleeps.',
+								rightDocumentationLink:
+									'https://www.windmill.dev/docs/core_concepts/persistent_storage/within_windmill#shared-directory'
+							}}
+						/>
+						{#if conflictingModuleIds.length > 0}
+							<span class="text-xs text-secondary">
+								{SAME_WORKER_INCOMPATIBLE_MSG} Remove them from step{conflictingModuleIds.length > 1
+									? 's'
+									: ''}
+								{conflictingModuleIds.join(', ')} first.
+							</span>
+						{/if}
+					</div>
 				{/if}
 
 				<!-- Visibility Section -->
@@ -434,10 +459,12 @@
 						on:change={() => {
 							if (flowStore.val.on_behalf_of_email) {
 								flowStore.val.on_behalf_of_email = undefined
+								flowStore.val.on_behalf_of = undefined
 								$preserveOnBehalfOf = false
 								onBehalfOfChoice = undefined
 							} else {
 								flowStore.val.on_behalf_of_email = $userStore?.email
+								flowStore.val.on_behalf_of = myPermissionedAs
 							}
 						}}
 						options={{
@@ -448,21 +475,26 @@
 					/>
 					{#if flowStore.val.on_behalf_of_email && canPreserve}
 						&rarr; <OnBehalfOfSelector
-							targetWorkspace={$workspaceStore ?? ''}
+							targetWorkspace={opWorkspace?.() ?? $workspaceStore ?? ''}
 							targetValue={$savedOnBehalfOfEmail}
 							selected={onBehalfOfChoice}
 							onSelect={(choice, details) => {
 								onBehalfOfChoice = choice
 								if (choice === 'me') {
 									flowStore.val.on_behalf_of_email = $userStore?.email
+									flowStore.val.on_behalf_of = myPermissionedAs
 									customOnBehalfOfEmail = ''
 									$preserveOnBehalfOf = false
 								} else if (choice === 'target') {
+									// Keep the saved pair. A flow that has no recorded principal yet
+									// sends the email alone and the backend derives one from it.
 									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
+									flowStore.val.on_behalf_of = $savedOnBehalfOfPermissionedAs
 									customOnBehalfOfEmail = ''
 									$preserveOnBehalfOf = true
 								} else if (choice === 'custom' && details) {
 									flowStore.val.on_behalf_of_email = details.email
+									flowStore.val.on_behalf_of = details.permissionedAs
 									customOnBehalfOfEmail = details.email
 									$preserveOnBehalfOf = true
 								}
@@ -594,11 +626,10 @@
 							flowStore.val.value.priority = 100
 						}
 					}}
+					eeOnly={true}
 					options={{
 						right: `Label as high priority`,
-						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first. ${
-							!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''
-						}`,
+						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first.`,
 						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/priority'
 					}}
 				>
@@ -621,9 +652,6 @@
 								}
 							}}
 						/>
-						{#if !$enterpriseLicense || isCloudHosted()}
-							<EEOnly />
-						{/if}
 					{/snippet}
 				</Toggle>
 
@@ -641,7 +669,7 @@
 					}}
 					options={{
 						right: 'Delete all step results after completion',
-						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible. ${!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''}`
+						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible.`
 					}}
 					eeOnly={true}
 				/>

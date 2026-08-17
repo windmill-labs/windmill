@@ -513,6 +513,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Lightweight file/runnable metadata tool (no source contents)
 	{
 		def: getListFilesToolDef(),
+		planModeSafe: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing files...' })
 			const files = helpers.getFiles()
@@ -548,6 +549,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Frontend tools
 	{
 		def: getGetFrontendFileToolDef(),
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getGetFrontendFileSchema().parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -680,6 +682,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Backend tools
 	{
 		def: getGetBackendRunnableToolDef(),
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getGetBackendRunnableSchema().parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -758,6 +761,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Lint tool
 	{
 		def: getLintToolDef(),
+		planModeSafe: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Linting app...' })
 			const lintResult = helpers.lint()
@@ -779,6 +783,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	// Data table tools
 	{
 		def: getListDatatablesToolDef(),
+		planModeSafe: true,
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing datatables...' })
 			try {
@@ -801,6 +806,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	},
 	{
 		def: getGetDatatableTableSchemaToolDef(),
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getGetDatatableTableSchemaSchema().parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -924,9 +930,20 @@ export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSy
 ## App Structure
 
 ### Frontend
-- The frontend is bundled using esbuild with entrypoint \`index.tsx\`
+- The frontend is bundled using esbuild, with entrypoint \`index.tsx\` for React and \`index.ts\` for Svelte and Vue
+- The entrypoint is also the **mount** entrypoint: nothing is auto-rendered, so it must mount a top-level \`App\` into \`#root\` itself. Keep the UI in \`App.tsx\` / \`App.svelte\` / \`App.vue\` and keep the entrypoint as the mount shim:
+  \`\`\`tsx
+  import React from 'react'
+  import { createRoot } from 'react-dom/client'
+  import App from './App'
+
+  createRoot(document.getElementById('root')!).render(<App />)
+  \`\`\`
+  (Svelte \`index.ts\`: \`mount(App, { target: document.getElementById('root')! })\`; Vue \`index.ts\`: \`createApp(App).mount('#root')\`.)
+- **Never replace the entrypoint with a bare component.** A component that is defined but never mounted renders a blank screen with **no error** — it never executes, so nothing throws. If an app renders blank, check that the entrypoint still mounts \`App\` into \`#root\`.
 - Frontend files are managed separately from backend runnables
 - The \`wmill.d.ts\` file is generated automatically from the backend runnables shape
+- Begin every React file (\`.tsx\`/\`.jsx\`) that uses JSX with \`import React from 'react'\`. Raw apps bundle with the classic JSX transform, so \`React\` must be in scope wherever JSX is used — a missing import compiles fine but throws \`React is not defined\` at runtime.
 
 ### Backend
 Backend runnables can be of different types:

@@ -1,16 +1,18 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import Button from '../common/button/Button.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { WorkspaceService } from '$lib/gen'
-	import Modal from '../common/modal/Modal.svelte'
-	import { Pen } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 
-	let { open = false }: { open?: boolean } = $props()
+	// Forks have no customizable display name — the unique id is the name
+	// (same convention as the create-fork form), so the editor is hidden.
+	const isFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces))
 
-	let newName = $state('')
 	let currentName = $state('')
+	let newName = $state('')
 
 	$effect(() => {
 		if ($workspaceStore) {
@@ -20,10 +22,13 @@
 
 	async function getWorkspaceName() {
 		currentName = await WorkspaceService.getWorkspaceName({ workspace: $workspaceStore! })
+		newName = currentName
 	}
 
 	async function renameWorkspace() {
-		open = false
+		if (!newName || newName === currentName) {
+			return
+		}
 		await WorkspaceService.changeWorkspaceName({
 			workspace: $workspaceStore!,
 			requestBody: {
@@ -32,53 +37,39 @@
 		})
 
 		sendUserToast(`Changed workspace name to ${newName}`)
-		newName = ''
 		getWorkspaceName()
 	}
 </script>
 
-<div class="flex flex-col gap-1">
-	<p class="font-semibold text-xs text-emphasis">Workspace name</p>
-	<p class="text-xs text-secondary font-normal">Displayable name</p>
-	<div class="flex flex-row gap-2 items-center">
-		<p class="text-primary text-xs">{currentName}</p>
-		<Button
-			on:click={() => {
-				open = true
-			}}
-			unifiedSize="sm"
-			iconOnly
-			variant="subtle"
-			startIcon={{
-				icon: Pen
-			}}
-		/>
-	</div>
-</div>
-
-<Modal bind:open title="Change workspace name">
-	<div class="flex flex-col gap-4 mt-4">
-		{#if currentName}
-			<p class="text-secondary text-xs"
-				>Current name <br /> <span class="text-emphasis">{currentName}</span></p
+{#if !isFork}
+	<div class="flex flex-col gap-1">
+		<p class="font-semibold text-xs text-emphasis">Workspace name</p>
+		<p class="text-xs text-secondary font-normal">Displayable name</p>
+		<div class="flex flex-row gap-2 items-center">
+			<TextInput
+				bind:value={newName}
+				size="sm"
+				class="max-w-xs"
+				inputProps={{
+					placeholder: 'Workspace name',
+					'aria-label': 'Workspace name',
+					onkeydown: (e) => {
+						if (e.key === 'Enter') {
+							renameWorkspace()
+						}
+					}
+				}}
+			/>
+			<Button
+				size="sm"
+				variant="accent"
+				disabled={!newName || newName === currentName}
+				on:click={() => {
+					renameWorkspace()
+				}}
 			>
-		{/if}
-		<label class="flex flex-col gap-1">
-			<span class="text-emphasis text-xs">New name</span>
-			<input type="text" bind:value={newName} />
-		</label>
+				Save
+			</Button>
+		</div>
 	</div>
-
-	{#snippet actions()}
-		<Button
-			size="sm"
-			variant="accent"
-			disabled={!newName}
-			on:click={() => {
-				renameWorkspace()
-			}}
-		>
-			Save
-		</Button>
-	{/snippet}
-</Modal>
+{/if}

@@ -4,33 +4,44 @@ AI chat `@`-mention dropdown. Mounts the generic `DrillPicker` with a
 unified tree:
 
   Diffs / Modules / Databases / Workspace
-                                     ├── All / Flows / Scripts
-                                     │       └── f/scope/sub/leaf …
+                                     ├── u/user / f/folder …
+                                     │       └── sub/leaf … (kinds mixed)
 
 The Diffs / Modules / Databases branches are synthesized from the chat's
 in-memory `availableContext`. The Workspace branch delegates to
-`buildWorkspaceTree` so the picker shares the workspace caching machinery
-with the standalone picker used by `EditorHeader`.
+`buildWorkspaceTree` (flat layout — the workspace home's first level, no
+kind grouping) so the picker shares the workspace caching machinery with
+the standalone picker used by `EditorHeader`. Apps only appear in GLOBAL
+chat and list raw (code-based) apps; visual apps are excluded.
 
 On a workspace-leaf pick, emits a reference-only `WorkspaceScriptElement` /
-`WorkspaceFlowElement` (path + title + summary). Content is materialized
-at message-prep time by `AIChatManager` — see PR #9216.
+`WorkspaceFlowElement` / `WorkspaceAppElement` (path + title + summary).
+Content is materialized at message-prep time by `AIChatManager` — see PR #9216.
 -->
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { Database, Diff, Layers } from 'lucide-svelte'
+	import { Database, Diff, FileText, Folder, Layers } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import DrillPicker from '$lib/components/DrillPicker.svelte'
 	import type { DrillBranch, DrillIcon, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
-	import { type WorkspaceItem, type WorkspaceItemKind } from '$lib/components/workspacePicker'
+	import {
+		workspaceItemDisplayPath,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 	import { useWorkspaceItemsLoader } from '$lib/components/workspaceItemsLoader.svelte'
 	import { buildWorkspaceTree, relativizeWorkspacePath } from '$lib/components/workspaceTree'
+	import { getFileIcon } from '$lib/components/icons/fileIcon'
+	import { getAiChatManager } from './aiChatManagerContext'
+	import { AIMode } from './AIChatManager.svelte'
+	import type { AttachedFile, AttachedFolder } from './files/attachedFiles.svelte'
 	import {
 		ContextIconMap,
 		type ContextElement,
+		type WorkspaceAppElement,
 		type WorkspaceFlowElement,
 		type WorkspaceScriptElement
 	} from './context'
@@ -40,6 +51,9 @@ at message-prep time by `AIChatManager` — see PR #9216.
 		selectedContext: ContextElement[]
 		onSelect: (element: ContextElement) => void
 		onSelectWorkspaceItem?: (element: ContextElement) => void
+		/** GLOBAL-chat only: pick an attached file to insert a plain `@filename`
+		 * mention. When omitted, the Files branch is not surfaced. */
+		onSelectFile?: (name: string) => void
 		setShowing?: (showing: boolean) => void
 		externalFilter?: string
 		autoFocus?: boolean
@@ -50,16 +64,24 @@ at message-prep time by `AIChatManager` — see PR #9216.
 		selectedContext,
 		onSelect,
 		onSelectWorkspaceItem,
+		onSelectFile,
 		setShowing,
 		externalFilter,
 		autoFocus = true
 	}: Props = $props()
 
-	// Chat tree leaves carry either a workspace path (resolved to content
-	// at pick time) or a runtime ContextElement (added directly).
-	type ChatLeafData = WorkspaceItem | ContextElement
+	const aiChatManager = getAiChatManager()
 
-	let inner = $state<DrillPicker<ChatLeafData> | undefined>(undefined)
+	// Chat tree leaves carry either a workspace path (resolved to content at
+	// pick time), a runtime ContextElement (added directly), or an attached
+	// file name (inserts an `@filename` mention).
+	type FileLeafData = { fileName: string }
+	type ChatLeafData = WorkspaceItem | ContextElement | FileLeafData
+	type DrillPickerHandle = {
+		handleKeydown: (e: KeyboardEvent) => void
+	}
+
+	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
 	export function handleKeydown(e: KeyboardEvent) {
 		inner?.handleKeydown(e)
@@ -75,13 +97,25 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	}
 
 	// Workspace state shared with WorkspaceItemDrillPicker via the loader.
-	// Chat surfaces flows and scripts only — apps aren't useful as @-mention
-	// context because they're frontends, not callable units.
-	const WORKSPACE_KINDS: WorkspaceItemKind[] = ['flow', 'script']
+	// Flows and scripts everywhere; raw apps only in GLOBAL chat, where the
+	// raw-app tool surface lets the model act on the reference. Visual apps stay
+	// excluded — they're frontends, not code units (filtered out below, where the
+	// 'app' kind is narrowed to raw apps before tree-building).
+	const WORKSPACE_KINDS = $derived<WorkspaceItemKind[]>(
+		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app'] : ['flow', 'script']
+	)
 	const loader = useWorkspaceItemsLoader(
 		() => $workspaceStore,
 		() => WORKSPACE_KINDS
 	)
+
+	// The 'app' listing returns visual and raw apps together; keep only raw apps
+	// so the picker never surfaces a frontend-only app that the chat can't use.
+	const loadedForTree = $derived.by(() => {
+		const loaded = loader.loaded
+		if (!loaded.app) return loaded
+		return { ...loaded, app: loaded.app.filter((a) => a.raw_app) }
+	})
 
 	function contextLeaf(c: ContextElement): DrillLeaf<ChatLeafData> {
 		const displayLabel =
@@ -119,31 +153,122 @@ at message-prep time by `AIChatManager` — see PR #9216.
 		}
 	}
 
+	// Attached files surface as a Files branch (GLOBAL mode only, and only when
+	// the host wired `onSelectFile`). Picking one inserts an `@filename` mention
+	// rather than adding a context element — the AI already has read/search tools.
+	const attachedEnabled = $derived(!!onSelectFile && aiChatManager.mode === AIMode.GLOBAL)
+	// Locked/unavailable folders have no pickable children — skip them here.
+	const attachedFolders = $derived(
+		attachedEnabled ? aiChatManager.attachedFiles.folders.filter((f) => f.files.length > 0) : []
+	)
+	const attachedStandalone = $derived(attachedEnabled ? aiChatManager.attachedFiles.standalone : [])
+	const hasAttachments = $derived(attachedFolders.length > 0 || attachedStandalone.length > 0)
+
+	function fileLeaf(f: AttachedFile, label: string): DrillLeaf<ChatLeafData> {
+		return {
+			type: 'leaf',
+			key: `file:${f.name}`,
+			label,
+			// Match on the full path so a search like `sub/a` finds a nested file.
+			searchableText: f.relPath ?? f.name,
+			data: { fileName: f.name }
+		}
+	}
+
+	// Build a nested directory tree for one linked folder. `relPath` is
+	// `folder/sub/leaf` (its first segment is the folder name — see
+	// `enumerateDir`), so we drill the segments below that root.
+	function buildFolderBranch(folder: AttachedFolder): DrillBranch<ChatLeafData> | null {
+		type Dir = { dirs: Map<string, Dir>; leaves: DrillLeaf<ChatLeafData>[] }
+		const root: Dir = { dirs: new Map(), leaves: [] }
+		for (const f of folder.files) {
+			const segs = (f.relPath ?? f.name).split('/').slice(1) // drop the folder-name root
+			let cur = root
+			for (const seg of segs.slice(0, -1)) {
+				let next = cur.dirs.get(seg)
+				if (!next) {
+					next = { dirs: new Map(), leaves: [] }
+					cur.dirs.set(seg, next)
+				}
+				cur = next
+			}
+			cur.leaves.push(fileLeaf(f, segs[segs.length - 1] ?? f.name))
+		}
+		const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label)
+		function toNodes(dir: Dir, keyPrefix: string): DrillNode<ChatLeafData>[] {
+			const branches = [...dir.dirs.entries()]
+				.map(
+					([seg, sub]): DrillBranch<ChatLeafData> => ({
+						type: 'branch',
+						key: `${keyPrefix}/${seg}`,
+						label: seg,
+						icon: Folder,
+						children: toNodes(sub, `${keyPrefix}/${seg}`)
+					})
+				)
+				.sort(byLabel)
+			return [...branches, ...dir.leaves.sort(byLabel)]
+		}
+		const children = toNodes(root, `files:${folder.name}`)
+		if (children.length === 0) return null
+		return {
+			type: 'branch',
+			key: `files:${folder.name}`,
+			label: folder.name,
+			icon: Folder,
+			searchGroup: true,
+			children
+		}
+	}
+
+	function buildFilesBranch(): DrillBranch<ChatLeafData> | null {
+		if (!hasAttachments) return null
+		const children: DrillNode<ChatLeafData>[] = []
+		for (const folder of attachedFolders) {
+			const branch = buildFolderBranch(folder)
+			if (branch) children.push(branch)
+		}
+		for (const f of attachedStandalone) children.push(fileLeaf(f, f.name))
+		if (children.length === 0) return null
+		return {
+			type: 'branch',
+			key: 'files',
+			label: 'Files',
+			icon: FileText,
+			searchGroup: true,
+			children
+		}
+	}
+
 	// True when the chat root collapses to the workspace subtree (no Diffs /
 	// Modules / Databases branches present). Drives handleScopeChange's
 	// at-root preload — only fires when scope `[]` literally IS the workspace
 	// root; otherwise we wait until the user enters the Workspace branch.
 	const isWorkspaceOnly = $derived(
-		!availableContext.some(
-			(c) =>
-				(c.type === 'diff' || c.type === 'flow_module' || c.type === 'db') &&
-				(!hideSelected || !isSelected(c))
-		)
+		!hasAttachments &&
+			!availableContext.some(
+				(c) =>
+					(c.type === 'diff' || c.type === 'flow_module' || c.type === 'db') &&
+					(!hideSelected || !isSelected(c))
+			)
 	)
 
 	const tree = $derived<DrillNode<ChatLeafData>[]>(
 		(() => {
 			const branches: DrillNode<ChatLeafData>[] = []
+			const files = buildFilesBranch()
 			const diffs = buildContextBranch('diffs', 'Diffs', Diff, 'diff')
 			const modules = buildContextBranch('modules', 'Modules', BarsStaggered, 'flow_module')
 			const dbs = buildContextBranch('databases', 'Databases', Database, 'db')
+			if (files) branches.push(files)
 			if (diffs) branches.push(diffs)
 			if (modules) branches.push(modules)
 			if (dbs) branches.push(dbs)
 			const wsChildren = buildWorkspaceTree({
-				loaded: loader.loaded,
+				loaded: loadedForTree,
 				kinds: WORKSPACE_KINDS,
-				loadingKind: loader.loadingKind
+				loadingKind: loader.loadingKind,
+				layout: 'flat'
 			}) as DrillNode<ChatLeafData>[]
 			// Workspace-only (e.g. global chat with no diffs/modules/dbs): skip
 			// the redundant 'Workspace' row and surface its children at the root.
@@ -153,7 +278,8 @@ at message-prep time by `AIChatManager` — see PR #9216.
 				key: 'workspace',
 				label: 'Workspace',
 				icon: Layers,
-				children: wsChildren
+				children: wsChildren,
+				loading: WORKSPACE_KINDS.some((k) => loader.loadingKind[k])
 			})
 			return branches
 		})()
@@ -161,7 +287,10 @@ at message-prep time by `AIChatManager` — see PR #9216.
 
 	function handlePick(leaf: DrillLeaf<ChatLeafData>) {
 		const d = leaf.data
-		if ('kind' in d) {
+		if ('fileName' in d) {
+			// Attached file — insert an `@filename` mention.
+			onSelectFile?.(d.fileName)
+		} else if ('kind' in d) {
 			// Workspace item — emit a reference-only workspace_* element.
 			// Content is fetched at message-prep time by the chat manager
 			// (see PR #9216 which switched workspace context to references).
@@ -184,8 +313,17 @@ at message-prep time by `AIChatManager` — see PR #9216.
 					deletable: true
 				}
 				onSelectWorkspaceItem(element)
+			} else if (d.kind === 'app') {
+				// Only raw apps reach here (the tree is narrowed in `loadedForTree`).
+				const element: WorkspaceAppElement & { deletable: boolean } = {
+					type: 'workspace_app',
+					path: d.path,
+					title: d.path,
+					summary: d.summary,
+					deletable: true
+				}
+				onSelectWorkspaceItem(element)
 			}
-			// Apps are filtered out via kinds=['flow','script']; ignore.
 		} else {
 			// Runtime context element — added directly.
 			onSelect(d)
@@ -194,30 +332,24 @@ at message-prep time by `AIChatManager` — see PR #9216.
 
 	function handleScopeChange(scope: string[]) {
 		// Two possible layouts:
-		//   (a) WRAPPED   — `['workspace', 'kind:all', ...]` — chat with Diffs /
+		//   (a) WRAPPED   — `['workspace', 'dir:all:...', ...]` — chat with Diffs /
 		//       Modules / Databases branches alongside Workspace.
-		//   (b) UNWRAPPED — `['kind:all', ...]` or `['dir:flow:...']` — chat
-		//       with only the workspace branch (global chat). The redundant
-		//       'workspace' wrapper is collapsed in the tree builder.
+		//   (b) UNWRAPPED — `['dir:all:...', ...]` — chat with only the workspace
+		//       branch (global chat). The redundant 'workspace' wrapper is
+		//       collapsed in the tree builder.
 		// Empty scope `[]` is the picker root: in (a) it's the chat root
 		// (don't preload — user hasn't entered Workspace yet), in (b) it's
-		// the workspace root itself (preload so kind branches don't render
-		// empty-without-spinner).
+		// the workspace root itself.
 		if (scope.length === 0) {
 			if (isWorkspaceOnly) loader.ensureAll()
 			return
 		}
+		if (scope[0] === 'files') return // synthesised from attached files — no fetch
 		const inWorkspace = scope[0] === 'workspace' || isWorkspaceOnly
 		if (!inWorkspace) return // diffs / modules / databases — synthesised, no fetch
-		const path = scope[0] === 'workspace' ? scope.slice(1) : scope
-		// Entering Workspace (wrapped: scope=['workspace']) or its 'All' sub-
-		// branch: preload every kind so the kind branches each show their
-		// spinner/items without a per-drill delay.
-		if (path.length === 0 || path[0] === 'kind:all') {
-			loader.ensureAll()
-			return
-		}
-		loader.ensureForScopeSegment(path[0])
+		// Flat workspace layout: every level is a cross-kind merge, so any
+		// workspace scope needs all kinds loaded.
+		loader.ensureAll()
 	}
 
 	// Close the picker on Escape. The badge popover's melt-ui handles Esc
@@ -238,7 +370,11 @@ at message-prep time by `AIChatManager` — see PR #9216.
 
 {#snippet leafIcon(leaf: DrillLeaf<ChatLeafData>)}
 	{@const d = leaf.data}
-	{#if 'kind' in d}
+	{#if 'fileName' in d}
+		{@const fi = getFileIcon(d.fileName)}
+		{@const Icon = fi.icon}
+		<Icon size={12} class="shrink-0 {fi.className ?? 'text-tertiary'}" />
+	{:else if 'kind' in d}
 		<RowIcon kind={d.kind} size={12} />
 	{:else if d.type === 'flow_module'}
 		<FlowModuleIcon module={d as unknown as FlowModule} size={14} />
@@ -249,10 +385,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 {/snippet}
 
 {#snippet branchIcon(branch: DrillBranch<ChatLeafData>)}
-	{#if branch.key === 'kind:flow' || branch.key === 'kind:script' || branch.key === 'kind:app'}
-		{@const k = branch.key.slice(5) as WorkspaceItemKind}
-		<RowIcon kind={k} size={12} />
-	{:else if branch.icon}
+	{#if branch.icon}
 		{@const Icon = branch.icon}
 		<Icon size={12} class="shrink-0 text-tertiary" />
 	{/if}
@@ -267,7 +400,11 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	{leafIcon}
 	{branchIcon}
 	leafSecondary={(leaf, scope) =>
-		'kind' in leaf.data ? relativizeWorkspacePath(leaf.data.path, scope) : undefined}
+		'kind' in leaf.data
+			? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)
+			: undefined}
 	onScopeChange={handleScopeChange}
 	onFilterChange={loader.onFilterChange}
+	rootLoading={isWorkspaceOnly &&
+		WORKSPACE_KINDS.some((k) => !loader.loaded[k] && loader.loadingKind[k])}
 />

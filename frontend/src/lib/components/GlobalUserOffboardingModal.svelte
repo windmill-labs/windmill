@@ -34,6 +34,7 @@
 	let wsConfigs: Record<
 		string,
 		{
+			reassign: boolean
 			targetKind: 'user' | 'folder'
 			selectedUser: string | undefined
 			selectedFolder: string | undefined
@@ -71,16 +72,21 @@
 						UserService.listUsernames({ workspace: wp.workspace_id }),
 						FolderService.listFolders({ workspace: wp.workspace_id })
 					])
+					const users = usernamesList
+						.filter((u: string) => u !== wp.username)
+						.map((u: string) => ({ label: u, value: u }))
 					return {
 						workspace_id: wp.workspace_id,
 						config: {
+							// Reassignment requires another workspace user to own items and back
+							// triggers/runnables; with no other user (e.g. single-member forks) it
+							// is impossible, so default off and leave items as-is.
+							reassign: users.length > 0,
 							targetKind: 'user' as const,
 							selectedUser: undefined as string | undefined,
 							selectedFolder: undefined as string | undefined,
 							selectedOperator: undefined as string | undefined,
-							users: usernamesList
-								.filter((u: string) => u !== wp.username)
-								.map((u: string) => ({ label: u, value: u })),
+							users,
 							folders: foldersList.map((f: { name: string }) => ({
 								label: f.name,
 								value: f.name
@@ -112,15 +118,28 @@
 				: undefined
 	}
 
+	// At least one workspace can be reassigned (has another assignable user).
+	let anyReassignableWorkspace = $derived(
+		workspacesWithItems.some((wp) => (wsConfigs[wp.workspace_id]?.users.length ?? 0) > 0)
+	)
+	// At least one workspace is actually selected for reassignment.
+	let anyWorkspaceReassigned = $derived(
+		workspacesWithItems.some((wp) => wsConfigs[wp.workspace_id]?.reassign)
+	)
+
 	let canSubmit = $derived(
-		!doReassign ||
+		(!doReassign ||
 			workspacesWithItems.every((wp) => {
-				const target = getReassignTo(wp.workspace_id)
 				const cfg = wsConfigs[wp.workspace_id]
+				if (!cfg?.reassign) return true
+				const target = getReassignTo(wp.workspace_id)
 				if (!target) return false
 				if (!cfg?.selectedOperator) return false
 				return true
-			})
+			})) &&
+			// Reassign-only runs (no deletion) must reassign at least one workspace,
+			// otherwise the request is an empty no-op reported as success.
+			(deleteUser || anyWorkspaceReassigned)
 	)
 
 	async function submit() {
@@ -129,13 +148,16 @@
 		try {
 			const reassignments: Record<string, { reassign_to: string; new_on_behalf_of_user?: string }> =
 				{}
-			for (const wp of workspacesWithItems) {
-				const target = getReassignTo(wp.workspace_id)
-				const cfg = wsConfigs[wp.workspace_id]
-				if (target) {
-					reassignments[wp.workspace_id] = {
-						reassign_to: target,
-						new_on_behalf_of_user: cfg?.selectedOperator
+			if (doReassign) {
+				for (const wp of workspacesWithItems) {
+					const cfg = wsConfigs[wp.workspace_id]
+					if (!cfg?.reassign) continue
+					const target = getReassignTo(wp.workspace_id)
+					if (target) {
+						reassignments[wp.workspace_id] = {
+							reassign_to: target,
+							new_on_behalf_of_user: cfg?.selectedOperator
+						}
 					}
 				}
 			}
@@ -222,7 +244,7 @@
 								{/if}
 
 								{#if doReassign}
-									{#each workspacesWithItems as wp}
+									{#each workspacesWithItems as wp (wp.workspace_id)}
 										{@const cfg = wsConfigs[wp.workspace_id]}
 										<div class="border border-border rounded-md p-3 space-y-2">
 											<div class="flex items-center justify-between">
@@ -230,23 +252,39 @@
 													{wp.workspace_id}
 													<span class="text-secondary font-normal">({wp.username})</span>
 												</span>
+												{#if cfg}
+													<Toggle
+														bind:checked={cfg.reassign}
+														disabled={cfg.users.length === 0}
+														size="xs"
+														options={{ right: 'Reassign' }}
+													/>
+												{/if}
 											</div>
 
 											{#if cfg}
-												<OffboardWorkspaceSection
-													preview={wp.preview}
-													username={wp.username}
-													{deleteUser}
-													bind:targetKind={cfg.targetKind}
-													bind:selectedUser={cfg.selectedUser}
-													bind:selectedFolder={cfg.selectedFolder}
-													bind:selectedOperator={cfg.selectedOperator}
-													users={cfg.users}
-													folders={cfg.folders}
-													size="sm"
-													csvFilename="offboard-{email}-{wp.workspace_id}.csv"
-													instanceLevel
-												/>
+												{#if cfg.users.length === 0}
+													<p class="text-xs text-tertiary">
+														No other users in this workspace. Items will be left as-is.
+													</p>
+												{:else if cfg.reassign}
+													<OffboardWorkspaceSection
+														preview={wp.preview}
+														username={wp.username}
+														{deleteUser}
+														bind:targetKind={cfg.targetKind}
+														bind:selectedUser={cfg.selectedUser}
+														bind:selectedFolder={cfg.selectedFolder}
+														bind:selectedOperator={cfg.selectedOperator}
+														users={cfg.users}
+														folders={cfg.folders}
+														size="sm"
+														csvFilename="offboard-{email}-{wp.workspace_id}.csv"
+														instanceLevel
+													/>
+												{:else}
+													<p class="text-xs text-tertiary">Items will be left as-is.</p>
+												{/if}
 											{/if}
 										</div>
 									{/each}
@@ -283,7 +321,7 @@
 										different user/folder.</p
 									>
 									<ul class="text-xs list-disc list-inside max-h-32 overflow-y-auto">
-										{#each conflicts as conflict}
+										{#each conflicts as conflict, i (i)}
 											<li>{conflict}</li>
 										{/each}
 									</ul>
@@ -293,7 +331,11 @@
 					{/if}
 
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						{#if workspacesWithItems.length > 0 || deleteUser}
+						{#if !deleteUser && workspacesWithItems.length > 0 && !anyReassignableWorkspace}
+							{#if !loading}
+								<Button onclick={onClose} variant="accent" size="sm">Close</Button>
+							{/if}
+						{:else if workspacesWithItems.length > 0 || deleteUser}
 							<Button
 								disabled={submitting || !canSubmit}
 								onclick={submit}

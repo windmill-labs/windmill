@@ -111,9 +111,9 @@ deno_core::extension!(
 
 // `extension_transpiler` callback for `deno_core::snapshot::create_snapshot`.
 //
-// Specialized to our snapshot's inputs. Of the seven deno_* extensions
-// we register via `init()`, six ship pre-built `.js` files
-// in their `esm` lists (webidl/url/console/web/fetch/net) — only
+// Specialized to our snapshot's inputs. Of the eight deno_* extensions
+// we register via `init()`, seven ship pre-built `.js` files
+// in their `esm` lists (webidl/url/console/web/crypto/fetch/net) — only
 // `deno_telemetry`'s `extension!` macro lists `.ts` files
 // (`telemetry.ts`, `util.ts`), so the TypeScript branch is needed
 // solely for that crate. Our local `fetch` extension contributes
@@ -187,6 +187,7 @@ fn main() {
         deno_url::deno_url::init(),
         deno_console::deno_console::init(),
         deno_web::deno_web::init::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
+        deno_crypto::deno_crypto::init(None),
         deno_fetch::deno_fetch::init::<PermissionsContainer>(Default::default()),
         deno_net::deno_net::init::<PermissionsContainer>(None, None),
         fetch::init(),

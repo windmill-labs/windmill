@@ -1,0 +1,52 @@
+name: Refresh docs snapshot
+
+# The backend embeds a vendored docs snapshot (backend/windmill-api/docs_snapshot/*.gz)
+# so in-product docs search works with no runtime egress. This job re-fetches it from
+# windmill.dev on a schedule and opens a PR when it changed, keeping the embedded docs
+# fresh independently of the release cadence (the binary embeds whatever is on the
+# source tree at build time, so a merged refresh rides into the next release build).
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubicloud
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ vars.INTERNAL_APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app.outputs.token }}
+      - name: Fetch + re-gzip docs snapshot
+        run: cd backend/windmill-api/docs_snapshot && ./fetch.sh
+      - name: Sanity-check the fetched corpus
+        # curl -f in fetch.sh rejects HTTP errors, but not a valid-but-garbage 200
+        # (truncated file, error page). Guard against embedding a broken snapshot.
+        run: |
+          cd backend/windmill-api/docs_snapshot
+          test "$(wc -c < llms-full.txt.gz)" -gt 100000
+          test "$(wc -c < llms.txt.gz)" -gt 1000
+          pages=$(gzip -dc llms-full.txt.gz | grep -c '^Source:' || true)
+          echo "pages in snapshot: $pages"
+          test "${pages:-0}" -ge 200
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ steps.app.outputs.token }}
+          branch: chore/refresh-docs-snapshot
+          add-paths: backend/windmill-api/docs_snapshot/*.gz
+          commit-message: "chore: refresh vendored docs snapshot"
+          title: "chore: refresh vendored docs snapshot"
+          body: |
+            Automated refresh of the embedded docs snapshot
+            (`backend/windmill-api/docs_snapshot/*.gz`) from windmill.dev.
+
+            Review the diff for unexpected churn (a bad upstream docs deploy would
+            show up as a large drop in pages or content) before merging.

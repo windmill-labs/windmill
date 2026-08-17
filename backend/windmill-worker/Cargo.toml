@@ -13,14 +13,16 @@ default = []
 private = ["windmill-worker-volumes/private", "windmill-queue/private", "windmill-common/private", "windmill-dep-map/private", "windmill-runtime-nativets?/private"]
 mcp = ["windmill-ai/mcp", "dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "windmill-runtime-nativets?/enterprise", "dep:pem", "dep:rsa", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "windmill-runtime-nativets?/enterprise", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-rustls", "dep:tokio-rustls", "dep:rustls", "dep:rustls-native-certs", "dep:rustls-pemfile", "dep:hyper-util"]
 mssql = ["dep:tiberius"]
 mssql-kerberos = ["mssql", "tiberius/integrated-auth-gssapi"]  # Linux/Unix integrated auth
 mssql-winauth = ["mssql", "tiberius/winauth"]  # Windows integrated auth
 bigquery = ["dep:gcp_auth"]
+snowflake = ["dep:pem", "dep:rsa"]  # pem/rsa: key-pair auth
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
 parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
 flow_testing = []
+failpoints = []
 cloud = []
 sqlx = []
 deno_core = ["dep:windmill-runtime-nativets"]
@@ -38,7 +40,7 @@ java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 rlang = ["dep:windmill-parser-r"]
 duckdb = ["dep:libloading"]
-quickjs = ["windmill-jseval/quickjs"]
+quickjs = ["windmill-jseval/quickjs", "windmill-queue/quickjs"]
 bedrock = ["windmill-ai/bedrock"]
 
 [dependencies]
@@ -80,6 +82,7 @@ tokio.workspace = true
 tokio-stream.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yml.workspace = true
 futures.workspace = true
 async-recursion.workspace = true
 async-trait.workspace = true
@@ -114,7 +117,11 @@ hmac.workspace = true
 pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
-nix.workspace = true
+# `user` adds geteuid(2) to verify ownership of the ansible socket-dir root
+nix = { workspace = true, features = ["user"] }
+# Cross-platform advisory file lock (flock on unix, LockFileEx on windows) for the
+# cross-process Python install lock into shared wheel-cache dirs.
+fs4 = { workspace = true }
 bytes.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true
@@ -141,12 +148,16 @@ bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
 hudsucker = { workspace = true, optional = true }
 hyper-http-proxy = { workspace = true, optional = true }
-hyper-tls = { workspace = true, optional = true }
+hyper-rustls = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-native-certs = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_System_JobObjects", "Win32_System_Threading"] }
+windows = { version = "0.61", features = ["Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
 
 [dev-dependencies]
 tempfile.workspace = true

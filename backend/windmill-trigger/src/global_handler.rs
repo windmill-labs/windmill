@@ -14,7 +14,7 @@ use windmill_api_jobs::execution::cancel_jobs;
 use windmill_common::{
     db::{UserDB, DB},
     error::{self, Error, Result},
-    jobs::JobTriggerKind,
+    jobs::{delete_jobs, JobTriggerKind},
     triggers::TriggerMetadata,
 };
 
@@ -36,8 +36,14 @@ async fn get_suspended_trigger(
     trigger_kind: &JobTriggerKind,
     path: &str,
 ) -> Result<SuspendedTrigger> {
+    // Only trigger kinds backed by a `<kind>_trigger` table support reassignment.
+    // `app`/`ui` (and webhook/schedule) have no such table, so reject them with a clear
+    // error instead of failing on a missing-relation database error below.
     match trigger_kind {
-        JobTriggerKind::Webhook | JobTriggerKind::Schedule => {
+        JobTriggerKind::Webhook
+        | JobTriggerKind::Schedule
+        | JobTriggerKind::App
+        | JobTriggerKind::Ui => {
             return Err(Error::BadRequest(format!(
                 "{} triggers do not support job reassignment",
                 trigger_kind
@@ -262,9 +268,7 @@ pub async fn resume_suspended_trigger_jobs(
                 .execute(&mut *tx)
                 .await?;
 
-            sqlx::query!("DELETE FROM v2_job WHERE id = $1", job.id)
-                .execute(&mut *tx)
-                .await?;
+            delete_jobs(&mut *tx, &[job.id]).await?;
         }
     }
 

@@ -22,8 +22,13 @@ rust-client/Cargo.toml
 .claude/settings.local.json
 .claude/worktrees/
 
+# Personal agent notes, not shared with the team
+AGENTS.local.md
+CLAUDE.local.md
+
 # Symlinked cache directories (for git worktrees)
 backend/target
+node_modules/
 frontend/node_modules
 typescript-client/node_modules
 ai_evals/node_modules
@@ -34,3 +39,4 @@ backend/chrome_profiler.json
 __pycache__/
 .playwright-mcp/
 .codex
+.claude/scheduled_tasks.lock

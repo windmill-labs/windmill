@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notify_event (channel, payload)\n               VALUES ('notify_asset_producer_change', $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eeaad5c2284c1856cfc64ae0bc0dfc79b283c06987a6de399b6c1aaca94a2b7a"
+}

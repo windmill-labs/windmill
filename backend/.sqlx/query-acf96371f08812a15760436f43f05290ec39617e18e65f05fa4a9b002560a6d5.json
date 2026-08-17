@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "acf96371f08812a15760436f43f05290ec39617e18e65f05fa4a9b002560a6d5"
+}

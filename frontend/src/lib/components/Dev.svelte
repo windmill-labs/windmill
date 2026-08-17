@@ -184,6 +184,9 @@
 		isCodebase?: boolean
 		tag?: string
 		modules?: { [key: string]: import('$lib/gen').ScriptModule } | null
+		// path -> temp-storage hash of locally-edited workspace scripts, sent by
+		// `wmill dev` so previews resolve relative imports from local content
+		temp_script_refs?: Record<string, string>
 	}
 
 	let currentScript: LastEditScript | undefined = $state(undefined)
@@ -552,7 +555,8 @@
 						undefined,
 						undefined,
 						undefined,
-						currentScript.modules
+						currentScript.modules,
+						currentScript.temp_script_refs
 					)
 				}
 			}
@@ -621,11 +625,16 @@
 		flow: OpenFlow
 		uriPath: string
 		path: string
+		temp_script_refs?: Record<string, string>
 	}
 	let lastUriPath: string | undefined = undefined
+	// Kept outside the flow object so the flow round-trip back to `wmill dev`
+	// (updateFlow -> handleFlowRoundTrip) never serializes refs into flow.yaml
+	let flowTempScriptRefs: Record<string, string> | undefined = undefined
 	async function replaceFlow(lastEdit: LastEditFlow) {
 		mode = 'flow'
 		lastUriPath = lastEdit.uriPath
+		flowTempScriptRefs = lastEdit.temp_script_refs
 		pathStore.set(lastEdit.path)
 		// sendUserToast(JSON.stringify(lastEdit.flow), true)
 		// return
@@ -653,6 +662,7 @@
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
+	const workspaceScriptSettingsDrawer = writable(undefined)
 	const history = initHistory(flowStore.val)
 	const stepsInputArgs = new StepsInputArgs()
 	const selectionManager = new SelectionManager()
@@ -678,6 +688,7 @@
 		selectionManager,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		workspaceScriptSettingsDrawer,
 		flowEditorDrawer: writable(undefined),
 		history,
 		pathStore: pathStore,
@@ -700,7 +711,9 @@
 		modulesTestStates,
 		outputPickerOpenFns,
 		preserveOnBehalfOf: writable(false),
-		savedOnBehalfOfEmail: writable<string | undefined>(undefined)
+		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
+		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined),
+		devTempScriptRefs: () => flowTempScriptRefs
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

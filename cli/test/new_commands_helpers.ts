@@ -104,6 +104,31 @@ export async function waitForJob(
   throw new Error(`Job ${jobId} did not complete within ${timeoutMs}ms`);
 }
 
+/**
+ * `sync push` returns before its async dependency job (relock + raw-app bundle)
+ * rewrites the deployed version; pulling or re-pushing meanwhile races that
+ * write-back. Call after each push to let the isolated workspace's queue drain.
+ */
+export async function waitForDeploymentJobs(
+  backend: TestBackend,
+  timeoutMs: number = 30000
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const resp = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/jobs/queue/list?job_kinds=dependencies,flowdependencies,appdependencies`
+    );
+    if (!resp.ok) {
+      await resp.text().catch(() => {});
+      throw new Error(`Failed to list queued dependency jobs: ${resp.status}`);
+    }
+    const jobs = await resp.json();
+    if (Array.isArray(jobs) && jobs.length === 0) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Dependency jobs did not drain within ${timeoutMs}ms`);
+}
+
 export async function createRemoteFlow(
   backend: TestBackend,
   flowPath: string

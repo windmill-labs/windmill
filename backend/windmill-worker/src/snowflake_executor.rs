@@ -567,6 +567,8 @@ pub async fn do_snowflake(
                 })?;
             let json_text = crate::sql_s3_input::fetch_s3object_as_json_text(
                 client,
+                conn,
+                job.id,
                 &job.workspace_id,
                 &s3_obj,
             )
@@ -603,6 +605,24 @@ pub async fn do_snowflake(
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
+
+    // Validate before it is interpolated into request URLs as the hostname
+    // (https://<account_identifier>.snowflakecomputing.com/...).
+    if database.account_identifier.is_empty()
+        || !database
+            .account_identifier
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    {
+        return Err(Error::BadRequest(format!(
+            "Invalid Snowflake account identifier '{}': only alphanumeric, '.', '-' and '_' allowed",
+            database
+                .account_identifier
+                .chars()
+                .take(64)
+                .collect::<String>()
+        )));
+    }
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
     let collection_strategy = if annotations.return_last_result {
@@ -699,8 +719,6 @@ pub async fn do_snowflake(
             true,
         )
     };
-
-    tracing::debug!("Snowflake token: {}", token);
 
     let mut body = serde_json::Map::new();
     if database.schema.is_some() {

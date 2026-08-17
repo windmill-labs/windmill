@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -131,15 +136,21 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.azure.path, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			await loadTrigger(defaultValues)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultValues)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultValues) {
 				initialConfig = structuredClone($state.snapshot(getAzureConfig()))
 			}
-			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load Azure trigger: ${err.body}`, true)
@@ -184,19 +195,31 @@
 		}
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return
+			return { overlay: undefined, noDeployed: false }
 		}
 		try {
 			const s = await AzureTriggerService.getAzureTrigger({
 				workspace: $workspaceStore!,
-				path: initialPath
+				path: initialPath,
+				getDraft: true
 			})
-			loadTriggerConfig(s)
+			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+			loadTriggerConfig(deployedTrigger)
+			return {
+				noDeployed: !!(s as any)?.no_deployed,
+				overlay: draftFromBackend
+					? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+					: undefined
+			}
 		} catch (error) {
 			sendUserToast(`Could not load Azure trigger: ${error.body}`, true)
+			return { overlay: undefined, noDeployed: false }
 		}
 	}
 
@@ -331,8 +354,13 @@
 {/if}
 
 {#if useDrawer}
-	<Drawer size="800px" bind:this={drawer}>
+	<Drawer
+		size="800px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.azure.path)}
+	>
 		<DrawerContent
+			bannerReserved={draftSync.hasBaseline}
 			title={edit
 				? can_write
 					? `Edit Azure trigger ${initialPath}`
@@ -347,6 +375,7 @@
 				<LocalDraftBanner
 					show={draftSync.hasDraft}
 					getDeployed={() => draftSync.deployed}
+					reserveSpace={draftSync.hasBaseline}
 					getCurrent={() => draftSync.current}
 					onDiscard={() => draftSync.resetToDeployed(initialPath)}
 					disabled={!can_write}
@@ -375,6 +404,8 @@
 {#snippet actionsButtons()}
 	{#if !drawerLoading && can_write}
 		<TriggerEditorToolbar
+			triggerKind="azure"
+			triggerPath={initialPath}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{mode}
