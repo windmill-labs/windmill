@@ -146,10 +146,11 @@ $NAV --root backend callees "X"                           # what does X call?
 - **MUST `outline` before `Read`** on unfamiliar files — then `body` or `Read` with offset/limit for specifics
 - **Scratch stays outside the checkout.** Temp scripts, data dumps, cache backups and
   screenshots go in the session scratch directory or `/tmp`, so nothing temporary can end up
-  committed. Write `rm`/`mv`/`cp` as one plain unchained command: a PreToolUse hook
-  auto-allows those when every operand is under `/tmp` or inside this checkout, but it defers
-  on `&&`, `;`, redirects, quotes and `$VAR` — that deferral, not the delete itself, is what
-  turns a routine cleanup into a permission prompt.
+  committed. Write the paths in `rm`/`mv`/`cp` out literally: a PreToolUse hook proves each
+  operand, and auto-allows deletes under `/tmp` or inside this checkout, and `mv`/`cp`/`chmod`
+  under `/tmp`. Chaining and line breaks are fine, since every command on the line is proved on
+  its own operands, but a quoted or `$VAR` operand, a redirect, or a wrapper like `xargs rm`
+  cannot be proved, and that deferral is what turns a routine cleanup into a permission prompt.
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked

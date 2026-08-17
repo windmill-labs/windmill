@@ -10,17 +10,6 @@
 # expand a glob operand against the filesystem. Neither guard relies on pathname expansion.
 set -f
 
-# 0 iff <verb> ($1) runs as a command word anywhere in <command> ($2). Mirrors how a Bash
-# permission rule matches, so that owning the prompt here doesn't narrow what used to prompt:
-# the command splits on `; & |` and newlines, and a leading env assignment or process wrapper
-# (`timeout 5 rm`, `xargs rm`) is skipped before the command word is read.
-#
-# The split set also carries the characters that open a nested command — `$(`, backticks and
-# `( )` — because a rule matches the verb inside one (`echo $(rm -rf ~)` prompts), and a
-# separator that only ends statements would read that as an `echo`. Braces are handled as
-# words rather than separators, since splitting on them cuts `xargs -I {} … rm` in half and
-# strands the `rm` in a segment that no longer knows a wrapper preceded it.
-
 # 0 iff <text> ($1) starts with a command that only reads its input. An allowlist, because the
 # opposite — naming the shells to avoid — would have to be complete: an unlisted one (`ash`,
 # `rbash`, `busybox sh`) executes the body while the guard calls it data. Unrecognized here only
@@ -115,35 +104,134 @@ strip_heredoc_bodies() {
   done
 }
 
+# 0 iff <verb> ($1) runs as a command word in <segment> ($2), which must already be one
+# segment (no separator left in it). Wrapper, env-prefix and `/bin/<verb>` forms all count.
+segment_runs_verb() {
+  local verb="$1" w wrapped=0
+  for w in $2; do
+    # The shell strips quotes and backslashes before it looks up the command, so `'rm'` and
+    # `r\m` run rm and have to compare equal to it.
+    w="${w//[\"\'\\]/}"
+    case "$w" in
+      "$verb" | */"$verb") return 0 ;;
+      *=*) ;;                                        # leading env assignment
+      -* | *'>'* | *'<'*) ;;                         # a flag, or a leading redirect
+      [0-9]*) [ "$wrapped" = 1 ] || break ;;         # a wrapper's duration, not `1:` in prose
+      '!' | '{' | '}' | if | then | elif | else | while | until | do) ;;   # never the command
+      timeout | time | nice | nohup | stdbuf | command | builtin | noglob | xargs | sudo | env)
+        wrapped=1 ;;
+      # A wrapper's option value is indistinguishable from a command name (`stdbuf -o L rm`),
+      # so past a wrapper the scan runs to the end of the segment instead of stopping at the
+      # first ordinary word. Before one, that word is the command and the verb cannot follow
+      # it. Nothing bounds the scan: a wrapper takes unboundedly many operands
+      # (`env -u A -u B ...`), and any cutoff — a word count, or stopping at the first quoted
+      # word — drops the prompt for a real `sudo -u 'root' rm`. Prose after a wrapper is the
+      # price, and it only over-prompts.
+      *) [ "$wrapped" = 1 ] || break ;;
+    esac
+  done
+  return 1
+}
+
+# Splits <command> ($1) into its command segments, into the global array SEGMENTS. Every guard
+# reasons one segment at a time, so `a && b` is two commands here rather than one unparsable
+# blob, and a newline is a separator like any other.
+#
+# The split set carries more than `; & |` and newlines: `$(`, backticks and `( )` open a nested
+# command, and a separator that only ended statements would read `echo $(rm -rf ~)` as an
+# `echo`. Braces are handled as words rather than separators, since splitting on them cuts
+# `xargs -I {} … rm` in half and strands the `rm` in a segment that no longer knows a wrapper
+# preceded it.
+#
+# `tr` and not `${1//[...]}`: a `}` inside the bracket expression closes the expansion itself,
+# which silently leaves the command unsplit and every separator unseen.
+split_segments() {
+  local seg
+  SEGMENTS=()
+  while IFS= read -r seg; do SEGMENTS+=("$seg"); done <<< "$(strip_heredoc_bodies "$1" | tr ';&|()`' '\n')"
+}
+
+# Reads <segment> ($1) into the global array SEG_TOKS, dropping the shell keywords that can
+# precede a command word so that `then rm -rf x` is analyzed as the `rm` it runs. Word
+# splitting only: quotes are left in the token and fail the guards' charset check downstream,
+# which is what keeps `rm -rf "$HOME/x"` unprovable.
+segment_tokens() {
+  SEG_TOKS=()
+  read -r -a SEG_TOKS <<< "$1"
+  while [ "${#SEG_TOKS[@]}" -gt 0 ]; do
+    case "${SEG_TOKS[0]}" in
+      '!' | '{' | '}' | if | then | elif | else | while | until | do) SEG_TOKS=("${SEG_TOKS[@]:1}") ;;
+      *) break ;;
+    esac
+  done
+}
+
+# Prints the directory a `cd` lands in, given the current one ($1) and the tokens after the
+# `cd` ($2...). Fails, printing nothing, when the destination cannot be resolved — a variable,
+# `-`, an option, no operand at all (`cd` alone is $HOME), or more than one. The caller then
+# treats the working directory as unknown, so that a later relative operand is never resolved
+# against a directory the command has already left.
+apply_cd() {
+  local cwd="$1" t
+  shift
+  [ "$#" -eq 1 ] || return 1
+  t="$1"
+  [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/-')" ] && return 1
+  case "$t" in -*) return 1 ;; esac
+  case "$t" in
+    /*) realpath -m -- "$t" 2>/dev/null ;;
+    *) [ -n "$cwd" ] || return 1
+       realpath -m -- "$cwd/$t" 2>/dev/null ;;
+  esac
+}
+
+# Prints the class of a canonical path and returns 0: `tmp` for one strictly under /tmp, `repo`
+# for one strictly inside a git working tree located under $HOME. Fails, printing nothing, for
+# anything else — those are the only two roots the guards are willing to touch unprompted.
+#
+# The `repo` class trades on "this is a project under version control" being lower-stakes than
+# the same act elsewhere — NOT on full recoverability: committed content is restorable via git,
+# but untracked / .gitignore'd / uncommitted content, and an independent nested repo's history
+# under a recursively-deleted parent, are NOT. Accepted as a deliberate convenience tradeoff.
+#
+# The walk stops at $HOME, so a dotfiles repo at ~ can't put all of $HOME in a class, and
+# top-level ~ files stay out of one. Never in a class at all: git history, the agent's own
+# guards and settings (removing those is what removes the prompt on everything else), and
+# gitignored `.env` files — the version-control premise holds for none of the three. A working
+# tree's own root folder counts only when it is a linked worktree, whose `.git` is a pointer
+# file so the history lives in the main repo and survives; a primary checkout's `.git` is a
+# directory holding the history itself, so losing it is unrecoverable.
+path_class() {
+  local canon="$1" d root=""
+  case "$canon" in /tmp/?*) printf 'tmp'; return 0 ;; esac
+  [ -n "${HOME:-}" ] || return 1
+  case "$canon" in "$HOME"/?*) ;; *) return 1 ;; esac
+  case "$canon" in
+    *"/.git" | *"/.git/"* | *"/.claude" | *"/.claude/"*) return 1 ;;
+    *"/.env" | *"/.env."*) return 1 ;;
+  esac
+  d="$canon"
+  while [ "$d" != "/" ] && [ "$d" != "$HOME" ]; do
+    [ -e "$d/.git" ] && { root="$d"; break; }
+    d=$(dirname "$d")
+  done
+  [ -n "$root" ] || return 1              # not inside a git working tree under $HOME
+  if [ "$canon" = "$root" ]; then
+    [ -f "$root/.git" ] || return 1
+  fi
+  printf 'repo'
+}
+
+# 0 iff <verb> ($1) runs as a command word anywhere in <command> ($2). Mirrors how a Bash
+# permission rule matches, so that owning the prompt here doesn't narrow what used to prompt:
+# a guard consults this before it starts proving segments, and every bail-out it then takes
+# is a prompt for exactly the commands a rule would have caught.
 runs_verb() {
-  local verb="$1" seg w wrapped
-  while IFS= read -r seg; do
-    wrapped=0
-    for w in $seg; do
-      # The shell strips quotes and backslashes before it looks up the command, so `'rm'` and
-      # `r\m` run rm and have to compare equal to it.
-      w="${w//[\"\'\\]/}"
-      case "$w" in
-        "$verb" | */"$verb") return 0 ;;
-        *=*) ;;                                        # leading env assignment
-        -* | *'>'* | *'<'*) ;;                         # a flag, or a leading redirect
-        [0-9]*) [ "$wrapped" = 1 ] || break ;;         # a wrapper's duration, not `1:` in prose
-        '!' | '{' | '}' | if | then | elif | else | while | until | do) ;;   # never the command
-        timeout | time | nice | nohup | stdbuf | command | builtin | noglob | xargs | sudo | env)
-          wrapped=1 ;;
-        # A wrapper's option value is indistinguishable from a command name (`stdbuf -o L rm`),
-        # so past a wrapper the scan runs to the end of the segment instead of stopping at the
-        # first ordinary word. Before one, that word is the command and the verb cannot follow
-        # it. Nothing bounds the scan: a wrapper takes unboundedly many operands
-        # (`env -u A -u B …`), and any cutoff — a word count, or stopping at the first quoted
-        # word — drops the prompt for a real `sudo -u 'root' rm`. Prose after a wrapper is the
-        # price, and it only over-prompts.
-        *) [ "$wrapped" = 1 ] || break ;;
-      esac
-    done
-    # `tr` and not `${2//[...]}`: a `}` inside the bracket expression closes the expansion
-    # itself, which silently leaves the command unsplit and every separator unseen.
-  done <<< "$(strip_heredoc_bodies "$2" | tr ';&|()`' '\n')"
+  local verb="$1" seg
+  split_segments "$2"
+  for seg in "${SEGMENTS[@]}"; do
+    segment_runs_verb "$verb" "$seg" && return 0
+  done
   return 1
 }
 

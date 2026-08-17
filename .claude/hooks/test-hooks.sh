@@ -4,6 +4,10 @@
 # What this pins is the `ask` column: a matcher change that turns one into a no-decision drops
 # that command's only prompt (see lib-guarded-verb.sh). The wrapper, nested-command and quoted
 # rows are the ones that catch it.
+#
+# The `allow` column carries its own weight, because a decision covers the whole command line:
+# `allow` may only appear where every segment was proved here, and a line that also runs
+# something unexamined has to come out `none` so the normal permission flow still sees it.
 set -uo pipefail
 H="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
 CWD="$(git -C "$H" rev-parse --show-toplevel)"
@@ -46,7 +50,7 @@ run $G ask   "rm -rf $CWD/*"
 run $G ask   "rm -rf /etc/passwd"
 run $G ask   'rm -rf "$HOME/x"'
 run $G ask   "rm -rf /tmp/../$OUT"
-run $G ask   "ls /tmp && rm -rf /tmp/x"
+run $G none  "ls /tmp && rm -rf /tmp/x"   # proved delete, unexamined neighbour
 run $G ask   'echo $(rm -rf /etc)'
 run $G ask   'echo `rm -rf /etc`'
 run $G ask   "{ rm -rf /etc; }"
@@ -107,6 +111,20 @@ run $G none  'echo $(ls /tmp)'
 run $G none  'grep -rn "rm" backend/'
 run $G none  "cargo build --release"
 
+# Chaining and line breaks are not themselves a reason to prompt: each segment is proved on its
+# own operands, and a `cd` moves where a relative one points.
+run $G allow "rm -f /tmp/a; rm -rf /tmp/b"
+run $G allow "$(printf 'rm -f /tmp/a\nrm -rf %s/frontend/scratch' "$CWD")"
+run $G allow "cd /tmp/scratch && rm -rf sub"
+run $G none  "mkdir -p /tmp/x && rm -rf /tmp/x"
+run $G ask   "$(printf 'ls /tmp\nrm -rf /etc')"
+# A `cd` this guard can resolve is where the relative operand lands; one it cannot leaves the
+# working directory unknown, and an unknown one proves nothing.
+run $G ask   "cd /etc && rm -rf foo"
+run $G ask   'cd "$D" && rm -rf foo'
+run $G ask   "cd $CWD && rm -rf .git"
+run $G ask   "cd /etc && cd /tmp/scratch && rm -rf sub"   # a cd out is not walked back
+
 echo
 echo "== allow-fileops-in-tmp.sh =="
 A=allow-fileops-in-tmp.sh
@@ -117,7 +135,7 @@ run $A allow "tar -xzf /tmp/a.tar.gz -C /tmp/out"
 run $A ask   "mv /tmp/a $OUT"
 run $A ask   "mv $CWD/AGENTS.md /tmp/a"
 run $A ask   "chmod -R 777 $CWD"
-run $A ask   "ls && mv /tmp/a /tmp/b"
+run $A none  "ls && mv /tmp/a /tmp/b"     # proved move, unexamined neighbour
 run $A ask   'echo $(mv /tmp/a /etc)'
 run $A ask   "timeout --signal KILL 5 mv /tmp/a /etc"
 run $A ask   "time -f FORMAT chmod 777 $OUT"
@@ -128,6 +146,22 @@ run $A ask   "env -i A=1 B=2 C=3 D=4 E=5 F=6 mv /tmp/a /etc"
 run $A none  "cp $CWD/AGENTS.md /tmp/a"
 run $A none  "tar -xzf /tmp/a.tar.gz -C $OUT"
 run $A none  "cargo build"
+
+run $A allow "mkdir -p /tmp/x; mv /tmp/a /tmp/x; chmod 755 /tmp/x"
+run $A allow "$(printf 'mv /tmp/a /tmp/b\nchmod 755 /tmp/b')"
+run $A ask   "ls && mv /tmp/a /etc"
+run $A ask   "$(printf 'mkdir -p /tmp/x\nchmod -R 777 %s' "$CWD")"
+run $A allow "cd /tmp/x && tar -xzf /tmp/a.tar.gz -C /tmp/out"
+# The checkout is a root of its own, so an in-repo move or chmod is as auto-allowable as the
+# in-repo delete already was — but one operation may not straddle it and /tmp.
+run $A allow "chmod +x scripts/worktree-env"
+run $A allow "mv backend/.sqlx backend/.sqlx.bad"
+run $A allow "mv $CWD/frontend/a.ts $CWD/frontend/b.ts"
+run $A ask   "mv /tmp/a $CWD/frontend/a.ts"
+run $A ask   "chmod -R 777 $CWD/.git"
+run $A ask   "mv $CWD/backend/.env $CWD/backend/.env.bak"
+run $A ask   "mv $CWD/AGENTS.md $OUT"
+run $A ask   "cd /etc && mv a b"
 
 echo
 [ "$fails" = 0 ] && echo "ALL PASS" || { echo "$fails FAILURES"; exit 1; }
