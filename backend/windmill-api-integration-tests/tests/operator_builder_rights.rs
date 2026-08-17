@@ -257,6 +257,75 @@ async fn test_operator_builder_rights_boundary(db: Pool<Postgres>) -> anyhow::Re
         resp.text().await?
     );
 
+    // A full-code app is deployed multipart, so the endpoint is exercised the way the editor and
+    // the CLI use it. The value's `runnableByPath` entries are a separate surface from the policy
+    // triggerables: the empty triggerables map is what distinguishes checking the value from
+    // re-checking the same keys twice.
+    let raw_app = |path: &str, mode: &str, runnable_path: &str| {
+        reqwest::multipart::Form::new()
+            .part(
+                "app",
+                reqwest::multipart::Part::text(
+                    json!({
+                        "path": path,
+                        "summary": "",
+                        "value": {"files": {}, "runnables": {"r": {
+                            "name": "r", "type": "runnableByPath", "runType": "script",
+                            "path": runnable_path
+                        }}},
+                        "policy": {"execution_mode": mode, "triggerables_v2": {}}
+                    })
+                    .to_string(),
+                )
+                .mime_str("application/json")
+                .unwrap(),
+            )
+            .part(
+                "js",
+                reqwest::multipart::Part::text("console.log(1)").file_name("app.js"),
+            )
+    };
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app("u/operator/a3", "publisher", "u/alice/private"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a builder must not deploy an app referencing a runnable it cannot read"
+    );
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app("u/operator/a4", "viewer", "u/operator/some_script"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a builder must not deploy a viewer-mode app: the policy stops bounding what it can invoke"
+    );
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(raw_app("u/operator/a5", "publisher", "u/operator/some_script"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "a builder must be able to deploy a full-code app over readable runnables: {}",
+        resp.text().await?
+    );
+    let sandbox: Option<bool> = sqlx::query_scalar(
+        "SELECT (policy->>'sandbox')::boolean FROM app WHERE workspace_id = $1 AND path = $2",
+    )
+    .bind(WS)
+    .bind("u/operator/a5")
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        sandbox,
+        Some(true),
+        "a builder-authored app must be stored sandboxed"
+    );
+
     invalidate_operator_builder_cache(WS);
     Ok(())
 }

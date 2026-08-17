@@ -595,6 +595,12 @@ pub async fn validate_operator_composed_flow(
     if refs.runnables.is_empty() && refs.pinned_scripts.is_empty() {
         return Ok(());
     }
+    // A flow can step through the same script thirty times; this runs on every write, preview and
+    // dependency job.
+    refs.runnables.sort();
+    refs.runnables.dedup();
+    refs.pinned_scripts.sort_by_key(|(path, hash)| (path.clone(), hash.0));
+    refs.pinned_scripts.dedup_by_key(|(path, hash)| (path.clone(), hash.0));
     // Composing a runnable is enough to run it: the worker resolves a step's path with the root DB
     // handle and adopts that runnable's `on_behalf_of`, so an unreadable path would let a builder
     // execute code it cannot see, as whoever that code runs as. RLS on this transaction is the

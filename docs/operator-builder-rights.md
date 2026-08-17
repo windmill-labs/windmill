@@ -40,10 +40,21 @@ permissions:
   that hash alone, with the path beside it never consulted, so a readable path paired with another
   script's hash still runs that other script.
 
-The same reasoning applies to a builder-authored app: its policy triggerables are what
-`execute_component` will resolve, also with the root DB handle, so
-`validate_operator_composed_app` checks every `script/<path>` and `flow/<path>` key the same way
-and refuses hub ones. `execute_component`'s preview branch refuses a hub path for operators too:
+The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
+resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
+referenced path under the caller's RLS and refuses hub ones. But it has to check **two** surfaces,
+because they are not the same list: the policy's `script/<path>` and `flow/<path>` triggerables,
+and the `runnableByPath` entries in the app value, which is what the deployed bundle resolves a
+`runnable_id` against and sends.
+
+What makes those checks bind is that **`ExecutionMode::Viewer` is refused for a builder app**. In
+Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`
+path, so the policy stops being the list of what the app may invoke, and the job runs as the
+*viewer*: an admin who merely opened the app would run anything in the workspace as themselves.
+`Publisher` and `Anonymous` have no such fallback. If you ever relax the Viewer refusal, the
+deploy-time path checks above stop being an authorization boundary.
+
+`execute_component`'s preview branch refuses a hub path for operators too:
 `require_path_read_access_for_preview` admits `hub/` for everyone.
 
 Call it on every write **and** every preview: `run_preview_flow_job` and

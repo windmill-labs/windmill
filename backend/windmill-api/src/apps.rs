@@ -56,7 +56,10 @@ use std::str;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    apps::{app_value_has_inline_script, AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
+    apps::{
+        app_value_has_inline_script, app_value_runnable_paths, AppScriptId, ListAppQuery,
+        APP_WORKSPACED_ROUTE,
+    },
     auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
     db::{DbWithOptAuthed, UserDB},
@@ -1915,6 +1918,7 @@ fn check_operator_composed_app(
             "Operators with builder rights can only author full-code apps, and cannot convert an existing app into one".to_string(),
         ));
     }
+    let mut referenced: Vec<(bool, String)> = Vec::new();
     if let Some(value) = value {
         let value: serde_json::Value = serde_json::from_str(value.get()).map_err(to_anyhow)?;
         if app_value_has_inline_script(&value) {
@@ -1923,6 +1927,7 @@ fn check_operator_composed_app(
                     .to_string(),
             ));
         }
+        referenced.extend(app_value_runnable_paths(&value));
     }
     let Some(policy) = policy else {
         return Err(Error::BadRequest(
@@ -1952,20 +1957,33 @@ fn check_operator_composed_app(
     }
     policy.sandbox = Some(true);
 
+    // In `Viewer` mode `execute_component` falls back to a default triggerable for any
+    // `script/`/`flow/` path, so the policy stops being the list of what the app may invoke, and
+    // the job runs as the *viewer*. A builder-authored app would then let an admin who merely
+    // opens it run anything in the workspace as themselves. `Publisher` and `Anonymous` have no
+    // such fallback, so the triggerables checked below are exhaustive for them.
+    if matches!(policy.execution_mode, ExecutionMode::Viewer) {
+        return Err(Error::NotAuthorized(
+            "Operators with builder rights cannot deploy an app that runs as its viewer. Deploy it on behalf of yourself instead."
+                .to_string(),
+        ));
+    }
+
     // The triggerables are the deployed app's authorization to invoke a runnable.
     // `<component>:` prefixes the key when the app scopes it to one component.
-    let mut referenced = policy
-        .triggerables
-        .iter()
-        .flat_map(|t| t.keys())
-        .chain(policy.triggerables_v2.iter().flat_map(|t| t.keys()))
-        .filter_map(|key| {
-            let key = key.split_once(':').map_or(key.as_str(), |(_, rest)| rest);
-            key.strip_prefix("script/")
-                .map(|p| (false, p.to_string()))
-                .or_else(|| key.strip_prefix("flow/").map(|p| (true, p.to_string())))
-        })
-        .collect::<Vec<_>>();
+    referenced.extend(
+        policy
+            .triggerables
+            .iter()
+            .flat_map(|t| t.keys())
+            .chain(policy.triggerables_v2.iter().flat_map(|t| t.keys()))
+            .filter_map(|key| {
+                let key = key.split_once(':').map_or(key.as_str(), |(_, rest)| rest);
+                key.strip_prefix("script/")
+                    .map(|p| (false, p.to_string()))
+                    .or_else(|| key.strip_prefix("flow/").map(|p| (true, p.to_string())))
+            }),
+    );
     referenced.sort();
     referenced.dedup();
     for (_, path) in &referenced {
@@ -5703,6 +5721,12 @@ mod operator_app_tests {
         .unwrap()
     }
 
+    fn path_runnable(path: &str, run_type: &str) -> serde_json::Value {
+        serde_json::json!({"files": {}, "runnables": {
+            "a": {"name": "a", "type": "runnableByPath", "path": path, "runType": run_type}
+        }})
+    }
+
     fn composed_app(
         value: serde_json::Value,
         policy: &mut Policy,
@@ -5751,6 +5775,29 @@ mod operator_app_tests {
                 "{key} must be refused"
             );
         }
+
+        // What the deployed bundle actually asks to run comes from the value's `runnableByPath`
+        // entries, which are a separate surface from the policy: both are reported.
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert_eq!(
+            composed_app(path_runnable("f/x/s", "script"), &mut policy).unwrap(),
+            vec![(false, "f/x/s".to_string())]
+        );
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert_eq!(
+            composed_app(path_runnable("f/x/f", "flow"), &mut policy).unwrap(),
+            vec![(true, "f/x/f".to_string())]
+        );
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert!(composed_app(path_runnable("hub/1/x", "hubscript"), &mut policy).is_err());
+
+        // `Viewer` mode makes `execute_component` accept any script/flow path, triggerables or
+        // not, and run it as the viewer, so the checks above would stop binding.
+        let mut policy: Policy = serde_json::from_value(serde_json::json!({
+            "execution_mode": "viewer", "triggerables_v2": {}
+        }))
+        .unwrap();
+        assert!(composed_app(clean.clone(), &mut policy).is_err());
 
         // Low-code apps and kind conversion stay closed.
         let value = to_raw_value(&clean);

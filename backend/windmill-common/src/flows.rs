@@ -252,8 +252,9 @@ pub async fn resolve_modules(
 /// modules, every branch, and the `tools` of an AI agent step.
 ///
 /// Returns what the caller still has to authorize against its own permissions, which this
-/// value-only walk cannot: the worker tags the steps pin (a tag is how a step picks the worker
-/// group it runs on) and the `(path, hash)` pairs of version-pinned script steps.
+/// value-only walk cannot: every runnable the steps reference, the worker tags they pin, and the
+/// `(path, hash)` pairs of version-pinned steps. See [`ComposedFlowRefs`] for why each one is not
+/// already settled by the walk.
 pub fn check_flow_is_composition_only(value: &FlowValue) -> Result<ComposedFlowRefs, Error> {
     let mut refs = ComposedFlowRefs::default();
     for module in value
