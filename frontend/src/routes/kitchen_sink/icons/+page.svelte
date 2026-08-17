@@ -35,13 +35,19 @@
 	const lightVars = themeVars(lightModeName)
 	const darkVars = themeVars(darkModeName)
 
-	const modules = import.meta.glob('../../../lib/components/icons/*.svelte', { eager: true })
+	// Includes triggers/ so the monochrome trigger variants sit next to the full-colour
+	// marks they shadow — the pair is the thing you need to see when deciding which to use.
+	const modules = import.meta.glob('../../../lib/components/icons/**/*.svelte', { eager: true })
 
 	const entries = Object.entries(modules)
-		.map(([path, mod]) => ({
-			name: path.split('/').pop()?.replace('.svelte', '') ?? path,
-			component: (mod as { default: any }).default
-		}))
+		.map(([path, mod]) => {
+			const file = path.split('/').pop()?.replace('.svelte', '') ?? path
+			const folder = path.split('/').slice(-2, -1)[0]
+			return {
+				name: folder === 'icons' ? file : `${folder}/${file}`,
+				component: (mod as { default: any }).default
+			}
+		})
 		.sort((a, b) => a.name.localeCompare(b.name))
 
 	// Reverse the map by component identity: component .name is unreliable once minified.
