@@ -18,7 +18,12 @@ import { buildAppPolicyBundle, OUT_FILE } from "../generate-app-policy.ts";
 
 describe("raw app policy bundle", () => {
   test("the committed bundle matches the frontend source", async () => {
-    expect(readFileSync(OUT_FILE, "utf-8")).toBe(await buildAppPolicyBundle());
+    // Line endings normalized: a CRLF checkout is the same bundle, and must not
+    // read as drift (the committed file's header arrives as CRLF on Windows).
+    const lf = (s: string) => s.replace(/\r\n/g, "\n");
+    expect(lf(readFileSync(OUT_FILE, "utf-8"))).toBe(
+      lf(await buildAppPolicyBundle()),
+    );
   });
 
   test("derives the keys the app editor writes", async () => {
