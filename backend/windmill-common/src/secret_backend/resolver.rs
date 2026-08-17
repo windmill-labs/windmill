@@ -309,28 +309,46 @@ pub async fn get_secret_value(
     path: &str,
     encrypted_value: &str,
 ) -> Result<String> {
-    let backend = get_secret_backend(db).await?;
+    // Route by how the value was stored, not by what is configured now.
+    //
+    // Dispatching on the configured backend made every existing secret
+    // unreadable the moment an external backend was switched on: those values
+    // are still ciphertext in the database, but the read went to the external
+    // store and came back as "not found". That also makes migration impossible,
+    // since migrating a secret starts by reading it.
+    let Some(marker) = external_marker_prefix(encrypted_value) else {
+        let mc = build_crypt(db, workspace_id).await?;
+        return decrypt(&mc, encrypted_value.to_string()).map_err(|e| {
+            Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+        });
+    };
 
-    match backend.backend_name() {
-        "database" => {
-            // Use existing database decryption
-            let mc = build_crypt(db, workspace_id).await?;
-            decrypt(&mc, encrypted_value.to_string()).map_err(|e| {
-                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
-            })
+    let backend = get_secret_backend(db).await?;
+    let expected = match backend.backend_name() {
+        "hashicorp_vault" => "$vault:",
+        "azure_key_vault" => "$azure_kv:",
+        "aws_secrets_manager" => "$aws_sm:",
+        "apple_keychain" => "$keychain:",
+        other => {
+            return Err(Error::internal_err(format!(
+                "variable {} is stored in an external backend but {} is configured",
+                path, other
+            )))
         }
-        "hashicorp_vault" => {
-            // Fetch from Vault directly
-            backend.get_secret(workspace_id, path).await
-        }
-        "azure_key_vault" => backend.get_secret(workspace_id, path).await,
-        "aws_secrets_manager" => backend.get_secret(workspace_id, path).await,
-        "apple_keychain" => backend.get_secret(workspace_id, path).await,
-        _ => Err(Error::internal_err(format!(
-            "Unknown backend: {}",
+    };
+    if marker != expected {
+        // Reading it from the configured backend would ask the wrong store and
+        // report the secret as missing, which reads like data loss.
+        return Err(Error::internal_err(format!(
+            "variable {} was stored with the {} prefix but {} is configured; \
+             the secret still lives in the backend that wrote it",
+            path,
+            marker,
             backend.backend_name()
-        ))),
+        )));
     }
+
+    backend.get_secret(workspace_id, path).await
 }
 
 /// Check if a value is stored in Vault (indicated by the $vault: prefix)
