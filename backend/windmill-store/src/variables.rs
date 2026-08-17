@@ -1638,7 +1638,12 @@ mod tests {
     #[test]
     fn passes_through_external_backend_markers() {
         // External secret backends store $-prefixed markers, not workspace ciphertext.
-        for marker in ["$vault:f/x/cfg", "$aws_sm:f/x/cfg", "$azure_kv:f/x/cfg"] {
+        for marker in [
+            "$vault:f/x/cfg",
+            "$aws_sm:f/x/cfg",
+            "$azure_kv:f/x/cfg",
+            "$keychain:f/x/cfg",
+        ] {
             assert!(validate_already_encrypted_secret("f/x/cfg", marker).is_ok());
         }
     }

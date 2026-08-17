@@ -187,8 +187,8 @@ oss_core = [
     "static_frontend", "mcp", "bedrock", "run_inline",
     "quickjs"
 ]
-# Хранение секретов в связке ключей Apple. Отдельно от изданий и выключен по
-# умолчанию: полезен только там, где рядом есть macOS.
+# Store secrets in an Apple Keychain. Kept out of the edition meta-features
+# and off by default: it is only useful where a macOS host is involved.
 keychain = ["windmill-common/keychain"]
 
 ce_core = ["oss_core", "private", "operator"]

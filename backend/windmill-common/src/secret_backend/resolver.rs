@@ -12,7 +12,7 @@
 //! lower-level helpers such as [`crate::variables::get_variable_or_self`] can
 //! route secret reads through the configured backend. With an external backend
 //! (Vault / Azure Key Vault / AWS Secrets Manager), the `variable.value` column
-//! holds a `$vault:`/`$azure_kv:`/`$aws_sm:` marker rather than base64
+//! holds a `$vault:`/`$azure_kv:`/`$aws_sm:`/`$keychain:` marker rather than base64
 //! ciphertext, so decrypting it directly fails — reads must go through the
 //! backend instead.
 //!
@@ -285,6 +285,7 @@ pub async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
         SecretBackendConfig::HashiCorpVault(_)
             | SecretBackendConfig::AzureKeyVault(_)
             | SecretBackendConfig::AwsSecretsManager(_)
+            | SecretBackendConfig::AppleKeychain(_)
     ))
 }
 
@@ -315,6 +316,7 @@ pub async fn get_secret_value(
         }
         "azure_key_vault" => backend.get_secret(workspace_id, path).await,
         "aws_secrets_manager" => backend.get_secret(workspace_id, path).await,
+        "apple_keychain" => backend.get_secret(workspace_id, path).await,
         _ => Err(Error::internal_err(format!(
             "Unknown backend: {}",
             backend.backend_name()
@@ -337,9 +339,28 @@ pub fn is_aws_sm_stored_value(value: &str) -> bool {
     value.starts_with("$aws_sm:")
 }
 
+/// Check if a value is stored in an Apple Keychain (indicated by the $keychain: prefix)
+pub fn is_keychain_stored_value(value: &str) -> bool {
+    value.starts_with("$keychain:")
+}
+
 /// Check if a value is stored in any external secret backend
 pub fn is_external_stored_value(value: &str) -> bool {
-    is_vault_stored_value(value) || is_azure_kv_stored_value(value) || is_aws_sm_stored_value(value)
+    external_marker_prefix(value).is_some()
+}
+
+/// The marker prefix a value was stored with, if it was stored externally.
+///
+/// One place rather than one if-chain per call site: the prefix was derived
+/// independently in three functions, so adding a backend meant remembering all
+/// three, and forgetting one silently rewrote a value with the wrong prefix.
+pub fn external_marker_prefix(value: &str) -> Option<&'static str> {
+    for prefix in ["$vault:", "$azure_kv:", "$aws_sm:", "$keychain:"] {
+        if value.starts_with(prefix) {
+            return Some(prefix);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -351,6 +372,12 @@ mod tests {
         assert!(is_external_stored_value("$vault:u/admin/secret"));
         assert!(is_external_stored_value("$azure_kv:u/admin/secret"));
         assert!(is_external_stored_value("$aws_sm:u/admin/secret"));
+        assert!(is_external_stored_value("$keychain:u/admin/secret"));
+        assert_eq!(
+            external_marker_prefix("$keychain:u/admin/secret"),
+            Some("$keychain:")
+        );
+        assert_eq!(external_marker_prefix("not a marker"), None);
     }
 
     #[test]

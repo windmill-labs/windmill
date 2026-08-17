@@ -23,8 +23,9 @@ use windmill_common::{
 };
 
 pub use windmill_common::secret_backend::{
-    get_secret_backend, get_secret_value, is_aws_sm_stored_value, is_azure_kv_stored_value,
-    is_external_stored_value, is_vault_backend_configured, is_vault_stored_value,
+    external_marker_prefix, get_secret_backend, get_secret_value, is_aws_sm_stored_value,
+    is_azure_kv_stored_value, is_external_stored_value, is_keychain_stored_value,
+    is_vault_backend_configured, is_vault_stored_value,
 };
 
 /// Store a secret value using the configured backend
@@ -57,6 +58,10 @@ pub async fn store_secret_value(
         "aws_secrets_manager" => {
             backend.set_secret(workspace_id, path, plain_value).await?;
             Ok(format!("$aws_sm:{}", path))
+        }
+        "apple_keychain" => {
+            backend.set_secret(workspace_id, path, plain_value).await?;
+            Ok(format!("$keychain:{}", path))
         }
         _ => Err(Error::internal_err(format!(
             "Unknown backend: {}",
@@ -170,43 +175,13 @@ pub async fn delete_secret_from_backend(db: &DB, workspace_id: &str, path: &str)
     }
 }
 
-/// Rename a secret in Vault when a variable path changes (EE only)
-#[cfg(not(all(feature = "private", feature = "enterprise")))]
-pub async fn rename_vault_secret(
-    _db: &DB,
-    _workspace_id: &str,
-    _old_path: &str,
-    new_path: &str,
-    current_value: &str,
-) -> Result<Option<String>> {
-    if is_vault_stored_value(current_value) {
-        tracing::warn!(
-            "Variable has $vault: prefix but Vault requires Enterprise Edition. \
-             Updating DB reference to {}",
-            new_path
-        );
-        return Ok(Some(format!("$vault:{}", new_path)));
-    }
-    if is_azure_kv_stored_value(current_value) {
-        tracing::warn!(
-            "Variable has $azure_kv: prefix but Azure Key Vault requires Enterprise Edition. \
-             Updating DB reference to {}",
-            new_path
-        );
-        return Ok(Some(format!("$azure_kv:{}", new_path)));
-    }
-    if is_aws_sm_stored_value(current_value) {
-        tracing::warn!(
-            "Variable has $aws_sm: prefix but AWS Secrets Manager requires Enterprise Edition. \
-             Updating DB reference to {}",
-            new_path
-        );
-        return Ok(Some(format!("$aws_sm:{}", new_path)));
-    }
-    Ok(None)
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
+/// Rename a secret in the configured external backend when a variable path
+/// changes.
+///
+/// Compiled unconditionally: the body only speaks to the backend trait, and when
+/// no external backend is configured it repoints the reference exactly as the
+/// former OSS stub did. Keeping two copies meant a backend available in OSS —
+/// Apple Keychain — was silently handled by the stub that does nothing.
 pub async fn rename_vault_secret(
     db: &DB,
     workspace_id: &str,
@@ -218,13 +193,8 @@ pub async fn rename_vault_secret(
         return Ok(None);
     }
 
-    let marker_prefix = if current_value.starts_with("$azure_kv:") {
-        "$azure_kv:"
-    } else if current_value.starts_with("$aws_sm:") {
-        "$aws_sm:"
-    } else {
-        "$vault:"
-    };
+    let marker_prefix = external_marker_prefix(current_value)
+        .ok_or_else(|| Error::internal_err("value carries no external marker".to_string()))?;
 
     if !is_vault_backend_configured(db).await? {
         tracing::warn!(
@@ -268,19 +238,9 @@ pub async fn rename_vault_secret(
     Ok(Some(format!("{}{}", marker_prefix, new_path)))
 }
 
-/// Bulk rename secrets in Vault when a path prefix changes (e.g., user rename)
-#[cfg(not(all(feature = "private", feature = "enterprise")))]
-pub async fn rename_vault_secrets_with_prefix(
-    _db: &DB,
-    _workspace_id: &str,
-    _old_prefix: &str,
-    _new_prefix: &str,
-    _variables: Vec<(String, String)>,
-) -> Result<Vec<(String, String)>> {
-    Ok(vec![])
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
+/// Bulk rename secrets in the configured external backend when a path prefix
+/// changes, for example when a user is renamed. Compiled unconditionally for the
+/// same reason as `rename_vault_secret`.
 pub async fn rename_vault_secrets_with_prefix(
     db: &DB,
     workspace_id: &str,
@@ -300,12 +260,8 @@ pub async fn rename_vault_secrets_with_prefix(
             continue;
         }
 
-        let marker_prefix = if value.starts_with("$azure_kv:") {
-            "$azure_kv:"
-        } else if value.starts_with("$aws_sm:") {
-            "$aws_sm:"
-        } else {
-            "$vault:"
+        let Some(marker_prefix) = external_marker_prefix(&value) else {
+            continue;
         };
 
         let new_path = if old_path.starts_with(old_prefix) {
