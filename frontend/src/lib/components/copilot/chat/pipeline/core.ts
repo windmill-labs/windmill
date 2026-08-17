@@ -114,7 +114,7 @@ const readPipelineNodeSchema = z.object({
 const readPipelineNodeToolDef = createToolDef(
 	readPipelineNodeSchema,
 	'read_pipeline_node',
-	'Read the full source of one pipeline node (its in-flight draft body if it has unsaved edits, otherwise the deployed body). Use before edit_pipeline_node so edits target the exact current text.'
+	'Read the full source of one pipeline node (its in-flight draft body if it has unsaved edits, otherwise the deployed body). Use before editing a node so edits target the exact current text.'
 )
 
 // ----------------------------------------------------------------------------

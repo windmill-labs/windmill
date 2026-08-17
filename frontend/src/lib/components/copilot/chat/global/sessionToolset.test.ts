@@ -16,23 +16,19 @@ vi.mock('@codingame/monaco-vscode-standalone-typescript-language-features', () =
 vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({ default: () => ({}) }))
 vi.mock('$lib/components/vscode', () => ({}))
 
-import {
-	globalTools,
-	getSessionContextPromptSection,
-	prepareGlobalSystemMessage,
-	type SessionPromptContext
-} from './core'
+import { globalTools, prepareGlobalSystemMessage, type SessionPromptContext } from './core'
 import { appendPlanModeInstructions } from '../planMode'
-import { getPipelinePromptSection, pipelineTools } from '../pipeline/core'
+import { pipelineTools } from '../pipeline/core'
 import { createMcpTools } from './mcpTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from '../planMode'
+import { assembleGlobalSystemMessage, assembleGlobalTools } from './sessionAssembly'
 import { SESSION_TOOL_POLICIES, filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { fullSessionAccess, type SessionAccess, type SessionCapability } from './sessionAccess'
 
-/** Every tool name that can reach a session's toolset. `globalTools` is only part of
- * it — pipeline and MCP tools are appended by `configureGlobalMode`, and plan mode's
- * at request time — which is exactly why the policy table is keyed by name rather
- * than declared on `globalTools`. */
+/** Every tool name that can reach a session's toolset. Uses `globalTools` rather than
+ * `assembleGlobalTools`'s `globalToolsFor` so the coverage below holds for the tools
+ * that a non-session or non-Chromium host would filter out too — a superset, which is
+ * the safe direction for an exhaustiveness check. */
 function assembledSessionToolNames(): string[] {
 	const mcp = createMcpTools([{ path: 'f/test/server' } as any])
 	return [
@@ -42,6 +38,16 @@ function assembledSessionToolNames(): string[] {
 		ENTER_PLAN_MODE_TOOL,
 		EXIT_PLAN_MODE_TOOL
 	]
+}
+
+/** The tools a session actually ships, through the same assembly production uses. */
+function shippedSessionTools(access: SessionAccess) {
+	const assembled = assembleGlobalTools({
+		sessionPreview: true,
+		pipeline: true,
+		mcpServers: [{ path: 'f/test/server' } as any]
+	})
+	return filterSessionTools(assembled, access)
 }
 
 function accessWith(capabilities: SessionCapability[]): SessionAccess {
@@ -129,33 +135,36 @@ describe('session tool policies', () => {
 	// every reachable profile, and every tool from the policy table — so neither a new tool
 	// nor a new capability combination slips past.
 	it.each([
-		['read-only', []],
-		['drafts, no deploy', ['write_draft', 'run_preview']],
-		['drafts, no preview', ['write_draft', 'deploy']],
-		['deploy, no drafts', ['deploy']]
-	] as [string, SessionCapability[]][])(
+		// `reachable` marks the profiles `resolveSessionAccess` can actually produce. The
+		// prompt is swept for the unreachable ones too, since gating it costs nothing; the
+		// tool DEFINITIONS are not, because the only way to satisfy those cases is to strip
+		// a sibling tool's name out of a description that earns its place for real sessions.
+		['read-only', [], true],
+		['drafts, no deploy', ['write_draft', 'run_preview'], true],
+		['drafts only', ['write_draft'], true],
+		['drafts, no preview', ['write_draft', 'deploy'], false],
+		['deploy, no drafts', ['deploy'], false]
+	] as [string, SessionCapability[], boolean][])(
 		'never names a withheld tool in the assembled prompt (%s)',
-		(_label, capabilities) => {
+		(_label, capabilities, reachable) => {
 			const access = accessWith(capabilities)
 			const withheld = assembledSessionToolNames().filter((n) => !sessionToolAllowed(n, access))
 			expect(withheld.length).toBeGreaterThan(0)
+			// The tool DEFINITIONS ship alongside the prompt, so a withheld name in a
+			// description is the same broken promise as one in the prompt.
+			if (reachable) {
+				const defs = JSON.stringify(shippedSessionTools(access).map((t) => t.def))
+				expect(withheld.filter((n) => defs.includes(n))).toEqual([])
+			}
 			for (const previewTools of [false, true]) {
 				for (const ctx of SESSION_CONTEXTS) {
-					let msg = prepareGlobalSystemMessage(undefined, {
+					const msg = assembleGlobalSystemMessage(undefined, {
 						previewTools,
 						user: { username: 'alex', folders: ['shared'], folders_read: ['shared'] },
-						access
+						access,
+						sessionContext: ctx,
+						pipelineContext: { folder: 'my_pipeline', mode: 'edit', nodes: [], assets: [] }
 					})
-					msg = {
-						...msg,
-						content:
-							(msg.content as string) +
-							getSessionContextPromptSection(ctx, access) +
-							getPipelinePromptSection(
-								{ folder: 'my_pipeline', mode: 'edit', nodes: [], assets: [] },
-								access
-							)
-					}
 					// Both decoration variants: the escalation one adds its own tool mentions.
 					for (const blocks of [0, 9]) {
 						const full = appendPlanModeInstructions(msg, blocks).content as string

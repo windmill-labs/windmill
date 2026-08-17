@@ -125,7 +125,9 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	delete_app_file: WRITE_DRAFT,
 	write_app_runnable: WRITE_DRAFT,
 	delete_app_runnable: WRITE_DRAFT,
-	// Both act on a draft, which can only exist for someone who could write one.
+	// Relevance, not authorization: discarding your OWN draft deliberately skips
+	// `require_can_write_path` (drafts.rs), so the backend would allow it — but a
+	// session that cannot write a draft has none to discard or rebase.
 	discard_local_draft: WRITE_DRAFT,
 	rebase_draft: WRITE_DRAFT,
 
