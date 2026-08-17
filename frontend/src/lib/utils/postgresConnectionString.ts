@@ -15,8 +15,14 @@
  * authenticates as `p@ss`.
  */
 
+/**
+ * The host alternation is what admits IPv6: a literal address is full of colons, so a URI
+ * has to bracket it (`@[2001:db8::1]:5432/`) and the brackets are what tell the port apart
+ * from the address. Brackets are stripped on the way in and added back on the way out, so
+ * what is stored is the bare address a Postgres client wants.
+ */
 const CONNECTION_STRING =
-	/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
+	/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>\[[^\]]+\]|[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
 
 /**
  * A database someone types into Windmill is almost never localhost, so callers ask for TLS
@@ -52,22 +58,28 @@ export function parsePostgresConnectionString(
 	return {
 		user: decode(user),
 		password: password ? decode(password) : undefined,
-		host,
+		host: host.startsWith('[') ? host.slice(1, -1) : host,
 		port: port ? Number(port) : undefined,
-		dbname: dbname || undefined,
+		dbname: dbname ? decode(dbname) : undefined,
 		sslmode: sslmode || undefined
 	}
 }
 
 /**
- * `sslmode` is emitted only when it differs from libpq's own default, so the
- * string stays the short one people recognize when nothing was overridden.
+ * Every part that was set is emitted, `sslmode` included. Leaving `prefer` out because it is
+ * libpq's own default would be shorter, but it does not survive the trip: a caller that
+ * reparses this string gets `undefined` back and substitutes its own default, which is how an
+ * explicit `prefer` silently became `require`. Whatever this produces, `parse` must read back.
  */
 export function composePostgresConnectionString(parts: PostgresConnectionParts): string {
 	const credentials = parts.password
 		? `${encodeURIComponent(parts.user)}:${encodeURIComponent(parts.password)}`
 		: encodeURIComponent(parts.user)
 	const port = parts.port ? `:${parts.port}` : ''
-	const query = parts.sslmode && parts.sslmode !== 'prefer' ? `?sslmode=${parts.sslmode}` : ''
-	return `postgres://${credentials}@${parts.host}${port}/${parts.dbname ?? ''}${query}`
+	const query = parts.sslmode ? `?sslmode=${parts.sslmode}` : ''
+	const dbname = parts.dbname ? encodeURIComponent(parts.dbname) : ''
+	// A bare IPv6 address would put its own colons where the port separator goes.
+	const host =
+		parts.host.includes(':') && !parts.host.startsWith('[') ? `[${parts.host}]` : parts.host
+	return `postgres://${credentials}@${host}${port}/${dbname}${query}`
 }
