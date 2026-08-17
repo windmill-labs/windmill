@@ -10,9 +10,12 @@ on:
       - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
       # The bundles cli/ vendors from the frontend: their drift guards live in
-      # cli/test but the edits that break them land here.
+      # cli/test but the edits that break them land here. The policy bundle
+      # inlines its imports too, so those sources belong in the filter.
       - "frontend/src/lib/components/raw_apps/**"
       - "frontend/src/lib/components/recording/**"
+      - "frontend/src/lib/components/apps/editor/commonAppUtils.ts"
+      - "frontend/src/lib/components/apps/inputType.ts"
   pull_request:
     branches: [main]
     paths:
@@ -21,9 +24,12 @@ on:
       - "backend/migrations/**"
       - ".github/workflows/cli-tests.yml"
       # The bundles cli/ vendors from the frontend: their drift guards live in
-      # cli/test but the edits that break them land here.
+      # cli/test but the edits that break them land here. The policy bundle
+      # inlines its imports too, so those sources belong in the filter.
       - "frontend/src/lib/components/raw_apps/**"
       - "frontend/src/lib/components/recording/**"
+      - "frontend/src/lib/components/apps/editor/commonAppUtils.ts"
+      - "frontend/src/lib/components/apps/inputType.ts"
 
 env:
   CARGO_TERM_COLOR: always

@@ -133,23 +133,28 @@ export async function main(
 	// explicitly empty entry is a runnable nobody configured yet, and needs no
 	// grant.
 	const nonEmpty = (v: unknown) => typeof v === 'string' && v.length > 0
+	// The prefixes `execute_component` resolves a run against; anything else is a
+	// grant no run can match.
+	const RUN_TYPES = ['script', 'flow', 'hubscript']
 	const malformed = Object.entries(runnables ?? {})
-		.filter(([, r]) => r != null && typeof r === 'object')
+		.filter(([, r]) => r != null)
 		.filter(([, r]) => {
+			if (typeof r !== 'object') return true
 			const run = r as Record<string, any>
 			if (run.type === 'inline' || run.type === 'runnableByName') {
 				return !nonEmpty(run.inlineScript?.content)
 			}
 			if (run.type === 'path' || run.type === 'runnableByPath') {
-				return !nonEmpty(run.runType) || !nonEmpty(run.path)
+				return !RUN_TYPES.includes(run.runType) || !nonEmpty(run.path)
 			}
 			return true
 		})
 		.map(([id]) => id)
 	if (malformed.length > 0) {
 		throw new Error(
-			`no policy could be derived for runnable(s) ${malformed.join(', ')}: each needs a ` +
-				`\`type\` of "inline" (with \`inlineScript.content\`) or "path" (with \`runType\` and \`path\`)`
+			`no policy could be derived for runnable(s) ${malformed.join(', ')}: each must be an ` +
+				`object with a \`type\` of "inline" (with \`inlineScript.content\`) or "path" (with ` +
+				`\`path\` and a \`runType\` of ${RUN_TYPES.join(', ')})`
 		)
 	}
 
