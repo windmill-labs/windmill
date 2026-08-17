@@ -124,6 +124,13 @@ run $G ask   "cd /etc && rm -rf foo"
 run $G ask   'cd "$D" && rm -rf foo'
 run $G ask   "cd $CWD && rm -rf .git"
 run $G ask   "cd /etc && cd /tmp/scratch && rm -rf sub"   # a cd out is not walked back
+# A `cd` can fail at runtime, and `;` runs the delete from where the command started, so a
+# relative operand is proved from both directories.
+run $G ask   "cd /tmp/does-not-exist; rm -rf .git"
+run $G ask   "cd /tmp/does-not-exist; rm -rf backend/.env"
+run $G ask   "cd /tmp/a && cd /tmp/b && rm -rf sub"
+run $G ask   "rm -rf /tmp/clone/.git"                     # history is never in a class
+run $G ask   "rm -rf /tmp/scratch/id_rsa.key"
 
 echo
 echo "== allow-fileops-in-tmp.sh =="
@@ -162,6 +169,12 @@ run $A ask   "chmod -R 777 $CWD/.git"
 run $A ask   "mv $CWD/backend/.env $CWD/backend/.env.bak"
 run $A ask   "mv $CWD/AGENTS.md $OUT"
 run $A ask   "cd /etc && mv a b"
+# An auto-allowed rename may not carry a path out of the `Read` deny globs.
+run $A ask   "mv backend/server.pem backend/server.txt"
+run $A none  "cp backend/secrets/token frontend/token.txt"   # cp has no prompt of its own,
+                                                            # so what matters is it is not allowed
+run $A ask   "mv $CWD/backend/credentials.json /tmp/x"
+run $A ask   "cd /tmp/does-not-exist; mv .claude/settings.json settings.bak"
 
 echo
 [ "$fails" = 0 ] && echo "ALL PASS" || { echo "$fails FAILURES"; exit 1; }

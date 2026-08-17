@@ -74,7 +74,7 @@ defer() {
 # tracked working directory. Fails, printing nothing, when the token is unsafe to reason about
 # or lands outside every root.
 operand_class() {
-  local t="$1" canon
+  local t="$1" canon alt cls alt_cls=""
   # Globs never auto-allow: bash expands them only after this hook has decided, so realpath
   # sees the unexpanded pattern and `/tmp/link*` passes before expanding onto a symlink whose
   # target is outside. chmod and cp follow command-line symlinks, so that is a write to it.
@@ -82,11 +82,21 @@ operand_class() {
   [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/-')" ] && return 1
   case "$t" in
     /*) canon=$(realpath -m -- "$t" 2>/dev/null) ;;
-    *)  [ -n "$seg_cwd" ] || return 1
-        canon=$(realpath -m -- "$seg_cwd/$t" 2>/dev/null) ;;
+    *)  # A `cd` may fail at runtime and leave the command where it started, so a relative
+        # operand has to land in the same root either way.
+        [ -n "$seg_cwd" ] || return 1
+        canon=$(realpath -m -- "$seg_cwd/$t" 2>/dev/null)
+        if [ -n "$alt_cwd" ]; then
+          alt=$(realpath -m -- "$alt_cwd/$t" 2>/dev/null)
+          [ -n "$alt" ] || return 1
+          alt_cls=$(path_class "$alt") || return 1
+        fi
+        ;;
   esac
   [ -n "$canon" ] || return 1
-  path_class "$canon"
+  cls=$(path_class "$canon") || return 1
+  [ -n "$alt_cls" ] && [ "$alt_cls" != "$cls" ] && return 1
+  printf '%s' "$cls"
 }
 
 # 0 iff the token is charset-safe and resolves to a path strictly inside /tmp. The archive
@@ -226,6 +236,7 @@ check_fileops_segment() {
 
 split_segments "$cmd"
 seg_cwd="${cwd:-$PWD}"
+alt_cwd=""                                # where a `cd` that failed would have left the command
 saw_cd=0                                  # a `cd` moved the working directory somewhere
 proved=0                                  # at least one op came out inside a single root
 only_ours=1                               # ... and nothing else shares the command line
@@ -245,18 +256,18 @@ for seg in "${SEGMENTS[@]}"; do
       continue
       ;;
     cd)
-      # A `cd` writes nothing, so it never blocks an allow; it only moves where a relative
-      # operand points. Tracking it is only sound while every step stays known and inside the
-      # roots, so an unresolvable destination, or one outside them, makes the working directory
-      # unknown — and a `cd` is only followed from a known one, so a later `cd` cannot walk it
-      # back into a root it has already left.
-      saw_cd=1
-      if [ -n "$seg_cwd" ] && new_cwd=$(apply_cd "$seg_cwd" "${SEG_TOKS[@]:1}") \
-         && path_class "$new_cwd" >/dev/null; then
+      # A `cd` writes nothing, so it never blocks an allow; it only moves where a later relative
+      # operand points — to one of two places, since the `cd` may fail and `;` runs what follows
+      # regardless. Both are carried, and an operand must land in the same root from either.
+      # Past the first, the branching outruns two candidates, so a second `cd` gives up on
+      # relative operands entirely.
+      if [ "$saw_cd" = 0 ] && new_cwd=$(apply_cd "$seg_cwd" "${SEG_TOKS[@]:1}"); then
+        alt_cwd="$seg_cwd"
         seg_cwd="$new_cwd"
       else
-        seg_cwd=""
+        seg_cwd="" alt_cwd=""
       fi
+      saw_cd=1
       continue
       ;;
   esac

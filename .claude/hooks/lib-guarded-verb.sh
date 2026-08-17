@@ -168,9 +168,12 @@ segment_tokens() {
 
 # Prints the directory a `cd` lands in, given the current one ($1) and the tokens after the
 # `cd` ($2...). Fails, printing nothing, when the destination cannot be resolved — a variable,
-# `-`, an option, no operand at all (`cd` alone is $HOME), or more than one. The caller then
-# treats the working directory as unknown, so that a later relative operand is never resolved
-# against a directory the command has already left.
+# `-`, an option, no operand at all (`cd` alone is $HOME), or more than one.
+#
+# Resolving says nothing about whether the `cd` will SUCCEED: the destination may not exist, and
+# `;` runs the next command anyway, leaving it in the directory it started in. So a caller may
+# never treat this as the working directory outright — it is one of two candidates, and a
+# relative operand has to be provable against the one the command started in as well.
 apply_cd() {
   local cwd="$1" t
   shift
@@ -195,21 +198,28 @@ apply_cd() {
 # under a recursively-deleted parent, are NOT. Accepted as a deliberate convenience tradeoff.
 #
 # The walk stops at $HOME, so a dotfiles repo at ~ can't put all of $HOME in a class, and
-# top-level ~ files stay out of one. Never in a class at all: git history, the agent's own
-# guards and settings (removing those is what removes the prompt on everything else), and
-# gitignored `.env` files — the version-control premise holds for none of the three. A working
-# tree's own root folder counts only when it is a linked worktree, whose `.git` is a pointer
-# file so the history lives in the main repo and survives; a primary checkout's `.git` is a
-# directory holding the history itself, so losing it is unrecoverable.
+# top-level ~ files stay out of one. A working tree's own root folder counts only when it is a
+# linked worktree, whose `.git` is a pointer file so the history lives in the main repo and
+# survives; a primary checkout's `.git` is a directory holding the history itself, so losing it
+# is unrecoverable.
+#
+# Some paths are in no class in any root, /tmp included. Git history, and the agent's own guards
+# and settings, because removing those is what removes the prompt on everything else. And every
+# path `.claude/settings.json` refuses to read — `.env`, `secrets/`, `*.pem`, `*.key`,
+# `credentials.json`, `.secret*` — because a `cp` or `mv` that is auto-allowed on both ends
+# would rename one out of those globs and hand back through `Read` exactly what they deny.
 path_class() {
   local canon="$1" d root=""
-  case "$canon" in /tmp/?*) printf 'tmp'; return 0 ;; esac
-  [ -n "${HOME:-}" ] || return 1
-  case "$canon" in "$HOME"/?*) ;; *) return 1 ;; esac
   case "$canon" in
     *"/.git" | *"/.git/"* | *"/.claude" | *"/.claude/"*) return 1 ;;
     *"/.env" | *"/.env."*) return 1 ;;
+    *"/secrets" | *"/secrets/"*) return 1 ;;
+    *.pem | *.key | *"/credentials.json") return 1 ;;
+    *"/.secret"* | *.secret | *.secrets) return 1 ;;
   esac
+  case "$canon" in /tmp/?*) printf 'tmp'; return 0 ;; esac
+  [ -n "${HOME:-}" ] || return 1
+  case "$canon" in "$HOME"/?*) ;; *) return 1 ;; esac
   d="$canon"
   while [ "$d" != "/" ] && [ "$d" != "$HOME" ]; do
     [ -e "$d/.git" ] && { root="$d"; break; }
