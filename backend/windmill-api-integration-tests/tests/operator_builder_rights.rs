@@ -31,6 +31,10 @@ async fn set_builder(db: &Pool<Postgres>, enabled: bool) -> anyhow::Result<()> {
 }
 
 fn composition_flow(path: &str) -> serde_json::Value {
+    composition_flow_at(path, "u/operator/some_script")
+}
+
+fn composition_flow_at(path: &str, step_path: &str) -> serde_json::Value {
     json!({
         "path": path,
         "summary": "",
@@ -38,7 +42,7 @@ fn composition_flow(path: &str) -> serde_json::Value {
         "schema": {},
         "value": {"modules": [{
             "id": "a",
-            "value": {"type": "script", "path": "u/operator/some_script", "input_transforms": {}}
+            "value": {"type": "script", "path": step_path, "input_transforms": {}}
         }]}
     })
 }
@@ -70,6 +74,17 @@ async fn test_operator_builder_rights_boundary(db: Pool<Postgres>) -> anyhow::Re
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
     let c = operator_client();
+
+    // A composition-only flow references a runnable that exists and the builder can read; the
+    // check now rejects anything else, so the fixture needs one.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema,
+             summary, description, lock, extra_perms)
+         VALUES ($1, 4241, 'u/operator/some_script', 'x', 'bun', 'script', 'operator', '{}', '', '', '', '{}')",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
 
     set_builder(&db, false).await?;
     let resp = c
@@ -176,6 +191,27 @@ async fn test_operator_builder_rights_boundary(db: Pool<Postgres>) -> anyhow::Re
     assert!(
         !resp.status().is_success(),
         "a builder must not create a low-code app"
+    );
+
+    // Composing a runnable is enough to run it: the worker resolves a step's path with the root
+    // DB handle and adopts that runnable's `on_behalf_of`. `permissions_test` gives the operator
+    // fixture no rights on `u/alice/**`.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema,
+             summary, description, lock, extra_perms)
+         VALUES ($1, 4243, 'u/alice/private', 'x', 'bun', 'script', 'alice', '{}', '', '', '', '{}')",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&composition_flow_at("u/operator/f4", "u/alice/private"))
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a builder must not compose a runnable it cannot read"
     );
 
     // A version-pinned step dispatches on its hash alone, so the pair must be real and readable:

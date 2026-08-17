@@ -592,30 +592,56 @@ pub async fn validate_operator_composed_flow(
         .await?;
     }
 
-    // A version-pinned step dispatches on its `hash` alone, reading the row with root permissions
-    // and taking that script's tag and `on_behalf_of` identity; the `path` beside it is never
-    // consulted. So the pair has to be real, and readable by this caller, or a builder pins the
-    // hash of a script it cannot reach and runs that instead.
-    if !refs.pinned_scripts.is_empty() {
-        let mut tx = user_db.clone().begin(authed).await?;
-        for (path, hash) in &refs.pinned_scripts {
-            let exists = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND hash = $3)",
+    if refs.runnables.is_empty() && refs.pinned_scripts.is_empty() {
+        return Ok(());
+    }
+    // Composing a runnable is enough to run it: the worker resolves a step's path with the root DB
+    // handle and adopts that runnable's `on_behalf_of`, so an unreadable path would let a builder
+    // execute code it cannot see, as whoever that code runs as. RLS on this transaction is the
+    // check. A pinned `hash` needs its own comparison on top: the dispatch ignores the path beside
+    // it, so a readable path paired with another script's hash still runs that other script.
+    let mut tx = user_db.clone().begin(authed).await?;
+    for (is_flow, path) in &refs.runnables {
+        let readable = if *is_flow {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2)",
                 w_id,
                 path,
-                hash.0,
             )
-            .fetch_one(&mut *tx)
-            .await?
-            .unwrap_or(false);
-            if !exists {
-                return Err(Error::NotAuthorized(format!(
-                    "Version {hash} is not a readable version of {path}"
-                )));
-            }
+        } else {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2)",
+                w_id,
+                path,
+            )
         }
-        tx.commit().await?;
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if !readable {
+            return Err(Error::NotAuthorized(format!(
+                "{} {path} does not exist or is not readable by you",
+                if *is_flow { "Flow" } else { "Script" }
+            )));
+        }
     }
+    for (path, hash) in &refs.pinned_scripts {
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND hash = $3)",
+            w_id,
+            path,
+            hash.0,
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if !exists {
+            return Err(Error::NotAuthorized(format!(
+                "Version {hash} is not a readable version of {path}"
+            )));
+        }
+    }
+    tx.commit().await?;
     Ok(())
 }
 

@@ -271,9 +271,12 @@ pub fn check_flow_is_composition_only(value: &FlowValue) -> Result<ComposedFlowR
 #[derive(Default)]
 pub struct ComposedFlowRefs {
     pub tags: Vec<String>,
+    /// Every workspace runnable a step references, as `(is_flow, path)`. The worker resolves
+    /// these with the root DB handle and adopts the referenced runnable's `on_behalf_of`, so
+    /// composing a path is enough to run it, and to run it as whoever it runs as.
+    pub runnables: Vec<(bool, String)>,
     /// Version-pinned script steps. A step carrying a `hash` is dispatched by that hash alone,
-    /// with the path ignored and the row read with root permissions, so an unverified pair runs
-    /// some other script's code under some other script's `on_behalf_of` identity.
+    /// with the path beside it ignored, so the pair has to be checked on top of the path.
     pub pinned_scripts: Vec<(String, ScriptHash)>,
 }
 
@@ -322,11 +325,15 @@ fn check_module_value_is_composition_only(
         FlowModuleValue::Script { path, hash, tag_override, .. } => {
             check_composable_path(path, id)?;
             push_tag(tag_override);
+            refs.runnables.push((false, path.clone()));
             if let Some(hash) = hash {
                 refs.pinned_scripts.push((path.clone(), *hash));
             }
         }
-        FlowModuleValue::Flow { path, .. } => check_composable_path(path, id)?,
+        FlowModuleValue::Flow { path, .. } => {
+            check_composable_path(path, id)?;
+            refs.runnables.push((true, path.clone()));
+        }
         FlowModuleValue::ForloopFlow { modules, modules_node, .. }
         | FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
             refuse_node(modules_node)?;

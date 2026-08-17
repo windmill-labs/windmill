@@ -16,4 +16,5 @@ DROP TRIGGER IF EXISTS operator_settings_change_trigger ON workspace_settings;
 CREATE TRIGGER operator_settings_change_trigger
 AFTER UPDATE OF operator_settings ON workspace_settings
 FOR EACH ROW
+WHEN (OLD.operator_settings IS DISTINCT FROM NEW.operator_settings)
 EXECUTE FUNCTION notify_operator_settings_change();

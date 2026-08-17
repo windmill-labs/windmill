@@ -1901,12 +1901,15 @@ async fn store_raw_app_file<'a>(
 /// so isolation is what makes it safe to let an operator publish one: `sandbox` renders it in an
 /// opaque-origin iframe instead of handing it the viewer's Windmill session. Inline scripts are
 /// the low-code side's way of carrying code and must not appear either.
+/// The value-and-policy half: everything decidable without the DB. Returns the workspace
+/// runnables the policy authorizes the app to invoke, as `(is_flow, path)`, for
+/// [`validate_operator_composed_app`] to authorize against the builder's permissions.
 fn check_operator_composed_app(
     raw_app: bool,
     value: Option<&RawValue>,
     policy: Option<&mut Policy>,
     allow_kind_change: bool,
-) -> Result<()> {
+) -> Result<Vec<(bool, String)>> {
     if !raw_app || allow_kind_change {
         return Err(Error::NotAuthorized(
             "Operators with builder rights can only author full-code apps, and cannot convert an existing app into one".to_string(),
@@ -1948,6 +1951,78 @@ fn check_operator_composed_app(
         ));
     }
     policy.sandbox = Some(true);
+
+    // The triggerables are the deployed app's authorization to invoke a runnable.
+    // `<component>:` prefixes the key when the app scopes it to one component.
+    let mut referenced = policy
+        .triggerables
+        .iter()
+        .flat_map(|t| t.keys())
+        .chain(policy.triggerables_v2.iter().flat_map(|t| t.keys()))
+        .filter_map(|key| {
+            let key = key.split_once(':').map_or(key.as_str(), |(_, rest)| rest);
+            key.strip_prefix("script/")
+                .map(|p| (false, p.to_string()))
+                .or_else(|| key.strip_prefix("flow/").map(|p| (true, p.to_string())))
+        })
+        .collect::<Vec<_>>();
+    referenced.sort();
+    referenced.dedup();
+    for (_, path) in &referenced {
+        if path.starts_with("hub/") {
+            return Err(Error::NotAuthorized(format!(
+                "Operators with builder rights cannot reference the hub runnable {path}. Deploy it to the workspace first."
+            )));
+        }
+    }
+    Ok(referenced)
+}
+
+/// Runs on every app write by an operator with builder rights, from inside the create/update
+/// internals so both raw-app endpoints are covered by one check.
+///
+/// `execute_component` resolves the runnable it picks with the root DB handle, so an unreadable
+/// path in the policy means an admin who merely opens the app runs code the builder could not
+/// see, as themselves. RLS on this transaction is the check.
+async fn validate_operator_composed_app(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    raw_app: bool,
+    value: Option<&RawValue>,
+    policy: Option<&mut Policy>,
+    allow_kind_change: bool,
+) -> Result<()> {
+    let referenced = check_operator_composed_app(raw_app, value, policy, allow_kind_change)?;
+    if referenced.is_empty() {
+        return Ok(());
+    }
+    let mut tx = user_db.clone().begin(authed).await?;
+    for (is_flow, path) in referenced {
+        let readable = if is_flow {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2)",
+                w_id,
+                path,
+            )
+        } else {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2)",
+                w_id,
+                path,
+            )
+        }
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if !readable {
+            return Err(Error::NotAuthorized(format!(
+                "{} {path} does not exist or is not readable by you",
+                if is_flow { "Flow" } else { "Script" }
+            )));
+        }
+    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -2163,7 +2238,16 @@ async fn create_app_internal<'a>(
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
     validate_frontend_sdk_scopes(&app.policy)?;
     if authed.is_operator {
-        check_operator_composed_app(raw_app, Some(&app.value.0), Some(&mut app.policy), false)?;
+        validate_operator_composed_app(
+            &authed,
+            &user_db,
+            w_id,
+            raw_app,
+            Some(&app.value.0),
+            Some(&mut app.policy),
+            false,
+        )
+        .await?;
     }
     if *CLOUD_HOSTED {
         let nb_apps =
@@ -3055,12 +3139,16 @@ async fn update_app_internal<'a>(
     }
 
     if authed.is_operator {
-        check_operator_composed_app(
+        validate_operator_composed_app(
+            &authed,
+            &user_db,
+            w_id,
             raw_app,
             ns.value.as_ref().map(|v| v.0.as_ref()),
             ns.policy.as_mut(),
             ns.allow_kind_change.unwrap_or(false),
-        )?;
+        )
+        .await?;
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -3569,9 +3657,20 @@ async fn execute_component(
         })?;
         // A builder testing the app it is composing only ever previews a deployed runnable
         // (`path`) or a persisted app script (`id`), both confined below to what it may read.
-        // Inline `raw_code` is authoring code, so it stays closed to every operator.
+        // Inline `raw_code` is authoring code, so it stays closed to every operator. So is a hub
+        // path, which `require_path_read_access_for_preview` admits for everyone and
+        // `get_payload_tag_from_prefixed_path` then downloads and enqueues: it is exactly the
+        // unreviewed code the composition check refuses in a flow.
+        let previews_hub = payload.path.as_deref().is_some_and(|p| {
+            p.strip_prefix("script/")
+                .or_else(|| p.strip_prefix("flow/"))
+                .unwrap_or(p)
+                .starts_with("hub/")
+        });
         if authed.is_operator
-            && (payload.raw_code.is_some() || !operator_builder_enabled(&db, &w_id).await?)
+            && (payload.raw_code.is_some()
+                || previews_hub
+                || !operator_builder_enabled(&db, &w_id).await?)
         {
             return Err(Error::NotAuthorized(
                 "Operators cannot run preview jobs for security reasons".to_string(),
@@ -5607,7 +5706,7 @@ mod operator_app_tests {
     fn composed_app(
         value: serde_json::Value,
         policy: &mut Policy,
-    ) -> Result<()> {
+    ) -> Result<Vec<(bool, String)>> {
         let value = to_raw_value(&value);
         check_operator_composed_app(true, Some(&value), Some(policy), false)
     }
@@ -5620,8 +5719,16 @@ mod operator_app_tests {
 
         // A composition-only app goes through, sandboxed whether or not it asked to be.
         let mut policy = builder_policy(serde_json::json!({"a:script/f/x/s": {"static_inputs": {}, "one_of_inputs": {}}}));
-        composed_app(clean.clone(), &mut policy).unwrap();
+        let referenced = composed_app(clean.clone(), &mut policy).unwrap();
         assert_eq!(policy.sandbox, Some(true));
+        // The runnables the policy authorizes are handed back for the caller to authorize.
+        assert_eq!(referenced, vec![(false, "f/x/s".to_string())]);
+
+        // A hub reference is unreviewed code, refused like it is in a flow.
+        let mut policy = builder_policy(
+            serde_json::json!({"a:script/hub/1/x": {"static_inputs": {}, "one_of_inputs": {}}}),
+        );
+        assert!(composed_app(clean.clone(), &mut policy).is_err());
 
         let mut policy = builder_policy(serde_json::json!({}));
         policy.sandbox = Some(false);

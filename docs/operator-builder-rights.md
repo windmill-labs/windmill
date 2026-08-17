@@ -31,10 +31,20 @@ It also returns what a value-only walk cannot authorize, for the caller to check
 permissions:
 
 - **the worker tags the steps pin**, or a builder routes a job onto a privileged worker group;
+- **every runnable a step references**. `script_to_payload` resolves a step's path with the root DB
+  handle (`db_authed = None`) and returns the referenced runnable's `on_behalf_of`, which
+  `worker_flow` then applies to the step job. So composing a path is enough to run it, and to run
+  it as whoever it runs as: `validate_operator_composed_flow` re-checks each path under the
+  caller's RLS. This is the general case; the one below is on top of it, not instead of it.
 - **the `(path, hash)` of every version-pinned step**. A step carrying a `hash` is dispatched by
-  that hash alone: `script_to_payload` ignores the path, reads the row with root permissions, and
-  takes that script's tag and `on_behalf_of` identity. An unverified pair therefore runs some other
-  script's code, possibly as some other identity, from behind a path the builder may read.
+  that hash alone, with the path beside it never consulted, so a readable path paired with another
+  script's hash still runs that other script.
+
+The same reasoning applies to a builder-authored app: its policy triggerables are what
+`execute_component` will resolve, also with the root DB handle, so
+`validate_operator_composed_app` checks every `script/<path>` and `flow/<path>` key the same way
+and refuses hub ones. `execute_component`'s preview branch refuses a hub path for operators too:
+`require_path_read_access_for_preview` admits `hub/` for everyone.
 
 Call it on every write **and** every preview: `run_preview_flow_job` and
 `push_flow_dependencies_job` both take a request-supplied flow value, so leaving either out makes
