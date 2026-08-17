@@ -499,12 +499,9 @@ async function writeResource(
 	value: Record<string, any>,
 	description: string
 ): Promise<Claims> {
-	const held = await ResourceService.getResource({ workspace: deps.workspace, path }).catch(
-		() => undefined
-	)
+	const held = await resourceMark(deps, path)
 	if (held) {
-		if (!stillOurs(claims, 'resource', path, held.created_by))
-			throw new Error(pathTakenLate('resource', path))
+		if (!stillOurs(claims, 'resource', path, held)) throw new Error(pathTakenLate('resource', path))
 		await ResourceService.updateResource({
 			workspace: deps.workspace,
 			path,
@@ -516,7 +513,18 @@ async function writeResource(
 			requestBody: { resource_type: 'postgresql', path, value, description }
 		})
 	}
-	return claim(claims, 'resource', path, deps.username)
+	// Read back rather than claim the username: `created_by` survives an update, so it cannot
+	// tell an edit by somebody else from no edit at all. `edited_at` moves on every write, which
+	// is what makes the next attempt able to see one that happened in between.
+	return claim(claims, 'resource', path, (await resourceMark(deps, path)) ?? deps.username)
+}
+
+/** `undefined` when nothing is there. */
+async function resourceMark(deps: RunDeps, path: string): Promise<string | undefined> {
+	const held = await ResourceService.getResource({ workspace: deps.workspace, path }).catch(
+		() => undefined
+	)
+	return held ? (held.edited_at ?? held.created_by ?? '') : undefined
 }
 
 /**

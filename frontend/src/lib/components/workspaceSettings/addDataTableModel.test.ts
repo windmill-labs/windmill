@@ -53,6 +53,11 @@ function nothingThere() {
 	getResourceMock.mockRejectedValue(new Error('not found'))
 }
 
+/** A resource that exists, with the timestamp the claim is marked by. */
+function resourceEditedAt(at: string) {
+	getResourceMock.mockResolvedValue({ path: 'p', created_by: 'alice', edited_at: at })
+}
+
 /** A wizard about to create the Supabase project `later`, in the organization `acme`. */
 function creating(): WizardState {
 	const state = newWizardState({ name: 'main', projectName: 'later', folder: 'f/team' })
@@ -257,5 +262,47 @@ describe('newResourceParts', () => {
 		state.own.form = 'string'
 		state.own.connectionString = 'not a uri'
 		expect(newResourceParts(state)?.host).toBe('db.example.com')
+	})
+})
+
+// `created_by` survives an update, so it cannot tell an edit by somebody else from no edit at
+// all. The claim is marked by `edited_at`, which moves on every write.
+describe('runSetup writing over a resource', () => {
+	function ownResource(): WizardState {
+		const state = newWizardState({ name: 'main', projectName: 'x', folder: 'f/team' })
+		state.provider = 'resource'
+		state.own.creating = true
+		state.review.resourceName = 'db'
+		state.own.fields = {
+			host: 'h',
+			port: 5432,
+			dbname: 'd',
+			user: 'u',
+			password: 'p',
+			sslmode: 'require'
+		}
+		return state
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		existsVariableMock.mockResolvedValue(false)
+		getVariableMock.mockRejectedValue(new Error('not found'))
+		getSettingsMock.mockResolvedValue({ datatable: { datatables: {} } })
+		editDataTableConfigMock.mockResolvedValue(undefined)
+		testDataTableConnectionMock.mockResolvedValue({ can_create_table: true })
+	})
+
+	it('refuses a resource edited since this run claimed it', async () => {
+		resourceEditedAt('2026-01-02T00:00:00Z')
+		const result = await runSetup(ownResource(), {
+			workspace: 'w',
+			onProgress: () => {},
+			// Claimed when it looked like this; someone has written to it since.
+			claims: [{ kind: 'resource' as const, path: 'f/team/db', mark: '2026-01-01T00:00:00Z' }],
+			username: 'alice'
+		} as any)
+		expect(result.ok).toBe(false)
+		expect(result.error).toContain('f/team/db')
 	})
 })

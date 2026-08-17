@@ -16,7 +16,11 @@ export type ClaimKind = 'secret' | 'resource' | 'row'
 export type Claim = {
 	kind: ClaimKind
 	path: string
-	/** Compared against the live object: who last edited a secret or resource, what a row points at. */
+	/**
+	 * Compared against the live object. It has to move whenever anyone else writes: `edited_by`
+	 * for a secret, `edited_at` for a resource — whose `created_by` survives an edit and so
+	 * cannot tell one from no edit at all — and the target for a row.
+	 */
 	mark: string
 }
 
