@@ -31,6 +31,7 @@
 		Pen,
 		Play,
 		Plus,
+		SearchX,
 		Shield,
 		Trash
 	} from 'lucide-svelte'
@@ -246,6 +247,14 @@
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
+
+	// loadSchedules() maps these onto API params, so filtering is server-side and an
+	// empty list alone can't tell "nothing here yet" apart from "the filters excluded
+	// everything". `false` doesn't count: a boolean filter that is off narrows nothing,
+	// so treating it as active would hide the create CTA in an empty workspace.
+	let hasActiveFilters = $derived(
+		Object.values(filters.val).some((v) => v !== undefined && v !== null && v !== '' && v !== false)
+	)
 	let allFolders = $derived(
 		Array.from(
 			new Set(
@@ -374,18 +383,26 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !schedules?.length}
-				<EmptyState
-					icon={Calendar}
-					title="No schedules yet"
-					description="Schedules run a script or flow automatically on a cron expression."
-					action={{
-						label: 'Add a schedule',
-						icon: Plus,
-						onClick: () => scheduleEditor?.openNew(false),
-						aiId: 'schedules-empty-add',
-						aiDescription: 'Add schedule'
-					}}
-				/>
+				{#if hasActiveFilters}
+					<EmptyState
+						icon={SearchX}
+						title="No schedules found"
+						description="No schedule matches the current filters. Try clearing or widening them."
+					/>
+				{:else}
+					<EmptyState
+						icon={Calendar}
+						title="No schedules yet"
+						description="Schedules run a script or flow automatically on a cron expression."
+						action={{
+							label: 'Add a schedule',
+							icon: Plus,
+							onClick: () => scheduleEditor?.openNew(false),
+							aiId: 'schedules-empty-add',
+							aiDescription: 'Add schedule'
+						}}
+					/>
+				{/if}
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}

@@ -1327,11 +1327,12 @@
 						<Skeleton layout={[[4], 0.7]} />
 					{/each}
 				{:else if filteredResourceTypes?.length == 0}
-					<div class="flex flex-col items-center justify-center h-full mt-4">
-						<div class="text-xs text-emphasis font-semibold">No resource types found</div>
-						<div class="text-2xs text-secondary font-normal">
-							Try changing the filters or creating a new resource type
-						</div>
+					<div class="mt-4">
+						<EmptyState
+							icon={SearchX}
+							title="No resource types found"
+							description="No resource type matches the current filters. Try clearing or widening them."
+						/>
 					</div>
 				{:else}
 					<div class="overflow-auto mt-4">

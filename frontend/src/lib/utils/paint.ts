@@ -1,6 +1,19 @@
 import { tick } from 'svelte'
 
 /**
+ * Resolve on the next animation frame, or immediately where there is no rAF (SSR).
+ */
+export function nextAnimationFrame(): Promise<void> {
+	return new Promise((resolve) => {
+		if (typeof requestAnimationFrame === 'function') {
+			requestAnimationFrame(() => resolve())
+		} else {
+			resolve()
+		}
+	})
+}
+
+/**
  * Flush pending DOM updates, then wait until the browser has painted them.
  *
  * A lazily-mounted drawer creates its panel and gets its `open` class in the same
@@ -14,7 +27,6 @@ import { tick } from 'svelte'
  */
 export async function tickPainted(): Promise<void> {
 	await tick()
-	await new Promise<void>((resolve) =>
-		requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-	)
+	await nextAnimationFrame()
+	await nextAnimationFrame()
 }
