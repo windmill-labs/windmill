@@ -396,15 +396,15 @@
 	function compile(schema: Schema) {
 		function rec(x: { [name: string]: SchemaProperty }, root = false) {
 			let res = '{\n'
-			const entries = Object.entries(x)
+			const entries = Object.entries(x ?? {})
 			if (entries.length == 0) {
 				return 'any'
 			}
 			let i = 0
 			for (let [name, prop] of entries) {
-				if (prop.type == 'object') {
+				if (prop?.type == 'object') {
 					res += `${name}: ${rec(prop.properties ?? {})}`
-				} else if (prop.type == 'array') {
+				} else if (prop?.type == 'array') {
 					res += `${name}: ${prop?.items?.type ?? 'any'}[]`
 				} else {
 					let typ = prop?.type ?? 'any'
@@ -423,7 +423,7 @@
 			}
 			return res
 		}
-		return rec(schema.properties, true)
+		return rec(schema?.properties, true)
 	}
 
 	async function quicktypeJSONSchema(targetLanguage, typeName, jsonSchemaString, rendererOptions) {
@@ -484,22 +484,22 @@
 
 	function phpCompile(schema: Schema) {
 		let res = '  '
-		const entries = Object.entries(schema.properties)
+		const entries = Object.entries(schema?.properties ?? {})
 		if (entries.length === 0) {
-			return 'array'
+			return ''
 		}
 		let i = 0
 		for (let [name, prop] of entries) {
 			let typ = 'array'
-			if (prop.type === 'array') {
+			if (prop?.type === 'array') {
 				typ = 'array'
-			} else if (prop.type === 'string') {
+			} else if (prop?.type === 'string') {
 				typ = 'string'
-			} else if (prop.type === 'number') {
+			} else if (prop?.type === 'number') {
 				typ = 'float'
-			} else if (prop.type === 'integer') {
+			} else if (prop?.type === 'integer') {
 				typ = 'int'
-			} else if (prop.type === 'boolean') {
+			} else if (prop?.type === 'boolean') {
 				typ = 'bool'
 			}
 			res += `public ${typ} $${name};`
@@ -512,22 +512,23 @@
 	}
 	function pythonCompile(schema: Schema) {
 		let res = ''
-		const entries = Object.entries(schema.properties)
+		const entries = Object.entries(schema?.properties ?? {})
 		if (entries.length === 0) {
-			return 'dict'
+			// the result is inserted as a `class X(TypedDict):` body
+			return 'pass'
 		}
 		let i = 0
 		for (let [name, prop] of entries) {
 			let typ = 'dict'
-			if (prop.type === 'array') {
+			if (prop?.type === 'array') {
 				typ = 'list'
-			} else if (prop.type === 'string') {
+			} else if (prop?.type === 'string') {
 				typ = 'str'
-			} else if (prop.type === 'number') {
+			} else if (prop?.type === 'number') {
 				typ = 'float'
-			} else if (prop.type === 'integer') {
+			} else if (prop?.type === 'integer') {
 				typ = 'int'
-			} else if (prop.type === 'boolean') {
+			} else if (prop?.type === 'boolean') {
 				typ = 'bool'
 			}
 			res += `${name}: ${typ}`
