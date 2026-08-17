@@ -23,7 +23,7 @@ import {
 	type SessionPromptContext
 } from './core'
 import { appendPlanModeInstructions } from '../planMode'
-import { pipelineTools } from '../pipeline/core'
+import { getPipelinePromptSection, pipelineTools } from '../pipeline/core'
 import { createMcpTools } from './mcpTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from '../planMode'
 import { SESSION_TOOL_POLICIES, filterSessionTools, sessionToolAllowed } from './sessionToolset'
@@ -114,11 +114,11 @@ describe('session tool policies', () => {
 	// produces invented calls and promises the chat cannot keep.
 	//
 	// Asserted over the ASSEMBLED message, not `prepareGlobalSystemMessage` alone: what
-	// actually ships is that plus the session-state section and plan mode's decoration,
-	// each appended by a different caller, and gating only the first looks correct while
-	// the other two still name withheld tools. Both axes are swept — every reachable
-	// profile, and every tool from the policy table — so neither a new tool nor a new
-	// capability combination slips past.
+	// actually ships is that plus the session-state section, the pipeline-editor section
+	// and plan mode's decoration, each appended by a different caller, and gating only the
+	// first looks correct while the others still name withheld tools. Both axes are swept —
+	// every reachable profile, and every tool from the policy table — so neither a new tool
+	// nor a new capability combination slips past.
 	it.each([
 		['read-only', []],
 		['drafts, no deploy', ['write_draft', 'run_preview']],
@@ -139,7 +139,13 @@ describe('session tool policies', () => {
 					})
 					msg = {
 						...msg,
-						content: (msg.content as string) + getSessionContextPromptSection(ctx, access)
+						content:
+							(msg.content as string) +
+							getSessionContextPromptSection(ctx, access) +
+							getPipelinePromptSection(
+								{ folder: 'my_pipeline', mode: 'edit', nodes: [], assets: [] },
+								access
+							)
 					}
 					// Both decoration variants: the escalation one adds its own tool mentions.
 					for (const blocks of [0, 9]) {

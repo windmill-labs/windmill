@@ -1162,10 +1162,11 @@ export class AIChatManager {
 			typeof this.systemMessage.content === 'string'
 				? this.systemMessage.content.length / tokenPerCharacter
 				: 0
+		// The filtered set, matching what the request actually carries: a restricted
+		// session ships fewer definitions than `this.tools` holds.
+		const tools = filterSessionTools(this.tools, this.sessionAccess)
 		const toolTokens =
-			this.tools.length > 0
-				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
-				: 0
+			tools.length > 0 ? JSON.stringify(tools.map((t) => t.def)).length / tokenPerCharacter : 0
 		return systemTokens + toolTokens
 	}
 
@@ -2016,8 +2017,14 @@ export class AIChatManager {
 		}
 		const pipeline = this.pipelineAiChatHelpers
 		const mcpTools = createMcpTools(this.mcpServers)
+		// Every tool source assembled below needs an entry in SESSION_TOOL_POLICIES: the
+		// session filter fails closed, so a source added here without one is withheld from
+		// restricted sessions. sessionToolset.test.ts enumerates these sources to catch it.
 		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
+			systemMessage.content += getPipelinePromptSection(
+				pipeline.getPipelineContext(),
+				this.sessionAccess
+			)
 			this.tools = [
 				...globalToolsFor({ sessionPreview: this.isSessionChat }),
 				...pipelineTools,
@@ -2109,7 +2116,10 @@ export class AIChatManager {
 		}
 		const pipeline = this.pipelineAiChatHelpers
 		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
+			systemMessage.content += getPipelinePromptSection(
+				pipeline.getPipelineContext(),
+				this.sessionAccess
+			)
 		}
 		this.systemMessage = systemMessage
 	}

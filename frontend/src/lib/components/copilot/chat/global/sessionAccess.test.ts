@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { whoami, deployPermission } = vi.hoisted(() => ({
+const { whoami, deployPermission, protectionRules } = vi.hoisted(() => ({
 	whoami: vi.fn(),
-	deployPermission: vi.fn()
+	deployPermission: vi.fn(),
+	protectionRules: vi.fn()
 }))
 
 vi.mock('$lib/gen', () => ({ UserService: { whoami } }))
 vi.mock('$lib/utils_workspace_deploy', () => ({ checkDeployPermission: deployPermission }))
+// Only the fetch is stubbed — the bypass evaluation is the real one, so the test
+// exercises the rule semantics rather than a restatement of them.
+vi.mock('$lib/workspaceProtectionRules.svelte', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/workspaceProtectionRules.svelte')>()),
+	fetchProtectionRulesForWorkspace: protectionRules
+}))
 
 import { resolveSessionAccess } from './sessionAccess'
 
@@ -39,6 +46,7 @@ describe('resolveSessionAccess', () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		deployPermission.mockResolvedValue({ ok: true })
+		protectionRules.mockResolvedValue([])
 	})
 
 	it('gives a developer every capability', async () => {
@@ -86,7 +94,33 @@ describe('resolveSessionAccess', () => {
 	it('presents a superadmin as admin to the deploy check', async () => {
 		whoami.mockResolvedValueOnce(user({ is_super_admin: true }))
 		await resolveSessionAccess('ws')
-		expect(deployPermission).toHaveBeenCalledWith('ws', expect.objectContaining({ is_admin: true }))
+		expect(deployPermission).toHaveBeenCalledWith(
+			'ws',
+			expect.objectContaining({ is_admin: true }),
+			// An admin bypasses every ruleset, so none are fetched to hand over.
+			undefined
+		)
+	})
+
+	// `checkDeployPermission` covers only the operator and RestrictDeployToDeployers halves
+	// of the gate, but the endpoints the deploy tools call run the backend's
+	// `check_deploy_rules`, which blocks on DisableDirectDeployment too. Drafting is
+	// untouched by that rule — it is the deploy that the workspace refuses.
+	it('withholds deploy under DisableDirectDeployment without a bypass', async () => {
+		protectionRules.mockResolvedValue([
+			{ name: 'lock', rules: ['DisableDirectDeployment'], bypass_users: [], bypass_groups: [] }
+		])
+		const caps = await capabilitiesFor({})
+		expect(caps.has('deploy')).toBe(false)
+		expect(caps.has('write_draft')).toBe(true)
+	})
+
+	it('keeps deploy under DisableDirectDeployment for a bypass user', async () => {
+		protectionRules.mockResolvedValue([
+			{ name: 'lock', rules: ['DisableDirectDeployment'], bypass_users: ['u'], bypass_groups: [] }
+		])
+		const caps = await capabilitiesFor({})
+		expect(caps.has('deploy')).toBe(true)
 	})
 
 	// Fail open, matching checkDeployPermission: a transient whoami failure must not
