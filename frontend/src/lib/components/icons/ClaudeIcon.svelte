@@ -7,7 +7,7 @@
 	let { height = 24, width = 24 }: Props = $props()
 </script>
 
-<!-- #D97757 per https://claude.ai/favicon.svg (Anthropic's own asset); the glyph is knocked out in white on the tile. -->
+<!-- #D97757 per https://claude.ai/favicon.svg (Anthropic's own asset). -->
 <svg
 	viewBox="0 0 24 24"
 	width={`${width}px`}

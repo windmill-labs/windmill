@@ -7,7 +7,7 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<!-- #3C8EE0 on #FFFFFF per DocSpring's own logo SVG, docspring.com/assets/logo-text-*.svg. -->
+<!-- #3C8EE0 per DocSpring's own logo SVG, docspring.com/assets/logo-text-*.svg. -->
 <svg {width} {height} viewBox="0 0 325 375" xmlns="http://www.w3.org/2000/svg">
 	<defs>
 		<path

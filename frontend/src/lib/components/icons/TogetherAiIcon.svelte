@@ -7,8 +7,7 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<!-- #EF2CC1 / #CAAEF5 / #FC4C02 per together.ai's own brand page (https://www.together.ai/brand),
-	 which paints its logo with these three; they are the brand's foundational palette, no per-theme variant. -->
+<!-- #EF2CC1 / #CAAEF5 / #FC4C02 per together.ai's brand page (https://www.together.ai/brand). -->
 <svg {width} {height} viewBox="0 0 484.98 452.5" xmlns="http://www.w3.org/2000/svg">
 	<defs>
 		<style>

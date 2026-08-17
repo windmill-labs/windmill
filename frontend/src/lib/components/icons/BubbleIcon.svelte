@@ -8,7 +8,8 @@
 </script>
 
 <!-- #0000FF dot per the logo SVG served on bubble.io/brand; the B is #262626 there, kept as
-currentColor so the monochrome part follows the app theme. -->
+currentColor so the monochrome part follows the app theme. Bubble's brand terms forbid
+re-colouring the mark beyond its published dark/light pair. -->
 <svg {width} {height} viewBox="0 0 256 276" xmlns="http://www.w3.org/2000/svg">
 	<g>
 		<path

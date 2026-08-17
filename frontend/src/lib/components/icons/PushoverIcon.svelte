@@ -7,6 +7,7 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #249DF1 per support.pushover.net/i63-pushover-logos-and-usage. Forbids recolouring. -->
 <svg {width} {height} viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
 	<circle cx="512" cy="512" r="512" style="fill:#249df1" />
 	<path

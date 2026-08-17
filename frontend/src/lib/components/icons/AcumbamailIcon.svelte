@@ -7,7 +7,7 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<!-- #149ED7 per Acumbamail's own logo SVG, /static/public-theme/img/logos/acumbamail-color-home-logo.svg on acumbamail.com. -->
+<!-- #149ED7 per Acumbamail's own isotype SVG, /static/favico/Acumbamail/favicon-32.svg on acumbamail.com. -->
 <svg {width} {height} viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
 	<defs>
 		<clipPath id="acumbamail-clippath">

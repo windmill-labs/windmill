@@ -7,7 +7,7 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<!-- #246DFF / #20A34E / #F86606 per apify.com/favicon.svg. Fixed tricolour mark, no per-theme variant published. -->
+<!-- #246DFF / #20A34E / #F86606 per apify.com/resources/brand. White/black variants are reserved for monochromatic contexts, so the tricolour mark stays in both themes. -->
 <svg {width} {height} viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
 	<!-- Apify logo icon (extracted from official SVG) -->
 	<g clip-path="url(#clip0_267_4154)">

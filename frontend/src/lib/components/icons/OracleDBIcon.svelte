@@ -7,7 +7,7 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<!-- #C74634 per Oracle's own logo SVG at https://www.oracle.com/a/ocom/img/oracle-logo.svg. -->
+<!-- #C74634 per Oracle's own logo SVG at https://www.oracle.com/a/ocom/img/oracle-logo.svg. Oracle reserves its logo for licensees. -->
 <svg
 	{height}
 	{width}

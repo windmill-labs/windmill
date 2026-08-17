@@ -7,8 +7,7 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<!-- #148CFC per clearbit.com/favicon-192.png — Clearbit publishes no brand page.
-	Fixed full-colour mark; #4DB1FD / #DEF2FE are its lighter panels. -->
+<!-- #148CFC per clearbit.com/logo.svg. -->
 <svg {width} {height} viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
 	<g filter="url(#filter0_f)"
 		><path

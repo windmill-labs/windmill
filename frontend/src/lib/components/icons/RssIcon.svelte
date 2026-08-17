@@ -7,8 +7,7 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<!-- #FFA500 tile, #FFFFFF waves, per Mozilla's feed icon guidelines (mozilla.org/en-US/foundation/feed-icon-guidelines/),
-	 which mandate orange (or an inverted/greyscale variant) without fixing a hex; the mark must never be rotated or flipped. -->
+<!-- #FFA500 per Mozilla's feed icon guidelines (mozilla.org/en-US/foundation/feed-icon-guidelines/), which fix no exact hex. Never rotate or flip the mark. -->
 <svg
 	x="0px"
 	y="0px"

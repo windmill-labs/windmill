@@ -8,8 +8,8 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<!-- #00758F wordmark / #F29111 dolphin accent per https://www.mysql.com/common/logos/mysql-logo.svg; drawn monochrome via currentColor here.
-	 MySQL's trademark policy forbids changing the logo's colours, so a full-colour variant must use exactly these. -->
+<!-- Full-colour mark per https://www.mysql.com/common/logos/mysql-logo.svg: #00758F dolphin and "My", #F29111 "SQL"; drawn monochrome via currentColor here.
+	 https://www.mysql.com/about/legal/trademark.html forbids recolouring a MySQL logo, and reserves everything beyond the "Powered by MySQL" / "Includes MySQL" conditional-use logos for parties under a signed agreement with Oracle. -->
 <svg
 	xmlns:xlink="http://www.w3.org/1999/xlink"
 	xmlns="http://www.w3.org/2000/svg"
