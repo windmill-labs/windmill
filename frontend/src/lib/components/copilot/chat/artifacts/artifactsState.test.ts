@@ -428,6 +428,41 @@ describe('SessionArtifactsStore', () => {
 		expect(row).toMatchObject({ content: 'v2 from the other tab', version: 2, approvedVersion: 1 })
 	})
 
+	it('refuses an approval naming no readable version, or no plan at all', async () => {
+		await store.setSession('s1')
+		const plan = await store.savePlan(
+			's1',
+			{ name: 'Plan', content: 'v1', note: 'first' },
+			undefined
+		)
+		const doc = await store.create('s1', { name: 'Doc', content: 'x' })
+
+		await expect(store.approve(plan.id, 2)).resolves.toBe(false)
+		await expect(store.approve(plan.id, 0)).resolves.toBe(false)
+		await expect(store.approve(plan.id, 1.5)).resolves.toBe(false)
+		await expect(store.approve(plan.id, NaN)).resolves.toBe(false)
+		await expect(store.approve(doc.id, 1)).resolves.toBe(false)
+		expect((await dbMod.getArtifact(plan.id))?.approvedVersion).toBeUndefined()
+
+		await expect(store.approve(plan.id, 1)).resolves.toBe(true)
+	})
+
+	it('approves a retained older version after history has moved on', async () => {
+		// The approval a card proposed lands late, and the versions between it and the head are
+		// still stored — the pointer belongs on the version the user read, not on the newest.
+		await store.setSession('s1')
+		const plan = await store.savePlan(
+			's1',
+			{ name: 'Plan', content: 'v1', note: 'first' },
+			undefined
+		)
+		await store.savePlan('s1', { name: 'Plan', content: 'v2', note: 'second' }, undefined)
+		await store.savePlan('s1', { name: 'Plan', content: 'v3', note: 'third' }, undefined)
+
+		await expect(store.approve(plan.id, 1)).resolves.toBe(true)
+		expect(await dbMod.getArtifact(plan.id)).toMatchObject({ version: 3, approvedVersion: 1 })
+	})
+
 	it('does not move the approval when a write produces no new version', async () => {
 		// A plan approved at v1 and revised into a proposal the user turned down. Renaming it,
 		// or rewriting it with the text already there, adds no version — so there is nothing

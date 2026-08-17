@@ -4,6 +4,7 @@ import {
 	deleteArtifact,
 	getArtifact,
 	getArtifactVersion,
+	isPlanArtifact,
 	listArtifactVersions,
 	listArtifactsForSession,
 	mutateArtifact,
@@ -220,8 +221,21 @@ export class SessionArtifactsStore {
 	 * patched in one transaction, it can only ever move the pointer.
 	 */
 	async approve(id: string, version: number): Promise<boolean> {
-		const { outcome, artifact } = await mutateArtifact(id, (existing) =>
-			existing ? { artifact: { ...existing, approvedVersion: version }, snapshots: [] } : undefined
+		// No version number this could name, and a stamped NaN would leave a pointer that no
+		// comparison in planVersionView can ever match.
+		if (!Number.isSafeInteger(version) || version < 1) return false
+		const { outcome, artifact } = await mutateArtifact(
+			id,
+			(existing, snapshot) => {
+				if (!existing) return undefined
+				// Only a plan carries an approval, and only a version still readable is worth
+				// pointing at: the bar offering "view the plan you approved" has to land somewhere.
+				// The current version needs no snapshot — one written before history existed has none.
+				if (!isPlanArtifact(existing, existing.sessionId)) return undefined
+				if (version !== currentVersion(existing) && !snapshot) return undefined
+				return { artifact: { ...existing, approvedVersion: version }, snapshots: [] }
+			},
+			{ readVersion: version }
 		)
 		// Reflected only once it is stored, unlike an ordinary edit, which degrades unpersisted:
 		// content the store lost is still content, but an approval the store lost never happened,

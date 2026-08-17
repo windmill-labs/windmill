@@ -1,3 +1,5 @@
+import { planArtifactId } from "../../../../../frontend/src/lib/components/copilot/chat/artifacts/planIdentity";
+
 // SessionArtifactsStore can't run here (bun has no IndexedDB, nor the compiled $state runes),
 // so mirror only the shape the artifact tools call, not its scoping or race handling.
 // Cases run concurrently in one process and the preview handlers are registered
@@ -25,7 +27,12 @@ export function createEvalArtifactHelpers(seed: SeededArtifact[] = []) {
   const seededIds = new Map<string, string>();
   let seq = 0;
   for (const entry of seed) {
-    const id = `eval-artifact-${seq++}`;
+    // Derived, not minted: the tools that must not touch the plan recognise it by this id, so
+    // an id of the harness's own would pass a case the real gate refuses. The counter advances
+    // either way, or seeding a plan would renumber the rows around it and collapse the update
+    // order they are sorted on.
+    const n = seq++;
+    const id = entry.role === "plan" ? planArtifactId(sessionId) : `eval-artifact-${n}`;
     const current = entry.versions.at(-1);
     if (!current) continue;
     // A preview tab names the artifact it shows, so a shared name would open whichever
@@ -89,7 +96,10 @@ export function createEvalArtifactHelpers(seed: SeededArtifact[] = []) {
       }
       const now = seq++;
       const artifact = {
-        id: `eval-artifact-${now}`,
+        id:
+          input.role === "plan"
+            ? planArtifactId(sessionId)
+            : `eval-artifact-${now}`,
         sessionId,
         chatId: input.chatId,
         kind: input.kind ?? "md",
