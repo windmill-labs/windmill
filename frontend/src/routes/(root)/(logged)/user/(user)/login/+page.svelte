@@ -106,7 +106,10 @@
 				} else {
 					goto(rd ?? '/')
 				}
-			} else if (rd?.startsWith('/user/workspaces')) {
+				// The import wizard picks the destination workspace itself, so sending it to
+				// the workspace picker first asks the same question twice — and the wizard
+				// may end in a workspace that does not exist yet.
+			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith('/projects/import')) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)
