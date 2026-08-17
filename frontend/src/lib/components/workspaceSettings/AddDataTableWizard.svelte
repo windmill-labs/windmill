@@ -923,7 +923,9 @@
 						bgClass="border-0"
 					/>
 				{:else}
-					{@render reviewStep()}
+					<div class="flex flex-col gap-8">
+						{@render reviewStep()}
+					</div>
 				{/if}
 			</div>
 
@@ -1292,62 +1294,87 @@
 	{#if lastFailure}
 		<Alert type="error" size="xs" bgClass="border-0" title="">{lastFailure}</Alert>
 	{/if}
-	<div>
-		<span class="text-xs font-semibold text-emphasis">Data table name</span>
+	<Label label="Data table name" class="gap-1">
+		<p class="text-2xs text-secondary">
+			This is how your scripts reach the database behind it:
+			<span class="font-mono">datatable://{wiz.review.name.trim() || 'main'}</span>
+			reads and writes it, whatever it is connected to.
+			<span class="font-mono">main</span> is used by default when a script does not name one.
+		</p>
 		<TextInput
 			bind:value={wiz.review.name}
 			error={!!nameError || !!nameConflict}
 			inputProps={{ placeholder: 'main' }}
 		/>
 		<InputError error={nameError ?? (nameConflict || undefined)} />
-		{#if !nameError && !nameConflict}
-			<p class="text-2xs text-secondary mt-1">
-				This is how your scripts will refer to it. <span class="font-mono">main</span> is used by default
-				when a script does not name one.
-			</p>
-		{/if}
-	</div>
+	</Label>
 
 	{#if wiz.provider === 'supabase'}
-		<dl
-			class="grid grid-cols-[9rem_1fr] gap-y-1 gap-x-3 text-xs border rounded-md p-3 border-border-light"
+		<!-- A card carrying Supabase's own mark rather than a disabled field: this is the one
+		thing on the step that will not live in Windmill, and it should not read as a greyed-out
+		Windmill input. -->
+		<Label
+			label={wiz.supabase.mode === 'create' ? 'New Supabase project' : 'Supabase project'}
+			class="gap-1"
 		>
-			<dt class="text-secondary">
-				{wiz.supabase.mode === 'create' ? 'New Supabase project' : 'Supabase project'}
-			</dt>
-			<dd class="text-emphasis">
-				{wiz.supabase.mode === 'create'
-					? wiz.supabase.projectName
-					: (wiz.supabase.project?.name ?? '')}
-			</dd>
-			<dt class="text-secondary">Organization</dt>
-			<dd class="text-emphasis">{supabaseSummary(wiz).org ?? '—'}</dd>
-			<dt class="text-secondary">Region</dt>
-			<dd class="text-emphasis">{supabaseSummary(wiz).region ?? '—'}</dd>
-			<dt class="text-secondary">Connection</dt>
-			<dd class="text-emphasis">
-				{wiz.supabase.connectionMode === 'session' ? 'Session pooler' : 'Direct (IPv6)'}
-			</dd>
-		</dl>
+			<p class="text-2xs text-secondary">
+				{#if wiz.supabase.mode === 'create'}
+					It does not exist yet — Windmill creates it on Supabase when you finish. The project is
+					yours, and you can open and manage it from the Supabase dashboard.
+				{:else}
+					A project already in your Supabase account. Windmill saves its connection and changes
+					nothing about the project itself.
+				{/if}
+			</p>
+			<div class="border border-border-light rounded-md p-3 flex gap-3 items-start">
+				<span class="mt-0.5 shrink-0"><SupabaseIcon height="18px" width="18px" /></span>
+				<span class="flex flex-col gap-0.5 min-w-0">
+					<span class="text-xs font-medium text-emphasis">
+						{wiz.supabase.mode === 'create'
+							? wiz.supabase.projectName
+							: (wiz.supabase.project?.name ?? '')}
+					</span>
+					<span class="text-xs text-secondary">
+						{[
+							supabaseSummary(wiz).org,
+							supabaseSummary(wiz).region,
+							wiz.supabase.connectionMode === 'session' ? 'session pooler' : 'direct (IPv6)'
+						]
+							.filter(Boolean)
+							.join(' · ')}
+					</span>
+				</span>
+			</div>
+		</Label>
 		{@render poolerWarning()}
 	{:else if wiz.provider === 'instance'}
-		<dl
-			class="grid grid-cols-[9rem_1fr] gap-y-1 gap-x-3 text-xs border rounded-md p-3 border-border-light"
-		>
-			<dt class="text-secondary">Windmill database</dt>
-			<dd class="text-emphasis font-mono">{wiz.instance.dbName}</dd>
-		</dl>
+		<Label label="Windmill database" class="gap-1">
+			<p class="text-2xs text-secondary">
+				{#if wiz.instance.mode === 'create'}
+					It does not exist yet — Windmill creates it on this instance's PostgreSQL server when you
+					finish, and manages its credentials.
+				{:else}
+					A database already on this instance's PostgreSQL server, managed by Windmill.
+				{/if}
+			</p>
+			<TextInput value={wiz.instance.dbName ?? ''} inputProps={{ disabled: true }} />
+		</Label>
 	{:else if !wiz.own.creating}
-		<dl
-			class="grid grid-cols-[9rem_1fr] gap-y-1 gap-x-3 text-xs border rounded-md p-3 border-border-light"
-		>
-			<dt class="text-secondary">Postgres resource</dt>
-			<dd class="text-emphasis font-mono">{wiz.own.resourcePath}</dd>
-		</dl>
+		<Label label="Postgres resource" class="gap-1">
+			<p class="text-2xs text-secondary">
+				The connection already in this workspace. The data table points at it; nothing is written to
+				it here.
+			</p>
+			<TextInput value={wiz.own.resourcePath ?? ''} inputProps={{ disabled: true }} />
+		</Label>
 	{/if}
 
 	{#if mintsResource}
-		<Label label="Resource path" class="gap-2">
+		<Label label="Resource path" class="gap-1">
+			<p class="text-2xs text-secondary">
+				The connection {wiz.provider === 'supabase' ? 'to the Supabase project ' : ''}is saved here
+				as a Postgres resource, with its password in a secret variable beside it.
+			</p>
 			<Path
 				bind:path={
 					() => resourcePath,
@@ -1366,13 +1393,6 @@
 				autofocus={false}
 			/>
 			<InputError error={pathTakenError} />
-			<p class="text-2xs text-secondary">
-				The connection is saved here as a Postgres resource, with its password in a secret variable
-				beside it. Every script in the workspace can use
-				<span class="font-mono">datatable://{wiz.review.name.trim()}</span> wherever you put it — the
-				folder decides who can see and edit the connection itself, and who can reference the resource
-				directly in a SQL step.
-			</p>
 		</Label>
 	{/if}
 

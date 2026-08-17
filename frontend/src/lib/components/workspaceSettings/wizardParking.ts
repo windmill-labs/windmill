@@ -7,7 +7,7 @@
  * parked without pulling the whole wizard into that page's bundle.
  */
 
-import type { SupabaseConnectionMode } from './supabaseProvisioning'
+import type { SupabaseConnectionMode, SupabaseOrg } from './supabaseProvisioning'
 import type { Claim } from './setupClaims'
 import type { CreatedProject } from './addDataTableModel'
 
@@ -35,7 +35,7 @@ export type WizardResume = {
 	 * happens to be first.
 	 */
 	mode?: 'existing' | 'create'
-	org?: string
+	org?: SupabaseOrg
 	connectionMode?: SupabaseConnectionMode
 }
 

@@ -51,7 +51,7 @@
 		loading = true
 		try {
 			orgs = await listSupabaseOrgs(t)
-			if (orgs?.length && !intent.org) intent.org = orgSlug(orgs[0])
+			if (orgs?.length && !intent.org) intent.org = orgs[0]
 			projects = await listSupabaseProjects(t)
 			// Someone who already has a Supabase database almost always means to connect it
 			// rather than make a second one, so the step opens on the first of them. Decided
@@ -106,6 +106,8 @@
 		if (!isSelected(intent.project, p)) intent.password = ''
 		intent.mode = 'existing'
 		intent.project = p
+		// So the review step can name the organization rather than print the project's slug.
+		intent.org = (orgs ?? []).find((o) => orgSlug(o) === projectOrg(p)) ?? intent.org
 		onIntentChange?.()
 		await tick()
 		card?.scrollIntoView({ block: 'nearest' })
@@ -242,9 +244,14 @@
 		<div class="grid grid-cols-2 gap-2">
 			<div>
 				<span class="text-xs font-semibold text-emphasis">Organization</span>
+				<!-- The list is keyed by slug because that is what the API takes; the whole
+				organization is kept so the review step can name it. -->
 				<Select
 					items={orgItems}
-					bind:value={() => intent.org, (v) => ((intent.org = v), onIntentChange?.())}
+					bind:value={
+						() => (intent.org ? orgSlug(intent.org) : undefined),
+						(v) => ((intent.org = (orgs ?? []).find((o) => orgSlug(o) === v)), onIntentChange?.())
+					}
 					placeholder={orgs === undefined ? 'Loading...' : 'Select'}
 				/>
 				<p class="text-2xs text-secondary mt-1">

@@ -32,10 +32,12 @@ import {
 	listSupabaseProjects,
 	projectOrg,
 	projectRef,
+	orgSlug,
 	supabaseResourceValue,
 	waitUntilSupabaseHealthy,
 	DEFAULT_SUPABASE_REGION,
 	type SupabaseConnectionMode,
+	type SupabaseOrg,
 	type SupabaseProject
 } from './supabaseProvisioning'
 
@@ -48,8 +50,11 @@ export type WizardState = {
 		mode: 'existing' | 'create'
 		project: SupabaseProject | undefined
 		password: string
-		/** Organization slug, for the create mode. */
-		org: string | undefined
+		/**
+		 * The whole organization, not its slug: the API is called with the slug, but a slug is a
+		 * random string and the review step has a person reading it.
+		 */
+		org: SupabaseOrg | undefined
 		region: string
 		projectName: string
 		connectionMode: SupabaseConnectionMode
@@ -294,10 +299,11 @@ export function probeValue(state: WizardState): Record<string, any> | undefined 
  */
 export function supabaseSummary(state: WizardState): { org?: string; region?: string } {
 	if (state.supabase.mode === 'create')
-		return { org: state.supabase.org, region: state.supabase.region }
+		return { org: state.supabase.org?.name, region: state.supabase.region }
 	const project = state.supabase.project
 	return {
-		org: project ? projectOrg(project) : undefined,
+		// The name when the organization is known, its identifier only as a last resort.
+		org: state.supabase.org?.name ?? (project ? projectOrg(project) : undefined),
 		region: project?.region
 	}
 }
@@ -625,7 +631,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 				// would strand a billed project nobody holds the password to.
 				const wanted = state.supabase.projectName.trim()
 				const inOrg = (name: string) => (p: SupabaseProject) =>
-					p.name === name && (!state.supabase.org || projectOrg(p) === state.supabase.org)
+					p.name === name && (!state.supabase.org || projectOrg(p) === orgSlug(state.supabase.org))
 				const projects = await listSupabaseProjects(deps.supabaseToken!)
 				const existing = projects.find(inOrg(wanted))
 				if (existing) {
@@ -667,7 +673,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					try {
 						project = await createSupabaseProject(deps.supabaseToken!, {
 							name: wanted,
-							organizationSlug: state.supabase.org!,
+							organizationSlug: orgSlug(state.supabase.org!),
 							region: state.supabase.region,
 							dbPass: password
 						})
