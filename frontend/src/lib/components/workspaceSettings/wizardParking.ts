@@ -9,6 +9,7 @@
 
 import type { SupabaseConnectionMode } from './supabaseProvisioning'
 import type { Claim } from './setupClaims'
+import type { CreatedProject } from './addDataTableModel'
 
 const RESUME_KEY = 'datatable_wizard_resume'
 
@@ -25,8 +26,8 @@ export type WizardResume = {
 	resourcePath?: string
 	/** Everything the run holds, serialised whole so a newly added kind cannot be left behind. */
 	claims?: Claim[]
-	createdProjectName?: string
-	createdProjectPath?: string
+	/** Every project created before the redirect, each still guarding its password's path. */
+	createdProjects?: CreatedProject[]
 	/**
 	 * Which side of the step-2 toggle the run was on, and where it was pointed. A run that
 	 * died mid-create otherwise comes back on `existing`, is asked for the password it

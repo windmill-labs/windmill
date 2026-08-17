@@ -342,6 +342,9 @@ export function planSteps(state: WizardState): SetupStep[] {
 	return plan(state).map((s) => ({ title: s.title, status: 'pending' }))
 }
 
+/** A Supabase project this session created, and the path holding its only password. */
+export type CreatedProject = { name: string; path: string }
+
 export type RunDeps = {
 	workspace: string
 	/** Required for the Supabase branch. */
@@ -357,9 +360,7 @@ export type RunDeps = {
 	 * repeat, so a run that would do that refuses -- but only once it has seen that the project
 	 * is really there, since the name is also recorded when a create could not be confirmed.
 	 */
-	createdProjectName?: string
-	/** Where that project's password was written, which nothing later may write over. */
-	createdProjectPath?: string
+	createdProjects: CreatedProject[]
 	/**
 	 * What earlier attempts in this session wrote, and this one may therefore write over again.
 	 * The pre-flight checks the names are free, but the Supabase branch then spends minutes
@@ -388,8 +389,8 @@ export type RunResult = {
 	 * its password went to. Supabase never shows that password again, so the variable there is
 	 * the only copy and no later attempt may write over it.
 	 */
-	createdProjectName?: string
-	createdProjectPath?: string
+	/** Every project created this session, each guarding the path holding its only password. */
+	createdProjects: CreatedProject[]
 	/** What this run holds now, for the next attempt to be given back. */
 	claims: Claims
 }
@@ -578,8 +579,12 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 	let rowWritten = false
 	let rowRolledBack = false
 	let claims = deps.claims
-	let createdProjectName: string | undefined = undefined
-	let createdProjectPath: string | undefined = undefined
+	let createdProjects: CreatedProject[] = [...deps.createdProjects]
+	/** Records a created project once, so a second attempt cannot displace the first one's guard. */
+	const rememberProject = (name: string, at: string) => {
+		if (!createdProjects.some((p) => p.path === at))
+			createdProjects = [...createdProjects, { name, path: at }]
+	}
 	const fail = (message: string): RunResult => {
 		advance('failed', message)
 		return {
@@ -588,8 +593,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 			rowWritten,
 			rowRolledBack,
 			claims,
-			createdProjectName,
-			createdProjectPath
+			createdProjects
 		}
 	}
 
@@ -602,7 +606,9 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 	 * wizard at a hand-written connection, and creating a second project -- all refuse on it.
 	 * Aim the run somewhere else and there is nothing left to protect.
 	 */
-	const guardsCreatedSecret = !!deps.createdProjectPath && deps.createdProjectPath === path
+	// Every project created this session guards its own path. Checking only the latest let a
+	// second attempt at another path unlock the first one's password for overwriting.
+	const guardedHere = deps.createdProjects.find((p) => p.path === path)
 	const instanceName = state.instance.dbName?.trim() ?? ''
 
 	let project = state.supabase.project
@@ -627,9 +633,10 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						// A project this same session created is the one case where the password is
 						// held after all, just not here: the path has been edited since. Saying so
 						// beats telling someone to reset or delete a project that is working.
-						if (deps.createdProjectName === wanted && deps.createdProjectPath)
+						const elsewhere = deps.createdProjects.find((p) => p.name === wanted)
+						if (elsewhere)
 							return fail(
-								`The password for ${wanted}, which this setup created, is stored at ${deps.createdProjectPath}, not at ${path}. Set the path back to ${deps.createdProjectPath} to carry on with that project.`
+								`The password for ${wanted}, which this setup created, is stored at ${elsewhere.path}, not at ${path}. Set the path back to ${elsewhere.path} to carry on with that project.`
 							)
 						return fail(
 							`A Supabase project called ${wanted} already exists, but Windmill does not hold its password and Supabase cannot return it. Reset the password in Supabase and connect it as an existing project, or delete the project and retry.`
@@ -645,11 +652,9 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					// organization was selected then, and the one selected now may be a different
 					// one -- which is itself a way to arrive here. Refusing a namesake in another
 					// organization costs a rename; missing the real one costs the password.
-					const earlier = deps.createdProjectName
-					if (guardsCreatedSecret && earlier && projects.some((p) => p.name === earlier)) {
-						createdProjectName = earlier
-						createdProjectPath = deps.createdProjectPath
-						return fail(createdSecretRefusal(earlier, deps.createdProjectPath ?? path))
+					const earlier = guardedHere?.name
+					if (earlier && projects.some((p) => p.name === earlier)) {
+						return fail(createdSecretRefusal(earlier, guardedHere!.path))
 					}
 					const password = generateDbPassword()
 					claims = await writeSecret(
@@ -668,8 +673,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						})
 						// From here the password in `path` is the only copy of a billed project's
 						// credentials, and every later write to that path upserts.
-						createdProjectName = wanted
-						createdProjectPath = path
+						rememberProject(wanted, path)
 					} catch (err) {
 						// A refusal and a lost response look the same from here, and only one of them
 						// bills. Ask Supabase which it was: a project that turned up is ours, holds the
@@ -679,14 +683,12 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						const appeared = await listSupabaseProjects(deps.supabaseToken!).then(
 							(after) => after.find(inOrg(wanted)),
 							() => {
-								createdProjectName = wanted
-								createdProjectPath = path
+								rememberProject(wanted, path)
 								return undefined
 							}
 						)
 						if (!appeared) throw err
-						createdProjectName = wanted
-						createdProjectPath = path
+						rememberProject(wanted, path)
 						project = appeared
 					}
 				}
@@ -701,8 +703,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 			} else if (planned[index].key === 'save_credentials') {
 				if (state.provider === 'supabase') {
 					if (state.supabase.mode === 'existing') {
-						if (guardsCreatedSecret)
-							return fail(createdSecretRefusal(deps.createdProjectName!, path))
+						if (guardedHere) return fail(createdSecretRefusal(guardedHere.name, path))
 						claims = await writeSecret(
 							deps,
 							claims,
@@ -727,7 +728,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						`Supabase project ${project!.name}`
 					)
 				} else {
-					if (guardsCreatedSecret) return fail(createdSecretRefusal(deps.createdProjectName!, path))
+					if (guardedHere) return fail(createdSecretRefusal(guardedHere.name, path))
 					const parts = newResourceParts(state)!
 					claims = await writeSecret(
 						deps,
@@ -763,8 +764,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						rowWritten,
 						rowRolledBack,
 						claims,
-						createdProjectName,
-						createdProjectPath
+						createdProjects
 					}
 				}
 				advance('running', undefined, checks)
@@ -801,8 +801,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						rowWritten,
 						rowRolledBack,
 						claims,
-						createdProjectName,
-						createdProjectPath
+						createdProjects
 					}
 				}
 				advance('done')
@@ -812,8 +811,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					rowWritten,
 					rowRolledBack,
 					claims,
-					createdProjectName,
-					createdProjectPath
+					createdProjects
 				}
 			} else {
 				// Checked through the resource, so nothing is written until the database has proved
@@ -830,8 +828,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						rowWritten,
 						rowRolledBack,
 						claims,
-						createdProjectName,
-						createdProjectPath
+						createdProjects
 					}
 				}
 				claims = await writeRow(deps, claims, name, {
@@ -846,8 +843,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					rowWritten,
 					rowRolledBack,
 					claims,
-					createdProjectName,
-					createdProjectPath
+					createdProjects
 				}
 			}
 			advance('done')
@@ -861,7 +857,6 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 		rowWritten,
 		rowRolledBack,
 		claims,
-		createdProjectName,
-		createdProjectPath
+		createdProjects
 	}
 }

@@ -60,6 +60,7 @@
 		probeValue,
 		resourcePathOf,
 		runSetup,
+		type CreatedProject,
 		type Provider,
 		type RunResult,
 		type WizardState
@@ -360,8 +361,7 @@
 				projectName: wiz.supabase.projectName,
 				resourcePath,
 				claims: claimsToJSON(claims),
-				createdProjectName,
-				createdProjectPath,
+				createdProjects,
 				mode: wiz.supabase.mode,
 				org: wiz.supabase.org,
 				connectionMode: wiz.supabase.connectionMode
@@ -382,8 +382,7 @@
 		claims = noClaims
 		claimedInstanceDb = undefined
 		leftBehind = false
-		createdProjectName = undefined
-		createdProjectPath = undefined
+		createdProjects = []
 		nameConflict = ''
 		lastFailure = ''
 		pathTakenError = ''
@@ -393,9 +392,8 @@
 			// The clears above are for a fresh run. This one is the same run coming back from the
 			// redirect, so what it had already created is still its own to write over.
 			claims = claimsFromJSON(resume.claims)
-			createdProjectName = resume.createdProjectName
-			createdProjectPath = resume.createdProjectPath
-			leftBehind = anythingClaimed(claims) || !!resume.createdProjectPath
+			createdProjects = resume.createdProjects ?? []
+			leftBehind = anythingClaimed(claims) || createdProjects.length > 0
 			// Which side of the toggle it was on, and the organization it was pointed at. Left to
 			// default, a run that died mid-create comes back asking for the password it generated.
 			if (resume.mode) wiz.supabase.mode = resume.mode
@@ -541,12 +539,12 @@
 	 */
 	let leftBehind = $state(false)
 	/**
-	 * The Supabase project this session created. Held here rather than read off `run.result` for
-	 * the same reason: the checklist is cleared by every return to review, and the project is not.
+	 * Every Supabase project this session created, each guarding the path holding its only
+	 * password. Held here rather than read off `run.result`: the checklist is cleared by every
+	 * return to review, and the projects are not. A set, because two attempts at two paths each
+	 * leave a password nothing later may write over.
 	 */
-	let createdProjectName = $state<string | undefined>(undefined)
-	/** Where its password went, so a later attempt cannot write over it from another branch. */
-	let createdProjectPath = $state<string | undefined>(undefined)
+	let createdProjects = $state<CreatedProject[]>([])
 	/** The instance database this session asked for, which is registered even when it failed. */
 	let claimedInstanceDb = $state<string | undefined>(undefined)
 	/**
@@ -662,8 +660,7 @@
 				},
 				onProgress: (steps) => (run.steps = steps),
 				onPoolerUnavailable: (reason) => (poolerUnavailable = reason),
-				createdProjectName,
-				createdProjectPath,
+				createdProjects,
 				claims,
 				username: $userStore?.username ?? ''
 			})
@@ -672,18 +669,20 @@
 			// button spinning with a page reload the only way out.
 			// Kept, not replaced: what an earlier attempt wrote is still out there, so a later
 			// one failing sooner must not hand its own objects back to the collision checks.
-			if (result?.createdProjectName) {
-				createdProjectName = result.createdProjectName
-				createdProjectPath = result.createdProjectPath
-			}
+			createdProjects = result?.createdProjects ?? createdProjects
 			claims = result?.claims ?? claims
 			// A row taken back out frees its name again, and free is somebody else's to take.
 			if (result?.rowRolledBack) claims = release(claims, 'row', name)
-			leftBehind = anythingClaimed(claims) || !!createdProjectName || !!claimedInstanceDb
+			leftBehind = anythingClaimed(claims) || createdProjects.length > 0 || !!claimedInstanceDb
 			run = {
 				...run,
 				running: false,
-				result: result ?? { ok: false, error: 'The setup stopped unexpectedly.', claims }
+				result: result ?? {
+					ok: false,
+					error: 'The setup stopped unexpectedly.',
+					claims,
+					createdProjects
+				}
 			}
 			onDone()
 		}

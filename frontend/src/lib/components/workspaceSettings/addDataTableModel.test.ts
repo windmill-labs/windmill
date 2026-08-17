@@ -83,8 +83,9 @@ const deps = (createdProjectName?: string, createdProjectPath = MINTED_PATH) => 
 	onProgress: () => {},
 	claims: noClaims,
 	username: 'alice',
-	createdProjectName,
-	createdProjectPath: createdProjectName ? createdProjectPath : undefined
+	createdProjects: createdProjectName
+		? [{ name: createdProjectName, path: createdProjectPath }]
+		: []
 })
 
 // `writeSecret` overwrites in place, and Supabase never shows a project's password twice, so
@@ -187,7 +188,8 @@ describe('runSetup rolling the instance row back', () => {
 			workspace: 'w',
 			onProgress: () => {},
 			claims: noClaims,
-			username: 'alice'
+			username: 'alice',
+			createdProjects: []
 		} as any)
 		expect(result.ok).toBe(false)
 		expect(result.error).toContain('main')
@@ -206,7 +208,8 @@ describe('runSetup rolling the instance row back', () => {
 			workspace: 'w',
 			onProgress: () => {},
 			claims: noClaims,
-			username: 'alice'
+			username: 'alice',
+			createdProjects: []
 		} as any)
 		expect(result.ok).toBe(false)
 		expect(result.rowRolledBack).toBe(false)
@@ -224,7 +227,8 @@ describe('runSetup rolling the instance row back', () => {
 			supabaseToken: undefined,
 			onProgress: () => {},
 			claims: noClaims,
-			username: 'alice'
+			username: 'alice',
+			createdProjects: []
 		} as any)
 		expect(result.ok).toBe(false)
 		expect(result.error).toContain('connection refused')
@@ -306,7 +310,8 @@ describe('runSetup writing over a resource', () => {
 			onProgress: () => {},
 			// Claimed when it looked like this; someone has written to it since.
 			claims: [{ kind: 'resource' as const, path: 'f/team/db', mark: '2026-01-01T00:00:00Z' }],
-			username: 'alice'
+			username: 'alice',
+			createdProjects: []
 		} as any)
 		expect(result.ok).toBe(false)
 		expect(result.error).toContain('f/team/db')
@@ -346,7 +351,8 @@ describe('runSetup writing over its own secret', () => {
 			workspace: 'w',
 			onProgress: () => {},
 			claims: [{ kind: 'secret' as const, path: 'f/team/db', mark: '2026-01-01T00:00:00Z' }],
-			username: 'alice'
+			username: 'alice',
+			createdProjects: []
 		} as any)
 		expect(result.ok).toBe(false)
 		expect(result.error).toContain('f/team/db')
@@ -397,5 +403,32 @@ describe('intentComplete with a connection string on screen', () => {
 		const state = typed('nonsense')
 		state.own.form = 'fields'
 		expect(intentComplete(state)).toBe(true)
+	})
+})
+
+// Each created project guards its own path. Keeping only the latest let a second attempt at
+// another path unlock the first project's password, which Supabase will never show again.
+describe('runSetup guarding more than one created project', () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		existsVariableMock.mockResolvedValue(false)
+		nothingThere()
+	})
+
+	it('still refuses the first project’s path after a second was created elsewhere', async () => {
+		listSupabaseProjectsMock.mockResolvedValue([
+			{ id: '1', name: 'first', organization_id: 'acme' }
+		])
+		const state = creating()
+		const result = await runSetup(state, {
+			...deps(),
+			createdProjects: [
+				{ name: 'first', path: MINTED_PATH },
+				{ name: 'second', path: 'f/team/other' }
+			]
+		} as any)
+		expect(result.ok).toBe(false)
+		expect(result.error).toContain('first')
+		expect(createVariableMock).not.toHaveBeenCalled()
 	})
 })
