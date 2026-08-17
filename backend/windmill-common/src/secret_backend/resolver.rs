@@ -28,12 +28,16 @@ use crate::{
     variables::{build_crypt, decrypt},
 };
 
-#[cfg(all(feature = "private", feature = "enterprise"))]
 use crate::{
     global_settings::{load_value_from_global_settings, SECRET_BACKEND_SETTING},
+    secret_backend::SecretBackendConfig,
+};
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+use crate::{
     secret_backend::{
         AwsSecretsManagerBackend, AwsSecretsManagerSettings, AzureKeyVaultBackend,
-        AzureKeyVaultSettings, SecretBackendConfig, VaultBackend, VaultSettings,
+        AzureKeyVaultSettings, VaultBackend, VaultSettings,
     },
 };
 
@@ -82,7 +86,32 @@ lazy_static::lazy_static! {
 /// EE: Returns configured backend (Database or Vault)
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
-    Ok(Arc::new(DatabaseBackend::new(db.clone())))
+    // Read the configured backend rather than assuming the database. Only
+    // backends that exist in this build are accepted; the Enterprise ones
+    // report that plainly instead of being silently downgraded to the database,
+    // which would put plaintext where the operator asked for none.
+    let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
+        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
+        None => SecretBackendConfig::default(),
+    };
+
+    match config {
+        SecretBackendConfig::Database => Ok(Arc::new(DatabaseBackend::new(db.clone()))),
+        #[cfg(feature = "keychain")]
+        SecretBackendConfig::AppleKeychain(settings) => {
+            Ok(Arc::new(crate::secret_backend::keychain::KeychainBackend::new(settings)))
+        }
+        #[cfg(not(feature = "keychain"))]
+        SecretBackendConfig::AppleKeychain(_) => Err(Error::internal_err(
+            "the Apple Keychain secret backend is configured but this build was made \
+             without the `keychain` feature"
+                .to_string(),
+        )),
+        other => Err(Error::internal_err(format!(
+            "secret backend {:?} requires Windmill Enterprise Edition",
+            std::mem::discriminant(&other)
+        ))),
+    }
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]

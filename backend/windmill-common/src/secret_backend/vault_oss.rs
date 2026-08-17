@@ -86,6 +86,18 @@ pub async fn create_secret_backend(
             );
             Ok(Arc::new(DatabaseBackend::new(db)))
         }
+        // Без отката к базе, в отличие от Enterprise-веток выше: откат записал
+        // бы открытый текст ровно туда, откуда его этим бэкендом и убирают.
+        #[cfg(feature = "keychain")]
+        SecretBackendConfig::AppleKeychain(settings) => Ok(Arc::new(
+            crate::secret_backend::keychain::KeychainBackend::new(settings.clone()),
+        )),
+        #[cfg(not(feature = "keychain"))]
+        SecretBackendConfig::AppleKeychain(_) => Err(crate::error::Error::internal_err(
+            "the Apple Keychain secret backend is configured but this build was made \
+             without the `keychain` feature"
+                .to_string(),
+        )),
     }
 }
 

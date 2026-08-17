@@ -13,6 +13,10 @@
 //! vaults like HashiCorp Vault (Enterprise Edition).
 
 pub mod database;
+/// Apple Keychain. Behind a feature flag and off by default: it is only useful
+/// on a macOS host, and the native transport needs the Security framework.
+#[cfg(feature = "keychain")]
+pub mod keychain;
 pub mod resolver;
 
 pub use resolver::*;
@@ -106,6 +110,8 @@ pub enum SecretBackendConfig {
     AzureKeyVault(AzureKeyVaultSettings),
     /// Store secrets in AWS Secrets Manager (Enterprise Edition only)
     AwsSecretsManager(AwsSecretsManagerSettings),
+    /// Store secrets as generic password items in an Apple Keychain
+    AppleKeychain(KeychainSettings),
 }
 
 impl Default for SecretBackendConfig {
@@ -187,6 +193,41 @@ pub struct AwsSecretsManagerSettings {
     /// Prefix for secret names in AWS Secrets Manager (e.g., "windmill/")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
+}
+
+/// How the backend reaches a keychain.
+///
+/// Windmill is often not the process that can talk to one: in a Linux container
+/// there is no Security framework and no access to the host's keychain. The
+/// helper transport exists for exactly that case and is what makes this backend
+/// usable outside a macOS-native deployment.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum KeychainTransport {
+    /// Call the Security framework directly. Requires Windmill itself to run on
+    /// macOS, and requires the keychain to be unlocked: a locked keychain fails
+    /// the request rather than prompting, since there is nobody to answer a
+    /// prompt on a server.
+    Native,
+    /// Run an operator-provided command. Two arguments are appended to it, the
+    /// operation (`get`, `set`, `delete`) and the service name; a value is
+    /// passed on stdin for `set` and returned on stdout for `get`. Exit code 44
+    /// means "no such item"; any other non-zero exit is an error.
+    Helper { command: Vec<String> },
+}
+
+/// Settings for the Apple Keychain backend
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KeychainSettings {
+    /// Prefix of the keychain service name, e.g. "windmill". The full name is
+    /// `<prefix>/<workspace>/<path>`, which keeps several workspaces apart and
+    /// stays readable when an operator inspects the keychain by hand.
+    pub service_prefix: String,
+    /// Account attribute of the items. Defaults to "windmill".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    /// Native or helper.
+    pub transport: KeychainTransport,
 }
 
 /// Result of a secret migration operation

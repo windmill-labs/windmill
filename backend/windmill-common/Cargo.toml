@@ -5,6 +5,9 @@ authors.workspace = true
 edition.workspace = true
 
 [features]
+# Apple Keychain как хранилище секретов. Выключен по умолчанию: полезен только
+# там, где рядом есть macOS, а нативный доступ требует Security framework.
+keychain = ["dep:security-framework"]
 default = []
 enterprise = ["dep:aws-config"]
 instance_config_schema = ["dep:schemars"]
@@ -139,3 +142,8 @@ tikv-jemalloc-ctl = { optional = true, workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 sysinfo.workspace = true
+
+# Только под macOS: на других платформах бэкенд остаётся доступным через
+# helper-транспорт, которому фреймворк не нужен.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "2.11", optional = true }
