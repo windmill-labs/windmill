@@ -19,7 +19,11 @@ import {
 import type { SetupStep } from '../wizards/SetupChecklist.svelte'
 import { instanceSetupSteps } from './instanceDbSteps'
 import { claim, stillOurs, type Claims } from './setupClaims'
-import { DEFAULT_SSLMODE, type PostgresConnectionParts } from '$lib/utils/postgresConnectionString'
+import {
+	DEFAULT_SSLMODE,
+	parsePostgresConnectionString,
+	type PostgresConnectionParts
+} from '$lib/utils/postgresConnectionString'
 import {
 	createSupabaseProject,
 	generateDbPassword,
@@ -126,7 +130,14 @@ export function intentComplete(state: WizardState): boolean {
 			: !!state.supabase.project && !!state.supabase.password
 	}
 	if (state.provider === 'instance') return !!state.instance.dbName?.trim()
-	return state.own.creating ? !!newResourceParts(state) : !!state.own.resourcePath
+	if (!state.own.creating) return !!state.own.resourcePath
+	// Text that will not parse leaves the fields on their last good values, which is what makes
+	// it correctable -- but the connection on screen is then not the one they describe, and
+	// testing or saving the old one behind an unparseable string points the data table
+	// somewhere nobody asked for.
+	if (state.own.form === 'string' && !parsePostgresConnectionString(state.own.connectionString))
+		return false
+	return !!newResourceParts(state)
 }
 
 /**

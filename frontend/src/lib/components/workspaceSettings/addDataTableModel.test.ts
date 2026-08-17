@@ -44,7 +44,13 @@ vi.mock('$lib/gen', () => ({
 	}
 }))
 
-import { newResourceParts, newWizardState, runSetup, type WizardState } from './addDataTableModel'
+import {
+	intentComplete,
+	newResourceParts,
+	newWizardState,
+	runSetup,
+	type WizardState
+} from './addDataTableModel'
 import { noClaims } from './setupClaims'
 
 /** Nothing at the path: the reads that answer "is this ours?" find no object. */
@@ -358,5 +364,38 @@ describe('runSetup writing over its own secret', () => {
 			claims: [{ kind: 'secret' as const, path: MINTED_PATH, mark: '2026-01-01T00:00:00Z' }]
 		} as any)
 		expect(result.error ?? '').not.toContain('was created at')
+	})
+})
+
+// Editing a valid string into an invalid one keeps the fields, so they stay correctable. What
+// must not happen is testing or saving those fields while the string on screen says otherwise.
+describe('intentComplete with a connection string on screen', () => {
+	function typed(connectionString: string): WizardState {
+		const state = newWizardState({ name: 'main', projectName: 'x', folder: 'f/team' })
+		state.provider = 'resource'
+		state.own.creating = true
+		state.own.form = 'string'
+		state.own.connectionString = connectionString
+		state.own.fields = {
+			host: 'db.example.com',
+			port: 5432,
+			dbname: 'mydb',
+			user: 'u',
+			password: 'p',
+			sslmode: 'require'
+		}
+		return state
+	}
+
+	it('refuses a string that will not parse, whatever the fields still hold', () => {
+		expect(intentComplete(typed('postgres://u:p@db.example.com:5432/mydb'))).toBe(true)
+		expect(intentComplete(typed('postgres://u:p@db.exa'))).toBe(false)
+		expect(intentComplete(typed(''))).toBe(false)
+	})
+
+	it('is unaffected once the fields are the notation on screen', () => {
+		const state = typed('nonsense')
+		state.own.form = 'fields'
+		expect(intentComplete(state)).toBe(true)
 	})
 })
