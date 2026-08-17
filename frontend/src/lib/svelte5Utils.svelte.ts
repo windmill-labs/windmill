@@ -18,13 +18,7 @@ export function createState<T>(initialValue: T): T {
 	return s
 }
 
-// Annotated: the inferred `Snapshot<T>` is a deep conditional type TS refuses to
-// serialize into a declaration file (TS7056), which breaks the shared-utils build.
-// `Snapshot<T>` is not exported from the `$state` namespace, and it only differs
-// from `T` for Date/Map/Set, which no caller snapshots.
-export function stateSnapshot<T>(state: T): T {
-	return $state.snapshot(state) as T
-}
+export { stateSnapshot } from './stateSnapshot.svelte'
 export function refreshStateStore<T>(store: StateStore<T>): void {
 	store.val = $state.snapshot(store.val) as any
 }
