@@ -2188,13 +2188,50 @@ async fn test_datatable_connection(
     check_datatable_connection(&db, db_resource).await
 }
 
+/// Authenticate the way the worker will, or the probe answers a question nobody asked. A
+/// resource with `use_iam_auth` is never given a password, so password auth fails on it every
+/// time -- and the wizard makes this check mandatory, so that resource could never be set up.
+/// The selection mirrors `PgAuthMode::of` in `windmill-worker/src/pg_executor.rs`, which stays
+/// the authority; this is the same rule at the one other place that opens such a connection.
+async fn connect_as_the_worker_would(
+    pg_db: &PgDatabase,
+    db: &DB,
+) -> Result<(tokio_postgres::Client, windmill_common::TokioPgConnection)> {
+    let workload_identity = pg_db.password.as_deref().map(str::trim)
+        == Some(windmill_common::azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD);
+    if pg_db.use_iam_auth == Some(true) {
+        if workload_identity {
+            return Err(Error::BadRequest(
+                "IAM RDS authentication cannot use the Azure workload identity password"
+                    .to_string(),
+            ));
+        }
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        return Ok(pg_db.connect_with_iam().await?);
+        #[cfg(not(all(feature = "enterprise", feature = "private")))]
+        return Err(Error::BadRequest(
+            "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+        ));
+    }
+    if workload_identity {
+        #[cfg(feature = "enterprise")]
+        return Ok(pg_db.connect_with_workload_identity().await?);
+        #[cfg(not(feature = "enterprise"))]
+        return Err(Error::BadRequest(
+            "Azure workload identity authentication requires Windmill Enterprise Edition"
+                .to_string(),
+        ));
+    }
+    Ok(pg_db.connect(Some(db)).await?)
+}
+
 async fn check_datatable_connection(
     db: &DB,
     db_resource: serde_json::Value,
 ) -> JsonResult<DataTableConnectionCheck> {
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = pg_db.connect(Some(db)).await?;
+    let (client, connection) = connect_as_the_worker_would(&pg_db, db).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     // One round trip, no side effects: `has_*_privilege` answers for the
@@ -2290,7 +2327,6 @@ async fn test_datatable_connection_value(
     Json(value): Json<serde_json::Value>,
 ) -> JsonResult<DataTableConnectionCheck> {
     require_admin(authed.is_admin, &authed.username)?;
-    reject_indirection(&value)?;
 
     // The host is the whole point of the record: this is the API server dialling out to
     // somewhere the request named, and nothing else writes that down.
@@ -2310,31 +2346,12 @@ async fn test_datatable_connection_value(
     )
     .await?;
 
-    let db_resource =
-        windmill_common::workspaces::transform_json_value_unchecked(&value, &w_id, &db).await?;
-    check_datatable_connection(&db, db_resource).await
-}
-
-/// The body of a connection test is written entirely by its caller, and the transform it
-/// feeds resolves `$var:`/`$res:` with no permission check of its own. Left open, this
-/// endpoint would decrypt any secret in the workspace and hand it to a host the same request
-/// chose -- from the API server, and without the audit trail a normal variable read leaves.
-/// Callers testing something unsaved hold the literal value already, so refusing costs them
-/// nothing.
-fn reject_indirection(value: &serde_json::Value) -> Result<()> {
-    let indirect = match value {
-        serde_json::Value::String(s) => s.starts_with("$var:") || s.starts_with("$res:"),
-        serde_json::Value::Array(a) => a.iter().any(|v| reject_indirection(v).is_err()),
-        serde_json::Value::Object(o) => o.values().any(|v| reject_indirection(v).is_err()),
-        _ => false,
-    };
-    if indirect {
-        return Err(Error::BadRequest(
-            "Connection values must be literal: $var: and $res: references are not resolved here"
-                .to_string(),
-        ));
-    }
-    Ok(())
+    // Used exactly as sent. The body of this test is written entirely by its caller, and the
+    // resolving transform the other endpoint uses would decrypt any secret in the workspace
+    // and hand it to a host the same request chose, with no permission check of its own. Not
+    // calling it is what makes that impossible -- and it is also what lets a password that
+    // happens to start with `$var:` be tested, which Postgres allows and a filter would not.
+    check_datatable_connection(&db, value).await
 }
 
 async fn list_datatable_schemas(
@@ -2691,20 +2708,6 @@ fn truncate_column_default(default: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The transform this body feeds resolves references with no permission check, so the
-    /// refusal is a security boundary rather than input tidiness -- and a nested one is just
-    /// as dangerous as a top-level one.
-    #[test]
-    fn connection_values_may_not_carry_variable_or_resource_references() {
-        assert!(reject_indirection(&serde_json::json!({ "host": "db", "port": 5432 })).is_ok());
-        assert!(reject_indirection(&serde_json::json!({ "password": "$var:u/alice/s" })).is_err());
-        assert!(reject_indirection(&serde_json::json!({ "db": "$res:f/team/pg" })).is_err());
-        assert!(reject_indirection(&serde_json::json!(["$var:u/alice/s"])).is_err());
-        assert!(
-            reject_indirection(&serde_json::json!({ "a": { "b": ["$res:f/team/pg"] } })).is_err()
-        );
-    }
 
     #[test]
     fn compact_column_type_truncates_multibyte_defaults_safely() {
