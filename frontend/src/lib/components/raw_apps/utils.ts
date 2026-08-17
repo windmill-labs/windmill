@@ -3,7 +3,7 @@ import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
-import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+import { stateSnapshot } from '$lib/stateSnapshot.svelte'
 import { appSourceToDraftValue, normalizeRawAppData } from './rawAppDraftValue'
 
 // export type RunnableWithFields = any
