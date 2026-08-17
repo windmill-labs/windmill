@@ -268,15 +268,24 @@ async fn get_or_create_aws_sm_backend(
 ///
 /// OSS: Always returns false
 /// EE: Checks global settings
-#[cfg(not(all(feature = "private", feature = "enterprise")))]
-pub async fn is_vault_backend_configured(_db: &DB) -> Result<bool> {
-    Ok(false)
-}
-
-#[cfg(all(feature = "private", feature = "enterprise"))]
+/// Whether secrets live in a backend outside the database.
+///
+/// Compiled unconditionally. The OSS copy used to answer `false` outright, which
+/// was true while no external backend existed there; with Apple Keychain
+/// available it meant deleting a variable never reached the backend, so the row
+/// went away and the keychain item was left orphaned.
+///
+/// The name is kept for now because it is used across several crates, but it
+/// answers for any external backend, not only Vault.
 pub async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
+    // Fail closed on an unreadable setting, as elsewhere: treating it as "no
+    // external backend" would silently stop deleting secrets from the backend.
     let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
-        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
+        Some(value) => serde_json::from_value::<SecretBackendConfig>(value).map_err(|e| {
+            Error::internal_err(format!(
+                "the {SECRET_BACKEND_SETTING} instance setting could not be read: {e}"
+            ))
+        })?,
         None => SecretBackendConfig::default(),
     };
 
