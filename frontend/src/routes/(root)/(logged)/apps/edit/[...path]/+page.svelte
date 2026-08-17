@@ -260,7 +260,7 @@
 				summary: savedDraftApp?.summary ?? '',
 				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
-				// `execution_mode` required; matches the new-app seed above.
+				// Matches the new-app seed above.
 				policy: { execution_mode: 'publisher' } as any,
 				custom_path: undefined,
 				versions: undefined as any,

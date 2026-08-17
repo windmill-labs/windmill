@@ -206,7 +206,7 @@
 					path
 				})
 			}
-			// Backend's `Policy` requires `execution_mode` (empty object fails to deserialize).
+			// `publisher` is the default authoring mode.
 			const defaultPolicy = {
 				on_behalf_of: $userStore?.username.includes('@')
 					? $userStore?.username
@@ -345,7 +345,7 @@
 				data: savedRawAppDraft?.data
 			}
 			backendApp.summary = savedRawAppDraft?.summary ?? ''
-			// `execution_mode` required; fall back to publisher when unset.
+			// Fall back to the default authoring mode when the draft carries no policy.
 			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher' }
 			backendApp.custom_path = savedRawAppDraft?.custom_path
 			backendApp.path = page.params.path ?? ''
