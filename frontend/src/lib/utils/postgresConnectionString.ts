@@ -69,10 +69,11 @@ export function parsePostgresConnectionString(
 const REPRESENTABLE_PARAMS = ['sslmode']
 
 /**
- * Parameters that change nothing about what the connection reaches or how it is secured, so
- * losing them costs the user nothing.
+ * Parameters that change nothing about what the connection reaches, how it is secured, or how
+ * it behaves, so losing them costs the user nothing. `connect_timeout` is deliberately not one
+ * of them: the backend applies its own fixed timeout, so honouring it is not on offer.
  */
-const COSMETIC_PARAMS = ['application_name', 'connect_timeout']
+const COSMETIC_PARAMS = ['application_name']
 
 /**
  * The name of a parameter this string carries that the resource cannot honour.

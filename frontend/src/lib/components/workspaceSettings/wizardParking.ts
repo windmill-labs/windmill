@@ -7,7 +7,7 @@
  * parked without pulling the whole wizard into that page's bundle.
  */
 
-import type { SupabaseConnectionMode, SupabaseOrg } from './supabaseProvisioning'
+import type { SupabaseConnectionMode, SupabaseOrg, SupabaseProject } from './supabaseProvisioning'
 import type { Claim } from './setupClaims'
 import type { CreatedProject } from './addDataTableModel'
 
@@ -36,6 +36,9 @@ export type WizardResume = {
 	 */
 	mode?: 'existing' | 'create'
 	org?: SupabaseOrg
+	/** The project that was picked. Without it a resume selects the first in the list, which is
+	 *  a different database from the one whose password the user had already typed. */
+	project?: SupabaseProject
 	connectionMode?: SupabaseConnectionMode
 }
 

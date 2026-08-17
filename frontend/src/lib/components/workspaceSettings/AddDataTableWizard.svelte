@@ -364,6 +364,7 @@
 				createdProjects,
 				mode: wiz.supabase.mode,
 				org: wiz.supabase.org,
+				project: wiz.supabase.project,
 				connectionMode: wiz.supabase.connectionMode
 			})
 	})
@@ -398,6 +399,10 @@
 			// default, a run that died mid-create comes back asking for the password it generated.
 			if (resume.mode) wiz.supabase.mode = resume.mode
 			if (resume.org) wiz.supabase.org = resume.org
+			// The password is deliberately not parked -- it is a secret and sessionStorage is not
+			// the place for one. Carrying the project is what stops the resume landing on a
+			// different database with an empty password field and no sign anything moved.
+			if (resume.project) wiz.supabase.project = resume.project
 			if (resume.connectionMode) wiz.supabase.connectionMode = resume.connectionMode
 			const cut = resume.resourcePath?.lastIndexOf('/') ?? -1
 			if (resume.resourcePath && cut > 0) {

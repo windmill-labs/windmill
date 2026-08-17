@@ -121,11 +121,17 @@ describe('unsupportedConnectionParam', () => {
 		)
 	})
 
+	// The backend applies its own connect timeout, so accepting one and dropping it would make
+	// `connect_timeout=1` mean a twenty-second wait.
+	it('names a parameter whose behaviour the backend overrides', () => {
+		expect(unsupportedConnectionParam('postgres://u:p@h/db?connect_timeout=1')).toBe(
+			'connect_timeout'
+		)
+	})
+
 	it('ignores the one it can store, and the ones that cost nothing', () => {
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?sslmode=require')).toBeUndefined()
-		expect(
-			unsupportedConnectionParam('postgres://u:p@h/db?application_name=wm&connect_timeout=5')
-		).toBeUndefined()
+		expect(unsupportedConnectionParam('postgres://u:p@h/db?application_name=wm')).toBeUndefined()
 		expect(unsupportedConnectionParam('postgres://u:p@h/db')).toBeUndefined()
 	})
 })
