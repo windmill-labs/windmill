@@ -907,9 +907,11 @@ lazy_static::lazy_static! {
 /// runnables. All-or-nothing per workspace: it is a `builder` flag on `operator_settings`, not a
 /// per-user role, so every operator of the workspace gets it (and consumes a full seat).
 ///
-/// Read on every flow/app write and preview, so it is cached with a 60s TTL. Invalidation is
-/// per-process (see [`invalidate_operator_builder_cache`]): another server in the fleet keeps
-/// serving the old value until its own entry expires.
+/// Read on every flow/app write and preview, so it is cached with a 60s TTL. This gates writes,
+/// so a revocation cannot wait out that TTL on the rest of the fleet: an `AFTER UPDATE OF
+/// operator_settings` trigger publishes `notify_operator_settings_change` and every server drops
+/// its entry through `process_notify_event`. [`invalidate_operator_builder_cache`] is the local
+/// half of that, and what a test flipping the setting directly has to call itself.
 pub async fn operator_builder_enabled(db: &DB, workspace_id: &str) -> Result<bool> {
     let now = chrono::Utc::now().timestamp();
 

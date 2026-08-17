@@ -1906,9 +1906,10 @@ async fn store_raw_app_file<'a>(
 ///
 /// Returns every workspace runnable the app can end up invoking, as `(is_flow, path)`, for
 /// [`validate_operator_composed_app`] to authorize. That comes from two surfaces, not one: the
-/// policy's triggerables, and the value's `runnableByPath` entries, which is what the deployed
-/// bundle resolves a `runnable_id` against and sends. An app with an empty triggerables map still
-/// reaches the second.
+/// policy's triggerables, and the value's path-referencing runnables (`type: "runnableByPath"` and
+/// the `type: "path"` the raw-app editor persists), which is what the deployed bundle resolves a
+/// `runnable_id` against and sends. An app with an empty triggerables map still reaches the
+/// second.
 fn check_operator_composed_app(
     raw_app: bool,
     value: Option<&RawValue>,
