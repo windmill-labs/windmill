@@ -434,14 +434,28 @@ input[type='time']::-webkit-calendar-picker-indicator {
 }
 
 /* Renders a brand icon in the surrounding text colour, for control strips where a
-   coloured mark would break the set — a trigger picker mixing lucide glyphs with
-   Kafka/GCP/AWS marks, for instance. Overriding the paint rather than passing a
-   text-* class is what makes this work on every icon: most brand marks hardcode
-   their fills and never read currentColor, and some have no class prop to pass.
-   !important is load-bearing — a handful paint through style="fill:…", which no
-   selector can outrank. Stroke is only redirected where one is actually declared,
-   so shapes carrying stroke="none" do not sprout outlines. */
-.icon-mono :where(svg, svg *) {
+   coloured mark would break the set - a trigger picker mixing lucide glyphs with
+   Kafka/GCP/AWS marks, for instance.
+
+   Three things have to happen, and each has a trap:
+
+   1. Brand marks that paint with currentColor set their own colour via a text-[#hex]
+      class, so redirecting fills alone leaves them branded. The colour has to be
+      inherited from the container.
+   2. Marks with hardcoded fills need those fills redirected. !important is required:
+      a handful paint through style="fill:#..", which no selector outranks.
+   3. Lucide icons are outlines - fill="none" with stroke="currentColor" - so forcing
+      fill on them turns every glyph into a solid blob. They must be left alone, which
+      is why the filled case is scoped to svgs that do not declare fill="none", and the
+      outline case only redirects children that declare a real fill of their own. */
+.icon-mono :where(svg) {
+	color: inherit !important;
+}
+.icon-mono :where(svg:not([fill='none']), svg:not([fill='none']) *) {
+	fill: currentColor !important;
+}
+.icon-mono :where(svg[fill='none'] *)[fill]:not([fill='none']),
+.icon-mono :where(svg[fill='none'] *)[style*='fill:#'] {
 	fill: currentColor !important;
 }
 .icon-mono :where(svg, svg *)[stroke]:not([stroke='none']) {

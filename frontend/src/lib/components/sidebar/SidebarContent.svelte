@@ -575,7 +575,10 @@
 					</button>
 				{/if}
 				{#if isCollapsed || !triggersCollapsed.val}
-					<div transition:slide={{ duration: 180 }}>
+					<!-- icon-mono: trigger links mix lucide glyphs with Kafka/MQTT/NATS/GCP brand
+						marks, and the nav reads as one set. Applied to the whole section so the
+						"more triggers" menu below matches the pinned links. -->
+					<div transition:slide={{ duration: 180 }} class="icon-mono">
 						<Menubar class="flex flex-col gap-1">
 							{#snippet children({ createMenu })}
 								{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
