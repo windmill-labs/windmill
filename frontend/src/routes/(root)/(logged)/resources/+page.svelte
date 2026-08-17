@@ -17,6 +17,7 @@
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import FilterSearchbar, {
+		hasActiveFilters,
 		useUrlSyncedFilterInstance,
 		type FilterInstanceRec
 	} from '$lib/components/FilterSearchbar.svelte'
@@ -632,13 +633,7 @@
 		tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'
 	)
 
-	// Filtering is server-side, so an empty list alone can't tell "nothing here yet"
-	// apart from "the filters excluded everything". `false` doesn't count: the only
-	// boolean filter here (user_folders_only) narrows nothing when off, so treating it
-	// as active would hide the create CTA in an empty workspace.
-	let hasActiveFilters = $derived(
-		Object.values(filters.val).some((v) => v !== undefined && v !== null && v !== '' && v !== false)
-	)
+	let activeFilters = $derived(hasActiveFilters(filters.val))
 
 	const emptyStates: Record<string, { icon: any; title: string; description: string }> = {
 		workspace: {
@@ -1039,7 +1034,7 @@
 							<Skeleton layout={[[4], 0.7]} />
 						{/each}
 					{:else if filteredItems?.length == 0}
-						{#if hasActiveFilters}
+						{#if activeFilters}
 							<EmptyState
 								icon={SearchX}
 								title="No resources found"

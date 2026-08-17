@@ -20,6 +20,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import FilterSearchbar, {
+		hasActiveFilters,
 		useUrlSyncedFilterInstance
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildVariablesFilterSchema } from '$lib/components/variables/variablesFilter'
@@ -235,13 +236,7 @@
 	})
 	let tab: 'workspace' | 'contextual' = $state('workspace')
 
-	// Filtering is server-side, so an empty list alone can't tell "nothing here yet"
-	// apart from "the filters excluded everything". `false` doesn't count: the only
-	// boolean filter here (user_folders_only) narrows nothing when off, so treating it
-	// as active would hide the create CTA in an empty workspace.
-	let hasActiveFilters = $derived(
-		Object.values(filters.val).some((v) => v !== undefined && v !== null && v !== '' && v !== false)
-	)
+	let activeFilters = $derived(hasActiveFilters(filters.val))
 
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 
@@ -366,7 +361,7 @@
 							<Skeleton layout={[[3.5], 0.5]} />
 						{/each}
 					{:else if filteredItems.length == 0}
-						{#if hasActiveFilters}
+						{#if activeFilters}
 							<EmptyState
 								icon={SearchX}
 								title="No variables found"

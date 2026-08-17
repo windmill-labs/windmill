@@ -38,6 +38,7 @@
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import FilterSearchbar, {
+		hasActiveFilters,
 		useUrlSyncedFilterInstance
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
@@ -248,13 +249,7 @@
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
 
-	// loadSchedules() maps these onto API params, so filtering is server-side and an
-	// empty list alone can't tell "nothing here yet" apart from "the filters excluded
-	// everything". `false` doesn't count: a boolean filter that is off narrows nothing,
-	// so treating it as active would hide the create CTA in an empty workspace.
-	let hasActiveFilters = $derived(
-		Object.values(filters.val).some((v) => v !== undefined && v !== null && v !== '' && v !== false)
-	)
+	let activeFilters = $derived(hasActiveFilters(filters.val))
 	let allFolders = $derived(
 		Array.from(
 			new Set(
@@ -383,7 +378,7 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !schedules?.length}
-				{#if hasActiveFilters}
+				{#if activeFilters}
 					<EmptyState
 						icon={SearchX}
 						title="No schedules found"
