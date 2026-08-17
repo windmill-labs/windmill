@@ -28,6 +28,7 @@ use windmill_common::{
 };
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
+use crate::apps::PolicyTriggerableInputs;
 use crate::db::ApiAuthed;
 
 /// The bundle job's script, as its own file so it stays readable TypeScript.
@@ -41,6 +42,18 @@ const BUNDLE_TIMEOUT_SECS: i32 = 300;
 struct BundleResult {
     js_gz: String,
     css_gz: String,
+    /// Parsed rather than passed through: a policy the server cannot read is a
+    /// failed deploy, not an app whose runnables are refused at run time.
+    #[serde(default)]
+    triggerables_v2: HashMap<String, PolicyTriggerableInputs>,
+}
+
+/// What a bundle produced: the js/css a deployed raw app serves, and the
+/// `triggerables_v2` its policy grants.
+pub(crate) struct BundledApp {
+    pub js: String,
+    pub css: String,
+    pub triggerables_v2: HashMap<String, PolicyTriggerableInputs>,
 }
 
 /// This server's release, without the git describe suffix an off-tag build
@@ -51,16 +64,22 @@ fn release_version() -> String {
     format!("{}.{}.{}", v.major, v.minor, v.patch)
 }
 
-/// The build command the job falls back to when the worker has no usable `wmill`
-/// installed: the CLI for this server's release, fetched on the spot. A dev
-/// server is off-tag and so asks for the last release; to build with an
-/// unreleased CLI set `WM_RAW_APP_BUNDLER_CLI` to the whole command, e.g.
-/// `bun run /path/to/cli/src/main.ts app bundle` — which also stops the job from
-/// preferring an installed `wmill`.
-fn bundler_cli_command() -> Vec<String> {
+/// A `wmill app <subcommand>` the job falls back to when the worker has no
+/// usable `wmill` installed: the CLI for this server's release, fetched on the
+/// spot. A dev server is off-tag and so asks for the last release; to build with
+/// an unreleased CLI set `WM_RAW_APP_BUNDLER_CLI` to the whole bundle command,
+/// e.g. `bun run /path/to/cli/src/main.ts app bundle`, which also stops the job
+/// from preferring an installed `wmill`. The override names `bundle` because
+/// that is the command it existed for; the others sit next to it.
+fn bundler_cli_command(subcommand: &str) -> Vec<String> {
     match std::env::var("WM_RAW_APP_BUNDLER_CLI") {
         Ok(cmd) if !cmd.trim().is_empty() => {
-            cmd.split_whitespace().map(|s| s.to_string()).collect()
+            let mut parts: Vec<String> = cmd.split_whitespace().map(|s| s.to_string()).collect();
+            if parts.last().is_some_and(|s| s == "bundle") {
+                parts.pop();
+            }
+            parts.push(subcommand.to_string());
+            parts
         }
         // `bun x`, not `bunx`: the images copy the `bun` binary alone, so the
         // `bunx` entry point isn't on a worker's PATH.
@@ -70,7 +89,7 @@ fn bundler_cli_command() -> Vec<String> {
             "--bun".to_string(),
             format!("windmill-cli@{}", release_version()),
             "app".to_string(),
-            "bundle".to_string(),
+            subcommand.to_string(),
         ],
     }
 }
@@ -88,7 +107,8 @@ pub(crate) async fn bundle_raw_app_sources(
     authed: &ApiAuthed,
     w_id: &str,
     files: &HashMap<String, String>,
-) -> Result<(String, String)> {
+    runnables: &serde_json::value::RawValue,
+) -> Result<BundledApp> {
     crate::utils::check_scopes(authed, || "jobs:run".to_string())?;
 
     if files.is_empty() {
@@ -113,11 +133,16 @@ pub(crate) async fn bundle_raw_app_sources(
     let overridden = std::env::var("WM_RAW_APP_BUNDLER_CLI").is_ok_and(|c| !c.trim().is_empty());
     args.insert(
         "cli_command".to_string(),
-        to_raw_value(&bundler_cli_command()),
+        to_raw_value(&bundler_cli_command("bundle")),
     );
     args.insert(
         "prefer_installed_cli".to_string(),
         to_raw_value(&!overridden),
+    );
+    args.insert("runnables".to_string(), runnables.to_owned());
+    args.insert(
+        "policy_cli_command".to_string(),
+        to_raw_value(&bundler_cli_command("generate-policy")),
     );
 
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -179,7 +204,7 @@ async fn wait_for_bundle(
     w_id: &str,
     uuid: Uuid,
     authed: &ApiAuthed,
-) -> Result<(String, String)> {
+) -> Result<BundledApp> {
     let (result, success) = windmill_api_jobs::execution::run_wait_result_internal(
         db,
         uuid,
@@ -207,7 +232,7 @@ async fn wait_for_bundle(
     let limit = *crate::REQUEST_SIZE_LIMIT.read().await * 5;
     let js = gunzip_b64(&bundle.js_gz, limit)?;
     let css = gunzip_b64(&bundle.css_gz, limit - js.len())?;
-    Ok((js, css))
+    Ok(BundledApp { js, css, triggerables_v2: bundle.triggerables_v2 })
 }
 
 /// Bounded: what the job returns is compressed, so the result-size cap says

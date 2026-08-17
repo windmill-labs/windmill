@@ -14,8 +14,13 @@ export async function main(
 	shared_ui: Record<string, string> | undefined,
 	cli_command: string[],
 	// Set unless the server was told to build with a specific command.
-	prefer_installed_cli: boolean | undefined
-): Promise<{ js_gz: string; css_gz: string }> {
+	prefer_installed_cli: boolean | undefined,
+	// The app's `value.runnables`, whose policy is derived here for the same
+	// reason the bundle is built here: `wmill app generate-policy` is the one
+	// implementation of the key format, shared with the editor.
+	runnables: Record<string, unknown> | undefined,
+	policy_cli_command: string[]
+): Promise<{ js_gz: string; css_gz: string; triggerables_v2: Record<string, unknown> }> {
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
 
@@ -114,8 +119,56 @@ export async function main(
 		throw new Error('bundle produced no javascript:\n' + buildOutput)
 	}
 
+	// The policy's `triggerables_v2` is the allowlist the server matches every run
+	// against, keyed by a hash of each inline runnable's code. Derived by the CLI,
+	// not here and not by the server, so the keys are the ones the editor and
+	// `wmill app push` write — anything else leaves the app's runnables
+	// "forbidden by policy". An app with no runnables needs no grants, and
+	// skipping the spawn keeps the common case off this path entirely.
+	let triggerables_v2: Record<string, unknown> = {}
+	if (runnables && Object.keys(runnables).length > 0) {
+		const runnablesFile = path.join(dir, 'wm_runnables.json')
+		const policyFile = path.join(dir, 'wm_policy.json')
+		await fs.writeFile(runnablesFile, JSON.stringify(runnables))
+
+		// Same fallback as the build above: an installed CLI predating the command
+		// exits with cliffy's usage text, and only that sends us to the CLI for
+		// this server's release.
+		let generated = false
+		if (installed) {
+			const attempt = spawn([
+				installed,
+				'app',
+				'generate-policy',
+				runnablesFile,
+				'--out',
+				policyFile
+			])
+			const plain = attempt.output.replace(/\x1b\[[0-9;]*m/g, '')
+			if (attempt.ok) {
+				generated = true
+			} else if (!/Unknown command|Usage:\s+wmill app\b/.test(plain)) {
+				throw new Error(`generate-policy failed:\n${attempt.output}`)
+			}
+		}
+		if (!generated) {
+			run([...policy_cli_command, runnablesFile, '--out', policyFile], 'generate-policy')
+		}
+
+		// Never fall back to an empty policy: that deploys an app whose every
+		// runnable is refused at run time, which looks like a broken app rather
+		// than a failed deploy.
+		let policyRaw: string
+		try {
+			policyRaw = await fs.readFile(policyFile, 'utf8')
+		} catch {
+			throw new Error('generate-policy produced no policy file')
+		}
+		triggerables_v2 = JSON.parse(policyRaw).triggerables_v2 ?? {}
+	}
+
 	// Gzipped so a large app's bundle stays well inside MAX_RESULT_SIZE_MB, which
 	// a deployment can set far below the 500MB default.
 	const gz = (s: string) => Buffer.from(Bun.gzipSync(Buffer.from(s, 'utf8'))).toString('base64')
-	return { js_gz: gz(js), css_gz: gz(css) }
+	return { js_gz: gz(js), css_gz: gz(css), triggerables_v2 }
 }
