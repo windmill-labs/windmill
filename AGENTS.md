@@ -147,10 +147,11 @@ $NAV --root backend callees "X"                           # what does X call?
 - **Scratch stays outside the checkout.** Temp scripts, data dumps, cache backups and
   screenshots go in the session scratch directory or `/tmp`, so nothing temporary can end up
   committed. Write the paths in `rm`/`mv`/`cp` out literally: a PreToolUse hook proves each
-  operand, and auto-allows deletes under `/tmp` or inside this checkout, and `mv`/`cp`/`chmod`
-  under `/tmp`. Chaining and line breaks are fine, since every command on the line is proved on
-  its own operands, but a quoted or `$VAR` operand, a redirect, or a wrapper like `xargs rm`
-  cannot be proved, and that deferral is what turns a routine cleanup into a permission prompt.
+  operand, and auto-allows deletes, moves, copies and mode changes under `/tmp` or inside this
+  checkout, as long as one operation stays within a single one of those two roots (`tar` and
+  `unzip` stay `/tmp`-only). Chaining and line breaks are fine, since every command on the line
+  is proved on its own operands, but a quoted or `$VAR` operand, a `~`, a redirect, or a wrapper
+  like `xargs rm` cannot be proved, and that deferral is what turns a cleanup into a prompt.
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked
