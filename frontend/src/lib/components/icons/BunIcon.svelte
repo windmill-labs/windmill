@@ -1,12 +1,13 @@
 <script lang="ts">
 	interface Props {
-		height?: number;
-		width?: number;
+		height?: number
+		width?: number
 	}
 
-	let { height = 24, width = 24 }: Props = $props();
+	let { height = 24, width = 24 }: Props = $props()
 </script>
 
+<!-- #fbf0df per https://bun.com/logo.svg. Fixed full-colour mark: every fill matches the published SVG byte for byte, so it takes no per-theme variant. -->
 <svg
 	id="Bun"
 	xmlns="http://www.w3.org/2000/svg"

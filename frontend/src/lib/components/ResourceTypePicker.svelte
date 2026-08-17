@@ -9,6 +9,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import { untrack } from 'svelte'
+	import { resourceTypeSearchText } from './resourceTypeDisplay'
 	interface Props {
 		value: string | undefined
 		notPickable?: boolean
@@ -17,10 +18,14 @@
 
 	let { value = $bindable(), notPickable = false, nonePickable = false }: Props = $props()
 
-	let resources: string[] = $state([])
+	let resources: { name: string; searchText: string }[] = $state([])
 
 	async function loadResources() {
-		resources = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+		const types = await ResourceService.listResourceType({ workspace: $workspaceStore! })
+		resources = types.map((t) => ({
+			name: t.name,
+			searchText: resourceTypeSearchText(t.name, t.description)
+		}))
 	}
 
 	const dispatch = createEventDispatcher()
@@ -40,7 +45,7 @@
 	let search: string = $state('')
 
 	let filteredResources = $derived(
-		resources.filter((r) => r.toLowerCase().includes(search.toLowerCase()))
+		resources.filter((r) => r.searchText.toLowerCase().includes(search.toLowerCase()))
 	)
 </script>
 
@@ -78,18 +83,18 @@
 					</Button>
 				{/if}
 				{#each filteredResources as r}
-					{@const isPicked = value === r}
+					{@const isPicked = value === r.name}
 					<Button
 						size="sm"
 						variant="default"
 						selected={isPicked}
 						disabled={notPickable}
 						on:click={() => {
-							onClick(r)
+							onClick(r.name)
 							close()
 						}}
 					>
-						<IconedResourceType name={r} after={true} width="20px" height="20px" />
+						<IconedResourceType name={r.name} after={true} width="20px" height="20px" />
 					</Button>
 				{/each}
 

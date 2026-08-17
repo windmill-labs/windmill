@@ -4,6 +4,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
+	import { resourceTypeSearchText } from './resourceTypeDisplay'
 	import {
 		OauthService,
 		ResourceService,
@@ -22,7 +23,6 @@
 	import WhitelistIp from './WhitelistIp.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import OauthScopes from './OauthScopes.svelte'
-	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
 	import { base } from '$lib/base'
 	import Required from './Required.svelte'
@@ -98,6 +98,7 @@
 	let connectClient: string = $state('')
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
+	let resourceTypeSearchTexts: Record<string, string> = $state({})
 	let args: any = $state({})
 	let renderDescription = $state(true)
 
@@ -392,9 +393,13 @@
 		if (connectsManual) {
 			return
 		}
-		const availableRts = await ResourceService.listResourceTypeNames({
+		const availableRtTypes = await ResourceService.listResourceType({
 			workspace: effectiveWorkspace
 		})
+		const availableRts = availableRtTypes.map((t) => t.name)
+		resourceTypeSearchTexts = Object.fromEntries(
+			availableRtTypes.map((t) => [t.name, resourceTypeSearchText(t.name, t.description)])
+		)
 
 		// "Others" lists every resource type — including instance-configured OAuth
 		// providers — so any of them can also be connected with the user's own
@@ -880,13 +885,13 @@
 				}))
 			: undefined}
 		bind:filteredItems={filteredConnects}
-		f={(x) => x.key}
+		f={(x) => resourceTypeSearchTexts[x.key] ?? x.key}
 	/>
 	<SearchItems
 		{filter}
 		items={connectsManual}
 		bind:filteredItems={filteredConnectsManual}
-		f={(x) => x.key}
+		f={(x) => resourceTypeSearchTexts[x.key] ?? x.key}
 	/>
 	{#if step == 1}
 		<div class="pb-2 my-1">
@@ -991,7 +996,15 @@
 		</div>
 	{:else if step == 2 && manual}
 		<div class="flex flex-col gap-8">
+			{#if !emptyString(resourceTypeInfo?.description)}
+				<GfmMarkdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} prose="sm" noPadding />
+			{/if}
 			<Label label="Path">
+				<div class="text-xs text-secondary font-normal mb-1">
+					The path sets who can access this resource: a <code>u/</code> path is private to that
+					user, an <code>f/</code> path follows the folder's permissions — read access lets people use
+					the resource, write access lets them edit it.
+				</div>
 				<Path
 					bind:error={pathError}
 					bind:path
@@ -1011,9 +1024,9 @@
 			{/if}
 
 			{#if apiTokenApps[resourceType]}
-				<h2 class="mt-4 mb-2">Instructions</h2>
-				<div class="pl-10">
-					<ol class="list-decimal">
+				<div class="flex flex-col gap-2">
+					<h2 class="text-sm font-semibold text-emphasis">Instructions</h2>
+					<ol class="list-decimal pl-5 text-xs text-primary flex flex-col gap-1">
 						{#each apiTokenApps[resourceType].instructions as step}
 							<li>
 								{@html step}
@@ -1030,15 +1043,6 @@
 						/>
 					</div>
 				{/if}
-			{:else if !emptyString(resourceTypeInfo?.description)}
-				<label class="flex flex-col gap-1">
-					<span class="text-sm font-semibold text-emphasis">
-						{resourceTypeInfo?.name} description
-					</span>
-					<div class="text-xs text-primary font-normal">
-						<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
-					</div>
-				</label>
 			{/if}
 			{#if resourceType == 'postgresql' || resourceType == 'mysql' || resourceType == 'mongodb'}
 				<WhitelistIp />
@@ -1066,7 +1070,7 @@
 				{:else if description == undefined || description == ''}
 					<div class="text-xs text-primary font-normal">No description provided</div>
 				{:else}
-					<GfmMarkdown md={description} />
+					<GfmMarkdown md={description} prose="sm" />
 				{/if}
 			</div>
 
@@ -1122,12 +1126,11 @@
 				</div>
 
 				{#if resourceTypeInfo?.description}
-					<div class="flex flex-col gap-1">
-						<h3 class="text-sm font-semibold text-emphasis">Description</h3>
-						<div class="text-xs text-primary font-normal">
-							<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
-						</div>
-					</div>
+					<GfmMarkdown
+						md={urlize(resourceTypeInfo?.description ?? '', 'md')}
+						prose="sm"
+						noPadding
+					/>
 				{/if}
 
 				<LabelsInput bind:labels class="-mt-5" />

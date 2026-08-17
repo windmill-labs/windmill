@@ -9,6 +9,8 @@
 	import { isOwner } from '$lib/utils'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import ResourceVersionHistory from './ResourceVersionHistory.svelte'
+	import IconedResourceType from './IconedResourceType.svelte'
+	import { addResourceTitle } from './resourceTypeDisplay'
 
 	let {
 		workspace = undefined,
@@ -71,10 +73,15 @@
 
 <Drawer bind:this={drawer} size="50rem" {disableChatOffset}>
 	<DrawerContent
-		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
+		title={mode == 'edit' ? 'Edit ' + path : addResourceTitle(resource_type)}
 		bannerReserved={mode == 'edit'}
 		on:close={drawer?.closeDrawer}
 	>
+		{#snippet titleExtra()}
+			{#if mode == 'new' && resource_type}
+				<IconedResourceType name={resource_type} silent width="20px" height="20px" />
+			{/if}
+		{/snippet}
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}

@@ -7,6 +7,7 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #2CA01C per Intuit's own QuickBooks logotype SVG on developer.intuit.com (same value as the `quickbooks` brand token in intuit.com's design-system CSS). -->
 <svg
 	fill="#2CA01C"
 	{width}

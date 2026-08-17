@@ -8,6 +8,8 @@
 	let { size = 16, color = undefined, class: clazz = '' }: Props = $props()
 </script>
 
+<!-- #0078D4 per Microsoft's own logo_azure.svg (learn.microsoft.com/media/logos/logo_azure.svg), whose outer wedges add the #114A8B->#0669BC and #3CCBF4->#2892DF gradients. -->
+<!-- Drawn monochrome on currentColor on purpose; Microsoft's icon terms forbid distorting the mark and permit it only in diagrams, docs and training material. -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	width={`${size}px`}

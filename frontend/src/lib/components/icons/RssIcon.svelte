@@ -1,12 +1,14 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #FFA500 tile, #FFFFFF waves, per Mozilla's feed icon guidelines (mozilla.org/en-US/foundation/feed-icon-guidelines/),
+	 which mandate orange (or an inverted/greyscale variant) without fixing a hex; the mark must never be rotated or flipped. -->
 <svg
 	x="0px"
 	y="0px"

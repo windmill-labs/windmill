@@ -1,13 +1,15 @@
 <!-- Used under Fair Use: https://fr.wikipedia.org/wiki/Fichier:MySQL.svg -->
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #00758F wordmark / #F29111 dolphin accent per https://www.mysql.com/common/logos/mysql-logo.svg; drawn monochrome via currentColor here.
+	 MySQL's trademark policy forbids changing the logo's colours, so a full-colour variant must use exactly these. -->
 <svg
 	xmlns:xlink="http://www.w3.org/1999/xlink"
 	xmlns="http://www.w3.org/2000/svg"

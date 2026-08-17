@@ -7,6 +7,8 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #0078D4 per learn.microsoft.com/en-us/azure/architecture/icons — dominant blue of Microsoft's own SQL Server icon; the paler and indigo gradient stops here have no first-party source.
+	 Microsoft licenses its product icons for diagrams, docs, and training only, and forbids cropping, rotating, or reshaping them. -->
 <svg {width} {height} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
 	<g clip-path="url(#clip0_8666_6627)">
 		<g clip-path="url(#clip1_8666_6627)">

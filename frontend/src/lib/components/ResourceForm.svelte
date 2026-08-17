@@ -13,7 +13,6 @@
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
 	import { Pen } from 'lucide-svelte'
-	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
@@ -126,6 +125,10 @@
 	})
 </script>
 
+{#if !emptyString(resourceTypeInfo?.description)}
+	<GfmMarkdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} prose="sm" noPadding />
+{/if}
+
 {#if !hidePath}
 	<div>
 		{#if !can_write}
@@ -136,6 +139,11 @@
 			</div>
 		{/if}
 		<Label label="Path">
+			<div class="text-xs text-secondary font-normal mb-1">
+				The path sets who can access this resource: a <code>u/</code> path is private to that user,
+				an <code>f/</code> path follows the folder's permissions — read access lets people use the resource,
+				write access lets them edit it.
+			</div>
 			<Path
 				disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
 				bind:path
@@ -156,15 +164,6 @@
 	>
 		<Toggle bind:checked={wsSpecific} />
 	</Label>
-{/if}
-
-{#if !emptyString(resourceTypeInfo?.description)}
-	<div class="flex flex-col gap-1">
-		<h4 class="text-xs text-emphasis font-semibold">{resourceTypeInfo?.name} description</h4>
-		<div class="text-xs text-primary font-normal">
-			<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
-		</div>
-	</div>
 {/if}
 
 <div class="flex flex-col gap-1">
@@ -194,9 +193,7 @@
 	{:else if description == undefined || description == ''}
 		<div class="text-xs text-secondary font-normal">No description provided</div>
 	{:else}
-		<div class="text-xs text-primary font-normal">
-			<GfmMarkdown md={description} noPadding />
-		</div>
+		<GfmMarkdown md={description} prose="sm" noPadding />
 	{/if}
 </div>
 

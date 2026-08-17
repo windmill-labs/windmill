@@ -1,14 +1,15 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #584CCC per Adobe's own Acrobat Sign product icon (adobe.com/cc-shared/assets/img/product-icons/svg/acrobat-sign.svg); same value in the live app favicon. -->
 <svg {width} {height} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-	<rect x="1.5" y="1.5" width="21" height="21" rx="4.5" fill="#EB1000" />
+	<rect x="1.5" y="1.5" width="21" height="21" rx="4.5" fill="#584CCC" />
 	<path
 		fill="#fff"
 		fill-rule="evenodd"

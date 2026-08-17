@@ -1,12 +1,13 @@
 <script lang="ts">
 	interface Props {
-		height?: number;
-		width?: number;
+		height?: number
+		width?: number
 	}
 
-	let { height = 24, width = 24 }: Props = $props();
+	let { height = 24, width = 24 }: Props = $props()
 </script>
 
+<!-- #D97757 per https://claude.ai/favicon.svg (Anthropic's own asset); the glyph is knocked out in white on the tile. -->
 <svg
 	viewBox="0 0 24 24"
 	width={`${width}px`}

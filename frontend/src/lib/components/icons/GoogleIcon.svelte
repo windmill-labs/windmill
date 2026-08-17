@@ -1,36 +1,26 @@
 <script lang="ts">
 	interface Props {
-		size?: number
-		height?: number
-		width?: number
-		color?: string | undefined
-		class?: string
+		height?: string
+		width?: string
 	}
 
-	let {
-		size = undefined,
-		height: heightProp = 24,
-		width: widthProp = 24,
-		color = undefined,
-		class: clazz = ''
-	}: Props = $props()
-
-	const { width, height } = $derived(
-		size ? { width: size, height: size } : { width: widthProp, height: heightProp }
-	)
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg
-	role="img"
-	{width}
-	{height}
-	viewBox="0 0 168 168"
-	fill={color ?? 'currentColor'}
-	xmlns="http://www.w3.org/2000/svg"
-	class={clazz}
->
-<path d="M157.92 85.75C157.92 80.29 157.43 75.04 156.52 70H84V99.82H125.44C123.62 109.41 118.16 117.53 109.97 122.99V142.38H134.96C149.52 128.94 157.92 109.2 157.92 85.75Z"/>
-<path d="M83.9998 161C104.79 161 122.22 154.14 134.96 142.38L109.97 122.99C103.11 127.61 94.3598 130.41 83.9998 130.41C63.9798 130.41 46.9698 116.9 40.8798 98.7H15.2598V118.58C27.9298 143.71 53.8998 161 83.9998 161Z"/>
-<path d="M40.88 98.63C39.34 94.01 38.43 89.11 38.43 84C38.43 78.89 39.34 73.99 40.88 69.37V49.49H15.26C10.01 59.85 7 71.54 7 84C7 96.46 10.01 108.15 15.26 118.51L35.21 102.97L40.88 98.63Z"/>
-<path d="M83.9998 37.66C95.3398 37.66 105.42 41.58 113.47 49.14L135.52 27.09C122.15 14.63 104.79 7 83.9998 7C53.8998 7 27.9298 24.29 15.2598 49.49L40.8798 69.37C46.9698 51.17 63.9798 37.66 83.9998 37.66Z"/>
+<!-- #4285f4 (with #34a853 / #fbbc05 / #ea4335) per the G mark Google serves in accounts.google.com/gsi/client.
+	 developers.google.com/identity/branding-guidelines forbids changing the colour of the G. -->
+<svg {width} {height} viewBox="0 0 512 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+	<path
+		d="M501.8 261.8c0-18.2-1.6-35.6-4.7-52.4H256v99.1h137.8c-6.1 31.9-24.2 58.9-51.4 77V450h83.1c48.3-44.6 76.3-110.2 76.3-188.2"
+		style="fill:#4285f4"
+	/><path
+		d="M256 512c69.1 0 127.1-22.8 169.4-61.9l-83.1-64.5c-22.8 15.4-51.9 24.7-86.3 24.7-66.6 0-123.1-44.9-143.4-105.4H27.5V371C69.6 454.5 155.9 512 256 512"
+		style="fill:#34a853"
+	/><path
+		d="M112.6 304.6c-5.1-15.4-8.1-31.7-8.1-48.6s3-33.3 8.1-48.6v-66.1H27.5C10 175.7 0 214.6 0 256s10 80.3 27.5 114.7L93.8 319c0 .1 18.8-14.4 18.8-14.4"
+		style="fill:#fbbc05"
+	/><path
+		d="M256 101.9c37.7 0 71.2 13 98 38.2l73.3-73.3C382.8 25.4 325.1 0 256 0 155.9 0 69.6 57.5 27.5 141.3l85.2 66.1c20.2-60.5 76.7-105.5 143.3-105.5"
+		style="fill:#ea4335"
+	/><path d="M0 0h512v512H0z" style="fill:none" />
 </svg>

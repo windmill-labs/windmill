@@ -683,18 +683,19 @@
 
 <Drawer bind:this={resourceTypeViewer} size="800px">
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
-		<div>
-			<h1 class="mb-8 mt-4"
-				><IconedResourceType
-					name={resourceTypeViewerObj.rt}
-					formatExtension={resourceTypeViewerObj.formatExtension}
-					isFileset={resourceTypeViewerObj.isFileset}
-				/></h1
-			>
+		{#snippet titleExtra()}
+			<IconedResourceType
+				name={resourceTypeViewerObj.rt}
+				formatExtension={resourceTypeViewerObj.formatExtension}
+				isFileset={resourceTypeViewerObj.isFileset}
+				silent
+				width="20px"
+				height="20px"
+			/>
+		{/snippet}
+		<div class="flex flex-col gap-6">
 			{#if resourceTypeViewerObj.description}
-				<div class="py-2 box prose mb-8 text-secondary">
-					<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
-				</div>
+				<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} prose="sm" noPadding />
 			{/if}
 			{#if resourceTypeViewerObj.isFileset}
 				<Alert type="info" title="Fileset resource type">

@@ -228,6 +228,76 @@ import SpeechifyIcon from './SpeechifyIcon.svelte'
 import ConvertKitIcon from './ConvertKitIcon.svelte'
 import BrowserlessIcon from './BrowserlessIcon.svelte'
 import WizIcon from './WizIcon.svelte'
+import MailerLiteIcon from './MailerLiteIcon.svelte'
+import JotformIcon from './JotformIcon.svelte'
+import NewsApiIcon from './NewsApiIcon.svelte'
+import GreipIcon from './GreipIcon.svelte'
+import OdkIcon from './OdkIcon.svelte'
+import SalesflareIcon from './SalesflareIcon.svelte'
+import PaylocityIcon from './PaylocityIcon.svelte'
+import KustomerIcon from './KustomerIcon.svelte'
+import NetBoxIcon from './NetBoxIcon.svelte'
+import AbstractApiIcon from './AbstractApiIcon.svelte'
+import AcumbamailIcon from './AcumbamailIcon.svelte'
+import ChromaIcon from './ChromaIcon.svelte'
+import KoboToolboxIcon from './KoboToolboxIcon.svelte'
+import AblyIcon from './AblyIcon.svelte'
+import GorgiasIcon from './GorgiasIcon.svelte'
+import CertopusIcon from './CertopusIcon.svelte'
+import ZixflowIcon from './ZixflowIcon.svelte'
+import BotifyIcon from './BotifyIcon.svelte'
+import SensorTowerIcon from './SensorTowerIcon.svelte'
+import ZuploIcon from './ZuploIcon.svelte'
+import TomorrowIoIcon from './TomorrowIoIcon.svelte'
+import AcceloIcon from './AcceloIcon.svelte'
+import EnodeIcon from './EnodeIcon.svelte'
+import RecraftIcon from './RecraftIcon.svelte'
+import MeteosourceIcon from './MeteosourceIcon.svelte'
+import PhraseIcon from './PhraseIcon.svelte'
+import TheirStackIcon from './TheirStackIcon.svelte'
+import AssemblyAiIcon from './AssemblyAiIcon.svelte'
+import IfsIcon from './IfsIcon.svelte'
+import Ai21Icon from './Ai21Icon.svelte'
+import QoveryIcon from './QoveryIcon.svelte'
+import InkeepIcon from './InkeepIcon.svelte'
+import ContiguityIcon from './ContiguityIcon.svelte'
+import GristIcon from './GristIcon.svelte'
+import ButtondownIcon from './ButtondownIcon.svelte'
+import HoldedIcon from './HoldedIcon.svelte'
+import ExaIcon from './ExaIcon.svelte'
+import StraleIcon from './StraleIcon.svelte'
+import DustIcon from './DustIcon.svelte'
+import LangfuseIcon from './LangfuseIcon.svelte'
+import BasisTheoryIcon from './BasisTheoryIcon.svelte'
+import AdhookIcon from './AdhookIcon.svelte'
+import DocSpringIcon from './DocSpringIcon.svelte'
+import PersonaIcon from './PersonaIcon.svelte'
+import FoxentryIcon from './FoxentryIcon.svelte'
+import DeepInfraIcon from './DeepInfraIcon.svelte'
+import AttioIcon from './AttioIcon.svelte'
+import BasicHttpAuthIcon from './BasicHttpAuthIcon.svelte'
+import ApiKeyAuthIcon from './ApiKeyAuthIcon.svelte'
+import SignatureAuthIcon from './SignatureAuthIcon.svelte'
+import GpgKeyIcon from './GpgKeyIcon.svelte'
+import LdapIcon from './LdapIcon.svelte'
+import FormInputIcon from './FormInputIcon.svelte'
+import QuestionInputIcon from './QuestionInputIcon.svelte'
+import RecordIcon from './RecordIcon.svelte'
+import AiAgentIcon from './AiAgentIcon.svelte'
+import AgentInstructionsIcon from './AgentInstructionsIcon.svelte'
+import CustomAiIcon from './CustomAiIcon.svelte'
+import JsonSchemaIcon from './JsonSchemaIcon.svelte'
+import TripadvisorIcon from './TripadvisorIcon.svelte'
+import BaserowIcon from './BaserowIcon.svelte'
+import ArcGisIcon from './ArcGisIcon.svelte'
+import MezmoIcon from './MezmoIcon.svelte'
+import ReadmeIcon from './ReadmeIcon.svelte'
+import FormstackIcon from './FormstackIcon.svelte'
+import MapboxIcon from './MapboxIcon.svelte'
+import DbtIcon from './DbtIcon.svelte'
+import ShutterstockIcon from './ShutterstockIcon.svelte'
+import TaskadeIcon from './TaskadeIcon.svelte'
+import OauthIcon from './OauthIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -238,7 +308,9 @@ export const APP_TO_ICON_COMPONENT = {
 	gmail: GmailIcon,
 	gsheets: GSheetsIcon,
 	gitlab: GitlabIcon,
-	gcloud: GCloudIcon,
+	// GCloudIcon draws a generic hexagon glyph, not Google's cloud mark; both `gcloud` and
+	// `gcp_service_account` are Google Cloud, so both resolve to the official four-colour mark.
+	gcloud: GoogleCloudIcon,
 	gcal: GcalIcon,
 	gdrive: GdriveIcon,
 	airtable: AirtableIcon,
@@ -466,7 +538,78 @@ export const APP_TO_ICON_COMPONENT = {
 	speechify: SpeechifyIcon,
 	convertkit: ConvertKitIcon,
 	browserless: BrowserlessIcon,
-	wiz: WizIcon
+	wiz: WizIcon,
+	mailerlite: MailerLiteIcon,
+	jotform: JotformIcon,
+	newsapi: NewsApiIcon,
+	greip: GreipIcon,
+	odk: OdkIcon,
+	salesflare: SalesflareIcon,
+	paylocity: PaylocityIcon,
+	kustomer: KustomerIcon,
+	netbox: NetBoxIcon,
+	abstractapi: AbstractApiIcon,
+	acumbamail: AcumbamailIcon,
+	chromadb: ChromaIcon,
+	kobotoolbox: KoboToolboxIcon,
+	ably: AblyIcon,
+	gorgias: GorgiasIcon,
+	certopus: CertopusIcon,
+	zixflow: ZixflowIcon,
+	botify: BotifyIcon,
+	sensortower: SensorTowerIcon,
+	zuplo: ZuploIcon,
+	tomorrow: TomorrowIoIcon,
+	accelo: AcceloIcon,
+	enode: EnodeIcon,
+	recraft: RecraftIcon,
+	meteosource: MeteosourceIcon,
+	phrase: PhraseIcon,
+	their_stack: TheirStackIcon,
+	assemblyai: AssemblyAiIcon,
+	ifs_cloud_oidc: IfsIcon,
+	ai21: Ai21Icon,
+	qovery: QoveryIcon,
+	inkeep: InkeepIcon,
+	contiguity: ContiguityIcon,
+	grist: GristIcon,
+	buttondown: ButtondownIcon,
+	holded: HoldedIcon,
+	exa: ExaIcon,
+	strale: StraleIcon,
+	dust: DustIcon,
+	langfuse: LangfuseIcon,
+	basis_theory: BasisTheoryIcon,
+	adhook: AdhookIcon,
+	docspring: DocSpringIcon,
+	persona: PersonaIcon,
+	foxentry: FoxentryIcon,
+	deep_infra: DeepInfraIcon,
+	attio: AttioIcon,
+	basic_http_auth: BasicHttpAuthIcon,
+	api_key_auth: ApiKeyAuthIcon,
+	signature_auth: SignatureAuthIcon,
+	gpg_key: GpgKeyIcon,
+	ldap: LdapIcon,
+	form_input: FormInputIcon,
+	question_input: QuestionInputIcon,
+	record: RecordIcon,
+	ai_agent: AiAgentIcon,
+	agent_instructions: AgentInstructionsIcon,
+	customai: CustomAiIcon,
+	json_schema: JsonSchemaIcon,
+	tripadvisor: TripadvisorIcon,
+	baserow: BaserowIcon,
+	baserow_table: BaserowIcon,
+	arcgis_account: ArcGisIcon,
+	mezmo: MezmoIcon,
+	readme: ReadmeIcon,
+	formstack: FormstackIcon,
+	mapbox: MapboxIcon,
+	dbt_profile: DbtIcon,
+	shutterstock: ShutterstockIcon,
+	taskade: TaskadeIcon,
+	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
 // Resource types are named `<app>` or `<app>_<variant>` (e.g. `airtable_table`), so an
@@ -693,5 +836,75 @@ export {
 	SpeechifyIcon,
 	ConvertKitIcon,
 	BrowserlessIcon,
-	WizIcon
+	WizIcon,
+	MailerLiteIcon,
+	JotformIcon,
+	NewsApiIcon,
+	GreipIcon,
+	OdkIcon,
+	SalesflareIcon,
+	PaylocityIcon,
+	KustomerIcon,
+	NetBoxIcon,
+	AbstractApiIcon,
+	AcumbamailIcon,
+	ChromaIcon,
+	KoboToolboxIcon,
+	AblyIcon,
+	GorgiasIcon,
+	CertopusIcon,
+	ZixflowIcon,
+	BotifyIcon,
+	SensorTowerIcon,
+	ZuploIcon,
+	TomorrowIoIcon,
+	AcceloIcon,
+	EnodeIcon,
+	RecraftIcon,
+	MeteosourceIcon,
+	PhraseIcon,
+	TheirStackIcon,
+	AssemblyAiIcon,
+	IfsIcon,
+	Ai21Icon,
+	QoveryIcon,
+	InkeepIcon,
+	ContiguityIcon,
+	GristIcon,
+	ButtondownIcon,
+	HoldedIcon,
+	ExaIcon,
+	StraleIcon,
+	DustIcon,
+	LangfuseIcon,
+	BasisTheoryIcon,
+	AdhookIcon,
+	DocSpringIcon,
+	PersonaIcon,
+	FoxentryIcon,
+	DeepInfraIcon,
+	AttioIcon,
+	BasicHttpAuthIcon,
+	ApiKeyAuthIcon,
+	SignatureAuthIcon,
+	GpgKeyIcon,
+	LdapIcon,
+	FormInputIcon,
+	QuestionInputIcon,
+	RecordIcon,
+	AiAgentIcon,
+	AgentInstructionsIcon,
+	CustomAiIcon,
+	JsonSchemaIcon,
+	TripadvisorIcon,
+	BaserowIcon,
+	ArcGisIcon,
+	MezmoIcon,
+	ReadmeIcon,
+	FormstackIcon,
+	MapboxIcon,
+	DbtIcon,
+	ShutterstockIcon,
+	TaskadeIcon,
+	OauthIcon
 }
