@@ -1809,6 +1809,29 @@
     - the plan covers classifying an incoming email by urgency, routing it to a team, and posting urgent ones to Slack
     - the plan is specific about what would be built in Windmill (a flow and its steps, or the scripts involved)
 
+- id: global-planmode2-sketches-while-planning
+  prompt: |-
+    We're moving our nightly CSV export off a schedule and onto a webhook the vendor calls
+    when their file is ready. Work out how you'd rebuild it in Windmill — and draw me the
+    shape of it before you write anything, I find that easier to react to than prose.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+    planMode: true
+  # Both tools, because either alone is a different behaviour: create_artifact without
+  # exit_plan_mode means the model filed the plan as the drawing, and exit_plan_mode without
+  # create_artifact means the posture blocked the drawing it was asked for.
+  toolExpect:
+    requiredToolsUsed:
+      - create_artifact
+      - exit_plan_mode
+  judgeChecklist:
+    - saves a diagram of the proposed design as an artifact rather than only describing it in chat
+    - the diagram covers the webhook that starts the run and the steps that replace the nightly schedule
+    - hands the plan over with exit_plan_mode instead of leaving it in the artifact
+    - does not register the diagram as the session's plan document
+
 - id: global-npm1-script-search-package
   prompt: |-
     Find a good npm package for parsing RSS/Atom feeds and use it to create a draft Bun script
