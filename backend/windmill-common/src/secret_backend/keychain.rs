@@ -88,6 +88,18 @@ impl KeychainBackend {
     /// stdout is returned byte-for-byte. The protocol adds no delimiter on the
     /// way in, so the backend must not remove one on the way out — a secret that
     /// legitimately ends in a newline would otherwise come back changed.
+    /// Run the helper for one operation.
+    ///
+    /// `Ok(None)` means the helper reported "no such item" and is only produced
+    /// for `get`: treating exit 44 as a benign outcome of `set` would turn a
+    /// failed write into a reported success.
+    ///
+    /// For `get`, stdout is returned byte-for-byte. The protocol adds no
+    /// delimiter on the way in, so the backend must not remove one on the way
+    /// out — a secret that legitimately ends in a newline would otherwise come
+    /// back changed. For `set` and `delete` stdout is ignored entirely: the
+    /// operation has already happened, and refusing it over stray output would
+    /// report a failure for a secret that was in fact written.
     async fn helper(
         &self,
         cmd: &[String],
@@ -106,7 +118,11 @@ impl KeychainBackend {
             .arg(service)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            // stderr is discarded, not collected. Its contents are never
+            // propagated — a faulty helper may echo the value it was handed, and
+            // error text reaches both the log and the API client — so collecting
+            // it would only add a pipe that can fill and a buffer that can grow.
+            .stderr(std::process::Stdio::null())
             // A cancelled request must not leave a live process holding the
             // secret; Tokio does not kill children on drop by default.
             .kill_on_drop(true);
@@ -115,10 +131,10 @@ impl KeychainBackend {
             .spawn()
             .map_err(|_| Error::internal_err(format!("keychain helper {program} failed to start")))?;
 
-        // stdin is written by a separate task while the output pipes are being
-        // drained. Doing it in sequence deadlocks: a helper that fills its
-        // stdout or stderr pipe before reading stdin waits for us to read while
-        // we wait for it to read, and neither ever proceeds.
+        // stdin is written by a separate task while stdout is being drained.
+        // Doing it in sequence deadlocks: a helper that fills its stdout pipe
+        // before reading stdin waits for us to read while we wait for it to
+        // read, and neither ever proceeds.
         let mut stdin = child
             .stdin
             .take()
@@ -133,7 +149,24 @@ impl KeychainBackend {
             stdin.shutdown().await
         });
 
-        let out = tokio::time::timeout(HELPER_TIMEOUT, child.wait_with_output())
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::internal_err("keychain helper has no stdout"))?;
+        // Bounded at the source rather than checked afterwards: a limit applied
+        // to an already-collected buffer does not prevent the buffer from
+        // growing. One byte over the cap is enough to detect the overrun.
+        let reader = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(
+                &mut tokio::io::AsyncReadExt::take(&mut stdout, MAX_SECRET_BYTES as u64 + 1),
+                &mut buf,
+            )
+            .await
+            .map(|_| buf)
+        });
+
+        let status = tokio::time::timeout(HELPER_TIMEOUT, child.wait())
             .await
             .map_err(|_| {
                 Error::internal_err(format!(
@@ -143,13 +176,13 @@ impl KeychainBackend {
             })?
             .map_err(|_| Error::internal_err(format!("keychain helper {program} failed")))?;
 
-        // A write error is reported, but only after the process has been reaped:
-        // a helper that legitimately ignores stdin closes it early, and that is
-        // not a failure of the operation.
+        let stdout = reader
+            .await
+            .map_err(|_| Error::internal_err("keychain helper output task failed"))?
+            .map_err(|_| Error::internal_err("keychain helper output could not be read"))?;
         let wrote = writer.await;
 
-        let code = out.status.code();
-        if code == Some(HELPER_NOT_FOUND) {
+        if status.code() == Some(HELPER_NOT_FOUND) {
             if op == "get" {
                 return Ok(None);
             }
@@ -158,28 +191,31 @@ impl KeychainBackend {
                  {op} {service}, which is only meaningful for get"
             )));
         }
-        if !out.status.success() {
-            // The helper's stderr is deliberately not included. A faulty helper
-            // may echo the value it was given, and this message reaches both the
-            // log and the API client.
+        if !status.success() {
             return Err(Error::internal_err(format!(
-                "keychain helper failed on {op} {service}: {}",
-                out.status
+                "keychain helper failed on {op} {service}: {status}"
             )));
         }
-        if let Ok(Err(_)) = wrote {
+        // A stdin write failure matters only when there was something to send:
+        // for `set` the value may never have reached the helper, whatever its
+        // exit status claims. For `get` and `delete` there is nothing to send,
+        // and a helper that closes stdin early is within its rights.
+        if value.is_some() && !matches!(wrote, Ok(Ok(()))) {
             return Err(Error::internal_err(format!(
-                "keychain helper exited successfully but its stdin could not be \
-                 written for {op} {service}"
+                "keychain helper exited successfully but the value could not be \
+                 written to its stdin for {op} {service}"
             )));
         }
-        if out.stdout.len() > MAX_SECRET_BYTES {
+        if stdout.len() > MAX_SECRET_BYTES {
             return Err(Error::internal_err(format!(
                 "keychain helper returned more than {MAX_SECRET_BYTES} bytes for {op} {service}"
             )));
         }
 
-        String::from_utf8(out.stdout)
+        if op != "get" {
+            return Ok(None);
+        }
+        String::from_utf8(stdout)
             .map(Some)
             .map_err(|_| Error::internal_err("keychain helper returned non-UTF-8"))
     }
@@ -476,5 +512,31 @@ mod tests {
         .await;
         assert!(outcome.is_ok(), "the helper was waited on past its own timeout");
         assert!(outcome.unwrap().is_err(), "a timed-out helper must be an error");
+    }
+
+    #[tokio::test]
+    async fn output_beyond_the_cap_is_refused_not_collected() {
+        // The cap has to bound the read, not judge an already-collected buffer:
+        // a helper printing without end would otherwise grow it until the
+        // process runs out of memory. Printing a little over the cap is enough
+        // to show the read stops.
+        let b = backend(&format!(
+            "dd if=/dev/zero bs=1024 count={} 2>/dev/null | tr \\0 x",
+            MAX_SECRET_BYTES / 1024 + 16
+        ));
+        let err = b.get_secret("ws", "u/admin/token").await.unwrap_err();
+        assert!(
+            err.to_string().contains("more than"),
+            "expected a size complaint, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn stray_output_does_not_fail_a_write_that_already_happened() {
+        // set and delete change the keychain before we look at stdout. Refusing
+        // the operation over whatever the helper printed would report a failure
+        // for a secret that is in fact stored.
+        let b = backend("cat >/dev/null; printf %b \\377\\376 ");
+        b.set_secret("ws", "u/admin/token", "sekret").await.unwrap();
     }
 }

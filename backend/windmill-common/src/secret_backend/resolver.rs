@@ -324,17 +324,12 @@ pub async fn get_secret_value(
     };
 
     let backend = get_secret_backend(db).await?;
-    let expected = match backend.backend_name() {
-        "hashicorp_vault" => "$vault:",
-        "azure_key_vault" => "$azure_kv:",
-        "aws_secrets_manager" => "$aws_sm:",
-        "apple_keychain" => "$keychain:",
-        other => {
-            return Err(Error::internal_err(format!(
-                "variable {} is stored in an external backend but {} is configured",
-                path, other
-            )))
-        }
+    let Some(expected) = marker_for_backend(backend.backend_name()) else {
+        return Err(Error::internal_err(format!(
+            "variable {} is stored in an external backend but {} is configured",
+            path,
+            backend.backend_name()
+        )));
     };
     if marker != expected {
         // Reading it from the configured backend would ask the wrong store and
@@ -374,6 +369,22 @@ pub fn is_keychain_stored_value(value: &str) -> bool {
 /// Check if a value is stored in any external secret backend
 pub fn is_external_stored_value(value: &str) -> bool {
     external_marker_prefix(value).is_some()
+}
+
+/// The marker prefix a given backend writes.
+///
+/// Pairs with `external_marker_prefix`: one says where a value came from, the
+/// other where the configured backend would put it. Comparing the two is what
+/// keeps an operation from reading or writing the wrong store after the backend
+/// setting has been changed.
+pub fn marker_for_backend(backend_name: &str) -> Option<&'static str> {
+    match backend_name {
+        "hashicorp_vault" => Some("$vault:"),
+        "azure_key_vault" => Some("$azure_kv:"),
+        "aws_secrets_manager" => Some("$aws_sm:"),
+        "apple_keychain" => Some("$keychain:"),
+        _ => None,
+    }
 }
 
 /// The marker prefix a value was stored with, if it was stored externally.

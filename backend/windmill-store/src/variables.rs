@@ -1214,6 +1214,11 @@ async fn update_variable(
                 // meant a rename skipped this block entirely for every other
                 // backend: the row moved, the secret stayed under the old name,
                 // and the new path read nothing.
+                //
+                // rename_vault_secret rejects a marker that does not belong to
+                // the configured backend, so a stale marker surfaces as an error
+                // here rather than being rewritten to point at a secret that was
+                // never moved.
                 if var.is_secret && is_external_stored_value(&var.value) {
                     if ns.value.is_some() {
                         // New value was provided and already stored at new path

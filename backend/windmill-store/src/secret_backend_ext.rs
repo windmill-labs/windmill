@@ -24,6 +24,7 @@ use windmill_common::{
 
 pub use windmill_common::secret_backend::{
     external_marker_prefix, get_secret_backend, get_secret_value, is_aws_sm_stored_value,
+    marker_for_backend,
     is_azure_kv_stored_value, is_external_stored_value, is_keychain_stored_value,
     is_vault_backend_configured, is_vault_stored_value,
 };
@@ -208,6 +209,23 @@ pub async fn rename_vault_secret(
     }
 
     let backend = get_secret_backend(db).await?;
+
+    // Маркер должен принадлежать настроенному бэкенду. Иначе переименование
+    // читает не из того хранилища, получает «нет такого» и переписывает ссылку,
+    // не перенеся секрет: строка указывает на новый путь, а значение остаётся
+    // под старым именем в чужом хранилище.
+    match marker_for_backend(backend.backend_name()) {
+        Some(expected) if expected == marker_prefix => {}
+        _ => {
+            return Err(Error::internal_err(format!(
+                "variable {} was stored with the {} prefix but {} is configured; \
+                 renaming it would leave the secret behind",
+                old_path,
+                marker_prefix,
+                backend.backend_name()
+            )))
+        }
+    }
 
     let secret_value = match backend.get_secret(workspace_id, old_path).await {
         Ok(value) => value,
