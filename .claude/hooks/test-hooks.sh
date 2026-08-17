@@ -186,6 +186,11 @@ run $A ask   "cd /tmp/does-not-exist; mv .claude/settings.json settings.bak"
 run $A none  "cd /tmp >$OUT; mv /tmp/a /tmp/b"
 run $A none  "cp -r /tmp/tree /tmp/live; cp /tmp/payload /tmp/live/link"
 run $A ask   'mv /tmp/a/`printf ../../etc/x` /tmp/b'
+# A sibling checkout is a different root: its files are outside what the Read tool is confined
+# to, and copying them in would hand back what that confinement withholds.
+EE="$(dirname "$CWD")/windmill-ee-private"   # a sibling checkout; absent elsewhere, still not a root
+run $A ask   "mv $EE/backend/x.rs $CWD/backend/x.rs"
+run $A none  "cp $EE/README.md $CWD/README.copy"
 
 echo
 [ "$fails" = 0 ] && echo "ALL PASS" || { echo "$fails FAILURES"; exit 1; }

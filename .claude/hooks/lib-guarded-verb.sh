@@ -186,9 +186,11 @@ apply_cd() {
   realpath -m -- "$t" 2>/dev/null
 }
 
-# Prints the class of a canonical path and returns 0: `tmp` for one strictly under /tmp, `repo`
-# for one strictly inside a git working tree located under $HOME. Fails, printing nothing, for
-# anything else — those are the only two roots the guards are willing to touch unprompted.
+# Prints the class of a canonical path and returns 0: `tmp` for one strictly under /tmp, or
+# `repo:<root>` for one strictly inside the git working tree at <root>, itself under $HOME.
+# Fails, printing nothing, for anything else — those are the only roots the guards are willing
+# to touch unprompted. The root is part of the class so that a caller pairing two operands can
+# tell one checkout from another: sibling repos are separate permission boundaries, not one.
 #
 # The `repo` class trades on "this is a project under version control" being lower-stakes than
 # the same act elsewhere — NOT on full recoverability: committed content is restorable via git,
@@ -227,7 +229,7 @@ path_class() {
   if [ "$canon" = "$root" ]; then
     [ -f "$root/.git" ] || return 1
   fi
-  printf 'repo'
+  printf 'repo:%s' "$root"
 }
 
 # 0 iff <verb> ($1) runs as a command word anywhere in <command> ($2). Mirrors how a Bash

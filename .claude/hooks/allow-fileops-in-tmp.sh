@@ -17,12 +17,14 @@
 # they can only constrain the FIRST operand. `cp /tmp/x ~/.zshrc` matches a `cp /tmp/` prefix,
 # and requiring every operand is the point.
 #
-# One operation may not straddle the two roots, sources included. A copy out of a checkout into
-# /tmp would be a read-exfiltration path around the `Read(**/secrets/**)` / `Read(**/*.pem)`
-# deny rules, since the content lands where `Read(/tmp/**)` allows it to be read back; keeping
-# every operand of one operation inside a single root closes that without restating the deny
-# list here. The checkout root itself is what makes an in-repo `mv` or `chmod` auto-allowable:
-# deleting a file there has never prompted, and moving or chmod-ing one is not the graver act.
+# One operation may not straddle two roots, sources included, and a sibling checkout is a
+# different root — `path_class` names the git tree, not just its kind. A copy out of a checkout
+# into /tmp would be a read-exfiltration path around the `Read(**/secrets/**)` / `Read(**/*.pem)`
+# deny rules, since the content lands where `Read(/tmp/**)` allows it to be read back, and one
+# out of a repo the Read tool is not confined to would do the same for that repo. Keeping every
+# operand of one operation inside a single root closes both without restating those rules here.
+# The checkout root itself is what makes an in-repo `mv` or `chmod` auto-allowable: deleting a
+# file there has never prompted, and moving or chmod-ing one is not the graver act.
 #
 # Deny-by-default tokenizing, in the same spirit as guard-rm-outside-tmp.sh: every path token
 # must consist only of alphanumerics and `. _ / -`. That set contains none of the characters
@@ -235,7 +237,7 @@ check_fileops_segment() {
 
     cls=$(operand_class "$t") || defer "\`$t\` is outside /tmp and not inside a git checkout in \$HOME"
     # Every operand of one operation stays in one root: see the exfiltration note above.
-    [ -n "$seen_class" ] && [ "$cls" != "$seen_class" ] && defer "\`$t\` puts this $verb across both /tmp and a checkout"
+    [ -n "$seen_class" ] && [ "$cls" != "$seen_class" ] && defer "\`$t\` puts this $verb across two roots"
     seen_class="$cls"
     path_operand=1
   done
