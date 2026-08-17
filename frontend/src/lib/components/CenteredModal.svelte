@@ -7,6 +7,9 @@
 
 	interface Props {
 		subtitle?: string | undefined
+		/** Rendered under the title, for a subtitle that needs markup (a link, say).
+		 * Sits below `subtitle` when both are given. */
+		subtitleSnippet?: import('svelte').Snippet
 		title?: string
 		disableLogo?: boolean
 		large?: boolean
@@ -18,6 +21,7 @@
 
 	let {
 		subtitle = undefined,
+		subtitleSnippet = undefined,
 		title = 'Windmill',
 		disableLogo = false,
 		large = false,
@@ -65,6 +69,9 @@
 				<p class="text-xs font-normal text-primary text-center mt-2">
 					{subtitle}
 				</p>
+			{/if}
+			{#if subtitleSnippet}
+				<div class="text-center mt-2">{@render subtitleSnippet()}</div>
 			{/if}
 		</div>
 
