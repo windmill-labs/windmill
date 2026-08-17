@@ -2888,7 +2888,14 @@ async fn create_app_raw_source(
     let (mut tx, npath, v_id) = create_app_internal(authed, db, user_db, &w_id, true, app).await?;
     store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(bundled.js), &mut tx).await?;
     if !bundled.css.is_empty() {
-        store_raw_app_file(&w_id, &v_id, "css", bytes::Bytes::from(bundled.css), &mut tx).await?;
+        store_raw_app_file(
+            &w_id,
+            &v_id,
+            "css",
+            bytes::Bytes::from(bundled.css),
+            &mut tx,
+        )
+        .await?;
     }
     tx.commit().await?;
 
@@ -3102,6 +3109,10 @@ async fn update_app_internal<'a>(
         || ns.summary.is_some()
         || ns.custom_path.is_some()
         || ns.labels.is_some()
+        // A source deploy may send nothing but the value, and its runnables are
+        // what the derived grants describe: skipping the UPDATE here would keep
+        // the grants keyed to the sources this deploy just replaced.
+        || derived_triggerables.is_some()
     {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
