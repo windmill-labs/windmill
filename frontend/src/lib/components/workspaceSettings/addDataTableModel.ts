@@ -18,11 +18,8 @@ import {
 } from '$lib/gen'
 import type { SetupStep } from '../wizards/SetupChecklist.svelte'
 import { instanceSetupSteps } from './instanceDbSteps'
-import {
-	DEFAULT_SSLMODE,
-	parsePostgresConnectionString,
-	type PostgresConnectionParts
-} from '$lib/utils/postgresConnectionString'
+import { claim, release, stillOurs, type Claims } from './setupClaims'
+import { DEFAULT_SSLMODE, type PostgresConnectionParts } from '$lib/utils/postgresConnectionString'
 import {
 	createSupabaseProject,
 	generateDbPassword,
@@ -225,9 +222,12 @@ export function datatableNameError(name: string, existing: Iterable<string>): st
 	return undefined
 }
 
-/** What the new resource currently describes, whichever notation it is being written in. */
+/**
+ * What the new resource describes. The fields are the connection; a connection string is a way
+ * of writing one down, parsed into the fields as it is typed. Reading it back out here instead
+ * would put every gap in the URI grammar between the user and what gets saved.
+ */
 export function newResourceParts(state: WizardState): PostgresConnectionParts | undefined {
-	if (state.own.form === 'string') return parsePostgresConnectionString(state.own.connectionString)
 	const fields = state.own.fields
 	return fields.host.trim() && fields.user.trim() ? fields : undefined
 }
@@ -344,6 +344,15 @@ export type RunDeps = {
 	createdProjectName?: string
 	/** Where that project's password was written, which nothing later may write over. */
 	createdProjectPath?: string
+	/**
+	 * What earlier attempts in this session wrote, and this one may therefore write over again.
+	 * The pre-flight checks the names are free, but the Supabase branch then spends minutes
+	 * provisioning, and every wizard suggests the same `main` -- so a second admin can take the
+	 * name or the path in between.
+	 */
+	claims: Claims
+	/** The mark written onto a secret or resource this run creates: `edited_by` / `created_by`. */
+	username: string
 }
 
 export type RunResult = {
@@ -365,8 +374,8 @@ export type RunResult = {
 	 */
 	createdProjectName?: string
 	createdProjectPath?: string
-	/** The secret variable this run wrote, so a retry knows the path is occupied by its own. */
-	mintedPath?: string
+	/** What this run holds now, for the next attempt to be given back. */
+	claims: Claims
 }
 
 /**
@@ -391,26 +400,49 @@ async function exists(kind: 'variable' | 'resource', workspace: string, path: st
  */
 async function writeRow(
 	deps: RunDeps,
+	claims: Claims,
 	name: string,
 	database: { resource_type: 'postgresql' | 'instance'; resource_path: string }
-): Promise<void> {
+): Promise<Claims> {
 	const settings = await WorkspaceService.getSettings({ workspace: deps.workspace })
 	const datatables: Record<string, any> = { ...(settings.datatable?.datatables ?? {}) }
+	// Free when the pre-flight looked, taken by the time we write: repointing it here would
+	// silently hand another admin's data table a database they never chose.
+	if (
+		datatables[name] &&
+		!stillOurs(claims, 'row', name, datatables[name]?.database?.resource_path)
+	) {
+		throw new Error(
+			`A data table called ${name} was created while this setup was running. Choose another name and try again.`
+		)
+	}
 	datatables[name] = { ...(datatables[name] ?? {}), database }
 	await WorkspaceService.editDataTableConfig({
 		workspace: deps.workspace,
 		requestBody: { settings: { datatables }, renames: [], deleted_datatables: [] }
 	})
+	return claim(claims, 'row', name, database.resource_path)
 }
 
 /**
  * Take back a row this run wrote. Reports whether it went, since a failure to undo leaves the
  * data table in the config and the caller has to keep saying so.
  */
-async function removeRow(deps: RunDeps, name: string): Promise<boolean> {
+/**
+ * `removed` — the row this run wrote is gone. `kept` — it is still there, the undo could not
+ * reach the server. `foreign` — the name now points somewhere this run never wrote, so there
+ * is nothing of ours to take back and the name is no longer ours to claim.
+ */
+type Rollback = 'removed' | 'kept' | 'foreign'
+
+async function removeRow(deps: RunDeps, claims: Claims, name: string): Promise<Rollback> {
 	try {
 		const settings = await WorkspaceService.getSettings({ workspace: deps.workspace })
 		const datatables: Record<string, any> = { ...(settings.datatable?.datatables ?? {}) }
+		// Only take back the row this run put there. Between writing it and probing it, another
+		// admin can have pointed the same name somewhere else, and deleting that is worse than
+		// leaving ours behind.
+		if (!stillOurs(claims, 'row', name, datatables[name]?.database?.resource_path)) return 'foreign'
 		delete datatables[name]
 		// Not `deleted_datatables`: that exists to cascade migration bookkeeping and deployment
 		// records for a data table that was really in use, and this one never got that far.
@@ -418,41 +450,73 @@ async function removeRow(deps: RunDeps, name: string): Promise<boolean> {
 			workspace: deps.workspace,
 			requestBody: { settings: { datatables }, renames: [], deleted_datatables: [] }
 		})
-		return true
+		return 'removed'
 	} catch {
-		return false
+		return 'kept'
 	}
 }
 
-async function writeSecret(workspace: string, path: string, value: string, description: string) {
-	if (await exists('variable', workspace, path)) {
+/**
+ * The read answers both questions at once: whether anything is there, and who last wrote it.
+ * Replacing this run's own work is required for Try again; replacing anyone else's loses a
+ * generated Supabase password, which Supabase never shows twice.
+ */
+async function writeSecret(
+	deps: RunDeps,
+	claims: Claims,
+	path: string,
+	value: string,
+	description: string
+): Promise<Claims> {
+	const held = await VariableService.getVariable({ workspace: deps.workspace, path }).catch(
+		() => undefined
+	)
+	if (held) {
+		if (!stillOurs(claims, 'secret', path, held.edited_by))
+			throw new Error(pathTakenLate('variable', path))
 		await VariableService.updateVariable({
-			workspace,
+			workspace: deps.workspace,
 			path,
 			requestBody: { value, is_secret: true }
 		})
-		return
+	} else {
+		await VariableService.createVariable({
+			workspace: deps.workspace,
+			requestBody: { path, value, is_secret: true, description, is_oauth: false }
+		})
 	}
-	await VariableService.createVariable({
-		workspace,
-		requestBody: { path, value, is_secret: true, description, is_oauth: false }
-	})
+	return claim(claims, 'secret', path, deps.username)
+}
+
+function pathTakenLate(kind: 'variable' | 'resource', path: string): string {
+	return `A ${kind} was created at ${path} while this setup was running. Choose another path and try again.`
 }
 
 async function writeResource(
-	workspace: string,
+	deps: RunDeps,
+	claims: Claims,
 	path: string,
 	value: Record<string, any>,
 	description: string
-) {
-	if (await exists('resource', workspace, path)) {
-		await ResourceService.updateResource({ workspace, path, requestBody: { value, description } })
-		return
+): Promise<Claims> {
+	const held = await ResourceService.getResource({ workspace: deps.workspace, path }).catch(
+		() => undefined
+	)
+	if (held) {
+		if (!stillOurs(claims, 'resource', path, held.created_by))
+			throw new Error(pathTakenLate('resource', path))
+		await ResourceService.updateResource({
+			workspace: deps.workspace,
+			path,
+			requestBody: { value, description }
+		})
+	} else {
+		await ResourceService.createResource({
+			workspace: deps.workspace,
+			requestBody: { resource_type: 'postgresql', path, value, description }
+		})
 	}
-	await ResourceService.createResource({
-		workspace,
-		requestBody: { resource_type: 'postgresql', path, value, description }
-	})
+	return claim(claims, 'resource', path, deps.username)
 }
 
 /**
@@ -480,7 +544,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 	}
 	let rowWritten = false
 	let rowRolledBack = false
-	let mintedPath: string | undefined = undefined
+	let claims = deps.claims
 	let createdProjectName: string | undefined = undefined
 	let createdProjectPath: string | undefined = undefined
 	const fail = (message: string): RunResult => {
@@ -490,7 +554,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 			error: message,
 			rowWritten,
 			rowRolledBack,
-			mintedPath,
+			claims,
 			createdProjectName,
 			createdProjectPath
 		}
@@ -507,6 +571,9 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 	 */
 	const guardsCreatedSecret = !!deps.createdProjectPath && deps.createdProjectPath === path
 	const instanceName = state.instance.dbName?.trim() ?? ''
+	// A created project's password is the one thing a claim does not authorise replacing: it is
+	// the only copy, so the run refuses rather than upserts even over its own.
+	if (deps.createdProjectPath === path) claims = release(claims, 'secret', path)
 
 	let project = state.supabase.project
 	let resourcePath =
@@ -555,13 +622,13 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						return fail(createdSecretRefusal(earlier, deps.createdProjectPath ?? path))
 					}
 					const password = generateDbPassword()
-					await writeSecret(
-						deps.workspace,
+					claims = await writeSecret(
+						deps,
+						claims,
 						path,
 						password,
 						`Password for the ${wanted} Supabase database`
 					)
-					mintedPath = path
 					try {
 						project = await createSupabaseProject(deps.supabaseToken!, {
 							name: wanted,
@@ -606,13 +673,13 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					if (state.supabase.mode === 'existing') {
 						if (guardsCreatedSecret)
 							return fail(createdSecretRefusal(deps.createdProjectName!, path))
-						await writeSecret(
-							deps.workspace,
+						claims = await writeSecret(
+							deps,
+							claims,
 							path,
 							state.supabase.password,
 							`Password for the ${project!.name} Supabase database`
 						)
-						mintedPath = path
 					}
 					const connection = await resolveSupabaseConnection(
 						deps.supabaseToken!,
@@ -622,8 +689,9 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					if (connection.mode !== state.supabase.connectionMode)
 						state.supabase.connectionMode = connection.mode
 					if (connection.unavailable) deps.onPoolerUnavailable?.(connection.unavailable)
-					await writeResource(
-						deps.workspace,
+					claims = await writeResource(
+						deps,
+						claims,
 						path,
 						supabaseResourceValue(project!, path, connection),
 						`Supabase project ${project!.name}`
@@ -631,15 +699,16 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 				} else {
 					if (guardsCreatedSecret) return fail(createdSecretRefusal(deps.createdProjectName!, path))
 					const parts = newResourceParts(state)!
-					await writeSecret(
-						deps.workspace,
+					claims = await writeSecret(
+						deps,
+						claims,
 						path,
 						parts.password ?? '',
 						`Password for the ${parts.host} database`
 					)
-					mintedPath = path
-					await writeResource(
-						deps.workspace,
+					claims = await writeResource(
+						deps,
+						claims,
 						path,
 						postgresResourceValue(parts, `$var:${path}`, state.own.advanced),
 						`Database for the ${name} data table`
@@ -663,7 +732,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						error: status.error ?? 'Setup failed',
 						rowWritten,
 						rowRolledBack,
-						mintedPath,
+						claims,
 						createdProjectName,
 						createdProjectPath
 					}
@@ -675,7 +744,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 				// cannot store data in must not stay in the config, so a refusal takes the row
 				// back out -- leaving it would also block retrying under the same name.
 				const database = { resource_type: 'instance' as const, resource_path: instanceName }
-				await writeRow(deps, name, database)
+				claims = await writeRow(deps, claims, name, database)
 				rowWritten = true
 				const report = await WorkspaceService.testDataTableConnection({
 					workspace: deps.workspace,
@@ -684,20 +753,24 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					// A probe that never answered leaves the same unusable row behind as one that
 					// answered no -- an unreachable database or a timeout lands here -- so it takes
 					// the same way out rather than the bare outer catch.
-					rowRolledBack = await removeRow(deps, name)
-					rowWritten = !rowRolledBack
+					const rollback = await removeRow(deps, claims, name)
+					rowRolledBack = rollback === 'removed'
+					// `foreign` means the name is somebody else's now: our row is not there to
+					// hand back to the collision checks, and a retry must not write over theirs.
+					rowWritten = rollback === 'kept'
 					throw err
 				})
 				if (!report.can_create_table) {
-					rowRolledBack = await removeRow(deps, name)
-					rowWritten = !rowRolledBack
+					const rollback = await removeRow(deps, claims, name)
+					rowRolledBack = rollback === 'removed'
+					rowWritten = rollback === 'kept'
 					advance('failed', 'The database is reachable but its user cannot create tables.')
 					return {
 						ok: false,
 						report,
 						rowWritten,
 						rowRolledBack,
-						mintedPath,
+						claims,
 						createdProjectName,
 						createdProjectPath
 					}
@@ -708,7 +781,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					report,
 					rowWritten,
 					rowRolledBack,
-					mintedPath,
+					claims,
 					createdProjectName,
 					createdProjectPath
 				}
@@ -726,12 +799,15 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 						report,
 						rowWritten,
 						rowRolledBack,
-						mintedPath,
+						claims,
 						createdProjectName,
 						createdProjectPath
 					}
 				}
-				await writeRow(deps, name, { resource_type: 'postgresql', resource_path: resourcePath })
+				claims = await writeRow(deps, claims, name, {
+					resource_type: 'postgresql',
+					resource_path: resourcePath
+				})
 				rowWritten = true
 				advance('done')
 				return {
@@ -739,7 +815,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					report,
 					rowWritten,
 					rowRolledBack,
-					mintedPath,
+					claims,
 					createdProjectName,
 					createdProjectPath
 				}
@@ -750,5 +826,12 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 		}
 	}
 
-	return { ok: true, rowWritten, rowRolledBack, mintedPath, createdProjectName, createdProjectPath }
+	return {
+		ok: true,
+		rowWritten,
+		rowRolledBack,
+		claims,
+		createdProjectName,
+		createdProjectPath
+	}
 }

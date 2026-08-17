@@ -7,6 +7,9 @@
  * parked without pulling the whole wizard into that page's bundle.
  */
 
+import type { SupabaseConnectionMode } from './supabaseProvisioning'
+import type { Claim } from './setupClaims'
+
 const RESUME_KEY = 'datatable_wizard_resume'
 
 export type WizardResume = {
@@ -20,9 +23,19 @@ export type WizardResume = {
 	 * paths, and the password they name is already in the workspace.
 	 */
 	resourcePath?: string
-	claimedPath?: string
+	/** Everything the run holds, serialised whole so a newly added kind cannot be left behind. */
+	claims?: Claim[]
 	createdProjectName?: string
 	createdProjectPath?: string
+	/**
+	 * Which side of the step-2 toggle the run was on, and where it was pointed. A run that
+	 * died mid-create otherwise comes back on `existing`, is asked for the password it
+	 * generated and never showed anyone, and looks for its project in whichever organization
+	 * happens to be first.
+	 */
+	mode?: 'existing' | 'create'
+	org?: string
+	connectionMode?: SupabaseConnectionMode
 }
 
 /** True while a wizard run is waiting on the Supabase redirect to come back. */

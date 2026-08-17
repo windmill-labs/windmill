@@ -31,6 +31,15 @@
 	import SupabaseProjectStep from './SupabaseProjectStep.svelte'
 	import DataTableConnectionReport from './DataTableConnectionReport.svelte'
 	import { useSupabaseOauth } from './supabaseOauth.svelte'
+	import {
+		anythingClaimed,
+		claimOf,
+		claimsFromJSON,
+		claimsToJSON,
+		noClaims,
+		release,
+		type Claims
+	} from './setupClaims'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { isCustomInstanceDbEnabled } from './utils.svelte'
 	import {
@@ -143,9 +152,11 @@
 	 */
 	async function pathConflictMessage(path: string): Promise<string | undefined> {
 		const workspace = $workspaceStore!
+		// Each namespace answers to its own claim. Holding the secret says nothing about who owns
+		// the resource beside it, so one claim must not wave the other's check through.
 		const [variable, resource] = await Promise.all([
-			VariableService.existsVariable({ workspace, path }),
-			ResourceService.existsResource({ workspace, path })
+			claimedPath === path ? false : VariableService.existsVariable({ workspace, path }),
+			claimedResourcePath === path ? false : ResourceService.existsResource({ workspace, path })
 		])
 		if (variable) return 'a variable already exists at this path'
 		if (resource) return 'a resource already exists at this path'
@@ -242,19 +253,20 @@
 	}
 
 	/**
-	 * The two notations describe one connection, so switching carries the values across rather
-	 * than starting the other one blank -- the round trip is what shows they are the same
-	 * object. Unparseable text is left alone to be corrected.
+	 * A connection string is a way of writing the fields down, so typing one fills them in as it
+	 * is read. Unparseable text leaves the last good values alone to be corrected; `sslmode` is
+	 * kept when the URI names none, since not mentioning it is not the same as clearing it.
 	 */
-	function useFields() {
-		const parts = parsePostgresConnectionString(wiz.own.connectionString)
-		// The string is authoritative for every field it can express, so a password dropped from
-		// it must clear the one held here rather than linger. `sslmode` is the exception:
-		// composing omits `prefer`, so an absent one means "unchanged", not "cleared".
+	function absorbConnectionString(text: string) {
+		const parts = parsePostgresConnectionString(text)
 		if (parts) wiz.own.fields = { ...parts, sslmode: parts.sslmode ?? wiz.own.fields.sslmode }
+	}
+
+	function useFields() {
 		wiz.own.form = 'fields'
 	}
 
+	/** Composed for the box to start from; the fields stay the connection. */
 	function useConnectionString() {
 		const parts = newResourceParts(wiz)
 		if (parts) wiz.own.connectionString = composePostgresConnectionString(parts)
@@ -323,7 +335,9 @@
 				// The list lands after `reset()` has already seeded the folder, so the first open
 				// would otherwise always fall back to the personal space. Only re-seed what the
 				// user has not reached yet: the review step is where the folder becomes theirs.
-				if (wiz.step < 3) wiz.review.folder = defaultFolder()
+				// A resumed run has already chosen one -- reseeding would move its secret out
+				// from under the path claim it came back to finish.
+				if (wiz.step < 3 && !resume?.resourcePath) wiz.review.folder = defaultFolder()
 			})
 			.catch(() => {})
 	})
@@ -340,9 +354,12 @@
 				region: wiz.supabase.region,
 				projectName: wiz.supabase.projectName,
 				resourcePath,
-				claimedPath,
+				claims: claimsToJSON(claims),
 				createdProjectName,
-				createdProjectPath
+				createdProjectPath,
+				mode: wiz.supabase.mode,
+				org: wiz.supabase.org,
+				connectionMode: wiz.supabase.connectionMode
 			})
 	})
 
@@ -357,8 +374,7 @@
 		maxStep = 1
 		// What the last run claimed belongs to the data table it created; a fresh one has to
 		// earn the name and the path again, or it would write over its predecessor's secret.
-		claimedName = undefined
-		claimedPath = undefined
+		claims = noClaims
 		claimedInstanceDb = undefined
 		leftBehind = false
 		createdProjectName = undefined
@@ -371,10 +387,15 @@
 			wiz.provider = 'supabase'
 			// The clears above are for a fresh run. This one is the same run coming back from the
 			// redirect, so what it had already created is still its own to write over.
-			claimedPath = resume.claimedPath
+			claims = claimsFromJSON(resume.claims)
 			createdProjectName = resume.createdProjectName
 			createdProjectPath = resume.createdProjectPath
-			leftBehind = !!(resume.claimedPath || resume.createdProjectPath)
+			leftBehind = anythingClaimed(claims) || !!resume.createdProjectPath
+			// Which side of the toggle it was on, and the organization it was pointed at. Left to
+			// default, a run that died mid-create comes back asking for the password it generated.
+			if (resume.mode) wiz.supabase.mode = resume.mode
+			if (resume.org) wiz.supabase.org = resume.org
+			if (resume.connectionMode) wiz.supabase.connectionMode = resume.connectionMode
 			const cut = resume.resourcePath?.lastIndexOf('/') ?? -1
 			if (resume.resourcePath && cut > 0) {
 				wiz.review.folder = resume.resourcePath.slice(0, cut)
@@ -531,9 +552,11 @@
 	 * remembered only if the run got as far as writing the row, so Try again can overwrite what
 	 * it wrote itself.
 	 */
-	let claimedName = $state<string | undefined>(undefined)
-	/** The secret path a previous attempt wrote, which this one is allowed to write over. */
-	let claimedPath = $state<string | undefined>(undefined)
+	let claims = $state<Claims>(noClaims)
+	/** The path whose secret and resource this run holds, for the gates that ask by path. */
+	let claimedPath = $derived(claimOf(claims, 'secret', resourcePath)?.path)
+	let claimedResourcePath = $derived(claimOf(claims, 'resource', resourcePath)?.path)
+	let claimedName = $derived(claims.find((c) => c.kind === 'row')?.path)
 	let nameConflict = $state('')
 	/** Why the last run failed, kept on the review step after the checklist is dropped. */
 	let lastFailure = $state('')
@@ -599,9 +622,9 @@
 			}
 			// The debounced path check is advisory -- it can still be in flight when Finish is
 			// pressed -- and the writes that follow replace a secret and a resource in place. Ask
-			// once more here, where refusing costs nothing. Skipped for a path this wizard already
-			// wrote: Try again has to be able to repair its own half-finished attempt.
-			if (mintsResource && claimedPath !== resourcePath) {
+			// once more here, where refusing costs nothing; what this run already holds is exempt
+			// per namespace inside, so Try again can repair its own half-finished attempt.
+			if (mintsResource) {
 				const conflict = await pathConflictMessage(resourcePath)
 				if (conflict) {
 					pathTakenError = conflict
@@ -635,27 +658,27 @@
 				onProgress: (steps) => (run.steps = steps),
 				onPoolerUnavailable: (reason) => (poolerUnavailable = reason),
 				createdProjectName,
-				createdProjectPath
+				createdProjectPath,
+				claims,
+				username: $userStore?.username ?? ''
 			})
 		} finally {
 			// `runSetup` catches per step, but anything escaping it would otherwise leave the
 			// button spinning with a page reload the only way out.
 			// Kept, not replaced: what an earlier attempt wrote is still out there, so a later
-			// one failing sooner must not hand its own row or secret back to the collision
-			// checks. Claimed while the row exists, and given up again the moment a refused run
-			// takes it back out -- the name is then free, and free is somebody else's to take.
+			// one failing sooner must not hand its own objects back to the collision checks.
 			if (result?.createdProjectName) {
 				createdProjectName = result.createdProjectName
 				createdProjectPath = result.createdProjectPath
 			}
-			if (result?.rowWritten || result?.mintedPath || result?.createdProjectName) leftBehind = true
-			if (result?.rowWritten) claimedName = name
-			else if (result?.rowRolledBack) claimedName = undefined
-			claimedPath = result?.mintedPath ?? claimedPath
+			claims = result?.claims ?? claims
+			// A row taken back out frees its name again, and free is somebody else's to take.
+			if (result?.rowRolledBack) claims = release(claims, 'row', name)
+			leftBehind = anythingClaimed(claims) || !!createdProjectName || !!claimedInstanceDb
 			run = {
 				...run,
 				running: false,
-				result: result ?? { ok: false, error: 'The setup stopped unexpectedly.' }
+				result: result ?? { ok: false, error: 'The setup stopped unexpectedly.', claims }
 			}
 			onDone()
 		}
@@ -1122,6 +1145,7 @@
 					() => wiz.own.connectionString,
 					(v) => {
 						wiz.own.connectionString = v
+						absorbConnectionString(v)
 						invalidate()
 					}
 				}
@@ -1197,13 +1221,15 @@
 			<div class="flex flex-col gap-2">
 				<div>
 					<span class="text-2xs text-secondary">Root certificate</span>
-					<textarea
-						value={wiz.own.advanced.root_certificate_pem}
-						oninput={(e) => setAdvanced('root_certificate_pem', e.currentTarget.value)}
-						placeholder="-----BEGIN CERTIFICATE-----"
-						class="w-full min-h-16 p-2 border border-border-light rounded-md bg-surface text-primary font-mono text-2xs resize-y"
-						rows="3"
-					></textarea>
+					<TextInput
+						underlyingInputEl="textarea"
+						bind:value={
+							() => wiz.own.advanced.root_certificate_pem,
+							(v) => setAdvanced('root_certificate_pem', String(v ?? ''))
+						}
+						class="min-h-16 font-mono text-2xs resize-y"
+						inputProps={{ placeholder: '-----BEGIN CERTIFICATE-----', rows: 3 }}
+					/>
 					<p class="text-2xs text-secondary mt-1">
 						The CA to check the server against. Needed for <span class="font-mono">verify-ca</span>
 						and <span class="font-mono">verify-full</span> when the certificate is not signed by a public
@@ -1330,7 +1356,7 @@
 				bind:error={resourcePathError}
 				initialPath={initialResourcePath}
 				checkInitialPathExistence
-				allowedExistingPath={claimedPath}
+				allowedExistingPath={claimedResourcePath}
 				namePlaceholder="database"
 				kind="resource"
 				autofocus={false}

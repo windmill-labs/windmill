@@ -152,7 +152,9 @@
 	<div class="flex flex-col gap-2 overflow-y-auto flex-1 min-h-24 pr-1">
 		{#each projects ?? [] as p (projectRef(p))}
 			{@const selected = intent.mode === 'existing' && isSelected(intent.project, p)}
-			<!-- shrink-0 or the flex column squeezes the cards to fit instead of letting the
+			<!-- Not `RadioCard`: the selected card opens to hold a password field, and these carry
+			a project icon and no radio dot -- the design that was approved for this step.
+			shrink-0 or the flex column squeezes the cards to fit instead of letting the
 			list scroll, and the selected one loses its password field to the clip. -->
 			<div
 				class="shrink-0 border rounded-md overflow-hidden transition-colors {selected
