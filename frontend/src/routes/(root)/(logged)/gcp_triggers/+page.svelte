@@ -22,7 +22,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -383,7 +383,18 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-primary mt-2"> No GCP Pub/Sub triggers </div>
+			<EmptyState
+				icon={GoogleCloudIcon}
+				title="No GCP Pub/Sub triggers yet"
+				description="Windmill can subscribe to a GCP Pub/Sub topic and trigger scripts or flows on each message."
+				action={{
+					label: 'Add a GCP Pub/Sub trigger',
+					icon: Plus,
+					onClick: () => gcpTriggerEditor?.openNew(false),
+					aiId: 'gcp-triggers-empty-add',
+					aiDescription: 'Add GCP Pub/Sub trigger'
+				}}
+			/>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, topic_id, workspace_id, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, subscription_id, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
