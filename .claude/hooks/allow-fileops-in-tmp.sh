@@ -81,9 +81,9 @@ case "$(strip_heredoc_bodies "$cmd")" in
   *'$('* | *'`'*) defer "command substitution in the command line" ;;
 esac
 
-# Prints the root class of a charset-safe path token, resolving a relative one against the
-# tracked working directory. Fails, printing nothing, when the token is unsafe to reason about
-# or lands outside every root.
+# Prints the root class of a charset-safe path token, then the path it resolved to on a second
+# line, resolving a relative one against the tracked working directory. Fails, printing nothing,
+# when the token is unsafe to reason about or lands outside every root.
 operand_class() {
   local t="$1" canon alt cls alt_cls=""
   # Globs never auto-allow: bash expands them only after this hook has decided, so realpath
@@ -107,7 +107,9 @@ operand_class() {
   [ -n "$canon" ] || return 1
   cls=$(path_class "$canon") || return 1
   [ -n "$alt_cls" ] && [ "$alt_cls" != "$cls" ] && return 1
-  printf '%s' "$cls"
+  # Class and resolved path together: a caller runs this in a command substitution, so a global
+  # set here would be set in that subshell and lost.
+  printf '%s\n%s' "$cls" "$canon"
 }
 
 # 0 iff the token is charset-safe and resolves to a path strictly inside /tmp. The archive
@@ -194,8 +196,9 @@ check_archive_segment() {
 # Proves one `mkdir` / `cp` / `mv` / `touch` / `chmod` segment ($1 = the verb), whose tokens
 # are in SEG_TOKS.
 check_fileops_segment() {
-  local verb="$1" takes_mode ok_opts t cls seen_class=""
-  local path_operand=0 seen_mode=0 end_opts=0 i=1
+  local verb="$1" takes_mode ok_opts t cls resolved seen_class="" derived src dest
+  local path_operand=0 seen_mode=0 end_opts=0 i=1 recursive=0
+  local -a ops=()
   # Options are an allowlist per command, so anything that changes how symlinks are followed
   # defers instead of needing enumeration. `cp -L` / `-H` matter most: they dereference while
   # recursing, which copies the CONTENT of a symlink target from outside /tmp into a scratch
@@ -220,6 +223,7 @@ check_fileops_segment() {
         -?*)
           # Allowlist: long options and the dereferencing flags leave a residue and defer.
           [ -n "$(printf '%s' "${t#-}" | tr -d "$ok_opts")" ] && defer "unrecognized option \`$t\`"
+          case "${t#-}" in *[rRa]*) recursive=1 ;; esac
           continue
           ;;
       esac
@@ -235,14 +239,35 @@ check_fileops_segment() {
       continue
     fi
 
-    cls=$(operand_class "$t") || defer "\`$t\` is outside /tmp and not inside a git checkout in \$HOME"
+    resolved=$(operand_class "$t") || defer "\`$t\` is outside /tmp and not inside a git checkout in \$HOME"
+    cls="${resolved%%$'\n'*}"
     # Every operand of one operation stays in one root: see the exfiltration note above.
     [ -n "$seen_class" ] && [ "$cls" != "$seen_class" ] && defer "\`$t\` puts this $verb across two roots"
     seen_class="$cls"
+    ops+=("${resolved#*$'\n'}")
     path_operand=1
   done
 
   [ "$path_operand" = 1 ] || defer "no path operand"
+
+  # In directory form the destination is not what the command writes: `cp x dir` writes
+  # `dir/x`, and `cp` follows that child when it is a symlink. This checkout is full of them —
+  # every `*_ee.rs` points into the sibling EE repo — so the derived path is proved too. Under
+  # `-r` the derived paths run the depth of the source tree, past what this can enumerate.
+  case "$verb" in
+    cp | mv)
+      [ "${#ops[@]}" -ge 2 ] || return 0
+      dest="${ops[-1]}"
+      [ -d "$dest" ] || return 0
+      [ "$recursive" = 0 ] || defer "recursive $verb into the existing directory \`$dest\`"
+      for src in "${ops[@]:0:${#ops[@]}-1}"; do
+        derived=$(realpath -m -- "$dest/${src##*/}" 2>/dev/null)
+        [ -n "$derived" ] || defer "cannot resolve where \`$src\` lands in \`$dest\`"
+        cls=$(path_class "$derived") || defer "\`$src\` lands on \`$derived\`, outside every root"
+        [ "$cls" = "$seen_class" ] || defer "\`$src\` lands on \`$derived\`, in another root"
+      done
+      ;;
+  esac
 }
 
 split_segments "$cmd"
