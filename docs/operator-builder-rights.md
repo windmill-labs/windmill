@@ -47,6 +47,11 @@ because they are not the same list: the policy's `script/<path>` and `flow/<path
 and the `runnableByPath` entries in the app value, which is what the deployed bundle resolves a
 `runnable_id` against and sends.
 
+Reading a triggerable key is not a `split_once(':')`: `execute_component` looks up
+`format!("{component}:{path}")` with an unrestricted component string, so `a:b:script/x` resolves
+at run time for `component = "a:b"`. Every colon is a possible split, so the check validates every
+suffix that parses as a runnable rather than guessing which one a request will use.
+
 What makes those checks bind is that **`ExecutionMode::Viewer` is refused for a builder app**. In
 Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`
 path, so the policy stops being the list of what the app may invoke, and the job runs as the

@@ -1972,18 +1972,29 @@ fn check_operator_composed_app(
     }
 
     // The triggerables are the deployed app's authorization to invoke a runnable.
-    // `<component>:` prefixes the key when the app scopes it to one component.
+    // `<component>:` prefixes the key when the app scopes it to one component, and
+    // `execute_component` looks up `format!("{component}:{path}")` with an unrestricted component
+    // string. So every colon in a key is a possible split, not just the first: `a:b:script/x`
+    // resolves for `component = "a:b"`. Take every suffix that parses as a runnable rather than
+    // guessing which one the request will use, or a key with two colons is validated as neither.
     referenced.extend(
         policy
             .triggerables
             .iter()
             .flat_map(|t| t.keys())
             .chain(policy.triggerables_v2.iter().flat_map(|t| t.keys()))
-            .filter_map(|key| {
-                let key = key.split_once(':').map_or(key.as_str(), |(_, rest)| rest);
-                key.strip_prefix("script/")
-                    .map(|p| (false, p.to_string()))
-                    .or_else(|| key.strip_prefix("flow/").map(|p| (true, p.to_string())))
+            .flat_map(|key| {
+                std::iter::once(key.as_str())
+                    .chain(key.match_indices(':').map(|(i, _)| &key[i + 1..]))
+                    .filter_map(|candidate| {
+                        candidate
+                            .strip_prefix("script/")
+                            .map(|p| (false, p.to_string()))
+                            .or_else(|| {
+                                candidate.strip_prefix("flow/").map(|p| (true, p.to_string()))
+                            })
+                    })
+                    .collect::<Vec<_>>()
             }),
     );
     referenced.sort();
@@ -5792,6 +5803,21 @@ mod operator_app_tests {
         );
         let mut policy = builder_policy(serde_json::json!({}));
         assert!(composed_app(path_runnable("hub/1/x", "hubscript"), &mut policy).is_err());
+
+        // `execute_component` looks up `<component>:<path>` with an unrestricted component, so a
+        // second colon must not hide the path from validation: `x:y:script/hub/…` resolves at run
+        // time for `component = "x:y"`.
+        let mut policy = builder_policy(
+            serde_json::json!({"x:y:script/hub/123/foo": {"static_inputs": {}, "one_of_inputs": {}}}),
+        );
+        assert!(composed_app(clean.clone(), &mut policy).is_err());
+        let mut policy = builder_policy(
+            serde_json::json!({"x:y:script/f/x/s": {"static_inputs": {}, "one_of_inputs": {}}}),
+        );
+        assert_eq!(
+            composed_app(clean.clone(), &mut policy).unwrap(),
+            vec![(false, "f/x/s".to_string())]
+        );
 
         // `Viewer` mode makes `execute_component` accept any script/flow path, triggerables or
         // not, and run it as the viewer, so the checks above would stop binding.

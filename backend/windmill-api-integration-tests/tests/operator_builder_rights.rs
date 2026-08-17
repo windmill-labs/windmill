@@ -326,6 +326,42 @@ async fn test_operator_builder_rights_boundary(db: Pool<Postgres>) -> anyhow::Re
         "a builder-authored app must be stored sandboxed"
     );
 
+    // `execute_component` looks up `<component>:<path>` with an unrestricted component string, so
+    // a key with a second colon still resolves at run time and must not slip past validation.
+    let resp = c
+        .post(format!("{api}/apps/create_raw"))
+        .multipart(
+            reqwest::multipart::Form::new()
+                .part(
+                    "app",
+                    reqwest::multipart::Part::text(
+                        json!({
+                            "path": "u/operator/a6",
+                            "summary": "",
+                            "value": {"files": {}, "runnables": {}},
+                            "policy": {"execution_mode": "publisher", "triggerables_v2": {
+                                "x:y:script/u/alice/private": {
+                                    "static_inputs": {}, "one_of_inputs": {}
+                                }
+                            }}
+                        })
+                        .to_string(),
+                    )
+                    .mime_str("application/json")
+                    .unwrap(),
+                )
+                .part(
+                    "js",
+                    reqwest::multipart::Part::text("console.log(1)").file_name("app.js"),
+                ),
+        )
+        .send()
+        .await?;
+    assert!(
+        !resp.status().is_success(),
+        "a multi-colon triggerable key must not hide an unreadable runnable from validation"
+    );
+
     invalidate_operator_builder_cache(WS);
     Ok(())
 }
