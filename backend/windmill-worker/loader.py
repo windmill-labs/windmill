@@ -2,6 +2,7 @@ import sys
 import os
 from importlib.abc import MetaPathFinder, Loader
 from importlib.machinery import ModuleSpec, SourceFileLoader
+from importlib.util import spec_from_file_location
 import time
 
 # Injected by backend: maps script path -> temp storage hash so preview jobs
@@ -38,7 +39,7 @@ class WindmillFinder(MetaPathFinder):
             fullpath = folder + "/" + splitted[-1] + ".py"
 
             if os.path.exists(fullpath):
-                return ModuleSpec(name, SourceFileLoader(name, fullpath))
+                return spec_from_file_location(name, fullpath)
 
 
             import urllib.parse
@@ -70,7 +71,7 @@ class WindmillFinder(MetaPathFinder):
                             return ModuleSpec(name, WindmillLoader(name))
                         with open(fullpath, "w+") as f:
                             f.write(r)
-                        return ModuleSpec(name, SourceFileLoader(name, fullpath))
+                        return spec_from_file_location(name, fullpath)
                 except urllib.error.HTTPError as e:
                     duration = time.time() - req_start
                     if e.code != 404:
