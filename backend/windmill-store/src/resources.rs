@@ -250,8 +250,17 @@ async fn list_names(
 #[derive(Serialize, FromRow)]
 pub struct SearchResource {
     path: String,
-    value: serde_json::Value,
+    /// Pretty-printed JSON, capped at `SEARCH_RESOURCE_VALUE_MAX_CHARS`.
+    value: String,
+    truncated: bool,
 }
+
+/// This route hands the browser every readable resource's value at once and the client keeps
+/// them all in memory, so without a cap a workspace of large JSON resources sends tens of MB
+/// and freezes the tab. Content search only fuzzy-matches and previews a few lines of each.
+/// The value is spelled out in `listSearchResource`'s openapi.yaml description; change both.
+const SEARCH_RESOURCE_VALUE_MAX_CHARS: i32 = 4000;
+
 async fn list_search_resources(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -263,9 +272,17 @@ async fn list_search_resources(
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as!(
         SearchResource,
-        "SELECT path, value from resource WHERE workspace_id = $1 LIMIT $2",
+        // `OFFSET 0` fences the subquery so the planner cannot pull it up: without it
+        // jsonb_pretty is inlined into both the left() and the length(), serializing
+        // every value twice.
+        r#"SELECT resource.path,
+                  COALESCE(left(pretty.value, $3), '') as "value!",
+                  COALESCE(length(pretty.value) > $3, false) as "truncated!"
+           FROM resource, LATERAL (SELECT jsonb_pretty(resource.value) as value OFFSET 0) pretty
+           WHERE workspace_id = $1 LIMIT $2"#,
         &w_id,
-        n
+        n,
+        SEARCH_RESOURCE_VALUE_MAX_CHARS
     )
     .fetch_all(&mut *tx)
     .await?

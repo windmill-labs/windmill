@@ -1511,7 +1511,7 @@ export class AIChatManager {
 		}
 	}
 
-	/** enter_plan_mode never qualifies: YOLO means "stop asking and run it", and a read-only
+	/** enter_plan_mode never qualifies: YOLO means "stop asking and run it", and a research
 	 * posture inverts that. Every accept path asks here rather than carrying its own copy. */
 	private autoAcceptsTool = (toolName: string | undefined) => toolName !== ENTER_PLAN_MODE_TOOL
 

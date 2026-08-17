@@ -31,7 +31,7 @@ Scripts are turned into sharable UIs automatically, and can be composed together
 </p>
 
 <p align="center">
-  <a href="https://app.windmill.dev">Try it</a> - <a href="https://www.windmill.dev/">Website</a> - <a href="https://www.windmill.dev/docs/intro/">Docs</a> - <a href="https://discord.gg/V7PM2YHsPB">Discord</a> - <a href="https://hub.windmill.dev">Hub</a> - <a href="https://www.windmill.dev/docs/misc/contributing">Contributor's guide</a>
+  <a href="https://app.windmill.dev">Try it</a> - <a href="https://www.windmill.dev/">Website</a> - <a href="https://www.windmill.dev/docs/intro/">Docs</a> - <a href="https://discord.gg/V7PM2YHsPB">Discord</a> - <a href="https://hub.windmill.dev">Hub</a> - <a href="./CONTRIBUTING.md">Contributing</a>
 </p>
 
 # Windmill - Developer platform for APIs, background jobs, workflows and UIs
@@ -62,6 +62,7 @@ https://github.com/user-attachments/assets/d80de1d9-64de-4d89-aacd-6df23fa81fc4
   - [Run a local dev setup](#run-a-local-dev-setup)
     - [Frontend only](#frontend-only)
     - [Backend + Frontend](#backend--frontend)
+  - [Contributing](#contributing)
   - [Contributors](#contributors)
   - [Copyright](#copyright)
 
@@ -328,6 +329,12 @@ running options.
    1. `env DATABASE_URL=<YOUR_DATABASE_URL> RUST_LOG=info cargo run`
    2. You can specify any feature flag you want to enable, for example `cargo run --features python` to enable the python executor.
 7. Windmill should be available at `http://localhost:3000`
+
+## Contributing
+
+At this time, we are not seeking outside contribution. Bug reports and feature requests remain very
+welcome, and small, trivially-verified PRs that fix a problem are still accepted. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the full policy.
 
 ## Contributors
 

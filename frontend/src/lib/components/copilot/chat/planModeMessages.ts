@@ -12,6 +12,14 @@ export const PLAN_MODE_MESSAGES = {
 	/** Sits beside the autonomy picker while plan mode holds. The picker's tooltip carries
 	 * the rest, so this states only the constraint. */
 	modeNote: 'Read-only',
+	// One pair for both artifact tools: the fact and the way forward are the same whether the
+	// model tried to mint the plan or to rewrite it, and the generic refusal above ("put this
+	// change in your plan") reads as nonsense for a call that writes a document.
+	planWriteRefusedLabel: 'Plan document is read-only while planning',
+	planWriteRefused:
+		'The session plan document is not writable in plan mode — exit_plan_mode is what writes it. ' +
+		'Keep researching, then hand the finished plan over with exit_plan_mode. Other artifacts ' +
+		'(diagrams, design sketches, comparisons) are yours to create and revise here.',
 	entered: 'Plan mode active.',
 	approvedWithDoc: 'Plan approved and saved as a document. You may now execute it.',
 	persistenceFailed:

@@ -25,14 +25,17 @@ async function fresh() {
 	;(globalThis as any).indexedDB = new IDBFactory()
 	;(await import('$lib/stores')).userStore.set({ email: 'a@x.com' } as never)
 	const dbMod = await import('./artifactsDB')
-	const { SessionArtifactsStore: Store } = await import('./artifactsState.svelte')
-	return { dbMod, store: new Store() }
+	// The re-imported module, not the file's static import: resetModules gives the store a fresh
+	// copy, and an error class from the stale one would never match what it throws.
+	const stateMod = await import('./artifactsState.svelte')
+	return { dbMod, stateMod, store: new stateMod.SessionArtifactsStore() }
 }
 
 let store: SessionArtifactsStore
 let dbMod: typeof db
+let stateMod: typeof import('./artifactsState.svelte')
 beforeEach(async () => {
-	;({ store, dbMod } = await fresh())
+	;({ store, dbMod, stateMod } = await fresh())
 })
 
 describe('SessionArtifactsStore', () => {
@@ -426,6 +429,66 @@ describe('SessionArtifactsStore', () => {
 
 		const row = await dbMod.getArtifact(plan.id)
 		expect(row).toMatchObject({ content: 'v2 from the other tab', version: 2, approvedVersion: 1 })
+	})
+
+	it('leaves the plan alone for a caller whose policy refuses it, and only that caller', async () => {
+		await store.setSession('s1')
+		const plan = await store.savePlan(
+			's1',
+			{ name: 'Plan', content: 'v1', note: 'first' },
+			undefined
+		)
+		const doc = await store.create('s1', { name: 'Doc', content: 'x' })
+		const no = { canWritePlan: () => false }
+
+		await expect(store.update(plan.id, { content: 'rewritten' }, no)).rejects.toThrow(
+			stateMod.PlanWriteRefusedError
+		)
+		await expect(
+			store.create('s2', { name: 'Plan', content: 'x', role: 'plan' }, no)
+		).rejects.toThrow(stateMod.PlanWriteRefusedError)
+		// The policy is about the plan, not about writing: everything else is untouched by it.
+		await expect(store.update(doc.id, { content: 'y' }, no)).resolves.toMatchObject({
+			content: 'y'
+		})
+		// And a caller that states no policy keeps every posture's plan writes exactly as they were.
+		await expect(store.update(plan.id, { content: 'v2' })).resolves.toMatchObject({ version: 2 })
+		expect((await dbMod.getArtifact(plan.id))?.content).toBe('v2')
+	})
+
+	it('refuses an approval naming no readable version, or no plan at all', async () => {
+		await store.setSession('s1')
+		const plan = await store.savePlan(
+			's1',
+			{ name: 'Plan', content: 'v1', note: 'first' },
+			undefined
+		)
+		const doc = await store.create('s1', { name: 'Doc', content: 'x' })
+
+		await expect(store.approve(plan.id, 2)).resolves.toBe(false)
+		await expect(store.approve(plan.id, 0)).resolves.toBe(false)
+		await expect(store.approve(plan.id, 1.5)).resolves.toBe(false)
+		await expect(store.approve(plan.id, NaN)).resolves.toBe(false)
+		await expect(store.approve(doc.id, 1)).resolves.toBe(false)
+		expect((await dbMod.getArtifact(plan.id))?.approvedVersion).toBeUndefined()
+
+		await expect(store.approve(plan.id, 1)).resolves.toBe(true)
+	})
+
+	it('approves a retained older version after history has moved on', async () => {
+		// The approval a card proposed lands late, and the versions between it and the head are
+		// still stored — the pointer belongs on the version the user read, not on the newest.
+		await store.setSession('s1')
+		const plan = await store.savePlan(
+			's1',
+			{ name: 'Plan', content: 'v1', note: 'first' },
+			undefined
+		)
+		await store.savePlan('s1', { name: 'Plan', content: 'v2', note: 'second' }, undefined)
+		await store.savePlan('s1', { name: 'Plan', content: 'v3', note: 'third' }, undefined)
+
+		await expect(store.approve(plan.id, 1)).resolves.toBe(true)
+		expect(await dbMod.getArtifact(plan.id)).toMatchObject({ version: 3, approvedVersion: 1 })
 	})
 
 	it('does not move the approval when a write produces no new version', async () => {
