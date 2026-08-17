@@ -52,7 +52,6 @@
 	let triggers: TriggerD[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
-	let emptyCtaShown = $derived(!loading && !triggers?.length)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
@@ -281,16 +280,14 @@
 
 <CenteredPage>
 	<PageHeader title="SQS triggers" tooltip="SQS trigger">
-		{#if !emptyCtaShown}
-			<Button
-				unifiedSize="md"
-				variant="accent"
-				startIcon={{ icon: Plus }}
-				on:click={() => sqsTriggerEditor?.openNew(false)}
-			>
-				New&nbsp;SQS trigger
-			</Button>
-		{/if}
+		<Button
+			unifiedSize="md"
+			variant="accent"
+			startIcon={{ icon: Plus }}
+			on:click={() => sqsTriggerEditor?.openNew(false)}
+		>
+			New&nbsp;SQS trigger
+		</Button>
 	</PageHeader>
 
 	{#if isCloudHosted()}

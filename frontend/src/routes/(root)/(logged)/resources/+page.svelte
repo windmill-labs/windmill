@@ -3,11 +3,12 @@
 	import { page } from '$app/state'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, EmptyState, Skeleton, Tab, TabFade } from '$lib/components/common'
+	import { Alert, Badge, Button, EmptyState, Skeleton, Tab } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import TabFade from '$lib/components/common/tabs/TabFade.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
@@ -667,14 +668,6 @@
 		}
 	}
 	let emptyState = $derived(emptyStates[tab] ?? emptyStates.workspace)
-
-	let emptyCtaShown = $derived(
-		tab === 'workspace' &&
-			showCreateButtons &&
-			!loading.resources &&
-			filteredItems?.length === 0 &&
-			!hasActiveFilters
-	)
 </script>
 
 <ConfirmationModal
@@ -940,18 +933,16 @@
 					>
 						Add resource type
 					</Button>
-					{#if !emptyCtaShown}
-						<Button
-							unifiedSize="md"
-							variant="accent"
-							startIcon={{ icon: Boxes }}
-							on:click={() => appConnect?.open?.()}
-							aiId="resources-add-resource"
-							aiDescription="Add resource"
-						>
-							Add resource
-						</Button>
-					{/if}
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						startIcon={{ icon: Boxes }}
+						on:click={() => appConnect?.open?.()}
+						aiId="resources-add-resource"
+						aiDescription="Add resource"
+					>
+						Add resource
+					</Button>
 				</div>
 			{/if}
 		</PageHeader>

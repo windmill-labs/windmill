@@ -30,12 +30,6 @@
 
 	let newFolderName: string = $state('')
 	let folders: FolderW[] | undefined = $state(undefined)
-	// Read through a typed parameter: a $derived reading a same-scope `$state(undefined)`
-	// infers `never` and loses `.length`.
-	function hasNoFolders(list: FolderW[] | undefined): boolean {
-		return list?.length === 0
-	}
-	let emptyCtaShown = $derived(hasNoFolders(folders) && !restricted)
 	let folderDrawer: Drawer | undefined = $state()
 	let hubDrawer: Drawer | undefined = $state()
 	let publishFolderName: string = $state('')
@@ -171,7 +165,7 @@
 					>
 						New folder
 					</Button>
-				{:else if !emptyCtaShown}
+				{:else}
 					{@render newFolderPopover('New folder', 'bottom-end')}
 				{/if}
 			</div>

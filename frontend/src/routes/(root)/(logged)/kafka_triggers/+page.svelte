@@ -58,7 +58,6 @@
 	let triggers: TriggerW[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
-	let emptyCtaShown = $derived(!loading && !triggers?.length)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
@@ -297,16 +296,14 @@
 			title="Kafka triggers"
 			tooltip="Windmill can consume kafka events and trigger scripts or flows based on them."
 		>
-			{#if !emptyCtaShown}
-				<Button
-					unifiedSize="md"
-					variant="accent"
-					startIcon={{ icon: Plus }}
-					on:click={() => kafkaTriggerEditor?.openNew(false)}
-				>
-					New&nbsp;Kafka trigger
-				</Button>
-			{/if}
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				startIcon={{ icon: Plus }}
+				on:click={() => kafkaTriggerEditor?.openNew(false)}
+			>
+				New&nbsp;Kafka trigger
+			</Button>
 		</PageHeader>
 
 		{#if isCloudHosted()}

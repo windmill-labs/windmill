@@ -52,7 +52,6 @@
 	let triggers: TriggerW[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
-	let emptyCtaShown = $derived(!loading && !triggers?.length)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
@@ -287,16 +286,14 @@
 		title="WebSocket triggers"
 		tooltip="Windmill can listen to WebSocket events and trigger scripts or flows based on them."
 	>
-		{#if !emptyCtaShown}
-			<Button
-				unifiedSize="md"
-				variant="accent"
-				startIcon={{ icon: Plus }}
-				on:click={() => websocketTriggerEditor?.openNew(false)}
-			>
-				New&nbsp;WebSocket trigger
-			</Button>
-		{/if}
+		<Button
+			unifiedSize="md"
+			variant="accent"
+			startIcon={{ icon: Plus }}
+			on:click={() => websocketTriggerEditor?.openNew(false)}
+		>
+			New&nbsp;WebSocket trigger
+		</Button>
 	</PageHeader>
 
 	{#if isCloudHosted()}
