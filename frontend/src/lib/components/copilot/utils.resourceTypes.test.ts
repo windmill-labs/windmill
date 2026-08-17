@@ -4,15 +4,15 @@ import { formatResourceTypes } from './utils'
 // Hub resource types such as `record` (schema `{}`) or `dbt_profile`
 // (`{"type":"object"}`) carry no `properties`, and the schema column is
 // nullable, so any workspace can hold a type whose property map is missing.
-describe('formatResourceTypes tolerates resource types without a property map', () => {
-	const resourceTypes = [
-		{ name: 'record', schema: {} },
-		{ name: 'dbt_profile', schema: { type: 'object' } },
-		{ name: 'null_schema', schema: null },
-		{ name: 'null_properties', schema: { type: 'object', properties: null } },
-		{ name: 'ok', schema: { type: 'object', properties: { host: { type: 'string' } } } }
-	] as any
+const resourceTypes = [
+	{ name: 'record', schema: {} },
+	{ name: 'dbt_profile', schema: { type: 'object' } },
+	{ name: 'null_schema', schema: null },
+	{ name: 'null_properties', schema: { type: 'object', properties: null } },
+	{ name: 'ok', schema: { type: 'object', properties: { host: { type: 'string' } } } }
+] as any
 
+describe('formatResourceTypes tolerates resource types without a property map', () => {
 	it('emits `any` for typescript and keeps the valid types', () => {
 		const out = formatResourceTypes(resourceTypes, 'typescript')
 		expect(out).toContain('type Record = any')

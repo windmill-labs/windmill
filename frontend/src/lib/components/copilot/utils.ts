@@ -2,7 +2,7 @@ import type { Schema, SchemaProperty } from '../../common'
 
 import type { ResourceType, ScriptLang } from '../../gen'
 
-import { capitalize, toCamel } from '$lib/utils'
+import { capitalize, isObject, toCamel } from '$lib/utils'
 import YAML from 'yaml'
 
 export const getCommentSymbol = (
@@ -40,16 +40,16 @@ export const getCommentSymbol = (
 }
 
 export function compile(schema: Schema) {
-	function rec(x: { [name: string]: SchemaProperty }, root = false) {
+	function rec(x: { [name: string]: SchemaProperty } | undefined, root = false) {
 		let res = '{\n'
-		const entries = Object.entries(x ?? {})
+		const entries = Object.entries(isObject(x) ? x : {})
 		if (entries.length == 0) {
 			return 'any'
 		}
 		let i = 0
 		for (let [name, prop] of entries) {
 			if (prop?.type == 'object') {
-				res += `  ${name}: ${rec(prop.properties ?? {})}`
+				res += `  ${name}: ${rec(prop.properties)}`
 			} else if (prop?.type == 'array') {
 				res += `  ${name}: ${prop?.items?.type ?? 'any'}[]`
 			} else {
@@ -73,7 +73,8 @@ export function compile(schema: Schema) {
 
 export function pythonCompile(schema: Schema) {
 	let res = ''
-	const entries = Object.entries(schema?.properties ?? {})
+	const properties = schema?.properties
+	const entries = Object.entries(isObject(properties) ? properties : {})
 	if (entries.length === 0) {
 		// callers embed the result as a `class X(TypedDict):` body
 		return '    pass'
@@ -103,7 +104,8 @@ export function pythonCompile(schema: Schema) {
 
 export function phpCompile(schema: Schema) {
 	let res = ''
-	const entries = Object.entries(schema?.properties ?? {})
+	const properties = schema?.properties
+	const entries = Object.entries(isObject(properties) ? properties : {})
 	if (entries.length === 0) {
 		return ''
 	}

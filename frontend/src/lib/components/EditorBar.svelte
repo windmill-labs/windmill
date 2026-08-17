@@ -59,7 +59,7 @@
 		Settings,
 		Users
 	} from 'lucide-svelte'
-	import { capitalize, formatS3Object, toCamel, type Item } from '$lib/utils'
+	import { capitalize, formatS3Object, isObject, toCamel, type Item } from '$lib/utils'
 	import DropdownV2 from './DropdownV2.svelte'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
@@ -394,16 +394,16 @@
 	const dispatch = createEventDispatcher()
 
 	function compile(schema: Schema) {
-		function rec(x: { [name: string]: SchemaProperty }, root = false) {
+		function rec(x: { [name: string]: SchemaProperty } | undefined, root = false) {
 			let res = '{\n'
-			const entries = Object.entries(x ?? {})
+			const entries = Object.entries(isObject(x) ? x : {})
 			if (entries.length == 0) {
 				return 'any'
 			}
 			let i = 0
 			for (let [name, prop] of entries) {
 				if (prop?.type == 'object') {
-					res += `${name}: ${rec(prop.properties ?? {})}`
+					res += `${name}: ${rec(prop.properties)}`
 				} else if (prop?.type == 'array') {
 					res += `${name}: ${prop?.items?.type ?? 'any'}[]`
 				} else {
@@ -484,7 +484,8 @@
 
 	function phpCompile(schema: Schema) {
 		let res = '  '
-		const entries = Object.entries(schema?.properties ?? {})
+		const properties = schema?.properties
+		const entries = Object.entries(isObject(properties) ? properties : {})
 		if (entries.length === 0) {
 			return ''
 		}
@@ -512,7 +513,8 @@
 	}
 	function pythonCompile(schema: Schema) {
 		let res = ''
-		const entries = Object.entries(schema?.properties ?? {})
+		const properties = schema?.properties
+		const entries = Object.entries(isObject(properties) ? properties : {})
 		if (entries.length === 0) {
 			// the result is inserted as a `class X(TypedDict):` body
 			return 'pass'
