@@ -132,6 +132,11 @@ run $G ask   "cd /tmp/a && cd /tmp/b && rm -rf sub"
 run $G ask   "rm -rf /tmp/clone/.git"                     # history is never in a class
 run $G ask   "rm -rf /tmp/scratch/id_rsa.key"
 run $G none  "cd /tmp >$OUT; rm -f /tmp/a"
+# A substitution is concatenated into its word, so splitting on it would prove only the literal
+# half; a relative `cd` is not $cwd/$t either, since the shell searches $CDPATH first.
+run $G ask   'rm -rf /tmp/a/`printf ../../etc`'
+run $G ask   'rm -rf /tmp/a/$(printf ../../etc)'
+run $G ask   "cd ssh && rm -rf moduli"
 
 echo
 echo "== allow-fileops-in-tmp.sh =="
@@ -180,6 +185,7 @@ run $A ask   "cd /tmp/does-not-exist; mv .claude/settings.json settings.bak"
 # what a later operand resolves to — neither may ride along on an allow.
 run $A none  "cd /tmp >$OUT; mv /tmp/a /tmp/b"
 run $A none  "cp -r /tmp/tree /tmp/live; cp /tmp/payload /tmp/live/link"
+run $A ask   'mv /tmp/a/`printf ../../etc/x` /tmp/b'
 
 echo
 [ "$fails" = 0 ] && echo "ALL PASS" || { echo "$fails FAILURES"; exit 1; }

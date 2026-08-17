@@ -168,7 +168,7 @@ segment_tokens() {
 
 # Prints the directory a `cd` lands in, given the current one ($1) and the tokens after the
 # `cd` ($2...). Fails, printing nothing, when the destination cannot be resolved — a variable,
-# `-`, an option, no operand at all (`cd` alone is $HOME), or more than one.
+# `-`, an option, a relative path, no operand at all (`cd` alone is $HOME), or more than one.
 #
 # Resolving says nothing about whether the `cd` will SUCCEED: the destination may not exist, and
 # `;` runs the next command anyway, leaving it in the directory it started in. So a caller may
@@ -180,12 +180,10 @@ apply_cd() {
   [ "$#" -eq 1 ] || return 1
   t="$1"
   [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/-')" ] && return 1
-  case "$t" in -*) return 1 ;; esac
-  case "$t" in
-    /*) realpath -m -- "$t" 2>/dev/null ;;
-    *) [ -n "$cwd" ] || return 1
-       realpath -m -- "$cwd/$t" 2>/dev/null ;;
-  esac
+  # Absolute only. A relative destination is not `$cwd/$t`: the shell searches $CDPATH first,
+  # so `cd ssh` may land in /etc/ssh, and this cannot see the caller's $CDPATH to rule it out.
+  case "$t" in /*) ;; *) return 1 ;; esac
+  realpath -m -- "$t" 2>/dev/null
 }
 
 # Prints the class of a canonical path and returns 0: `tmp` for one strictly under /tmp, `repo`

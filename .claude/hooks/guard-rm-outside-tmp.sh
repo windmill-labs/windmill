@@ -45,6 +45,15 @@ defer() {
   exit 0
 }
 
+# A command substitution is concatenated into the word it sits in, and splitting the command on
+# its opener cuts that word in half: `/tmp/a/`printf ../../etc`` would be proved as `/tmp/a/`
+# and the traversal validated as an unrelated segment. Nothing here can evaluate the
+# substitution, so a command carrying one is never proved — heredoc bodies excepted, since
+# those are data the split already dropped.
+case "$(strip_heredoc_bodies "$cmd")" in
+  *'$('* | *'`'*) defer "command substitution in the command line" ;;
+esac
+
 # Proves one `rm` segment, whose tokens are in SEG_TOKS with `rm` at index 0, resolving relative
 # operands against $seg_cwd. Returns only once every operand is an auto-allowable target;
 # anything it cannot prove defers instead.
