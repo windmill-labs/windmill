@@ -1095,9 +1095,14 @@
 											</a>
 										</Cell>
 										<Cell>
-											<span class="text-primary text-xs">
-												{removeMarkdown(truncate(description ?? '', 30))}
-											</span>
+											<div class="flex items-center min-h-8 w-full min-w-0 max-w-[30rem]">
+												<span
+													class="text-primary text-xs whitespace-pre-wrap ellipsize-multi-line [-webkit-line-clamp:2]"
+													title={removeMarkdown(description ?? '')}
+												>
+													{removeMarkdown(truncate(description ?? '', 200))}
+												</span>
+											</div>
 										</Cell>
 										<Cell>
 											<div class="flex flex-row text-center">
@@ -1314,19 +1319,31 @@
 											</a>
 										</Cell>
 										<Cell>
-											<span class="text-primary text-xs w-96 flex flex-wrap whitespace-pre-wrap">
-												{removeMarkdown(truncate(description ?? '', 200))}
-											</span>
+											<!-- Fixed at two lines: min-h so short descriptions still set the same row
+												height as long ones, line-clamp so long ones cannot push the row taller.
+												title carries the whole thing, since the clamp hides the rest. -->
+											<div class="flex items-center min-h-8 w-full min-w-0 max-w-[30rem]">
+												<span
+													class="text-primary text-xs whitespace-pre-wrap ellipsize-multi-line [-webkit-line-clamp:2]"
+													title={removeMarkdown(description ?? '')}
+												>
+													{removeMarkdown(truncate(description ?? '', 200))}
+												</span>
+											</div>
 										</Cell>
-										<Cell last stickyEnd>
+										<Cell last stickyEnd class="border-l-0 text-right">
 											{#if !canWrite}
-												<Badge>
-													Shared globally
-													<Tooltip>
-														This resource type is from the 'admins' workspace shared with all
-														workspaces
-													</Tooltip>
-												</Badge>
+												<!-- Badge is inline-flex, so it needs a right-aligning wrapper to sit
+													flush with the action buttons on the rows that have them. -->
+												<div class="flex justify-end">
+													<Badge>
+														Shared globally
+														<Tooltip>
+															This resource type is from the 'admins' workspace shared with all
+															workspaces
+														</Tooltip>
+													</Badge>
+												</div>
 											{:else if $userStore?.is_admin || $userStore?.is_super_admin}
 												<div class="flex flex-row-reverse gap-2">
 													<Button

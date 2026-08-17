@@ -309,6 +309,14 @@ import MotimateIcon from './MotimateIcon.svelte'
 import PaychexIcon from './PaychexIcon.svelte'
 import TerraIcon from './TerraIcon.svelte'
 import VectaraIcon from './VectaraIcon.svelte'
+import ActimoIcon from './ActimoIcon.svelte'
+import AdRapidIcon from './AdRapidIcon.svelte'
+import AeroWorkflowIcon from './AeroWorkflowIcon.svelte'
+import GlobalForestWatchIcon from './GlobalForestWatchIcon.svelte'
+import LeonardoAiIcon from './LeonardoAiIcon.svelte'
+import LocalContextsIcon from './LocalContextsIcon.svelte'
+import WeatherApiIcon from './WeatherApiIcon.svelte'
+import WebScrapingAiIcon from './WebScrapingAiIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -631,6 +639,14 @@ export const APP_TO_ICON_COMPONENT = {
 	paychex: PaychexIcon,
 	terra: TerraIcon,
 	vectara: VectaraIcon,
+	actimo: ActimoIcon,
+	adrapid: AdRapidIcon,
+	aero_workflow: AeroWorkflowIcon,
+	gfw: GlobalForestWatchIcon,
+	leonardoai: LeonardoAiIcon,
+	localcontexts: LocalContextsIcon,
+	weatherapi: WeatherApiIcon,
+	webscrapingai: WebScrapingAiIcon,
 	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
@@ -879,6 +895,14 @@ export {
 	BotifyIcon,
 	SensorTowerIcon,
 	ZuploIcon,
+	ActimoIcon,
+	AdRapidIcon,
+	AeroWorkflowIcon,
+	GlobalForestWatchIcon,
+	LeonardoAiIcon,
+	LocalContextsIcon,
+	WeatherApiIcon,
+	WebScrapingAiIcon,
 	BeamerIcon,
 	CampaynIcon,
 	CodatIcon,

@@ -1,25 +1,24 @@
 <script lang="ts">
+	import BrandLetterIcon from './BrandLetterIcon.svelte'
+
 	interface Props {
 		height?: string
 		width?: string
+		size?: number
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props()
+	let { height = '24px', width = '24px', size = undefined }: Props = $props()
 </script>
 
-<!-- #584CCC per Adobe's own Acrobat Sign product icon (adobe.com/cc-shared/assets/img/product-icons/svg/acrobat-sign.svg); same value in the live app favicon. -->
-<svg {width} {height} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-	<rect x="1.5" y="1.5" width="21" height="21" rx="4.5" fill="#584CCC" />
-	<path
-		fill="#fff"
-		fill-rule="evenodd"
-		d="M10.7 5.8h2.6L17.6 16h-2.7l-.86-2.3h-4.08L9.1 16H6.4L10.7 5.8Zm1.3 2.9-1.4 3.7h2.8L12 8.7Z"
-	/>
-	<path
-		d="M6.6 18.7c1.5.85 2.9.2 4.1-.45s2.5-1.05 4-.2"
-		stroke="#fff"
-		stroke-width="1.15"
-		stroke-linecap="round"
-		fill="none"
-	/>
-</svg>
+<!-- #584CCC per adobe.com/cc-shared/assets/img/product-icons/svg/acrobat-sign.svg. Adobe's mark
+	itself is not shipped: "Adobe does not allow the use of its product icons by third parties in
+	their products or related materials of any kind, except through an Adobe partnership
+	agreement" (adobe.com/legal/permissions/icons-web-logos.html). -->
+<BrandLetterIcon
+	letter="A"
+	bgClass="fill-transparent dark:fill-[#584CCC]"
+	textClass="text-[#584CCC] dark:text-white"
+	{height}
+	{width}
+	{size}
+/>
