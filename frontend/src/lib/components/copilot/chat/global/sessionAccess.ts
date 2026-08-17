@@ -9,9 +9,10 @@ import {
  * What a user may do in ONE workspace, as the AI session toolset needs to know it.
  *
  * These are permission facts, never relevance judgements — a capability is absent
- * only when the backend would refuse the call. The client is not the enforcement
- * point (the token is); this exists so the model is never handed a tool whose every
- * invocation would 401.
+ * only when the backend would refuse the call. Best-effort, not a boundary: the token
+ * is the enforcement point, and every failure resolves OPEN — a failed `whoami` yields
+ * every capability, a failed rules fetch reads as no rule active. So this narrows what
+ * the model is offered; it does not guarantee it is never offered a tool that would 401.
  *
  * The rules below are NOT a role ladder: the backend's precedence between "admin"
  * and "operator" differs per capability. Collapsing them into one ordering would get
@@ -28,9 +29,10 @@ export type SessionAccess = {
 
 const ALL_CAPABILITIES: SessionCapability[] = ['write_draft', 'run_preview', 'deploy']
 
-/** Benefit of the doubt: an unresolvable role must not blank the toolset. Mirrors the
- * fail-open contract of `checkDeployPermission`, which is the same kind of advisory
- * client-side mirror and defers to the server for the actual refusal. */
+/** Benefit of the doubt: an unresolvable role must not blank the toolset, since a
+ * transient failure would otherwise tell a developer mid-session that they cannot
+ * author anything — a worse and far less legible outcome than the 403 they get by
+ * trying. Mirrors the fail-open contract of `checkDeployPermission`. */
 export function fullSessionAccess(workspace: string): SessionAccess {
 	return { workspace, capabilities: new Set(ALL_CAPABILITIES) }
 }
