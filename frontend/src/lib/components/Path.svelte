@@ -426,8 +426,12 @@
 			})
 		}
 	})
+	// Nothing depends on an item that does not exist yet, so editing a *suggested* path is not a
+	// rename. `checkInitialPathExistence` is what callers set when they are creating something,
+	// which is the same question asked the other way round.
 	let displayPathChangedWarning = $derived(
 		(['flow', 'script', 'resource', 'variable'] as PathKind[]).includes(kind) &&
+			!checkInitialPathExistence &&
 			initialPath &&
 			initialPath !== path
 	)
