@@ -2074,13 +2074,9 @@ export class AIChatManager {
 		}
 	}
 
-	// Resolve what the user may do in the workspace this send targets, so the toolset
-	// never advertises a tool whose every call the backend would refuse. Deliberately
-	// re-resolved per send rather than cached for the session's life: a role change (or
-	// a transient `whoami` failure, which resolves fail-open) must take effect on the
-	// next message, not only on a workspace switch.
-	//
-	// Only sessions are filtered; the global side-panel chat keeps the full toolset.
+	// Re-resolved per send rather than cached for the session's life, so a role change —
+	// or a transient `whoami` failure, which resolves fail-open — takes effect on the next
+	// message rather than only on a workspace switch. Only sessions are filtered.
 	private resolveSessionAccessForSend = async (workspace: string) => {
 		if (!this.isSessionChat || !workspace) {
 			this.sessionAccess = undefined
@@ -2472,12 +2468,10 @@ export class AIChatManager {
 					base = self.planMode.decorateSystemMessage(base)
 					return base
 				},
-				// The one place every tool source converges — the static global set, the
-				// pipeline and MCP tools `configureGlobalMode` appends, and plan mode's,
-				// added here. Filtering here rather than at `globalToolsFor` is what makes
-				// the capability check cover the dynamic sources too, and the array is both
-				// advertised to the model and used to dispatch the call, so a withheld tool
-				// is unreachable rather than merely unlisted.
+				// The one place every tool source converges, which is why the capability
+				// filter belongs here and not in `globalToolsFor`. This same array both
+				// advertises the tools and dispatches the calls, so a withheld tool is
+				// unreachable rather than merely unlisted.
 				get tools() {
 					return filterSessionTools([...self.tools, ...self.planMode.tools], self.sessionAccess)
 				},

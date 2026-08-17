@@ -75,23 +75,11 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		capabilities.add('run_preview')
 	}
 
-	// Deploy authorization is operation-shaped, not role-shaped: protection rulesets,
-	// `wm_deployers` membership and per-ruleset bypass lists all feed into it. Reuse the
-	// existing mirror rather than re-deriving it, so the chat and the visible deploy
-	// button can never disagree.
-	//
-	// `is_admin` is folded first because that helper tests `me.is_admin` alone, while the
-	// rule it mirrors receives `authed.is_admin` — superadmin included. Without this a
-	// superadmin who is a plain member of a workspace under `RestrictDeployToDeployers`
-	// would lose the deploy tools the backend grants them.
-	//
-	// `DisableDirectDeployment` is checked on top because `checkDeployPermission` covers
-	// only the operator and `RestrictDeployToDeployers` halves, while the endpoints the
-	// deploy tools call go through the backend's `check_deploy_rules`, which gates on both.
+	// Mirrors the backend's `check_deploy_rules`, which gates on BOTH protection rules.
+	// `checkDeployPermission` carries only the operator and `RestrictDeployToDeployers`
+	// halves, so `DisableDirectDeployment` is checked on top. An admin bypasses every
+	// rule, which is why the rulesets are fetched for everyone else only.
 	const authedAdmin = isAuthedAdmin(me)
-	// An admin bypasses every rule, so the rulesets are only worth fetching for everyone
-	// else. `wm_deployers` membership does not help here: it satisfies
-	// `RestrictDeployToDeployers` alone, never `DisableDirectDeployment`.
 	const rulesets = authedAdmin ? undefined : await fetchProtectionRulesForWorkspace(workspace)
 	const deployAllowed =
 		(await checkDeployPermission(workspace, { ...me, is_admin: authedAdmin })).ok &&
