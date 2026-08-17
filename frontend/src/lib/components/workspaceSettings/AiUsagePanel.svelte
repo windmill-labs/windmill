@@ -124,7 +124,7 @@
 </script>
 
 <SettingCard
-	label={scope === 'self' ? 'Your AI usage' : 'AI usage'}
+	label={scope === 'self' ? `Your AI usage in ${workspace}` : 'AI usage'}
 	description={scope === 'self'
 		? "Token spend from your own AI chats in this workspace. Costs are estimated from the workspace's model rates unless the provider reported one."
 		: "Token spend across this workspace's AI chats, grouped by day, user or model. Costs are estimated from the workspace's effective model rates unless the provider reported one."}
