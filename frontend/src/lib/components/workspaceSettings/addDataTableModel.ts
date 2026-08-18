@@ -19,6 +19,7 @@ import {
 import type { SetupStep } from '../wizards/SetupChecklist.svelte'
 import { instanceSetupSteps } from './instanceDbSteps'
 import { claim, stillOurs, type Claims } from './setupClaims'
+import { probeDatatableConnection } from './datatableProbe'
 import {
 	DEFAULT_SSLMODE,
 	parsePostgresConnectionString,
@@ -822,10 +823,7 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 			} else {
 				// Checked through the resource, so nothing is written until the database has proved
 				// it can hold a data table.
-				const report = await WorkspaceService.testDataTableResourceConnection({
-					workspace: deps.workspace,
-					resourcePath
-				})
+				const report = await probeDatatableConnection(deps.workspace, `$res:${resourcePath}`)
 				if (!report.can_create_table) {
 					advance('failed', 'The database is reachable but its user cannot create tables.')
 					return {

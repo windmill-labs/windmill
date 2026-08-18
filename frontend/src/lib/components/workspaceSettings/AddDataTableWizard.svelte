@@ -31,6 +31,7 @@
 	import SupabaseProjectStep from './SupabaseProjectStep.svelte'
 	import DataTableConnectionReport from './DataTableConnectionReport.svelte'
 	import { useSupabaseOauth } from './supabaseOauth.svelte'
+	import { probeDatatableConnection } from './datatableProbe'
 	import {
 		anythingClaimed,
 		claimOf,
@@ -506,22 +507,14 @@
 					password: wiz.supabase.password
 				}
 			}
-			if (!value && wiz.provider === 'resource' && wiz.own.resourcePath) {
-				const report = await WorkspaceService.testDataTableResourceConnection({
-					workspace: $workspaceStore!,
-					resourcePath: wiz.own.resourcePath
-				})
-				settle({ checking: false, report, error: undefined })
-				return
-			}
-			if (!value) {
+			// An existing resource goes as a reference the worker resolves, exactly as a Postgres
+			// step would take it; anything unsaved goes as the value itself.
+			const database = value ?? (wiz.own.resourcePath ? `$res:${wiz.own.resourcePath}` : undefined)
+			if (!database) {
 				settle({ checking: false, report: undefined, error: undefined })
 				return
 			}
-			const report = await WorkspaceService.testDataTableConnectionValue({
-				workspace: $workspaceStore!,
-				requestBody: value
-			})
+			const report = await probeDatatableConnection($workspaceStore!, database)
 			settle({ checking: false, report, error: undefined })
 		} catch (err: any) {
 			settle({

@@ -135,16 +135,8 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
         .route(
-            "/test_datatable_resource_connection",
-            get(test_datatable_resource_connection),
-        )
-        .route(
             "/test_datatable_connection/{datatable_name}",
             get(test_datatable_connection),
-        )
-        .route(
-            "/test_datatable_connection_value",
-            post(test_datatable_connection_value),
         )
         .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
@@ -2137,42 +2129,6 @@ struct DataTableConnectionCheck {
     suggested_search_path: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct TestDataTableResourceQuery {
-    resource_path: String,
-}
-
-/// Same check as [`test_datatable_connection`], but against a resource that is not yet
-/// referenced by any data table. The setup wizard creates the resource first and needs to
-/// prove the role can create tables *before* writing the workspace's data table config.
-async fn test_datatable_resource_connection(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Query(query): Query<TestDataTableResourceQuery>,
-) -> JsonResult<DataTableConnectionCheck> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    audit_log(
-        &db,
-        &authed,
-        "workspaces.test_datatable_resource_connection",
-        ActionKind::Execute,
-        &w_id,
-        Some(&authed.email),
-        Some([("resource_path", query.resource_path.as_str())].into()),
-    )
-    .await?;
-
-    let db_resource = windmill_common::workspaces::transform_json_value_unchecked(
-        &serde_json::Value::String(format!("$res:{}", query.resource_path)),
-        &w_id,
-        &db,
-    )
-    .await?;
-    check_datatable_connection(&db, db_resource).await
-}
-
 /// Report what the data table's own database lets its role do. Surfacing this
 /// from the settings page is the difference between finding out here and finding
 /// out on a first schema change, when the failure reads as a Postgres refusal
@@ -2188,50 +2144,13 @@ async fn test_datatable_connection(
     check_datatable_connection(&db, db_resource).await
 }
 
-/// Authenticate the way the worker will, or the probe answers a question nobody asked. A
-/// resource with `use_iam_auth` is never given a password, so password auth fails on it every
-/// time -- and the wizard makes this check mandatory, so that resource could never be set up.
-/// The selection mirrors `PgAuthMode::of` in `windmill-worker/src/pg_executor.rs`, which stays
-/// the authority; this is the same rule at the one other place that opens such a connection.
-async fn connect_as_the_worker_would(
-    pg_db: &PgDatabase,
-    db: &DB,
-) -> Result<(tokio_postgres::Client, windmill_common::TokioPgConnection)> {
-    let workload_identity = pg_db.password.as_deref().map(str::trim)
-        == Some(windmill_common::azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD);
-    if pg_db.use_iam_auth == Some(true) {
-        if workload_identity {
-            return Err(Error::BadRequest(
-                "IAM RDS authentication cannot use the Azure workload identity password"
-                    .to_string(),
-            ));
-        }
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        return Ok(pg_db.connect_with_iam().await?);
-        #[cfg(not(all(feature = "enterprise", feature = "private")))]
-        return Err(Error::BadRequest(
-            "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
-        ));
-    }
-    if workload_identity {
-        #[cfg(feature = "enterprise")]
-        return Ok(pg_db.connect_with_workload_identity().await?);
-        #[cfg(not(feature = "enterprise"))]
-        return Err(Error::BadRequest(
-            "Azure workload identity authentication requires Windmill Enterprise Edition"
-                .to_string(),
-        ));
-    }
-    Ok(pg_db.connect(Some(db)).await?)
-}
-
 async fn check_datatable_connection(
     db: &DB,
     db_resource: serde_json::Value,
 ) -> JsonResult<DataTableConnectionCheck> {
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = connect_as_the_worker_would(&pg_db, db).await?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     // One round trip, no side effects: `has_*_privilege` answers for the
@@ -2311,47 +2230,6 @@ async fn check_datatable_connection(
         suggested_grants,
         suggested_search_path,
     }))
-}
-
-/// Same check again, against a connection value that has not been saved as a
-/// resource yet. The wizard validates what the user typed before it mints
-/// anything, so a wrong Supabase password fails on the field that holds it
-/// rather than after a variable and a resource have been written.
-///
-/// Admin-only like the other two, and no wider: an admin can already create a
-/// resource and test it, so this adds a shortcut, not a capability.
-async fn test_datatable_connection_value(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(value): Json<serde_json::Value>,
-) -> JsonResult<DataTableConnectionCheck> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    // The host is the whole point of the record: this is the API server dialling out to
-    // somewhere the request named, and nothing else writes that down.
-    let host = value.get("host").and_then(|h| h.as_str()).unwrap_or("");
-    let port = value
-        .get("port")
-        .map(|p| p.to_string())
-        .unwrap_or_else(|| "".to_string());
-    audit_log(
-        &db,
-        &authed,
-        "workspaces.test_datatable_connection_value",
-        ActionKind::Execute,
-        &w_id,
-        Some(&authed.email),
-        Some([("host", host), ("port", port.as_str())].into()),
-    )
-    .await?;
-
-    // Used exactly as sent. The body of this test is written entirely by its caller, and the
-    // resolving transform the other endpoint uses would decrypt any secret in the workspace
-    // and hand it to a host the same request chose, with no permission check of its own. Not
-    // calling it is what makes that impossible -- and it is also what lets a password that
-    // happens to start with `$var:` be tested, which Postgres allows and a filter would not.
-    check_datatable_connection(&db, value).await
 }
 
 async fn list_datatable_schemas(

@@ -4804,51 +4804,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/DataTableConnectionCheck"
 
-  /w/{workspace}/workspaces/test_datatable_resource_connection:
-    get:
-      summary: check what a postgres resource lets its role do, before it is attached to a data table
-      operationId: testDataTableResourceConnection
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: resource_path
-          in: query
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: connection and privilege report
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DataTableConnectionCheck"
-
-  /w/{workspace}/workspaces/test_datatable_connection_value:
-    post:
-      summary: check what a postgres connection lets its role do, before it is saved as a resource
-      operationId: testDataTableConnectionValue
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: a postgresql resource value
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        "200":
-          description: connection and privilege report
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DataTableConnectionCheck"
-
   /w/{workspace}/workspaces/list_datatable_tables:
     get:
       summary: list tables of all connected Datatables
