@@ -38,6 +38,7 @@
 	)
 
 	type Field = 'input' | 'output' | 'cache_read' | 'cache_write'
+	type CacheField = Extract<Field, 'cache_read' | 'cache_write'>
 	type Rates = { input: number; output: number; cache_read?: number; cache_write?: number }
 
 	const RATE_FIELDS: Field[] = ['input', 'output', 'cache_read', 'cache_write']
@@ -91,7 +92,7 @@
 	// old number in the override would keep charging it while the field shows the
 	// inherited placeholder. Input and output are required, so an empty one is not a
 	// state the override can hold; the input snaps back to the stored value on blur.
-	function clearCacheRate(provider: AIProvider, model: string, field: Field) {
+	function clearCacheRate(provider: AIProvider, model: string, field: CacheField) {
 		const key = modelKey(provider, model)
 		const override = modelPricing[key]
 		if (!override || override[field] === undefined) {
@@ -203,6 +204,7 @@
 																		]
 																		e.currentTarget.value =
 																			stored === undefined ? '' : String(stored)
+																		errors[key] = ''
 																	}
 																}}
 															/>
