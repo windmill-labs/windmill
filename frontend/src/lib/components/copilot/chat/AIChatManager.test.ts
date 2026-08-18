@@ -194,6 +194,26 @@ describe('AIChatManager unmounted-chat guard', () => {
 	})
 })
 
+describe('AIChatManager.sendOrQueue', () => {
+	// The programmatic senders (an editor's "AI Fix", an arriving hand-off) have no
+	// composer to enforce the composer's rule for them: a second loop on one manager
+	// shares its abort controller and transcript.
+	it('queues instead of starting a second turn while one is streaming', () => {
+		const manager = new AIChatManager()
+		manager.loading = true
+		manager.sendOrQueue('fix the failing run')
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.queuedMessage).toBe('fix the failing run')
+	})
+
+	it('sends straight away when idle', async () => {
+		const manager = new AIChatManager()
+		manager.sendOrQueue('fix the failing run')
+		await vi.waitFor(() => expect(mocks.runChatLoop).toHaveBeenCalled())
+		expect(manager.queuedMessage).toBe('')
+	})
+})
+
 describe('AIChatManager request errors', () => {
 	const openaiModel = { provider: 'openai', model: 'gpt-4o' }
 

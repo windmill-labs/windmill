@@ -1774,7 +1774,6 @@ export class AIChatManager {
 		}
 	}
 
-	/** Remove the queued message and put it back into the input, images included. */
 	/** Send `text` as a turn, or queue it when one is already streaming. Callers
 	 * that send programmatically (an editor button, an arriving hand-off) must go
 	 * through this rather than `sendRequest`: a second concurrent loop shares this
@@ -1788,6 +1787,7 @@ export class AIChatManager {
 		void this.sendRequest({ instructions: text })
 	}
 
+	/** Remove the queued message and put it back into the input, images included. */
 	dequeueMessage() {
 		if (!this.#hasQueuedMessage()) {
 			return

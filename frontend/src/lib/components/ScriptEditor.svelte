@@ -95,7 +95,7 @@
 	import OpenInSessionButton, {
 		type OpenInSessionSource
 	} from './sessions/OpenInSessionButton.svelte'
-	import { getOpenInSessionHandoff, setOpenInSessionHandoff } from './sessions/openInSessionContext'
+	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -283,14 +283,16 @@
 	// (the preview panel's "AI Fix"), mirroring FlowBuilder and RawAppEditor.
 	// Withheld under `disableAi` (same gate as the toolbar's own button): an embed
 	// that turned AI off must not get an entry point that navigates the host out
-	// to /sessions. Falls through to whatever an ancestor published when this
-	// editor has no target of its own: the drawer hosts (ScriptEditorDrawer,
-	// InlineScriptEditorDrawer) mount it without `sessionOpen`, and shadowing the
-	// enclosing builder there would drop their "AI Fix" onto the legacy path.
-	const parentHandoff = getOpenInSessionHandoff()
-	setOpenInSessionHandoff({
-		source: (opts) => (disableAi ? undefined : (sessionOpen ?? parentHandoff?.source(opts)))
-	})
+	// to /sessions.
+	//
+	// Deliberately shadows an ancestor's hand-off rather than falling through to
+	// it. ScriptEditorDrawer mounts this editor without a `sessionOpen` from
+	// inside FlowBuilder, and FlowBuilder's hand-off opens the *flow* — so a
+	// fall-through would answer "fix this script" by navigating to the flow and
+	// abandoning the drawer's unsaved content, which nothing here persists. With
+	// no source the entry point renders its legacy fallback instead, which the
+	// `sendRequest` backstop turns into an honest toast.
+	setOpenInSessionHandoff({ source: () => (disableAi ? undefined : sessionOpen) })
 
 	$effect(() => {
 		onTestStateChange?.(testIsLoading)
