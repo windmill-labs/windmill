@@ -406,9 +406,6 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
-		// Report each response as its usage arrives rather than after the parser
-		// returns: a parser waits on tool execution, which can wait on a person, and
-		// a tab closed in that gap would drop a response the provider already billed.
 		const parseOptions = {
 			workspace,
 			provider: modelProvider.provider,

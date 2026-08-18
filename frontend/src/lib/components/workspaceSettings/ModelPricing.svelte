@@ -4,6 +4,7 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import { getKnownModelPrice, inheritedCacheRates } from '../copilot/modelPricing'
 	import { modelKey } from '../copilot/modelConfig'
+	import { stripLegacyThinkingSuffix } from '../copilot/reasoningRegistry'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import SettingCard from '../instanceSettings/SettingCard.svelte'
@@ -24,13 +25,23 @@
 	let errors = $state<Record<string, string>>({})
 	let collapsedProviders = $state<Record<string, boolean>>({})
 
+	// Rates are keyed by the id the chat reports usage under, and `setCopilotInfo`
+	// strips the deprecated `/thinking` suffix before the chat ever sees a model. A
+	// row built from the raw config would save an override under a key nothing
+	// reports, so it would sit in settings looking applied and never price anything.
+	// Stripping can collapse two configured slots onto one model, hence the dedupe.
 	const modelsByProvider = $derived(
 		Object.entries(aiProviders).reduce(
 			(acc, [provider, config]) => {
-				acc[provider] = config.models.map((model) => ({
-					provider: provider as AIProvider,
-					model
-				}))
+				const seen = new Set<string>()
+				acc[provider] = config.models.flatMap((configured) => {
+					const model = stripLegacyThinkingSuffix(configured)
+					if (seen.has(model)) {
+						return []
+					}
+					seen.add(model)
+					return [{ provider: provider as AIProvider, model }]
+				})
 				return acc
 			},
 			{} as Record<string, Array<{ provider: AIProvider; model: string }>>
