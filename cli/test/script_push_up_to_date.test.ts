@@ -74,8 +74,8 @@ test("Integration: script push skips an unchanged script and deploys a changed o
     expect((await push()).stdout).not.toContain("is up to date");
     expect((await getScript()).labels).toEqual(["l2"]);
 
-    // A priority of exactly 1 was the one value the old comparison got right
-    // (`1 == true`), so the skip is pinned at a different one.
+    // 2, not 0 or 1: those two are the values a truthiness comparison would also
+    // call equal, so they cannot pin that priority is compared by value.
     await waitForDeploymentJobs(backend);
     expect((await backend.runCLICommand(["sync", "pull", "--yes"], tempDir)).code).toEqual(0);
     await writeFile(metadataPath, (await readFile(metadataPath, "utf-8")) + "priority: 2\n", "utf-8");
