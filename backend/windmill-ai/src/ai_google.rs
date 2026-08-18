@@ -1047,9 +1047,6 @@ mod tests {
 
     #[test]
     fn gemini_usage_chunk_counts_tool_use_prompt_tokens() {
-        // The four counts a live tool call reported, against its totalTokenCount of
-        // 146 — tool-use prompts are disjoint from promptTokenCount, so the input is
-        // 17 + 60 rather than 17.
         let parsed = GeminiParsedEvent {
             text: Some("Canberra".to_string()),
             usage: Some(GeminiUsageMetadata {
@@ -1078,7 +1075,6 @@ mod tests {
 
         assert_eq!(usage_chunk["usage"]["prompt_tokens"], 77);
         assert_eq!(usage_chunk["usage"]["completion_tokens"], 69);
-        // Everything Google billed is accounted for.
         assert_eq!(
             usage_chunk["usage"]["prompt_tokens"].as_i64().unwrap()
                 + usage_chunk["usage"]["completion_tokens"].as_i64().unwrap(),
