@@ -1778,9 +1778,12 @@ export class AIChatManager {
 	 * that send programmatically (an editor button, an arriving hand-off) must go
 	 * through this rather than `sendRequest`: a second concurrent loop shares this
 	 * manager's abort controller and transcript, so the two interleave and Stop
-	 * halts only one. It is the rule the composer already follows. */
+	 * halts only one. It is the rule the composer already follows.
+	 *
+	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
+	 * send's attachment upkeep, so between the two a click would slip past. */
 	sendOrQueue(text: string) {
-		if (this.loading) {
+		if (this.loading || this.sendInFlight) {
 			this.queueMessage(text)
 			return
 		}

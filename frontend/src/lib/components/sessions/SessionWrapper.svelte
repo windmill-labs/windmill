@@ -38,6 +38,7 @@
 		moveSessionToWorkspace,
 		getSessionDraftPrompt,
 		setSessionDraftPrompt,
+		peekSessionAutoSend,
 		takeSessionAutoSend,
 		reconcileAfterWorkspaceChange,
 		renameSession,
@@ -79,7 +80,10 @@
 
 	// Whether the prompt read above is already on its way, so the composer starts
 	// empty instead of briefly showing text the effect below is about to send.
-	const armedAtInit = !!initialSession?.autoSendDraftAt
+	// Peeked rather than read off the record: a stale intent is not going to be
+	// sent, and blanking the composer for it would drop the prompt entirely —
+	// the composer's mount-time empty draft would then erase it from the record.
+	const armedAtInit = peekSessionAutoSend(sessionId)
 
 	// A hand-off whose click already stated the intent asks for its prompt to be
 	// sent, not parked. Reactive rather than mount-time: `createSession` reuses an

@@ -212,6 +212,28 @@ describe('AIChatManager.sendOrQueue', () => {
 		await vi.waitFor(() => expect(mocks.runChatLoop).toHaveBeenCalled())
 		expect(manager.queuedMessage).toBe('')
 	})
+
+	// `loading` only rises after a send's attachment upkeep, so gating on it alone
+	// leaves a window where a second programmatic send slips through.
+	it('queues during a send that has not reached loading yet', async () => {
+		const manager = new AIChatManager()
+		let releaseUpkeep: (() => void) | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(
+			() => new Promise<void>((resolve) => (releaseUpkeep = resolve))
+		)
+		manager.instructions = 'first turn'
+		const sending = manager.sendRequest()
+		await vi.waitFor(() => expect(manager.sendInFlight).toBe(true))
+		expect(manager.loading).toBe(false)
+
+		manager.sendOrQueue('fix the failing run')
+		expect(manager.queuedMessage).toBe('fix the failing run')
+
+		// Drain before leaving: a send still in flight would run its epilogue
+		// (queue flush included) inside whichever test happens to be next.
+		releaseUpkeep?.()
+		await sending
+	})
 })
 
 describe('AIChatManager request errors', () => {

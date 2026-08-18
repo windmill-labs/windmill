@@ -5,7 +5,12 @@ import {
 	openSourceInSession,
 	startSessionWithPrompt
 } from './sessionSwitch.svelte'
-import { sessionState, takeSessionAutoSend, type Session } from './sessionState.svelte'
+import {
+	peekSessionAutoSend,
+	sessionState,
+	takeSessionAutoSend,
+	type Session
+} from './sessionState.svelte'
 import { usersWorkspaceStore, workspaceStore, type UserWorkspace } from '$lib/stores'
 
 vi.mock('$lib/navigation', () => ({ goto: vi.fn().mockResolvedValue(undefined) }))
@@ -157,6 +162,7 @@ describe('auto-send intent', () => {
 				autoSend: true
 			})
 			createdId = sessionState.currentSessionId!
+			expect(peekSessionAutoSend(createdId)).toBe(true)
 			expect(takeSessionAutoSend(createdId)).toBe(true)
 			expect(takeSessionAutoSend(createdId)).toBe(false)
 		} finally {
@@ -180,9 +186,13 @@ describe('auto-send intent', () => {
 			createdId = sessionState.currentSessionId!
 			const s = sessionState.sessions.find((x) => x.id === createdId)!
 			s.autoSendDraftAt = Date.now() - 10 * 60_000
+			// The composer asks first, and must be told to show the prompt — blanking
+			// it for an intent that is never honoured loses the text altogether.
+			expect(peekSessionAutoSend(createdId)).toBe(false)
 			expect(takeSessionAutoSend(createdId)).toBe(false)
 			// Still cleared: a stale intent has no other consumer to leave it for.
 			expect(s.autoSendDraftAt).toBeUndefined()
+			expect(s.draftPrompt).toBe('fix it')
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
 			sessionState.currentSessionId = prevCurrent

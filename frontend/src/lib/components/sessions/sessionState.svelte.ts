@@ -370,13 +370,25 @@ export function setSessionAutoSend(sessionId: string): void {
 	persistTouched(s)
 }
 
+function autoSendIsFresh(s: Session | undefined): boolean {
+	return !!s?.autoSendDraftAt && Date.now() - s.autoSendDraftAt < AUTO_SEND_TTL_MS
+}
+
+// Whether a claim would be honoured, without consuming it. The composer asks
+// before deciding to stay empty: suppressing the text for an intent that then
+// goes stale would leave the prompt neither sent nor shown, and the composer's
+// own empty-draft write would erase it from the record.
+export function peekSessionAutoSend(sessionId: string): boolean {
+	return autoSendIsFresh(sessionState.sessions.find((x) => x.id === sessionId))
+}
+
 // Claim the auto-send intent, clearing it so a remount (or a second wrapper for
 // the same session) cannot fire the same prompt twice. A stale claim is dropped
 // rather than honoured, but still cleared — it has no other consumer.
 export function takeSessionAutoSend(sessionId: string): boolean {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s?.autoSendDraftAt) return false
-	const fresh = Date.now() - s.autoSendDraftAt < AUTO_SEND_TTL_MS
+	const fresh = autoSendIsFresh(s)
 	delete s.autoSendDraftAt
 	persistTouched(s)
 	return fresh
