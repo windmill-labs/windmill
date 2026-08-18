@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.788.0
+  version: 1.791.0
   title: Windmill API
 
   contact:
@@ -268,6 +268,15 @@ paths:
             type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
+        - name: before_id
+          in: query
+          description: >
+            only return logs with an id strictly lower than this one. Logs are ordered by
+            descending id, so this is a keyset cursor to stream a page in several batches
+            without paying a growing offset.
+          schema:
+            type: integer
+            format: int64
         - name: all_workspaces
           in: query
           description: get audit logs for all workspaces
@@ -8035,10 +8044,19 @@ paths:
                   properties:
                     path:
                       type: string
-                    value: {}
+                    value:
+                      type: string
+                      description: >-
+                        pretty-printed JSON rendering of the resource value, capped at
+                        4000 characters — a search preview, not the value itself (use
+                        get_value for that)
+                    truncated:
+                      type: boolean
+                      description: whether value was cut short by that cap
                   required:
                     - path
                     - value
+                    - truncated
 
   /w/{workspace}/resources/mcp_tools/{path}:
     get:
@@ -8063,11 +8081,72 @@ paths:
                       type: string
                     description:
                       type: string
-                    parameters:
+                    inputSchema:
                       type: object
+                    annotations:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        readOnlyHint:
+                          type: boolean
+                        destructiveHint:
+                          type: boolean
+                        idempotentHint:
+                          type: boolean
+                        openWorldHint:
+                          type: boolean
                   required:
                     - name
-                    - parameters
+                    - inputSchema
+
+  /w/{workspace}/resources/mcp_call_tool/{path}:
+    post:
+      summary: call a tool on the MCP server described by the resource
+      operationId: callMcpTool
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: tool name and arguments
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tool:
+                  type: string
+                arguments:
+                  type: object
+                read_only:
+                  type: boolean
+                  description: |
+                    set when the caller ran the tool without asking the user to
+                    confirm it; the call is refused unless the server's live
+                    listing marks the tool read-only
+              required:
+                - tool
+      responses:
+        "200":
+          description: |
+            the MCP tool result, forwarded verbatim. A tool that ran but failed
+            returns 200 with isError true.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: array
+                    items:
+                      type: object
+                  structuredContent:
+                    type: object
+                  isError:
+                    type: boolean
 
   /w/{workspace}/resources/list_names/{name}:
     get:
@@ -20333,6 +20412,36 @@ paths:
                       type: string
                       nullable: true
 
+  /w/{workspace}/triggers_history/list:
+    get:
+      summary: list the history of schedule and trigger modifications
+      operationId: listTriggerHistory
+      tags:
+        - trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: trigger_kind
+          description: "'schedule' or a trigger type (http, kafka, ...)"
+          in: query
+          schema:
+            type: string
+        - name: path
+          description: only return the history of the trigger at this path
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: trigger history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TriggerHistoryEntry"
+
   /w/{workspace}/folders/list:
     get:
       summary: list folders
@@ -23738,6 +23847,55 @@ paths:
                 items:
                   $ref: "#/components/schemas/AssetProgress"
 
+  /w/{workspace}/jobs/run_assets/{id}:
+    get:
+      summary: List the assets a run touched at runtime
+      description: >
+        Assets detected while the run executed (SDK S3 calls, resources passed as
+        arguments), aggregated over the job and all of its child jobs so a flow or
+        workflow-as-code run reports what its steps and tasks touched. Authorized
+        through the job, the same gate as `run_progress`. Recording is asynchronous,
+        so an asset can take a few minutes after the run to appear, and only the most
+        recent runs that touched an asset keep that record. A run that fans out can
+        touch more assets than one response should carry, so the list is capped and
+        `truncated` says when it was cut.
+      operationId: listRunAssets
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose runtime assets to read
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: assets this run and its child jobs touched
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assets, truncated]
+                properties:
+                  truncated:
+                    type: boolean
+                    description: whether the run touched more assets than are listed
+                  assets:
+                    type: array
+                    items:
+                      type: object
+                      required: [path, kind]
+                      properties:
+                        path:
+                          type: string
+                        kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        access_type:
+                          $ref: "#/components/schemas/AssetUsageAccessType"
+
   /w/{workspace}/assets/partitions_in_range:
     get:
       summary: List expected partitions of a ducklake asset in a date range with their materialization status (enterprise)
@@ -26263,6 +26421,8 @@ components:
           type: integer
         cache_ttl:
           type: number
+        cache_ignore_s3_path:
+          type: boolean
         dedicated_worker:
           type: boolean
         ws_error_handler_muted:
@@ -28235,6 +28395,44 @@ components:
           type: string
         is_fileset:
           type: boolean
+
+    TriggerHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        trigger_kind:
+          type: string
+          description: "'schedule' or a trigger type (http, kafka, ...)"
+        path:
+          type: string
+        operation:
+          type: string
+          enum: [create, update, delete, enable, disable, suspend]
+        source:
+          type: string
+          description: The kind of client the change came from. `worker` means the server disabled the trigger on its own after a failure.
+          enum: [ui, cli, api, worker]
+        username:
+          type: string
+          nullable: true
+          description: Unset when the server acted on its own.
+        created_at:
+          type: string
+          format: date-time
+        changes:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: "{field: {old, new}} for the fields that actually changed. Unset for a delete."
+      required:
+        - id
+        - trigger_kind
+        - path
+        - operation
+        - source
+        - created_at
 
     Schedule:
       type: object
@@ -31779,6 +31977,13 @@ components:
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
+          description: >-
+            Who the app's runnables execute as. Optional, and what omitting it
+            means depends on the operation: creating an app defaults it to
+            `publisher` (runs on behalf of the app's publisher and requires an
+            authenticated viewer), while updating one keeps the mode the app is
+            already deployed under. Either way `anonymous`, which makes the app
+            publicly executable, is never assumed
         on_behalf_of:
           type: string
         on_behalf_of_email:

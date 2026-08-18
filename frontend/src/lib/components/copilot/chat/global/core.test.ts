@@ -5005,6 +5005,26 @@ describe('prepareGlobalSystemMessage', () => {
 	})
 })
 
+describe('plan-mode safety classification', () => {
+	it('allows inspection but not preview execution', () => {
+		const tool = (name: string) => globalTools.find((t) => t.def.function.name === name)
+		expect(tool('diff')?.planModeSafe).toBe(true)
+		expect(tool('get_db_schema')?.planModeSafe).toBe(true)
+		expect(tool('open_preview')?.planModeSafe).not.toBe(true)
+	})
+
+	it('never tags a tool that stops to ask the user before it acts', () => {
+		// The tag's dangerous direction: omitting it only over-blocks, but adding it to a tool
+		// that stops to ask lets that tool run unasked for the whole posture, silently. This
+		// covers the deploy and delete tools rather than everything mutating — the plan tools
+		// are the deliberate exception, and the controller registers those, not this list.
+		const leaked = globalTools
+			.filter((t) => t.requiresConfirmation === true && t.planModeSafe === true)
+			.map((t) => t.def.function.name)
+		expect(leaked).toEqual([])
+	})
+})
+
 describe('session-only preview tools gating', () => {
 	const toolNames = (sessionPreview: boolean) =>
 		globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)
@@ -5050,6 +5070,18 @@ describe('session-only preview tools gating', () => {
 		} finally {
 			vi.unstubAllGlobals()
 		}
+	})
+
+	// Only a session chat can ever receive an ACTIVE PREVIEW section, so the rule
+	// explaining it is dead weight (~100 prompt tokens per request) anywhere else.
+	it('carries the ACTIVE PREVIEW rule only in a chat that has a side panel', () => {
+		const off = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
+		const on = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
+		expect(off).not.toContain('ACTIVE PREVIEW')
+		expect(on).toContain('ACTIVE PREVIEW')
+		// The ACTIVE EDITOR rule is unconditional — live editors exist in both.
+		expect(off).toContain('ACTIVE EDITOR')
+		expect(on).toContain('ACTIVE EDITOR')
 	})
 
 	it('mentions open_preview / get_app_runtime_logs / list_app_runs in the system prompt only when preview tools are enabled', () => {
@@ -5254,6 +5286,21 @@ describe('prepareGlobalUserMessage', () => {
 		expect(message.content).toContain('## INSTRUCTIONS:\nUpdate this script')
 		expect(message.content).not.toContain('When the user says')
 		expect(message.content).not.toContain('content')
+	})
+
+	it('injects the previewed page and the row its drawer has open', () => {
+		const message = prepareGlobalUserMessage('Disable it', [], {
+			activePreview: {
+				label: 'Schedules',
+				location: '/schedules',
+				open: 'u/me/daily_report'
+			}
+		})
+
+		expect(message.content).toContain('## ACTIVE PREVIEW')
+		expect(message.content).toContain('page: Schedules')
+		expect(message.content).toContain('location: /schedules')
+		expect(message.content).toContain('open: u/me/daily_report')
 	})
 
 	it('includes selected workspace item references without contents', () => {

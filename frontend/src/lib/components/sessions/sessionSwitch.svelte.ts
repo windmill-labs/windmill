@@ -83,16 +83,34 @@ export async function openEditorInSession(
 	previewParams?: Record<string, string>,
 	opts?: { seedPrompt?: string; autoSend?: boolean }
 ): Promise<void> {
-	// Seed the fresh session's preview with a single tab on `target` so it opens
-	// straight onto the editor the caller wants (resetSessionPreviewTabs also
-	// writes through a live runtime if one already exists for this id).
+	await openInSession(withPreviewParams(sessionTargetHref(target), previewParams), workspaceId, opts)
+}
+
+// Open a fresh AI session showing a workspace page (Runs, a trigger list) in its
+// preview. A page is not an editable item, so callers hand over the in-app href
+// they want the tab to load rather than a SessionTarget.
+export async function openPageInSession(
+	href: string,
+	workspaceId?: string,
+	opts?: { seedPrompt?: string; autoSend?: boolean }
+): Promise<void> {
+	await openInSession(href, workspaceId, opts)
+}
+
+async function openInSession(
+	url: string | undefined,
+	workspaceId?: string,
+	opts?: { seedPrompt?: string; autoSend?: boolean }
+): Promise<void> {
+	// Seed the fresh session's preview with a single tab on `url` so it opens
+	// straight onto what the caller wants (resetSessionPreviewTabs also writes
+	// through a live runtime if one already exists for this id).
 	const session = createSession()
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
 	if (opts?.seedPrompt) {
 		setSessionDraftPrompt(session.id, opts.seedPrompt)
 		if (opts.autoSend) setSessionAutoSend(session.id)
 	}
-	const url = withPreviewParams(sessionTargetHref(target), previewParams)
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
 		// (chat manager → monaco) into this thin navigation seam, breaking its
@@ -113,15 +131,21 @@ export async function openSourceInSession(
 	overrides?: { previewParams?: Record<string, string>; seedPrompt?: string; autoSend?: boolean }
 ): Promise<void> {
 	await source.beforeOpen?.()
-	await openEditorInSession(
-		source.target,
-		source.workspaceId,
-		overrides?.previewParams ?? source.previewParams,
-		{
-			seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
-			autoSend: overrides?.autoSend ?? source.autoSend
-		}
-	)
+	const opts = {
+		seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
+		autoSend: overrides?.autoSend ?? source.autoSend
+	}
+	if (source.target) {
+		await openEditorInSession(
+			source.target,
+			source.workspaceId,
+			overrides?.previewParams ?? source.previewParams,
+			opts
+		)
+		return
+	}
+	const href = source.page?.()
+	if (href) await openPageInSession(href, source.workspaceId, opts)
 }
 
 // Open a fresh session on no particular item, with `prompt` pre-filled in the

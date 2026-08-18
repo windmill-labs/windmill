@@ -2503,6 +2503,68 @@ pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Syn
     Ok(())
 }
 
+/// The event for a schedule the server disabled on its own.
+pub fn schedule_auto_disable_event<'a>(
+    workspace_id: &'a str,
+    path: &'a str,
+    error: &str,
+) -> windmill_common::trigger_history::TriggerHistoryEvent<'a> {
+    windmill_common::trigger_history::TriggerHistoryEvent::server_disable(
+        workspace_id,
+        windmill_common::trigger_history::SCHEDULE_TRIGGER_KIND,
+        path,
+        serde_json::json!({ "enabled": { "old": true, "new": false } }),
+        error,
+    )
+}
+
+/// Disable a schedule the server can no longer arm, and record that it did.
+///
+/// Contract on `record_in_disable_tx`. Here `tx` is the job-completion
+/// transaction, so the savepoint also keeps a failed insert from poisoning it.
+///
+/// Returns `Err` only when the disable itself failed; a lost history row comes
+/// back through `history_lost` for the caller to report.
+async fn disable_schedule_and_record(
+    tx: &mut Transaction<'_, Postgres>,
+    schedule: &Schedule,
+    err: &Error,
+    history_lost: &mut Option<String>,
+) -> Result<u64, Error> {
+    let disable_result = sqlx::query!(
+        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
+        err.to_string(),
+        &schedule.workspace_id,
+        &schedule.path
+    )
+    .execute(&mut **tx)
+    .await;
+
+    #[cfg(feature = "failpoints")]
+    let disable_result = if schedule_failpoints::is_active(
+        schedule_failpoints::ScheduleFailPoint::ScheduleDisable,
+    ) {
+        Err(sqlx::Error::Protocol(
+            "failpoint: schedule disable".to_string(),
+        ))
+    } else {
+        disable_result
+    };
+
+    let rows = disable_result?.rows_affected();
+    // Zero rows means a user disabled the schedule first: no transition of ours
+    // to record.
+    if rows == 0 {
+        return Ok(0);
+    }
+
+    let event =
+        schedule_auto_disable_event(&schedule.workspace_id, &schedule.path, &err.to_string());
+    *history_lost = windmill_common::trigger_history::record_in_disable_tx(tx, event).await;
+
+    Ok(rows)
+}
+
 pub async fn try_schedule_next_job<'c>(
     db: &Pool<Postgres>,
     mut tx: Transaction<'c, Postgres>,
@@ -2657,36 +2719,31 @@ pub async fn try_schedule_next_job<'c>(
                 "Could not push next scheduled job for {}: {err}. Disabling schedule.",
                 schedule.path
             );
-            let disable_result = sqlx::query!(
-                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                err.to_string(),
-                &schedule.workspace_id,
-                &schedule.path
-            )
-            .execute(&mut *tx)
-            .await;
-            #[cfg(feature = "failpoints")]
-            let disable_result = if schedule_failpoints::is_active(
-                schedule_failpoints::ScheduleFailPoint::ScheduleDisable,
-            ) {
-                Err(sqlx::Error::Protocol(
-                    "failpoint: schedule disable".to_string(),
-                ))
-            } else {
-                disable_result
-            };
-            if let Err(disable_err) = disable_result {
+            let mut history_lost = None;
+            match disable_schedule_and_record(&mut tx, schedule, err, &mut history_lost).await {
+                Err(disable_err) => {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                        job,
+                        db,
+                        format!(
+                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            schedule.path,
+                        ),
+                    )
+                    .await;
+                }
+                Ok(_) => push_err = None,
+            }
+            if let Some(history_err) = history_lost {
                 report_error_to_workspace_handler_or_critical_side_channel(
                     job,
                     db,
                     format!(
-                        "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                        "Disabled schedule {} but could not record it in the trigger history: {history_err}",
                         schedule.path,
                     ),
                 )
                 .await;
-            } else {
-                push_err = None;
             }
         }
     }
@@ -6582,6 +6639,20 @@ async fn push_inner<'c, 'd>(
             |trigger| Some((trigger.trigger_path, trigger.trigger_kind)),
         )
         .unzip();
+
+    // Which trigger kinds an instance actually fires. Counted here rather than
+    // aggregated from `v2_job` later: that table's only usable index is
+    // (workspace_id, created_at), so a windowed GROUP BY over it is a full scan.
+    //
+    // Root jobs only. A scheduled flow hands every step push its own
+    // `schedule_path` (see `FlowJob::schedule_path`), so counting per push would
+    // score one run as a fire per step job — a loop pushes two of those per
+    // iteration — burying every other kind, and would sit on the per-step path.
+    if flow_step_id.is_none() {
+        if let Some(kind) = trigger_kind.as_ref() {
+            windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+        }
+    }
 
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {

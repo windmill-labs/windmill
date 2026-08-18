@@ -386,9 +386,14 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         error: String,
     ) {
         if listening_trigger.trigger_mode {
-            // SAFETY: Self::TABLE_NAME is a compile-time constant.
-            let report_status = sqlx::query(&format!(
-                r#"
+            // Contract on `record_in_disable_tx`: one transaction so the row
+            // lock spans both writes.
+            let mut history_err = None;
+            let report_status = async {
+                let mut tx = db.begin().await?;
+                // SAFETY: Self::TABLE_NAME is a compile-time constant.
+                let rows = sqlx::query(&format!(
+                    r#"
                     UPDATE
                         {}
                     SET
@@ -398,18 +403,60 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                         last_server_ping = NULL
                     WHERE
                         workspace_id = $2 AND
-                        path = $3
+                        path = $3 AND
+                        mode <> 'disabled'::TRIGGER_MODE
                 "#,
-                Self::TABLE_NAME
-            ))
-            .bind(&error)
-            .bind(&listening_trigger.workspace_id)
-            .bind(&listening_trigger.path)
-            .execute(db)
+                    Self::TABLE_NAME
+                ))
+                .bind(&error)
+                .bind(&listening_trigger.workspace_id)
+                .bind(&listening_trigger.path)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+
+                // Zero rows: deleted, or a user disabled it first — no
+                // transition of ours to record.
+                if rows > 0 {
+                    // `to_key`, not `Display`: it is what lines up with the
+                    // `TRIGGER_TYPE` the API records under.
+                    let trigger_kind = Self::TRIGGER_KIND.to_key();
+                    history_err = windmill_common::trigger_history::record_in_disable_tx(
+                        &mut tx,
+                        windmill_common::trigger_history::TriggerHistoryEvent::server_disable(
+                            &listening_trigger.workspace_id,
+                            &trigger_kind,
+                            &listening_trigger.path,
+                            serde_json::json!({ "mode": { "new": "disabled" } }),
+                            &error,
+                        ),
+                    )
+                    .await;
+                }
+                tx.commit().await?;
+                Ok::<(), Error>(())
+            }
             .await;
 
+            if let Some(history_err) = history_err {
+                // Spawned: the commit above made the cleared `server_id` visible,
+                // so the ping branch of the enclosing `select!` is about to
+                // finish and drop everything left in this future. Awaiting the
+                // alert here would lose the one signal that the row is missing.
+                let message = format!(
+                    "Disabled {} trigger {} but could not record it in the trigger history: {}",
+                    Self::TRIGGER_KIND,
+                    listening_trigger.path,
+                    history_err
+                );
+                let (db, workspace_id) = (db.clone(), listening_trigger.workspace_id.clone());
+                tokio::spawn(async move {
+                    report_critical_error(message, db, Some(&workspace_id), None).await;
+                });
+            }
+
             match report_status {
-                Ok(_) => {
+                Ok(()) => {
                     report_critical_error(
                         format!(
                             "Disabling {} trigger {} because of error: {}",
