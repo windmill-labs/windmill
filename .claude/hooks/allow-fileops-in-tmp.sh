@@ -196,8 +196,8 @@ check_archive_segment() {
 # Proves one `mkdir` / `cp` / `mv` / `touch` / `chmod` segment ($1 = the verb), whose tokens
 # are in SEG_TOKS.
 check_fileops_segment() {
-  local verb="$1" takes_mode ok_opts t cls resolved seen_class="" derived src dest
-  local path_operand=0 seen_mode=0 end_opts=0 i=1 recursive=0
+  local verb="$1" takes_mode ok_opts t cls resolved seen_class=""
+  local path_operand=0 seen_mode=0 end_opts=0 i=1
   local -a ops=()
   # Options are an allowlist per command, so anything that changes how symlinks are followed
   # defers instead of needing enumeration. `cp -L` / `-H` matter most: they dereference while
@@ -223,7 +223,6 @@ check_fileops_segment() {
         -?*)
           # Allowlist: long options and the dereferencing flags leave a residue and defer.
           [ -n "$(printf '%s' "${t#-}" | tr -d "$ok_opts")" ] && defer "unrecognized option \`$t\`"
-          case "${t#-}" in *[rRa]*) recursive=1 ;; esac
           continue
           ;;
       esac
@@ -250,22 +249,15 @@ check_fileops_segment() {
 
   [ "$path_operand" = 1 ] || defer "no path operand"
 
-  # In directory form the destination is not what the command writes: `cp x dir` writes
-  # `dir/x`, and `cp` follows that child when it is a symlink. This checkout is full of them —
-  # every `*_ee.rs` points into the sibling EE repo — so the derived path is proved too. Under
-  # `-r` the derived paths run the depth of the source tree, past what this can enumerate.
+  # In directory form the command writes a path it does not name: `cp x dir` writes `dir/x`,
+  # and `cp` follows that child when it is a symlink — this checkout is full of them, every
+  # `*_ee.rs` pointing into the sibling EE repo. Deriving that child would mean reproducing
+  # which name the tool picks (the operand as written, not as resolved — a symlinked source
+  # keeps its own name) and how deep `-r` recurses. The form is left unproved instead.
   case "$verb" in
     cp | mv)
-      [ "${#ops[@]}" -ge 2 ] || return 0
-      dest="${ops[-1]}"
-      [ -d "$dest" ] || return 0
-      [ "$recursive" = 0 ] || defer "recursive $verb into the existing directory \`$dest\`"
-      for src in "${ops[@]:0:${#ops[@]}-1}"; do
-        derived=$(realpath -m -- "$dest/${src##*/}" 2>/dev/null)
-        [ -n "$derived" ] || defer "cannot resolve where \`$src\` lands in \`$dest\`"
-        cls=$(path_class "$derived") || defer "\`$src\` lands on \`$derived\`, outside every root"
-        [ "$cls" = "$seen_class" ] || defer "\`$src\` lands on \`$derived\`, in another root"
-      done
+      [ "${#ops[@]}" -ge 2 ] && [ -d "${ops[-1]}" ] \
+        && defer "\`${ops[-1]}\` already exists as a directory, so this $verb writes a path it does not name"
       ;;
   esac
 }

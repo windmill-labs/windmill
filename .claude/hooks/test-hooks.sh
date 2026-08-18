@@ -191,12 +191,13 @@ run $A ask   'mv /tmp/a/`printf ../../etc/x` /tmp/b'
 EE="$(dirname "$CWD")/windmill-ee-private"   # a sibling checkout; absent elsewhere, still not a root
 run $A ask   "mv $EE/backend/x.rs $CWD/backend/x.rs"
 run $A none  "cp $EE/README.md $CWD/README.copy"
-# Directory form writes DEST/basename(SRC), and `cp` follows that child when it is a symlink —
-# every `*_ee.rs` in this checkout is one, pointing into the EE repo.
+# Directory form writes a path the command does not name — DEST/basename(SRC) — and `cp`
+# follows that child when it is a symlink, as every `*_ee.rs` in this checkout is.
 run $A ask   "mv frontend/apps_ee.rs backend/windmill-api/src"
 run $A none  "cp frontend/apps_ee.rs backend/windmill-api/src"
-run $A none  "cp -r frontend/x backend"       # derived paths run the depth of the source tree
-run $A allow "cp frontend/a.ts backend"       # ... an ordinary child still proves
+run $A none  "cp frontend/a.ts backend"
+run $A ask   "mv /tmp/a $CWD/backend"
+run $A allow "cp frontend/a.ts backend/a.ts"  # ... naming the destination proves fine
 
 echo
 [ "$fails" = 0 ] && echo "ALL PASS" || { echo "$fails FAILURES"; exit 1; }
