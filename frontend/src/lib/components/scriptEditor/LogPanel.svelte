@@ -219,7 +219,7 @@
 																? getStringError(previewJob.result)
 																: undefined}
 														{#if lang && editor && diffEditor && args && previewError}
-															<ScriptFix {lang} error={previewError} />
+															<ScriptFix {lang} error={previewError} jobId={previewJob?.id} />
 														{/if}
 													{/snippet}
 												</DisplayResult>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { onMount, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import SessionsBetaBanner from './SessionsBetaBanner.svelte'
@@ -38,6 +38,7 @@
 		moveSessionToWorkspace,
 		getSessionDraftPrompt,
 		setSessionDraftPrompt,
+		takeSessionAutoSend,
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
@@ -75,6 +76,25 @@
 	// Seed the composer with the unsent prompt a reload preserved on the session
 	// record (script-init: AIChatInput reads it once at mount).
 	const restoredDraftPrompt = getSessionDraftPrompt(sessionId)
+
+	// A hand-off whose click already stated the intent asks for its prompt to be
+	// sent, not parked. Claimed only for the session the user actually landed on:
+	// wrappers also mount for background sessions, and consuming there would fire
+	// the turn off-screen. Claimed at script-init so the composer starts empty
+	// rather than briefly showing text that is already on its way.
+	const autoSendPrompt =
+		sessionState.currentSessionId === sessionId &&
+		restoredDraftPrompt &&
+		takeSessionAutoSend(sessionId)
+			? restoredDraftPrompt
+			: undefined
+
+	onMount(() => {
+		if (!autoSendPrompt || !runtime) return
+		// The runtime's beforeSend awaits loadCopilot for the committed workspace,
+		// so this cannot race the model config even on a cold session.
+		void runtime.manager.sendRequest({ instructions: autoSendPrompt })
+	})
 
 	// The workspace the session acts on, shown in the header "Acting on" strip via the shared
 	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the chip's ellipsis menu targets.
@@ -422,7 +442,7 @@
 						hideHeader
 						hideModeSelector
 						wideLayout
-						initialInstructions={restoredDraftPrompt}
+						initialInstructions={autoSendPrompt ? undefined : restoredDraftPrompt}
 						onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 						forceDisabled={isUnavailable || !!session.archived}
 						forceDisabledMessage={isUnavailable

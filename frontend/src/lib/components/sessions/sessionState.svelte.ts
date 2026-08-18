@@ -130,6 +130,11 @@ export type Session = {
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
 	draftPrompt?: string
+	// Send `draftPrompt` on mount instead of parking it in the composer. Set by
+	// hand-offs whose click already stated the intent ("AI Fix", a typed step or
+	// app description), so they land mid-answer rather than waiting for a second
+	// Enter. Consumed exactly once, by takeSessionAutoSend.
+	autoSendDraft?: boolean
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -346,6 +351,26 @@ export function getSessionDraftPrompt(sessionId: string): string | undefined {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return undefined
 	return s.draftPrompt
+}
+
+// Mark this session's draft prompt for sending on mount. Written straight to the
+// record (not via setSessionDraftPrompt's debounce) because the navigation that
+// follows must not outrun it.
+export function setSessionAutoSend(sessionId: string): void {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s) return
+	s.autoSendDraft = true
+	persistTouched(s)
+}
+
+// Claim the auto-send intent, clearing it so a remount (or a second wrapper for
+// the same session) cannot fire the same prompt twice.
+export function takeSessionAutoSend(sessionId: string): boolean {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s?.autoSendDraft) return false
+	delete s.autoSendDraft
+	persistTouched(s)
+	return true
 }
 
 // Persist a session on a genuine user edit, promoting an in-memory-only

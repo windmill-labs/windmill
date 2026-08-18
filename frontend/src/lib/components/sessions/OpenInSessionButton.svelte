@@ -11,10 +11,14 @@
 		/** Where inside the item the preview should open (a flow's `selected`
 		 * step). Steers the editor only — tab identity is (kind, path). */
 		previewParams?: Record<string, string>
-		/** Pre-fills the new session's composer instead of sending. Entry points
-		 * that carry an intent (fix this error, fill these inputs) hand it over
-		 * as text the user reads and edits before the first send. */
+		/** Pre-fills the new session's composer. Entry points that carry an intent
+		 * (fix this error, run this item) hand it over as text rather than driving
+		 * a chat the caller cannot see. */
 		seedPrompt?: string
+		/** Send `seedPrompt` on arrival rather than parking it in the composer.
+		 * For clicks that already stated the intent; leave it off where the prompt
+		 * is a proposal the user should read first. */
+		autoSend?: boolean
 	}
 </script>
 
@@ -32,6 +36,7 @@
 		btnClasses,
 		btnProps,
 		label,
+		tooltip,
 		fallback
 	}: {
 		/** Undefined (e.g. an item without a path yet) renders the fallback. */
@@ -43,6 +48,9 @@
 		/** Names the action this replaced, for hosts whose button carried its own
 		 * label ("AI Fix"). Defaults to AIButton's generic "Open in AI session". */
 		label?: string
+		/** Hover text. Pass it whenever `label` is set: a renamed button no longer
+		 * says that clicking it leaves for a session. */
+		tooltip?: string
 		/** Rendered instead when the caller keeps a docked chat to drive — an
 		 * opted-out user or an operator (typically the editor's inline-chat
 		 * toggle). Never rendered inside the session panel. */
@@ -76,6 +84,7 @@
 		btnClasses={btnClasses ?? AIBtnClasses('default')}
 		{btnProps}
 		{label}
+		{tooltip}
 	/>
 {:else if !inSessionPanel}
 	{@render fallback?.()}

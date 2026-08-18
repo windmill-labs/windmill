@@ -17,45 +17,55 @@
 	let {
 		lang,
 		error,
+		jobId,
 		moduleId
 	}: {
 		lang: SupportedLanguage
-		/** The failing run's error. A session cannot see the preview job, so the
-		 * text has to travel with the hand-off. */
+		/** The failing run's error, used when there is no job to point at. */
 		error?: string
+		/** The failing run's job id. Preferred over `error`: the chat reads the
+		 * run itself with `get_job_logs`, which gives it the logs rather than
+		 * just the thrown value, and keeps the composer readable. */
+		jobId?: string
 		/** Set when this sits in a flow step's preview, so the session opens on
 		 * that step rather than the flow root. */
 		moduleId?: string
 	} = $props()
 
 	// The enclosing editor's "Open in AI session" hand-off (ScriptEditor for a
-	// standalone script, FlowBuilder for a step), seeded with the error so the
-	// session lands with a ready-to-send prompt the user can still edit.
+	// standalone script, FlowBuilder for a step).
 	const handoff = getOpenInSessionHandoff()
-	const seedPrompt = $derived(
-		error ? `Fix this error:\n\n\`\`\`\n${error}\n\`\`\`` : 'Fix the error from the last run.'
-	)
+	const seedPrompt = $derived.by(() => {
+		const what = moduleId ? `step \`${moduleId}\`` : 'this script'
+		if (jobId) {
+			return `The last test run of ${what} failed (job \`${jobId}\`). Read its logs, then fix the code.`
+		}
+		// No job to read: the error text has to travel with the request.
+		return error
+			? `Fix this error in ${what}:\n\n\`\`\`\n${error}\n\`\`\``
+			: `Fix the error from the last run of ${what}.`
+	})
 	const sessionSource = $derived.by(() => {
 		const source = handoff?.source({ moduleId })
-		return source ? { ...source, seedPrompt } : undefined
+		return source ? { ...source, seedPrompt, autoSend: true } : undefined
 	})
 
 	// Inside a session pane the chat is already beside this panel, so there is
-	// nothing to hand off to: drop the error into that chat's composer instead.
-	// OpenInSessionButton renders nothing there, which would otherwise leave the
-	// sessions population with no fix affordance at all.
+	// nothing to hand off to: send into that chat instead. OpenInSessionButton
+	// renders nothing there, which would otherwise leave the sessions population
+	// with no fix affordance at all.
 	const sessionScopedManager = getContext<AIChatManager | undefined>('aiChatManager')
 </script>
 
 {#if SUPPORTED_LANGUAGES.has(lang)}
 	{#if sessionScopedManager}
 		<Button
-			title="Fix code"
+			title="Fix the failing run in this chat"
 			size="xs"
 			color="light"
 			spacingSize="xs2"
 			startIcon={{ icon: WandSparkles }}
-			on:click={() => sessionScopedManager.seedComposer(seedPrompt)}
+			on:click={() => sessionScopedManager.sendRequest({ instructions: seedPrompt })}
 			btnClasses={AIBtnClasses('default')}
 		>
 			AI Fix
@@ -64,7 +74,8 @@
 		<OpenInSessionButton
 			source={sessionSource}
 			btnClasses={AIBtnClasses('default')}
-			label="AI Fix"
+			label="Fix in AI session"
+			tooltip="Open an AI session on this item and fix the failing run"
 			btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
 		>
 			{#snippet fallback()}

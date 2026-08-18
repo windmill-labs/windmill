@@ -252,7 +252,7 @@
 	 * rather than swallow the click. */
 	export async function openInSession(seedPrompt: string): Promise<boolean> {
 		if (!sessionOpen) return false
-		await openSourceInSession(sessionOpen, { seedPrompt })
+		await openSourceInSession(sessionOpen, { seedPrompt, autoSend: true })
 		return true
 	}
 

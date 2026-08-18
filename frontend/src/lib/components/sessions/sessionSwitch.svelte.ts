@@ -6,6 +6,7 @@ import {
 	selectSession,
 	sessionInCurrentFamily,
 	sessionState,
+	setSessionAutoSend,
 	setSessionDraftPrompt,
 	setSessionPendingWorkspace,
 	type SessionTarget
@@ -80,14 +81,17 @@ export async function openEditorInSession(
 	target: SessionTarget,
 	workspaceId?: string,
 	previewParams?: Record<string, string>,
-	opts?: { seedPrompt?: string }
+	opts?: { seedPrompt?: string; autoSend?: boolean }
 ): Promise<void> {
 	// Seed the fresh session's preview with a single tab on `target` so it opens
 	// straight onto the editor the caller wants (resetSessionPreviewTabs also
 	// writes through a live runtime if one already exists for this id).
 	const session = createSession()
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
-	if (opts?.seedPrompt) setSessionDraftPrompt(session.id, opts.seedPrompt)
+	if (opts?.seedPrompt) {
+		setSessionDraftPrompt(session.id, opts.seedPrompt)
+		if (opts.autoSend) setSessionAutoSend(session.id)
+	}
 	const url = withPreviewParams(sessionTargetHref(target), previewParams)
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
@@ -106,14 +110,17 @@ export async function openEditorInSession(
 // step; `OpenInSessionButton` is the declarative equivalent.
 export async function openSourceInSession(
 	source: OpenInSessionSource,
-	overrides?: { previewParams?: Record<string, string>; seedPrompt?: string }
+	overrides?: { previewParams?: Record<string, string>; seedPrompt?: string; autoSend?: boolean }
 ): Promise<void> {
 	await source.beforeOpen?.()
 	await openEditorInSession(
 		source.target,
 		source.workspaceId,
 		overrides?.previewParams ?? source.previewParams,
-		{ seedPrompt: overrides?.seedPrompt ?? source.seedPrompt }
+		{
+			seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
+			autoSend: overrides?.autoSend ?? source.autoSend
+		}
 	)
 }
 
@@ -122,12 +129,17 @@ export async function openSourceInSession(
 // global search's "Ask AI"). Always a new session rather than the most recent
 // one (`enterSessionMode`), so the seed cannot overwrite a prompt the user has
 // already typed into a session they are mid-way through.
-export async function startSessionWithPrompt(prompt: string): Promise<void> {
+export async function startSessionWithPrompt(
+	prompt: string,
+	opts?: { autoSend?: boolean }
+): Promise<void> {
 	// No setSessionPendingWorkspace: createSession already picked the workspace,
 	// steering off a root the user cannot deploy to onto its dev. Overwriting it
 	// with the raw current workspace would land the session where it cannot edit.
 	const session = createSession()
 	setSessionDraftPrompt(session.id, prompt)
+	// An empty prompt has nothing to send; leave the composer focused instead.
+	if (opts?.autoSend && prompt.trim()) setSessionAutoSend(session.id)
 	selectSession(session.id)
 	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 }

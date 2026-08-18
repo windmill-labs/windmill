@@ -1707,14 +1707,6 @@ export class AIChatManager {
 		return false
 	}
 
-	/** Drop `text` into the composer for the user to review and send. Survives a
-	 * collapsed or not-yet-mounted chat (the queue restores it with the panel),
-	 * so an entry point seeding a prompt never silently loses it. */
-	seedComposer(text: string) {
-		this.restoreToInput(text)
-		this.focusInput()
-	}
-
 	focusInput() {
 		if (this.aiChatInput) {
 			this.aiChatInput.focusInput()

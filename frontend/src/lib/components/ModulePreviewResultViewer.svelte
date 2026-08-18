@@ -90,7 +90,7 @@
 						? getStringError(selectedJob.result)
 						: undefined}
 				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && stepError}
-					<ScriptFix {lang} error={stepError} moduleId={mod.id} />
+					<ScriptFix {lang} error={stepError} jobId={selectedJob?.id} moduleId={mod.id} />
 				{/if}
 			{/snippet}
 		</OutputPickerInner>

@@ -5,7 +5,7 @@ import {
 	openSourceInSession,
 	startSessionWithPrompt
 } from './sessionSwitch.svelte'
-import { sessionState, type Session } from './sessionState.svelte'
+import { sessionState, takeSessionAutoSend, type Session } from './sessionState.svelte'
 import { usersWorkspaceStore, workspaceStore, type UserWorkspace } from '$lib/stores'
 
 vi.mock('$lib/navigation', () => ({ goto: vi.fn().mockResolvedValue(undefined) }))
@@ -139,6 +139,45 @@ describe('openSourceInSession', () => {
 			sessionState.currentSessionId = prevCurrent
 			vi.mocked(goto).mockReset()
 			vi.mocked(goto).mockResolvedValue(undefined as never)
+		}
+	})
+})
+
+// The auto-send intent must be claimable exactly once: SessionWrapper mounts per
+// session and can remount, and a second claim would re-fire the same prompt as a
+// duplicate turn.
+describe('auto-send intent', () => {
+	it('is carried by the hand-off and consumed by the first claim only', async () => {
+		const prevCurrent = sessionState.currentSessionId
+		let createdId: string | undefined
+		try {
+			await openSourceInSession({
+				target: { kind: 'script', path: 'u/me/s' },
+				seedPrompt: 'fix it',
+				autoSend: true
+			})
+			createdId = sessionState.currentSessionId!
+			expect(takeSessionAutoSend(createdId)).toBe(true)
+			expect(takeSessionAutoSend(createdId)).toBe(false)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
+			sessionState.currentSessionId = prevCurrent
+		}
+	})
+
+	it('is left unset when the caller only seeds the composer', async () => {
+		const prevCurrent = sessionState.currentSessionId
+		let createdId: string | undefined
+		try {
+			await openSourceInSession({
+				target: { kind: 'script', path: 'u/me/s' },
+				seedPrompt: 'pick inputs and run'
+			})
+			createdId = sessionState.currentSessionId!
+			expect(takeSessionAutoSend(createdId)).toBe(false)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
+			sessionState.currentSessionId = prevCurrent
 		}
 	})
 })
