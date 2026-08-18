@@ -2260,9 +2260,10 @@ async fn get_resource_history(
 }
 
 /// Collect the references in `value` that no longer point at anything. Covers the three
-/// path-addressed forms — `$var:` and `$jsonvar:` resolve against `variable`, `$res:` against
-/// `resource`. `$encrypted:` carries its payload inline so there is nothing to look up, and
-/// neither resolution nor this check follows references transitively.
+/// path-addressed forms of [`windmill_common::references`] — `$var:` and `$jsonvar:` resolve
+/// against `variable`, `$res:` against `resource`. `$encrypted:` carries its payload inline so
+/// there is nothing to look up, and neither resolution nor this check follows references
+/// transitively.
 ///
 /// Runs on the caller's RLS-scoped transaction, so a referenced item the caller cannot read is
 /// reported as missing. That errs towards warning rather than staying silent, and the reference
@@ -2272,8 +2273,11 @@ async fn missing_references(
     w_id: &str,
     value: Option<&serde_json::Value>,
 ) -> Result<Vec<String>> {
-    const VAR_PREFIXES: [&str; 2] = ["$var:", "$jsonvar:"];
-    const RES_PREFIX: &str = "$res:";
+    const VAR_PREFIXES: [&str; 2] = [
+        windmill_common::references::VARIABLE_PREFIX,
+        windmill_common::references::JSON_VARIABLE_PREFIX,
+    ];
+    const RES_PREFIX: &str = windmill_common::references::RESOURCE_PREFIX;
 
     let mut refs: Vec<String> = vec![];
     fn collect(v: &serde_json::Value, out: &mut Vec<String>) {
