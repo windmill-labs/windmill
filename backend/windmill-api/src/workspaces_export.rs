@@ -78,6 +78,8 @@ struct ScriptMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    cache_ignore_s3_path: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "is_none_or_false")]
     ws_error_handler_muted: Option<bool>,
@@ -826,6 +828,7 @@ pub(crate) async fn tarball_workspace(
                 concurrency_settings: script.runnable_settings.concurrency_settings,
                 debouncing_settings: script.runnable_settings.debouncing_settings,
                 cache_ttl: script.cache_ttl,
+                cache_ignore_s3_path: script.cache_ignore_s3_path,
                 dedicated_worker: script.dedicated_worker,
                 ws_error_handler_muted: script.ws_error_handler_muted,
                 priority: script.priority,
