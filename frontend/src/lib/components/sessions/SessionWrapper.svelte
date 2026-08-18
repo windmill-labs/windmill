@@ -80,10 +80,12 @@
 
 	// Whether the prompt read above is already on its way, so the composer starts
 	// empty instead of briefly showing text the effect below is about to send.
-	// Peeked rather than read off the record: a stale intent is not going to be
-	// sent, and blanking the composer for it would drop the prompt entirely —
-	// the composer's mount-time empty draft would then erase it from the record.
-	const armedAtInit = peekSessionAutoSend(sessionId)
+	// Both halves of the claim's own condition are required, not just freshness:
+	// an intent this wrapper will not claim — stale, or armed on a session the
+	// page is only keeping warm in the background — still gets a composer, whose
+	// mount-time empty draft would otherwise erase the prompt from the record.
+	const armedAtInit =
+		sessionState.currentSessionId === sessionId && peekSessionAutoSend(sessionId)
 
 	// A hand-off whose click already stated the intent asks for its prompt to be
 	// sent, not parked. Reactive rather than mount-time: `createSession` reuses an

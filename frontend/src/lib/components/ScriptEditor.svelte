@@ -279,19 +279,12 @@
 
 	let opWs = $derived(workspaceOverride ?? $workspaceStore)
 
-	// Publish this editor's hand-off for AI entry points below it in the tree
-	// (the preview panel's "AI Fix"), mirroring FlowBuilder and RawAppEditor.
-	// Withheld under `disableAi` (same gate as the toolbar's own button): an embed
-	// that turned AI off must not get an entry point that navigates the host out
-	// to /sessions.
-	//
-	// Deliberately shadows an ancestor's hand-off rather than falling through to
-	// it. ScriptEditorDrawer mounts this editor without a `sessionOpen` from
-	// inside FlowBuilder, and FlowBuilder's hand-off opens the *flow* — so a
-	// fall-through would answer "fix this script" by navigating to the flow and
-	// abandoning the drawer's unsaved content, which nothing here persists. With
-	// no source the entry point renders its legacy fallback instead, which the
-	// `sendRequest` backstop turns into an honest toast.
+	// Publish this editor's hand-off for AI entry points below it (the preview
+	// panel's "AI Fix"), withheld under `disableAi` so an embed that turned AI off
+	// gets no entry point that navigates its host to /sessions. Shadows an
+	// ancestor's hand-off deliberately: ScriptEditorDrawer mounts this without a
+	// `sessionOpen`, and falling through to FlowBuilder's would answer "fix this
+	// script" by opening the flow and abandoning the drawer's unsaved content.
 	setOpenInSessionHandoff({ source: () => (disableAi ? undefined : sessionOpen) })
 
 	$effect(() => {
