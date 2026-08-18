@@ -165,6 +165,30 @@ describe('auto-send intent', () => {
 		}
 	})
 
+	// `goto` resolves even when a beforeNavigate cancels it, so an abandoned
+	// hand-off leaves the session armed. The claim must go stale rather than fire
+	// a turn at whatever the user is doing whenever that session next opens.
+	it('refuses a claim left over from a hand-off that never landed', async () => {
+		const prevCurrent = sessionState.currentSessionId
+		let createdId: string | undefined
+		try {
+			await openSourceInSession({
+				target: { kind: 'script', path: 'u/me/s' },
+				seedPrompt: 'fix it',
+				autoSend: true
+			})
+			createdId = sessionState.currentSessionId!
+			const s = sessionState.sessions.find((x) => x.id === createdId)!
+			s.autoSendDraftAt = Date.now() - 10 * 60_000
+			expect(takeSessionAutoSend(createdId)).toBe(false)
+			// Still cleared: a stale intent has no other consumer to leave it for.
+			expect(s.autoSendDraftAt).toBeUndefined()
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
+			sessionState.currentSessionId = prevCurrent
+		}
+	})
+
 	it('is left unset when the caller only seeds the composer', async () => {
 		const prevCurrent = sessionState.currentSessionId
 		let createdId: string | undefined
