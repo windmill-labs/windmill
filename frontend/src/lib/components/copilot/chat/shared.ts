@@ -797,7 +797,13 @@ function stringifyErrorBody(body: unknown): string {
 	}
 }
 
-/** Closed vocabulary for the `ai_chat`/`tool` counter's `<name>:<status>` key. */
+/**
+ * Closed vocabulary for the `ai_chat`/`tool` counter's `<name>:<status>` key.
+ * `ok` means the tool function resolved — tools that report failure by returning an
+ * error string instead of throwing land there too. A call abandoned mid-execution
+ * (tab closed while a tool polls) logs nothing, so the statuses sum to the calls that
+ * finished, not to the calls made.
+ */
 type ToolCallStatus = 'ok' | 'error' | 'declined' | 'rejected' | 'blocked_plan_mode'
 
 export async function processToolCall<T>({

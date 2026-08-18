@@ -911,7 +911,7 @@ describe('processToolCall', () => {
 	// The counter is silently dropped by the backend when the key is malformed, so nothing
 	// here fails loudly if a path stops logging or logs the wrong status.
 	it('logs one feature-usage outcome per tool call, keyed <tool>:<status>', async () => {
-		const { createToolDef } = await import('./shared')
+		const { createToolDef, processToolCall } = await import('./shared')
 		const { logFeatureUsage } = await import('$lib/utils/featureUsage')
 
 		const outcomeKeys = async (
@@ -948,6 +948,21 @@ describe('processToolCall', () => {
 		expect(await outcomeKeys({}, { isPlanModeActive: () => true })).toEqual([
 			['ai_chat', 'tool', 'run_script:blocked_plan_mode']
 		])
+
+		// A name the model invented resolves to no tool, and must never reach telemetry.
+		vi.mocked(logFeatureUsage).mockClear()
+		await processToolCall({
+			tools: [{ def: createToolDef(z.object({}), 'run_script', 'Run script'), fn: vi.fn() }],
+			toolCall: {
+				id: 'call_ghost',
+				type: 'function',
+				function: { name: 'hallucinated_tool', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+		})
+		expect(logFeatureUsage).not.toHaveBeenCalled()
 	})
 })
 
