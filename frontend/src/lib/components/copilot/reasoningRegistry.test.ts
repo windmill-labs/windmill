@@ -75,7 +75,8 @@ describe('supportsReasoning (static registry)', () => {
 				resolveRequestReasoning({ provider: 'anthropic', model, reasoning: REASONING_OFF })
 			).toBe('none')
 		}
-		// Bedrock translates the same sentinel on its Converse path.
+		// Bedrock translates the same sentinel on its Converse path, but only for
+		// Opus 5 — AWS documents Bedrock's Sonnet 5 as always thinking.
 		expect(
 			getReasoningCapability('aws_bedrock', 'global.anthropic.claude-opus-5').canDisable
 		).toBe(true)
@@ -86,6 +87,11 @@ describe('supportsReasoning (static registry)', () => {
 				reasoning: REASONING_OFF
 			})
 		).toBe('none')
+		expect(
+			getReasoningCapability('aws_bedrock', 'global.anthropic.claude-sonnet-5').canDisable
+		).toBe(false)
+		// ...while the same model on the native provider does accept a disable.
+		expect(getReasoningCapability('anthropic', 'claude-sonnet-5').canDisable).toBe(true)
 	})
 	it('flags Claude models served through Bedrock, with the Anthropic ladder', () => {
 		expect(supportsReasoning('aws_bedrock', 'us.anthropic.claude-opus-4-6-v1')).toBe(true)

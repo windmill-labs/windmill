@@ -407,24 +407,41 @@ pub async fn in_test_worker<Fut: std::future::Future>(
 ///
 /// The chain contains `?Send` futures (trait objects), so `tokio::spawn`
 /// is not viable; `std::thread::spawn` sidesteps the shared-stack issue.
-pub fn run_in_isolated_thread<F, Fut, R>(f: F) -> R
+///
+/// Await the thread, never `join()` it: the caller's runtime owns the `sqlx`
+/// pool, and sqlx hands a connection's permit back from a task it spawns when
+/// the connection drops. Blocking that runtime holds those permits for as long
+/// as the body runs, so the body's own `push` dies on `PoolTimedOut`.
+///
+/// The thread is detached, so dropping this future leaves the body — including
+/// its worker and its pool handles — running past the end of the test. Don't
+/// wrap the call in `timeout`/`select!`.
+pub async fn run_in_isolated_thread<F, Fut, R>(f: F) -> R
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: std::future::Future<Output = R>,
     R: Send + 'static,
 {
+    let (tx, rx) = tokio::sync::oneshot::channel();
     std::thread::Builder::new()
         .stack_size(8 * 1024 * 1024)
         .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build current-thread runtime");
-            rt.block_on(f())
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("build current-thread runtime");
+                rt.block_on(f())
+            }));
+            let _ = tx.send(res);
         })
-        .expect("spawn isolated test thread")
-        .join()
-        .expect("isolated test thread panicked")
+        .expect("spawn isolated test thread");
+
+    match rx.await {
+        Ok(Ok(res)) => res,
+        Ok(Err(panic)) => std::panic::resume_unwind(panic),
+        Err(_) => panic!("isolated test thread died without returning"),
+    }
 }
 
 pub fn spawn_test_worker(

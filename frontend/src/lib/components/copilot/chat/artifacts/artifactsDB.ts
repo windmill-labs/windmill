@@ -60,11 +60,9 @@ export function currentVersion(a: Pick<PersistedArtifact, 'version'>): number {
 	return a.version ?? 1
 }
 
-/** A session holds one plan, so its id is the session's — the primary key is the constraint,
- * and no two writers can mint a second row for the same session. */
-export function planArtifactId(sessionId: string): string {
-	return `plan:${sessionId}`
-}
+// Re-exported so the artifact modules keep asking one module about storage; the definitions sit
+// in planIdentity because that module has to stay import-free, and this one cannot.
+export { isPlanArtifact, planArtifactId } from './planIdentity'
 
 export function versionKey(artifactId: string, version: number): string {
 	return `${artifactId}:${version}`
@@ -192,7 +190,12 @@ export interface ArtifactWrite {
  */
 export async function mutateArtifact(
 	id: string,
-	mutate: (existing: PersistedArtifact | undefined) => ArtifactEdit | undefined
+	mutate: (
+		existing: PersistedArtifact | undefined,
+		/** The snapshot `opts.readVersion` named, when it was asked for and is still stored. */
+		snapshot?: ArtifactVersion
+	) => ArtifactEdit | undefined,
+	opts?: { readVersion?: number }
 ): Promise<ArtifactWrite> {
 	const db = await getDB()
 	// `transaction()` throws on a connection closed since `getDB()` answered — another tab
@@ -226,10 +229,16 @@ export async function mutateArtifact(
 	const items = tx.objectStore('items')
 	const versions = tx.objectStore('versions')
 	let existing: PersistedArtifact | undefined
+	let snapshot: ArtifactVersion | undefined
 	try {
 		// Read outside this transaction, two tabs both see version N, both stamp N+1, and the
 		// later write silently replaces the earlier one — content and snapshot alike.
 		existing = await items.get(id)
+		// In the same transaction for the same reason: an edit conditioned on a version still
+		// being readable must not weigh it against one another tab pruned in between.
+		if (opts?.readVersion !== undefined) {
+			snapshot = await versions.get(versionKey(id, opts.readVersion))
+		}
 	} catch (err) {
 		console.error('Could not read the artifact being written', err)
 		reportFailure = false
@@ -240,7 +249,7 @@ export async function mutateArtifact(
 	// failing, so its error is neither reported as one nor swallowed.
 	let edit: ArtifactEdit | undefined
 	try {
-		edit = mutate(existing)
+		edit = mutate(existing, snapshot)
 	} catch (err) {
 		reportFailure = false
 		abort()

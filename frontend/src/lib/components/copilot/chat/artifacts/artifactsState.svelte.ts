@@ -4,6 +4,7 @@ import {
 	deleteArtifact,
 	getArtifact,
 	getArtifactVersion,
+	isPlanArtifact,
 	listArtifactVersions,
 	listArtifactsForSession,
 	mutateArtifact,
@@ -42,6 +43,20 @@ export class PlanSlotTakenError extends Error {
 	constructor(readonly plan: PersistedArtifact) {
 		super(`Session ${plan.sessionId} already has a plan document`)
 		this.name = 'PlanSlotTakenError'
+	}
+}
+
+/**
+ * A write that would have touched the session's plan, refused by the policy its caller passed.
+ *
+ * Thrown rather than returned as `undefined`, which already means "no such artifact here": a
+ * caller that conflates the two answers a bad id with "the plan is read-only" and sends the
+ * model to fix a problem it does not have.
+ */
+export class PlanWriteRefusedError extends Error {
+	constructor() {
+		super('The session plan document may not be written here')
+		this.name = 'PlanWriteRefusedError'
 	}
 }
 
@@ -116,8 +131,17 @@ export class SessionArtifactsStore {
 		return sortByUpdatedDesc(await listArtifactsForSession(sessionId))
 	}
 
-	/** Persist a new artifact for `sessionId` and reflect it in the list if that session is loaded. */
-	async create(sessionId: string, input: CreateArtifactInput): Promise<PersistedArtifact> {
+	/**
+	 * Persist a new artifact for `sessionId` and reflect it in the list if that session is loaded.
+	 *
+	 * `opts.canWritePlan` is asked at the mutation point rather than sampled by the caller: a
+	 * posture entered while this write was waiting on the store still gets to decide it.
+	 */
+	async create(
+		sessionId: string,
+		input: CreateArtifactInput,
+		opts?: { canWritePlan?: () => boolean }
+	): Promise<PersistedArtifact> {
 		const now = Date.now()
 		const draft = (id: string): PersistedArtifact => ({
 			id,
@@ -136,6 +160,11 @@ export class SessionArtifactsStore {
 		// on the row this write is about to replace, inside the transaction that replaces it.
 		const id = input.role === 'plan' ? planArtifactId(sessionId) : randomUUID()
 		const { outcome, artifact } = await mutateArtifact(id, (existing) => {
+			// Before the slot check: a posture that may not mint a plan at all is the more useful
+			// thing to say, and it holds whether or not the session already has one.
+			if (input.role === 'plan' && opts?.canWritePlan?.() === false) {
+				throw new PlanWriteRefusedError()
+			}
 			if (existing) throw new PlanSlotTakenError(existing)
 			const created = draft(id)
 			return { artifact: created, snapshots: [snapshotOf(created, 1)] }
@@ -155,18 +184,24 @@ export class SessionArtifactsStore {
 	async update(
 		id: string,
 		input: UpdateArtifactInput,
-		opts?: { sessionId?: string }
+		opts?: { sessionId?: string; canWritePlan?: () => boolean }
 	): Promise<PersistedArtifact | undefined> {
 		let refused = false
 		const { outcome, artifact } = await mutateArtifact(id, (stored) => {
 			// Read inside the mutator: hoisted out, it would weigh a stale copy against a fresh one.
-			const existing = furtherAlong(
-				stored,
-				this.artifacts.find((a) => a.id === id)
-			)
+			const held = this.artifacts.find((a) => a.id === id)
+			const existing = furtherAlong(stored, held)
 			if (!existing || (opts?.sessionId !== undefined && existing.sessionId !== opts.sessionId)) {
 				refused = true
 				return undefined
+			}
+			// A plan mark on *either* candidate is enough: furtherAlong can settle on a copy whose
+			// role is unset, and rows whose marks disagree are what this guards.
+			if (
+				opts?.canWritePlan?.() === false &&
+				[stored, held].some((a) => a !== undefined && isPlanArtifact(a, a.sessionId))
+			) {
+				throw new PlanWriteRefusedError()
 			}
 			return reviseInto(existing, input)
 		})
@@ -220,8 +255,21 @@ export class SessionArtifactsStore {
 	 * patched in one transaction, it can only ever move the pointer.
 	 */
 	async approve(id: string, version: number): Promise<boolean> {
-		const { outcome, artifact } = await mutateArtifact(id, (existing) =>
-			existing ? { artifact: { ...existing, approvedVersion: version }, snapshots: [] } : undefined
+		// No version number this could name, and a stamped NaN would leave a pointer that no
+		// comparison in planVersionView can ever match.
+		if (!Number.isSafeInteger(version) || version < 1) return false
+		const { outcome, artifact } = await mutateArtifact(
+			id,
+			(existing, snapshot) => {
+				if (!existing) return undefined
+				// Only a plan carries an approval, and only a version still readable is worth
+				// pointing at: the bar offering "view the plan you approved" has to land somewhere.
+				// The current version needs no snapshot — one written before history existed has none.
+				if (!isPlanArtifact(existing, existing.sessionId)) return undefined
+				if (version !== currentVersion(existing) && !snapshot) return undefined
+				return { artifact: { ...existing, approvedVersion: version }, snapshots: [] }
+			},
+			{ readVersion: version }
 		)
 		// Reflected only once it is stored, unlike an ordinary edit, which degrades unpersisted:
 		// content the store lost is still content, but an approval the store lost never happened,

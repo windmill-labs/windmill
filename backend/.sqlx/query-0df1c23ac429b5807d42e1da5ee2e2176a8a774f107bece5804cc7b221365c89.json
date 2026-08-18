@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE job_tree AS (\n            SELECT id, tag FROM v2_job WHERE id = $2 AND workspace_id = $1\n            UNION\n            SELECT j.id, j.tag FROM v2_job j JOIN job_tree t ON j.parent_job = t.id\n             WHERE j.workspace_id = $1\n        )\n        SELECT\n            a.path,\n            a.kind AS \"kind!: windmill_common::assets::AssetKind\",\n            -- Several jobs of the tree touch one asset, each recording its own\n            -- access. A job that recorded none contributes nothing rather than\n            -- erasing a sibling's, so an all-null group is the only unknown one.\n            -- Grouping here, not in Rust, is what makes LIMIT count assets: the\n            -- retention keeps up to ten job rows per asset.\n            COALESCE(bool_or(a.usage_access_type IN ('r', 'rw')), false) AS \"any_read!\",\n            COALESCE(bool_or(a.usage_access_type IN ('w', 'rw')), false) AS \"any_write!\"\n        FROM asset a JOIN job_tree t ON a.usage_path = t.id::text\n        WHERE a.workspace_id = $1 AND a.usage_kind = 'job'\n          AND ($3::text[] IS NULL OR t.tag = ANY($3))\n        GROUP BY a.path, a.kind\n        ORDER BY a.path, a.kind\n        LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind!: windmill_common::assets::AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume",
+                "dbt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "any_read!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "any_write!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "0df1c23ac429b5807d42e1da5ee2e2176a8a774f107bece5804cc7b221365c89"
+}

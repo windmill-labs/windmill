@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.789.0
+  version: 1.791.0
   title: Windmill API
 
   contact:
@@ -8044,10 +8044,19 @@ paths:
                   properties:
                     path:
                       type: string
-                    value: {}
+                    value:
+                      type: string
+                      description: >-
+                        pretty-printed JSON rendering of the resource value, capped at
+                        4000 characters — a search preview, not the value itself (use
+                        get_value for that)
+                    truncated:
+                      type: boolean
+                      description: whether value was cut short by that cap
                   required:
                     - path
                     - value
+                    - truncated
 
   /w/{workspace}/resources/mcp_tools/{path}:
     get:
@@ -23838,6 +23847,55 @@ paths:
                 items:
                   $ref: "#/components/schemas/AssetProgress"
 
+  /w/{workspace}/jobs/run_assets/{id}:
+    get:
+      summary: List the assets a run touched at runtime
+      description: >
+        Assets detected while the run executed (SDK S3 calls, resources passed as
+        arguments), aggregated over the job and all of its child jobs so a flow or
+        workflow-as-code run reports what its steps and tasks touched. Authorized
+        through the job, the same gate as `run_progress`. Recording is asynchronous,
+        so an asset can take a few minutes after the run to appear, and only the most
+        recent runs that touched an asset keep that record. A run that fans out can
+        touch more assets than one response should carry, so the list is capped and
+        `truncated` says when it was cut.
+      operationId: listRunAssets
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose runtime assets to read
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: assets this run and its child jobs touched
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assets, truncated]
+                properties:
+                  truncated:
+                    type: boolean
+                    description: whether the run touched more assets than are listed
+                  assets:
+                    type: array
+                    items:
+                      type: object
+                      required: [path, kind]
+                      properties:
+                        path:
+                          type: string
+                        kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        access_type:
+                          $ref: "#/components/schemas/AssetUsageAccessType"
+
   /w/{workspace}/assets/partitions_in_range:
     get:
       summary: List expected partitions of a ducklake asset in a date range with their materialization status (enterprise)
@@ -26363,6 +26421,8 @@ components:
           type: integer
         cache_ttl:
           type: number
+        cache_ignore_s3_path:
+          type: boolean
         dedicated_worker:
           type: boolean
         ws_error_handler_muted:
@@ -31917,6 +31977,13 @@ components:
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
+          description: >-
+            Who the app's runnables execute as. Optional, and what omitting it
+            means depends on the operation: creating an app defaults it to
+            `publisher` (runs on behalf of the app's publisher and requires an
+            authenticated viewer), while updating one keeps the mode the app is
+            already deployed under. Either way `anonymous`, which makes the app
+            publicly executable, is never assumed
         on_behalf_of:
           type: string
         on_behalf_of_email:

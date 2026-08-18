@@ -1,9 +1,19 @@
 import { z } from 'zod'
-import { createToolDef, type Tool } from '../shared'
+import { createToolDef, type Tool, type ToolCallbacks } from '../shared'
 import { artifactOverflowBytes, MAX_ARTIFACT_BYTES, normalizeChangeNote } from './artifactLimits'
-import { currentVersion, type ArtifactVersion, type PersistedArtifact } from './artifactsDB'
+import {
+	currentVersion,
+	isPlanArtifact,
+	type ArtifactVersion,
+	type PersistedArtifact
+} from './artifactsDB'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
-import { PlanSlotTakenError, type SessionArtifactsStore } from './artifactsState.svelte'
+import {
+	PlanSlotTakenError,
+	PlanWriteRefusedError,
+	type SessionArtifactsStore
+} from './artifactsState.svelte'
+import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 
 // The subset of GlobalToolHelpers these tools read. Kept local (not imported from
 // global/core) so the tools don't pull the whole global tool module — which would be a
@@ -59,6 +69,35 @@ function tooLarge(content: string): string | undefined {
 
 const UNAVAILABLE = 'Artifacts are only available inside an AI session.'
 
+const PLAN_WRITE_REFUSED = {
+	label: PLAN_MODE_MESSAGES.planWriteRefusedLabel,
+	result: PLAN_MODE_MESSAGES.planWriteRefused
+} as const
+
+/** Report a plan write the store refused after the gate had already admitted the call. Says
+ * what the gate says, so the same refusal cannot read as two different events: a lock row
+ * rather than an error card, and one more block against the retry escalation. */
+function reportPlanWriteRefused(toolCallbacks: ToolCallbacks, toolId: string): string {
+	toolCallbacks.onToolBlockedByPlanMode?.()
+	toolCallbacks.setToolStatus(toolId, {
+		content: PLAN_WRITE_REFUSED.label,
+		error: PLAN_WRITE_REFUSED.result,
+		blockedByPlanMode: true
+	})
+	return JSON.stringify({ success: false, error: PLAN_WRITE_REFUSED.result })
+}
+
+/** Whether this call would write the session's plan. Synchronous because the gate is: it answers
+ * from the arguments and the store's already-loaded list, never an awaited read of the database. */
+function targetsPlan(args: unknown, h: ArtifactToolHelpers): boolean {
+	const id = (args as { id?: unknown } | null | undefined)?.id
+	if (!h.sessionId || typeof id !== 'string') return false
+	return isPlanArtifact(
+		{ id, role: h.artifacts?.artifacts?.find((a) => a.id === id)?.role },
+		h.sessionId
+	)
+}
+
 export const artifactTools: Tool<{}>[] = [
 	{
 		def: createToolDef(
@@ -67,6 +106,13 @@ export const artifactTools: Tool<{}>[] = [
 			'Create a markdown artifact in the current session.'
 		),
 		showDetails: true,
+		// Writes nothing outside the browser, so a research posture can keep notes and diagrams
+		// here — except the one document that posture exists to put up for approval.
+		planModeSafe: true,
+		refuseInPlanMode: ({ args }) =>
+			(args as { role?: unknown } | null | undefined)?.role === 'plan'
+				? PLAN_WRITE_REFUSED
+				: undefined,
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = createArtifactSchema.parse(args)
 			const h = helpers as ArtifactToolHelpers
@@ -82,18 +128,23 @@ export const artifactTools: Tool<{}>[] = [
 			}
 			let artifact: PersistedArtifact
 			try {
-				artifact = await h.artifacts.create(sessionId, {
-					name: parsed.name,
-					content: parsed.content,
-					kind: 'md',
-					chatId: h.getChatId?.(),
-					role: parsed.role
-					// No approvedVersion: this tool asks for no confirmation, so a plan written here
-					// stands as a draft until a card decides it. exit_plan_mode alone confers it.
-				})
+				artifact = await h.artifacts.create(
+					sessionId,
+					{
+						name: parsed.name,
+						content: parsed.content,
+						kind: 'md',
+						chatId: h.getChatId?.(),
+						role: parsed.role
+						// No approvedVersion: this tool asks for no confirmation, so a plan written here
+						// stands as a draft until a card decides it. exit_plan_mode alone confers it.
+					},
+					{ canWritePlan: () => toolCallbacks.isPlanModeActive?.() !== true }
+				)
 			} catch (e) {
-				// The store checks the slot inside the write transaction, so another tab cannot
-				// take it in between.
+				// The store checks both inside the write transaction, so neither a posture entered
+				// mid-write nor another tab taking the slot can slip past in between.
+				if (e instanceof PlanWriteRefusedError) return reportPlanWriteRefused(toolCallbacks, toolId)
 				if (!(e instanceof PlanSlotTakenError)) throw e
 				const error = `This session's plan is already "${e.plan.name}" (id ${e.plan.id}). Rewrite that document with update_artifact — a session holds one plan.`
 				toolCallbacks.setToolStatus(toolId, { content: error, error })
@@ -111,6 +162,9 @@ export const artifactTools: Tool<{}>[] = [
 			'Overwrite an existing markdown artifact by id.'
 		),
 		showDetails: true,
+		planModeSafe: true,
+		refuseInPlanMode: ({ args, helpers }) =>
+			targetsPlan(args, helpers as ArtifactToolHelpers) ? PLAN_WRITE_REFUSED : undefined,
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = updateArtifactSchema.parse(args)
 			const h = helpers as ArtifactToolHelpers
@@ -124,18 +178,25 @@ export const artifactTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: sizeError, error: sizeError })
 				return JSON.stringify({ success: false, error: sizeError })
 			}
-			const updated = await h.artifacts.update(
-				parsed.id,
-				{
-					content: parsed.content,
-					name: parsed.name,
-					note: normalizeChangeNote(parsed.change_note),
-					// An agreed plan revised here is still agreed: this tool is blocked in plan mode,
-					// so every call is one the posture already trusts. A draft stays a draft.
-					keepApproved: true
-				},
-				{ sessionId }
-			)
+			let updated: PersistedArtifact | undefined
+			try {
+				updated = await h.artifacts.update(
+					parsed.id,
+					{
+						content: parsed.content,
+						name: parsed.name,
+						note: normalizeChangeNote(parsed.change_note),
+						// An agreed plan revised here is still agreed: this tool cannot reach the plan
+						// document while plan mode is active, so any call that reaches it is one the
+						// user's posture already trusts. A draft stays a draft.
+						keepApproved: true
+					},
+					{ sessionId, canWritePlan: () => toolCallbacks.isPlanModeActive?.() !== true }
+				)
+			} catch (e) {
+				if (!(e instanceof PlanWriteRefusedError)) throw e
+				return reportPlanWriteRefused(toolCallbacks, toolId)
+			}
 			if (!updated) {
 				const error = `No artifact found with id "${parsed.id}".`
 				toolCallbacks.setToolStatus(toolId, { content: error, error })
