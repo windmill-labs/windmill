@@ -1198,6 +1198,18 @@ struct RunAsset {
     access_type: Option<AssetUsageAccessType>,
 }
 
+#[derive(Serialize)]
+struct RunAssets {
+    assets: Vec<RunAsset>,
+    truncated: bool,
+}
+
+/// A fan-out run — a forloop writing one object per iteration — touches as many
+/// assets as it has steps, and the whole list would land in one response and one
+/// list in the browser. Cap it, and say so rather than serving a prefix that
+/// reads like the whole answer.
+const RUN_ASSETS_CAP: usize = 1000;
+
 /// Assets a run touched, as recorded by runtime detection, aggregated over the
 /// whole job tree: the recorder attributes an asset to the job that performed
 /// the operation, which for a flow step or a workflow-as-code task is not the
@@ -1211,7 +1223,7 @@ async fn list_run_assets(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-) -> error::JsonResult<Vec<RunAsset>> {
+) -> error::JsonResult<RunAssets> {
     let created_by = sqlx::query_scalar!(
         "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
         job_id,
@@ -1220,7 +1232,7 @@ async fn list_run_assets(
     .fetch_optional(&db)
     .await?;
     let Some(created_by) = created_by else {
-        return Ok(Json(vec![]));
+        return Ok(Json(RunAssets { assets: vec![], truncated: false }));
     };
     require_job_read_access(
         &db,
@@ -1257,13 +1269,19 @@ async fn list_run_assets(
         FROM asset a JOIN job_tree t ON a.usage_path = t.id::text
         WHERE a.workspace_id = $1 AND a.usage_kind = 'job'
           AND ($3::text[] IS NULL OR t.tag = ANY($3))
-        ORDER BY a.path, a.kind"#,
+        ORDER BY a.path, a.kind
+        LIMIT $4"#,
         w_id,
         job_id,
-        scope_tags.as_deref()
+        scope_tags.as_deref(),
+        // A row past the cap is how the fold below learns it was cut. Rows, not
+        // assets: several rows fold into one asset, so this over-reads at worst.
+        RUN_ASSETS_CAP as i64 + 1
     )
     .fetch_all(&db)
     .await?;
+
+    let truncated = rows.len() > RUN_ASSETS_CAP;
 
     // One (path, kind) can be touched by several jobs of the tree; the ORDER BY
     // keeps those rows adjacent, so folding into the last entry collapses them.
@@ -1289,7 +1307,12 @@ async fn list_run_assets(
             }),
         }
     }
-    Ok(Json(assets))
+    if truncated {
+        // The cut landed inside the last group, so its access type may have been
+        // folded from only some of the jobs that touched it.
+        assets.pop();
+    }
+    Ok(Json(RunAssets { assets, truncated }))
 }
 
 async fn get_flow_job_debug_info(

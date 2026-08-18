@@ -75,9 +75,10 @@ async fn test_list_run_assets_covers_child_jobs(db: Pool<Postgres>) -> anyhow::R
     .send()
     .await?;
     assert_eq!(resp.status().as_u16(), 200);
-    let assets: Value = resp.json().await?;
+    let body: Value = resp.json().await?;
+    assert_eq!(body["truncated"], json!(false));
     assert_eq!(
-        assets,
+        body["assets"],
         json!([
             { "path": "/data/child_only.json", "kind": "s3object", "access_type": "w" },
             // The parent recorded no access type for this one; that must not erase
@@ -95,9 +96,9 @@ async fn test_list_run_assets_covers_child_jobs(db: Pool<Postgres>) -> anyhow::R
     .send()
     .await?;
     assert_eq!(resp.status().as_u16(), 200);
-    let assets: Value = resp.json().await?;
+    let body: Value = resp.json().await?;
     assert_eq!(
-        assets,
+        body["assets"],
         json!([
             { "path": "/data/child_only.json", "kind": "s3object", "access_type": "w" },
             { "path": "/data/from_args.json", "kind": "s3object", "access_type": "w" },
@@ -139,9 +140,9 @@ async fn test_list_run_assets_covers_child_jobs(db: Pool<Postgres>) -> anyhow::R
     .send()
     .await?;
     assert_eq!(resp.status().as_u16(), 200);
-    let assets: Value = resp.json().await?;
+    let body: Value = resp.json().await?;
     assert_eq!(
-        assets.as_array().map(|a| a.len()),
+        body["assets"].as_array().map(|a| a.len()),
         Some(3),
         "a share-link viewer should see the whole tree's assets"
     );
@@ -182,9 +183,9 @@ async fn test_list_run_assets_scopes_descendants_by_tag(db: Pool<Postgres>) -> a
     .send()
     .await?;
     assert_eq!(resp.status().as_u16(), 200);
-    let assets: Value = resp.json().await?;
+    let body: Value = resp.json().await?;
     assert_eq!(
-        assets,
+        body["assets"],
         json!([
             { "path": "/data/in_scope.json", "kind": "s3object", "access_type": "w" },
             { "path": "/data/nested.json", "kind": "s3object", "access_type": "w" },
@@ -193,5 +194,47 @@ async fn test_list_run_assets_scopes_descendants_by_tag(db: Pool<Postgres>) -> a
          but must still reach in-scope jobs below them"
     );
 
+    Ok(())
+}
+
+/// A fan-out run can touch more assets than one response should carry, and the
+/// cut must be reported rather than served as if it were the whole list.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_run_assets_caps_the_list(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let parent = insert_job(&db, None, "other").await?;
+    let child = insert_job(&db, Some(parent), "other").await?;
+    sqlx::query(
+        "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind) \
+         SELECT 'test-workspace', '/out/' || lpad(g::text, 6, '0') || '.json', 's3object', 'w', \
+         $1, 'job' FROM generate_series(1, 1200) g",
+    )
+    .bind(child.to_string())
+    .execute(&db)
+    .await?;
+
+    let resp = bearer(
+        client().get(format!("{ws}/jobs/run_assets/{parent}")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status().as_u16(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["truncated"], json!(true));
+    let assets = body["assets"].as_array().expect("assets array");
+    assert!(
+        !assets.is_empty() && assets.len() <= 1000,
+        "expected a capped, non-empty list, got {}",
+        assets.len()
+    );
+    assert_eq!(
+        assets[0]["path"], "/out/000001.json",
+        "the cap keeps the head of the ordered list"
+    );
     Ok(())
 }

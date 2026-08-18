@@ -23847,7 +23847,9 @@ paths:
         workflow-as-code run reports what its steps and tasks touched. Authorized
         through the job, the same gate as `run_progress`. Recording is asynchronous,
         so an asset can take a few minutes after the run to appear, and only the most
-        recent runs that touched an asset keep that record.
+        recent runs that touched an asset keep that record. A run that fans out can
+        touch more assets than one response should carry, so the list is capped and
+        `truncated` says when it was cut.
       operationId: listRunAssets
       tags:
         - job
@@ -23866,17 +23868,24 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  required: [path, kind]
-                  properties:
-                    path:
-                      type: string
-                    kind:
-                      $ref: "#/components/schemas/AssetKind"
-                    access_type:
-                      $ref: "#/components/schemas/AssetUsageAccessType"
+                type: object
+                required: [assets, truncated]
+                properties:
+                  truncated:
+                    type: boolean
+                    description: whether the run touched more assets than are listed
+                  assets:
+                    type: array
+                    items:
+                      type: object
+                      required: [path, kind]
+                      properties:
+                        path:
+                          type: string
+                        kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        access_type:
+                          $ref: "#/components/schemas/AssetUsageAccessType"
 
   /w/{workspace}/assets/partitions_in_range:
     get:
