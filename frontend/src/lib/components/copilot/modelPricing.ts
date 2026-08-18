@@ -151,16 +151,6 @@ function isUsableRate(rate: number | undefined): boolean {
 	return rate === undefined || (Number.isFinite(rate) && rate >= 0 && rate <= MAX_MODEL_RATE)
 }
 
-/**
- * The rate a workspace should be billed at for one model: its override when an
- * admin set one, otherwise the published list price, otherwise nothing.
- *
- * An override that omits the cache rates inherits them from the model's own
- * built-in entry — the cached-read discount is a property of the provider, not of
- * the negotiated price. A model with no built-in entry has no discount to inherit:
- * its cached tokens are billed at the input rate rather than at another vendor's
- * ratio, so an unstated discount reads as none instead of as Anthropic's.
- */
 /** What a cache rate falls back to when an override leaves it unset: the model's
  * own published multiple of the input rate where the table has one, and the input
  * rate itself where it does not, so an unstated discount is never borrowed from
@@ -176,6 +166,11 @@ export function inheritedCacheRates(
 	}
 }
 
+/**
+ * The rate a workspace should be billed at for one model: its override when an
+ * admin set one, otherwise the published list price, otherwise nothing. An override
+ * that omits a cache rate takes it from `inheritedCacheRates`.
+ */
 export function resolveModelPrice(
 	provider: AIProvider | string,
 	model: string,

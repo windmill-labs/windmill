@@ -146,12 +146,21 @@
 				</ToggleButtonGroup>
 			</div>
 			{#if !usage.loading && !usage.error && rows.length > 0}
-				<div class="flex flex-row items-baseline gap-2">
-					<span class="text-lg font-semibold tabular-nums"
-						>{totalIsEstimated ? '~' : ''}{formatUsd(priced.total)}</span
-					>
+				<div
+					class="flex flex-row items-baseline gap-2"
+					title={priced.hasUnpriced
+						? 'Models with no rate set are not counted, so this figure is lower than the real spend.'
+						: undefined}
+				>
+					<span class="text-lg font-semibold tabular-nums">
+						{priced.total === 0 && priced.hasUnpriced
+							? '—'
+							: `${totalIsEstimated ? '~' : ''}${formatUsd(priced.total)}`}
+					</span>
 					<span class="text-xs text-tertiary">
-						{usage.current?.truncated ? 'across the rows below' : 'total'}
+						{usage.current?.truncated ? 'across the rows below' : 'total'}{priced.hasUnpriced
+							? ' (partial)'
+							: ''}
 					</span>
 				</div>
 			{/if}

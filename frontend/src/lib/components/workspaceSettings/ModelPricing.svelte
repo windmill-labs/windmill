@@ -87,6 +87,22 @@
 		errors[key] = ''
 	}
 
+	// Emptying a cache field means "inherit again", so the key has to go: leaving the
+	// old number in the override would keep charging it while the field shows the
+	// inherited placeholder. Input and output are required, so an empty one is not a
+	// state the override can hold; the input snaps back to the stored value on blur.
+	function clearCacheRate(provider: AIProvider, model: string, field: Field) {
+		const key = modelKey(provider, model)
+		const override = modelPricing[key]
+		if (!override || override[field] === undefined) {
+			return
+		}
+		const next = { ...override }
+		delete next[field]
+		modelPricing = { ...modelPricing, [key]: next }
+		errors[key] = ''
+	}
+
 	function resetModel(provider: AIProvider, model: string) {
 		const key = modelKey(provider, model)
 		const next = { ...modelPricing }
@@ -169,10 +185,24 @@
 																	step: 0.01,
 																	placeholder: inheritedCacheRate(model, field, rates),
 																	oninput: (e: Event & { currentTarget: HTMLInputElement }) => {
+																		if (e.currentTarget.value === '') {
+																			if (field === 'cache_read' || field === 'cache_write') {
+																				clearCacheRate(provider as AIProvider, model, field)
+																			}
+																			return
+																		}
 																		const value = parseFloat(e.currentTarget.value)
 																		if (!isNaN(value)) {
 																			updateRate(provider as AIProvider, model, field, value)
 																		}
+																	},
+																	onblur: (e: Event & { currentTarget: HTMLInputElement }) => {
+																		// Resync a field the state refused, so what is shown is what is stored.
+																		const stored = currentRates(provider as AIProvider, model)?.[
+																			field
+																		]
+																		e.currentTarget.value =
+																			stored === undefined ? '' : String(stored)
 																	}
 																}}
 															/>
