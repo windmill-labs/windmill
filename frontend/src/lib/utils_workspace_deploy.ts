@@ -706,13 +706,16 @@ export async function createFolderIfAbsent(
 export type DeployPermission = { ok: boolean; reason?: string }
 
 /**
- * Whether the current user may deploy into `workspace`. Mirrors the server-side
- * deploy authorization (`check_user_against_rule` in windmill-common) so the UI
- * can disable the action with a reason instead of letting the click 403:
- *  - operators can never deploy;
- *  - when the `RestrictDeployToDeployers` protection rule is active, only
- *    admins, `wm_deployers` members (implicitly), and per-ruleset bypass
- *    users/groups may deploy.
+ * Whether the current user may deploy into `workspace`. Mirrors `check_deploy_rules` in
+ * windmill-common so the UI can disable the action with a reason instead of letting the
+ * click 403: `DisableDirectDeployment` is evaluated before `RestrictDeployToDeployers`, so
+ * the same message wins here as on the server when both block; admins and superadmins bypass
+ * both rules, while `wm_deployers` members bypass only the latter.
+ *
+ * The operator refusal is not part of that mirror. The server refuses operators in the item
+ * handlers instead, and for fewer kinds, so refusing them for everything here is deliberately
+ * stricter than the server rather than a faithful copy of it.
+ *
  * Fails open on any error — the server still enforces on the actual deploy.
  * Shared by the session dock and the compare page so both gate identically.
  */
@@ -726,17 +729,32 @@ export async function checkDeployPermission(
 		if (me.operator) {
 			return { ok: false, reason: "You're an operator in this workspace — operators can't deploy" }
 		}
-		// Admins and wm_deployers members always satisfy RestrictDeployToDeployers
-		// (the backend allows wm_deployers implicitly, so check it before the
-		// per-ruleset bypass_users/bypass_groups fallback).
-		const isDeployer = me.is_admin || (me.groups ?? []).includes('wm_deployers')
-		if (!isDeployer) {
+		const userInfo = {
+			is_admin: !!me.is_admin,
+			is_super_admin: !!me.is_super_admin,
+			username: me.username,
+			groups: me.groups ?? []
+		}
+		// A superadmin who is only a plain member of the workspace still bypasses every rule,
+		// so dropping either term here refuses a deploy the server accepts.
+		if (!userInfo.is_admin && !userInfo.is_super_admin) {
 			const rulesets = await fetchProtectionRulesForWorkspace(workspace)
-			const userInfo = { is_admin: !!me.is_admin, username: me.username, groups: me.groups ?? [] }
-			if (!canUserBypassRuleKindInRulesets(rulesets, 'RestrictDeployToDeployers', userInfo)) {
+			if (!canUserBypassRuleKindInRulesets(rulesets, 'DisableDirectDeployment', userInfo)) {
 				return {
 					ok: false,
-					reason: 'Only workspace admins and members of wm_deployers can deploy here'
+					reason: `Direct deployment to ${workspace} is disabled — fork the workspace or open a pull request`
+				}
+			}
+			// `wm_deployers` membership is an implicit pass on this rule only, so it cannot
+			// short-circuit the fetch above the way admin does.
+			const isDeployer = userInfo.groups.includes('wm_deployers')
+			if (
+				!isDeployer &&
+				!canUserBypassRuleKindInRulesets(rulesets, 'RestrictDeployToDeployers', userInfo)
+			) {
+				return {
+					ok: false,
+					reason: `Only workspace admins and members of wm_deployers can deploy to ${workspace}`
 				}
 			}
 		}

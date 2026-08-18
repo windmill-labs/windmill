@@ -972,10 +972,9 @@
 		fetchPermissions()
 	})
 
-	// Can the user actually deploy into the target workspace? Fills the frontend
-	// gap for the `RestrictDeployToDeployers` rule (+ operator), shared with the
-	// session review drawer via the same checkDeployPermission util. Cached per
-	// workspace; `deployPerm` tracks whichever side the current direction targets.
+	// Can the user actually deploy into the target workspace? Shared with the session
+	// review drawer via the same checkDeployPermission util. Cached per workspace;
+	// `deployPerm` tracks whichever side the current direction targets.
 	let deployPerms = $state<Record<string, DeployPermission>>({})
 	const deployPermFetched = new Set<string>()
 	$effect(() => {

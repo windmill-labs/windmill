@@ -1,10 +1,20 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+import type { ProtectionRuleset, ProtectionRuleKind, User } from './gen'
 import {
+	checkDeployPermission,
 	checkPathWritePermission,
 	diffActionableInDirection,
 	diffCreatesInTarget,
 	diffRemovesInTarget
 } from './utils_workspace_deploy'
+
+// Only the rules fetch is stubbed: the bypass logic it feeds is the code under test here,
+// so it has to stay real.
+let rulesets: ProtectionRuleset[] = []
+vi.mock('$lib/workspaceProtectionRules.svelte', async (importOriginal) => ({
+	...((await importOriginal()) as object),
+	fetchProtectionRulesForWorkspace: async () => rulesets
+}))
 
 /** The row shape the fork comparison returns for an item the parent has and the
  * fork does not: one write on the fork side, whatever that write was. */
@@ -114,5 +124,74 @@ describe('per-item write permission in the deploy target', () => {
 		expect(await checkPathWritePermission('dev', 'f/locked/x', member, probeFailed)).toEqual({
 			ok: true
 		})
+	})
+})
+
+describe('workspace-level deploy permission', () => {
+	const ruleset = (name: string, rules: ProtectionRuleKind[]): ProtectionRuleset => ({
+		name,
+		rules,
+		bypass_users: [],
+		bypass_groups: []
+	})
+	const member: User = {
+		email: 'alice@windmill.dev',
+		username: 'alice',
+		is_admin: false,
+		is_super_admin: false,
+		operator: false,
+		disabled: false,
+		created_at: '2024-01-01T00:00:00Z',
+		groups: [],
+		folders: [],
+		folders_read: [],
+		folders_owners: []
+	}
+
+	const permission = (me: User, rules: ProtectionRuleset[]) => {
+		rulesets = rules
+		return checkDeployPermission('prod', me)
+	}
+
+	it('refuses a member when direct deployment is disabled', async () => {
+		const res = await permission(member, [ruleset('lock', ['DisableDirectDeployment'])])
+		expect(res.ok).toBe(false)
+		expect(res.reason).toContain('prod')
+	})
+
+	// wm_deployers is an implicit pass on RestrictDeployToDeployers only. Letting it
+	// short-circuit the whole check — as an "is this user a deployer?" early return would —
+	// walks a deployer straight through a deploy-locked workspace.
+	it('still refuses a wm_deployers member when direct deployment is disabled', async () => {
+		const deployer = { ...member, groups: ['wm_deployers'] }
+		expect((await permission(deployer, [ruleset('lock', ['DisableDirectDeployment'])])).ok).toBe(
+			false
+		)
+		expect((await permission(deployer, [ruleset('gate', ['RestrictDeployToDeployers'])])).ok).toBe(
+			true
+		)
+	})
+
+	// whoami reports is_admin and is_super_admin separately; the server sees them merged.
+	it('lets a superadmin who is a plain member deploy', async () => {
+		const su = { ...member, is_super_admin: true }
+		expect((await permission(su, [ruleset('lock', ['DisableDirectDeployment'])])).ok).toBe(true)
+	})
+
+	it('reports the direct-deployment refusal when both rules block', async () => {
+		const res = await permission(member, [
+			ruleset('lock', ['DisableDirectDeployment', 'RestrictDeployToDeployers'])
+		])
+		expect(res.reason).toContain('Direct deployment')
+	})
+
+	// The server refuses an operator in the item handler regardless of their global role: a
+	// superadmin who is an operator in the workspace still gets 401 creating a script. So the
+	// operator term has to stay above the admin/superadmin short-circuit — hoisting the admin
+	// checks would offer a deploy the server refuses.
+	it('refuses an operator who is also a superadmin', async () => {
+		const res = await permission({ ...member, operator: true, is_super_admin: true }, [])
+		expect(res.ok).toBe(false)
+		expect(res.reason).toContain('operator')
 	})
 })

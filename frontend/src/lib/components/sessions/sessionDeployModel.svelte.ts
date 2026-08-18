@@ -208,9 +208,9 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	})
 
 	// ── Deploy permission ────────────────────────────────────────────────────
-	// Preflight the shared checkDeployPermission (operator / RestrictDeployToDeployers)
-	// for the session workspace so the button disables with a reason instead of
-	// failing on click. `ok` defaults true while resolving (fail-open).
+	// Preflight the shared checkDeployPermission for the session workspace so the
+	// button disables with a reason instead of failing on click. `ok` defaults
+	// true while resolving (fail-open).
 	let deployPerm = $state<DeployPermission>({ ok: true })
 	let deployPermFetchedFor = ''
 	$effect(() => {

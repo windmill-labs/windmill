@@ -304,9 +304,9 @@
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
 
-	// Whether the user may deploy drafts into this workspace — fills the
-	// `RestrictDeployToDeployers` (+ operator) gap via the shared util, same as the
-	// fork compare page and the session review drawer. Fail-open while resolving.
+	// Whether the user may deploy drafts into this workspace, via the shared util —
+	// same as the fork compare page and the session review drawer. Fail-open while
+	// resolving.
 	let deployPerm = $state<DeployPermission>({ ok: true })
 	$effect(() => {
 		const ws = currentWorkspaceId
