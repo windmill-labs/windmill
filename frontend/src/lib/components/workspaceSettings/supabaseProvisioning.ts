@@ -203,12 +203,10 @@ export type SupabaseConnection = {
 }
 
 /**
- * The endpoint a project should be reached through, degrading rather than failing.
- *
- * Reading the pooler config needs the `database_pooling_config_read` scope, which an
- * instance's Supabase OAuth app may not have been granted -- and no amount of retrying
- * fixes that. A direct connection still works for anyone whose workers have IPv6, so
- * fall back to it and say so, instead of leaving the user with no way through.
+ * The endpoint a project should be reached through, degrading rather than failing. Reading the
+ * pooler config needs the `database_pooling_config_read` scope, which an instance's OAuth app
+ * may not have. A direct connection still works where the workers have IPv6, so fall back to
+ * it and say so.
  */
 export async function resolveSupabaseConnection(
 	token: string,

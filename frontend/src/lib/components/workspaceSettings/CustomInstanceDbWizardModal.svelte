@@ -46,6 +46,7 @@
 <Modal2
 	bind:isOpen={() => !!opened, (v) => !v && !preventClose && (opened = undefined)}
 	target="#content"
+	formStyling
 	title={'Custom Instance Database Setup'}
 	contentClasses="flex flex-col"
 	fixedWidth="md"

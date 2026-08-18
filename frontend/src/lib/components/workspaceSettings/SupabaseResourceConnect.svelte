@@ -93,6 +93,7 @@
 <Modal2
 	bind:isOpen={open}
 	target="#content"
+	formStyling
 	title="Connect Supabase"
 	contentClasses="flex flex-col"
 	fixedWidth="md"

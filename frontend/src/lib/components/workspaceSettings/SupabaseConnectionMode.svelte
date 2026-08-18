@@ -42,8 +42,7 @@
 	</button>
 	{#if open}
 		<div class="flex flex-col gap-1.5 mt-2">
-			<!-- Not `RadioCard`: these carry no radio dot and use the accent selected style, which
-			is the design that was approved for this panel. -->
+			<!-- Not `RadioCard`: no radio dot, and selection reads through the accent surface. -->
 			{#each OPTIONS as option (option.value)}
 				{@const selected = mode === option.value}
 				<button

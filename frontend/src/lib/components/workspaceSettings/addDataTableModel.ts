@@ -200,13 +200,9 @@ const RESERVED_DB_NAMES = ['template0', 'template1', 'postgres']
 const VALID_DB_NAME = /^[a-zA-Z][a-zA-Z0-9_-]*$/
 
 /**
- * Why `setup_custom_instance_db` would refuse this name, checked as it is typed rather than
- * at the end of a run that creates a billed project first.
- *
- * Deliberately not exhaustive: the instance may hold databases Windmill did not create, and
- * only the server knows its own database's name. The backend stays the authority; this is
- * here to catch the cases the browser already has the answer to. Empty is not an error --
- * the step is simply incomplete, and shouting at an untouched field is noise.
+ * Why `setup_custom_instance_db` would refuse this name, checked as it is typed. Deliberately
+ * not exhaustive -- the backend stays the authority, this only catches what the browser
+ * already knows. Empty is incomplete rather than wrong.
  */
 export function instanceDbNameError(name: string, existing: Iterable<string>): string | undefined {
 	const trimmed = name.trim()
@@ -224,12 +220,9 @@ export function instanceDbNameError(name: string, existing: Iterable<string>): s
 const VALID_DATATABLE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_\-.]*$/
 
 /**
- * Why `edit_datatable_config` would refuse this name. Checked as it is typed because the
- * write is the *last* step of the run: by the time the backend rejects it, a Supabase
- * project may have been billed and the resource and secret already written, and the name is
- * no longer editable without closing the wizard.
- *
- * `existing` are the names already in the workspace.
+ * Why `edit_datatable_config` would refuse this name, checked as it is typed because the write
+ * is the *last* step of the run: by the time the backend rejects it a Supabase project may
+ * have been billed. `existing` are the names already in the workspace.
  */
 export function datatableNameError(name: string, existing: Iterable<string>): string | undefined {
 	const trimmed = name.trim()
@@ -449,13 +442,9 @@ async function writeRow(
 }
 
 /**
- * Take back a row this run wrote. Reports whether it went, since a failure to undo leaves the
- * data table in the config and the caller has to keep saying so.
- */
-/**
- * `removed` — the row this run wrote is gone. `kept` — it is still there, the undo could not
- * reach the server. `foreign` — the name now points somewhere this run never wrote, so there
- * is nothing of ours to take back and the name is no longer ours to claim.
+ * `removed` — the row this run wrote is gone. `kept` — the undo could not reach the server, so
+ * it is still there and the caller has to keep saying so. `foreign` — the name now points
+ * somewhere this run never wrote, so there is nothing of ours to take back.
  */
 type Rollback = 'removed' | 'kept' | 'foreign'
 
@@ -607,14 +596,10 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 	const path = resourcePathOf(state)
 	const name = state.review.name.trim()
 	/**
-	 * This run is pointed at the path where an earlier attempt stored a created project's
-	 * password. Supabase hands that password out once, and every write to the path upserts, so
-	 * the three routes back to it -- connecting the new project as an existing one, pointing the
-	 * wizard at a hand-written connection, and creating a second project -- all refuse on it.
-	 * Aim the run somewhere else and there is nothing left to protect.
+	 * An earlier attempt stored a created project's password here. Supabase hands that out once
+	 * and every write upserts, so every route back to this path refuses. Each created project
+	 * guards its own path -- checking only the latest unlocked the earlier one's password.
 	 */
-	// Every project created this session guards its own path. Checking only the latest let a
-	// second attempt at another path unlock the first one's password for overwriting.
 	const guardedHere = deps.createdProjects.find((p) => p.path === path)
 	const instanceName = state.instance.dbName?.trim() ?? ''
 
@@ -651,14 +636,11 @@ export async function runSetup(state: WizardState, deps: RunDeps): Promise<RunRe
 					}
 					project = existing
 				} else {
-					// The earlier attempt's project has to still be there for its password to be worth
-					// protecting. A name recorded because a create could not be confirmed, with no
-					// project behind it, was a false alarm -- and refusing on it would leave the
-					// session with nothing it could do.
-					// By name alone, not `inOrg`: the earlier project was created under whatever
-					// organization was selected then, and the one selected now may be a different
-					// one -- which is itself a way to arrive here. Refusing a namesake in another
-					// organization costs a rename; missing the real one costs the password.
+					// The project has to still exist for its password to be worth protecting: a name
+					// recorded from a create that could not be confirmed is a false alarm, and
+					// refusing on it leaves the session with nothing it can do. Matched by name
+					// across every organization -- a namesake costs a rename, a miss costs the
+					// password.
 					const earlier = guardedHere?.name
 					if (earlier && projects.some((p) => p.name === earlier)) {
 						return fail(createdSecretRefusal(earlier, guardedHere!.path))

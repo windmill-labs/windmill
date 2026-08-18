@@ -468,13 +468,11 @@
 	}
 
 	/**
-	 * Proves the typed connection works before the wizard writes anything. The Supabase branch
-	 * has to read the pooler first: which host a project answers on is assigned by Supabase,
-	 * so the value under test has to be the value that will be saved.
+	 * Proves the connection before anything is written. Supabase reads the pooler first: the
+	 * value under test has to be the value that will be saved.
 	 */
-	// The fields stay editable while a check is out, and editing clears the verdict. Without a
-	// token the older answer lands afterwards and marks the edited connection as tested, so
-	// Continue unlocks for something nobody proved.
+	// Fields stay editable while a check is out. Without a token the older answer lands after
+	// an edit and unlocks Continue for a connection nobody proved.
 	let probeToken = 0
 	async function probe() {
 		const token = ++probeToken
@@ -539,12 +537,9 @@
 	/** The instance database this session asked for, which is registered even when it failed. */
 	let claimedInstanceDb = $state<string | undefined>(undefined)
 	/**
-	 * The name this run has already claimed. `writeRow` merges into whatever the server holds
-	 * under the name, so a name that is free in the table on screen but taken on the server --
-	 * an unsaved rename here, or another admin since the page loaded -- would repoint someone
-	 * else's data table at this database. Checked against the server before the run starts, then
-	 * remembered only if the run got as far as writing the row, so Try again can overwrite what
-	 * it wrote itself.
+	 * What this run created and may write over again. `writeRow` merges into whatever the
+	 * server holds under the name, so a name free in the table on screen but taken on the
+	 * server would repoint someone else's data table at this database.
 	 */
 	let claims = $state<Claims>(noClaims)
 	/** The path whose secret and resource this run holds, for the gates that ask by path. */
@@ -694,11 +689,9 @@
 	}
 
 	/**
-	 * Whether closing would throw away work. Until Finish the loss is only what was typed --
-	 * but that includes a pasted database password and a project about to be created, and a
-	 * backdrop click is easy to do by accident. A failed run counts too: its inputs are still
-	 * editable and it may have left something behind, which is the case most worth confirming.
-	 * A run cannot be closed while it is going, and one that succeeded has nothing left to lose.
+	 * Whether closing would throw away work. A failed run counts: its inputs are still editable
+	 * and it may have left something behind. A run in flight cannot be closed at all, and one
+	 * that succeeded has nothing left to lose.
 	 */
 	function hasUnfinishedIntent(): boolean {
 		return wiz.provider !== undefined && !run.running && !run.result?.ok
@@ -828,6 +821,7 @@
 		}
 	}
 	target="#content"
+	formStyling
 	title="Add a data table"
 	contentClasses="flex flex-col"
 	fixedWidth="md"

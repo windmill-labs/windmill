@@ -26,6 +26,9 @@
 		 * and clicks "outside" the child would otherwise propagate
 		 * here and close the underlying modal. */
 		closeOnOutsideClick?: boolean
+		/** Wider side padding and a lighter title, for a dialog whose body is a form rather
+		 *  than a list. Opt-in: every other Modal2 keeps the padding and heading it had. */
+		formStyling?: boolean
 		headerLeft?: import('svelte').Snippet
 		headerRight?: import('svelte').Snippet
 		children?: import('svelte').Snippet
@@ -43,6 +46,7 @@
 		fixedHeight = 'md',
 		contentClasses = '',
 		closeOnOutsideClick = true,
+		formStyling = false,
 		headerLeft,
 		headerRight,
 		children
@@ -111,7 +115,8 @@
 						heightMap[fixedHeight] ? `height: ${heightMap[fixedHeight]}; ` : ''
 					}${css?.popup?.style || ''}`}
 					class={twMerge(
-						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface py-4 px-6',
+						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface',
+						formStyling ? 'py-4 px-6' : 'p-4',
 						css?.popup?.class,
 						'wm-modal-form-popup'
 					)}
@@ -122,7 +127,7 @@
 					<List gap="md">
 						<div class="flex w-full">
 							<List horizontal justify="between">
-								<h3 class="font-semibold">{title}</h3>
+								<h3 class={formStyling ? 'font-semibold' : undefined}>{title}</h3>
 								<div class="grow w-min-0">
 									<List horizontal justify="between">
 										<div class="min-w-0 grow">

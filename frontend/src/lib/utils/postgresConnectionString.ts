@@ -76,14 +76,10 @@ const REPRESENTABLE_PARAMS = ['sslmode']
 const COSMETIC_PARAMS = ['application_name']
 
 /**
- * The name of a parameter this string carries that the resource cannot honour.
- *
- * An allowlist rather than a list of known-bad names: libpq keeps adding parameters, and the
- * ones that matter most are the ones that would be missed. `sslrootcert=system` demands full
- * certificate verification, `channel_binding=require` demands SCRAM binding,
- * `target_session_attrs=read-write` decides which node is acceptable, `options=-csearch_path=…`
- * decides which schema tables land in. Dropping any of them saves a connection weaker or
- * simply other than the one that was pasted, behind a probe that reports success.
+ * The name of a parameter this string carries that the resource cannot honour. An allowlist,
+ * not a list of known-bad names: libpq keeps adding parameters, and the ones that matter are
+ * the ones that would be missed. Dropping one silently saves a connection weaker or simply
+ * other than the one pasted, behind a probe that reports success.
  */
 export function unsupportedConnectionParam(connectionString: string): string | undefined {
 	const query = connectionString.split('?').slice(1).join('?')

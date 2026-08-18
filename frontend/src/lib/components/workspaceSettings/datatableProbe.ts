@@ -35,10 +35,8 @@ type Row = {
 }
 
 /**
- * `database` is whatever a Postgres step takes: the resource value itself, or a `$res:` path
- * the worker resolves.
- *
- * Throws with the database's own message when the connection or the query fails, and after
+ * `database` is whatever a Postgres step takes: the resource value, or a `$res:` path the
+ * worker resolves. Throws with the database's own message when the query fails, and after
  * `timeout` when no worker picks the job up.
  */
 export async function probeDatatableConnection(
