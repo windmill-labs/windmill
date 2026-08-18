@@ -10,6 +10,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import {
@@ -482,6 +483,8 @@
 		redraw++
 	}
 
+	let rawAppEditor: RawAppEditor | undefined = $state()
+
 	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
 		files = { ...result.files }
 		runnables = { ...result.runnables, [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
@@ -497,10 +500,19 @@
 			schema: result.data.schema
 		}
 		if (withPrompt && result.prompt) {
-			setTimeout(() => {
+			const prompt = result.prompt
+			// The delay lets the remount above settle: the session hand-off persists
+			// the draft the preview loads, and the docked path needs the editor to
+			// have registered its app helpers.
+			setTimeout(async () => {
+				// Falls through when the hand-off has no path to open, so the click
+				// still reaches the legacy path (or its toast) instead of vanishing.
+				if (prefersSessionHandoff($userStore?.operator)) {
+					if (await rawAppEditor?.openInSession(prompt)) return
+				}
 				aiChatManager.changeMode(AIMode.APP)
 				if (!aiChatManager.open) aiChatManager.toggleOpen()
-				aiChatManager.instructions = result.prompt!
+				aiChatManager.instructions = prompt
 				aiChatManager.sendRequest()
 			}, 500)
 		}
@@ -555,6 +567,7 @@
 	{#key redraw}
 		<div class="h-screen">
 			<RawAppEditor
+				bind:this={rawAppEditor}
 				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
 					goto(`/apps_raw/edit/${savedPath}`)

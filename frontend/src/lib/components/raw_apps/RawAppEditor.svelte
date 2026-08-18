@@ -61,6 +61,7 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
+	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -244,6 +245,17 @@
 	// in the sidebar to be handed a prop. A raw app has no addressable sub-editor,
 	// so the preview just opens the app.
 	setOpenInSessionHandoff({ source: () => sessionOpen })
+
+	/** Hand this app off to a fresh AI session, seeding `seedPrompt` and sending
+	 * it on arrival. Exposed for the template picker's "Start in AI session": the
+	 * route owns the prompt, but the draft persistence the preview depends on
+	 * lives here. False when there is no path to open yet, so the caller can fall
+	 * back rather than swallow the click. */
+	export async function openInSession(seedPrompt: string): Promise<boolean> {
+		if (!sessionOpen) return false
+		await openSourceInSession(sessionOpen, { seedPrompt, autoSend: true })
+		return true
+	}
 
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))

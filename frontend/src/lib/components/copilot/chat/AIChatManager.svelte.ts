@@ -1774,6 +1774,22 @@ export class AIChatManager {
 		}
 	}
 
+	/** Send `text` as a turn, or queue it when one is already streaming. Callers
+	 * that send programmatically (an editor button, an arriving hand-off) must go
+	 * through this rather than `sendRequest`: a second concurrent loop shares this
+	 * manager's abort controller and transcript, so the two interleave and Stop
+	 * halts only one. It is the rule the composer already follows.
+	 *
+	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
+	 * send's attachment upkeep, so between the two a click would slip past. */
+	sendOrQueue(text: string) {
+		if (this.loading || this.sendInFlight) {
+			this.queueMessage(text)
+			return
+		}
+		void this.sendRequest({ instructions: text })
+	}
+
 	/** Remove the queued message and put it back into the input, images included. */
 	dequeueMessage() {
 		if (!this.#hasQueuedMessage()) {
@@ -2609,6 +2625,14 @@ export class AIChatManager {
 	}
 
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		// A turn with nowhere to render still streams, spends tokens and applies
+		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
+		// exempt: the ⌘K widget renders its own composer inside Monaco.
+		if (!this.isSessionChat && !chatState.dockedChatAvailable) {
+			console.error('sendRequest called with no chat UI mounted; dropping the turn')
+			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
+			return
+		}
 		this.#sendsInFlight++
 		try {
 			return await this.sendRequestImpl(options)
