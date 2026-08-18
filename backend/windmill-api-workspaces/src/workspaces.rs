@@ -8274,8 +8274,12 @@ async fn invite_user(
     nu.email = nu.email.to_lowercase();
 
     #[cfg(feature = "enterprise")]
-    if let Some(msg) =
-        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, &nu.email, nu.operator).await?
+    if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_new_user(
+        &db,
+        &nu.email,
+        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.operator).await?,
+    )
+    .await?
     {
         return Err(Error::BadRequest(msg));
     }
@@ -8426,8 +8430,12 @@ async fn add_user(
     };
 
     #[cfg(feature = "enterprise")]
-    if let Some(msg) =
-        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, &nu.email, nu.operator).await?
+    if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_new_user(
+        &db,
+        &nu.email,
+        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.operator).await?,
+    )
+    .await?
     {
         return Err(Error::BadRequest(msg));
     }
@@ -8990,6 +8998,11 @@ struct ChangeOperatorSettings {
     folders: bool,
     #[serde(default)]
     workers: bool,
+    /// Lets every operator of this workspace compose flows and raw apps out of already-deployed
+    /// runnables. Unlike the visibility flags above this is a write right, and it makes each
+    /// operator consume a full author seat instead of half of one.
+    #[serde(default)]
+    builder: bool,
 }
 
 async fn update_operator_settings(
@@ -8999,6 +9012,17 @@ async fn update_operator_settings(
     Json(settings): Json<ChangeOperatorSettings>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Every operator of the workspace turns into a full seat, which an offline license may not
+    // cover. The check is a no-op delta when builder rights are already on.
+    #[cfg(feature = "enterprise")]
+    if settings.builder {
+        if let Some(msg) =
+            windmill_common::ee_oss::check_seat_cap_for_operator_builder(&db, &w_id).await?
+        {
+            return Err(Error::BadRequest(msg));
+        }
+    }
 
     let mut tx = db.begin().await?;
 
@@ -9013,6 +9037,8 @@ async fn update_operator_settings(
     .await?;
 
     tx.commit().await?;
+
+    windmill_common::workspaces::invalidate_operator_builder_cache(&w_id);
 
     // Trigger git sync for operator settings changes
     handle_deployment_metadata(

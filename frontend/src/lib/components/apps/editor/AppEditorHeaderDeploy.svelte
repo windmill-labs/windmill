@@ -2,7 +2,7 @@
 	import { Alert } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, operatorBuilderRights, userStore, workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -78,6 +78,15 @@
 	} = $props()
 
 	const opWs = $derived(operatingWorkspace ?? $workspaceStore)
+
+	// The backend refuses an unsandboxed app from an operator with builder rights, since the
+	// bundle would otherwise run with the viewer's own Windmill session. Pin it here too, so the
+	// editor preview behaves like the deployed app rather than diverging until the first deploy.
+	$effect(() => {
+		if ($operatorBuilderRights && policy.sandbox !== true) {
+			policy.sandbox = true
+		}
+	})
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	// Admins always pass the backend check. For everyone else, fail closed
@@ -297,7 +306,7 @@
 <div class="my-6">
 	<Toggle
 		options={{ right: "Isolate the app from the viewer's browser session" }}
-		checked={policy.sandbox == true}
+		checked={$operatorBuilderRights || policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
 			// Frontend API access exists only for a sandboxed app, so turning
@@ -314,8 +323,13 @@
 				setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
 			}
 		}}
-		disabled={!savedApp}
+		disabled={!savedApp || $operatorBuilderRights}
 	/>
+	{#if $operatorBuilderRights}
+		<div class="text-xs text-secondary mt-1">
+			Required for apps built by operators, and cannot be turned off.
+		</div>
+	{/if}
 	<div class="text-xs text-secondary mt-1">
 		Controls what the app's browser-side code can reach in each viewer's browser — distinct from the
 		on-behalf-of model above (which sets who its runnables run as). Off by default, the app's code

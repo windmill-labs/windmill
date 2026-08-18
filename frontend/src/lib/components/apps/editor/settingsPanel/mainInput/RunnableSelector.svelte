@@ -11,7 +11,7 @@
 	import type { Schema } from '$lib/common'
 	import { emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, operatorBuilderRights } from '$lib/stores'
 	import { buildPathRunnableSelection } from './runnableSelectorUtils'
 
 	type TabType =
@@ -166,10 +166,12 @@
 						<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
 					{/if}
 					<Tab value="workspaceflows" label="Workspace Flows" icon={Building} />
-					{#if !onlyFlow}
-						<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+					{#if !$operatorBuilderRights}
+						{#if !onlyFlow}
+							<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+						{/if}
+						<Tab value="hubflows" label="Hub Flows" icon={Globe2} />
 					{/if}
-					<Tab value="hubflows" label="Hub Flows" icon={Globe2} />
 				</Tabs>
 				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">

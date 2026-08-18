@@ -30,6 +30,9 @@ Open-source platform for internal tools, workflows, API integrations, background
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Operator builder rights**: `docs/operator-builder-rights.md`: the workspace setting that lets
+  operators compose flows and full-code apps, what the composition check must cover, and which
+  raw-app endpoint stays closed on purpose
 - **Product telemetry**: `docs/feature-telemetry.md` — when to instrument a new feature with
   `feature_usage`, and the four-step recipe. An unregistered `(feature, kind)` pair is dropped
   silently, so frontend-only instrumentation records nothing.

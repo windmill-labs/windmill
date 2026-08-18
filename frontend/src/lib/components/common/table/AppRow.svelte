@@ -6,7 +6,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { AppService, type ListableApp } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { operatorBuilderRights, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -209,7 +209,7 @@
 							// list endpoint only surfaces own/legacy draft-only rows), so
 							// discarding it never requires write permission on the path.
 							disabled: !showEditButton,
-							hide: $userStore?.operator
+							hide: $userStore?.operator && !($operatorBuilderRights && app.raw_app)
 						},
 						{
 							displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
@@ -271,7 +271,7 @@
 						displayName: 'Deployments',
 						icon: History,
 						action: () => appDeploymentHistory?.open(),
-						hide: $userStore?.operator
+						hide: $userStore?.operator && !($operatorBuilderRights && app.raw_app)
 					},
 					{
 						displayName: 'Permissions',
@@ -279,7 +279,7 @@
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'app')
 						},
-						hide: $userStore?.operator
+						hide: $userStore?.operator && !($operatorBuilderRights && app.raw_app)
 					},
 					{
 						displayName: 'Copy path',
@@ -325,7 +325,7 @@
 						},
 						type: 'delete',
 						disabled: !canEdit,
-						hide: $userStore?.operator
+						hide: $userStore?.operator && !($operatorBuilderRights && app.raw_app)
 					}
 				]
 			}}

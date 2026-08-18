@@ -16,7 +16,7 @@
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { operatorBuilderRights, userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
@@ -213,7 +213,11 @@
 			canWrite:
 				canWrite(it.path, (it.extra_perms ?? {}) as any, $userStore) &&
 				(it.type === 'script' || it.workspace_id == $workspaceStore) &&
-				!$userStore?.operator
+				(!$userStore?.operator ||
+					// Builder rights cover flows and full-code apps; a script or a low-code app is
+					// still off limits, so the row must not offer edit or delete for those.
+					($operatorBuilderRights &&
+						(it.type === 'flow' || (it.type === 'app' && it.raw_app === true))))
 		}
 		// combinedItems reads a script's time from `created_at`; the endpoint's
 		// unified `edited_at` holds exactly that for scripts.

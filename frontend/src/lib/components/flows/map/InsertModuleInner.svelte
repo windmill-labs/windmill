@@ -10,6 +10,7 @@
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
+	import { operatorBuilderRights } from '$lib/stores'
 
 	const dispatch = createEventDispatcher()
 	interface Props {
@@ -43,7 +44,11 @@
 		| 'flow'
 		| 'failure'
 		| 'aisandbox' = $state(untrack(() => kind))
-	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
+	// Builders compose what the workspace already deployed: hub scripts bring in code nobody here
+	// reviewed, and the backend refuses them, so never open on the hub for them.
+	let preFilter: 'all' | 'workspace' | 'hub' = $state(
+		untrack(() => $operatorBuilderRights) ? 'workspace' : 'all'
+	)
 	let loading = $state(false)
 	let small = $derived(smallProp ?? (kind === 'preprocessor' || kind === 'failure'))
 
@@ -67,13 +72,13 @@
 	<div class="flex flex-row items-center gap-2">
 		<StepGenQuick
 			on:escape={() => dispatch('close')}
-			{disableAi}
+			disableAi={disableAi || $operatorBuilderRights}
 			on:insert
 			bind:funcDesc
 			{preFilter}
 			{loading}
 		/>
-		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
+		{#if selectedKind != 'preprocessor' && selectedKind != 'flow' && !$operatorBuilderRights}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
 		<RefreshButton
@@ -190,7 +195,7 @@
 							}}
 						/>
 					{/if}
-					{#if customUi?.aiSandbox != false}
+					{#if customUi?.aiSandbox != false && !$operatorBuilderRights}
 						<TopLevelNode
 							label="AI Sandbox"
 							selected={selectedKind === 'aisandbox'}

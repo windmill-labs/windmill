@@ -1745,6 +1745,13 @@ async fn process_notify_event(
             );
             windmill_common::workspaces::TEAM_PLAN_CACHE.remove(payload);
         }
+        "notify_operator_settings_change" => {
+            tracing::info!(
+                "Operator settings change detected, invalidating operator builder cache: {}",
+                payload
+            );
+            windmill_common::workspaces::invalidate_operator_builder_cache(payload);
+        }
         "notify_workspace_rate_limit_change" => {
             tracing::info!(
                 "Workspace rate limit change detected, invalidating rate limit cache: {}",

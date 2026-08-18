@@ -11,6 +11,7 @@
 		defaultScripts,
 		enterpriseLicense,
 		hubBaseUrlStore,
+		operatorBuilderRights,
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
@@ -156,7 +157,10 @@
 		preFilter: 'all' | 'workspace' | 'hub',
 		selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
-		if (['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)) {
+		if (
+			!$operatorBuilderRights &&
+			['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)
+		) {
 			if (!selected && preFilter == 'all') {
 				inlineScripts = langs.filter((lang) => {
 					return (
@@ -255,6 +259,7 @@
 	// on indices that render nothing.
 	let showAiRows = $derived(
 		!disableAi &&
+			!$operatorBuilderRights &&
 			funcDesc?.length > 0 &&
 			kind != 'failure' &&
 			kind != 'preprocessor' &&
@@ -283,8 +288,13 @@
 			preFilter === 'all' &&
 			!selected &&
 			customUi?.aiSandbox != false &&
+			!$operatorBuilderRights &&
 			matchesAiSandbox
 	)
+
+	// Hub runnables carry code the workspace never reviewed, and the backend refuses them in a
+	// flow a builder authors, so the hub browser and its integration filters are not offered.
+	let showHub = $derived(!$operatorBuilderRights)
 
 	// Every result row lives in one keyboard index space, and hovering a row moves that index, so
 	// mouse and keyboard can never highlight two different rows. Offsets follow the render order.
@@ -338,7 +348,7 @@
 					{/if}
 				{/if}
 
-				{#if preFilter === 'hub' || preFilter === 'all'}
+				{#if showHub && (preFilter === 'hub' || preFilter === 'all')}
 					{#if preFilter == 'all'}
 						<div class="pb-0 text-2xs font-normal text-secondary ml-2 pt-1">Integrations</div>
 					{/if}
@@ -543,7 +553,7 @@
 				}}
 			/>
 		{/if}
-		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
+		{#if showHub && selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
 				{#if !selected && preFilter !== 'hub'}
 					<div class=" pb-0 text-2xs font-normal text-secondary ml-2">Hub</div>

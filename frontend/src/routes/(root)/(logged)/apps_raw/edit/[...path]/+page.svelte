@@ -3,7 +3,7 @@
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { operatorBuilderRights, userStore, workspaceStore } from '$lib/stores'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -257,7 +257,7 @@
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
 			const seedFiles = { ...react19Template }
-			const seedRunnables = { [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+			const seedRunnables = starterRunnables()
 			savedApp = {
 				summary: '',
 				value: { files: seedFiles as any, runnables: seedRunnables as any },
@@ -482,9 +482,15 @@
 		redraw++
 	}
 
+	// The starter runnable is an inline script, which the backend refuses from an operator with
+	// builder rights: seeding it would make their very first deploy fail.
+	function starterRunnables() {
+		return $operatorBuilderRights ? {} : { [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+	}
+
 	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
 		files = { ...result.files }
-		runnables = { ...result.runnables, [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+		runnables = { ...result.runnables, ...starterRunnables() }
 		data = result.data
 		summary = result.summary
 		policy = result.policy

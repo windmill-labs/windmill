@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { operatorBuilderRights, userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -308,7 +308,7 @@
 				>
 					CLI / MCP
 				</Button>
-				{#if !$userStore?.operator && showCreateButtons}
+				{#if (!$userStore?.operator || $operatorBuilderRights) && showCreateButtons}
 					<div class="ml-2">
 						<CreateActionsMenu />
 					</div>

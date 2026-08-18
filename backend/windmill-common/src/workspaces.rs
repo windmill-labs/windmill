@@ -762,7 +762,8 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
 /// Approximate paid seats of a workspace as `ceil(developers + operators/2)`, excluding disabled and
 /// service-account members. Reuses billing's author/operator weighting, but counts provisioned
 /// members rather than the active-user population billing meters, so it only ever loosens the fork
-/// cap (never blocks a paid seat) — good enough for a soft guardrail.
+/// cap (never blocks a paid seat), good enough for a soft guardrail. Operators of a workspace
+/// with builder rights author flows and apps, so they weigh a full seat like developers.
 ///
 /// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
 /// authorized for that workspace (or run in trusted server-side code).
@@ -778,7 +779,12 @@ pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
     .fetch_one(db)
     .await
     .map_err(|e| Error::internal_err(format!("counting paid seats of {w_id}: {e:#}")))?;
-    Ok(((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64)
+    let operator_weight = if operator_builder_enabled(db, w_id).await? {
+        1.0
+    } else {
+        0.5
+    };
+    Ok(((row.developers as f64) + operator_weight * (row.operators as f64)).ceil() as i64)
 }
 
 #[cfg(feature = "cloud")]
@@ -889,6 +895,81 @@ pub async fn get_protection_rules(
 /// Invalidate the protection rules cache for a workspace
 pub fn invalidate_protection_rules_cache(workspace_id: &str) {
     PROTECTION_RULES_CACHE.remove(workspace_id);
+}
+
+// Operator builder rights cache
+
+lazy_static::lazy_static! {
+    static ref OPERATOR_BUILDER_CACHE: Cache<String, (bool, i64)> = Cache::new(1000);
+}
+
+/// Whether operators of this workspace may compose flows and raw apps out of already-deployed
+/// runnables. All-or-nothing per workspace: it is a `builder` flag on `operator_settings`, not a
+/// per-user role, so every operator of the workspace gets it (and consumes a full seat).
+///
+/// Read on every flow/app write and preview, so it is cached with a 60s TTL. This gates writes,
+/// so a revocation cannot wait out that TTL on the rest of the fleet: an `AFTER UPDATE OF
+/// operator_settings` trigger publishes `notify_operator_settings_change` and every server drops
+/// its entry through `process_notify_event`. [`invalidate_operator_builder_cache`] is the local
+/// half of that, and what a test flipping the setting directly has to call itself.
+pub async fn operator_builder_enabled(db: &DB, workspace_id: &str) -> Result<bool> {
+    let now = chrono::Utc::now().timestamp();
+
+    if let Some((enabled, expiry)) = OPERATOR_BUILDER_CACHE.get(workspace_id) {
+        if expiry > now {
+            return Ok(enabled);
+        }
+    }
+
+    let enabled = sqlx::query_scalar!(
+        "SELECT COALESCE((operator_settings->>'builder')::boolean, false)
+         FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to fetch operator builder setting for {workspace_id}: {e:#}"
+        ))
+    })?
+    .flatten()
+    .unwrap_or(false);
+
+    OPERATOR_BUILDER_CACHE.insert(workspace_id.to_string(), (enabled, now + 60));
+
+    Ok(enabled)
+}
+
+/// Invalidate the operator builder cache for a workspace
+pub fn invalidate_operator_builder_cache(workspace_id: &str) {
+    OPERATOR_BUILDER_CACHE.remove(workspace_id);
+}
+
+/// Gate for a write that operators may perform only where the workspace granted them builder
+/// rights. `action` completes "Operators cannot {action} for security reasons".
+pub async fn check_operator_can_build(
+    db: &DB,
+    workspace_id: &str,
+    is_operator: bool,
+    action: &str,
+) -> Result<()> {
+    if is_operator && !operator_builder_enabled(db, workspace_id).await? {
+        return Err(Error::NotAuthorized(format!(
+            "Operators cannot {action} for security reasons"
+        )));
+    }
+    Ok(())
+}
+
+/// Whether a membership consumes an operator (half) seat rather than an author seat. An operator
+/// of a workspace with builder rights authors flows and apps, so billing counts them as an author.
+pub async fn consumes_operator_seat(
+    db: &DB,
+    workspace_id: &str,
+    is_operator: bool,
+) -> Result<bool> {
+    Ok(is_operator && !operator_builder_enabled(db, workspace_id).await?)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
