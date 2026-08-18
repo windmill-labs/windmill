@@ -592,6 +592,7 @@ export async function handleFile(
       ws_error_handler_muted: typed?.ws_error_handler_muted,
       dedicated_worker: typed?.dedicated_worker,
       cache_ttl: typed?.cache_ttl,
+      cache_ignore_s3_path: typed?.cache_ignore_s3_path,
       concurrency_time_window_s: normConcurrencyTimeWindowS,
       concurrent_limit: normConcurrentLimit,
       deployment_message: message,
@@ -602,8 +603,14 @@ export async function handleFile(
       concurrency_key: typed?.concurrency_key,
       debounce_key: typed?.debounce_key,
       debounce_delay_s: typed?.debounce_delay_s,
+      debounce_args_to_accumulate: typed?.debounce_args_to_accumulate,
+      max_total_debouncing_time: typed?.max_total_debouncing_time,
+      max_total_debounces_amount: typed?.max_total_debounces_amount,
       codebase: await codebase?.getDigest(forceTar),
       timeout: nonePositiveInt(typed?.timeout),
+      // 0 means "delete immediately after completion", so it must survive as 0
+      // rather than being folded into "unset" the way the positive-only settings are.
+      delete_after_secs: typed?.delete_after_secs,
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
       modules: modules,
@@ -635,6 +642,12 @@ export async function handleFile(
           (typed.description === remote.description &&
             typed.summary === remote.summary &&
             typed.kind == remote.kind &&
+            // A `.ts` file changes language when defaultTs flips, content untouched.
+            // bun and bunnative share that extension, so the inferred language is always
+            // bun; the server derives bunnative back from the `//native` annotation in
+            // the content, which is compared above.
+            language ==
+              (remote.language === "bunnative" ? "bun" : remote.language) &&
             !remote.archived &&
             (Array.isArray(remote?.lock)
               ? remote?.lock?.join("\n")
@@ -646,6 +659,8 @@ export async function handleFile(
               remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
+            Boolean(typed.cache_ignore_s3_path) ==
+              Boolean(remote.cache_ignore_s3_path) &&
             normConcurrencyTimeWindowS ==
               normalizeConcurrency(
                 remote.concurrent_limit,
@@ -659,15 +674,23 @@ export async function handleFile(
               Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
-            typed.priority == Boolean(remote.priority) &&
+            typed.priority == remote.priority &&
             nonePositiveInt(typed.timeout) == nonePositiveInt(remote.timeout) &&
+            typed.delete_after_secs == remote.delete_after_secs &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
+            deepEqual(
+              typed.debounce_args_to_accumulate ?? null,
+              remote.debounce_args_to_accumulate ?? null
+            ) &&
+            typed.max_total_debouncing_time == remote.max_total_debouncing_time &&
+            typed.max_total_debounces_amount == remote.max_total_debounces_amount &&
             typed.codebase == remote.codebase &&
             (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
+            deepEqual(typed.labels ?? null, remote.labels ?? null) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
