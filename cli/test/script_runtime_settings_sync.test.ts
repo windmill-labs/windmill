@@ -33,11 +33,15 @@ test("Integration: script runtime settings survive a sync pull/push cycle", asyn
     };
 
     await mkdir(`${tempDir}/f/test`, { recursive: true });
-    await backend.apiRequest!(`/api/w/${backend.workspace}/folders/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "test" }),
-    });
+    const folderResp = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/folders/create`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "test" }),
+      },
+    );
+    const folderStatus = `${folderResp.status} ${await folderResp.text()}`;
 
     const createResp = await backend.apiRequest!(
       `/api/w/${backend.workspace}/scripts/create`,
@@ -64,7 +68,12 @@ test("Integration: script runtime settings survive a sync pull/push cycle", asyn
         }),
       },
     );
-    expect(createResp.ok).toEqual(true);
+    if (!createResp.ok) {
+      throw new Error(
+        `scripts/create failed: ${createResp.status} ${await createResp.text()} ` +
+          `(folders/create: ${folderStatus})`,
+      );
+    }
 
     await writeFile(
       `${tempDir}/wmill.yaml`,
