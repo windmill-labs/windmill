@@ -48,15 +48,22 @@ async function fresh(sessionId: string | undefined) {
 		string,
 		Tool<{}>
 	>
-	const call = (name: string, args: any) =>
+	// planModeActive drives the store-side policy only: the gate that consults
+	// refuseInPlanMode lives in the real ../shared, which is mocked out here.
+	const call = (name: string, args: any, planModeActive = false) =>
 		byName[name].fn({
 			args,
 			workspace: 'w',
 			helpers,
 			toolId: 't',
-			toolCallbacks: { setToolStatus: (_id: string, m: any) => statuses.push(m) } as any
+			toolCallbacks: {
+				setToolStatus: (_id: string, m: any) => statuses.push(m),
+				isPlanModeActive: () => planModeActive
+			} as any
 		})
-	return { call, store, dbMod, statuses, opened }
+	const refusal = (name: string, args: any) =>
+		byName[name].refuseInPlanMode?.({ args, helpers: helpers as any })
+	return { call, refusal, store, dbMod, statuses, opened }
 }
 
 let ctx: Awaited<ReturnType<typeof fresh>>
@@ -174,6 +181,54 @@ describe('artifact tools', () => {
 		)
 		expect(res.success).toBe(true)
 		expect((await ctx.dbMod.getArtifact(a.id))?.content).toBe('v2')
+	})
+
+	it('refuses in plan mode only what would write the plan, by either of its marks', async () => {
+		const plan = await ctx.store.savePlan('s1', { name: 'Plan', content: 'v1', note: 'n' }, 'c1')
+		const doc = JSON.parse(await ctx.call('create_artifact', { name: 'Doc', content: 'x' }))
+		// A row claiming the role without the derived id: no writer here mints one, and the
+		// refusal must not depend on that staying true.
+		await ctx.dbMod.putArtifact({
+			id: 'odd',
+			sessionId: 's1',
+			kind: 'md',
+			role: 'plan',
+			name: 'Odd',
+			content: 'x',
+			createdAt: 0,
+			updatedAt: 0,
+			version: 1
+		})
+		await ctx.store.setSession(undefined)
+		await ctx.store.setSession('s1')
+
+		expect(ctx.refusal('create_artifact', { name: 'P', content: 'x', role: 'plan' })).toBeDefined()
+		expect(ctx.refusal('create_artifact', { name: 'D', content: 'x' })).toBeUndefined()
+		expect(ctx.refusal('update_artifact', { id: plan.id, content: 'x' })).toBeDefined()
+		expect(ctx.refusal('update_artifact', { id: 'odd', content: 'x' })).toBeDefined()
+		expect(ctx.refusal('update_artifact', { id: doc.id, content: 'x' })).toBeUndefined()
+	})
+
+	it('refuses a plan write the posture only turned down mid-flight', async () => {
+		const plan = await ctx.store.savePlan('s1', { name: 'Plan', content: 'v1', note: 'n' }, 'c1')
+
+		const updated = JSON.parse(
+			await ctx.call(
+				'update_artifact',
+				{ id: plan.id, content: 'rewritten', change_note: 'x' },
+				true
+			)
+		)
+		expect(updated.success).toBe(false)
+		expect(updated.error).toMatch(/not writable in plan mode/)
+		expect((await ctx.dbMod.getArtifact(plan.id))?.content).toBe('v1')
+		expect(ctx.statuses.at(-1)).toMatchObject({ blockedByPlanMode: true })
+
+		const created = JSON.parse(
+			await ctx.call('create_artifact', { name: 'P', content: 'x', role: 'plan' }, true)
+		)
+		expect(created.success).toBe(false)
+		expect(created.error).toMatch(/not writable in plan mode/)
 	})
 
 	it('update_artifact reports a missing id', async () => {

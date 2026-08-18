@@ -8,8 +8,9 @@ const ESCALATE_AFTER_BLOCKS = 3
 
 const PLAN_MODE_INSTRUCTIONS = `# Plan mode active
 
-This is a read-only research posture. Use only inspection tools; writes, execution, and deployment stay blocked until approval.
+This is a research posture. Inspect freely; changes to the workspace, execution, and deployment stay blocked until approval.
 
+- You may create and revise ordinary session artifacts here — a diagram (\`\`\`mermaid fences render), a design sketch, a comparison of options — for work the plan should point at rather than swallow. The plan document is not one of them: while plan mode is active, \`create_artifact\` with \`role: "plan"\` and \`update_artifact\` on the plan are both refused, whatever the general artifact guidance says about revising a plan. \`exit_plan_mode\` is what writes it.
 - When the plan is complete, call \`exit_plan_mode\` with the full, self-contained markdown plan. It persists and opens the document for approval, so do not create a separate plan artifact or repeat it in chat.
 - The summary replaces the whole document. For revisions, first find the session's \`role: "plan"\` artifact, read its current text, and merge the new work into the complete replacement.
 - If \`approvedVersion\` is behind the current version, the current text is an unapproved draft. Revise that draft; read the numbered approved version only when recovering what the user accepted. Missing \`approvedVersion\` means nothing was approved.
@@ -152,9 +153,9 @@ export const planSummaryOf = (args: unknown) => stringArg(args, 'summary')
 export const planChangeNoteOf = (args: unknown) => stringArg(args, 'change_note')
 export const planReasonOf = (args: unknown) => stringArg(args, 'reason')
 
-export const ENTER_PLAN_MODE_TOOL_DESCRIPTION = `Call this before starting a non-trivial change to research first and get the user's sign-off on your approach. Prefer it when the task adds meaningful new functionality, has several valid approaches, requires an architectural decision, will touch more than a couple of files, or is unclear enough that you need to explore before you understand the scope. Do NOT use it for small, well-specified edits (a typo, one obvious bug, a single function with clear requirements) or pure questions. On approval you enter a read-only posture; investigate, then call \`exit_plan_mode\` with your plan.`
+export const ENTER_PLAN_MODE_TOOL_DESCRIPTION = `Call this before starting a non-trivial change to research first and get the user's sign-off on your approach. Prefer it when the task adds meaningful new functionality, has several valid approaches, requires an architectural decision, will touch more than a couple of files, or is unclear enough that you need to explore before you understand the scope. Do NOT use it for small, well-specified edits (a typo, one obvious bug, a single function with clear requirements) or pure questions. On approval you enter a research posture where nothing in the workspace changes; investigate, then call \`exit_plan_mode\` with your plan.`
 
-export const EXIT_PLAN_MODE_TOOL_DESCRIPTION = `Call once your plan is ready and you want to start executing it. Shows the plan to the user for approval; only on approval are mutating tools unblocked. Do not call it to ask a question — use it only to hand over a complete plan. Valid only while plan mode is active: once the plan is approved there is nothing left to approve, and a revision goes into the plan document with \`update_artifact\`.`
+export const EXIT_PLAN_MODE_TOOL_DESCRIPTION = `Call once your plan is ready and you want to start executing it. Shows the plan to the user for approval; only on approval are the workspace-changing tools unblocked. Do not call it to ask a question — use it only to hand over a complete plan. Valid only while plan mode is active: once the plan is approved there is nothing left to approve, and a revision goes into the plan document with \`update_artifact\`.`
 
 /** Exported because the autonomy picker resolves pending cards by name, far from the
  * `createToolDef` calls — a rename missing one site would go silently inert. */

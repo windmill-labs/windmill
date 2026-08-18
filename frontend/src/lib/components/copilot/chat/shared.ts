@@ -818,27 +818,34 @@ export async function processToolCall<T>({
 		// Fails closed: untagged is blocked, only the safety tag exempt. Runs before anything
 		// belonging to the tool, so a validator cannot probe while planning — and again after
 		// the confirmation wait, since plan mode can be entered while a card is pending.
+		// An unresolved name is left alone, so it still reads as the unknown tool it is.
 		const planModeBlock = (): ChatCompletionMessageParam | undefined => {
-			if (!toolCallbacks.isPlanModeActive?.() || !tool || tool.planModeSafe === true) {
-				return undefined
-			}
+			if (!toolCallbacks.isPlanModeActive?.() || !tool) return undefined
+			// A tagged tool may still name arguments it refuses: the tag says the tool is usable
+			// while planning, not that every call of it is. Asked only once the tag has passed, so
+			// it can narrow what the gate admits and never widen it.
+			const refusal =
+				tool.planModeSafe === true
+					? normalizeToolRejection(tool.refuseInPlanMode?.({ args, helpers }))
+					: { label: PLAN_MODE_MESSAGES.blockedLabel, result: PLAN_MODE_MESSAGES.blockedResult }
+			if (!refusal) return undefined
 			toolCallbacks.onToolBlockedByPlanMode?.()
 			toolCallbacks.setToolStatus(toolCall.id, {
-				content: PLAN_MODE_MESSAGES.blockedLabel,
+				content: refusal.label,
 				parameters: args,
 				isLoading: false,
 				isQueued: false,
 				isStreamingArguments: false,
-				error: PLAN_MODE_MESSAGES.blockedResult,
+				error: refusal.result,
 				blockedByPlanMode: true,
 				needsConfirmation: false,
-				showDetails: tool?.showDetails,
-				autoCollapseDetails: tool?.autoCollapseDetails
+				showDetails: tool.showDetails,
+				autoCollapseDetails: tool.autoCollapseDetails
 			})
 			return {
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
-				content: PLAN_MODE_MESSAGES.blockedResult
+				content: refusal.result
 			}
 		}
 
@@ -1032,6 +1039,10 @@ export interface Tool<T> {
 	setSchema?: (helpers: any) => Promise<void>
 	/** Safe to run while plan mode is active. Absence fails closed. */
 	planModeSafe?: boolean
+	/** The arguments a plan-mode-safe tool still refuses while the posture holds — for a tool
+	 * that is admissible in general but not on every target. Consulted only once `planModeSafe`
+	 * is true. */
+	refuseInPlanMode?: (p: { args: any; helpers: T }) => ToolRejection | undefined
 	requiresConfirmation?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */

@@ -206,7 +206,6 @@
 					path
 				})
 			}
-			// Backend's `Policy` requires `execution_mode` (empty object fails to deserialize).
 			const defaultPolicy = {
 				on_behalf_of: $userStore?.username.includes('@')
 					? $userStore?.username
@@ -345,7 +344,6 @@
 				data: savedRawAppDraft?.data
 			}
 			backendApp.summary = savedRawAppDraft?.summary ?? ''
-			// `execution_mode` required; fall back to publisher when unset.
 			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher' }
 			backendApp.custom_path = savedRawAppDraft?.custom_path
 			backendApp.path = page.params.path ?? ''
