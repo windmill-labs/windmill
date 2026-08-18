@@ -36,6 +36,11 @@ describe('resolveModelPrice', () => {
 		expect(resolveModelPrice('openai', 'gpt-5-pro', undefined)).toBeUndefined()
 		expect(resolveModelPrice('openai', 'gpt-5.6', undefined)).toBeUndefined()
 		expect(resolveModelPrice('googleai', 'gemini-3.1', undefined)).toBeUndefined()
+		// A revision carrying a variant has to be caught by the matcher, not by an
+		// explicit entry: `gpt-5.4-mini` cannot match the `gpt-5.4` one (the `-mini`
+		// makes it a sub-model), so nothing but the guard stops it reaching `gpt-5`.
+		expect(resolveModelPrice('openai', 'gpt-5.4-mini', undefined)).toBeUndefined()
+		expect(resolveModelPrice('openai', 'gpt-5.5-pro', undefined)).toBeUndefined()
 	})
 
 	it('still resolves the route decorations that name the same model', () => {
@@ -43,6 +48,8 @@ describe('resolveModelPrice', () => {
 		// not sub-models. `claude-3-5-haiku-latest` is a shipped picker default, so
 		// unpricing it would silently disable cost tracking out of the box.
 		expect(resolveModelPrice('anthropic', 'claude-opus-4-5-20251101', undefined)?.price.input).toBe(5)
+		// The revision guard must not swallow a date, which is digits too.
+		expect(resolveModelPrice('openai', 'gpt-5-2026-01-01', undefined)?.price.input).toBe(1.25)
 		expect(
 			resolveModelPrice('bedrock', 'anthropic.claude-sonnet-4-6-20250101-v1:0', undefined)?.price
 				.input

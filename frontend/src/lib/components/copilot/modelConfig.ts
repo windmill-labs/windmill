@@ -150,6 +150,11 @@ export function buildModelMatchers<T>(
 			// a shipped default; `gpt-5-preview-pro` would be a different one again).
 			// Off by default: for a context window an inherited value is a safe
 			// approximation, for a price it is a wrong number.
+			// A further revision segment (`gpt-5` vs `gpt-5-4-mini`) is a different model
+			// too, and the entry-ends-on-a-digit guard above does not catch it once the
+			// separator is normalized. Only a short segment: a date is digits as well
+			// (`-20251101`) and stays a decoration.
+			strictVariants ? '(?!-\\d{1,3}(?:$|-))' : '',
 			strictVariants
 				? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])`
 				: ''
