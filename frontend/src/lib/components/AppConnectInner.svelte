@@ -4,7 +4,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
-	import { resourceTypeSearchText } from './resourceTypeDisplay'
+	import { resourceTypeSearchText, sortResourceTypesByMatch } from './resourceTypeDisplay'
 	import {
 		OauthService,
 		ResourceService,
@@ -98,7 +98,7 @@
 	let connectClient: string = $state('')
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
-	let resourceTypeSearchTexts: Record<string, string> = $state({})
+	let resourceTypeDescriptions: Record<string, string> = $state({})
 	let args: any = $state({})
 	let renderDescription = $state(true)
 
@@ -397,8 +397,8 @@
 			workspace: effectiveWorkspace
 		})
 		const availableRts = availableRtTypes.map((t) => t.name)
-		resourceTypeSearchTexts = Object.fromEntries(
-			availableRtTypes.map((t) => [t.name, resourceTypeSearchText(t.name, t.description)])
+		resourceTypeDescriptions = Object.fromEntries(
+			availableRtTypes.filter((t) => t.description).map((t) => [t.name, t.description!])
 		)
 
 		// "Others" lists every resource type — including instance-configured OAuth
@@ -873,6 +873,22 @@
 	let filteredConnects: { key: string }[] = $state([])
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
+	// uFuzzy scores the name and the description as one string, so searching "google" ranks
+	// every type whose description mentions Google alongside the ones named after it. Re-sort
+	// on which field matched, keeping uFuzzy's order within a tier.
+	const rank = (items: { key: string }[] | undefined) =>
+		items &&
+		sortResourceTypesByMatch(
+			items,
+			filter,
+			(x) => x.key,
+			(x) => resourceTypeDescriptions[x.key]
+		)
+	let rankedConnects = $derived(rank(filteredConnects))
+	let rankedConnectsManual = $derived(
+		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
+	)
+
 	let editScopes = $state(false)
 </script>
 
@@ -885,13 +901,13 @@
 				}))
 			: undefined}
 		bind:filteredItems={filteredConnects}
-		f={(x) => resourceTypeSearchTexts[x.key] ?? x.key}
+		f={(x) => resourceTypeSearchText(x.key, resourceTypeDescriptions[x.key])}
 	/>
 	<SearchItems
 		{filter}
 		items={connectsManual}
 		bind:filteredItems={filteredConnectsManual}
-		f={(x) => resourceTypeSearchTexts[x.key] ?? x.key}
+		f={(x) => resourceTypeSearchText(x.key, resourceTypeDescriptions[x.key])}
 	/>
 	{#if step == 1}
 		<div class="pb-2 my-1">
@@ -907,8 +923,8 @@
 
 		<h2 class="mb-4 text-sm font-semibold text-emphasis">Instance-configured OAuth APIs</h2>
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center">
-			{#if filteredConnects}
-				{#each filteredConnects as { key }}
+			{#if rankedConnects}
+				{#each rankedConnects as { key }}
 					<Button
 						unifiedSize="md"
 						variant="default"
@@ -948,8 +964,8 @@
 		{/if}
 
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-			{#if filteredConnectsManual}
-				{#each filteredConnectsManual as { key }}
+			{#if rankedConnectsManual}
+				{#each rankedConnectsManual as { key }}
 					{#if nativeLanguagesCategory.includes(key)}
 						<Button
 							unifiedSize="md"
@@ -962,8 +978,8 @@
 					{/if}
 				{/each}
 			{/if}
-			{#if filteredConnectsManual}
-				{#each filteredConnectsManual as { key }}
+			{#if rankedConnectsManual}
+				{#each rankedConnectsManual as { key }}
 					{#if !nativeLanguagesCategory.includes(key)}
 						<!-- Exclude specific items -->
 						<Button

@@ -22,6 +22,10 @@
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
+	import {
+		resourceTypeSearchText,
+		sortResourceTypesByMatch
+	} from '$lib/components/resourceTypeDisplay'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
@@ -169,16 +173,29 @@
 	let filteredResourceTypes = $derived.by(() => {
 		if (!resourceTypes) return resourceTypes
 		const f = resourceTypesFilters.val
-		const defaultSearch = f._default_?.toLowerCase()
+		// Bare search covers name and description together, like the add-resource drawer --
+		// `gdrive` is only findable as "google" through its description. The `name:` and
+		// `description:` facets stay scoped to their own field.
+		const defaultSearch = f._default_?.trim().toLowerCase()
 		const nameSearch = f.name?.toLowerCase()
 		const descSearch = f.description?.toLowerCase()
 		if (!defaultSearch && !nameSearch && !descSearch) return resourceTypes
-		return resourceTypes.filter((rt) => {
-			if (defaultSearch && !rt.name.toLowerCase().includes(defaultSearch)) return false
+		const matched = resourceTypes.filter((rt) => {
+			if (
+				defaultSearch &&
+				!resourceTypeSearchText(rt.name, rt.description).toLowerCase().includes(defaultSearch)
+			)
+				return false
 			if (nameSearch && !rt.name.toLowerCase().includes(nameSearch)) return false
 			if (descSearch && !(rt.description ?? '').toLowerCase().includes(descSearch)) return false
 			return true
 		})
+		return sortResourceTypesByMatch(
+			matched,
+			defaultSearch ?? '',
+			(rt) => rt.name,
+			(rt) => rt.description
+		)
 	})
 
 	let folderPresets = $derived([

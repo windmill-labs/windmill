@@ -9,7 +9,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import { untrack } from 'svelte'
-	import { resourceTypeSearchText } from './resourceTypeDisplay'
+	import { resourceTypeSearchText, sortResourceTypesByMatch } from './resourceTypeDisplay'
 	interface Props {
 		value: string | undefined
 		notPickable?: boolean
@@ -18,12 +18,13 @@
 
 	let { value = $bindable(), notPickable = false, nonePickable = false }: Props = $props()
 
-	let resources: { name: string; searchText: string }[] = $state([])
+	let resources: { name: string; description?: string; searchText: string }[] = $state([])
 
 	async function loadResources() {
 		const types = await ResourceService.listResourceType({ workspace: $workspaceStore! })
 		resources = types.map((t) => ({
 			name: t.name,
+			description: t.description,
 			searchText: resourceTypeSearchText(t.name, t.description)
 		}))
 	}
@@ -45,7 +46,12 @@
 	let search: string = $state('')
 
 	let filteredResources = $derived(
-		resources.filter((r) => r.searchText.toLowerCase().includes(search.toLowerCase()))
+		sortResourceTypesByMatch(
+			resources.filter((r) => r.searchText.toLowerCase().includes(search.trim().toLowerCase())),
+			search,
+			(r) => r.name,
+			(r) => r.description
+		)
 	)
 </script>
 
