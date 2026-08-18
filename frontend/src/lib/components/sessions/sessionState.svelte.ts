@@ -329,9 +329,9 @@ const draftPromptFlushHandles = new Map<string, ReturnType<typeof setTimeout>>()
 export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return
-	// No-op on an unchanged prompt. Crucially, this treats the composer's
-	// mount-time onDraftChange('') as a non-touch (draftPrompt is undefined),
-	// so merely opening an untouched draft never persists it.
+	// No-op on an unchanged prompt, so opening an untouched draft never persists
+	// it. Writes of '' are real edits (a draft typed then erased is still a
+	// session), which is why the composer reports edits only — see AIChatInput.
 	if ((s.draftPrompt ?? '') === text) return
 	// Keep `transient` (means "in-memory only") set until the flush persists the
 	// draft, so hydrateSessions preserves it across a reconcile inside this window;
