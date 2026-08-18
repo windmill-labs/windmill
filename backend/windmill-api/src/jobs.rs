@@ -25,7 +25,7 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use url::Url;
-use windmill_common::assets::{merge_asset_usage_access_types, AssetUsageAccessType};
+use windmill_common::assets::AssetUsageAccessType;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
@@ -1265,53 +1265,43 @@ async fn list_run_assets(
         SELECT
             a.path,
             a.kind AS "kind!: windmill_common::assets::AssetKind",
-            a.usage_access_type AS "usage_access_type: AssetUsageAccessType"
+            -- Several jobs of the tree touch one asset, each recording its own
+            -- access. A job that recorded none contributes nothing rather than
+            -- erasing a sibling's, so an all-null group is the only unknown one.
+            -- Grouping here, not in Rust, is what makes LIMIT count assets: the
+            -- retention keeps up to ten job rows per asset.
+            COALESCE(bool_or(a.usage_access_type IN ('r', 'rw')), false) AS "any_read!",
+            COALESCE(bool_or(a.usage_access_type IN ('w', 'rw')), false) AS "any_write!"
         FROM asset a JOIN job_tree t ON a.usage_path = t.id::text
         WHERE a.workspace_id = $1 AND a.usage_kind = 'job'
           AND ($3::text[] IS NULL OR t.tag = ANY($3))
+        GROUP BY a.path, a.kind
         ORDER BY a.path, a.kind
         LIMIT $4"#,
         w_id,
         job_id,
         scope_tags.as_deref(),
-        // A row past the cap is how the fold below learns it was cut. Rows, not
-        // assets: several rows fold into one asset, so this over-reads at worst.
+        // One asset past the cap is how the response learns it was cut.
         RUN_ASSETS_CAP as i64 + 1
     )
     .fetch_all(&db)
     .await?;
 
     let truncated = rows.len() > RUN_ASSETS_CAP;
-
-    // One (path, kind) can be touched by several jobs of the tree; the ORDER BY
-    // keeps those rows adjacent, so folding into the last entry collapses them.
-    let mut assets: Vec<RunAsset> = vec![];
-    for row in rows {
-        match assets
-            .last_mut()
-            .filter(|a| a.path == row.path && a.kind == row.kind)
-        {
-            Some(prev) => {
-                prev.access_type = match (prev.access_type, row.usage_access_type) {
-                    // Across jobs a missing access type means that job recorded
-                    // none — unlike within one job, where it means the access is
-                    // unknown — so it must not erase a sibling's known one.
-                    (None, other) | (other, None) => other,
-                    (a, b) => merge_asset_usage_access_types(a, b),
-                }
-            }
-            None => assets.push(RunAsset {
-                path: row.path,
-                kind: row.kind,
-                access_type: row.usage_access_type,
-            }),
-        }
-    }
-    if truncated {
-        // The cut landed inside the last group, so its access type may have been
-        // folded from only some of the jobs that touched it.
-        assets.pop();
-    }
+    let assets = rows
+        .into_iter()
+        .take(RUN_ASSETS_CAP)
+        .map(|row| RunAsset {
+            path: row.path,
+            kind: row.kind,
+            access_type: match (row.any_read, row.any_write) {
+                (true, true) => Some(AssetUsageAccessType::RW),
+                (true, false) => Some(AssetUsageAccessType::R),
+                (false, true) => Some(AssetUsageAccessType::W),
+                (false, false) => None,
+            },
+        })
+        .collect();
     Ok(Json(RunAssets { assets, truncated }))
 }
 

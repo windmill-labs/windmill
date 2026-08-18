@@ -33,7 +33,13 @@
 		// Runtime assets win: they are what the run actually did. Their access type
 		// can still be unknown — a resource passed in the arguments is recorded
 		// without one — so fall back to what the parser inferred for the same asset.
-		const staticByKey = new Map(staticAssets.map((a) => [assetKey(a), a]))
+		// One asset can appear twice statically, parsed from the code and again from
+		// the arguments; only the parsed one carries an access type.
+		const staticByKey = new Map<string, AssetWithAccessType>()
+		for (const a of staticAssets) {
+			const prev = staticByKey.get(assetKey(a))
+			if (!prev || (!prev.access_type && a.access_type)) staticByKey.set(assetKey(a), a)
+		}
 		const merged = runtime.assets.map((a) => ({
 			...a,
 			access_type: a.access_type ?? staticByKey.get(assetKey(a))?.access_type

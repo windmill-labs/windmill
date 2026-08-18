@@ -206,16 +206,21 @@ async fn test_list_run_assets_caps_the_list(db: Pool<Postgres>) -> anyhow::Resul
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
+    // Three child jobs touching the same 1200 assets: the cap counts assets, and
+    // the retention allows ten job rows per asset, so a row-counted cap would cut
+    // this at a third of the list.
     let parent = insert_job(&db, None, "other").await?;
-    let child = insert_job(&db, Some(parent), "other").await?;
-    sqlx::query(
-        "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind) \
-         SELECT 'test-workspace', '/out/' || lpad(g::text, 6, '0') || '.json', 's3object', 'w', \
-         $1, 'job' FROM generate_series(1, 1200) g",
-    )
-    .bind(child.to_string())
-    .execute(&db)
-    .await?;
+    for _ in 0..3 {
+        let child = insert_job(&db, Some(parent), "other").await?;
+        sqlx::query(
+            "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind) \
+             SELECT 'test-workspace', '/out/' || lpad(g::text, 6, '0') || '.json', 's3object', 'w', \
+             $1, 'job' FROM generate_series(1, 1200) g",
+        )
+        .bind(child.to_string())
+        .execute(&db)
+        .await?;
+    }
 
     let resp = bearer(
         client().get(format!("{ws}/jobs/run_assets/{parent}")),
@@ -227,14 +232,17 @@ async fn test_list_run_assets_caps_the_list(db: Pool<Postgres>) -> anyhow::Resul
     let body: Value = resp.json().await?;
     assert_eq!(body["truncated"], json!(true));
     let assets = body["assets"].as_array().expect("assets array");
-    assert!(
-        !assets.is_empty() && assets.len() <= 1000,
-        "expected a capped, non-empty list, got {}",
-        assets.len()
-    );
+    assert_eq!(assets.len(), 1000);
     assert_eq!(
-        assets[0]["path"], "/out/000001.json",
-        "the cap keeps the head of the ordered list"
+        assets[0],
+        json!({ "path": "/out/000001.json", "kind": "s3object", "access_type": "w" }),
+        "the cap keeps the head of the ordered list, with its access type merged"
+    );
+    // Three jobs touched each asset, so a cap counting rows rather than assets
+    // would fill the list with repeats and stop around /out/000334.json.
+    assert_eq!(
+        assets[999]["path"], "/out/001000.json",
+        "the cap counts assets, not asset rows"
     );
     Ok(())
 }
