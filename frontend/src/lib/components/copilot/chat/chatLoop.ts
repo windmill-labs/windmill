@@ -338,11 +338,18 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 	// actually served it rather than to whatever is selected when the loop ends.
 	let iterationModel: ReasoningProviderModel | undefined
 
-	const trackUsage = (usage: ChatTokenUsage | null | undefined) => {
-		tokenUsage = addChatTokenUsage(tokenUsage, usage)
+	// Reported as the provider's usage arrives, not when the parser returns: a parser
+	// waits on tool execution, which can wait on a person, and a tab closed in that
+	// gap would drop a response that was already billed. Accounting for the turn's
+	// own totals stays on the return path, where every parser reports uniformly.
+	const reportUsage = (usage: ChatTokenUsage | null | undefined) => {
 		if (usage && iterationModel) {
 			config.onUsage?.(usage, iterationModel)
 		}
+	}
+
+	const trackUsage = (usage: ChatTokenUsage | null | undefined) => {
+		tokenUsage = addChatTokenUsage(tokenUsage, usage)
 		// Some providers/paths report no usage (prompt 0); keep the last real one.
 		if (usage && usage.prompt > 0) {
 			lastIterationUsage = usage
@@ -399,7 +406,14 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
-		const parseOptions = { workspace, provider: modelProvider.provider }
+		// Report each response as its usage arrives rather than after the parser
+		// returns: a parser waits on tool execution, which can wait on a person, and
+		// a tab closed in that gap would drop a response the provider already billed.
+		const parseOptions = {
+			workspace,
+			provider: modelProvider.provider,
+			onTokenUsage: reportUsage
+		}
 
 		if (isOpenAI) {
 			const reasoningSummaryCacheKey = getReasoningSummaryCacheKey(workspace, modelProvider)

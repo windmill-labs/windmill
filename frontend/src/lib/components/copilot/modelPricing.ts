@@ -96,8 +96,8 @@ const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	// one, so the write rate never applies. The -mini/-nano entries must precede
 	// the family entry, which would otherwise claim them.
 	// Revisions past gpt-5 are priced separately by OpenAI and are not tracked here.
-	// `strictVariants` does not cover these: a version bump is digits, not a name
-	// segment, so `gpt-5-6` would otherwise still match `gpt-5`.
+	// The matcher's revision guard already keeps them off the family rate; these
+	// entries stay so a revision the guard admits still resolves to no rate.
 	['gpt-5.6', null],
 	['gpt-5.5', null],
 	['gpt-5.4', null],

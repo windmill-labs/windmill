@@ -1162,7 +1162,11 @@ export async function parseOpenAICompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
-	options?: { workspace?: string; provider?: string }
+	options?: {
+		workspace?: string
+		provider?: string
+		onTokenUsage?: (usage: ChatTokenUsage) => void
+	}
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	// The tool call currently receiving argument deltas; when the stream moves on
@@ -1312,6 +1316,7 @@ export async function parseOpenAICompletion(
 
 	callbacks.onMessageEnd()
 
+	options?.onTokenUsage?.(tokenUsage)
 	// Stream over: every parsed call is queued until its turn in processToolCall.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {
