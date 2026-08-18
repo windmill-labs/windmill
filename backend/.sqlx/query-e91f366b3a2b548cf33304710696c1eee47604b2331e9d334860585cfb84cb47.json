@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE job_tree AS (\n            SELECT id FROM v2_job WHERE id = $2 AND workspace_id = $1\n            UNION\n            SELECT j.id FROM v2_job j JOIN job_tree t ON j.parent_job = t.id\n             WHERE j.workspace_id = $1 AND ($3::text[] IS NULL OR j.tag = ANY($3))\n        )\n        SELECT\n            a.path,\n            a.kind AS \"kind!: windmill_common::assets::AssetKind\",\n            a.usage_access_type AS \"usage_access_type: AssetUsageAccessType\"\n        FROM asset a JOIN job_tree t ON a.usage_path = t.id::text\n        WHERE a.workspace_id = $1 AND a.usage_kind = 'job'\n        ORDER BY a.path, a.kind",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind!: windmill_common::assets::AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume",
+                "dbt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "usage_access_type: AssetUsageAccessType",
+        "type_info": {
+          "Custom": {
+            "name": "asset_access_type",
+            "kind": {
+              "Enum": [
+                "r",
+                "w",
+                "rw"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e91f366b3a2b548cf33304710696c1eee47604b2331e9d334860585cfb84cb47"
+}

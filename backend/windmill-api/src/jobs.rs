@@ -25,6 +25,7 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use url::Url;
+use windmill_common::assets::{merge_asset_usage_access_types, AssetUsageAccessType};
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
@@ -136,6 +137,7 @@ pub fn workspaced_service() -> Router {
 
     Router::new()
         .route("/run_progress/{id}", get(get_run_progress))
+        .route("/run_assets/{id}", get(list_run_assets))
         .route("/dbt_graph/{id}", get(get_dbt_run_graph))
         .route("/dbt_resumable/{id}", get(get_dbt_resumable))
         .route(
@@ -1186,6 +1188,104 @@ async fn get_run_progress(
     };
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+#[derive(Serialize)]
+struct RunAsset {
+    path: String,
+    kind: windmill_common::assets::AssetKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access_type: Option<AssetUsageAccessType>,
+}
+
+/// Assets a run touched, as recorded by runtime detection, aggregated over the
+/// whole job tree: the recorder attributes an asset to the job that performed
+/// the operation, which for a flow step or a workflow-as-code task is not the
+/// job the user opened. Lives with the job routes for the same reason
+/// `run_progress` does — `asset` has no RLS, and `require_job_read_access` is
+/// what applies the view token, a scoped token's tag filter and the app-embed
+/// cutoff.
+async fn list_run_assets(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Vec<RunAsset>> {
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    let Some(created_by) = created_by else {
+        return Ok(Json(vec![]));
+    };
+    require_job_read_access(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &job_id,
+        &created_by,
+        view_token.as_deref(),
+    )
+    .await?;
+
+    // Walked on `db`, like the flow tree is: the gate above is what authorizes the
+    // run, and it grants access the caller's own RLS does not have — a view token,
+    // or a job the caller launched that runs as someone else. Re-filtering the tree
+    // through `user_db` would drop exactly those, and hand a share-link viewer the
+    // empty tab this endpoint exists to fix. The tag scope is the one restriction
+    // that must still hold per job, since the gate only checked the root.
+    let scope_tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
+    let rows = sqlx::query!(
+        r#"WITH RECURSIVE job_tree AS (
+            SELECT id FROM v2_job WHERE id = $2 AND workspace_id = $1
+            UNION
+            SELECT j.id FROM v2_job j JOIN job_tree t ON j.parent_job = t.id
+             WHERE j.workspace_id = $1 AND ($3::text[] IS NULL OR j.tag = ANY($3))
+        )
+        SELECT
+            a.path,
+            a.kind AS "kind!: windmill_common::assets::AssetKind",
+            a.usage_access_type AS "usage_access_type: AssetUsageAccessType"
+        FROM asset a JOIN job_tree t ON a.usage_path = t.id::text
+        WHERE a.workspace_id = $1 AND a.usage_kind = 'job'
+        ORDER BY a.path, a.kind"#,
+        w_id,
+        job_id,
+        scope_tags.as_deref()
+    )
+    .fetch_all(&db)
+    .await?;
+
+    // One (path, kind) can be touched by several jobs of the tree; the ORDER BY
+    // keeps those rows adjacent, so folding into the last entry collapses them.
+    let mut assets: Vec<RunAsset> = vec![];
+    for row in rows {
+        match assets
+            .last_mut()
+            .filter(|a| a.path == row.path && a.kind == row.kind)
+        {
+            Some(prev) => {
+                prev.access_type = match (prev.access_type, row.usage_access_type) {
+                    // Across jobs a missing access type means that job recorded
+                    // none — unlike within one job, where it means the access is
+                    // unknown — so it must not erase a sibling's known one.
+                    (None, other) | (other, None) => other,
+                    (a, b) => merge_asset_usage_access_types(a, b),
+                }
+            }
+            None => assets.push(RunAsset {
+                path: row.path,
+                kind: row.kind,
+                access_type: row.usage_access_type,
+            }),
+        }
+    }
+    Ok(Json(assets))
 }
 
 async fn get_flow_job_debug_info(
