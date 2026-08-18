@@ -17,9 +17,9 @@ export type Claim = {
 	kind: ClaimKind
 	path: string
 	/**
-	 * Compared against the live object. It has to move whenever anyone else writes: `edited_by`
-	 * for a secret, `edited_at` for a resource — whose `created_by` survives an edit and so
-	 * cannot tell one from no edit at all — and the target for a row.
+	 * Compared against the live object. It has to move whenever anyone else writes: `edited_at`
+	 * for a secret and a resource — an author survives an edit and so cannot tell one from no
+	 * edit at all — and the target for a row.
 	 */
 	mark: string
 }

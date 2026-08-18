@@ -22,7 +22,12 @@
  * what is stored is the bare address a Postgres client wants.
  */
 const CONNECTION_STRING =
-	/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>\[[^\]]+\]|[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
+	/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>\[[^\]]+\]|[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?/
+
+/** Everything after the first `?`, which is where every query parameter lives. */
+function queryOf(connectionString: string): string {
+	return connectionString.split('?').slice(1).join('?')
+}
 
 /**
  * A database someone types into Windmill is almost never localhost, so callers ask for TLS
@@ -54,7 +59,12 @@ export function parsePostgresConnectionString(
 ): PostgresConnectionParts | undefined {
 	const match = connectionString.match(CONNECTION_STRING)
 	if (!match?.groups) return undefined
-	const { user, password, host, port, dbname, sslmode } = match.groups
+	const { user, password, host, port, dbname } = match.groups
+	// By parameter name, never by searching the query text: `sslmode=` also occurs inside
+	// another parameter's *value*, and a substring match there reads someone's
+	// `application_name=sslmode=disable` as a request to turn TLS off.
+	const query = queryOf(connectionString)
+	const sslmode = query ? new URLSearchParams(query).get('sslmode') : null
 	return {
 		user: decode(user),
 		password: password ? decode(password) : undefined,
@@ -82,7 +92,7 @@ const COSMETIC_PARAMS = ['application_name']
  * other than the one pasted, behind a probe that reports success.
  */
 export function unsupportedConnectionParam(connectionString: string): string | undefined {
-	const query = connectionString.split('?').slice(1).join('?')
+	const query = queryOf(connectionString)
 	if (!query) return undefined
 	let found: string | undefined = undefined
 	new URLSearchParams(query).forEach((_value, name) => {

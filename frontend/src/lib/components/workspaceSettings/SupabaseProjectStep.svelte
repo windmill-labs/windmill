@@ -257,14 +257,19 @@
 				<span class="text-xs font-semibold text-emphasis">Region</span>
 				<Select
 					items={SUPABASE_REGIONS.map((r) => ({ label: r.label, value: r.code }))}
-					bind:value={intent.region}
+					bind:value={() => intent.region, (v) => ((intent.region = v), onIntentChange?.())}
 					placeholder="Region"
 				/>
 			</div>
 		</div>
 		<div>
 			<span class="text-xs font-semibold text-emphasis">Project name</span>
-			<TextInput bind:value={intent.projectName} inputProps={{ placeholder: 'windmill-data' }} />
+			<TextInput
+				bind:value={
+					() => intent.projectName, (v) => ((intent.projectName = String(v)), onIntentChange?.())
+				}
+				inputProps={{ placeholder: 'windmill-data' }}
+			/>
 		</div>
 		<Alert type="info" size="xs" bgClass="border-0" title="">
 			Windmill generates and stores the database password. A new project takes a minute or two to

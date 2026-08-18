@@ -385,11 +385,10 @@ export type RunResult = {
 	/** A row this run had written is gone again, so a claim on the name has to go with it. */
 	rowRolledBack?: boolean
 	/**
-	 * The Supabase project this run created, or could not prove it had not created, and the path
-	 * its password went to. Supabase never shows that password again, so the variable there is
-	 * the only copy and no later attempt may write over it.
+	 * Every project created this session, each guarding the path holding its only password.
+	 * Supabase never shows that password again, so the variable there is the only copy and no
+	 * later attempt may write over it.
 	 */
-	/** Every project created this session, each guarding the path holding its only password. */
 	createdProjects: CreatedProject[]
 	/** What this run holds now, for the next attempt to be given back. */
 	claims: Claims
@@ -504,9 +503,15 @@ async function writeSecret(
  * `undefined` when nothing is there.
  */
 async function secretMark(deps: RunDeps, path: string): Promise<string | undefined> {
-	const held = await VariableService.getVariable({ workspace: deps.workspace, path }).catch(
-		() => undefined
-	)
+	// `decryptSecret` defaults to true, and the handler audit-logs a decryption when it does.
+	// Only the timestamp is wanted, and it is on the response either way -- asking for the
+	// plaintext records decrypting a secret nothing reads, including someone else's on the
+	// retry that is about to refuse it.
+	const held = await VariableService.getVariable({
+		workspace: deps.workspace,
+		path,
+		decryptSecret: false
+	}).catch(() => undefined)
 	return held ? (held.edited_at ?? held.edited_by ?? '') : undefined
 }
 

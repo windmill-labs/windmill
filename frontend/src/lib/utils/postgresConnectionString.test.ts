@@ -129,6 +129,15 @@ describe('unsupportedConnectionParam', () => {
 		)
 	})
 
+	// `sslmode=` also occurs inside another parameter's value, and reading it there turns TLS
+	// off behind a string that never asked for it -- past the allowlist, since the parameter
+	// actually carrying it is one we accept.
+	it('reads sslmode by name, not from anywhere it appears in the query', () => {
+		const disguised = 'postgres://u:p@h/db?application_name=sslmode=disable'
+		expect(unsupportedConnectionParam(disguised)).toBeUndefined()
+		expect(parsePostgresConnectionString(disguised)?.sslmode).toBeUndefined()
+	})
+
 	it('ignores the one it can store, and the ones that cost nothing', () => {
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?sslmode=require')).toBeUndefined()
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?application_name=wm')).toBeUndefined()

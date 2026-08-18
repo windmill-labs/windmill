@@ -42,7 +42,10 @@ type Row = {
 export async function probeDatatableConnection(
 	workspace: string,
 	database: Record<string, any> | string,
-	timeout = 15000
+	// Longer than the 20s the worker allows its own Postgres connect, or a host that accepts
+	// the connection and never answers -- a firewall with no rule for the workers, which this
+	// check exists to catch -- is cancelled first and reported as a missing worker.
+	timeout = 30000
 ): Promise<TestDataTableConnectionResponse> {
 	const job = await JobService.runScriptPreview({
 		workspace,
