@@ -655,9 +655,8 @@ export async function handleFile(
               remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
-            // Absent from the Script response schema, so it is read off the raw body.
             Boolean(typed.cache_ignore_s3_path) ==
-              Boolean((remote as any).cache_ignore_s3_path) &&
+              Boolean(remote.cache_ignore_s3_path) &&
             normConcurrencyTimeWindowS ==
               normalizeConcurrency(
                 remote.concurrent_limit,
