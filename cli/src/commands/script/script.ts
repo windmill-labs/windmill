@@ -643,7 +643,11 @@ export async function handleFile(
             typed.summary === remote.summary &&
             typed.kind == remote.kind &&
             // A `.ts` file changes language when defaultTs flips, content untouched.
-            language == remote.language &&
+            // bun and bunnative share that extension, so the inferred language is always
+            // bun; the server derives bunnative back from the `//native` annotation in
+            // the content, which is compared above.
+            language ==
+              (remote.language === "bunnative" ? "bun" : remote.language) &&
             !remote.archived &&
             (Array.isArray(remote?.lock)
               ? remote?.lock?.join("\n")

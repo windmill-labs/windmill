@@ -9,6 +9,7 @@
 import { expect, test } from "bun:test";
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
+import { waitForDeploymentJobs } from "./new_commands_helpers.ts";
 
 // The debounce bounds this PR also restores cannot be asserted here: a build without
 // git tags reports a bare commit as its version, GIT_SEM_VERSION then falls back to
@@ -77,6 +78,10 @@ test("Integration: script runtime settings survive a sync pull/push cycle", asyn
       "utf-8",
     );
 
+    // The lock a deploy's dependency job writes is compared before the settings are,
+    // so a pull taken before that job lands makes the next push deploy over the lock
+    // instead of over the setting under test.
+    await waitForDeploymentJobs(backend);
     const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
     expect(pullResult.code).toEqual(0);
 
@@ -104,6 +109,8 @@ test("Integration: script runtime settings survive a sync pull/push cycle", asyn
 
     // A settings-only edit must reach the remote rather than be skipped as up to
     // date. 0 is "delete immediately after completion", not "unset".
+    await waitForDeploymentJobs(backend);
+    expect((await backend.runCLICommand(["sync", "pull", "--yes"], tempDir)).code).toEqual(0);
     await writeFile(
       metadataPath,
       (await readFile(metadataPath, "utf-8")).replace(
