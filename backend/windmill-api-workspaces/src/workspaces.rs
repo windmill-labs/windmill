@@ -2141,16 +2141,9 @@ async fn test_datatable_connection(
     require_admin(authed.is_admin, &authed.username)?;
 
     let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
-    check_datatable_connection(&db, db_resource).await
-}
-
-async fn check_datatable_connection(
-    db: &DB,
-    db_resource: serde_json::Value,
-) -> JsonResult<DataTableConnectionCheck> {
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = pg_db.connect(Some(db)).await?;
+    let (client, connection) = pg_db.connect(Some(&db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     // One round trip, no side effects: `has_*_privilege` answers for the
