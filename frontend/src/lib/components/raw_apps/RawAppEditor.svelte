@@ -7,6 +7,7 @@
 	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import { Button } from '../common'
 	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -2369,19 +2370,19 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<button
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Columns2 }}
+												selected={splitWithPreview}
 												title={splitWithPreview
 													? 'Move preview back into a tab'
 													: 'Pin preview to the right'}
 												aria-label="Toggle split with preview"
 												aria-pressed={splitWithPreview}
-												class={splitWithPreview
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-												onclick={toggleSplit}
-											>
-												<Columns2 size={14} />
-											</button>
+												onClick={toggleSplit}
+											/>
 										</div>
 									{/snippet}
 								</DraggableTabs>
@@ -2454,27 +2455,33 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
 												title="Switch bundler"
-												onclick={() => {
+												onClick={() => {
 													const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
 													bundlerType = next
 													iframe?.contentWindow?.postMessage(
 														{ type: 'setBundlerType', bundlerType: next },
 														'*'
 													)
-												}}>{bundlerType}</button
+												}}
 											>
-											<button
+												{bundlerType}
+											</Button>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: MousePointerSquareDashed }}
+												selected={inspectorEnabled}
 												title={inspectorEnabled
 													? 'Click to disable element inspector'
 													: 'Click to enable element inspector'}
-												class={inspectorEnabled
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
 												aria-label="Toggle element inspector"
-												onclick={() => {
+												aria-pressed={inspectorEnabled}
+												onClick={() => {
 													if (inspectorEnabled) {
 														// Turning off is a full exit: stop picking and clear the
 														// selection + inline prompt (mirrors Escape).
@@ -2487,42 +2494,42 @@
 														)
 													}
 												}}
-											>
-												<MousePointerSquareDashed size={14} />
-											</button>
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: RefreshCw }}
 												title="Replay the last build into the preview"
 												aria-label="Rebuild"
-												onclick={() => {
+												onClick={() => {
 													if (lastBuild) {
 														feedPreviewIframe(lastBuild)
 													}
 												}}
-											>
-												<RefreshCw size={14} />
-											</button>
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: SquareArrowOutUpRight }}
 												title="Open preview in a separate window"
 												aria-label="Open preview in a separate window"
-												onclick={openExternalPreview}
-											>
-												<SquareArrowOutUpRight size={14} />
-											</button>
-											<button
+												onClick={openExternalPreview}
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Columns2 }}
+												selected={splitWithPreview}
 												title={splitWithPreview
 													? 'Move preview back into a tab'
 													: 'Pin preview to the right'}
 												aria-label="Toggle split with preview"
 												aria-pressed={splitWithPreview}
-												class={splitWithPreview
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-												onclick={toggleSplit}
-											>
-												<Columns2 size={14} />
-											</button>
+												onClick={toggleSplit}
+											/>
 										</div>
 									{/snippet}
 								</DraggableTabs>

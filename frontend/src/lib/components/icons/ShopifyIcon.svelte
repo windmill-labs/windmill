@@ -1,12 +1,14 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #95BF47 per shopify.com/brand-assets (shopify-logo-shopping-bag-full-color.svg: #95BF47/#5E8E3E/#fff).
+	The "S" stays white regardless of background; no gradients, shadows or recolouring. -->
 <svg
 	x="0px"
 	y="0px"
