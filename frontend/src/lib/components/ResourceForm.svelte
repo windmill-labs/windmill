@@ -23,6 +23,7 @@
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
+	import ResourcePathHint from './ResourcePathHint.svelte'
 
 	interface Props {
 		path: string
@@ -155,11 +156,7 @@
 			</div>
 		{/if}
 		<Label label="Path">
-			<div class="text-xs text-secondary font-normal mb-1">
-				The path sets who can access this resource: a <code>u/</code> path is private to that user,
-				an <code>f/</code> path follows the folder's permissions — read access lets people use the resource,
-				write access lets them edit it.
-			</div>
+			<ResourcePathHint />
 			<Path
 				disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
 				bind:path

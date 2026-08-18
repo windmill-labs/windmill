@@ -35,6 +35,7 @@
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
+	import ResourcePathHint from './ResourcePathHint.svelte'
 
 	interface Props {
 		step?: number
@@ -393,13 +394,22 @@
 		if (connectsManual) {
 			return
 		}
-		const availableRtTypes = await ResourceService.listResourceType({
+		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: effectiveWorkspace
 		})
-		const availableRts = availableRtTypes.map((t) => t.name)
-		resourceTypeDescriptions = Object.fromEntries(
-			availableRtTypes.filter((t) => t.description).map((t) => [t.name, t.description!])
-		)
+
+		// Descriptions are a search nicety, and `resources/type/list` is not on the public
+		// app domain's route allow-list (`listnames` is) -- so a published app must still
+		// get its picker. Failing here would leave `connectsManual` unset, and the guard
+		// above turns that into a permanently empty list.
+		try {
+			const withDescriptions = await ResourceService.listResourceType({
+				workspace: effectiveWorkspace
+			})
+			resourceTypeDescriptions = Object.fromEntries(
+				withDescriptions.filter((t) => t.description).map((t) => [t.name, t.description!])
+			)
+		} catch {}
 
 		// "Others" lists every resource type — including instance-configured OAuth
 		// providers — so any of them can also be connected with the user's own
@@ -1018,11 +1028,7 @@
 				<GfmMarkdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} prose="sm" noPadding />
 			{/if}
 			<Label label="Path">
-				<div class="text-xs text-secondary font-normal mb-1">
-					The path sets who can access this resource: a <code>u/</code> path is private to that
-					user, an <code>f/</code> path follows the folder's permissions — read access lets people use
-					the resource, write access lets them edit it.
-				</div>
+				<ResourcePathHint />
 				<Path
 					bind:error={pathError}
 					bind:path

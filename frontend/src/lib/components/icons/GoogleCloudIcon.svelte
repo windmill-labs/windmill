@@ -1,16 +1,20 @@
 <script lang="ts">
 	interface Props {
 		size?: number
+		// Generic call sites resolve this through APP_TO_ICON_COMPONENT and pass only
+		// width/height (home/ListFilters, flows/pickers/PickHubScript).
+		width?: string | number
+		height?: string | number
 	}
 
-	let { size = 16 }: Props = $props()
+	let { size = 16, width = undefined, height = undefined }: Props = $props()
 </script>
 
 <!-- #4285F4 (with #EA4335 / #FBBC05 / #34A853) per Google's own product logo asset
 	https://www.gstatic.com/images/branding/product/2x/google_cloud_64dp.png. Google forbids recolouring its logos. -->
 <svg
-	width={size}
-	height={size}
+	width={width ?? size}
+	height={height ?? size}
 	viewBox="0 -25 256 256"
 	version="1.1"
 	xmlns="http://www.w3.org/2000/svg"

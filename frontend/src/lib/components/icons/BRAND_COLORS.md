@@ -1,15 +1,16 @@
 # Icon brand colours
 
 Where every icon's colours come from, and whether they survive both app surfaces.
-Generated from the components themselves — colours are read from the fills and the
-Tailwind pair classes, sources from each component's provenance comment, contrast
-computed from those hexes against `surface-primary` in each theme.
+Compiled from the components themselves during the audit — colours read from the fills and
+the Tailwind pair classes, sources from each component's provenance comment, contrast
+computed from those hexes against `surface-primary` in each theme. Maintained by hand from
+here on: change an icon's colour or source and change its row.
 
 Surfaces: light `#fbfbfd`, dark `#2e3441`. Ratios are WCAG non-text contrast; **bold** marks a
 mark that is effectively invisible on that surface. WCAG exempts logotypes from the 3:1
 floor, so a low ratio is a signal the colour may be wrong, not automatically a defect.
 
-`pair` = brand publishes a per-theme variant, applied as `text-[#light] dark:text-[#dark]`.
+`pair` = brand publishes a per-theme variant. Usually applied as `text-[#light] dark:text-[#dark]`; `AnsibleIcon` inverts instead (`dark:invert`), and `DatadogIcon`, `DenoIcon`, `DeepLIcon` and `TogglIcon` swap between two SVGs (`dark:hidden` / `hidden dark:block`) because their two marks are different artwork, not the same shape recoloured.
 `fixed` = full-colour mark, same in both themes. `inherits` = brand publishes no colour,
 so the mark takes the surrounding text colour. `mixed` = the root carries a
 `fill="currentColor"` that hardcoded path fills override, so it is inert — these are
@@ -37,7 +38,7 @@ repeatedly — check the brand's own page.
 | `AirtableIcon` | `airtable` | mixed | #FCB400 | #FCB400 | 3.88 | 6.93 | airtable.com/favicon.ico (fixed full-colour mark: #18BFFF and #F82B60 panels) |
 | `AlgoliaIcon` | `algolia` | pair | #003DFF | #FFFFFF | 6.53 | 12.47 | algolia.com logo pack (Algolia-mark-blue.svg / Algolia-mark-white.svg) |
 | `AmqpIcon` | `amqp` | fixed | — | — | — | — | — |
-| `AnsibleIcon` | `ansible` | fixed | #1A1918 | #1A1918 | 20.32 | 12.47 | ansible/logos community-marks (Black and White variants, CC BY-SA 4.0) |
+| `AnsibleIcon` | `ansible` | pair | #1A1918 | #E5E6E7 | 16.99 | 9.98 | ansible/logos community-marks (Black and White variants, CC BY-SA 4.0) |
 | `AnthropicIcon` | `anthropic` | pair | #141413 | #FAF9F5 | 17.84 | 11.84 | anthropics/skills |
 | `ApifyIcon` | `apify` | fixed | #246DFF | #246DFF | 4.32 | 12.47 | apify.com/resources/brand |
 | `ApolloIcon` | `apollo` | pair | #1F1F1E | #F8FF2C | 15.96 | 11.48 | apollo.io |
@@ -102,14 +103,14 @@ repeatedly — check the brand's own page.
 | `CssIcon` | — | fixed | #663399 | #663399 | 8.13 | 12.47 | github.com/CSS-Next/logo.css (CC0), the official CSS logo endorsed by the W3C CSS WG |
 | `CurrencyApiIcon` | `currencyapi` | fixed | #2994FF | #2994FF | 9.13 | 4.67 | currencyapi.com/img/currencyapi_logo_color.svg |
 | `DatabricksIcon` | `databricks` | fixed | #FF3621 | #FF3621 | 3.50 | 3.45 | Databricks' own logo asset (databricks.com/sites/default/files/2023-08/databricks-default.png) |
-| `DatadogIcon` | `datadog` | fixed | #632CA6 | #632CA6 | 8.32 | 12.47 | datadoghq.com press kit |
+| `DatadogIcon` | `datadog` | pair | #632CA6 | #FFFFFF | 8.32 | 12.47 | datadoghq.com press kit |
 | `DatoCmsIcon` | `datocms` | fixed | #FF7751 | #FF7751 | 2.54 | 4.76 | datocms.com/company/brand-assets |
 | `DbtIcon` | `dbt_profile` | fixed | #FE6703 | #FE6703 | 2.84 | 4.25 | the dbt Labs brand assets (getdbt.com/brand-guidelines) |
 | `DeelIcon` | `deel` | pair | #1B1B1B | #FFFFFF | 16.67 | 12.47 | deel.com's own logo_revamp.svg / logo_revamp_white.svg |
 | `DeepInfraIcon` | `deep_infra` | pair | #2A3275 | #4C9CEC | 11.22 | 12.47 | the DeepInfra press-kit logo pack (deepinfra.com/media-center → DEEPINFRA_LOGO_COLOR / DEEPINFRA_LOGO_WHITE) |
-| `DeepLIcon` | `deepl` | fixed | #0F2B46 | #0F2B46 | 13.97 | 12.47 | DeepL's official logo pack on deepl.com/en/press ("Logo Deep Blue" RGB #0F2B46 and the published "Logo White" reversed variant) |
+| `DeepLIcon` | `deepl` | pair | #0F2B46 | #FFFFFF | 13.97 | 12.47 | DeepL's official logo pack on deepl.com/en/press ("Logo Deep Blue" RGB #0F2B46 and the published "Logo White" reversed variant) |
 | `DeepSeekIcon` | `deepseek` | pair | #4D6BFE | #6799FE | 4.19 | 4.49 | deepseek.com design tokens (--ds-color-brand under :root / [data-theme=dark]) |
-| `DenoIcon` | — | fixed | #000000 | #000000 | 20.32 | 12.47 | the "Deno Logo Guidelines 2024" asset pack on deno.com/brand |
+| `DenoIcon` | — | pair | #000000 | #FFFFFF | 20.32 | 12.47 | the "Deno Logo Guidelines 2024" asset pack on deno.com/brand |
 | `DigitalOceanIcon` | `digitalocean` | fixed | #0080FF | #0080FF | 3.67 | 3.29 | DigitalOcean's official logo kit (DO_Logo_icon_blue.svg, linked from digitalocean.com/press) |
 | `DiscordIcon` | `discord`, `discord_webhook` | mixed | #5865F2 | #5865F2 | 4.46 | 5.71 | https://discord.com/branding |
 | `DiscourseIcon` | `discourse` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | discourse.org/brand (discourse-icon.svg / discourse-icon-dark.svg) |
@@ -307,7 +308,7 @@ repeatedly — check the brand's own page.
 | `ThreadsIcon` | `threads` | pair | #000000 | #FFFFFF | 20.32 | 12.47 | Meta's Threads Brand Resource Center logo pack (meta.com/brand/resources/threads) |
 | `TodoistIcon` | `todoist` | fixed | #E44232 | #E44232 | 3.97 | 3.04 | Todoist Brand Guidelines (doist.com/brand-assets/todoist-logo.zip), "Red — the primary brand color for Todoist" |
 | `TogetherAiIcon` | `togetherai` | fixed | #EF2CC1 | #EF2CC1 | 3.50 | 6.46 | together.ai's brand page (https://www.together.ai/brand) |
-| `TogglIcon` | `toggl` | fixed | #2C1138 | #2C1138 | 16.33 | 4.87 | Toggl Track media toolkit (toggl.com/track/media-toolkit, icon-dark-purple.svg / icon-pink.svg) |
+| `TogglIcon` | `toggl` | pair | #2C1138 | #E57CD8 | 16.33 | 4.87 | Toggl Track media toolkit (toggl.com/track/media-toolkit, icon-dark-purple.svg / icon-pink.svg) |
 | `TomorrowIoIcon` | `tomorrow` | fixed | #004CF8 | #004CF8 | 6.00 | 12.47 | tomorrow.io's own design tokens (--color-logo-blue in site-frame.min.css, matching the header lockup SVG and logo-490.png) |
 | `TrelloIcon` | `trello` | fixed | #1558BC | #1558BC | 6.44 | 12.47 | Atlassian Design logo library (atlassian.design/foundations/logos → trello_app.zip, Trello_icon.svg) |
 | `TripadvisorIcon` | `tripadvisor` | fixed | #002B11 | #002B11 | 15.01 | **1.24** | 2025 Tripadvisor Brand Guidelines for Partners, tripadvisor.mediaroom.com |
@@ -573,7 +574,7 @@ Not brands. These inherit `currentColor` on purpose and must not be given a pair
 ## Coverage
 
 - brand icons: **315**, of which **311** carry a recorded source
-- per-theme pairs applied: **131**
+- per-theme pairs applied: **136** (5 of them by inversion or a two-SVG swap, see above)
 - concept icons: **34**
 - effectively invisible on light: **1** (AbstractApiIcon)
 - effectively invisible on dark: **2** (PaychexIcon, TripadvisorIcon)

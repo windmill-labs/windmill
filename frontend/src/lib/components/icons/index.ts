@@ -319,13 +319,16 @@ import WeatherApiIcon from './WeatherApiIcon.svelte'
 import WebScrapingAiIcon from './WebScrapingAiIcon.svelte'
 import type { Component } from 'svelte'
 /**
- * ./triggers/ holds desaturated variants of some marks in this folder, used in exactly
- * two places: the sidebar trigger list and the capture dropdown.
+ * ./triggers/ holds desaturated variants of some marks in this folder, used by the four
+ * surfaces that list trigger kinds as menu rows: the sidebar trigger list
+ * (SidebarContent), the capture dropdown (CaptureButton), the add-trigger dropdown
+ * (AddTriggersButton) and the menu the flow-graph trigger badge opens (TriggersBadge).
+ * The last two reach them through triggerIconMapMono in triggers/utils.ts.
  *
- * Both are dense lists where brand marks sit next to lucide glyphs (Webhook, Route,
+ * All four are dense lists where brand marks sit next to lucide glyphs (Webhook, Route,
  * Database), and a coloured mark there reads as a different kind of thing rather than a
- * peer. Everywhere else — trigger pages, flow-graph badges, tables, global search, the
- * resource picker — uses the full-colour mark from this folder.
+ * peer. Everywhere else — trigger pages, the flow-graph badge itself, tables, global
+ * search, the resource picker — uses the full-colour mark from this folder.
  *
  * The variants are separate files rather than a CSS override, because coercion cannot
  * work in general: forcing fills to currentColor breaks lucide's outline icons, which
@@ -346,8 +349,8 @@ export const APP_TO_ICON_COMPONENT = {
 	gmail: GmailIcon,
 	gsheets: GSheetsIcon,
 	gitlab: GitlabIcon,
-	// GCloudIcon draws a generic hexagon glyph, not Google's cloud mark; both `gcloud` and
-	// `gcp_service_account` are Google Cloud, so both resolve to the official four-colour mark.
+	// `gcloud` and `gcp_service_account` are both Google Cloud, so both resolve to the
+	// official four-colour mark.
 	gcloud: GoogleCloudIcon,
 	gcal: GcalIcon,
 	gdrive: GdriveIcon,

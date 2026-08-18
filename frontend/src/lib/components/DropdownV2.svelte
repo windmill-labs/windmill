@@ -39,9 +39,6 @@
 		hidePopup?: boolean
 		open?: boolean
 		customWidth?: number | undefined
-		/** Classes for the menu panel. The menu is portalled, so a wrapper around this
-		 * component cannot style it. */
-		menuClass?: string | undefined
 		customMenu?: boolean
 		class?: string | undefined
 		btnId?: string | undefined
@@ -77,7 +74,6 @@
 		hidePopup = false,
 		open = $bindable(false),
 		customWidth = undefined,
-		menuClass = undefined,
 		customMenu = false,
 		class: classNames = undefined,
 		enableFlyTransition = false,
@@ -207,10 +203,7 @@
 			{@render menu?.({ item, close, builders })}
 		{:else}
 			<div
-				class={twMerge(
-					'bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1',
-					menuClass
-				)}
+				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
 				style={`${customWidth ? `width: ${customWidth}px;` : ''} max-height: ${maxHeight || '50vh'};`}
 			>
 				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} {builders} />
