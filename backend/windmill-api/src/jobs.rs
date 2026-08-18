@@ -1238,14 +1238,17 @@ async fn list_run_assets(
     // or a job the caller launched that runs as someone else. Re-filtering the tree
     // through `user_db` would drop exactly those, and hand a share-link viewer the
     // empty tab this endpoint exists to fix. The tag scope is the one restriction
-    // that must still hold per job, since the gate only checked the root.
+    // that must still hold per job, since the gate only checked the root. It gates
+    // which jobs' assets are read, not which are walked through: the gate admits a
+    // job on its own tag, so an out-of-scope job in the middle of the tree must not
+    // hide a descendant the caller could have asked for directly.
     let scope_tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
     let rows = sqlx::query!(
         r#"WITH RECURSIVE job_tree AS (
-            SELECT id FROM v2_job WHERE id = $2 AND workspace_id = $1
+            SELECT id, tag FROM v2_job WHERE id = $2 AND workspace_id = $1
             UNION
-            SELECT j.id FROM v2_job j JOIN job_tree t ON j.parent_job = t.id
-             WHERE j.workspace_id = $1 AND ($3::text[] IS NULL OR j.tag = ANY($3))
+            SELECT j.id, j.tag FROM v2_job j JOIN job_tree t ON j.parent_job = t.id
+             WHERE j.workspace_id = $1
         )
         SELECT
             a.path,
@@ -1253,6 +1256,7 @@ async fn list_run_assets(
             a.usage_access_type AS "usage_access_type: AssetUsageAccessType"
         FROM asset a JOIN job_tree t ON a.usage_path = t.id::text
         WHERE a.workspace_id = $1 AND a.usage_kind = 'job'
+          AND ($3::text[] IS NULL OR t.tag = ANY($3))
         ORDER BY a.path, a.kind"#,
         w_id,
         job_id,
@@ -1754,20 +1758,21 @@ async fn require_job_within_run_scope(
     .await?;
 
     let runs_app = build_scope_path_predicate(authed, "apps", "run");
-    let in_scope = chain.iter().any(|job| {
-        match (job.runnable_path.as_deref(), job.scope_kind.as_deref()) {
-            (Some(runnable_path), Some(kind))
-                if windmill_api_auth::scopes::run_confinement_admits(
-                    &confinement,
-                    kind,
-                    runnable_path,
-                ) =>
-            {
-                true
-            }
-            _ => job.launched_by_app.as_deref().is_some_and(&runs_app),
-        }
-    });
+    let in_scope =
+        chain.iter().any(
+            |job| match (job.runnable_path.as_deref(), job.scope_kind.as_deref()) {
+                (Some(runnable_path), Some(kind))
+                    if windmill_api_auth::scopes::run_confinement_admits(
+                        &confinement,
+                        kind,
+                        runnable_path,
+                    ) =>
+                {
+                    true
+                }
+                _ => job.launched_by_app.as_deref().is_some_and(&runs_app),
+            },
+        );
 
     if in_scope {
         Ok(())

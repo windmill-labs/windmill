@@ -4,6 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pruneNullishArray, uniqueBy } from '$lib/utils'
+	import { Skeleton } from '../common'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import AssetButtons from './AssetButtons.svelte'
@@ -20,14 +21,22 @@
 	}
 	let { job }: Props = $props()
 
+	const assetKey = (a: AssetWithAccessType) => a.kind + a.path
+
 	async function extractAssets(job: Job): Promise<AssetWithAccessType[]> {
 		const [runtimeAssets, staticAssets] = await Promise.all([
 			fetchRuntimeAssets(job),
 			inferStaticAssets(job)
 		])
-		// Runtime assets first: they carry the access type the run actually had,
-		// and a static match for the same asset carries nothing extra.
-		return uniqueBy([...runtimeAssets, ...staticAssets], (x) => x.kind + x.path)
+		// Runtime assets win: they are what the run actually did. Their access type
+		// can still be unknown — a resource passed in the arguments is recorded
+		// without one — so fall back to what the parser inferred for the same asset.
+		const staticByKey = new Map(staticAssets.map((a) => [assetKey(a), a]))
+		const merged = runtimeAssets.map((a) => ({
+			...a,
+			access_type: a.access_type ?? staticByKey.get(assetKey(a))?.access_type
+		}))
+		return uniqueBy([...merged, ...staticAssets], assetKey)
 	}
 
 	// What the run touched, as recorded by runtime detection. Static inference
@@ -100,7 +109,9 @@
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 </script>
 
-{#if assets.value && assets.value.length > 0}
+{#if assets.status === 'idle' || assets.status === 'loading'}
+	<Skeleton layout={[[3], 0.5, [3]]} class="w-full" />
+{:else if assets.value && assets.value.length > 0}
 	<ul class="flex flex-col divide-y mt-1">
 		{#each assets.value ?? [] as asset}
 			<li class="flex justify-between items-center gap-2 py-3 leading-4 text-sm pl-4">
@@ -118,12 +129,7 @@
 				{#if asset.access_type}
 					<span class="text-xs text-secondary">{formatAssetAccessType(asset.access_type)}</span>
 				{/if}
-				<AssetButtons
-					{asset}
-					{resourceDataCache}
-					{resourceEditorDrawer}
-					{s3FilePicker}
-				/>
+				<AssetButtons {asset} {resourceDataCache} {resourceEditorDrawer} {s3FilePicker} />
 			</li>
 		{/each}
 	</ul>

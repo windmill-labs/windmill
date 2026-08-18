@@ -150,7 +150,8 @@ async fn test_list_run_assets_covers_child_jobs(db: Pool<Postgres>) -> anyhow::R
 }
 
 /// The read gate only checks the root job's tag, so the walk has to keep a
-/// tag-scoped token out of descendants outside its scope.
+/// tag-scoped token out of descendants outside its scope — without hiding the
+/// ones below them, which the token could have asked for directly.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_list_run_assets_scopes_descendants_by_tag(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -169,8 +170,10 @@ async fn test_list_run_assets_scopes_descendants_by_tag(db: Pool<Postgres>) -> a
     let parent = insert_job(&db, None, "other").await?;
     let in_scope = insert_job(&db, Some(parent), "other").await?;
     let out_of_scope = insert_job(&db, Some(parent), "deno").await?;
+    let below_out_of_scope = insert_job(&db, Some(out_of_scope), "other").await?;
     insert_job_asset(&db, in_scope, "/data/in_scope.json", Some("w")).await?;
     insert_job_asset(&db, out_of_scope, "/data/out_of_scope.json", Some("w")).await?;
+    insert_job_asset(&db, below_out_of_scope, "/data/nested.json", Some("w")).await?;
 
     let resp = bearer(
         client().get(format!("{ws}/jobs/run_assets/{parent}")),
@@ -182,8 +185,12 @@ async fn test_list_run_assets_scopes_descendants_by_tag(db: Pool<Postgres>) -> a
     let assets: Value = resp.json().await?;
     assert_eq!(
         assets,
-        json!([{ "path": "/data/in_scope.json", "kind": "s3object", "access_type": "w" }]),
-        "a tag-scoped token must not read assets of descendants outside its tags"
+        json!([
+            { "path": "/data/in_scope.json", "kind": "s3object", "access_type": "w" },
+            { "path": "/data/nested.json", "kind": "s3object", "access_type": "w" },
+        ]),
+        "a tag-scoped token must not read assets of descendants outside its tags, \
+         but must still reach in-scope jobs below them"
     );
 
     Ok(())
