@@ -64,8 +64,9 @@ they set disjoint environment variables, so check which one you are in:
 
 See `backend/AGENTS.md` to restart the backend with different cargo features. Under herdr, `herdr
 --skill` prints a full reference for inspecting and driving panes and agents, and the plugins that
-provision worktrees live in `windmill-labs/windmill-herdr`. The commands below are for a plain
-checkout with nothing running.
+provision worktrees live in `windmill-labs/windmill-herdr` — clone it and run `./setup.sh` to
+install them and the keybindings they need. The commands below are for a plain checkout with
+nothing running.
 
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
 - **Frontend**: `REMOTE=http://localhost:8000 npm run dev` from `frontend/` (port 3000+)
