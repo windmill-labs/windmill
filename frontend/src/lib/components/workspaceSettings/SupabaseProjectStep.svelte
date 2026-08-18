@@ -192,7 +192,7 @@
 									href="https://supabase.com/dashboard/project/{projectRef(p)}/database/settings"
 									target="_blank"
 									rel="noreferrer"
-									class="text-blue-500 hover:underline">set a new one</a
+									class="text-accent hover:underline">set a new one</a
 								> — every existing connection to this project stops working when you do.
 							</p>
 						</div>

@@ -964,7 +964,7 @@
 							href={SUPABASE_SIGNUP_URL}
 							target="_blank"
 							rel="noreferrer"
-							class="text-blue-500 hover:underline">create one for free</a
+							class="text-accent hover:underline">create one for free</a
 						>.
 					</p>
 				{/if}
