@@ -2468,6 +2468,7 @@
 													? 'Click to disable element inspector'
 													: 'Click to enable element inspector'}
 												aria-label="Toggle element inspector"
+												aria-pressed={inspectorEnabled}
 												onClick={() => {
 													if (inspectorEnabled) {
 														// Turning off is a full exit: stop picking and clear the
