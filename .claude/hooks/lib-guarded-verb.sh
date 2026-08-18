@@ -151,6 +151,18 @@ split_segments() {
   while IFS= read -r seg; do SEGMENTS+=("$seg"); done <<< "$(strip_heredoc_bodies "$1" | tr ';&|()`' '\n')"
 }
 
+# 0 iff <command> ($1) carries a command substitution outside a heredoc body. A substitution is
+# concatenated into the word it sits in, and splitting on its opener cuts that word in half:
+# `/tmp/a/`printf ../../etc`` would be proved as `/tmp/a/`, with the traversal validated as an
+# unrelated segment. Nothing here can evaluate it, so a guard proves nothing about such a
+# command. Heredoc bodies are excepted — those are data the split has already dropped.
+has_substitution() {
+  case "$(strip_heredoc_bodies "$1")" in
+    *'$('* | *'`'*) return 0 ;;
+  esac
+  return 1
+}
+
 # Reads <segment> ($1) into the global array SEG_TOKS, dropping the shell keywords that can
 # precede a command word so that `then rm -rf x` is analyzed as the `rm` it runs. Word
 # splitting only: quotes are left in the token and fail the guards' charset check downstream,
@@ -173,7 +185,10 @@ segment_tokens() {
 # Resolving says nothing about whether the `cd` will SUCCEED: the destination may not exist, and
 # `;` runs the next command anyway, leaving it in the directory it started in. So a caller may
 # never treat this as the working directory outright — it is one of two candidates, and a
-# relative operand has to be provable against the one the command started in as well.
+# relative operand has to be provable against the one the command started in as well. That also
+# makes a `cd` word splitting invented out of quoted text harmless: it can only add a candidate,
+# never drop one. Past the first `cd` the branching outruns two candidates, so a caller that
+# sees a second gives up on relative operands entirely.
 apply_cd() {
   local cwd="$1" t
   shift

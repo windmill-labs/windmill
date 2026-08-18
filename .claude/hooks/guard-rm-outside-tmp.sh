@@ -45,14 +45,7 @@ defer() {
   exit 0
 }
 
-# A command substitution is concatenated into the word it sits in, and splitting the command on
-# its opener cuts that word in half: `/tmp/a/`printf ../../etc`` would be proved as `/tmp/a/`
-# and the traversal validated as an unrelated segment. Nothing here can evaluate the
-# substitution, so a command carrying one is never proved — heredoc bodies excepted, since
-# those are data the split already dropped.
-case "$(strip_heredoc_bodies "$cmd")" in
-  *'$('* | *'`'*) defer "command substitution in the command line" ;;
-esac
+has_substitution "$cmd" && defer "command substitution in the command line"
 
 # Proves one `rm` segment, whose tokens are in SEG_TOKS with `rm` at index 0, resolving relative
 # operands against $seg_cwd. Returns only once every operand is an auto-allowable target;
@@ -122,11 +115,7 @@ for seg in "${SEGMENTS[@]}"; do
       ;;
     cd)
       # A `cd` writes nothing, so it never blocks an allow; it only moves where a later relative
-      # operand points — to one of two places, since the `cd` may fail and `;` runs what follows
-      # regardless. Both are carried, and an operand must be auto-allowable from either, which
-      # also means a `cd` that word splitting invented out of quoted text can only add a
-      # constraint and never drop one. Past the first, the branching outruns two candidates, so
-      # a second `cd` gives up on relative operands entirely.
+      # operand points, to one of the two candidates `apply_cd` describes.
       if [ "$saw_cd" = 0 ] && new_cwd=$(apply_cd "$seg_cwd" "${SEG_TOKS[@]:1}"); then
         alt_cwd="$seg_cwd"
         seg_cwd="$new_cwd"

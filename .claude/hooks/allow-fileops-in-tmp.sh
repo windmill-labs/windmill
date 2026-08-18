@@ -7,11 +7,12 @@
 # lib-guarded-verb.sh).
 #
 # The command is read one segment at a time, so chaining and line breaks carry no weight of
-# their own: `mkdir -p /tmp/a && mv /tmp/b /tmp/a` is two operations, each proved on its own
-# operands. A decision covers the whole command line, so `allow` is emitted only when every
-# segment is one of these verbs proved here or a `cd` that resolved. A line that mixes a
-# proven op with some other command makes no decision instead and leaves that line to the
-# normal permission flow, rather than waving an unexamined command through with it.
+# their own: `cd /tmp/scratch && mv /tmp/a /tmp/b` is proved on the operands of the `mv`. A
+# decision covers the whole command line, so `allow` is emitted only when every segment is one
+# of these verbs proved here or a `cd` that resolved, AND exactly one of them writes (see the
+# gate at the foot of this file — an earlier write can change what a later operand means). A
+# line that mixes a proven op with some other command makes no decision instead and leaves that
+# line to the normal permission flow, rather than waving an unexamined command through with it.
 #
 # This is a hook rather than an allow rule because permission rules match a command prefix, so
 # they can only constrain the FIRST operand. `cp /tmp/x ~/.zshrc` matches a `cp /tmp/` prefix,
@@ -72,25 +73,25 @@ defer() {
   exit 0
 }
 
-# A command substitution is concatenated into the word it sits in, and splitting the command on
-# its opener cuts that word in half: `/tmp/a/`printf ../../etc`` would be proved as `/tmp/a/`
-# and the traversal validated as an unrelated segment. Nothing here can evaluate the
-# substitution, so a command carrying one is never proved — heredoc bodies excepted, since
-# those are data the split already dropped.
-case "$(strip_heredoc_bodies "$cmd")" in
-  *'$('* | *'`'*) defer "command substitution in the command line" ;;
-esac
+has_substitution "$cmd" && defer "command substitution in the command line"
 
-# Prints the root class of a charset-safe path token, then the path it resolved to on a second
-# line, resolving a relative one against the tracked working directory. Fails, printing nothing,
+# 0 iff the token is a literal path this hook may reason about. A glob never auto-allows: bash
+# expands it only after the hook has decided, so realpath sees the unexpanded pattern —
+# `/tmp/link*` canonicalizes to itself and passes, then expands onto a symlink whose target is
+# outside, and `cp` and `chmod` follow a command-line symlink, so that is a write to the target.
+# (guard-rm-outside-tmp.sh can allow globs because `rm` unlinks the symlink rather than following
+# it.) The charset holds none of the characters bash uses for quoting, expansion or separation.
+literal_path() {
+  case "$1" in *[*?[]*) return 1 ;; esac
+  [ -z "$(printf '%s' "$1" | tr -d 'A-Za-z0-9._/-')" ]
+}
+
+# Prints the root class of a path token, then the path it resolved to on a second line,
+# resolving a relative one against the tracked working directory. Fails, printing nothing,
 # when the token is unsafe to reason about or lands outside every root.
 operand_class() {
   local t="$1" canon alt cls alt_cls=""
-  # Globs never auto-allow: bash expands them only after this hook has decided, so realpath
-  # sees the unexpanded pattern and `/tmp/link*` passes before expanding onto a symlink whose
-  # target is outside. chmod and cp follow command-line symlinks, so that is a write to it.
-  case "$t" in *[*?[]*) return 1 ;; esac
-  [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/-')" ] && return 1
+  literal_path "$t" || return 1
   case "$t" in
     /*) canon=$(realpath -m -- "$t" 2>/dev/null) ;;
     *)  # A `cd` may fail at runtime and leave the command where it started, so a relative
@@ -116,13 +117,7 @@ operand_class() {
 # parser's stricter check; everything else goes through operand_class.
 under_tmp() {
   local t="$1" canon
-  # Globs never auto-allow. Bash expands them only after this hook has decided, so realpath
-  # sees the unexpanded pattern: `/tmp/link*` canonicalizes to itself and passes, then
-  # expands onto a symlink whose target is outside /tmp. chmod and cp follow command-line
-  # symlinks, so that is a write to the target. guard-rm-outside-tmp.sh can allow globs
-  # because `rm` unlinks the symlink itself rather than following it.
-  case "$t" in *[*?[]*) return 1 ;; esac
-  [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/-')" ] && return 1
+  literal_path "$t" || return 1
   case "$t" in /*) ;; *) return 1 ;; esac
   canon=$(realpath -m -- "$t" 2>/dev/null)
   [ -n "$canon" ] || return 1
@@ -294,10 +289,7 @@ for seg in "${SEGMENTS[@]}"; do
       ;;
     cd)
       # A `cd` writes nothing, so it never blocks an allow; it only moves where a later relative
-      # operand points — to one of two places, since the `cd` may fail and `;` runs what follows
-      # regardless. Both are carried, and an operand must land in the same root from either.
-      # Past the first, the branching outruns two candidates, so a second `cd` gives up on
-      # relative operands entirely.
+      # operand points, to one of the two candidates `apply_cd` describes.
       if [ "$saw_cd" = 0 ] && new_cwd=$(apply_cd "$seg_cwd" "${SEG_TOKS[@]:1}"); then
         alt_cwd="$seg_cwd"
         seg_cwd="$new_cwd"
