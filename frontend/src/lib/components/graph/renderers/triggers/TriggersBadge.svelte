@@ -5,23 +5,27 @@
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { enterpriseLicense } from '$lib/stores'
-	import MqttIcon from '$lib/components/icons/triggers/MqttIcon.svelte'
-	import AmqpIcon from '$lib/components/icons/triggers/AmqpIcon.svelte'
-	import NatsIcon from '$lib/components/icons/triggers/NatsIcon.svelte'
-	import KafkaIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
-	import AwsIcon from '$lib/components/icons/triggers/AwsIcon.svelte'
-	import GoogleCloudIcon from '$lib/components/icons/triggers/GoogleCloudIcon.svelte'
-	import AzureIcon from '$lib/components/icons/triggers/AzureIcon.svelte'
-	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
+	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
+	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
+	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
+	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
+	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
+	import {
+		triggerIconMapMono,
+		type Trigger,
+		type TriggerType
+	} from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
 	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
-	import NextcloudIcon from '$lib/components/icons/triggers/NextcloudIcon.svelte'
-	import GoogleIcon from '$lib/components/icons/triggers/GoogleIcon.svelte'
-	import GithubIcon from '$lib/components/icons/triggers/GithubIcon.svelte'
+	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
+	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -318,10 +322,13 @@
 {/snippet}
 
 {#snippet simpleTriggerItem({ item, type })}
-	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig()[type] || {
+	{@const { icon: ColourIcon, countKey } = triggerTypeConfig()[type] || {
 		icon: Database,
 		countKey: undefined
 	}}
+	<!-- The badge shows the full-colour mark; the menu it opens is a dense list beside lucide
+		glyphs, so its rows use the desaturated variants. See icons/index.ts. -->
+	{@const SvelteComponent = triggerIconMapMono[type] ?? ColourIcon}
 	<MenuItem {item} class={itemClass}>
 		<div class="flex flex-row items-center gap-2">
 			<SvelteComponent size={14} />
