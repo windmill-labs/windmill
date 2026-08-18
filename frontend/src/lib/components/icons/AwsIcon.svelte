@@ -1,18 +1,23 @@
 <!-- #252F3E / #FFFFFF wordmark, #FF9900 smile, per AWS's own logo files (d0.awsstatic.com/logos/powered-by-aws{,-white}.png).
 	 aws.amazon.com/trademark-guidelines forbids altering the logo's colour, so only these two published variants may be used. -->
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
 	interface Props {
-		height?: string
-		width?: string
+		// `size` is what dynamic call sites pass (RowIcon, TriggersBadge, ToggleButton,
+		// global search); width/height stay for the ones that pass those instead.
+		size?: number
+		height?: string | number
+		width?: string | number
+		class?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props()
+	let { size = 16, height = undefined, width = undefined, class: clazz = '' }: Props = $props()
 </script>
 
 <svg
-	class="text-[#252F3E] dark:text-white"
-	{width}
-	{height}
+	class={twMerge('text-[#252F3E] dark:text-white', clazz)}
+	width={width ?? size}
+	height={height ?? size}
 	viewBox="0.02 102.6 511.9 306.4"
 	xmlns="http://www.w3.org/2000/svg"
 >

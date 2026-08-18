@@ -1,15 +1,26 @@
 <script lang="ts">
 	interface Props {
-		height?: string
-		width?: string
+		// `size` is what dynamic call sites pass (trigger badges, the native-trigger page,
+		// workspace integrations); width/height stay for the ones that pass those instead.
+		size?: number
+		height?: string | number
+		width?: string | number
+		class?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props()
+	let { size = 16, height = undefined, width = undefined, class: clazz = '' }: Props = $props()
 </script>
 
 <!-- #4285f4 (with #34a853 / #fbbc05 / #ea4335) per the G mark Google serves in accounts.google.com/gsi/client.
 	 developers.google.com/identity/branding-guidelines forbids changing the colour of the G. -->
-<svg {width} {height} viewBox="0 0 512 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+<svg
+	width={width ?? size}
+	height={height ?? size}
+	class={clazz}
+	viewBox="0 0 512 512"
+	fill="currentColor"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		d="M501.8 261.8c0-18.2-1.6-35.6-4.7-52.4H256v99.1h137.8c-6.1 31.9-24.2 58.9-51.4 77V450h83.1c48.3-44.6 76.3-110.2 76.3-188.2"
 		style="fill:#4285f4"
