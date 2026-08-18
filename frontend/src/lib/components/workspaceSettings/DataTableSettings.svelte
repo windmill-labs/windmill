@@ -223,6 +223,8 @@
 
 	const wizardEnabled = isDataTableWizardEnabled()
 	let wizardOpen = $state(false)
+	/** Opened through the wizard's own `open()`, which is what sets a fresh run up. */
+	let wizard: { open: () => void } | undefined = $state(undefined)
 	let wizardResume: WizardResume | undefined = $state(undefined)
 
 	// Supabase sends the user back here after authorizing; pick the wizard back up where it
@@ -232,7 +234,7 @@
 		const parked = takeParkedWizard()
 		if (parked) {
 			wizardResume = parked
-			wizardOpen = true
+			wizard?.open()
 		}
 	})
 
@@ -330,7 +332,7 @@
 								variant="accent"
 								disabled={hasUnsavedChanges}
 								title={hasUnsavedChanges ? 'Save or discard your changes first' : undefined}
-								on:click={() => (wizardOpen = true)}
+								on:click={() => wizard?.open()}
 							>
 								Add a data table
 							</Button>
@@ -460,7 +462,7 @@
 							title={wizardEnabled && hasUnsavedChanges
 								? 'Save or discard your changes first'
 								: undefined}
-							on:click={() => (wizardEnabled ? (wizardOpen = true) : onNewDataTable())}
+							on:click={() => (wizardEnabled ? wizard?.open() : onNewDataTable())}
 						>
 							<Plus />
 							{wizardEnabled ? 'Add a data table' : 'New Data Table'}
@@ -547,6 +549,7 @@
 
 {#if wizardEnabled}
 	<AddDataTableWizard
+		bind:this={wizard}
 		bind:opened={
 			() => wizardOpen,
 			(v) => {

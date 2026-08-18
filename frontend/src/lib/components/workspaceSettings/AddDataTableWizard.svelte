@@ -168,8 +168,6 @@
 	/** Furthest step reached, so going back to check something does not cost the progress. */
 	let maxStep = $state(1)
 
-	let folders: string[] = $state([])
-
 	function defaultProjectName(): string {
 		return `windmill-${$workspaceStore ?? 'workspace'}`
 	}
@@ -178,16 +176,15 @@
 		return existingNames.includes('main') ? `${$workspaceStore ?? 'data'}_datatable` : 'main'
 	}
 
-	function defaultFolder(): string {
+	// Takes the list rather than reading it, so the fetch that loads it can seed off its own
+	// result before the resource has settled.
+	function defaultFolder(list: string[] = folders): string {
 		// The first folder this admin can write to, so the resource lands somewhere the team
 		// can find and repair. A workspace with no folders falls back to the personal space.
-		return folders.length ? `f/${folders[0]}` : `u/${$userStore?.username ?? 'admin'}`
+		return list.length ? `f/${list[0]}` : `u/${$userStore?.username ?? 'admin'}`
 	}
 
 	let nameError = $derived(datatableNameError(wiz.review.name, existingNames))
-	$effect(() => {
-		if (wiz.review.name.trim() !== claimedName) nameConflict = ''
-	})
 	// Every database on the instance, not just the data table ones: the name has to be free
 	// in PostgreSQL, and a collision with a database created for something else still fails.
 	let instanceNameError = $derived(
@@ -224,27 +221,21 @@
 			: undefined
 	)
 
-	// Undefined, not [], until the workspace has actually been asked: an empty list is the
-	// answer "this workspace has none", and the default selection below acts on it.
 	const pgResources = resource(
 		() => (opened && wiz.provider === 'resource' ? ($workspaceStore ?? '') : ''),
-		async (workspace) =>
-			workspace
-				? await ResourceService.listResource({ workspace, resourceType: 'postgresql' })
-				: undefined
+		async (workspace) => {
+			if (!workspace) return undefined
+			const list = await ResourceService.listResource({ workspace, resourceType: 'postgresql' })
+			// The step opens on a choice rather than on nothing: the first resource where the
+			// workspace has any, the creation form where it has none. Only ever fills an empty
+			// selection, so it cannot overwrite what the user picked.
+			if (!wiz.own.creating && !wiz.own.resourcePath) {
+				if (list.length) wiz.own.resourcePath = list[0].path
+				else wiz.own.creating = true
+			}
+			return list
+		}
 	)
-
-	// The step opens on a choice rather than on nothing: the first resource when the workspace
-	// has any, the creation form when it has none. Only ever fills an empty selection, so it
-	// cannot overwrite what the user picked. Waits for the fetch to settle -- deciding off the
-	// previous answer would read a workspace with resources as one without.
-	$effect(() => {
-		const resources = pgResources.current
-		if (wiz.provider !== 'resource' || pgResources.loading || !resources) return
-		if (wiz.own.creating || wiz.own.resourcePath) return
-		if (resources.length) wiz.own.resourcePath = resources[0].path
-		else wiz.own.creating = true
-	})
 
 	/** Exclusive: one list, and a card is either the selection or it is not. */
 	function selectResource(path: string) {
@@ -314,40 +305,32 @@
 		invalidate()
 	}
 
-	// Reopening after the Supabase redirect: drop the user back on the setup step with what
-	// they had already chosen, so authorizing does not feel like starting over.
-	let primed = $state(false)
-	$effect(() => {
-		if (!opened) {
-			primed = false
-			return
-		}
-		if (!primed) {
-			primed = true
-			reset()
-		}
-	})
-
 	// The Supabase branch goes through the instance's `supabase_wizard` OAuth client; where a
 	// superadmin has not configured one, the connect endpoint dead-ends, so do not offer it.
-	let supabaseAvailable = $state(false)
-	$effect(() => {
-		if (!opened) return
-		OauthService.listOauthConnects()
-			.then((cs) => (supabaseAvailable = (cs ?? []).some((c) => c.name === 'supabase_wizard')))
-			.catch(() => {})
-		FolderService.listFolderNames({ workspace: $workspaceStore! })
-			.then((f) => {
-				folders = f.filter((x) => !['app_groups', 'app_custom', 'app_themes'].includes(x))
-				// The list lands after `reset()` has already seeded the folder, so the first open
-				// would otherwise always fall back to the personal space. Only re-seed what the
-				// user has not reached yet: the review step is where the folder becomes theirs.
-				// A resumed run has already chosen one -- reseeding would move its secret out
-				// from under the path claim it came back to finish.
-				if (wiz.step < 3 && !resume?.resourcePath) wiz.review.folder = defaultFolder()
-			})
-			.catch(() => {})
-	})
+	const oauthConnects = resource(
+		() => opened,
+		async (isOpen) => (isOpen ? await OauthService.listOauthConnects() : [])
+	)
+	let supabaseAvailable = $derived(
+		(oauthConnects.current ?? []).some((c) => c.name === 'supabase_wizard')
+	)
+
+	const folderNames = resource(
+		() => (opened ? ($workspaceStore ?? '') : ''),
+		async (workspace) => {
+			if (!workspace) return []
+			const all = await FolderService.listFolderNames({ workspace })
+			const usable = all.filter((x) => !['app_groups', 'app_custom', 'app_themes'].includes(x))
+			// The list lands after `open()` has already seeded the folder, so the first open would
+			// otherwise always fall back to the personal space. Only re-seed what the user has not
+			// reached yet: the review step is where the folder becomes theirs. A resumed run has
+			// already chosen one -- reseeding would move its secret out from under the path claim
+			// it came back to finish.
+			if (wiz.step < 3 && !resume?.resourcePath) wiz.review.folder = defaultFolder(usable)
+			return usable
+		}
+	)
+	let folders = $derived(folderNames.current ?? [])
 
 	const SUPABASE_SIGNUP_URL = 'https://supabase.com/dashboard/sign-up'
 
@@ -385,7 +368,7 @@
 		claimedInstanceDb = undefined
 		leftBehind = false
 		createdProjects = []
-		nameConflict = ''
+		nameConflictFor = undefined
 		lastFailure = ''
 		pathTakenError = ''
 		poolerUnavailable = undefined
@@ -412,6 +395,16 @@
 			}
 			enterStep(2)
 		}
+	}
+
+	/**
+	 * Opened by the settings page. Reopening after the Supabase redirect drops the user back on
+	 * the setup step with what they had already chosen, so authorizing does not feel like
+	 * starting over.
+	 */
+	export function open() {
+		reset()
+		opened = true
 	}
 
 	function selectProvider(key: Provider) {
@@ -558,7 +551,15 @@
 	let claimedPath = $derived(claimOf(claims, 'secret', resourcePath)?.path)
 	let claimedResourcePath = $derived(claimOf(claims, 'resource', resourcePath)?.path)
 	let claimedName = $derived(claims.find((c) => c.kind === 'row')?.path)
-	let nameConflict = $state('')
+	/**
+	 * The name the pre-flight refused, kept with the message so editing the name retires it.
+	 * Storing only the message would need something to clear it, and the check that raises it
+	 * runs where a clear cannot see the edit that follows.
+	 */
+	let nameConflictFor = $state<{ name: string; message: string } | undefined>(undefined)
+	let nameConflict = $derived(
+		nameConflictFor?.name === wiz.review.name.trim() ? nameConflictFor.message : ''
+	)
 	/** Why the last run failed, kept on the review step after the checklist is dropped. */
 	let lastFailure = $state('')
 
@@ -615,11 +616,14 @@
 			if (claimedName !== name) {
 				const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 				if (settings.datatable?.datatables?.[name]) {
-					nameConflict = `A data table called ${name} already exists in this workspace.`
+					nameConflictFor = {
+						name,
+						message: `A data table called ${name} already exists in this workspace.`
+					}
 					backToReview()
 					return
 				}
-				nameConflict = ''
+				nameConflictFor = undefined
 			}
 			// The debounced path check is advisory -- it can still be in flight when Finish is
 			// pressed -- and the writes that follow replace a secret and a resource in place. Ask
@@ -636,7 +640,10 @@
 		} catch (err: any) {
 			// Everything inside the run reports through the checklist; this runs before there is
 			// one, so it has to speak for itself rather than fail silently.
-			nameConflict = `Could not check the name: ${err?.body ?? err?.message ?? String(err)}`
+			nameConflictFor = {
+				name,
+				message: `Could not check the name: ${err?.body ?? err?.message ?? String(err)}`
+			}
 			backToReview()
 			return
 		}
