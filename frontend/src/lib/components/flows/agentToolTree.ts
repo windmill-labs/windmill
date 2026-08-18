@@ -1,5 +1,10 @@
 import type { FlowModule } from '$lib/gen'
-import { isFlowModuleTool, type AgentTool, type FlowModuleTool } from './agentToolUtils'
+import {
+	getToolNameError,
+	isFlowModuleTool,
+	type AgentTool,
+	type FlowModuleTool
+} from './agentToolUtils'
 
 type FlowNodeLike = Pick<FlowModule, 'id' | 'value'>
 
@@ -189,4 +194,45 @@ export function collectProviderlessAgentIds(modules: unknown): string[] {
 	}
 	visit(modules)
 	return ids
+}
+
+export type InvalidAgentToolName = {
+	agentId: string
+	toolId: string
+	name: string
+	error: string
+}
+
+/** Agent tools whose name (their `summary`) the worker rejects — the flow saves fine but every run
+ * of the agent step fails, so writers must catch this before the flow is stored. */
+export function collectInvalidAgentToolNames(modules: unknown): InvalidAgentToolName[] {
+	const invalid: InvalidAgentToolName[] = []
+	const visit = (mods: unknown) => {
+		if (!Array.isArray(mods)) return
+		for (const mod of mods) {
+			const v = (mod as FlowModule | undefined)?.value as Record<string, any> | undefined
+			if (!v) continue
+			if (v.type === 'aiagent') {
+				const tools: AgentTool[] = Array.isArray(v.tools) ? v.tools : []
+				const siblingNames = tools.map((tool) => tool.summary ?? '')
+				for (const tool of tools) {
+					const name = tool.summary ?? ''
+					const error = getToolNameError(name, tool.value?.tool_type, siblingNames)
+					if (error) {
+						invalid.push({ agentId: (mod as FlowModule).id, toolId: tool.id, name, error })
+					}
+				}
+				visit(tools)
+			} else if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
+				visit(v.modules)
+			} else if (v.type === 'branchone') {
+				visit(v.default)
+				for (const b of v.branches ?? []) visit(b.modules)
+			} else if (v.type === 'branchall') {
+				for (const b of v.branches ?? []) visit(b.modules)
+			}
+		}
+	}
+	visit(modules)
+	return invalid
 }

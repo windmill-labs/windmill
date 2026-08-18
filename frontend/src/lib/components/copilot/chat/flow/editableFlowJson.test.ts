@@ -100,3 +100,49 @@ describe('flow settings in the compact editable view', () => {
 		).toThrow(/chat_input_enabled/)
 	})
 })
+
+describe('AI agent tool names', () => {
+	function makeAgentFlow(toolSummary: string) {
+		return {
+			modules: [
+				{
+					id: 'support_agent',
+					value: {
+						type: 'aiagent',
+						input_transforms: {
+							provider: {
+								type: 'static',
+								value: { kind: 'openai', resource: '$res:f/ai/openai', model: 'gpt-4o' }
+							},
+							output_type: { type: 'static', value: 'text' },
+							user_message: { type: 'static', value: 'hi' }
+						},
+						tools: [
+							{
+								id: 'search_docs',
+								summary: toolSummary,
+								value: {
+									tool_type: 'flowmodule',
+									type: 'rawscript',
+									language: 'bun',
+									content: 'export async function main() { return 1 }',
+									input_transforms: {}
+								}
+							}
+						]
+					}
+				}
+			]
+		}
+	}
+
+	it('rejects a tool name the worker would refuse at run time', () => {
+		expect(() => validateEditableFlowJson(makeAgentFlow('Search documentation'))).toThrow(
+			/Invalid AI agent tool name\(s\).*letters, numbers and underscores/s
+		)
+	})
+
+	it('accepts an underscored tool name', () => {
+		expect(() => validateEditableFlowJson(makeAgentFlow('search_documentation'))).not.toThrow()
+	})
+})

@@ -63,11 +63,69 @@ value:
 - Use underscores, not spaces (e.g., `fetch_data` not `fetch data`)
 - Use descriptive names that reflect the step's purpose
 
+## AI Agent Modules
+
+An `aiagent` module runs an LLM that can call tools. Each entry of `value.tools` is a module-shaped
+object with an extra `value.tool_type`: `flowmodule` for a script/flow tool, `mcp` for an MCP server
+tool, `websearch` for web search.
+
+```json
+{
+  "id": "support_agent",
+  "summary": "AI agent for customer support",
+  "value": {
+    "type": "aiagent",
+    "input_transforms": {
+      "provider": {
+        "type": "static",
+        "value": { "kind": "openai", "resource": "$res:f/ai_providers/openai", "model": "gpt-4o" }
+      },
+      "output_type": { "type": "static", "value": "text" },
+      "user_message": { "type": "javascript", "expr": "flow_input.query" },
+      "system_prompt": { "type": "static", "value": "You are a helpful assistant." }
+    },
+    "tools": [
+      {
+        "id": "search_docs",
+        "summary": "search_documentation",
+        "description": "Search the product documentation. Use it whenever the user asks how a feature works.",
+        "value": {
+          "tool_type": "flowmodule",
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export async function main(query: string) { return ['doc1', 'doc2']; }",
+          "input_transforms": { "query": { "type": "static", "value": "" } }
+        }
+      }
+    ]
+  }
+}
+```
+
+- `provider` is a static object, not a bare resource string: `{ "kind": <provider kind>,
+  "resource": "$res:<path>", "model": <model id> }`. Required unless the module links to a saved
+  agent through `value.agent`
+
+### Tool Naming Rules
+
+- A tool's `summary` is the **name the agent calls it by**, not a human label
+- `summary` must match `^[a-zA-Z0-9_]+$`: letters, numbers and underscores only. No spaces, dashes,
+  dots or accents — `search_documentation`, never `Search documentation`
+- `summary` is required on every tool, must be unique among that agent's tools, and must not be a
+  reserved module ID (`failure`, `preprocessor`, `Input`)
+- A tool name outside that character set is rejected: flow write tools refuse it, and a flow that
+  reaches the worker with one fails every run with `Invalid tool name`
+- Tool `id` follows the same rules as any module ID — unique across the flow, underscores not spaces
+- `description` is optional free text telling the agent when and how to call the tool. Set it
+  whenever the name alone does not make that obvious; it overrides the description derived from the
+  underlying script
+
 ## Common Mistakes to Avoid
 
 - Missing `input_transforms` - Rawscript parameters won't receive values without them
 - Referencing future steps - `results.step_id` only works for steps that execute before the current one
 - Duplicate module IDs - Each module ID must be unique in the flow
+- AI agent tool names with spaces - `summary` is the tool name and only accepts letters, numbers and underscores
 
 ## Data Flow Between Steps
 
@@ -286,6 +344,7 @@ Before finalizing a flow, verify:
 - any failure handler is in `value.failure_module`
 - any approval step has module-level `suspend`
 - no downstream step references inner branch step ids from outside the branch
+- every AI agent tool has a unique `summary` made only of letters, numbers and underscores
 
 ## S3 Object Operations
 

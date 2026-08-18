@@ -1,6 +1,36 @@
 import type { AiAgent, FlowModule, FlowModuleValue, InputTransform } from '$lib/gen'
 import { loadStoredConfig } from '../aiProviderStorage'
 import { AI_AGENT_SCHEMA } from './flowInfers'
+import { forbiddenIds } from './idUtils'
+
+/**
+ * A tool's `summary` is the name the LLM sees, and the worker rejects any name that does not match
+ * `^[a-zA-Z0-9_]+$` (`ai_executor.rs`), so an unvalidated name fails on every run of the flow.
+ */
+export function getToolNameError(
+	name: string,
+	type?: string,
+	siblingNames?: string[]
+): string | undefined {
+	if (type === 'websearch') return undefined
+	if (type === 'mcp') {
+		return name.length > 0 ? undefined : 'Tool name must not be empty'
+	}
+	if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+		return 'Tool name must only contain letters, numbers and underscores'
+	}
+	if (forbiddenIds.includes(name)) {
+		return `'${name}' is a reserved name`
+	}
+	if (siblingNames && siblingNames.filter((n) => n === name).length > 1) {
+		return 'Duplicate tool name'
+	}
+	return undefined
+}
+
+export function validateToolName(name: string, type?: string) {
+	return getToolNameError(name, type) === undefined
+}
 
 export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as const
 export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
