@@ -10,6 +10,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptEditorDrawer from '$lib/components/flows/content/ScriptEditorDrawer.svelte'
@@ -19,7 +20,6 @@
 		AiEvalsService,
 		JobService,
 		ScriptService,
-		type CellScore,
 		type EvalCase,
 		type EvalDataset,
 		type EvalExperiment,
@@ -44,56 +44,36 @@
 		Bot,
 		Code2,
 		ChevronDown,
-		Pencil,
-		RefreshCw
+		Pencil
 	} from 'lucide-svelte'
 	import EvalCaseEditor from './EvalCaseEditor.svelte'
 	import EvalRunResult from './EvalRunResult.svelte'
 	import AddScorer from './AddScorer.svelte'
-	import {
-		caseLabel,
-		caseRunPath,
-		emptyCase,
-		fromStoredCase,
-		type CaseDraft
-	} from './evalCaseUtils'
+	import { caseLabel, emptyCase, fromStoredCase, type CaseDraft } from './evalCaseUtils'
 	import {
 		formatDelta,
 		formatScore,
 		kindLabel,
+		passedBy,
 		scorerHref,
 		scorerLabel,
 		type ScorerKind
 	} from './evalScorers'
-	import type { Item } from '$lib/utils'
-	import type { AgentDraft, ScoreCaseResultResponse } from '$lib/gen'
+	import { summaryToName, type Item } from '$lib/utils'
+	import type { ScoreCaseResultResponse } from '$lib/gen'
 
 	let {
-		agentPath = undefined,
-		draft = undefined,
-		subjectLabel = undefined,
-		flowPath = undefined,
-		originAgentPath = undefined,
+		agentPath,
 		opWorkspace = undefined,
 		capture = undefined
 	}: {
-		/** The saved agent under test. */
-		agentPath?: string
-		/** The step as authored, when it has not been saved as an agent yet. */
-		draft?: AgentDraft
-		/** What a draft run is filed under, so it can be found again. */
-		subjectLabel?: string
-		/** The flow the step belongs to, which names the dataset when the step has no agent yet. */
-		flowPath?: string
-		/** The saved agent this step was forked from for editing, when it was. What runs is still
-		 * the step, but it is an edit of that agent's current version rather than an anonymous
-		 * draft, and the runs say so. */
-		originAgentPath?: string
+		/** The agent under test. A dataset and its runs belong to an agent, so an agent that has
+		 * never been saved has nothing to hang them on. */
+		agentPath: string
 		/** The workspace the opening editor operates on, which differs from the nav workspace in
 		 * fork and session editors. Every read and write targets it. */
 		opWorkspace?: string
-		/** A case captured from a run, a conversation or a step test, opened for review before
-		 * saving. */
+		/** A case captured from an AI agent run, opened for review before saving. */
 		capture?: CaseDraft
 	} = $props()
 
@@ -102,19 +82,20 @@
 	// the run executes what is being edited rather than what is deployed, and its history stays
 	// separate from the deployed agent's.
 	let runDraft = $state(false)
-	let subject = $derived(
-		draft
-			? {
-					kind: 'draft' as const,
-					path: subjectLabel || agentPath || 'draft',
-					draft,
-					origin_path: originAgentPath
-				}
-			: {
-					kind: (runDraft ? 'agent_draft' : 'agent') as 'agent' | 'agent_draft',
-					path: agentPath ?? ''
-				}
-	)
+	let subject = $derived({
+		kind: (runDraft ? 'agent_draft' : 'agent') as 'agent' | 'agent_draft',
+		path: agentPath
+	})
+	// An agent with edits waiting is tested on the edits. Running what they replace would answer a
+	// question nobody asked, and the deployed value's numbers are already in the history from before
+	// the editing started. Held as state rather than derived so the reload below has one thing to
+	// watch.
+	$effect(() => {
+		const drafted = undeployedChanges
+		untrack(() => {
+			if (runDraft !== drafted) runDraft = drafted
+		})
+	})
 	// Switching what is under test changes which experiments exist: reload rather than leave the
 	// other subject's numbers on screen.
 	$effect(() => {
@@ -135,7 +116,6 @@
 	// from a row would save a stale input and drop the fields a row does not carry.
 	let storedCases = $state<Record<string, EvalCase>>({})
 	let means = $state<ScorerMean[]>([])
-	let regressed = $state(0)
 	/** The version the agent is on now, against which a row's own version is stale or current. */
 	let currentVersion = $state<number | undefined>(undefined)
 	/** What the agent's draft hashes to now, against which a draft run's own hash is stale. */
@@ -147,7 +127,13 @@
 	let undeployedChanges = $state(false)
 	let loading = $state(false)
 	let running = $state(false)
+	let scoringAgain = $state(false)
 	let scorers = $derived(dataset?.scorers ?? [])
+	// Which columns have scoring in flight. Rescoring a deterministic scorer lands on the same
+	// numbers, so without this the only sign it ran is a toast that has already gone.
+	let scoringColumns = $derived(
+		new Set(rows.flatMap((row) => row.scores.filter((s) => s.pending).map((s) => s.scorer_id)))
+	)
 
 	let selectedCaseId = $state<string | undefined>(undefined)
 	let caseDraft = $state<CaseDraft | undefined>(undefined)
@@ -163,53 +149,72 @@
 	// asking which you meant is a form with half of it greyed out.
 	let scorerKind = $state<ScorerKind>('agent')
 	let removingScorer = $state<Scorer | undefined>(undefined)
+	let removingCase = $state<ExperimentRow | undefined>(undefined)
+	let thresholdScorer = $state<Scorer | undefined>(undefined)
+	let thresholdValue = $state('')
 
 	let newDatasetPath = $state('')
-	// A dataset is named under what it tests, so it sits next to it and a second one is the next
-	// number rather than a naming decision made before you know what the thing is. A step with no
-	// agent of its own is named under its flow.
-	let datasetPathBase = $derived(agentPath || flowPath || '')
-	$effect(() => {
-		const base = datasetPathBase
-		const taken = new Set(datasets.map((d) => d.path))
-		untrack(() => {
-			if (newDatasetPath || !base) return
-			let index = 1
-			while (taken.has(`${base}/dataset${index}`)) index++
-			newDatasetPath = `${base}/dataset${index}`
-		})
-	})
+	let newDatasetSummary = $state('')
+	let newDatasetPathError = $state('')
+	// Set once the path is typed in, after which the summary stops driving it.
+	let newDatasetPathDirty = $state(false)
+	let newDatasetPathInput: Path | undefined = $state(undefined)
+	// A dataset is named after the agent it tests, so it sorts next to it and a second one is the
+	// next number rather than a naming decision made before there is anything in it. One segment
+	// rather than a folder under the agent: a path is `<kind>/<owner>/<name>`, and the picker that
+	// edits it cannot express a deeper one.
+	let datasetPathBase = $derived(agentPath)
 	let creatingDataset = $state(false)
-	let renaming = $state(false)
-	let renamePath = $state('')
-	let renameError = $state('')
+	// Naming a dataset is the same form whether it has a name yet or not, so it is the same drawer:
+	// inline, it either pushed the table down or replaced it, and neither reads as a small edit.
+	let datasetDrawer: Drawer | undefined = $state()
+	let datasetMode = $state<'new' | 'edit'>('new')
+	let savingDataset = $state(false)
+
+	/** The next free `<agent>_datasetN`, which is what a dataset is called until it is named. */
+	function nextDatasetPath(): string {
+		const taken = new Set(datasets.map((d) => d.path))
+		let index = 1
+		while (taken.has(`${datasetPathBase}_dataset${index}`)) index++
+		return `${datasetPathBase}_dataset${index}`
+	}
+
+	function openDatasetDrawer(mode: 'new' | 'edit') {
+		datasetMode = mode
+		newDatasetPathError = ''
+		if (mode === 'edit') {
+			newDatasetPath = selectedDataset ?? ''
+			newDatasetSummary = dataset?.summary ?? ''
+			// A dataset that has a path keeps it: the summary names one that does not have one yet.
+			newDatasetPathDirty = true
+		} else {
+			// Seeded rather than left empty: an empty path makes the picker invent a random name, and
+			// a dataset named after the agent it tests sorts with the agent's own.
+			newDatasetPath = nextDatasetPath()
+			newDatasetSummary = ''
+			newDatasetPathDirty = false
+		}
+		datasetDrawer?.openDrawer()
+	}
 
 	let experiment = $derived(experiments.find((e) => e.id === experimentId))
-	let baseline = $derived(experiments.find((e) => e.id === baselineId))
 
-	// One agent, one history: the runs of what is deployed and the runs of configurations of it
-	// that were not — including the ones a step brought with it when it was saved as this agent.
-	// Both say which they were; keeping them in separate tables would only hide the comparison.
-	let alsoKind: 'agent' | 'agent_draft' | undefined = $derived(
-		subject.kind === 'agent' ? 'agent_draft' : subject.kind === 'agent_draft' ? 'agent' : undefined
-	)
-
+	// One agent, one history: runs of what is deployed and runs of the edits waiting on top of it
+	// are both this agent's, and each says which it was. Keeping them in separate lists would only
+	// hide the comparison that is the point of running the draft at all.
 	async function listSubjectExperiments(): Promise<EvalExperiment[]> {
 		if (!ws || !selectedDataset) return []
 		return await AiEvalsService.listExperiments({
 			workspace: ws,
 			path: selectedDataset,
-			subjectPath: subject.path,
-			subjectKind: subject.kind,
-			alsoSubjectPath: alsoKind ? subject.path : undefined,
-			alsoSubjectKind: alsoKind
+			subjectPath: agentPath
 		})
 	}
 
 	// Which dataset this subject was last worked in. Opening on someone else's dataset would read
 	// as this agent's history when it is not, but opening on the one you were in yesterday is
 	// exactly where you left off.
-	let lastDatasetKey = $derived(`evals:dataset:${ws}:${subject.kind}:${subject.path}`)
+	let lastDatasetKey = $derived(`evals:dataset:${ws}:${agentPath}`)
 	// Only ever written, never cleared: the pane mounts with nothing selected, and clearing on that
 	// would erase the memory a moment before the load that reads it.
 	function rememberDataset(path: string | undefined) {
@@ -263,10 +268,8 @@
 			dataset = row
 			experiments = list
 			storedCases = Object.fromEntries(cases.cases.map((c) => [c.id, c]))
-			// The writable experiment is what you are working in, so it is what opens. A former
-			// draft's runs are all closed, so this never lands on one of them.
-			// The newest run of this subject is what opens; a former draft's runs sort below it.
-			experimentId = (list.find((e) => e.subject.kind === subject.kind) ?? list[0])?.id
+			// The newest run of this agent is what opens, whichever of its configurations ran it.
+			experimentId = list[0]?.id
 			baselineId = list[1]?.id
 			await loadResults()
 		} catch (e) {
@@ -294,7 +297,6 @@
 		if (!ws || !selectedDataset || !experimentId) {
 			rows = []
 			means = []
-			regressed = 0
 			return
 		}
 		const generation = loadGeneration
@@ -307,7 +309,6 @@
 		if (generation !== loadGeneration) return
 		rows = results.rows
 		means = results.means
-		regressed = results.regressed
 		currentVersion = results.subject_current_version
 		currentDraftHash = results.subject_current_draft_hash
 		deployedHash = results.subject_deployed_hash
@@ -333,122 +334,80 @@
 					expected: stored.expected,
 					job_id: '',
 					status: 'not_run' as ExperimentRow['status'],
-					scores: [],
-					carried: false
+					scores: []
 				}
 		)
 		return [...ordered, ...rows.filter((row) => !storedCases[row.case_id])]
 	})
 
 	/**
-	 * Case runs that have not been saved as a run. Running one case is a job and nothing more —
-	 * looking at what it did is not a claim that it belongs in the dataset's history — so the
-	 * result sits here, over the row it belongs to, until it is saved or the pane is left.
+	 * A trial run: one case, run now, to see what the agent does with it. It is a job and nothing
+	 * more — looking at what it did is not a claim that it belongs in this dataset's history — so it
+	 * never touches the table. It is scored where it stands and shown in the case panel, beside the
+	 * recorded result it leaves alone.
 	 */
-	type UnsavedRun = {
+	type TrialRun = {
+		case_id: string
 		job_id: string
 		status: string
-		output?: string
 		/** The scoring job, once the run has finished and the scorers have been sent after it. */
 		score_job_id?: string
 		scores?: ScoreCaseResultResponse
 	}
-	let unsaved = $state<Record<string, UnsavedRun>>({})
-	let unsavedCount = $derived(Object.keys(unsaved).length)
-	let savingRun = $state(false)
+	let trial = $state<TrialRun | undefined>(undefined)
 
-	async function refreshUnsaved() {
-		if (!ws) return
-		const entries = Object.entries($state.snapshot(unsaved))
-		for (const [caseId, cell] of entries) {
-			if (cell.status !== 'running') continue
-			try {
-				const job = (await JobService.getJob({
-					workspace: ws,
-					id: cell.job_id,
-					noLogs: true
-				})) as Job & { result?: any; success?: boolean }
-				if (job.type === 'CompletedJob') {
-					unsaved[caseId] = {
-						...cell,
-						status: job.success ? 'success' : 'failure',
-						output: agentAnswer(job.result)
-					}
-				}
-			} catch {
-				// A job that has not been created yet, or was retained away: the cell says running
-				// until it says otherwise.
-			}
-		}
-	}
-
-	/**
-	 * A finished run is scored where it stands, so its numbers are there before the decision to
-	 * keep it: the scoring job is carried into the run when it is saved, so what was looked at is
-	 * what is stored.
-	 */
-	async function scoreUnsaved() {
-		if (!ws || !selectedDataset || scorers.length === 0) return
-		for (const [caseId, cell] of Object.entries($state.snapshot(unsaved))) {
-			if (cell.status !== 'success') continue
-			try {
-				if (!cell.score_job_id) {
-					const scoreJob = await AiEvalsService.scoreCaseRun({
-						workspace: ws,
-						requestBody: { dataset: selectedDataset, case_id: caseId, job_id: cell.job_id }
-					})
-					unsaved[caseId] = { ...unsaved[caseId], score_job_id: scoreJob }
-					continue
-				}
-				if (cell.scores?.every((s) => !s.pending)) continue
-				const scores = await AiEvalsService.scoreCaseResult({
-					workspace: ws,
-					dataset: selectedDataset,
-					jobId: cell.score_job_id
-				})
-				unsaved[caseId] = { ...unsaved[caseId], scores }
-			} catch (e) {
-				sendUserToast(`Failed to score the rerun: ${e}`, true)
-				// Dropped rather than retried every two seconds: the run is still there to save.
-				unsaved[caseId] = { ...unsaved[caseId], scores: [] }
-			}
-		}
-	}
-
-	/** The agent's own result is `{output, messages}`; the answer is its `output`. */
-	function agentAnswer(result: any): string | undefined {
-		const output = result?.output
-		if (output == undefined) return undefined
-		return typeof output === 'string' ? output : JSON.stringify(output)
-	}
-
-	/** Makes a run of what has been rerun: seeded from the one on screen, so it is a whole run. */
-	async function saveUnsavedRun() {
-		if (!ws || !selectedDataset || unsavedCount === 0) return
-		savingRun = true
+	async function refreshTrial() {
+		if (!ws || !trial) return
+		const current = $state.snapshot(trial)
+		if (current.status !== 'running') return
 		try {
-			const id = await AiEvalsService.saveRun({
+			const loaded = (await JobService.getJob({
 				workspace: ws,
-				requestBody: {
-					dataset: selectedDataset,
-					seeded_from: experimentId,
-					runs: Object.values($state.snapshot(unsaved)).map((cell) => ({
-						job_id: cell.job_id,
-						score_job_id: cell.score_job_id
-					}))
-				}
+				id: current.job_id,
+				noLogs: true
+			})) as Job & { result?: any; success?: boolean }
+			if (trial?.job_id !== current.job_id) return
+			if (loaded.type === 'CompletedJob') {
+				trial = { ...current, status: loaded.success ? 'success' : 'failure' }
+			}
+			// While the trial's case is the one open, the panel shows the trial's own job: its answer
+			// and its trajectory are what you asked to see.
+			if (selectedCaseId === current.case_id) job = loaded as Job & { result?: any }
+		} catch {
+			// A job that has not been created yet: the panel says running until it says otherwise.
+		}
+	}
+
+	/** A trial is scored where it stands: a run whose numbers you cannot see is a run you have to
+	 *  eyeball, which is the thing scorers exist to replace. */
+	async function scoreTrial() {
+		if (!ws || !selectedDataset || scorers.length === 0 || !trial) return
+		const current = $state.snapshot(trial)
+		if (current.status !== 'success') return
+		try {
+			if (!current.score_job_id) {
+				const scoreJob = await AiEvalsService.scoreCaseRun({
+					workspace: ws,
+					requestBody: {
+						dataset: selectedDataset,
+						case_id: current.case_id,
+						job_id: current.job_id
+					}
+				})
+				if (trial?.job_id === current.job_id) trial = { ...current, score_job_id: scoreJob }
+				return
+			}
+			if (current.scores?.every((s) => !s.pending)) return
+			const scores = await AiEvalsService.scoreCaseResult({
+				workspace: ws,
+				dataset: selectedDataset,
+				jobId: current.score_job_id
 			})
-			unsaved = {}
-			experiments = await listSubjectExperiments()
-			baselineId = experimentId
-			experimentId = id
-			pendingScore = true
-			await loadResults()
-			await refresh()
+			if (trial?.job_id === current.job_id) trial = { ...current, scores }
 		} catch (e) {
-			sendUserToast(`Failed to save the run: ${e}`, true)
-		} finally {
-			savingRun = false
+			sendUserToast(`Failed to score the trial run: ${e}`, true)
+			// Dropped rather than retried every two seconds: the run itself is still there.
+			if (trial?.job_id === current.job_id) trial = { ...current, scores: [] }
 		}
 	}
 
@@ -463,11 +422,7 @@
 	async function readSubjectState() {
 		if (!ws || !subject.path || document.hidden) return
 		try {
-			const state = await AiEvalsService.evalSubjectState({
-				workspace: ws,
-				kind: subject.kind,
-				path: subject.path
-			})
+			const state = await AiEvalsService.evalSubjectState({ workspace: ws, path: agentPath })
 			currentVersion = state.version
 			currentDraftHash = state.draft_hash
 			undeployedChanges = state.has_undeployed_changes
@@ -477,9 +432,7 @@
 		}
 	}
 	$effect(() => {
-		// Restarted when the subject changes, so switching to the draft watches the draft.
-		subject.kind
-		subject.path
+		agentPath
 		untrack(() => {
 			clearInterval(subjectWatch)
 			readSubjectState()
@@ -505,13 +458,10 @@
 	/** A case still running, a scoring job in flight, or answers waiting to be scored. */
 	let pollNeeded = $derived(
 		pendingScore ||
-			Object.values(unsaved).some(
-				(cell) =>
-					cell.status === 'running' ||
-					(cell.status === 'success' &&
-						scorers.length > 0 &&
-						(!cell.scores || cell.scores.some((s) => s.pending)))
-			) ||
+			trial?.status === 'running' ||
+			(trial?.status === 'success' &&
+				scorers.length > 0 &&
+				(!trial.scores || trial.scores.some((s) => s.pending))) ||
 			rows.some((row) => row.status === 'running' || row.scores.some((score) => score.pending))
 	)
 	let poller: ReturnType<typeof setInterval> | undefined = undefined
@@ -530,6 +480,10 @@
 	/** Runs finish, then their answers are scored. Scoring is a separate call because it is a
 	 *  separate act: it reads stored answers and never calls the agent. */
 	async function refresh() {
+		// The trial first, and before the guard below: a dataset that has never been run has no
+		// experiment to read, and a trial there is exactly what someone is looking at.
+		await refreshTrial()
+		await scoreTrial()
 		if (!ws || !selectedDataset || !experimentId) return
 		const stillRunning = rows.some((row) => row.status === 'running')
 		if (pendingScore && !stillRunning && scorers.length > 0) {
@@ -545,8 +499,6 @@
 		} else if (pendingScore && !stillRunning) {
 			pendingScore = false
 		}
-		await refreshUnsaved()
-		await scoreUnsaved()
 		await loadResults()
 	}
 
@@ -562,7 +514,6 @@
 			// The experiment just closed is the obvious thing to compare against.
 			baselineId = experiments.find((e) => e.id !== id)?.id
 			experimentId = id
-			unsaved = {}
 			pendingScore = true
 			await loadResults()
 			await refresh()
@@ -570,6 +521,37 @@
 			sendUserToast(`Failed to run the dataset: ${e}`, true)
 		} finally {
 			running = false
+		}
+	}
+
+	/** Runs one case now, as a trial. Nothing is recorded: the table goes on showing what the
+	 *  selected run recorded, and Run all is what produces numbers to compare. */
+	/**
+	 * Measure the selected run's answers again, with the scorers as they are now.
+	 *
+	 * A run is permanent, so this makes a run of its own rather than replacing the numbers on the one
+	 * being looked at. It calls the agent for nothing: the answers are the expensive artifact and they
+	 * are already stored, which is the whole reason scoring is a separate act from running.
+	 */
+	async function scoreAgain() {
+		if (!ws || !selectedDataset || !experimentId) return
+		scoringAgain = true
+		try {
+			const id = await AiEvalsService.scoreAgain({
+				workspace: ws,
+				requestBody: { dataset: selectedDataset, experiment_id: experimentId }
+			})
+			experiments = await listSubjectExperiments()
+			baselineId = experimentId
+			experimentId = id
+			// The cells are copied already finished, so the scorers are sent after them on the next tick.
+			pendingScore = true
+			await loadResults()
+			await refresh()
+		} catch (e) {
+			sendUserToast(`Failed to score the run again: ${e}`, true)
+		} finally {
+			scoringAgain = false
 		}
 	}
 
@@ -581,7 +563,8 @@
 				workspace: ws,
 				requestBody: { subject, dataset: selectedDataset, case_id: caseId }
 			})
-			unsaved[caseId] = { job_id: res.job_id, status: 'running' }
+			trial = { case_id: caseId, job_id: res.job_id, status: 'running' }
+			job = undefined
 		} catch (e) {
 			sendUserToast(`Failed to run the case: ${e}`, true)
 		} finally {
@@ -639,62 +622,49 @@
 		}
 	}
 
-	async function score(options: {
-		experiment: string
-		scorerIds?: string[]
-		force?: boolean
-		caseIds?: string[]
-	}) {
-		if (!ws || !selectedDataset) return
+	/** Where the pass line sits is an interpretation of the scores rather than part of producing
+	 *  them, so moving it re-reads the runs already recorded instead of asking for them again. */
+	async function saveThreshold(passIf: number | undefined) {
+		const target = thresholdScorer
+		if (!target) return
 		try {
-			const res = await AiEvalsService.scoreExperiment({
-				workspace: ws,
-				requestBody: {
-					dataset: selectedDataset,
-					experiment_id: options.experiment,
-					scorer_ids: options.scorerIds,
-					case_ids: options.caseIds,
-					force: options.force
-				}
-			})
-			sendUserToast(
-				`Scoring ${res.jobs} run${res.jobs === 1 ? '' : 's'}` +
-					(res.scored ? `, ${res.scored} settled without a job` : '') +
-					(res.unscorable ? `, ${res.unscorable} with no answer to score` : '')
-			)
-			await loadResults()
+			await saveScorers(scorers.map((s) => (s.id === target.id ? { ...s, pass_if: passIf } : s)))
+			thresholdScorer = undefined
 		} catch (e) {
-			sendUserToast(`Scoring failed: ${e}`, true)
+			sendUserToast(`Failed to save the threshold: ${e}`, true)
 		}
 	}
 
 	/** Renaming moves the dataset: its cases and experiments follow it through the foreign keys. */
-	async function renameDataset() {
-		if (!ws || !selectedDataset || !dataset || !renamePath || renameError) return
+	async function saveDataset() {
+		if (!ws || !selectedDataset || !dataset || !newDatasetPath || newDatasetPathError) return
+		savingDataset = true
 		try {
 			await AiEvalsService.updateEvalDataset({
 				workspace: ws,
 				path: selectedDataset,
 				requestBody: {
-					path: renamePath,
-					summary: dataset.summary,
+					path: newDatasetPath,
+					summary: newDatasetSummary || undefined,
 					description: dataset.description,
 					default_subject: dataset.default_subject,
 					scorers: dataset.scorers
 				}
 			})
 			await loadDatasets()
-			renaming = false
-			selectedDataset = renamePath
+			datasetDrawer?.closeDrawer()
+			selectedDataset = newDatasetPath
 		} catch (e) {
-			sendUserToast(`Failed to rename the dataset: ${e}`, true)
+			sendUserToast(`Failed to save the dataset: ${e}`, true)
+		} finally {
+			savingDataset = false
 		}
 	}
 
 	/** Creates the dataset the first case needs. Naming it is a decision worth making after you
 	 *  know what is in it, so it is made for you here and renamed from the toolbar. */
 	async function createDataset(): Promise<string | undefined> {
-		if (!ws || !newDatasetPath) return undefined
+		if (!ws || !newDatasetPath || newDatasetPathError) return undefined
 		creatingDataset = true
 		try {
 			const path = newDatasetPath
@@ -702,12 +672,16 @@
 				workspace: ws,
 				requestBody: {
 					path,
-					default_subject: draft ? undefined : { kind: 'agent', path: agentPath ?? '' }
+					summary: newDatasetSummary || undefined,
+					default_subject: { kind: 'agent', path: agentPath }
 				}
 			})
 			await loadDatasets()
+			datasetDrawer?.closeDrawer()
 			selectedDataset = path
 			newDatasetPath = ''
+			newDatasetSummary = ''
+			newDatasetPathDirty = false
 			return path
 		} catch (e) {
 			sendUserToast(`Failed to create the dataset: ${e}`, true)
@@ -716,6 +690,20 @@
 			creatingDataset = false
 		}
 	}
+
+	/** The summary names the dataset, as it does a script: what it is for is the thing you know
+	 *  first, and a path derived from it beats one you have to invent. Until the path is typed in,
+	 *  after which it is the reader's. */
+	$effect(() => {
+		const summary = newDatasetSummary
+		untrack(() => {
+			if (newDatasetPathDirty || !summary) return
+			// Named after the agent as well as after itself, so it sorts with the agent's own and reads
+			// as belonging to it. The whole path stays editable.
+			const agentName = agentPath.split('/').pop() ?? agentPath
+			newDatasetPathInput?.setName(`${agentName}_${summaryToName(summary)}`)
+		})
+	})
 
 	function openCase(row: ExperimentRow) {
 		selectedCaseId = row.case_id
@@ -740,10 +728,8 @@
 	/** Adding a case adds the row. A case is a row of the dataset, so asking for one writes it and
 	 *  the panel edits it in place; running it is a separate decision. */
 	async function addCase() {
-		if (!ws) return
-		// The first case is what a dataset is for, so asking for one is what creates it.
-		const path = selectedDataset ?? (await createDataset())
-		if (!path) return
+		const path = selectedDataset
+		if (!ws || !path) return
 		try {
 			const id = await AiEvalsService.addEvalCase({
 				workspace: ws,
@@ -830,7 +816,9 @@
 		})
 	})
 	$effect(() => {
-		// Re-reading with a baseline is what turns every column into a comparison.
+		// Picking a run is asking to see it, and picking a baseline is what turns every column into
+		// a comparison. Both are a different table.
+		experimentId
 		baselineId
 		untrack(() => loadResults())
 	})
@@ -844,38 +832,58 @@
 	}
 
 	/**
-	 * What a run is called in the picker. The star means the definition that ran is not a
-	 * deployed version: an edited agent is `v15*`, the version its edits are on top of, and a
-	 * step with no agent of its own has nothing to number, so it is `draft*`.
+	 * What a run is called in the picker: the run it is, what ran it, and how many cases it holds.
+	 * What ran is named rather than marked, because a sigil beside a version is a legend nobody has.
 	 */
 	function experimentTitle(e: EvalExperiment): string {
-		// A draft run whose configuration was then deployed is a run of that version: the star
-		// says "not a deployed version", and once it is one, it no longer applies.
+		// A run that only scored says so, or it reads as the agent having answered again.
+		const parent = e.scored_from ? experiments.find((p) => p.id === e.scored_from) : undefined
+		const scored = e.scored_from
+			? ` · scored from ${parent ? experimentName(parent).toLowerCase() : 'an earlier run'}`
+			: ''
+		return `${experimentName(e)} · ${subjectLabelOf(e)} · ${e.case_count}${scored}`
+	}
+
+	/** A deployed version, or a version with edits sitting on top of it. A draft run whose
+	 *  configuration was later deployed is a run of that version, whatever it was when it ran. */
+	function subjectLabelOf(e: EvalExperiment): string {
 		const deployed =
 			e.subject.kind === 'agent' ||
 			(e.subject.draft_hash != undefined && e.subject.draft_hash === deployedHash)
-		const version = deployed
-			? currentVersionOf(e)
-			: e.subject.version
-				? `v${e.subject.version}*`
-				: 'draft*'
-		return `${experimentName(e)} · ${version} · ${e.case_count}`
-	}
-
-	/** A run of what is deployed is named by the version, which for a draft is the current one. */
-	function currentVersionOf(e: EvalExperiment): string {
-		const version = e.subject.kind === 'agent' ? e.subject.version : currentVersion
-		return version ? `v${version}` : 'deployed'
+		if (deployed) {
+			const version = e.subject.kind === 'agent' ? e.subject.version : currentVersion
+			return version ? `v${version}` : 'deployed'
+		}
+		return e.subject.version ? `v${e.subject.version} + edits` : 'unsaved edits'
 	}
 
 	let experimentItems = $derived(
 		experiments.map((e) => ({ label: experimentTitle(e), value: e.id }))
 	)
-	let datasetItems = $derived(datasets.map((d) => ({ label: d.path, value: d.path })))
+	// This agent's own datasets first. A dataset is named under what it tests, so they cluster
+	// anyway; the rest stay in the list because running one dataset against a second agent is the
+	// comparison the picker exists for, and filtering them out is how nobody finds it.
+	let datasetItems = $derived(
+		[...datasets]
+			.sort((a, b) => {
+				// Named after the agent, or under it: datasets predating the one-segment naming sit in a
+				// folder of the agent's name, and they are as much this agent's as the rest.
+				const own = (d: EvalDataset) =>
+					d.path.startsWith(`${agentPath}_`) || d.path.startsWith(`${agentPath}/`) ? 0 : 1
+				return own(a) - own(b) || a.path.localeCompare(b.path)
+			})
+			.map((d) => ({ label: d.path, value: d.path }))
+	)
 
-	/** The column header is the scorer's control: everything a column can do lives here. */
-	function scorerMenu(scorer: Scorer, mean: ScorerMean | undefined): Item[] {
-		const runs = rows.filter((row) => row.status === 'success').length
+	/**
+	 * The column header is the scorer's control: everything a column can do lives here.
+	 *
+	 * Scoring is not among them. A run is scored when it is run, and a column added later has no
+	 * number on the runs that predate it — an action here that scored other runs read as acting on
+	 * the one on screen, and one that rescored this one made a permanent run editable after all.
+	 * Trying an edited scorer is a case away, in the panel.
+	 */
+	function scorerMenu(scorer: Scorer): Item[] {
 		return [
 			{
 				// Editing a column is editing the runnable it points at, so it opens here rather
@@ -889,19 +897,14 @@
 				hrefTarget: '_blank'
 			},
 			{
-				displayName: `Rescore this experiment · ${runs} run${runs === 1 ? '' : 's'}`,
-				disabled: !experimentId || runs === 0,
-				action: () =>
-					experimentId && score({ experiment: experimentId, scorerIds: [scorer.id!], force: true })
-			},
-			{
-				// The baseline is scored from the answers it stored, so this costs scoring calls and
-				// no agent calls. The count is the price, which is why it is on the item.
-				displayName: `Score ${baseline ? experimentName(baseline) : 'the baseline'} · ${
-					mean?.missing_in_baseline ?? 0
-				} runs`,
-				hide: !baseline || (mean?.missing_in_baseline ?? 0) === 0,
-				action: () => baselineId && score({ experiment: baselineId, scorerIds: [scorer.id!] })
+				displayName:
+					scorer.pass_if == undefined
+						? 'Set a pass threshold'
+						: `Pass threshold · at least ${scorer.pass_if}`,
+				action: () => {
+					thresholdScorer = scorer
+					thresholdValue = scorer.pass_if == undefined ? '' : String(scorer.pass_if)
+				}
 			},
 			{
 				displayName: 'Remove scorer',
@@ -920,11 +923,54 @@
 		not_run: { icon: Minus, class: 'text-tertiary', label: 'Not run in this run' }
 	} as const
 
-	// The case is the widest thing on the row and the scores are the point of it, so the columns
-	// are sized rather than divided equally: an empty gap between a case and its numbers is what
-	// made the table read as a list of unrelated values.
-	let scorerColumnWidth = $derived(scorers.length > 0 ? Math.min(18, 46 / scorers.length) : 0)
-	let caseColumnWidth = $derived(82 - scorerColumnWidth * scorers.length)
+	/**
+	 * The one number a column reports: how many cases pass, when it has a line to pass; how they
+	 * average when it does not. The other is in the header's tooltip.
+	 *
+	 * One line rather than both, because the header is as tall as the number of lines in it and the
+	 * first score landing must not move the table under the reader.
+	 */
+	function columnHeadline(
+		scorer: Scorer,
+		mean: ScorerMean | undefined
+	): { value: string; delta?: string; direction: number } | undefined {
+		if (scorer.pass_if != undefined) {
+			if (mean?.pass_rate == undefined) return undefined
+			const delta =
+				mean.baseline_pass_rate == undefined
+					? undefined
+					: Math.round((mean.pass_rate - mean.baseline_pass_rate) * 100)
+			return {
+				value: `${Math.round(mean.pass_rate * 100)}% pass`,
+				delta: delta == undefined ? undefined : `${delta > 0 ? '+' : ''}${delta}`,
+				direction: delta ?? 0
+			}
+		}
+		if (mean?.mean == undefined) return undefined
+		const delta = mean.baseline_mean == undefined ? undefined : mean.mean - mean.baseline_mean
+		return {
+			value: formatScore(mean.mean),
+			delta: delta == undefined ? undefined : formatDelta(delta),
+			direction: delta ?? 0
+		}
+	}
+
+	/** Everything about a column that does not fit over its numbers. */
+	function columnTitle(scorer: Scorer, mean: ScorerMean | undefined): string {
+		const parts = [scorer.path]
+		if (mean?.mean != undefined) {
+			parts.push(`mean ${formatScore(mean.mean)} of ${mean.scored} scored`)
+		}
+		if (scorer.pass_if != undefined && mean?.pass_rate != undefined) {
+			parts.push(
+				`${Math.round(mean.pass_rate * mean.scored)} of ${mean.scored} at or above ${scorer.pass_if}`
+			)
+		}
+		if (mean?.definition_changed) {
+			parts.push('the scorer itself changed between these two runs')
+		}
+		return parts.join(' · ')
+	}
 
 	function statusOf(status: string) {
 		return STATUS[status as keyof typeof STATUS] ?? STATUS.running
@@ -938,30 +984,31 @@
 	}
 
 	/**
-	 * A row describes an agent that no longer exists: it ran a version the agent has moved off, or
-	 * — for a draft, which moves without its version changing — a configuration since edited.
+	 * The run's label is `v23 + edits`, the agent is still on v23 with edits waiting, and they are
+	 * not the same edits.
+	 *
+	 * That one case, because it is the only one the label cannot express. A run of an older version
+	 * is history and says so (`Run 14 · v23` beside an agent on v24), and a run whose edits were
+	 * deployed is a run of that version — the results endpoint recognises it and restamps it. Only
+	 * two runs both reading `v23 + edits` can silently be two different things.
+	 *
+	 * A property of the run, not of its rows: the subject is resolved once when the run is opened
+	 * and every cell is stamped from it, so it is always all of them or none. Saying it once, above
+	 * the table, is therefore the whole of saying it.
 	 */
-	function isStale(row: ExperimentRow): boolean {
-		if (row.subject_draft_hash != undefined) {
-			// The edits it ran were saved: it is a run of what is deployed, whatever it was called
-			// when it ran.
-			if (row.subject_draft_hash === deployedHash) return false
-			if (currentDraftHash != undefined && row.subject_draft_hash !== currentDraftHash) {
-				return true
-			}
-		}
-		return (
-			row.subject_version != undefined &&
-			currentVersion != undefined &&
-			row.subject_version !== currentVersion
+	let staleRun = $derived(
+		rows.some(
+			(row) =>
+				// It executed a draft, and one that is not what is deployed now.
+				row.subject_draft_hash != undefined &&
+				row.subject_draft_hash !== deployedHash &&
+				// On the version the agent is still on: a version that moved is named by the label.
+				row.subject_version === currentVersion &&
+				// And there is a draft now, holding something else.
+				currentDraftHash != undefined &&
+				row.subject_draft_hash !== currentDraftHash
 		)
-	}
-	let staleRows = $derived(rows.filter(isStale))
-	let staleFrom = $derived(
-		staleRows.length > 0 ? Math.min(...staleRows.map((row) => row.subject_version ?? 0)) : undefined
 	)
-	// Which of the two the alert is about: a draft that was edited, or a version left behind.
-	let staleDraft = $derived(staleRows.some((row) => row.subject_draft_hash != undefined))
 </script>
 
 <div class="flex flex-col h-full min-h-0">
@@ -984,22 +1031,19 @@
 								type="button"
 								class="flex items-center gap-2 px-3 py-2 text-xs text-secondary hover:bg-surface-hover"
 								onclick={() => {
-									renamePath = selectedDataset ?? ''
-									renaming = true
+									openDatasetDrawer('edit')
 									close()
 								}}
 							>
 								<Pencil size={13} />
-								Rename this dataset
+								Edit this dataset
 							</button>
 						{/if}
 						<button
 							type="button"
 							class="flex items-center gap-2 px-3 py-2 text-xs text-secondary hover:bg-surface-hover"
 							onclick={() => {
-								selectedDataset = undefined
-								newDatasetPath = ''
-								renaming = false
+								openDatasetDrawer('new')
 								close()
 							}}
 						>
@@ -1016,11 +1060,6 @@
 			</Label>
 		{/if}
 		<div class="grow"></div>
-		{#if baseline && regressed > 0}
-			<span class="text-2xs text-red-500" title="Cells scoring lower than the baseline">
-				{regressed} regressed
-			</span>
-		{/if}
 		{#if selectedDataset}
 			<!-- Always shown once there is a dataset: a comparison you cannot see the control for is
 			     a comparison nobody knows they can make. -->
@@ -1062,128 +1101,68 @@
 				{/snippet}
 			</DropdownV2>
 		{/if}
+		<!-- Running every case is the button; measuring what a run already answered is beside it,
+		     because they produce the same thing at very different prices. -->
 		<Button
 			size="xs"
 			variant="accent"
 			startIcon={{ icon: Play }}
+			loading={running || scoringAgain}
 			disabled={!selectedDataset || running || displayRows.length === 0 || !subject.path}
 			onclick={runAll}
+			dropdownItems={[
+				{
+					label: 'Run scorers only',
+					tooltip:
+						'Measures the answers this run already stored, with the scorers as they are now. Opens a run of its own and calls the agent for nothing.',
+					disabled: !experimentId || scorers.length === 0 || rows.length === 0,
+					onClick: scoreAgain
+				}
+			]}
 		>
 			Run all
 		</Button>
 	</div>
 
-	{#if unsavedCount > 0}
-		<div class="px-3 py-2 border-b">
-			<Alert type="info" size="xs" title="Unsaved case runs">
-				<div class="flex items-center gap-3 flex-wrap">
-					<span class="text-xs">
-						{unsavedCount}
-						{unsavedCount === 1 ? 'case has' : 'cases have'} been rerun and {unsavedCount === 1
-							? 'is'
-							: 'are'} shown over {experiment ? experimentName(experiment) : 'this run'}. Saving
-						makes a run of them, carrying the cases you did not rerun; leaving loses them.
-					</span>
-					<Button
-						size="xs2"
-						variant="accent"
-						disabled={savingRun || Object.values(unsaved).some((c) => c.status === 'running')}
-						onclick={saveUnsavedRun}
-					>
-						Save as a new run
-					</Button>
-					<Button size="xs2" variant="subtle" disabled={savingRun} onclick={() => (unsaved = {})}>
-						Discard
-					</Button>
-				</div>
-			</Alert>
-		</div>
-	{/if}
-
-	{#if undeployedChanges || runDraft}
-		<div class="px-3 py-2 border-b">
-			<Alert
-				type={undeployedChanges ? 'warning' : 'info'}
-				size="xs"
-				title={runDraft ? "You are running the agent's draft" : 'The agent has undeployed changes'}
-			>
-				<div class="flex items-center gap-3 flex-wrap">
-					<span class="text-xs">
-						{#if runDraft && undeployedChanges}
-							These runs execute the draft as it is now. Their results are kept apart from the
-							deployed agent's, and they carry no version until it is deployed.
-						{:else if runDraft}
-							The draft is gone: it was deployed or discarded. These runs are the history of what it
-							was, and a new one would run the same agent as the deployed one.
-						{:else}
-							A run resolves the agent as it is deployed, so these numbers describe v{currentVersion},
-							not the edits waiting in its draft.
-						{/if}
-					</span>
-					<Button size="xs2" variant="default" onclick={() => (runDraft = !runDraft)}>
-						{runDraft ? 'Run the deployed agent' : 'Run the draft instead'}
-					</Button>
-				</div>
-			</Alert>
-		</div>
-	{/if}
-
-	{#if staleRows.length > 0}
+	{#if staleRun}
+		<!-- No button: Run all is one row up, and a second way to start the same run is a second thing
+		     to explain. -->
 		<div class="px-3 py-2 border-b">
 			<Alert
 				type="warning"
 				size="xs"
-				title="The agent changed since these runs"
+				title={`This run executed an earlier state of the draft on v${currentVersion}`}
 				collapsible={false}
-			>
-				<div class="flex items-center gap-3 flex-wrap">
-					<span class="text-xs">
-						{staleRows.length}
-						{staleRows.length === 1 ? 'row ran' : 'rows ran'}
-						{#if staleDraft}
-							an earlier state of the draft
-						{:else}
-							against v{staleFrom}, and the agent is on v{currentVersion}
-						{/if}. Their scores describe an agent that no longer exists.
-					</span>
-					<Button
-						size="xs2"
-						variant="accent"
-						startIcon={{ icon: Play }}
-						disabled={running || !subject.path}
-						onclick={runAll}
-					>
-						Rerun
-					</Button>
-				</div>
-			</Alert>
+			/>
 		</div>
 	{/if}
 
-	{#if renaming}
+	{#if thresholdScorer}
 		<div class="flex items-end gap-2 px-3 py-2 border-b bg-surface-secondary">
-			<div class="grow">
-				<Path
-					bind:path={renamePath}
-					bind:error={renameError}
-					initialPath={selectedDataset ?? ''}
-					checkInitialPathExistence={false}
-					namePlaceholder="dataset1"
-					kind="resource"
-					workspaceOverride={ws}
-					autofocus={false}
-					size="sm"
-				/>
-			</div>
+			<Label label={`Pass threshold for ${scorerLabel(thresholdScorer)}`} class="w-64">
+				<TextInput bind:value={thresholdValue} size="sm" inputProps={{ placeholder: '0.7' }} />
+			</Label>
+			<span class="text-2xs text-tertiary pb-2">
+				A score at or above this counts as a pass. It reads the scores already recorded, so the
+				column reports a pass rate for every run without any of them being run again.
+			</span>
+			<div class="grow"></div>
 			<Button
 				size="xs"
 				variant="default"
-				disabled={!renamePath || !!renameError || renamePath === selectedDataset}
-				onclick={renameDataset}
+				disabled={!thresholdValue || Number.isNaN(Number(thresholdValue))}
+				onclick={() => saveThreshold(Number(thresholdValue))}
 			>
-				Rename
+				Save
 			</Button>
-			<Button size="xs" variant="subtle" onclick={() => (renaming = false)}>Cancel</Button>
+			{#if thresholdScorer.pass_if != undefined}
+				<Button size="xs" variant="subtle" onclick={() => saveThreshold(undefined)}>
+					Score only
+				</Button>
+			{/if}
+			<Button size="xs" variant="subtle" onclick={() => (thresholdScorer = undefined)}
+				>Cancel</Button
+			>
 		</div>
 	{/if}
 
@@ -1195,32 +1174,52 @@
 						<div class="p-3 flex flex-col gap-1">
 							<Skeleton layout={[[2], 0.5, [2], 0.5, [2]]} />
 						</div>
+					{:else if !selectedDataset}
+						<div class="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
+							<span class="text-sm text-emphasis">No dataset yet</span>
+							<span class="text-xs text-secondary max-w-md">
+								A dataset is the set of cases this agent is measured on. Runs are of a dataset, so
+								it is the first thing to make.
+							</span>
+							<Button
+								size="xs"
+								variant="accent"
+								startIcon={{ icon: Plus }}
+								onclick={() => openDatasetDrawer('new')}
+							>
+								New dataset
+							</Button>
+						</div>
 					{:else}
 						<DataTable size="sm" tableFixed>
+							<!-- A score column is as wide as a score and its column name need; the question and the
+							     answer share what is left. Sized rather than divided equally, because the text will
+							     take any width it is given and leave the numbers squeezed against each other. -->
 							<colgroup>
-								<col style={`width: ${caseColumnWidth}%`} />
-								<col style="width: 9%" />
+								<col style="width: 22%" />
+								<col style="width: 28%" />
 								{#each scorers as scorer (scorer.id)}
-									<col style={`width: ${scorerColumnWidth}%`} />
+									<col style="width: 9rem" />
 								{/each}
-								<col style="width: 9%" />
+								<col style="width: 4.5rem" />
 							</colgroup>
 							<Head>
 								<tr>
 									<Cell head first>Case</Cell>
-									<Cell head>Status</Cell>
+									<Cell head>Answer</Cell>
 									{#each scorers as scorer (scorer.id)}
 										{@const mean = means.find((m) => m.scorer_id === scorer.id)}
+										{@const headline = columnHeadline(scorer, mean)}
 										<Cell head numeric>
-											<!-- The trigger lays itself out, so it is wrapped rather than trusted to
-											     inherit the cell's alignment: a header that does not sit over its own
-											     numbers is why a column reads as unrelated values. -->
-											<div class="flex flex-col items-end gap-0.5">
-												<DropdownV2 items={() => scorerMenu(scorer, mean)} placement="bottom-end">
+											<!-- Two rows, always: the name, and the number under the name it is a number of.
+											     The second row keeps its height while there is nothing in it, so the table
+											     does not move when the first score lands. -->
+											<div class="flex flex-col items-end min-w-0">
+												<DropdownV2 items={() => scorerMenu(scorer)} placement="bottom-end">
 													{#snippet buttonReplacement()}
 														<span
-															class="inline-flex items-center gap-1 cursor-pointer max-w-full"
-															title={scorer.path}
+															class="flex items-center gap-1 min-w-0 cursor-pointer"
+															title={columnTitle(scorer, mean)}
 														>
 															{#if scorer.kind === 'agent'}
 																<Bot size={13} class="text-tertiary shrink-0" />
@@ -1228,38 +1227,28 @@
 																<Code2 size={13} class="text-tertiary shrink-0" />
 															{/if}
 															<span class="truncate">{scorerLabel(scorer)}</span>
-															{#if mean?.definition_changed}
-																<span
-																	class="text-yellow-500 shrink-0"
-																	title="This scorer changed between the two experiments, so the delta is a change of scorer as much as of agent"
-																>
-																	●
-																</span>
+															{#if scoringColumns.has(scorer.id ?? '')}
+																<Loader2 size={12} class="animate-spin text-blue-500 shrink-0" />
+															{:else}
+																<ChevronDown size={12} class="text-tertiary shrink-0" />
 															{/if}
-															<ChevronDown size={12} class="text-tertiary shrink-0" />
 														</span>
 													{/snippet}
 												</DropdownV2>
-												{#if mean?.mean != undefined}
-													<!-- The column's mean sits under the name it is a mean of: a number
-													     away from its column is a number whose meaning has to be guessed. -->
-													<span
-														class={`inline-flex items-baseline gap-1.5 ${staleRows.length > 0 ? 'opacity-40' : ''}`}
-														title={`Mean of ${mean.scored} scored case${mean.scored === 1 ? '' : 's'}`}
-													>
+												<span class="h-4 flex items-baseline gap-1.5 font-normal">
+													{#if headline}
 														<span class="tabular-nums text-emphasis font-semibold">
-															{formatScore(mean.mean)}
+															{headline.value}
 														</span>
-														{#if mean.baseline_mean != undefined}
-															{@const delta = mean.mean - mean.baseline_mean}
+														{#if headline.delta && headline.direction !== 0}
 															<span
-																class={`text-2xs tabular-nums font-normal ${delta > 0 ? 'text-green-500' : delta < 0 ? 'text-red-500' : 'text-tertiary'}`}
+																class={`text-2xs tabular-nums ${headline.direction > 0 ? 'text-green-500' : headline.direction < 0 ? 'text-red-500' : 'text-tertiary'}`}
 															>
-																{formatDelta(delta)}
+																{headline.delta}
 															</span>
 														{/if}
-													</span>
-												{/if}
+													{/if}
+												</span>
 											</div>
 										</Cell>
 									{/each}
@@ -1268,57 +1257,43 @@
 							</Head>
 							<tbody class="divide-y">
 								{#each displayRows as row (row.case_id)}
-									{@const pending = unsaved[row.case_id]}
-									{@const status = statusOf(pending?.status ?? row.status)}
-									{@const stale = !pending && isStale(row)}
+									{@const status = statusOf(row.status)}
 									<Row selected={row.case_id === selectedCaseId} on:click={() => openCase(row)}>
 										<Cell first>
-											<div class="flex flex-col min-w-0">
-												<span class="truncate text-emphasis">{caseLabel(row)}</span>
-												<span
-													class={`truncate text-2xs ${pending ? 'text-blue-500' : 'text-secondary'}`}
-												>
-													{pending?.output ?? row.output ?? row.input?.user_message ?? ''}
-												</span>
-											</div>
+											<span class="truncate block text-emphasis">{caseLabel(row)}</span>
 										</Cell>
 										<Cell>
-											<!-- The icon is the status and nothing else: the version belongs to the run,
-											     which the picker names, and a second number here was read as the case's.
-											     The spin is on the icon, not on the cell around it. -->
+											<!-- The answer, with what became of the job that produced it in front of it.
+											     One column rather than two: a status beside an empty cell says the same
+											     thing twice, and a status beside an answer says nothing the answer does
+											     not. The spin is on the icon, not on the cell around it. -->
 											<span
-												class="inline-flex items-center"
-												title={stale
-													? `${status.label} · ran an earlier state of this agent`
-													: row.subject_version
-														? `${status.label} · v${row.subject_version}`
-														: status.label}
+												class="flex items-center gap-1.5 min-w-0"
+												title={row.subject_version
+													? `${status.label} · v${row.subject_version}`
+													: status.label}
 											>
-												<status.icon size={14} class={status.class} />
+												<status.icon size={14} class={`shrink-0 ${status.class}`} />
+												{#if row.output != undefined}
+													<span class="truncate text-secondary">{row.output}</span>
+												{:else if status === STATUS.not_run}
+													<span class="text-2xs text-tertiary">not run</span>
+												{:else}
+													<span class="text-2xs text-tertiary">{status.label.toLowerCase()}</span>
+												{/if}
 											</span>
 										</Cell>
 										{#each scorers as scorer (scorer.id)}
-											{@const cell = pending
-												? pending.scores?.find((s) => s.scorer_id === scorer.id)
-												: row.scores.find((s) => s.scorer_id === scorer.id)}
+											{@const cell = row.scores.find((s) => s.scorer_id === scorer.id)}
 											<Cell numeric>
-												{#if pending && (pending.status === 'running' || !cell || cell.pending)}
-													<!-- A rerun is scored where it stands, so the wait here is the scorers
-													     running, not a number withheld until it is saved. -->
-													<span
-														class="inline-flex justify-end"
-														title={pending.status === 'running' ? 'Running' : 'Scoring'}
-													>
-														<Loader2 size={13} class="animate-spin text-blue-500" />
-													</span>
-												{:else if cell?.pending}
+												{#if cell?.pending}
 													<span class="inline-flex justify-end" title="Scoring">
 														<Loader2 size={13} class="animate-spin text-blue-500" />
 													</span>
 												{:else if cell?.score != undefined}
-													<!-- The number is the verdict; why it was given is the part worth
-													     reading, so it is one hover away rather than in a browser
-													     tooltip that arrives after a second and wraps at 80 columns. -->
+													<!-- The number is the verdict; why it was given is the part worth reading, so
+													     it is one hover away rather than in a browser tooltip that arrives after a
+													     second and wraps at 80 columns. -->
 													<Popover placement="left">
 														{#snippet text()}
 															<div class="flex flex-col gap-2 max-w-80 text-left">
@@ -1336,43 +1311,24 @@
 																		{/if}
 																	</span>
 																{/each}
-																<!-- The judge is not deterministic and a scorer gets edited:
-																     rescoring one cell costs one scoring call and no agent
-																     call, so it belongs where the number is. -->
-																<Button
-																	size="xs2"
-																	variant="subtle"
-																	startIcon={{ icon: RefreshCw }}
-																	disabled={!experimentId}
-																	on:click={(e) => {
-																		e.stopPropagation()
-																		experimentId &&
-																			score({
-																				experiment: experimentId,
-																				scorerIds: [scorer.id!],
-																				caseIds: [row.case_id],
-																				force: true
-																			})
-																	}}
-																>
-																	Score again
-																</Button>
 															</div>
 														{/snippet}
-														<span
-															class={`inline-flex items-baseline gap-1.5 justify-end ${stale ? 'opacity-40' : ''}`}
-														>
-															<span
-																class={`tabular-nums font-medium ${pending ? 'text-blue-500' : 'text-emphasis'}`}
-															>
-																{formatScore(cell.score)}{#if pending}<span
-																		title="Scored just now, and not saved yet">*</span
-																	>{/if}
-															</span>
-															{#if !pending && (cell as CellScore).baseline != undefined}
-																{@const delta = cell.score - (cell as CellScore).baseline!}
+														<span class="inline-flex items-baseline gap-1.5 justify-end">
+															{#if cell.passed != undefined}
 																<span
-																	class={`text-2xs tabular-nums ${delta > 0 ? 'text-green-500' : delta < 0 ? 'text-red-500' : 'text-tertiary'}`}
+																	class={cell.passed ? 'text-green-500' : 'text-red-500'}
+																	title={`${cell.passed ? 'Passed' : 'Failed'}: the threshold is ${scorer.pass_if}`}
+																>
+																	{cell.passed ? '✓' : '✗'}
+																</span>
+															{/if}
+															<span class="tabular-nums font-medium text-emphasis">
+																{formatScore(cell.score)}
+															</span>
+															{#if cell.baseline != undefined && cell.score !== cell.baseline}
+																{@const delta = cell.score - cell.baseline}
+																<span
+																	class={`text-2xs tabular-nums ${delta > 0 ? 'text-green-500' : 'text-red-500'}`}
 																>
 																	{formatDelta(delta)}
 																</span>
@@ -1380,26 +1336,21 @@
 														</span>
 													</Popover>
 												{:else if cell?.error}
-													<span class="text-2xs text-red-500" title={cell.error}>failed</span>
+													<Popover placement="left">
+														{#snippet text()}
+															<span class="text-xs max-w-80 text-left">{cell.error}</span>
+														{/snippet}
+														<span class="text-2xs text-red-500">failed</span>
+													</Popover>
 												{:else}
 													<span class="text-2xs text-tertiary">—</span>
 												{/if}
 											</Cell>
 										{/each}
 										<Cell last>
-											<div class="flex items-center gap-1 justify-end">
-												<Button
-													size="xs2"
-													variant="default"
-													startIcon={{ icon: Play }}
-													iconOnly
-													title="Run this case"
-													disabled={running || !subject.path}
-													on:click={(e) => {
-														e.stopPropagation()
-														runCase(row.case_id)
-													}}
-												/>
+											<!-- Running a case is a decision made with the case open, so it lives in the
+											     panel; the row keeps only the one action that is about the row itself. -->
+											<div class="flex items-center justify-end">
 												<Button
 													size="xs2"
 													variant="subtle"
@@ -1408,7 +1359,7 @@
 													title="Delete this case"
 													on:click={(e) => {
 														e.stopPropagation()
-														deleteCase(row.case_id)
+														removingCase = row
 													}}
 												/>
 											</div>
@@ -1417,24 +1368,14 @@
 								{/each}
 								<tr>
 									<td colspan={scorers.length + 3} class="p-2">
-										<div class="flex items-center gap-3">
-											<Button
-												size="xs2"
-												variant="subtle"
-												startIcon={{ icon: Plus }}
-												disabled={creatingDataset || (!selectedDataset && !newDatasetPath)}
-												onclick={addCase}
-											>
-												Add a case
-											</Button>
-											{#if !selectedDataset && newDatasetPath}
-												<!-- Said before it happens rather than after: the first case creates the
-												     dataset, whose name is renameable from the toolbar. -->
-												<span class="text-2xs text-tertiary">
-													starts the dataset {newDatasetPath}
-												</span>
-											{/if}
-										</div>
+										<Button
+											size="xs2"
+											variant="subtle"
+											startIcon={{ icon: Plus }}
+											onclick={addCase}
+										>
+											Add a case
+										</Button>
 									</td>
 								</tr>
 							</tbody>
@@ -1472,13 +1413,64 @@
 									onRun={() => caseDraft?.id && runCase(caseDraft.id)}
 								/>
 							{/key}
+							{#if trial && trial.case_id === selectedCaseId}
+								{@const trialStatus = statusOf(trial.status)}
+								<!-- Dashed, named and beside the table rather than in it: what a trial produced is
+								     worth seeing, and is not a result the selected run ever had. -->
+								<div class="rounded-md border border-dashed p-3 flex flex-col gap-2">
+									<div class="flex items-center gap-2">
+										<trialStatus.icon size={14} class={trialStatus.class} />
+										<span class="text-xs font-semibold text-emphasis">Trial run</span>
+										<div class="grow"></div>
+										<Button size="xs2" variant="subtle" onclick={() => (trial = undefined)}>
+											Clear
+										</Button>
+									</div>
+									<span class="text-2xs text-tertiary">
+										Not part of {experiment ? experimentName(experiment) : 'any run'}, which still
+										shows what it recorded. Run all is what makes a run these numbers would belong
+										to.
+									</span>
+									{#if scorers.length > 0}
+										<div class="flex flex-wrap gap-x-4 gap-y-1">
+											{#each scorers as scorer (scorer.id)}
+												{@const cell = trial.scores?.find((s) => s.scorer_id === scorer.id)}
+												{@const passed = passedBy(scorer, cell?.score)}
+												<span
+													class="text-2xs flex items-baseline gap-1.5"
+													title={cell?.reason ?? ''}
+												>
+													<span class="text-tertiary">{scorerLabel(scorer)}</span>
+													{#if trial.status === 'running' || !cell || cell.pending}
+														<Loader2 size={12} class="animate-spin text-blue-500" />
+													{:else if cell.score != undefined}
+														{#if passed != undefined}
+															<span class={passed ? 'text-green-500' : 'text-red-500'}>
+																{passed ? '✓' : '✗'}
+															</span>
+														{/if}
+														<span class="tabular-nums font-medium text-emphasis">
+															{formatScore(cell.score)}
+														</span>
+													{:else if cell.error}
+														<span class="text-red-500" title={cell.error}>failed</span>
+													{:else}
+														<span class="text-tertiary">—</span>
+													{/if}
+												</span>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							{/if}
 							{#if job}
 								<EvalRunResult
 									{job}
-									workspace={ws}
-									historyPath={agentPath && selectedDataset && selectedCaseId
-										? caseRunPath(agentPath, selectedDataset, selectedCaseId)
-										: undefined}
+									title={trial && trial.case_id === selectedCaseId
+										? 'Trial run'
+										: experiment
+											? experimentName(experiment)
+											: 'Result'}
 								/>
 							{/if}
 						</div>
@@ -1488,6 +1480,63 @@
 		</Splitpanes>
 	</div>
 </div>
+
+<Drawer bind:this={datasetDrawer} size="600px">
+	<DrawerContent
+		title={datasetMode === 'edit' ? 'Edit dataset' : 'New dataset'}
+		on:close={() => datasetDrawer?.closeDrawer()}
+	>
+		<!-- Keyed so the path field is seeded for the dataset it was opened for, rather than carrying
+		     the one before it. -->
+		{#key datasetMode + (selectedDataset ?? '')}
+			<div class="flex flex-col gap-6">
+				<Label label="Summary">
+					<TextInput
+						bind:value={newDatasetSummary}
+						size="sm"
+						inputProps={{ placeholder: 'What this set of cases is for' }}
+					/>
+				</Label>
+				<Path
+					bind:this={newDatasetPathInput}
+					bind:path={newDatasetPath}
+					bind:error={newDatasetPathError}
+					bind:dirty={newDatasetPathDirty}
+					initialPath={datasetMode === 'edit' ? (selectedDataset ?? '') : ''}
+					checkInitialPathExistence={false}
+					namePlaceholder="cases"
+					kind="resource"
+					workspaceOverride={ws}
+					autofocus={false}
+					size="sm"
+				/>
+				{#if datasetMode === 'edit'}
+					<span class="text-2xs text-tertiary">
+						Renaming moves the dataset: its cases and its runs follow it.
+					</span>
+				{/if}
+			</div>
+		{/key}
+		{#snippet actions()}
+			<Button
+				size="xs"
+				variant="accent"
+				startIcon={{ icon: datasetMode === 'edit' ? Pencil : Plus }}
+				loading={creatingDataset || savingDataset}
+				disabled={creatingDataset ||
+					savingDataset ||
+					!newDatasetPath ||
+					!!newDatasetPathError ||
+					(datasetMode === 'edit' &&
+						newDatasetPath === selectedDataset &&
+						(newDatasetSummary || '') === (dataset?.summary ?? ''))}
+				onclick={() => (datasetMode === 'edit' ? saveDataset() : createDataset())}
+			>
+				{datasetMode === 'edit' ? 'Save' : 'Create dataset'}
+			</Button>
+		{/snippet}
+	</DrawerContent>
+</Drawer>
 
 <Drawer bind:this={scorerDrawer} size="700px">
 	<DrawerContent
@@ -1514,7 +1563,34 @@
      re-reading the results is what makes the table say so. -->
 <ScriptEditorDrawer bind:this={scriptEditorDrawer} />
 
-<ResourceEditorDrawer bind:this={resourceEditorDrawer} workspace={ws} onRestored={loadResults} />
+<!-- Deploying the agent moves the version every run is measured against, and restoring an older
+     one moves it back: both are read again rather than left on screen as they were. -->
+<ResourceEditorDrawer
+	bind:this={resourceEditorDrawer}
+	workspace={ws}
+	onRestored={loadResults}
+	on:refresh={() => {
+		readSubjectState()
+		loadResults()
+	}}
+/>
+
+<ConfirmationModal
+	open={removingCase != undefined}
+	title="Delete this case"
+	confirmationText="Delete"
+	on:canceled={() => (removingCase = undefined)}
+	on:confirmed={async () => {
+		const target = removingCase
+		removingCase = undefined
+		if (target) await deleteCase(target.case_id)
+	}}
+>
+	<span class="text-sm">
+		{caseLabel(removingCase ?? { input: {} })} goes from the dataset. The runs that executed it keep
+		their results: a run that happened is not undone by curating the case away.
+	</span>
+</ConfirmationModal>
 
 <ConfirmationModal
 	open={removingScorer != undefined}

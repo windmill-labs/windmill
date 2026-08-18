@@ -2475,3 +2475,15 @@ export function apiErrorMessage(e: any): string {
 		return body.error?.message ?? body.message ?? JSON.stringify(body)
 	return e?.message ?? String(e)
 }
+
+/**
+ * A name for a path, from what the thing is for. Same shape a script's summary gives its path:
+ * lowercase, and anything that cannot sit in a path becomes an underscore.
+ */
+export function summaryToName(summary: string): string {
+	return summary
+		.toLowerCase()
+		.replace(/[^a-z0-9_]/g, '_')
+		.replace(/_+/g, '_')
+		.replace(/^_|_$/g, '')
+}

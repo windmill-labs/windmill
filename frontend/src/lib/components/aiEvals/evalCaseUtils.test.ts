@@ -8,20 +8,20 @@ describe('fromCaptureDraft', () => {
 	// arrives wrapped in makes `structuredClone` throw, so the copy is easy to regress.
 	it('does not share nested state with the capture it came from', () => {
 		const capture = {
-			name: 'from a conversation',
+			name: 'from a run',
 			input: {
 				user_message: 'still waiting',
-				messages: [{ role: 'user', content: 'any update?' }]
+				user_attachments: [{ s3: 'receipt.pdf' }]
 			},
 			source: { captured_at: '2026-01-01T00:00:00Z' }
 		} as EvalCaseDraft
 
 		const draft = fromCaptureDraft(capture)
 		draft.input!.user_message = 'edited'
-		draft.input!.messages!.push({ role: 'assistant', content: 'added' })
+		draft.input!.user_attachments!.push({ s3: 'second.pdf' })
 
 		expect(capture.input.user_message).toBe('still waiting')
-		expect(capture.input.messages).toHaveLength(1)
+		expect(capture.input.user_attachments).toHaveLength(1)
 	})
 })
 
@@ -40,8 +40,8 @@ describe('comparableCase', () => {
 		} as EvalCase
 
 		const draft = fromStoredCase(stored)
-		// what EvalCaseEditor writes back for a case with no conversation
-		draft.input = { ...draft.input, user_message: 'where is my parcel', messages: undefined }
+		// what EvalCaseEditor writes back for a case it merely opened
+		draft.input = { ...draft.input, user_message: 'where is my parcel' }
 
 		expect(comparableCase(draft)).toEqual(comparableCase(fromStoredCase(stored)))
 	})

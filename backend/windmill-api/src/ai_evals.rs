@@ -48,19 +48,14 @@ pub fn workspaced_service() -> Router {
         .route("/score", post(score_experiment))
         .route("/scorer_defaults", get(scorer_defaults))
         .route("/experiments/run", post(run_experiment))
+        .route("/experiments/score_again", post(score_again))
         .route("/scorers/recent", get(recent_scorers))
-        .route("/runs/save", post(save_run))
         .route("/runs/score_case", post(score_case_run))
         .route("/runs/score_result", get(score_case_result))
         .route("/subject_state", get(subject_state))
-        .route("/subjects/move", post(move_subject))
         .route("/experiments/list/{*path}", get(list_experiments))
         .route("/experiments/results/{*path}", get(experiment_results))
         .route("/case_draft/from_job/{job_id}", get(case_draft_from_job))
-        .route(
-            "/case_draft/from_conversation/{conversation_id}",
-            get(case_draft_from_conversation),
-        )
 }
 
 /// What a run is executed against. Kept as `(kind, path, version)` rather than a bare agent
@@ -69,26 +64,21 @@ pub fn workspaced_service() -> Router {
 pub struct EvalSubject {
     #[serde(default = "default_subject_kind")]
     pub kind: EvalSubjectKind,
-    /// The agent resource for a saved subject. For a draft it names the step being edited, so a
-    /// run can be found again; nothing resolves it.
+    /// The agent resource under test.
     pub path: String,
     /// The resource version at the moment the run was enqueued. Recorded, never pinned: the step
     /// resolves the agent live, as it does in production.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<i64>,
-    /// The step as authored, for an agent that has not been saved yet. Present exactly when
-    /// `kind` is `draft`, and it is the whole definition of what ran.
+    /// The agent's undeployed configuration, read from its draft server-side. Present exactly
+    /// when `kind` is `agent_draft`, and it is the whole definition of what ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<AgentDraft>,
-    /// Hash of that configuration. A draft has no version to move, so this is the only thing
-    /// that can say a run describes an agent that has since been edited. Stamped server-side.
+    /// Hash of that configuration. A draft moves without the version moving, so this is the only
+    /// thing that can say a run describes an agent that has since been edited. Stamped
+    /// server-side.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft_hash: Option<String>,
-    /// The saved agent a draft is an edit of, when there is one. Editing a linked agent in the
-    /// flow editor forks it into the step, so what runs is the step — but it is an edit of v17,
-    /// not an anonymous draft, and the run is unreadable if it cannot say so.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub origin_path: Option<String>,
 }
 
 /// Key order is not meaningful and `serde_json` preserves insertion order here, so it is sorted
@@ -140,19 +130,16 @@ fn default_subject_kind() -> EvalSubjectKind {
 #[serde(rename_all = "snake_case")]
 pub enum EvalSubjectKind {
     Agent,
-    /// An unsaved step. Runs the unlinked branch of the agent executor with the configuration
-    /// carried here, which is the same branch the flow editor's own test uses.
-    Draft,
     /// A saved agent's undeployed draft. The value is read server-side and inlined, because a
     /// linked step resolves the resource live and so would run what the draft replaces. Its own
     /// subject, so its runs never mix with the deployed agent's history.
     AgentDraft,
 }
 
-/// The brain and tools of an unsaved agent step, as the flow editor holds them.
+/// The brain and tools of an agent, as the flow editor holds them.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AgentDraft {
-    /// The step's input transforms: provider, system prompt, output type and the rest. The
+    /// The agent's input transforms: provider, system prompt, output type and the rest. The
     /// message and attachments are supplied by the case and override anything named here.
     #[serde(default)]
     pub input_transforms: serde_json::Value,
@@ -176,7 +163,6 @@ impl EvalSubject {
                 .as_ref()
                 .map(draft_hash)
                 .or_else(|| self.draft_hash.clone()),
-            origin_path: self.origin_path.clone(),
         }
     }
 }
@@ -207,10 +193,6 @@ pub struct EvalCaseInput {
     pub user_message: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_attachments: Option<Box<RawValue>>,
-    /// Prior turns replayed through `Memory::Manual`, which bypasses stored memory so a
-    /// recorded conversation reruns deterministically without polluting production memory.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub messages: Option<Box<RawValue>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -241,8 +223,6 @@ pub struct EvalCase {
 pub struct EvalCaseSource {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_id: Option<Uuid>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conversation_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_path: Option<String>,
     pub captured_at: DateTime<Utc>,
@@ -306,7 +286,7 @@ pub struct CaseId {
 #[derive(Deserialize)]
 /// The edit fields are spelled out rather than `#[serde(flatten)]`-ing `NewEvalCase`: flatten
 /// deserializes through a buffered representation, which silently yields `None` for the
-/// `Box<RawValue>` fields — an edited case would lose its conversation and tool inputs.
+/// `Box<RawValue>` fields — an edited case would lose its attachments and tool inputs.
 pub struct UpdateCase {
     pub id: Uuid,
     #[serde(default)]
@@ -348,9 +328,8 @@ fn check_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// A case is text: a message, the answer it was expected to produce, and at most a short replayed
-/// conversation. Attachments are S3 references rather than inline bytes, so nothing here is meant
-/// to be large. The caps exist so that one mistake — a whole file pasted into a message, a capture
+/// A case is text: a message and the answer it was expected to produce. Attachments are S3
+/// references rather than inline bytes, so nothing here is meant to be large. The caps exist so that one mistake — a whole file pasted into a message, a capture
 /// loop left running — cannot grow a dataset past what a listing can load.
 const MAX_CASE_BYTES: usize = 256 * 1024;
 const MAX_CASES_PER_DATASET: i64 = 10_000;
@@ -932,6 +911,12 @@ pub struct Scorer {
     /// The column header. Defaults to the kind, or the last segment of the path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// A score at or above this counts as a pass, and the column reports a pass rate beside its
+    /// mean. Deliberately outside `definition`: where the line sits is an interpretation of the
+    /// score rather than part of producing it, so moving it re-reads every score already
+    /// recorded instead of invalidating them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pass_if: Option<f64>,
     #[serde(flatten)]
     pub def: ScorerDef,
 }
@@ -971,6 +956,15 @@ impl ScorerDef {
 }
 
 impl Scorer {
+    /// Whether a score counts as a pass. `None` when the column has no threshold, which is what
+    /// keeps a column of plain numbers from being rendered as if it had one.
+    pub fn passed(&self, score: Option<f64>) -> Option<bool> {
+        match (self.pass_if, score) {
+            (Some(threshold), Some(score)) => Some(score >= threshold),
+            _ => None,
+        }
+    }
+
     /// What produced a score. Recorded with it so a comparison can say the scorer changed instead
     /// of letting that change read as a difference between two agents. `resolved` is the script
     /// hash or resource version that actually ran, which the path alone does not pin.
@@ -1027,11 +1021,10 @@ pub const AGENT_NODE_ID: &str = "a";
 /// experiment that already ran without calling the agent again.
 fn build_case_flow(
     subject: &EvalSubject,
-    case: &NewEvalCase,
     tool_inputs: Option<Box<RawValue>>,
 ) -> Result<windmill_common::flows::FlowValue> {
     // A draft runs the step exactly as authored: its own brain transforms are the module's, and
-    // the case supplies the message, the attachments and the memory over the top.
+    // the case supplies the message and the attachments over the top.
     let mut input_transforms = match subject.draft.as_ref().map(|d| &d.input_transforms) {
         Some(serde_json::Value::Object(map)) => map.clone(),
         _ => serde_json::Map::new(),
@@ -1040,18 +1033,6 @@ fn build_case_flow(
         input_transforms.insert(
             key.to_string(),
             serde_json::json!({ "type": "javascript", "expr": format!("flow_input.{}", key) }),
-        );
-    }
-    // Replaying a recorded conversation goes through `Memory::Manual`, which takes the message
-    // list verbatim and bypasses stored memory — so a replay is deterministic and does not
-    // write back into the memory a production conversation is using.
-    if let Some(messages) = &case.input.messages {
-        input_transforms.insert(
-            "memory".to_string(),
-            serde_json::json!({
-                "type": "static",
-                "value": { "kind": "manual", "messages": messages }
-            }),
         );
     }
 
@@ -1202,7 +1183,7 @@ async fn push_case_run(
     use windmill_common::{jobs::JobPayload, users::username_to_permissioned_as};
     use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
-    let flow_value = build_case_flow(subject, case, tool_inputs)?;
+    let flow_value = build_case_flow(subject, tool_inputs)?;
 
     let mut args = std::collections::HashMap::new();
     if let Some(user_message) = &case.input.user_message {
@@ -1218,8 +1199,7 @@ async fn push_case_run(
         args.insert("expected".to_string(), expected.clone());
     }
     // The whole case input, for scoring: the message alone cannot explain an answer that came
-    // from attachments or a replayed conversation, and a scratch run has no experiment row to
-    // read it back from.
+    // from an attachment, and a scratch run has no experiment row to read it back from.
     args.insert(
         "_eval_input".to_string(),
         serde_json::value::to_raw_value(&case.input)?,
@@ -1492,9 +1472,6 @@ pub async fn run_eval(
     Ok(Json(RunEvalResponse { job_id }))
 }
 
-/// A draft is the whole definition of what runs, so it has to be there when one is claimed, and a
-/// saved agent must not carry one: a request holding both would run something other than the
-/// resource it names.
 /// Fill in what the client cannot: the version a saved agent is at, or the configuration sitting
 /// in its draft. Both run paths do this identically, and a subject that skipped it would run the
 /// wrong definition or record no version.
@@ -1514,49 +1491,37 @@ async fn resolve_subject(
         }
         EvalSubjectKind::AgentDraft => {
             subject.draft = Some(agent_draft_config(authed, user_db, w_id, &subject.path).await?);
-            // The version the draft is an edit of. It is not a version of its own, which is what
-            // the star beside it says, but a run of "v15 plus unsaved edits" is not attributable
-            // without knowing which v15.
+            // The version the draft is an edit of. It is not a version of its own, but a run
+            // of "v15 plus unsaved edits" is not attributable without knowing which v15.
             subject.version = current_resource_version(db, w_id, &subject.path).await?;
-        }
-        EvalSubjectKind::Draft => {
-            // The step runs what it carries, so the origin pins nothing — it names the version
-            // these edits are on top of, which is the difference between "v17 plus changes" and
-            // an anonymous draft.
-            if let Some(origin) = subject.origin_path.clone() {
-                require_agent(authed, user_db, w_id, &origin).await?;
-                subject.version = current_resource_version(db, w_id, &origin).await?;
-            }
         }
     }
     Ok(())
 }
 
+/// The configuration is never taken from the client: a saved agent runs by reference and its
+/// draft is read from the workspace, so a request carrying one would run something other than the
+/// resource it names.
 fn validate_subject(subject: &EvalSubject) -> Result<()> {
-    match (&subject.kind, &subject.draft) {
-        (EvalSubjectKind::Draft, None) => Err(Error::BadRequest(
-            "A draft subject must carry the step configuration to run".to_string(),
-        )),
-        (EvalSubjectKind::Agent, Some(_)) => Err(Error::BadRequest(
-            "A saved agent runs by reference; remove the draft configuration".to_string(),
-        )),
-        (EvalSubjectKind::AgentDraft, Some(_)) => Err(Error::BadRequest(
-            "An agent's draft is read from the workspace; remove the draft configuration"
+    if subject.draft.is_some() {
+        return Err(Error::BadRequest(
+            "An agent's configuration is read from the workspace; remove it from the request"
                 .to_string(),
-        )),
-        _ if subject.path.trim().is_empty() => Err(Error::BadRequest(
-            "The subject needs a path: it is what a run is filed under".to_string(),
-        )),
-        _ => Ok(()),
+        ));
     }
+    if subject.path.trim().is_empty() {
+        return Err(Error::BadRequest(
+            "The subject needs a path: it is the agent a run is filed under".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 // -----------------------------------------------------------------------------------------------
 // Experiments
 // -----------------------------------------------------------------------------------------------
 
-/// The set of runs over a dataset. The newest is writable: running one case lands in it, and
-/// running the whole dataset closes it and opens the next.
+/// One run of a dataset: written once when the dataset is run, and only ever read afterwards.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EvalExperiment {
     pub id: Uuid,
@@ -1570,10 +1535,10 @@ pub struct EvalExperiment {
     /// runs is not part of the surface, and this is what a future one would fill.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// The run this one started from, when it was opened to rerun part of it. Its cells were
-    /// copied, so this run is complete rather than a table with one number in it.
+    /// The run whose answers this one measured again. Set exactly when nothing was run: the cells
+    /// are that run's, and so is the version they are attributed to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seeded_from: Option<Uuid>,
+    pub scored_from: Option<Uuid>,
     pub case_count: i64,
     pub created_at: DateTime<Utc>,
     pub created_by: String,
@@ -1590,71 +1555,35 @@ pub struct RunExperiment {
     pub host_flow_path: Option<String>,
 }
 
-/// The run a case is recorded into: always a new one, seeded from this subject's last, whose
-/// cells and scores it carries. A run is permanent, so nothing is ever written over — rerunning
-/// one case is a run of its own in which that case is the only thing that is new.
+/// Open a run of this dataset. A run is a fixed point: it is written once and then only ever
+/// read, which is what makes it worth comparing against.
 ///
-/// One experiment holds one subject, and each subject keeps its own history: a dataset shared by
-/// two agents would otherwise show one agent's runs when the other is opened.
+/// Runs are numbered per agent rather than per dataset, and the deployed agent and its draft
+/// share that numbering: they are the same agent, and "Run 7" of it should mean one thing whether
+/// it ran the deployed value or the edits waiting on top of it.
 async fn new_run(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
     dataset: &str,
     subject: &EvalSubject,
     username: &str,
-) -> Result<Uuid> {
-    let previous = sqlx::query_scalar!(
-        "SELECT id FROM eval_experiment
-         WHERE workspace_id = $1 AND dataset_path = $2
-               AND subject ->> 'kind' = $3 AND subject ->> 'path' = $4
-         ORDER BY run_number DESC LIMIT 1",
-        w_id,
-        dataset,
-        subject_kind(&subject.kind),
-        subject.path,
-    )
-    .fetch_optional(&mut **tx)
-    .await?;
-    open_experiment(tx, w_id, dataset, subject, username, previous).await
-}
-
-fn subject_kind(kind: &EvalSubjectKind) -> &'static str {
-    match kind {
-        EvalSubjectKind::Agent => "agent",
-        EvalSubjectKind::Draft => "draft",
-        EvalSubjectKind::AgentDraft => "agent_draft",
-    }
-}
-
-/// Open a run, carrying the cells and scores of the one it is seeded from. A run is a fixed
-/// point: it is written once and then only ever read, which is what makes it worth comparing
-/// against.
-async fn open_experiment(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    w_id: &str,
-    dataset: &str,
-    subject: &EvalSubject,
-    username: &str,
-    seed_from: Option<Uuid>,
+    scored_from: Option<Uuid>,
 ) -> Result<Uuid> {
     // Two runs starting together would otherwise read the same run number. Held for the rest of
     // this transaction, which pushes no jobs.
     sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtext('ai_eval_open:' || $1 || '/' || $2 || '/' || $3 || '/' || $4))",
+        "SELECT pg_advisory_xact_lock(hashtext('ai_eval_open:' || $1 || '/' || $2 || '/' || $3))",
         w_id,
         dataset,
-        subject_kind(&subject.kind),
         subject.path,
     )
     .execute(&mut **tx)
     .await?;
     let run_number = sqlx::query_scalar!(
         "SELECT coalesce(max(run_number), 0) + 1 FROM eval_experiment
-         WHERE workspace_id = $1 AND dataset_path = $2
-               AND subject ->> 'kind' = $3 AND subject ->> 'path' = $4",
+         WHERE workspace_id = $1 AND dataset_path = $2 AND subject ->> 'path' = $3",
         w_id,
         dataset,
-        subject_kind(&subject.kind),
         subject.path,
     )
     .fetch_one(&mut **tx)
@@ -1663,15 +1592,15 @@ async fn open_experiment(
     let id = Uuid::new_v4();
     sqlx::query!(
         "INSERT INTO eval_experiment
-            (id, workspace_id, dataset_path, subject, run_number, seeded_from, created_by)
+            (id, workspace_id, dataset_path, subject, run_number, created_by, scored_from)
          VALUES ($1, $2, $3, $4, $5, $6, $7)",
         id,
         w_id,
         dataset,
         serde_json::to_value(subject.stamp())?,
         run_number,
-        seed_from,
         username,
+        scored_from,
     )
     .execute(&mut **tx)
     .await
@@ -1682,91 +1611,7 @@ async fn open_experiment(
             e.into()
         }
     })?;
-    if let Some(parent) = seed_from {
-        // The carried cells keep the ordinals they had, so a score copied with them still points
-        // at the run it describes.
-        sqlx::query!(
-            "INSERT INTO eval_experiment_case
-                (experiment_id, ordinal, case_id, name, input, expected, job_id, subject_version,
-                 subject_draft_hash, started_at, carried_from)
-             SELECT $1, ordinal, case_id, name, input, expected, job_id, subject_version,
-                    subject_draft_hash, started_at, $2
-             FROM eval_experiment_case WHERE experiment_id = $2",
-            id,
-            parent,
-        )
-        .execute(&mut **tx)
-        .await?;
-        sqlx::query!(
-            "INSERT INTO eval_score
-                (experiment_id, ordinal, scorer_id, score, reason, checks, error, definition,
-                 job_id, created_at)
-             SELECT $1, ordinal, scorer_id, score, reason, checks, error, definition, job_id,
-                    created_at
-             FROM eval_score WHERE experiment_id = $2",
-            id,
-            parent,
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
     Ok(id)
-}
-
-/// Record one run into an experiment, replacing that case's cell when it already has one. The
-/// case is stored by value, and the scores of the answer being replaced go with it: they describe
-/// an answer that no longer exists.
-async fn record_run(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    experiment_id: Uuid,
-    case_id: Uuid,
-    case: &NewEvalCase,
-    job_id: Uuid,
-    version: Option<i64>,
-    draft_hash: Option<&str>,
-) -> Result<i32> {
-    // Two case runs starting together would otherwise read the same MAX(ordinal) and collide on
-    // the primary key. The lock is held for the rest of this transaction, which pushes no jobs and
-    // ends in microseconds.
-    sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtext('ai_eval_experiment:' || $1::text))",
-        experiment_id.to_string()
-    )
-    .execute(&mut **tx)
-    .await?;
-    let ordinal = sqlx::query_scalar!(
-        "INSERT INTO eval_experiment_case
-            (experiment_id, ordinal, case_id, name, input, expected, job_id, subject_version,
-             subject_draft_hash)
-         VALUES ($1,
-            (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM eval_experiment_case
-             WHERE experiment_id = $1),
-            $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (experiment_id, case_id) DO UPDATE
-            SET name = EXCLUDED.name, input = EXCLUDED.input, expected = EXCLUDED.expected,
-                job_id = EXCLUDED.job_id, subject_version = EXCLUDED.subject_version,
-                subject_draft_hash = EXCLUDED.subject_draft_hash,
-                started_at = now(), carried_from = NULL
-         RETURNING ordinal",
-        experiment_id,
-        case_id,
-        case.name,
-        serde_json::to_value(&case.input)?,
-        opt_from_raw(case.expected.as_ref())?,
-        job_id,
-        version,
-        draft_hash,
-    )
-    .fetch_one(&mut **tx)
-    .await?;
-    sqlx::query!(
-        "DELETE FROM eval_score WHERE experiment_id = $1 AND ordinal = $2",
-        experiment_id,
-        ordinal
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(ordinal)
 }
 
 pub async fn run_experiment(
@@ -1791,6 +1636,12 @@ pub async fn run_experiment(
             payload.dataset
         )));
     }
+    if cases.len() > MAX_CASES_PER_RUN {
+        return Err(Error::BadRequest(format!(
+            "An eval dataset of more than {} cases cannot be run at once",
+            MAX_CASES_PER_RUN
+        )));
+    }
 
     let tool_inputs = match &payload.host_flow_path {
         Some(flow_path) => {
@@ -1807,17 +1658,8 @@ pub async fn run_experiment(
     let case_count = cases.len();
 
     let mut tx = db.begin().await?;
-    // Running the dataset is what starts an experiment: the open one is frozen here, so what it
-    // holds stays exactly what it held when it was current.
-    let experiment_id = open_experiment(
-        &mut tx,
-        &w_id,
-        &payload.dataset,
-        &subject,
-        &authed.username,
-        None,
-    )
-    .await?;
+    let experiment_id =
+        new_run(&mut tx, &w_id, &payload.dataset, &subject, &authed.username, None).await?;
 
     let ordinals = (0..case_count as i32).collect::<Vec<_>>();
     let case_ids = cases.iter().map(|c| c.id).collect::<Vec<_>>();
@@ -1909,13 +1751,78 @@ pub async fn run_experiment(
     Ok(experiment_id.to_string())
 }
 
+#[derive(Deserialize)]
+pub struct ScoreAgain {
+    pub dataset: String,
+    /// The run whose answers are measured again.
+    pub experiment_id: Uuid,
+}
+
+/// Open a run that reuses another run's answers.
+///
+/// Scoring is separate from running, so a scorer edited or added after a run should be able to
+/// measure what that run already answered. A run is permanent, so it cannot be measured in place:
+/// this makes a run of its own, holding the same answers and one new set of scores. Nothing calls
+/// the agent.
+///
+/// The answers and their provenance are copied whole rather than mixed, which is what makes the
+/// new run readable: every cell of it was produced by the version the parent recorded, so it is
+/// attributed to that version and goes stale against the current agent exactly as the parent does.
+/// Scoring it is the caller's next step, on the same route any run is scored by.
+pub async fn score_again(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(payload): Json<ScoreAgain>,
+) -> JsonResult<Uuid> {
+    check_scopes(&authed, || "jobs:run".to_string())?;
+    // A write: it persists a run into the dataset.
+    require_dataset_writable(&authed, &user_db, &w_id, &payload.dataset).await?;
+    // Reading it validates that it is a run of this dataset, and 404s rather than copying from one
+    // the caller made up.
+    let parent = read_experiment(&db, &w_id, &payload.dataset, payload.experiment_id).await?;
+
+    let mut tx = db.begin().await?;
+    let id = new_run(
+        &mut tx,
+        &w_id,
+        &payload.dataset,
+        &parent.subject,
+        &authed.username,
+        Some(payload.experiment_id),
+    )
+    .await?;
+    let copied = sqlx::query_scalar!(
+        "INSERT INTO eval_experiment_case
+            (experiment_id, ordinal, case_id, name, input, expected, job_id, subject_version,
+             subject_draft_hash, started_at)
+         SELECT $1, ordinal, case_id, name, input, expected, job_id, subject_version,
+                subject_draft_hash, started_at
+         FROM eval_experiment_case WHERE experiment_id = $2
+         RETURNING ordinal",
+        id,
+        payload.experiment_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    if copied.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Run {} has no result to measure again",
+            payload.experiment_id
+        )));
+    }
+    tx.commit().await?;
+    Ok(Json(id))
+}
+
 fn experiment_from_row(
     id: Uuid,
     dataset: String,
     subject: serde_json::Value,
     run_number: i32,
     label: Option<String>,
-    seeded_from: Option<Uuid>,
+    scored_from: Option<Uuid>,
     case_count: i64,
     created_at: DateTime<Utc>,
     created_by: String,
@@ -1926,7 +1833,7 @@ fn experiment_from_row(
         subject: serde_json::from_value(subject)?,
         run_number,
         label,
-        seeded_from,
+        scored_from,
         case_count,
         created_at,
         created_by,
@@ -1935,20 +1842,12 @@ fn experiment_from_row(
 
 #[derive(Deserialize)]
 pub struct ListExperimentsQuery {
-    /// Restrict to one subject's experiments, which is what a pane opened on an agent shows: the
-    /// dataset may have been run against several, and another agent's numbers are not this
-    /// agent's history.
+    /// Restrict to one agent's runs, which is what a pane opened on an agent shows: the dataset
+    /// may have been run against several, and another agent's numbers are not this agent's
+    /// history. Both what was deployed and what was drafted are that agent's history, so this
+    /// does not discriminate by kind.
     #[serde(default)]
     pub subject_path: Option<String>,
-    #[serde(default)]
-    pub subject_kind: Option<String>,
-    /// A second subject to include, which is how a step's history survives its agent being saved:
-    /// the runs made while it was a draft belong to `<flow>/<step>`, and the ones since to the
-    /// agent, and both are the history of the same work.
-    #[serde(default)]
-    pub also_subject_path: Option<String>,
-    #[serde(default)]
-    pub also_subject_kind: Option<String>,
 }
 
 pub async fn list_experiments(
@@ -1960,25 +1859,18 @@ pub async fn list_experiments(
     read_dataset(&authed, &user_db, &w_id, &dataset).await?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query!(
-        "SELECT e.id, e.subject, e.run_number, e.label, e.seeded_from,
-                e.created_at, e.created_by,
+        "SELECT e.id, e.subject, e.run_number, e.label, e.scored_from, e.created_at, e.created_by,
                 (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)
                     AS \"case_count!\"
          FROM eval_experiment e
          WHERE e.workspace_id = $1 AND e.dataset_path = $2
-               AND (($4::text IS NULL OR e.subject ->> 'path' = $4)
-                    AND ($5::text IS NULL OR e.subject ->> 'kind' = $5)
-                    OR ($6::text IS NOT NULL AND e.subject ->> 'path' = $6
-                        AND ($7::text IS NULL OR e.subject ->> 'kind' = $7)))
+               AND ($4::text IS NULL OR e.subject ->> 'path' = $4)
          ORDER BY e.created_at DESC
          LIMIT $3",
         w_id,
         dataset,
         MAX_EXPERIMENTS_LISTED,
         query.subject_path,
-        query.subject_kind,
-        query.also_subject_path,
-        query.also_subject_kind,
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1991,7 +1883,7 @@ pub async fn list_experiments(
                 row.subject,
                 row.run_number,
                 row.label,
-                row.seeded_from,
+                row.scored_from,
                 row.case_count,
                 row.created_at,
                 row.created_by,
@@ -2176,7 +2068,7 @@ pub struct ScoreResultQuery {
 }
 
 #[derive(Serialize)]
-pub struct UnsavedScore {
+pub struct TrialScore {
     pub scorer_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub score: Option<f64>,
@@ -2190,15 +2082,15 @@ pub struct UnsavedScore {
     pub pending: bool,
 }
 
-/// The verdicts of a scoring job that belongs to no run. Computed on read and stored nowhere:
-/// what has not been saved has no row to be stored in.
+/// The verdicts of a scoring job on a trial run. Computed on read and stored nowhere: a trial
+/// belongs to no run, so there is no row to store it in.
 pub async fn score_case_result(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(query): Query<ScoreResultQuery>,
-) -> JsonResult<Vec<UnsavedScore>> {
+) -> JsonResult<Vec<TrialScore>> {
     let dataset = read_dataset(&authed, &user_db, &w_id, &query.dataset).await?;
     let status = sqlx::query_scalar!(
         "SELECT status::text FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
@@ -2212,7 +2104,7 @@ pub async fn score_case_result(
     let mut scores = vec![];
     for scorer in &dataset.scorers {
         if status.is_none() {
-            scores.push(UnsavedScore {
+            scores.push(TrialScore {
                 scorer_id: scorer.id.clone(),
                 score: None,
                 reason: None,
@@ -2223,7 +2115,7 @@ pub async fn score_case_result(
             continue;
         }
         match read_verdict(&db, &w_id, query.job_id, &scorer.id, status.as_deref()).await {
-            Some((score, reason, checks, error)) => scores.push(UnsavedScore {
+            Some((score, reason, checks, error)) => scores.push(TrialScore {
                 scorer_id: scorer.id.clone(),
                 score,
                 reason,
@@ -2233,7 +2125,7 @@ pub async fn score_case_result(
                 error,
                 pending: false,
             }),
-            None => scores.push(UnsavedScore {
+            None => scores.push(TrialScore {
                 scorer_id: scorer.id.clone(),
                 score: None,
                 reason: None,
@@ -2247,193 +2139,7 @@ pub async fn score_case_result(
 }
 
 #[derive(Deserialize)]
-pub struct SaveRun {
-    pub dataset: String,
-    /// The run whose results the new one starts from, so the cases that were not rerun are still
-    /// in it. The subject's latest when absent.
-    #[serde(default)]
-    pub seeded_from: Option<Uuid>,
-    /// The case runs to record. Nothing about them is taken from the client beyond the two job
-    /// ids: each case run carries what it ran in its own `_eval` argument, written when it was
-    /// queued, and each scoring job carries its verdicts.
-    pub runs: Vec<SavedCaseRun>,
-}
-
-#[derive(Deserialize)]
-pub struct SavedCaseRun {
-    pub job_id: Uuid,
-    /// The scoring job whose verdicts go with it, when it was scored before being saved. Carried
-    /// rather than recomputed: a judge asked twice does not answer twice the same, and the number
-    /// that was saved must be the number that was looked at.
-    #[serde(default)]
-    pub score_job_id: Option<Uuid>,
-}
-
-/// The `_eval` stamp a case run carries, read back from the job that carries it.
-#[derive(Deserialize)]
-struct EvalStamp {
-    subject: EvalSubject,
-    dataset: String,
-    case_id: Uuid,
-}
-
-/// Turn case runs into a run of the dataset. Running one case records nothing — it is a job, and
-/// looking at what it did is not a claim that it belongs in the history — so this is where that
-/// claim is made, and it makes a whole run: seeded from the one being looked at, with these cells
-/// replacing theirs.
-pub async fn save_run(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(payload): Json<SaveRun>,
-) -> JsonResult<Uuid> {
-    require_dataset_writable(&authed, &user_db, &w_id, &payload.dataset).await?;
-    if payload.runs.is_empty() {
-        return Err(Error::BadRequest("No run to save".to_string()));
-    }
-    if payload.runs.len() > MAX_CASES_PER_RUN {
-        return Err(Error::BadRequest(format!(
-            "At most {} case runs can be saved at once",
-            MAX_CASES_PER_RUN
-        )));
-    }
-
-    // Read through `user_db`: a job the caller cannot see is not one they can file into a run.
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let jobs = sqlx::query!(
-        "SELECT id, args -> '_eval' AS stamp FROM v2_job
-         WHERE workspace_id = $1 AND id = ANY($2)",
-        w_id,
-        &payload.runs.iter().map(|r| r.job_id).collect::<Vec<_>>()
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    let scoring_jobs = payload
-        .runs
-        .iter()
-        .filter_map(|r| r.score_job_id.map(|s| (r.job_id, s)))
-        .collect::<std::collections::HashMap<_, _>>();
-
-    let mut cells: Vec<(EvalStamp, Uuid)> = vec![];
-    for job in jobs {
-        let Some(stamp) = job.stamp else {
-            return Err(Error::BadRequest(format!(
-                "Job {} is not an eval case run",
-                job.id
-            )));
-        };
-        let stamp: EvalStamp = serde_json::from_value(stamp).map_err(|e| {
-            Error::BadRequest(format!("Job {} carries no case to save: {}", job.id, e))
-        })?;
-        if stamp.dataset != payload.dataset {
-            return Err(Error::BadRequest(format!(
-                "Job {} ran a case of {}, not of {}",
-                job.id, stamp.dataset, payload.dataset
-            )));
-        }
-        cells.push((stamp, job.id));
-    }
-    if cells.len() != payload.runs.len() {
-        return Err(Error::NotFound(
-            "Some of those runs no longer exist".to_string(),
-        ));
-    }
-    // One run holds one subject: cells of two different agents in one row of numbers would not be
-    // comparable with anything, including each other.
-    let subject = cells[0].0.subject.clone();
-    if cells
-        .iter()
-        .any(|(stamp, _)| stamp.subject.kind != subject.kind || stamp.subject.path != subject.path)
-    {
-        return Err(Error::BadRequest(
-            "Those runs are of different agents, so they are not one run".to_string(),
-        ));
-    }
-
-    let scorers = read_dataset(&authed, &user_db, &w_id, &payload.dataset)
-        .await?
-        .scorers;
-    let cases = read_cases(&authed, &user_db, &w_id, &payload.dataset, None).await?;
-    let by_id = cases
-        .into_iter()
-        .map(|c| (c.id, c))
-        .collect::<std::collections::HashMap<_, _>>();
-
-    let seed = match payload.seeded_from {
-        Some(id) => {
-            // Reading it validates that it is a run of this dataset, and 404s rather than seeding
-            // a new run from one the caller made up.
-            read_experiment(&db, &w_id, &payload.dataset, id).await?;
-            Some(id)
-        }
-        None => None,
-    };
-
-    let mut tx = db.begin().await?;
-    let experiment_id = match seed {
-        Some(seed) => {
-            open_experiment(
-                &mut tx,
-                &w_id,
-                &payload.dataset,
-                &subject,
-                &authed.username,
-                Some(seed),
-            )
-            .await?
-        }
-        None => new_run(&mut tx, &w_id, &payload.dataset, &subject, &authed.username).await?,
-    };
-    for (stamp, job_id) in &cells {
-        let Some(case) = by_id.get(&stamp.case_id) else {
-            // The case was deleted between the run and the save. Its result described a case the
-            // dataset no longer holds, and inventing one to hang it on would be worse than
-            // leaving it out.
-            continue;
-        };
-        let ordinal = record_run(
-            &mut tx,
-            experiment_id,
-            stamp.case_id,
-            &from_stored_case(case.clone()),
-            *job_id,
-            stamp.subject.version,
-            stamp.subject.draft_hash.as_deref(),
-        )
-        .await?;
-        // The scores of a run that has already been scored come with it, pointing at the scoring
-        // job that produced them. They are read out of that job on the next results read, by the
-        // same harvest that reads every other score.
-        if let Some(scoring_job) = scoring_jobs.get(job_id) {
-            for scorer in &scorers {
-                let definition = resolve_definition(&db, &w_id, scorer).await?;
-                sqlx::query!(
-                    "INSERT INTO eval_score (experiment_id, ordinal, scorer_id, definition, job_id)
-                     VALUES ($1, $2, $3, $4, $5)
-                     ON CONFLICT (experiment_id, ordinal, scorer_id) DO UPDATE
-                        SET definition = EXCLUDED.definition, job_id = EXCLUDED.job_id,
-                            score = NULL, reason = NULL, checks = NULL, error = NULL",
-                    experiment_id,
-                    ordinal,
-                    scorer.id,
-                    definition,
-                    scoring_job,
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
-        }
-    }
-    tx.commit().await?;
-    Ok(Json(experiment_id))
-}
-
-#[derive(Deserialize)]
 pub struct SubjectStateQuery {
-    pub kind: String,
     pub path: String,
 }
 
@@ -2460,15 +2166,6 @@ pub async fn subject_state(
     Path(w_id): Path<String>,
     Query(query): Query<SubjectStateQuery>,
 ) -> JsonResult<SubjectState> {
-    if query.kind == "draft" {
-        // A step's own agent lives in the editor, not in the workspace: there is nothing here to
-        // have changed under it.
-        return Ok(Json(SubjectState {
-            version: None,
-            draft_hash: None,
-            has_undeployed_changes: false,
-        }));
-    }
     // Reading the agent through `user_db` is what gates the rest: a draft's existence is
     // information about the resource it is a draft of.
     require_agent(&authed, &user_db, &w_id, &query.path).await?;
@@ -2481,69 +2178,6 @@ pub async fn subject_state(
         draft_hash: draft.as_ref().map(draft_hash),
         has_undeployed_changes: draft.is_some(),
     }))
-}
-
-#[derive(Deserialize)]
-pub struct MoveSubject {
-    /// The step that was saved, `<flow path>/<module id>`.
-    pub from_path: String,
-    /// The agent it was saved as.
-    pub to_path: String,
-}
-
-/// Move a step's eval history onto the agent it was just saved as.
-///
-/// A step with no agent of its own runs as the subject `<flow>/<step>`; saving it as an
-/// `ai_agent` gives that same work a name, and the runs made before it belong to it. They are
-/// recorded as `agent_draft` at the new path, which is what they were: runs of a configuration of
-/// this agent that was not deployed at the time. Nothing is rewritten beyond the name — each run
-/// keeps its own hash, so the one that ran exactly what was saved reads as that version and the
-/// others stay starred.
-pub async fn move_subject(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(payload): Json<MoveSubject>,
-) -> JsonResult<usize> {
-    require_agent(&authed, &user_db, &w_id, &payload.to_path).await?;
-    // Only the datasets the caller can write: this renames history, and one they cannot write is
-    // not theirs to rename.
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let datasets = sqlx::query_scalar!(
-        "SELECT path FROM eval_dataset WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    let mut moved = 0usize;
-    for dataset in datasets {
-        if require_dataset_writable(&authed, &user_db, &w_id, &dataset)
-            .await
-            .is_err()
-        {
-            continue;
-        }
-        let updated = sqlx::query_scalar!(
-            "UPDATE eval_experiment
-             SET subject = jsonb_set(
-                     jsonb_set(subject, '{kind}', '\"agent_draft\"'),
-                     '{path}', to_jsonb($3::text))
-             WHERE workspace_id = $1 AND dataset_path = $2
-                   AND subject ->> 'kind' = 'draft' AND subject ->> 'path' = $4
-             RETURNING id",
-            w_id,
-            dataset,
-            payload.to_path,
-            payload.from_path,
-        )
-        .fetch_all(&db)
-        .await?;
-        moved += updated.len();
-    }
-    Ok(Json(moved))
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -2822,16 +2456,9 @@ fn render_tool_calls(calls: &[EvalToolCall]) -> String {
 
 /// One run, as a judge is shown it.
 fn render_run(run: &EvalRunPayload) -> String {
-    let messages = run
-        .input
-        .messages
-        .as_ref()
-        .map(|m| m.get().to_string())
-        .unwrap_or_else(|| "(none)".to_string());
     format!(
-        "Request: {}\nPrior turns: {}\nTool calls, in order:\n{}\nAnswer: {}\nExpected: {}",
+        "Request: {}\nTool calls, in order:\n{}\nAnswer: {}\nExpected: {}",
         run.input.user_message.as_deref().unwrap_or("(none)"),
-        messages,
         render_tool_calls(&run.tool_calls),
         render_json(run.output.as_deref()),
         render_json(run.expected.as_deref()),
@@ -3362,6 +2989,9 @@ pub struct CellScore {
     pub error: Option<String>,
     /// A scoring job is still running for this cell.
     pub pending: bool,
+    /// Which side of the scorer's threshold the score fell on, when it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub baseline: Option<f64>,
     /// The baseline's score for this scorer was produced by a different definition of it, so the
@@ -3396,10 +3026,6 @@ pub struct ExperimentRow {
     pub subject_draft_hash: Option<String>,
     /// One entry per scorer of the dataset, in column order.
     pub scores: Vec<CellScore>,
-    /// The result was carried over from the run this one was seeded by, rather than produced
-    /// here. What makes a partial rerun readable: the cells that are new are the ones that are
-    /// not carried.
-    pub carried: bool,
 }
 
 /// A column's summary. There is no single number for a dataset: averaging a judge with an exact
@@ -3411,6 +3037,13 @@ pub struct ScorerMean {
     pub mean: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub baseline_mean: Option<f64>,
+    /// The share of scored cells that passed, for a column with a threshold. Reported beside the
+    /// mean rather than instead of it: a pass rate says how many cases are good enough, and a
+    /// mean says by how much, and neither answers the other's question.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pass_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baseline_pass_rate: Option<f64>,
     pub scored: usize,
     /// Cells the baseline has no score for, which is what the offer to score it counts.
     pub missing_in_baseline: usize,
@@ -3498,8 +3131,7 @@ async fn load_scores(
 
 async fn read_experiment(db: &DB, w_id: &str, dataset: &str, id: Uuid) -> Result<EvalExperiment> {
     let row = sqlx::query!(
-        "SELECT e.subject, e.run_number, e.label, e.seeded_from,
-                e.created_at, e.created_by,
+        "SELECT e.subject, e.run_number, e.label, e.scored_from, e.created_at, e.created_by,
                 (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)
                     AS \"case_count!\"
          FROM eval_experiment e
@@ -3522,11 +3154,76 @@ async fn read_experiment(db: &DB, w_id: &str, dataset: &str, id: Uuid) -> Result
         row.subject,
         row.run_number,
         row.label,
-        row.seeded_from,
+        row.scored_from,
         row.case_count,
         row.created_at,
         row.created_by,
     )
+}
+
+/// Recognise a draft run that has since been deployed, and record it as the version it became.
+///
+/// The hash of what it executed is the proof, so this is a resolution rather than a rewrite: it
+/// says which version the run was, which nobody could say while the configuration sat in a draft.
+/// Written once rather than derived on every read, because deriving it only against what is
+/// deployed *now* makes the answer expire — the next deployment would send a run that already read
+/// `v21` back to `v18 + edits`, and a label that moves backwards is worse than one that never
+/// moved.
+///
+/// Written on the unrestricted pool, like the scores harvested beside it: the caller's access was
+/// established by the dataset read, and nothing here comes from the caller.
+async fn resolve_deployed_draft(
+    db: &DB,
+    w_id: &str,
+    dataset: &str,
+    experiment: &mut EvalExperiment,
+    deployed_hash: Option<&str>,
+    deployed_version: Option<i64>,
+) -> Result<()> {
+    if experiment.subject.kind != EvalSubjectKind::AgentDraft {
+        return Ok(());
+    }
+    let (Some(hash), Some(deployed_hash), Some(version)) = (
+        experiment.subject.draft_hash.as_deref(),
+        deployed_hash,
+        deployed_version,
+    ) else {
+        return Ok(());
+    };
+    if hash != deployed_hash {
+        return Ok(());
+    }
+    // The hash stays: it is what identifies the configuration, and what this resolution rests on.
+    experiment.subject.kind = EvalSubjectKind::Agent;
+    experiment.subject.version = Some(version);
+    sqlx::query!(
+        "UPDATE eval_experiment
+         SET subject = jsonb_set(
+                 jsonb_set(subject, '{kind}', '\"agent\"'),
+                 '{version}', to_jsonb($4::bigint))
+         WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3
+               AND subject ->> 'kind' = 'agent_draft'",
+        w_id,
+        dataset,
+        experiment.id,
+        version,
+    )
+    .execute(db)
+    .await?;
+    // The cells that ran that configuration are dated by the version too. Their hash has served
+    // its purpose — it was what dated a cell with no version to name it by — and leaving it would
+    // make the run go on reading as a draft's after the next deployment.
+    sqlx::query!(
+        "UPDATE eval_experiment_case
+         SET subject_version = $3, subject_draft_hash = NULL
+         WHERE experiment_id = $1 AND subject_draft_hash = $2",
+        experiment.id,
+        hash,
+        version,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// The rows a results table is built from. The job ids come out of `eval_experiment_case`, which
@@ -3542,7 +3239,7 @@ pub async fn experiment_results(
     let dataset_row = read_dataset(&authed, &user_db, &w_id, &dataset).await?;
     let scorers = dataset_row.scorers;
 
-    let experiment = read_experiment(&db, &w_id, &dataset, query.id).await?;
+    let mut experiment = read_experiment(&db, &w_id, &dataset, query.id).await?;
     // Finished scoring jobs are read into their score rows here, so a score outlives the job that
     // produced it rather than being recomputed from a job that may have been retained away.
     harvest_scores(&db, &w_id, query.id).await?;
@@ -3572,7 +3269,7 @@ pub async fn experiment_results(
 
     let case_rows = sqlx::query!(
         "SELECT ordinal, case_id, name, input, expected, job_id, subject_version,
-                subject_draft_hash, carried_from
+                subject_draft_hash
          FROM eval_experiment_case
          WHERE experiment_id = $1 ORDER BY ordinal",
         query.id
@@ -3622,6 +3319,8 @@ pub async fn experiment_results(
 
     let mut sums = vec![(0.0f64, 0usize); scorers.len()];
     let mut baseline_sums = vec![(0.0f64, 0usize); scorers.len()];
+    let mut passes = vec![0usize; scorers.len()];
+    let mut baseline_passes = vec![0usize; scorers.len()];
     let mut missing_in_baseline = vec![0usize; scorers.len()];
     let mut definition_changed = vec![false; scorers.len()];
     let mut regressed = 0usize;
@@ -3639,10 +3338,16 @@ pub async fn experiment_results(
             if let Some(score) = current.and_then(|c| c.score) {
                 sums[index].0 += score;
                 sums[index].1 += 1;
+                if scorer.passed(Some(score)) == Some(true) {
+                    passes[index] += 1;
+                }
             }
             if let Some(score) = baseline_score.and_then(|b| b.score) {
                 baseline_sums[index].0 += score;
                 baseline_sums[index].1 += 1;
+                if scorer.passed(Some(score)) == Some(true) {
+                    baseline_passes[index] += 1;
+                }
             } else if baseline.is_some() {
                 missing_in_baseline[index] += 1;
             }
@@ -3673,6 +3378,7 @@ pub async fn experiment_results(
                 pending: current
                     .map(|c| c.score.is_none() && c.error.is_none() && c.job_id.is_some())
                     .unwrap_or(false),
+                passed: scorer.passed(current.and_then(|c| c.score)),
                 baseline: baseline_score.and_then(|b| b.score),
                 definition_changed: changed,
             });
@@ -3691,7 +3397,6 @@ pub async fn experiment_results(
             subject_draft_hash: case.subject_draft_hash,
             job_id: case.job_id,
             scores: cells,
-            carried: case.carried_from.is_some(),
         });
     }
 
@@ -3703,6 +3408,10 @@ pub async fn experiment_results(
             mean: (sums[index].1 > 0).then(|| sums[index].0 / sums[index].1 as f64),
             baseline_mean: (baseline_sums[index].1 > 0)
                 .then(|| baseline_sums[index].0 / baseline_sums[index].1 as f64),
+            pass_rate: (scorer.pass_if.is_some() && sums[index].1 > 0)
+                .then(|| passes[index] as f64 / sums[index].1 as f64),
+            baseline_pass_rate: (scorer.pass_if.is_some() && baseline_sums[index].1 > 0)
+                .then(|| baseline_passes[index] as f64 / baseline_sums[index].1 as f64),
             scored: sums[index].1,
             missing_in_baseline: missing_in_baseline[index],
             definition_changed: definition_changed[index],
@@ -3712,16 +3421,7 @@ pub async fn experiment_results(
     // What the subject is now: the version it is on, whether it has edits waiting, and — for a
     // draft — what those edits hash to, so a row that ran an earlier draft can say so.
     let mut subject_current_draft_hash = None;
-    // A draft is an edit of something: the step's origin when it has one, the agent itself
-    // otherwise.
-    let deployed_path = match experiment.subject.kind {
-        EvalSubjectKind::Draft => experiment.subject.origin_path.clone(),
-        _ => Some(experiment.subject.path.clone()),
-    };
-    let subject_deployed_hash = match &deployed_path {
-        Some(path) => deployed_agent_hash(&db, &w_id, path).await?,
-        None => None,
-    };
+    let subject_deployed_hash = deployed_agent_hash(&db, &w_id, &experiment.subject.path).await?;
     let (subject_current_version, subject_has_undeployed_changes) = match experiment.subject.kind {
         EvalSubjectKind::Agent => {
             let version = current_resource_version(&db, &w_id, &experiment.subject.path).await?;
@@ -3775,16 +3475,38 @@ pub async fn experiment_results(
             let version = current_resource_version(&db, &w_id, &experiment.subject.path).await?;
             (version, still_drafted)
         }
-        // A step forked from an agent for editing: what it is an edit of is what moves under it.
-        EvalSubjectKind::Draft => match &experiment.subject.origin_path {
-            Some(origin) => (current_resource_version(&db, &w_id, origin).await?, false),
-            None => (None, false),
-        },
     };
+
+    // A draft run whose configuration has since been deployed is a run of that version.
+    let mut baseline = baseline.map(|(baseline, _)| baseline);
+    resolve_deployed_draft(
+        &db,
+        &w_id,
+        &dataset,
+        &mut experiment,
+        subject_deployed_hash.as_deref(),
+        subject_current_version,
+    )
+    .await?;
+    if let Some(baseline) = baseline.as_mut() {
+        // The compare-to list holds this agent's runs, but the id is the caller's: a run of another
+        // agent must not be stamped with this one's version.
+        if baseline.subject.path == experiment.subject.path {
+            resolve_deployed_draft(
+                &db,
+                &w_id,
+                &dataset,
+                baseline,
+                subject_deployed_hash.as_deref(),
+                subject_current_version,
+            )
+            .await?;
+        }
+    }
 
     Ok(Json(ExperimentResults {
         experiment,
-        baseline: baseline.map(|(baseline, _)| baseline),
+        baseline,
         scorers,
         rows,
         means,
@@ -3810,7 +3532,7 @@ type ToolCall = {
 }
 
 type EvalRun = {
-  input: { user_message?: string; user_attachments?: unknown[]; messages?: unknown[] }
+  input: { user_message?: string; user_attachments?: unknown[] }
   output?: unknown
   expected?: unknown
   tool_calls: ToolCall[]
@@ -4015,7 +3737,6 @@ pub async fn case_draft_from_job(
         user_attachments: args
             .get("user_attachments")
             .and_then(|v| serde_json::value::to_raw_value(v).ok()),
-        messages: None,
     };
 
     // The agent step's own definition lives in its parent flow, which is also where the host
@@ -4124,7 +3845,6 @@ pub async fn case_draft_from_job(
         expected,
         source: EvalCaseSource {
             job_id: Some(job_id),
-            conversation_id: None,
             agent_path: agent_path.clone(),
             captured_at: Utc::now(),
         },
@@ -4152,84 +3872,6 @@ fn find_module<'a>(
         serde_json::Value::Array(items) => items.iter().find_map(|v| find_module(v, module_id)),
         _ => None,
     }
-}
-
-/// Capture a whole conversation as one case: the trailing user turn becomes the message the
-/// agent is run on, and everything before it is replayed through `Memory::Manual`.
-pub async fn case_draft_from_conversation(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, conversation_id)): Path<(String, Uuid)>,
-) -> JsonResult<EvalCaseDraft> {
-    // Returns a whole transcript, so it needs the scope that gates transcripts.
-    check_scopes(&authed, || "flow_conversations:read".to_string())?;
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let conversation = sqlx::query!(
-        "SELECT flow_path, title FROM flow_conversation WHERE id = $1 AND workspace_id = $2",
-        conversation_id,
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    let conversation = conversation
-        .ok_or_else(|| Error::NotFound(format!("Conversation {} not found", conversation_id)))?;
-
-    // Tool messages are excluded: their content is a tool result keyed to a call id that this
-    // replay will not reissue, so feeding them back would desynchronise the message list.
-    let rows = sqlx::query!(
-        "SELECT message_type::text AS \"message_type!\", content
-         FROM flow_conversation_message
-         WHERE conversation_id = $1 AND message_type IN ('user', 'assistant')
-         ORDER BY created_seq ASC",
-        conversation_id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    // The case re-asks the conversation's *last user turn*: everything before it is the
-    // context to replay, and whatever the agent answered after it is what production actually
-    // produced, kept as the reference to compare a rerun against. Splitting at the last user
-    // turn rather than at the end is what makes a finished conversation — which ends on the
-    // assistant — yield a runnable case instead of history with nothing to answer.
-    let last_user = rows.iter().rposition(|r| r.message_type == "user");
-    let (user_message, context, answer) = match last_user {
-        Some(idx) => (
-            rows[idx].content.clone(),
-            &rows[..idx],
-            rows.get(idx + 1).map(|r| r.content.clone()),
-        ),
-        None => (String::new(), &rows[..], None),
-    };
-    let turns = context
-        .iter()
-        .map(|r| serde_json::json!({ "role": r.message_type, "content": r.content }))
-        .collect::<Vec<_>>();
-
-    Ok(Json(EvalCaseDraft {
-        name: conversation.title,
-        input: EvalCaseInput {
-            user_message: Some(user_message).filter(|m| !m.is_empty()),
-            user_attachments: None,
-            messages: if turns.is_empty() {
-                None
-            } else {
-                Some(serde_json::value::to_raw_value(&turns)?)
-            },
-        },
-        expected: answer
-            .map(|a| serde_json::value::to_raw_value(&a))
-            .transpose()?,
-        host_flow_path: Some(conversation.flow_path),
-        tool_inputs: None,
-        source: EvalCaseSource {
-            job_id: None,
-            conversation_id: Some(conversation_id),
-            agent_path: None,
-            captured_at: Utc::now(),
-        },
-        agent_path: None,
-    }))
 }
 
 #[cfg(test)]
@@ -4283,6 +3925,7 @@ mod tests {
         let script = |path: &str, name: Option<&str>| Scorer {
             id: "s1".to_string(),
             name: name.map(|n| n.to_string()),
+            pass_if: None,
             def: ScorerDef::Script { path: path.to_string() },
         };
         // Renaming a column is not a change of scorer: same runnable, same version.
@@ -4299,12 +3942,25 @@ mod tests {
         let agent = Scorer {
             id: "s1".to_string(),
             name: None,
+            pass_if: None,
             def: ScorerDef::Agent { path: "f/e/s".to_string() },
         };
         assert_ne!(
             agent.definition(Some("1")),
             script("f/e/s", None).definition(Some("1"))
         );
+        // Where the pass line sits reads a score rather than produces one. If it entered the hash,
+        // setting a threshold would mark every score already recorded as coming from a different
+        // scorer, and the pass rate it exists to give would arrive with the whole column flagged.
+        let mut thresholded = script("f/e/s", None);
+        thresholded.pass_if = Some(0.7);
+        assert_eq!(
+            thresholded.definition(Some("1234")),
+            script("f/e/s", None).definition(Some("1234"))
+        );
+        assert_eq!(thresholded.passed(Some(0.7)), Some(true));
+        assert_eq!(thresholded.passed(Some(0.69)), Some(false));
+        assert_eq!(script("f/e/s", None).passed(Some(0.1)), None);
     }
 
     /// The stamp is what makes a run findable again, and overflowing `runnable_path`'s

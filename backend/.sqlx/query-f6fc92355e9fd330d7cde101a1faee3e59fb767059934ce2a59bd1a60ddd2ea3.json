@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_experiment\n            (id, workspace_id, dataset_path, subject, run_number, created_by, scored_from)\n         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Int4",
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f6fc92355e9fd330d7cde101a1faee3e59fb767059934ce2a59bd1a60ddd2ea3"
+}

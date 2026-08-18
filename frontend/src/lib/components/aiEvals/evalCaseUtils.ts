@@ -37,20 +37,10 @@ export function caseLabel(c: Pick<CaseDraft, 'name' | 'input'>): string {
 }
 
 /**
- * The run that a case produces is a job whose path is `<agent>/<dataset>/<case>`, which is what
- * lets the run history be a plain jobs-list query instead of stored state. Agent paths long
- * enough to overflow `runnable_path` fall back to the agent alone server-side, so a missing
- * history here means "not filterable", not "never ran".
- */
-export function caseRunPath(agentPath: string, datasetPath: string, caseId: string): string {
-	return `${agentPath}/${datasetPath}/${caseId}`
-}
-
-/**
  * A draft reduced to what a case actually is, for comparing an edited draft against the case it
- * came from. The editor materializes keys the stored case omits (`messages: undefined` when there
- * is no conversation), so comparing the raw objects reports an untouched case as edited — which
- * would send it inline and strip the dataset/case stamp its run history depends on.
+ * came from. The editor materializes keys the stored case omits, so comparing the raw objects
+ * reports an untouched case as edited — which would send it inline and strip the dataset/case
+ * stamp its run history depends on.
  */
 export function comparableCase(draft: CaseDraft): unknown {
 	return JSON.parse(
@@ -60,8 +50,7 @@ export function comparableCase(draft: CaseDraft): unknown {
 				user_message: draft.input?.user_message || undefined,
 				user_attachments: draft.input?.user_attachments?.length
 					? draft.input.user_attachments
-					: undefined,
-				messages: draft.input?.messages?.length ? draft.input.messages : undefined
+					: undefined
 			},
 			host_flow_path: draft.host_flow_path || undefined,
 			tool_inputs: draft.tool_inputs,

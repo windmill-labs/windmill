@@ -15,7 +15,8 @@
 	} from '$lib/gen'
 	import { loadStoredConfig } from '$lib/components/aiProviderStorage'
 	import { sendUserToast } from '$lib/toast'
-	import { onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
+	import { summaryToName } from '$lib/utils'
 	import { Plus } from 'lucide-svelte'
 	import type { RecentScorersResponse } from '$lib/gen'
 	import type { ScorerKind } from './evalScorers'
@@ -37,10 +38,29 @@
 
 	let path = $state('')
 	let pathError = $state('')
+	// What the column is for. It names the runnable, as a script's summary names its path, and it is
+	// what the column header shows instead of the last segment of a path.
+	let summary = $state('')
+	let pathDirty = $state(false)
+	let pathInput: Path | undefined = $state(undefined)
+	$effect(() => {
+		const next = summary
+		untrack(() => {
+			if (pathDirty || !next) return
+			pathInput?.setName(`${datasetName}_${summaryToName(next)}`)
+		})
+	})
+	/** The dataset's own name, which every scorer of it is named under. */
+	let datasetName = $derived(datasetPath.split('/').pop() ?? datasetPath)
 	let prompt = $state('')
 	let provider = $state<ProviderConfig | undefined>(loadStoredConfig())
 	let template = $state('')
 	let existing = $state<string | undefined>(undefined)
+	// A column is a number, and optionally a number with a line through it. The line is where the
+	// column stops reporting how good an answer was and starts reporting whether it was good
+	// enough, which is the question most datasets are actually asking.
+	let passIf = $state('')
+	let threshold = $derived(passIf && !Number.isNaN(Number(passIf)) ? Number(passIf) : undefined)
 	let busy = $state(false)
 	let seeded = $state(false)
 	// The scorers this workspace already uses, so a new dataset does not start by retyping the
@@ -101,11 +121,11 @@ Expected: the case's expected value`
 			requestBody: {
 				path,
 				resource_type: 'ai_agent',
-				description: `Judge for eval dataset ${datasetPath}`,
+				description: summary || `Judge for eval dataset ${datasetPath}`,
 				value: { provider, system_prompt: prompt, output_type: 'text' }
 			}
 		})
-		await onAdd({ kind: 'agent', path })
+		await onAdd({ kind: 'agent', path, name: summary || undefined, pass_if: threshold })
 	}
 
 	async function createScript() {
@@ -113,13 +133,13 @@ Expected: the case's expected value`
 			workspace,
 			requestBody: {
 				path,
-				summary: `Scorer for ${datasetPath}`,
+				summary: summary || `Scorer for ${datasetPath}`,
 				description: '',
 				content: template,
 				language: 'bun'
 			}
 		})
-		await onAdd({ kind: 'script', path })
+		await onAdd({ kind: 'script', path, name: summary || undefined, pass_if: threshold })
 		// The template is a starting point, so the editor opens on it: writing the assertions is
 		// the actual work, and it happens over the table rather than after hunting for the file.
 		onEditScript(hash)
@@ -155,10 +175,22 @@ Expected: the case's expected value`
 		</span>
 	{/if}
 
+	<Label label="Summary">
+		<TextInput
+			bind:value={summary}
+			size="sm"
+			inputProps={{
+				placeholder: kind === 'agent' ? 'Answers the question asked' : 'Tool discipline'
+			}}
+		/>
+	</Label>
+
 	<Label label="Path">
 		<Path
+			bind:this={pathInput}
 			bind:path
 			bind:error={pathError}
+			bind:dirty={pathDirty}
 			initialPath=""
 			namePlaceholder={kind === 'agent' ? 'judge' : 'scorer'}
 			kind={kind === 'agent' ? 'resource' : 'script'}
@@ -166,6 +198,13 @@ Expected: the case's expected value`
 			autofocus={false}
 			size="sm"
 		/>
+	</Label>
+
+	<Label
+		label="Pass threshold"
+		tooltip="Optional. A case scoring at or above this counts as a pass, and the column reports a pass rate beside its mean. It can be set or changed later from the column header, and reads the scores already recorded."
+	>
+		<TextInput bind:value={passIf} size="sm" inputProps={{ placeholder: '0.7' }} />
 	</Label>
 
 	{#if kind === 'agent'}
@@ -224,7 +263,13 @@ Expected: the case's expected value`
 						type="button"
 						class="flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-50"
 						disabled={busy}
-						onclick={() => onAdd({ kind: scorer.kind, path: scorer.path, name: scorer.name })}
+						onclick={() =>
+							onAdd({
+								kind: scorer.kind,
+								path: scorer.path,
+								name: scorer.name,
+								pass_if: threshold ?? scorer.pass_if
+							})}
 					>
 						<span class="text-xs text-emphasis truncate">{scorer.name || scorer.path}</span>
 						<span class="text-2xs text-tertiary truncate">{scorer.path}</span>
@@ -249,7 +294,9 @@ Expected: the case's expected value`
 				size="xs"
 				variant="default"
 				disabled={busy || !existing}
-				onclick={() => existing && onAdd({ kind, path: existing })}
+				onclick={() =>
+					existing &&
+					onAdd({ kind, path: existing, name: summary || undefined, pass_if: threshold })}
 			>
 				Add
 			</Button>

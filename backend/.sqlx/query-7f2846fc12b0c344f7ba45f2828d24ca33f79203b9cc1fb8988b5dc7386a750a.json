@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT e.id, e.subject, e.run_number, e.label, e.seeded_from,\n                e.created_at, e.created_by,\n                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)\n                    AS \"case_count!\"\n         FROM eval_experiment e\n         WHERE e.workspace_id = $1 AND e.dataset_path = $2\n               AND (($4::text IS NULL OR e.subject ->> 'path' = $4)\n                    AND ($5::text IS NULL OR e.subject ->> 'kind' = $5)\n                    OR ($6::text IS NOT NULL AND e.subject ->> 'path' = $6\n                        AND ($7::text IS NULL OR e.subject ->> 'kind' = $7)))\n         ORDER BY e.created_at DESC\n         LIMIT $3",
+  "query": "SELECT e.id, e.subject, e.run_number, e.label, e.scored_from, e.created_at, e.created_by,\n                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)\n                    AS \"case_count!\"\n         FROM eval_experiment e\n         WHERE e.workspace_id = $1 AND e.dataset_path = $2\n               AND ($4::text IS NULL OR e.subject ->> 'path' = $4)\n         ORDER BY e.created_at DESC\n         LIMIT $3",
   "describe": {
     "columns": [
       {
@@ -25,7 +25,7 @@
       },
       {
         "ordinal": 4,
-        "name": "seeded_from",
+        "name": "scored_from",
         "type_info": "Uuid"
       },
       {
@@ -49,9 +49,6 @@
         "Text",
         "Text",
         "Int8",
-        "Text",
-        "Text",
-        "Text",
         "Text"
       ]
     },
@@ -66,5 +63,5 @@
       null
     ]
   },
-  "hash": "05a139e5ebbf53b25d17a9c55826030fca31cd832b7f123727a10d2b3d560e48"
+  "hash": "7f2846fc12b0c344f7ba45f2828d24ca33f79203b9cc1fb8988b5dc7386a750a"
 }

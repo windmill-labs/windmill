@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT e.subject, e.run_number, e.label, e.seeded_from,\n                e.created_at, e.created_by,\n                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)\n                    AS \"case_count!\"\n         FROM eval_experiment e\n         WHERE e.workspace_id = $1 AND e.dataset_path = $2 AND e.id = $3",
+  "query": "SELECT e.subject, e.run_number, e.label, e.scored_from, e.created_at, e.created_by,\n                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)\n                    AS \"case_count!\"\n         FROM eval_experiment e\n         WHERE e.workspace_id = $1 AND e.dataset_path = $2 AND e.id = $3",
   "describe": {
     "columns": [
       {
@@ -20,7 +20,7 @@
       },
       {
         "ordinal": 3,
-        "name": "seeded_from",
+        "name": "scored_from",
         "type_info": "Uuid"
       },
       {
@@ -56,5 +56,5 @@
       null
     ]
   },
-  "hash": "7079387ffe63833749fd30aac9ee380e9dab782ea1bddb22f43ecda27de32f0f"
+  "hash": "e968cddb004672053de0cea70c25e3c0c3c6fe393f5af5904f4e37805afa4a4e"
 }

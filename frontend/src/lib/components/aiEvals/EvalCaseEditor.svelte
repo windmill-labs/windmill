@@ -3,8 +3,6 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Play } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
 	import { onDestroy, untrack } from 'svelte'
@@ -28,13 +26,6 @@
 	// replaces `draft` wholesale to switch case and remounts this component with it, so seeding
 	// once is exactly right and the inputs never have to track a draft changing underneath them.
 	let userMessage = $state(draft.input?.user_message ?? '')
-	// A conversation is edited as raw JSON in a plain textarea: it is captured from real traffic far
-	// more often than it is typed, so a turn-by-turn editor would be a lot of surface for a rare
-	// hand edit.
-	let messagesText = $state(
-		draft.input?.messages ? JSON.stringify(draft.input.messages, null, 2) : ''
-	)
-	let showConversation = $state((draft.input?.messages?.length ?? 0) > 0)
 	// A captured answer is a string; a structured one is shown as JSON. Text that parses as JSON is
 	// stored as JSON, so an expected value can be authored in either shape rather than only captured.
 	let expectedText = $state(
@@ -45,20 +36,6 @@
 				: JSON.stringify(draft.expected, null, 2)
 	)
 	let attachments = $derived((draft.input?.user_attachments ?? []) as { s3?: string }[])
-
-	let parsed = $derived.by(() => {
-		if (!showConversation || !messagesText.trim()) {
-			return { messages: undefined, error: '' }
-		}
-		try {
-			const value = JSON.parse(messagesText)
-			return Array.isArray(value)
-				? { messages: value, error: '' }
-				: { messages: undefined, error: 'Prior turns must be a JSON array of messages' }
-		} catch (e) {
-			return { messages: undefined, error: String(e) }
-		}
-	})
 
 	$effect(() => {
 		const text = expectedText.trim()
@@ -76,21 +53,20 @@
 	})
 
 	$effect(() => {
-		if (parsed.error) return
-		const next = { ...draft.input, user_message: userMessage, messages: parsed.messages }
+		const next = { ...draft.input, user_message: userMessage }
 		if (!deepEqual(draft.input, next)) {
 			draft.input = next
 		}
 	})
 
 	// A case is a row, and editing a row saves it. Debounced rather than saved per keystroke, and
-	// never while the conversation does not parse: half a JSON array is not a case.
-	let saving = $state(false)
+	// with nothing to say about it: the row in the table is the case, so watching it follow what you
+	// type is the confirmation, and a write that fails says so in a toast.
 	let saveTimer: ReturnType<typeof setTimeout> | undefined = undefined
 	let lastSaved = $state<string | undefined>(undefined)
 	$effect(() => {
 		const snapshot = JSON.stringify($state.snapshot(draft))
-		const blocked = !canSave || !!parsed.error
+		const blocked = !canSave
 		untrack(() => {
 			if (lastSaved === undefined) {
 				// The state the editor opened on is what is stored: saving it back would write the
@@ -99,15 +75,10 @@
 				return
 			}
 			if (blocked || snapshot === lastSaved) return
-			saving = true
 			clearTimeout(saveTimer)
-			saveTimer = setTimeout(async () => {
+			saveTimer = setTimeout(() => {
 				lastSaved = snapshot
-				try {
-					await onSave()
-				} finally {
-					saving = false
-				}
+				onSave()
 			}, SAVE_DEBOUNCE_MS)
 		})
 	})
@@ -117,14 +88,6 @@
 </script>
 
 <div class="flex flex-col gap-4">
-	<Label label="Name">
-		<TextInput
-			bind:value={draft.name}
-			size="sm"
-			inputProps={{ placeholder: 'Optional label for this case' }}
-		/>
-	</Label>
-
 	<Label label="User message">
 		<TextInput
 			underlyingInputEl="textarea"
@@ -160,51 +123,12 @@
 		/>
 	</Label>
 
-	<div class="flex flex-col gap-1">
-		<Toggle
-			bind:checked={showConversation}
-			size="xs"
-			options={{ right: 'Replay a prior conversation' }}
-		/>
-		{#if showConversation}
-			<div class="text-xs text-tertiary mb-1">
-				Passed as the agent's whole memory for this run
-				<Tooltip>
-					The turns below are sent as an explicit message list, so the agent reads and writes none
-					of its stored memory. A production conversation using the same agent keeps its own memory
-					untouched.
-				</Tooltip>
-			</div>
-			<TextInput
-				underlyingInputEl="textarea"
-				size="sm"
-				unifiedHeight={false}
-				class="min-h-40 font-mono !text-2xs"
-				bind:value={messagesText}
-				error={parsed.error}
-				inputProps={{ placeholder: '[{ "role": "user", "content": "..." }]', spellcheck: false }}
-			/>
-			{#if parsed.error}
-				<span class="text-red-500 text-2xs font-normal">{parsed.error}</span>
-			{/if}
-		{/if}
-	</div>
-
 	<div class="flex gap-2 justify-end items-center">
-		<span class="text-2xs text-tertiary">
-			{#if parsed.error}
-				Not saved while the conversation is invalid
-			{:else if saving}
-				Saving…
-			{:else}
-				Saved
-			{/if}
-		</span>
 		<Button
 			variant="default"
 			size="xs"
 			startIcon={{ icon: Play }}
-			disabled={running || !!parsed.error || !draft.id}
+			disabled={running || !draft.id}
 			title={draft.id ? 'Run this case now' : 'Save the case first'}
 			onclick={onRun}
 		>

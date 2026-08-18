@@ -28,3 +28,9 @@ export function formatDelta(delta: number): string {
 	if (delta === 0) return '0.00'
 	return `${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(2)}`
 }
+
+/** Which side of a column's threshold a score fell on. `undefined` when the column has no
+ *  threshold, which is what keeps a column of plain numbers from being read as pass or fail. */
+export function passedBy(scorer: Scorer, score: number | undefined): boolean | undefined {
+	return scorer.pass_if == undefined || score == undefined ? undefined : score >= scorer.pass_if
+}
