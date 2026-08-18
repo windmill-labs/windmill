@@ -135,7 +135,6 @@ repeatedly — check the brand's own page.
 | `FreshdeskIcon` | `freshdesk` | fixed | #20A849 | #20A849 | 3.01 | 12.47 | Freshworks' own product-logo asset (freshdesk-dew.svg, used on freshworks.com/apps) |
 | `FrontAppIcon` | `frontapp` | fixed | #A857F1 | #A857F1 | 3.83 | 3.15 | the logo mark front.com ships inline on its own pages; the mark keeps this purple on both light and dark backgrounds |
 | `FunkwhaleIcon` | `funkwhale` | mixed | #009FE3 | #009FE3 | 10.69 | 5.71 | www.funkwhale.audio/logos (theme/images/icon.svg) |
-| `GCloudIcon` | — | fixed | #EA4335 | #EA4335 | 3.80 | 7.30 | cloud.google.com/icons; identical on light and dark |
 | `GSheetsIcon` | `gsheets` | fixed | #009954 | #009954 | 3.57 | 12.47 | Google product logo sheets_2026q3 (gstatic productlogos, used on workspace.google.com/products/sheets) |
 | `GcalIcon` | `gcal` | fixed | #BBE2FF | #BBE2FF | 3.40 | 12.47 | Google's own Calendar 2026 product logo, https://www.gstatic.com/images/branding/productlogos/calendar_2026/v2/web/192px.svg (paths verbatim) |
 | `GdocsIcon` | `gdocs` | inherits | #718096 | #A9B0BA | 3.88 | 5.71 | Google's own Docs product icon (gstatic.com/images/branding/productlogos/docs_2026/v2/web/192px.svg, served on workspace.google.com/products/docs) |
@@ -414,7 +413,6 @@ Constraints that would otherwise be broken by a well-meaning change.
 - **FoxentryIcon** — Fixed tri-tone mark, no per-theme variant: the brand ships a separate greyscale logo rather than a recoloured one.
 - **FreshdeskIcon** — Freshworks publishes no reversed variant: the white glyph always sits on the green leaf.
 - **FunkwhaleIcon** — Identity guidelines forbid recolouring.
-- **GCloudIcon** — Google forbids modifying its marks "in any way, including changing the color".
 - **GSheetsIcon** — Google forbids recolouring its marks, so the same full-colour artwork is used on both themes.
 - **GcalIcon** — Google forbids modifying its logos, colour included, so this stays fixed with no per-theme pair.
 - **GdriveIcon** — Google forbids modifying its logos "in any way, including changing the color", so this stays full-colour with no per-theme pair.
@@ -573,7 +571,7 @@ Not brands. These inherit `currentColor` on purpose and must not be given a pair
 
 ## Coverage
 
-- brand icons: **315**, of which **311** carry a recorded source
+- brand icons: **314**, of which **310** carry a recorded source
 - per-theme pairs applied: **136** (5 of them by inversion or a two-SVG swap, see above)
 - concept icons: **34**
 - effectively invisible on light: **1** (AbstractApiIcon)

@@ -2,7 +2,6 @@ import AirtableIcon from './AirtableIcon.svelte'
 import DbIcon from './DbIcon.svelte'
 import DiscordIcon from './DiscordIcon.svelte'
 import GcalIcon from './GcalIcon.svelte'
-import GCloudIcon from './GCloudIcon.svelte'
 import GdriveIcon from './GdriveIcon.svelte'
 import GithubIcon from './GithubIcon.svelte'
 import GitlabIcon from './GitlabIcon.svelte'
@@ -684,7 +683,6 @@ export {
 	DbIcon,
 	DiscordIcon,
 	GcalIcon,
-	GCloudIcon,
 	GdriveIcon,
 	GithubIcon,
 	GitlabIcon,

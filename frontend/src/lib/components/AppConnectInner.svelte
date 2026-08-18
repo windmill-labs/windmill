@@ -398,18 +398,19 @@
 			workspace: effectiveWorkspace
 		})
 
-		// Descriptions are a search nicety, and `resources/type/list` is not on the public
-		// app domain's route allow-list (`listnames` is) -- so a published app must still
-		// get its picker. Failing here would leave `connectsManual` unset, and the guard
-		// above turns that into a permanently empty list.
-		try {
-			const withDescriptions = await ResourceService.listResourceType({
-				workspace: effectiveWorkspace
+		// Descriptions only feed search, so they are fetched off the critical path and
+		// allowed to fail: `resources/type/list` is not on the public app domain's route
+		// allow-list (`listnames` is), and it carries every type's full schema. Awaiting it
+		// would hold the list behind a request nothing on screen needs -- in a published
+		// app, behind one that is guaranteed to 403. resourceTypeDescriptions feeds a
+		// $derived, so search re-ranks when they land.
+		ResourceService.listResourceType({ workspace: effectiveWorkspace })
+			.then((types) => {
+				resourceTypeDescriptions = Object.fromEntries(
+					types.filter((t) => t.description).map((t) => [t.name, t.description!])
+				)
 			})
-			resourceTypeDescriptions = Object.fromEntries(
-				withDescriptions.filter((t) => t.description).map((t) => [t.name, t.description!])
-			)
-		} catch {}
+			.catch(() => {})
 
 		// "Others" lists every resource type — including instance-configured OAuth
 		// providers — so any of them can also be connected with the user's own
