@@ -153,6 +153,10 @@ $NAV --root backend callees "X"                           # what does X call?
   writes to one per line and name the destination rather than a directory to drop it in. A
   quoted or `$VAR` operand, a `~`, a redirect, a `$(…)`, a relative `cd`, or a wrapper like
   `xargs rm` cannot be proved, and that deferral is what turns a cleanup into a prompt.
+- **Change files with Edit/Write, not the shell.** `sed -i`, `cat > file <<'EOF'` and inline
+  `python3 - <<'PY'` scripts put an edit through the PreToolUse guards and the permission
+  classifier, which match `Bash` and nothing else, so a routine edit arrives as a prompt. Bash
+  stays right for running things — tests, builds, git, one-off queries.
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked
