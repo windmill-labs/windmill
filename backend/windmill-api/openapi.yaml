@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.789.0
+  version: 1.791.0
   title: Windmill API
 
   contact:
@@ -4802,7 +4802,32 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DataTableConnectionCheck"
+                type: object
+                properties:
+                  user:
+                    type: string
+                  schema:
+                    type: string
+                    nullable: true
+                  can_create_table:
+                    type: boolean
+                  can_create_schema:
+                    type: boolean
+                  migrations_table_exists:
+                    type: boolean
+                  suggested_grants:
+                    type: array
+                    items:
+                      type: string
+                  suggested_search_path:
+                    type: string
+                required:
+                  - user
+                  - schema
+                  - can_create_table
+                  - can_create_schema
+                  - migrations_table_exists
+                  - suggested_grants
 
   /w/{workspace}/workspaces/list_datatable_tables:
     get:
@@ -8019,10 +8044,19 @@ paths:
                   properties:
                     path:
                       type: string
-                    value: {}
+                    value:
+                      type: string
+                      description: >-
+                        pretty-printed JSON rendering of the resource value, capped at
+                        4000 characters — a search preview, not the value itself (use
+                        get_value for that)
+                    truncated:
+                      type: boolean
+                      description: whether value was cut short by that cap
                   required:
                     - path
                     - value
+                    - truncated
 
   /w/{workspace}/resources/mcp_tools/{path}:
     get:
@@ -31892,6 +31926,13 @@ components:
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
+          description: >-
+            Who the app's runnables execute as. Optional, and what omitting it
+            means depends on the operation: creating an app defaults it to
+            `publisher` (runs on behalf of the app's publisher and requires an
+            authenticated viewer), while updating one keeps the mode the app is
+            already deployed under. Either way `anonymous`, which makes the app
+            publicly executable, is never assumed
         on_behalf_of:
           type: string
         on_behalf_of_email:
@@ -32462,34 +32503,6 @@ components:
             - ran
             - not_run
             - unknown
-    DataTableConnectionCheck:
-      type: object
-      properties:
-        user:
-          type: string
-        schema:
-          type: string
-          nullable: true
-        can_create_table:
-          type: boolean
-        can_create_schema:
-          type: boolean
-        migrations_table_exists:
-          type: boolean
-        suggested_grants:
-          type: array
-          items:
-            type: string
-        suggested_search_path:
-          type: string
-      required:
-        - user
-        - schema
-        - can_create_table
-        - can_create_schema
-        - migrations_table_exists
-        - suggested_grants
-
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
