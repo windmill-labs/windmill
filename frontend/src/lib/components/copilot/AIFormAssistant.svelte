@@ -47,7 +47,8 @@
 		<h3 class="text-sm font-medium">AI can help with these inputs</h3>
 		<OpenInSessionButton
 			source={sessionSource}
-			label="Run with AI"
+			label="Run in AI session"
+			tooltip="Open an AI session that picks inputs and runs this"
 			btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
 		>
 			{#snippet fallback()}
